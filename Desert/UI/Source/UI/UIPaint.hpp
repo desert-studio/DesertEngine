@@ -17,6 +17,8 @@
 // Box directly even when an ancestor is rotated or scaled.
 namespace Desert::UI
 {
+    struct UIInput;
+
     struct UIPaintArgs
     {
         Graphic::Render2D::DrawList2D& Dl;
@@ -28,5 +30,9 @@ namespace Desert::UI
         bool                           Hot         = false; // the pointer is over the node (or its children)
         bool                           Pressed     = false; // Hot and the left button is held
         bool                           Captured    = false; // the node holds the pointer (UIViewContext::Capture)
+        // The frame's input as THIS view sees it — its keys and typed text only while the view holds its
+        // user's keyboard (UIKeyboardUser) — or null for a non-interactive draw. A leaf reads keys from here
+        // and never from the host, so it cannot take a keystroke meant for another view.
+        const UIInput* Input = nullptr;
     };
 } // namespace Desert::UI

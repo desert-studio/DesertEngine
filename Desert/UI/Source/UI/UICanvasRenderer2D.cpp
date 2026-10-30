@@ -465,7 +465,8 @@ namespace Desert::UI
                                              .Interactive = interactive,
                                              .Hot         = overNode,
                                              .Pressed     = overNode && input != nullptr && input->MouseDown,
-                                             .Captured    = e == ctx.View.Capture };
+                                             .Captured    = e == ctx.View.Capture,
+                                             .Input       = input };
                     tree.Paint( e, paint );
                 }
 

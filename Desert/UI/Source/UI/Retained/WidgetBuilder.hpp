@@ -91,6 +91,11 @@ namespace Desert::UI
         WidgetDecl& OnValueChanged( Delegate<void( const float& )> onChanged ); // a slider's drag / step
         WidgetDecl& OnToggled( Delegate<void( const bool& )> onToggled );       // a toggle's flip
         WidgetDecl& OnTextChanged( Delegate<void( const std::string& )> onChanged ); // an input field's edit
+        WidgetDecl& OnTextCommitted( Delegate<void( const std::string& )> onCommitted ); // Enter / focus left
+
+        // Run @p fn on the built node, after the steps declared before it (a widget that needs its tree or its
+        // id at run time — a spin box asking the tree to focus its text field).
+        WidgetDecl& OnBuild( std::function<void( WidgetTree&, NodeId )> fn );
 
         // Placement in the parent, as UILayoutData states it.
         WidgetDecl& Anchors( glm::vec2 anchorMin, glm::vec2 anchorMax );
@@ -201,5 +206,22 @@ namespace Desert::UI
         // (horizontal). Rows below follow the same widths with SplitCell over the same layout.
         [[nodiscard]] WidgetDecl Columns( std::string name, std::shared_ptr<SplitLayout> layout,
                                           std::vector<std::string> labels, float handlePx = 6.0f );
+
+        // SSpinBox: a number dragged with the pointer and typed on a double click. A press holds the pointer
+        // (CapturesPointer) and each pixel of horizontal travel moves the value by @p stepPerPx (authored px,
+        // so the feel does not change with the canvas scale) from where the drag began, clamped to
+        // [@p minValue, @p maxValue]; the fill shows where the value sits in that range. A double click enters
+        // text mode: the value becomes an input field holding the keyboard focus, Enter (or focus leaving)
+        // commits the parsed number, Escape cancels, and text that is not a number changes nothing. Every
+        // change goes out through @p onChanged; the shown value is @p value, read each frame.
+        [[nodiscard]] WidgetDecl NumberField( std::string name, Attribute<float> value,
+                                              Delegate<void( const float& )> onChanged, float minValue,
+                                              float maxValue, float stepPerPx = 0.01f );
+
+        // A colour as UE's details row shows one: a swatch and one NumberField per channel (R, G, B in
+        // [0, 1], 1/255 per pixel of drag). A channel's change goes out through @p onChanged as the whole
+        // colour, the other channels read from @p value.
+        [[nodiscard]] WidgetDecl ColorField( std::string name, Attribute<glm::vec3> value,
+                                             Delegate<void( const glm::vec3& )> onChanged );
     } // namespace Widgets
 } // namespace Desert::UI

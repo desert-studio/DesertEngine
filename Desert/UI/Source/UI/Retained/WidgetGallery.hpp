@@ -4,6 +4,8 @@
 
 #include <string>
 
+#include <glm/glm.hpp>
+
 // THE WIDGET GALLERY — one canvas built by WidgetBuilder with a button, a list, an input field, a slider and a
 // toggle, every one bound to the model below by attributes and answering through delegates. It is the
 // retained tree's proof (Scenarios/UI/EDITOR-UI-E1.scn): the editor's UI Preview shows it over the level
@@ -19,6 +21,8 @@ namespace Desert::UI
         bool        Enabled  = true;
         std::string Name     = "Desert";
         std::string LastPick = "none";
+        float       Speed    = 1.0f;                          // the NumberField row
+        glm::vec3   Tint     = glm::vec3( 0.80f, 0.50f, 0.20f ); // the ColorField row
     };
 
     // Build the gallery into @p tree as a new root canvas bound to @p model; returns the canvas. @p model must

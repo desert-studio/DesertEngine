@@ -1,11 +1,14 @@
 #include <UI/Retained/WidgetTree.hpp>
 
 #include <UI/Args/UIButtonArgs.hpp>
+#include <UI/Args/UIControlArgs.hpp>
 #include <UI/UICanvasContext.hpp>
 
 #include <algorithm>
 #include <charconv>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace Desert::UI
 {
@@ -169,6 +172,25 @@ namespace Desert::UI
             NodeAt( n ).DoubleClicked = std::move( onDoubleClicked );
     }
 
+    void WidgetTree::OnTextCommitted( NodeId n, Delegate<void( const std::string& )> onCommitted )
+    {
+        auto* field = Edit<UIInputFieldData>( n );
+        if ( field == nullptr )
+            return;
+        field->OnCommittedMessage = ClickMessageOf( n );
+        NodeAt( n ).Committed     = std::move( onCommitted );
+    }
+
+    void WidgetTree::RequestKeyboardFocus( NodeId n )
+    {
+        m_FocusRequest = Valid( n ) ? n : NodeId::Null;
+    }
+
+    std::optional<NodeId> WidgetTree::TakeKeyboardFocusRequest()
+    {
+        return std::exchange( m_FocusRequest, std::nullopt );
+    }
+
     void WidgetTree::DispatchFrame( const UIViewContext& view, std::string_view clicked,
                                     std::span<const std::string> messages )
     {
@@ -180,13 +202,24 @@ namespace Desert::UI
             if ( !msg.starts_with( kRetainedClickPrefix ) )
                 return;
             msg.remove_prefix( kRetainedClickPrefix.size() );
-            std::uint32_t raw    = 0;
-            const auto [end, ec] = std::from_chars( msg.data(), msg.data() + msg.size(), raw );
-            if ( ec != std::errc{} || end != msg.data() + msg.size() )
+            // "<id>" is a button's click; "<id>|<text>" an input field's commit (OnTextCommitted).
+            const std::size_t bar    = msg.find( '|' );
+            const std::string_view id = bar == std::string_view::npos ? msg : msg.substr( 0, bar );
+            std::uint32_t     raw    = 0;
+            const auto [end, ec]     = std::from_chars( id.data(), id.data() + id.size(), raw );
+            if ( ec != std::errc{} || end != id.data() + id.size() )
                 return;
             const NodeId n = static_cast<NodeId>( raw );
-            if ( Valid( n ) && NodeAt( n ).Clicked.IsBound() )
-                fire.push_back( [d = NodeAt( n ).Clicked] { d.Execute(); } );
+            if ( !Valid( n ) )
+                return;
+            if ( bar == std::string_view::npos )
+            {
+                if ( NodeAt( n ).Clicked.IsBound() )
+                    fire.push_back( [d = NodeAt( n ).Clicked] { d.Execute(); } );
+            }
+            else if ( NodeAt( n ).Committed.IsBound() )
+                fire.push_back( [d = NodeAt( n ).Committed, text = std::string( msg.substr( bar + 1 ) )]
+                                { d.Execute( text ); } );
         };
         clickOf( clicked );
         for ( const std::string& msg : messages )

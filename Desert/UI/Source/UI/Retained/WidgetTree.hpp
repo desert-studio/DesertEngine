@@ -167,6 +167,19 @@ namespace Desert::UI
         // A double click whose press landed on @p n or on anything inside it (the nearest listener wins).
         void OnDoubleClicked( NodeId n, Delegate<void()> onDoubleClicked );
 
+        // The commit of @p n's input field — Enter, or focus leaving the field (UE SEditableText::
+        // OnTextCommitted with OnEnter / OnUserMovedFocus) — with the text committed. Makes the field send its
+        // own commit message (UIInputFieldData::OnCommittedMessage = ClickMessageOf(n), sent as
+        // "<message>|<text>"), which DispatchFrame turns back into this call. @p n must carry UIInputFieldData.
+        void OnTextCommitted( NodeId n, Delegate<void( const std::string& )> onCommitted );
+
+        // SLATE'S SetKeyboardFocus, asked by a widget of this tree (a spin box entering text mode hands focus to
+        // its text field). The tree cannot move focus itself — focus is the host's (the NodeId it passes to the
+        // walk) — so the request waits here and the host applies it after DispatchFrame, together with the
+        // keyboard (UIKeyboardUser::Owner = its view). Null asks for no focus. The last request of a frame wins.
+        void RequestKeyboardFocus( NodeId n );
+        [[nodiscard]] std::optional<NodeId> TakeKeyboardFocusRequest();
+
         // Turn the frame that just ended into delegate calls: the clicks among @p clicked / @p messages, the
         // values the frame changed, and @p view's double click when this frame made one on this tree. Every
         // delegate runs AFTER the tree has been read, so one may build or destroy nodes. Once per frame, after
@@ -250,6 +263,7 @@ namespace Desert::UI
             std::vector<Watch>                              Watches;
             Delegate<void()>                                Clicked;
             Delegate<void()>                                DoubleClicked;
+            Delegate<void( const std::string& )>            Committed;
             Delegate<void( const UIPaintArgs& )>            Painter;
         };
 
@@ -286,5 +300,6 @@ namespace Desert::UI
         std::vector<Node>          m_Nodes;
         std::vector<std::uint32_t> m_Free;
         std::uint64_t              m_NextSerial = 0;
+        std::optional<NodeId>      m_FocusRequest;
     };
 } // namespace Desert::UI

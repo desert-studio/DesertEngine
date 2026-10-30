@@ -125,9 +125,24 @@ namespace Desert::UI
                                                 Attribute<float>::Bound( [m] { return m->Volume; } ), 0.0f, 1.0f )
                                              .Size( { 640.0f, 24.0f } )
                                              .OnValueChanged( [m]( const float& v ) { m->Volume = v; } ),
-                                        Toggle( "Gallery.Enabled", Attribute<bool>::Bound( [m] { return m->Enabled; } ) )
-                                             .Size( { 32.0f, 32.0f } )
-                                             .OnToggled( [m]( const bool& v ) { m->Enabled = v; } ),
+                                        // The details row: a toggle, a number and a colour, each dragged or
+                                        // typed (NumberField / ColorField).
+                                        HorizontalBox( "Gallery.ValueRow", 10.0f )
+                                             .Size( { 640.0f, 32.0f } )[ {
+                                                  Toggle( "Gallery.Enabled",
+                                                          Attribute<bool>::Bound( [m] { return m->Enabled; } ) )
+                                                       .Size( { 32.0f, 32.0f } )
+                                                       .OnToggled( [m]( const bool& v ) { m->Enabled = v; } ),
+                                                  NumberField( "Gallery.Speed",
+                                                               Attribute<float>::Bound( [m] { return m->Speed; } ),
+                                                               [m]( const float& v ) { m->Speed = v; }, 0.0f, 10.0f,
+                                                               0.01f )
+                                                       .Size( { 160.0f, 32.0f } ),
+                                                  ColorField( "Gallery.Tint",
+                                                              Attribute<glm::vec3>::Bound( [m] { return m->Tint; } ),
+                                                              [m]( const glm::vec3& v ) { m->Tint = v; } )
+                                                       .Size( { 360.0f, 32.0f } ),
+                                             } ],
                                         InputField( "Gallery.Name",
                                                     Attribute<std::string>::Bound( [m] { return m->Name; } ),
                                                     "Type a name" )

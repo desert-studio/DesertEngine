@@ -18,6 +18,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <optional>
+
 namespace Desert::Editor::Render
 {
     EditorUIPass::~EditorUIPass()
@@ -231,6 +233,15 @@ namespace Desert::Editor::Render
                                 feed ? &m_GalleryFocused : nullptr, feed ? &galleryClicked : nullptr,
                                 feed ? &galleryMessages : nullptr );
                 m_Gallery.DispatchFrame( m_GalleryView, galleryClicked, galleryMessages );
+                // A widget that asked for the keyboard (a spin box entering text mode) gets it: the gallery's
+                // focus moves to the node it named and the gallery's view becomes the keyboard's owner, so
+                // the next frame's keys reach that field and nothing in the level (UIKeyboardUser).
+                if ( const std::optional<UI::NodeId> request = m_Gallery.TakeKeyboardFocusRequest() )
+                {
+                    m_GalleryFocused = *request;
+                    if ( *request != UI::NodeId::Null )
+                        m_Keyboard.Owner = &m_GalleryView;
+                }
                 if ( m_GalleryView.Cursor != UI::UICursorShape::Default )
                     cursor = m_GalleryView.Cursor;
             }

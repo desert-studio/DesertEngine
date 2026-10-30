@@ -1,9 +1,14 @@
 #include <UI/Retained/WidgetBuilder.hpp>
+#include <UI/UICanvasRenderer2D.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <format>
 #include <numeric>
+#include <string>
 
 namespace Desert::UI
 {
@@ -34,6 +39,19 @@ namespace Desert::UI
     WidgetDecl& WidgetDecl::OnTextChanged( Delegate<void( const std::string& )> onChanged )
     {
         return OnChanged<UIInputFieldData, std::string>( &UIInputFieldData::Text, std::move( onChanged ) );
+    }
+
+    WidgetDecl& WidgetDecl::OnTextCommitted( Delegate<void( const std::string& )> onCommitted )
+    {
+        m_Steps.push_back( [onCommitted = std::move( onCommitted )]( WidgetTree& tree, NodeId n )
+                           { tree.OnTextCommitted( n, onCommitted ); } );
+        return *this;
+    }
+
+    WidgetDecl& WidgetDecl::OnBuild( std::function<void( WidgetTree&, NodeId )> fn )
+    {
+        m_Steps.push_back( std::move( fn ) );
+        return *this;
     }
 
     WidgetDecl& WidgetDecl::Anchors( glm::vec2 anchorMin, glm::vec2 anchorMax )
@@ -430,6 +448,198 @@ namespace Desert::UI
                 cells.push_back( std::move( header ) );
             }
             return Splitter( std::move( name ), std::move( layout ), std::move( cells ), handlePx );
+        }
+
+        namespace
+        {
+            // What a NumberField keeps between frames: the drag it is in and the text it is editing. The value
+            // itself is the owner's (the attribute); this is only the widget's own state, as SSpinBox keeps
+            // its drag anchor and its text-mode flag.
+            struct NumberFieldState
+            {
+                Attribute<float>               Value;
+                Delegate<void( const float& )> OnChanged;
+                float                          Min  = 0.0f;
+                float                          Max  = 1.0f;
+                float                          Step = 0.01f;
+
+                WidgetTree* Tree  = nullptr;
+                NodeId      Field = NodeId::Null; // the text-mode input field
+
+                bool  Dragging       = false;
+                float DragStartX     = 0.0f; // authored px, where the drag began
+                float DragStartValue = 0.0f;
+
+                bool        Editing = false;
+                std::string Text; // the text-mode field's text
+            };
+
+            std::string FormatNumber( float v )
+            {
+                return std::format( "{:.3f}", v );
+            }
+
+            void SetNumber( NumberFieldState& s, float v )
+            {
+                const float clamped = std::clamp( v, s.Min, s.Max );
+                if ( clamped != s.Value.Get() && s.OnChanged.IsBound() )
+                    s.OnChanged.Execute( clamped );
+            }
+
+            // Leave text mode: the field gives the keyboard focus back (SSpinBox::ExitTextMode).
+            void ExitTextMode( NumberFieldState& s )
+            {
+                s.Editing = false;
+                if ( s.Tree != nullptr )
+                    s.Tree->RequestKeyboardFocus( NodeId::Null );
+            }
+
+            UIVisibility ShownWhen( bool shown, UIVisibility otherwise )
+            {
+                return shown ? UIVisibility::Visible : otherwise;
+            }
+
+            void PaintNumberField( NumberFieldState& s, const UIPaintArgs& a )
+            {
+                if ( s.Editing )
+                {
+                    // ESCAPE CANCELS (SSpinBox: the typed text is dropped, the value stays the one before). The
+                    // keys are this view's only while it holds the keyboard (UIPaintArgs::Input).
+                    s.Dragging = false;
+                    if ( a.Input != nullptr && a.Input->Pressed( Common::KeyCode::Escape ) )
+                        ExitTextMode( s );
+                    return;
+                }
+
+                // SSpinBox::OnMouseMove while it holds the pointer: the value moves with the pointer's travel
+                // from where the press began, so a drag back to the start gives the start value back exactly.
+                const float scale    = std::max( a.Scale, 1e-3f );
+                const float pointerX = a.Pointer.x / scale;
+                const bool  dragging = a.Captured && a.HasPointer;
+                if ( dragging && !s.Dragging )
+                {
+                    s.DragStartX     = pointerX;
+                    s.DragStartValue = s.Value.Get();
+                }
+                else if ( dragging )
+                    SetNumber( s, s.DragStartValue + ( pointerX - s.DragStartX ) * s.Step );
+                s.Dragging = dragging;
+
+                // The fill: where the value sits in its range, left to right.
+                const float span     = s.Max - s.Min;
+                float       fraction = 0.0f;
+                if ( span > 0.0f )
+                    fraction = std::clamp( ( s.Value.Get() - s.Min ) / span, 0.0f, 1.0f );
+                glm::vec4 fill( 0.26f, 0.30f, 0.40f, 0.55f );
+                if ( a.Captured )
+                    fill = glm::vec4( 0.30f, 0.62f, 0.98f, 0.55f );
+                else if ( a.Hot )
+                    fill = glm::vec4( 0.36f, 0.42f, 0.55f, 0.55f );
+                a.Dl.AddRectFilled( { a.Box.X, a.Box.Y }, { a.Box.X + a.Box.W * fraction, a.Box.Y + a.Box.H },
+                                    fill );
+            }
+        } // namespace
+
+        WidgetDecl NumberField( std::string name, Attribute<float> value, Delegate<void( const float& )> onChanged,
+                                float minValue, float maxValue, float stepPerPx )
+        {
+            auto state       = std::make_shared<NumberFieldState>();
+            state->Value     = std::move( value );
+            state->OnChanged = std::move( onChanged );
+            state->Min       = std::min( minValue, maxValue );
+            state->Max       = std::max( minValue, maxValue );
+            state->Step      = stepPerPx;
+
+            WidgetDecl shown =
+                 Text( name + ".Value",
+                       Attribute<std::string>::Bound( [state] { return FormatNumber( state->Value.Get() ); } ),
+                       16.0f );
+            Fill( shown )
+                 .Edit<UILayoutData>( []( UILayoutData& l ) { l.HitTest = UIHitTest::None; } )
+                 .Bind<UILayoutData, UIVisibility>(
+                      &UILayoutData::Visibility,
+                      Attribute<UIVisibility>::Bound( [state]
+                                                      { return ShownWhen( !state->Editing, UIVisibility::Hidden ); } ) );
+
+            WidgetDecl typed =
+                 InputField( name + ".Edit", Attribute<std::string>::Bound( [state] { return state->Text; } ) );
+            Fill( typed )
+                 .Bind<UILayoutData, UIVisibility>(
+                      &UILayoutData::Visibility,
+                      Attribute<UIVisibility>::Bound( [state]
+                                                      { return ShownWhen( state->Editing, UIVisibility::Collapsed ); } ) )
+                 .OnTextChanged( [state]( const std::string& text ) { state->Text = text; } )
+                 .OnTextCommitted(
+                      [state]( const std::string& text )
+                      {
+                          // A commit after Escape (the field losing focus as text mode closed) is not a commit.
+                          if ( !state->Editing )
+                              return;
+                          // strtof, not from_chars: the float overload is missing from the libc++ the Mac
+                          // build uses. The whole text must be the number.
+                          char*       end    = nullptr;
+                          const float parsed = std::strtof( text.c_str(), &end );
+                          if ( !text.empty() && end != nullptr && *end == '\0' )
+                              SetNumber( *state, parsed );
+                          ExitTextMode( *state );
+                      } )
+                 .Expose( state->Field );
+
+            WidgetDecl d = Panel( std::move( name ), glm::vec3( 0.12f, 0.13f, 0.17f ) );
+            d.Cursor( UICursorShape::ResizeLeftRight )
+                 .CapturesPointer()
+                 .OnBuild( [state]( WidgetTree& tree, NodeId ) { state->Tree = &tree; } )
+                 .OnDoubleClicked(
+                      [state]
+                      {
+                          // SSpinBox::EnterTextMode: the text is the value as shown, and the field takes the focus.
+                          state->Editing  = true;
+                          state->Dragging = false;
+                          state->Text     = FormatNumber( state->Value.Get() );
+                          if ( state->Tree != nullptr )
+                              state->Tree->RequestKeyboardFocus( state->Field );
+                      } )
+                 .OnPaint( [state]( const UIPaintArgs& a ) { PaintNumberField( *state, a ); } );
+            std::vector<WidgetDecl> children;
+            children.push_back( std::move( shown ) );
+            children.push_back( std::move( typed ) );
+            d[std::move( children )];
+            return d;
+        }
+
+        WidgetDecl ColorField( std::string name, Attribute<glm::vec3> value,
+                               Delegate<void( const glm::vec3& )> onChanged )
+        {
+            WidgetDecl              d = HorizontalBox( name, 6.0f );
+            std::vector<WidgetDecl> parts;
+            WidgetDecl              swatch = PaintBox( name + ".Swatch",
+                                                       [value]( const UIPaintArgs& a )
+                                                       {
+                                              a.Dl.AddRectFilled( { a.Box.X, a.Box.Y },
+                                                                  { a.Box.X + a.Box.W, a.Box.Y + a.Box.H },
+                                                                  glm::vec4( value.Get(), 1.0f ) );
+                                          } );
+            swatch.Size( { 32.0f, 32.0f } );
+            parts.push_back( std::move( swatch ) );
+            constexpr std::array<const char*, 3> kChannels{ ".R", ".G", ".B" };
+            for ( int c = 0; c < 3; ++c )
+            {
+                WidgetDecl channel = NumberField(
+                     name + kChannels[static_cast<std::size_t>( c )],
+                     Attribute<float>::Bound( [value, c] { return value.Get()[c]; } ),
+                     [value, onChanged, c]( const float& v )
+                     {
+                         glm::vec3 colour = value.Get();
+                         colour[c]        = v;
+                         if ( onChanged.IsBound() )
+                             onChanged.Execute( colour );
+                     },
+                     0.0f, 1.0f, 1.0f / 255.0f );
+                channel.Size( { 100.0f, 32.0f } );
+                parts.push_back( std::move( channel ) );
+            }
+            d[std::move( parts )];
+            return d;
         }
     } // namespace Widgets
 } // namespace Desert::UI
