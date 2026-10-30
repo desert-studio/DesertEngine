@@ -253,6 +253,25 @@ namespace Desert::Graphic
                 m_Refs.emplace( zeroUint.get(), System.ZeroUint );
                 m_Externals.emplace( zeroUint.get(), zeroUintExternal );
             }
+            // The empty cube array (UE GBlackCubeArrayTexture), for a samplerCubeArray whose producer cannot run.
+            const std::shared_ptr<ImageCube> blackCubeArray =
+                 FallbackTextures::Get().GetFallbackTextureCubeArray( Core::Formats::ImageFormat::RGBA8F );
+            if ( RDG::ExternalTexture* blackCubeArrayExternal =
+                      ImportExternal( blackCubeArray, "System.BlackCubeArray" ) )
+            {
+                System.BlackCubeArray =
+                     m_Graph.RegisterExternal( *blackCubeArrayExternal, "System.BlackCubeArray" );
+                m_Refs.emplace( blackCubeArray.get(), System.BlackCubeArray );
+                m_Externals.emplace( blackCubeArray.get(), blackCubeArrayExternal );
+            }
+            // The zero volume (UE VolumetricBlackDummy), for a sampler3D of light whose producer did not run.
+            const std::shared_ptr<Image3D> black3D = FallbackTextures::Get().GetBlackTexture3D();
+            if ( RDG::ExternalTexture* black3DExternal = ImportExternal( black3D, "System.Black3D" ) )
+            {
+                System.Black3D = m_Graph.RegisterExternal( *black3DExternal, "System.Black3D" );
+                m_Refs.emplace( black3D.get(), System.Black3D );
+                m_Externals.emplace( black3D.get(), black3DExternal );
+            }
         }
 
         // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it
@@ -412,7 +431,9 @@ namespace Desert::Graphic
         {
             ComputeNodeDeclaration& node = nodes[i];
             graph.AddPass(
-                 node.Name, RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+                 node.Name,
+                 RDG::PassFlags::Compute | RDG::PassFlags::NeverCull |
+                      ( node.AsyncCompute ? RDG::PassFlags::AsyncCompute : RDG::PassFlags::None ),
                  [&]( RDG::PassBuilder& pass ) { DeclareOn( pass, images[i], node.Access ); },
                  [record = std::move( node.Record ), refs = textures.GraphRefs()](
                       RDG::PassContext& context ) -> Common::BoolResultStr { return record( context, refs ); } );

@@ -6,6 +6,7 @@
 #include <glm/vec3.hpp>
 
 #include <array>
+#include <format>
 #include <map>
 #include <string>
 #include <utility>
@@ -126,7 +127,7 @@ namespace Desert::Geometry
             return sign;
         }
 
-        struct Reader
+        struct SavedFormReader
         {
             const MeshSavedForm&  Saved;
             std::string_view      Owner;
@@ -356,7 +357,7 @@ namespace Desert::Geometry
             (void)mesh.AppendVertex(
                  glm::dvec3( saved.Positions[v * 3], saved.Positions[v * 3 + 1], saved.Positions[v * 3 + 2] ) );
 
-        Reader reader{ saved, owner, mesh, {}, {} };
+        SavedFormReader reader{ saved, owner, mesh, {}, {} };
         reader.SavedTriangles.reserve( triangleCount );
         reader.TriangleIds.reserve( triangleCount );
         for ( size_t row = 0; row < triangleCount; ++row )
@@ -414,7 +415,7 @@ namespace Desert::Geometry
         for ( size_t layer = 0; layer < saved.UVs.size(); ++layer )
             if ( auto e =
                       check( reader.Read( *attributes.GetUVLayer( static_cast<int>( layer ) ), saved.UVs[layer],
-                                          "UV layer " + std::to_string( layer ), 2, scratch ) ) )
+                                          std::format( "UV layer {}", layer ), 2, scratch ) ) )
                 return fail( *e );
 
         // Permissive, as UE checks a mesh it is about to process: bowtie vertices and neighbours wound against
@@ -428,10 +429,10 @@ namespace Desert::Geometry
             std::string    part   = "the topology";
             for ( int i = 0; i < attributes.NumNormalLayers(); ++i )
                 if ( !attributes.GetNormalLayer( i )->CheckValidity( true, kQuiet ) )
-                    part = "normal layer " + std::to_string( i );
+                    part = std::format( "normal layer {}", i );
             for ( int i = 0; i < attributes.NumUVLayers(); ++i )
                 if ( !attributes.GetUVLayer( i )->CheckValidity( true, kQuiet ) )
-                    part = "UV layer " + std::to_string( i );
+                    part = std::format( "UV layer {}", i );
             if ( attributes.PrimaryColors() && !attributes.PrimaryColors()->CheckValidity( true, kQuiet ) )
                 part = "the colour layer";
             if ( attributes.GetMaterialID() && !attributes.GetMaterialID()->CheckValidity( true, kQuiet ) )

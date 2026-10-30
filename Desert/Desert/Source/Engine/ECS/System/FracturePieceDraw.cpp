@@ -19,6 +19,8 @@
 #include <format>
 #include <span>
 
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+
 namespace Desert::ECS
 {
     namespace
@@ -152,7 +154,7 @@ namespace Desert::ECS
             // overrides are what the level shows), else the source mesh asset's.
             std::vector<Assets::AssetHandle> slots;
             if ( registry.has<StaticMeshComponent>( entity ) )
-                slots = registry.get<StaticMeshComponent>( entity ).MaterialSlots;
+                slots = registry.get<StaticMeshComponent>( entity ).GetMaterialSlots();
             if ( slots.empty() )
                 slots = services.SourceSlots( Assets::AssetHandle(
                      static_cast<uint64_t>( Common::Content::HandleForGuid( fracture->SourceMesh ) ) ) );
@@ -176,13 +178,8 @@ namespace Desert::ECS
                 const size_t                           slots   = binding->Slots.size();
                 const size_t submeshCount = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
                 for ( const auto& draw : Destruction::PieceDraws<Graphic::Material*>(
-                           instance, submeshCount,
-                           [&]( size_t si ) -> Graphic::Material*
-                           {
-                               if ( slots == 0 )
-                                   return nullptr;
-                               return services.SlotMaterial( binding->Slots[std::min( si, slots - 1 )] );
-                           } ) )
+                           instance, submeshCount, slots, [&]( size_t slot ) -> Graphic::Material*
+                           { return services.SlotMaterial( binding->Slots[slot] ); } ) )
                 {
                     if ( draw.SlotPath )
                         commands.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
@@ -190,7 +187,8 @@ namespace Desert::ECS
                              draw.CastShadows, /*maxDrawDistance*/ 0.0f, draw.MotionPart );
                     else
                         commands.Emplace<Graphic::Render::DrawStaticMeshCommand>(
-                             static_cast<uint32_t>( entity ), mesh, binding, draw.Transform, outlined, draw.Mask,
+                             static_cast<uint32_t>( entity ), mesh, binding, static_cast<uint32_t>( draw.Slot ),
+                             draw.Transform, outlined, draw.Mask,
                              /*forcedLOD*/ -1, /*lodBias*/ 0, draw.CastShadows, /*receiveShadows*/ true,
                              /*sortPriority*/ 0, /*maxDrawDistance*/ 0.0f, draw.MotionPart );
                 }
@@ -212,6 +210,13 @@ namespace Desert::ECS
             if ( drawn.contains( entity ) )
                 continue;
             const auto& destructible = registry.get<DestructibleComponent>( entity );
+            // A run-time source (DST-RUNTIME) draws the fracture the simulation holds, once it has one; until
+            // then (Edit, or the first cut still on a worker) the entity's static mesh draws it whole.
+            if ( destructible.Data.Source != FractureSource::Baked )
+            {
+                record( entity, destructible.RuntimeFracture, destructible.SimulatedNodeWorld, {} );
+                continue;
+            }
             if ( destructible.Data.Fracture.IsNull() )
                 continue;
             record( entity, services.Fracture( destructible.Data.Fracture ), destructible.SimulatedNodeWorld, {} );

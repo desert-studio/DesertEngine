@@ -24,6 +24,24 @@ namespace Desert::Graphic::System
     // The parameters are the SUN LIGHT's, not a scene setting: DirectionalLightData's Light Shafts
     // category (UE parity), carried here by the ProceduralSkyCommand alongside the sun direction —
     // shafts without a sun to cast them are not a thing.
+    // The Mask shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct LightShaftMaskShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, ShaftMaskTexture );
+        static constexpr std::array kAll{ RDG::Erase( SceneColorTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( ShaftMaskTexture ) };
+    };
+
+    // The Blur shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct LightShaftBlurShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, ShaftMaskTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, BlurredShaftsTexture );
+        static constexpr std::array kAll{ RDG::Erase( ShaftMaskTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( BlurredShaftsTexture ) };
+    };
+
     class LightShaftRenderer final : public RenderSystem
     {
     public:
@@ -78,6 +96,13 @@ namespace Desert::Graphic::System
         {
             return m_Params;
         }
+        // The scale the scene colour is stored at (ViewFrame::PreExposure): the mask reads the STORED scene, so
+        // the authored radiance threshold and cap are multiplied by it (as BloomRenderer::SetPreExposure); the
+        // streaks come out pre-exposed and the tonemap's 1/PreExposure undoes them with the scene.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
 
     private:
         bool CreatePipelines();
@@ -90,5 +115,6 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_BlurLayout;
 
         Params m_Params;
+        float  m_PreExposure = 1.0f;
     };
 } // namespace Desert::Graphic::System

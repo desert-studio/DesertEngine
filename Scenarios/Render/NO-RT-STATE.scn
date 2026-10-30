@@ -1,0 +1,9 @@
+# NO-RT-STATE: a device without ray tracing (here: hidden by machine.json "HideRayTracing": true) runs every
+# feature on its non-RT method, and DesertCtl `state device` says so from one source: rt on/off/hidden, the
+# catalog's RT modes, the path tracer's refusal reason, and the main viewport's resolved methods
+# (SceneRenderer::GetRenderMethods, the rows its overlay and the [RenderMethods] log lines print).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+# Дано machine.json (ProjectContext::ConfigDirectory) has "HideRayTracing": true; editor started after the edit.
+Когда state device
+Когда run View "View mode: Lit"
+Тогда-вид nort_state после 90 кадров: кадр не чёрный (mean > 0), 0 VUID; state device: rt = "hidden", rtModes = ["None"], pathTracing.available = false с reason «the device offers no ray query», pathTracing.active = false, methods.gi / reflections / shadows не HardwareTraced/PathTraced/Stochastic (rows с «(the device offers no ray query)» там, где сцена просила трассировку); editor.log: «[Vulkan] ray tracing hidden by ... (HideRayTracing)», caps-строка acceleration_structure/ray_query/ray_tracing_pipeline=hidden, «[MeshService] no BLAS is built for meshes: ray tracing is hidden by machine.json (HideRayTracing) on this device» один раз, ни одной строки TLAS/BLAS.

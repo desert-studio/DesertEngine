@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
@@ -36,7 +37,7 @@ namespace Desert::Graphic
      *
      * Neither slot was garbage, which is why nothing ever crashed or warned:
      * VulkanMaterialBackend::WriteFallbacks seeds every declared binding before anything real
-     * reaches it. `ShadowUB` therefore held the zero-filled dummy buffer — `u_ShadowParams.y == 0`, so
+     * reaches it. `ShadowUB` therefore held the zero-filled dummy buffer — `ShadowParams.y == 0`, so
      * ShadowFactor() returned 1.0 and the cascades were silently OFF — and the environment trio held
      * its fallback images, which sample BLACK (the fallback cube is created with white pixels, but
      * VulkanImageCube::UploadData is an empty function, so nothing is ever put in it), leaving the
@@ -60,18 +61,14 @@ namespace Desert::Graphic
         const ShaderProtocols::SpotLight*      SpotLights      = nullptr;
         const ShaderProtocols::DirectionLight* DirectionLights = nullptr;
 
-        const glm::mat4* CascadeViewProj = nullptr; // SceneResources::kMaxCascades entries
-        // How many of the matrices above are REAL (the cascade array's layers are bound through the graph). The
-        // producing renderer's own shadow budget (Graphic::ShadowQuality), not the ceiling: an asset preview
-        // allocates one cascade, and the shader's cascade loop is driven by this number. It defaults to the
-        // ceiling so a snapshot built by hand behaves as every snapshot did before the budget existed.
-        uint32_t  CascadeCount = SceneResources::kMaxCascades;
-        glm::vec4 CascadeTexelWorld{ 0.0f };
-        glm::vec4 CascadeDepthRange{ 1.0f }; // MeshRenderer::GetCascadeDepthRange
-        float     SunSourceTanHalf = 0.0f;   // MeshRenderer::GetSunSourceTanHalf
-        bool      ShadowsEnabled  = true;
+        // Every shadowed directional light's cascades this frame (MeshRenderer::DirectionalShadows): the counts
+        // FITTED, not the budget, so the shader's cascade loop walks only matrices this frame wrote. Default: no
+        // light shadowed (a snapshot built by hand binds no cascade).
+        SceneResources::DirectionalShadowViews DirectionalShadows{};
         // The view's contact shadows (SceneResources::ContactShadowSettings), packed into the same ShadowUB.
         SceneResources::ContactShadowSettings ContactShadow{};
+        // The sun's PCSS taps (SceneResources::ShadowFilterSettings), packed into the same ShadowUB.
+        SceneResources::ShadowFilterSettings ShadowFilter{};
         int       ShadowDebugMode = 0;
         bool      ShowNormals     = false;
         bool      LightingDebug   = false;
@@ -94,20 +91,28 @@ namespace Desert::Graphic
         // still and two headless captures of one scene see the same material at the same frame.
         float TimeSeconds = 0.0f;
 
-        // The view's motion rows this frame (MeshRenderer::BuildObjectMotions: one GpuObjectMotion per drawn
-        // primitive, per frame x view). Bound by NAME onto every material whose template reads ObjectMotion —
-        // the same buffer for all of them, so a draw's PrimitiveIndex means the same row in every pass.
-        std::shared_ptr<ShaderResources::StorageBuffer> ObjectMotions;
+        // The scene's GpuScene primitive table (GpuDriven::GpuScene, one per scene, stable rows; uploaded by
+        // MeshRenderer::SyncGpuScene before any pass is declared). Bound by NAME onto every material whose template
+        // reads GpuScenePrimitives — the same buffer for all of them, so a draw's PrimitiveIndex means the same
+        // row in every pass and every view.
+        std::shared_ptr<ShaderResources::StorageBuffer> GpuScenePrimitives;
         // The view's palettes this frame: current and previous palette of every skinned primitive, end to end,
         // named by its row's BoneOffset / PrevBoneOffset. Bound onto every material whose template reads
         // ObjectBones (the view-pass skinned cell).
         std::shared_ptr<ShaderResources::StorageBuffer> ObjectBones;
+        // The world's parameters this frame (SceneRenderer::GetWorldParametersBuffer: the view's snapshot of
+        // Scene::GetWorldParameters, BuildWorldParameterTable), for a template whose surface reads one.
+        std::shared_ptr<ShaderResources::StorageBuffer> WorldParameters;
+        // The view's rain occlusion this frame (MeshRenderer::GetRainOcclusionUniforms): how a world position
+        // projects into the top-down map the wetted cells sample. Valid = 0 when the view has no map (no caster
+        // pipeline, shadows budgeted off): the shader then reads nothing and every surface is open to the sky.
+        RainOcclusionUniforms RainOcclusion;
 
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.
         //
         // It reaches materials of several different shaders (StaticMeshLit, StaticMeshLit_Instanced,
-        // StaticMeshGlass, SkinnedMeshLit, a generated shader-graph shader), which need not declare these
+        // StaticMeshGlass, StandardSurface's Vertex_Skinned cell, a generated shader-graph shader), which need not declare these
         // resources at the same SLOT NUMBERS — every write goes through Material::Get by NAME and every
         // lookup is guarded, which is what makes one applier able to serve all of them AND to cost the
         // ones that declare nothing nothing at all: an unlit graph material, the Unlit shader and the

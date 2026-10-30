@@ -21,6 +21,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstdio>
 
@@ -141,25 +142,16 @@ namespace Common::Content
         std::string QuoteForShell( const std::string& text )
         {
 #if defined( DESERT_PLATFORM_WINDOWS )
-            std::string quoted = "\"";
-            for ( const char c : text )
-            {
-                if ( c != '"' )
-                    quoted += c;
-            }
-            quoted += "\"";
-            return quoted;
+            std::string unquoted = text;
+            std::erase( unquoted, '"' );
+            return std::format( "\"{}\"", unquoted );
 #else
-            std::string quoted = "'";
+            // Each embedded ' closes the quoted run, adds an escaped quote and reopens it.
+            std::string escaped;
             for ( const char c : text )
-            {
-                if ( c == '\'' )
-                    quoted += "'\\''";
-                else
-                    quoted += c;
-            }
-            quoted += "'";
-            return quoted;
+                std::format_to( std::back_inserter( escaped ), "{}",
+                                c == '\'' ? std::string_view( "'\\''" ) : std::string_view( &c, 1 ) );
+            return std::format( "'{}'", escaped );
 #endif
         }
 
@@ -952,12 +944,11 @@ namespace Common::Content
             {
                 problems.push_back(
                      { RegistryDisagreement::Kind::StaleSize, key,
-                       "'" + key + "' is recorded at " + std::to_string( row->Size ) + " bytes and is " +
-                            std::to_string( file.Size ) + " " + where +
-                            ", so the registry predates an edit. For a `.tex` or a `.demat` that means "
-                            "the identity column may name a number the file no longer carries, which is "
-                            "a reference resolving to nothing." +
-                            kRemedy } );
+                       std::format( "'{}' is recorded at {} bytes and is {} {}, so the registry predates an "
+                                    "edit. For a `.tex` or a `.demat` that means the identity column may name a "
+                                    "number the file no longer carries, which is a reference resolving to "
+                                    "nothing.{}",
+                                    key, row->Size, file.Size, where, kRemedy ) } );
             }
         }
 

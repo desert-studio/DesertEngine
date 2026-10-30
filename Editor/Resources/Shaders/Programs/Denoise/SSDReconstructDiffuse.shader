@@ -4,68 +4,81 @@ Shader "SSDReconstructDiffuse"
     // The screen-space denoiser's RECONSTRUCTION of the diffuse-indirect signal (UE ScreenSpaceDenoiser, diffuse
     // indirect: SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION, BILATERAL_PRESET_DIFFUSE), at full resolution
     // from the RSM-GI gather's one jittered estimate per pixel (GIResolve.shader: rgb = bounce light, a = 1 where
-    // it gathered). A 5x5 kernel (tent-weighted) where each tap is weighed by the BILATERAL weight of its surface
+    // it gathered; MegaLights' demodulated local light). A (2r+1)^2 kernel (tent-weighted, r = the producer's
+    // ReconstructionRadius, 2 = 5x5) where each tap is weighed by the BILATERAL weight of its surface
     // against this pixel's: its distance off this pixel's tangent plane (UE BILATERAL_POSITION_BASED(2)) and the
     // agreement of the normals (UE BILATERAL_NORMAL, N.N^4) - bounce light does not cross a crease or a depth
-    // edge. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to u_Signal.
+    // edge. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to ReconstructedSignalTexture.
 
     Compute
     {
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through PointClampSampler.
+        Uniform sampler PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) sampler2D u_Input;           // the gather: rgb = bounce light, a = 1 where it gathered
-        layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal; // premultiplied (rgb * a, a)
+        Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest)
+        Uniform(3) texture2D RawSignalTexture;           // the gather: rgb = bounce light, a = 1 where it gathered
+        #define RawSignalTexture sampler2D(RawSignalTexture, PointClampSampler)
+        layout(binding = 6, rgba16f) writeonly uniform image2D ReconstructedSignalTexture; // premultiplied (rgb * a, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
         Uniform(0) DenoiserViewUB
         {
-        	mat4 u_ViewProjection;
-        	mat4 u_PrevViewProjection;
-        	mat4 u_InvJitteredViewProjection;
+        	mat4 ViewProjection;
+        	mat4 PreviousViewProjection;
+        	mat4 InverseJitteredViewProjection;
+        };
+
+        // DiffuseIndirectDenoiserInputs::ReconstructionRadius.
+        PushConstant PushConstants
+        {
+        	vec4 Reconstruction; // x = taps per side from the centre
         };
 
         LocalSize(8, 8, 1);
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 viewSize = textureSize(sampler2D(GBufferNormalTexture, PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	if (!SSDPixelHasSignal(kSSDSignalDiffuseIndirect, texelFetch(u_GBufferNormal, pixel, 0)))
+        	if (!SSDPixelHasSignal(kSSDSignalDiffuseIndirect, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0)))
         	{
-        		imageStore(u_Signal, pixel, vec4(0.0));
+        		imageStore(ReconstructedSignalTexture, pixel, vec4(0.0));
         		return;
         	}
         	const vec2         size = vec2(viewSize);
         	const vec2         uv   = (vec2(pixel) + 0.5) / size;
-        	const SSDSceneInfo ref  = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
+        	const SSDSceneInfo ref  = SSDLoadSceneInfo(GBufferNormalTexture, GBufferDepthTexture, InverseJitteredViewProjection,
         	                                           pixel, size);
-        	// The farthest tap is 2 * sqrt(2) pixels away (UE WorldBluringRadiusToBilateralWorldDistance).
-        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
-        	                                              1.0 / size, u_InvJitteredViewProjection);
-        	const float maxPlaneDistance = max(pixelRadius * 2.0 * 2.0 * sqrt(2.0), 1e-3);
+        	// The farthest tap is r * sqrt(2) pixels away (UE WorldBluringRadiusToBilateralWorldDistance).
+        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(GBufferDepthTexture, PointClampSampler), pixel, 0).r, ref.Position,
+        	                                              1.0 / size, InverseJitteredViewProjection);
+        	const int   radius           = max(int(Reconstruction.x + 0.5), 1);
+        	const float maxPlaneDistance = max(pixelRadius * 2.0 * float(radius) * sqrt(2.0), 1e-3);
 
         	vec4  sum       = vec4(0.0); // premultiplied
         	float weightSum = 0.0;
-        	for (int y = -2; y <= 2; ++y)
-        		for (int x = -2; x <= 2; ++x)
+        	for (int y = -radius; y <= radius; ++y)
+        		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 p = clamp(pixel + ivec2(x, y), ivec2(0), viewSize - 1);
-        			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
-        			                                            u_InvJitteredViewProjection, p, size);
+        			const SSDSceneInfo other = SSDLoadSceneInfo(GBufferNormalTexture, GBufferDepthTexture,
+        			                                            InverseJitteredViewProjection, p, size);
         			if (dot(other.Normal, other.Normal) <= 0.0)
         				continue; // sky
-        			const float w = (3.0 - abs(float(x))) * (3.0 - abs(float(y))) *
+        			const float w = (float(radius + 1) - abs(float(x))) * (float(radius + 1) - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal);
-        			const vec4 s = texelFetch(u_Input, p, 0);
+        			const vec4 s = texelFetch(RawSignalTexture, p, 0);
         			sum       += vec4(s.rgb * s.a, s.a) * w;
         			weightSum += w;
         		}
-        	imageStore(u_Signal, pixel, weightSum > 0.0 ? sum / weightSum : vec4(0.0));
+        	imageStore(ReconstructedSignalTexture, pixel, weightSum > 0.0 ? sum / weightSum : vec4(0.0));
         }
     }
 }

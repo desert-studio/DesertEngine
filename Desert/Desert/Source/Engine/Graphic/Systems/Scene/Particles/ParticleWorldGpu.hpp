@@ -1,9 +1,13 @@
 #pragma once
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticlePool.hpp"
@@ -12,7 +16,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core
@@ -26,9 +32,12 @@ namespace Desert::Graphic::System
     // ParticleSimulate.shader's PushConstants, field for field.
     struct ParticleSimPush
     {
-        glm::vec4  EmitterPos; // xyz world pos (cm), w the fixed step length (seconds)
-        glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
-        glm::uvec4 Stack;      // x = the world's serial of this tick's step 0, yzw 0
+        // The entity's full transform (cm; UE Engine.Owner.SystemLocalToWorld): a World emitter's newborns are
+        // placed through it, a Local emitter's Spawn-from-Channel positions come back through its inverse.
+        glm::mat4  LocalToWorld = glm::mat4( 1.0f );
+        glm::vec4  Step;   // x = the fixed step length (seconds), yzw 0
+        glm::uvec4 Counts; // range count, step index into the step table, range pool base, local-space
+        glm::uvec4 Stack;  // x = the world's serial of this tick's step 0, yzw 0
     };
 
     // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
@@ -48,6 +57,62 @@ namespace Desert::Graphic::System
     struct ParticleArgsPush
     {
         glm::uvec4 Step;
+    };
+
+    // VFX-16 (UE Niagara Debugger, dev only): ParticleDebugReadback's push constant and its readback's shape. The
+    // readback is 4 header uints (alive, free, debug serial, rows written) then per row the pool index and the
+    // emitter's float attribute components, then its int components (their bits); one page is
+    // kParticleDebugMaxRows alive particles.
+    struct ParticleDebugPush
+    {
+        glm::uvec4 Page;  // x = last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
+        glm::uvec4 Range; // x = drawn alive half's offset, y = range count, z = pool base, w = debug serial (never 0)
+        glm::uvec4 Columns; // x = int columns; yzw = 0
+    };
+    constexpr uint32_t kParticleDebugHeaderUints = 4u;
+    constexpr uint32_t kParticleDebugMaxRows     = 64u;
+
+    // VFX-LIGHT (UE Niagara Light Renderer): ParticleLightReadback's push constant and its readback's shape - 4
+    // header uints (lights written, frame serial, 0, 0), then per light 8 floats: world position (cm), the larger
+    // SpriteSize axis (cm), Color rgba. The CPU reads the copy FramesInFlight frames later (no stall) and turns
+    // each row into a point light with the emitter's Light row (ParticleWorldGpu::ReadLightReadbacks).
+    struct ParticleLightPush
+    {
+        glm::uvec4 Page;       // x = the last compact's slot, y = lights wanted, z = serial (never 0), w = 0
+        glm::uvec4 AliveRange; // x = the drawn alive half's offset in AliveList, yzw = 0
+    };
+    constexpr uint32_t kParticleLightHeaderUints = 4u;
+    constexpr uint32_t kParticleLightRowFloats   = 8u;
+
+    // What an editor debugger asks of the scene's particles: nothing runs while Enabled is false. The attribute
+    // table is the page [FirstRow, FirstRow + kParticleDebugMaxRows) of the alive list of emitter Emitter of
+    // entity EntityId.
+    struct ParticleDebugRequest
+    {
+        bool     Enabled  = false;
+        uint32_t EntityId = 0;
+        uint32_t Emitter  = 0;
+        uint32_t FirstRow = 0;
+    };
+
+    // One emitter as the GPU last reported it (read back FramesOld simulated frames after the GPU wrote it; Read =
+    // false until the first copy came back). Columns / RowIndex / Floats / Ints only for the requested emitter.
+    struct ParticleEmitterDebug
+    {
+        uint32_t                             EntityId     = 0;
+        uint32_t                             Emitter      = 0;
+        std::string                          Name;
+        uint32_t                             Capacity     = 0;
+        uint32_t                             Alive        = 0;
+        uint32_t                             Free         = 0;
+        uint32_t                             FramesOld    = 0;
+        bool                                 Read         = false;
+        uint32_t                             FloatColumns = 0;
+        uint32_t                             IntColumns   = 0;
+        std::vector<VFX::VFXAttributeLayout> Columns;  // the compiled layout's attributes (Float/Int Start, Count)
+        std::vector<uint32_t>                RowIndex; // pool index per row
+        std::vector<float>                   Floats;   // RowIndex.size() x FloatColumns, row-major
+        std::vector<int32_t>                 Ints;     // RowIndex.size() x IntColumns, row-major
     };
 
     // One element of ParticleSimulate's step table (`struct VFXStep`).
@@ -92,10 +157,20 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
     struct ParticleDrawLayoutGpu
     {
-        glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
+        // x = range count (column stride), y = pool base, z = 1 local, w = the emitter's Sprite row alignment
+        // (0 Unaligned, 1 VelocityAligned; Vertex_ParticleSprite.glslh)
+        glm::uvec4 Range      = glm::uvec4( 0u );
         glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
-        glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, -, -
-        glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
+        glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, RibbonWidth, RibbonLinkOrder
+        // The entity's full transform (cm): a Local emitter's particles are drawn through it (UE: a local-space
+        // emitter's LocalToWorld in the sprite / mesh vertex factory).
+        glm::mat4 LocalToWorld = glm::mat4( 1.0f );
+        // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = one ribbon), y = Scale, z =
+        // MeshOrientation, w = Velocity (a VelocityAligned sprite's axis).
+        glm::uvec4 Columns2 = glm::uvec4( kParticleAttrNone );
+        // The emitter's Ribbon row (Vertex_ParticleRibbon.glslh): x = Width (cm), y = UV mode (0 Stretch,
+        // 1 TileByDistance), z = UVTileDistance (cm); zero without a Ribbon row.
+        glm::vec4 Ribbon = glm::vec4( 0.0f );
     };
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
@@ -116,11 +191,23 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> AttributeInts;
         std::shared_ptr<ShaderResources::StorageBuffer> Params;
         std::shared_ptr<ShaderResources::StorageBuffer> Curves;
+        // VFX-15: the placement's point sets this emitter's PointSet.* bindings read, back to back (PointSetData).
+        std::shared_ptr<ShaderResources::StorageBuffer> PointSets;
         // Where the sprite draw and the sort read the drawn attributes in AttributeFloats (VFX-SPRITE-DRAW): its
         // columns are the compiled layout's, its range and emitter position are re-uploaded every tick.
         std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
         ParticleDrawLayoutGpu                           DrawColumns;
         std::vector<glm::vec4>                          ParamRows;
+        // The ParamRows a User.* binding fills (row, user parameter name): the placement's overrides replace
+        // these rows, every other row is the stack's own.
+        std::vector<std::pair<uint32_t, std::string>> UserRows;
+        // The ParamRow of each PointSet.* binding (row, set name): (first, count) of the placement's set in
+        // PointSetData (ApplyPointSets).
+        std::vector<std::pair<uint32_t, std::string>> PointSetRows;
+        // The PointSets buffer's contents: xyz = the painted point in the placement frame (cm; the simulation's
+        // LocalToWorld places it like every other shape offset), w = the set's
+        // cumulative weight through it, normalised to 1 (the weighted pick's search key). Never empty.
+        std::vector<glm::vec4>                          PointSetData;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
         uint32_t                                        FloatColumns = 0;
@@ -132,19 +219,52 @@ namespace Desert::Graphic::System
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
         uint64_t          Generation      = 0;    // the VFXWorld instance generation this state belongs to
         bool              NeedsReset      = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
+
+        // VFX-16: the debugger's per-frame-in-flight readback (made on the first debugged tick, dropped when the
+        // emitter is rebuilt) and what its rows mean.
+        std::shared_ptr<ShaderResources::StorageBuffer> DebugReadback;
+        std::vector<VFX::VFXAttributeLayout>            DebugColumns;
+        std::string                                     DebugName;
+        uint32_t                                        DebugEntity  = 0;
+        uint32_t                                        DebugEmitter = 0;
+
+        // VFX-LIGHT: the Light row's per-frame-in-flight readback (made on the first tick with an enabled Light
+        // row, kept while the emitter lives).
+        std::shared_ptr<ShaderResources::StorageBuffer> LightReadback;
+    };
+
+    // One enabled renderer row of an emitter this tick (UE: the FNiagaraRenderer made per
+    // UNiagaraRendererProperties): the drawing view builds one draw of the emitter's particles from each.
+    // Material is ParticleRendererMaterial's answer for the row (ParticleWorldGpu.cpp): null = the engine's
+    // particle material for Kind (Sprite: ParticleSpriteDefault; Ribbon: the engine ribbon material; Mesh: the
+    // mesh's own materials). Ribbon/Mesh point into the system's data (ParticleSystemGpu::System holds it) and
+    // are set exactly for their Kind.
+    struct ParticleFrameRenderer
+    {
+        Assets::Serialization::VFXRendererKind              Kind = Assets::Serialization::VFXRendererKind::Sprite;
+        uint32_t                                            Row  = 0; // the row's index in the emitter's Renderers
+        Common::AssetHandle                                 Material;
+        const Assets::Serialization::VFXRibbonRendererData* Ribbon = nullptr;
+        const Assets::Serialization::VFXMeshRendererData*   Mesh   = nullptr;
     };
 
     // One emitter active in this scene update.
     struct ParticleFrameEmitter
     {
         uint32_t            EntityId = 0;
+        uint32_t            Emitter  = 0; // the emitter's index in its system (VFXSystemData::Emitters)
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
         ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
-        // The sprite renderer's material (null = the default sprite template; a `.dfx` sprite row names none yet,
-        // VFXS 1); the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
-        Common::AssetHandle Material;
+        // The emitter's enabled renderer rows in `.dfx` order (VFXS 2); none = the emitter simulates and draws
+        // nothing (UE: an emitter without renderers).
+        std::vector<ParticleFrameRenderer> Renderers;
+        // VFX-LIGHT: the emitter's first enabled Light row (null = it casts no light); the system's data holds it.
+        const Assets::Serialization::VFXLightRendererData* Light = nullptr;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // VFX-PORT-2: the emitter's fixed Bounds through this tick's placement transform (VFXBoundsAt), cm: what every view and
+        // shadow view culls the emitter's draws by (ParticleRenderer).
+        Common::Math::AABB WorldBounds;
     };
 
     // The pool's buffers: the slots (id + alive flag per particle, Common/ParticleState.glslh), the free list (one
@@ -167,6 +287,10 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
         std::vector<ParticleEmitterGpu>                             Emitters;
+        // The VFXComponent overrides the emitters' User rows were last filled from (UE OverrideParameters).
+        std::vector<ECS::VFXUserOverride> Overrides;
+        // The point sets the emitters' PointSet rows were last filled from (VFX-15).
+        std::vector<ECS::VFXPointSet> PointSets;
     };
 
     class ParticleWorldGpu final : public VFX::WorldGpuState
@@ -189,19 +313,78 @@ namespace Desert::Graphic::System
             return m_Pool;
         }
 
+        // VFX-16 (UE Niagara Debugger, dev only). The editor's request; while it is enabled the simulating view
+        // adds "Particles: Debug Readback" and ReadDebugReadbacks (called by that view right after PrepareTick,
+        // before the node writes this frame's copy) reads what the GPU wrote FramesInFlight frames ago - no stall,
+        // no CPU-side count.
+        void SetDebugRequest( const ParticleDebugRequest& request )
+        {
+            m_DebugRequest = request;
+        }
+        [[nodiscard]] const ParticleDebugRequest& DebugRequest() const
+        {
+            return m_DebugRequest;
+        }
+        [[nodiscard]] const std::vector<ParticleEmitterDebug>& DebugEmitters() const
+        {
+            return m_Debug;
+        }
+        [[nodiscard]] uint32_t DebugSerial() const
+        {
+            return m_DebugSerial;
+        }
+        // Whether @p gpu is the emitter whose attribute page is asked for.
+        [[nodiscard]] bool IsDebugTable( const ParticleEmitterGpu& gpu ) const
+        {
+            return m_DebugRequest.Enabled && gpu.DebugEntity == m_DebugRequest.EntityId &&
+                   gpu.DebugEmitter == m_DebugRequest.Emitter;
+        }
+        void ReadDebugReadbacks();
+
+        // VFX-LIGHT (UE Niagara Light Renderer): the simulating view reads every Light row's readback right after
+        // PrepareTick (before this frame's "Particles: Light Readback" writes the copy it reads) into the scene's
+        // particle lights, which EVERY view of the scene adds to its local lights (SceneRenderer, after
+        // ParticleRenderer::PrepareFrame). A tick that does not simulate keeps the last lights.
+        void                                                                 ReadLightReadbacks();
+        [[nodiscard]] const std::vector<ShaderProtocols::PointLightPayload>& ParticleLights() const
+        {
+            return m_Lights;
+        }
+        [[nodiscard]] uint32_t LightSerial() const
+        {
+            return m_LightSerial;
+        }
+
+        // Counts are read back while the panel's request is enabled or the world's debugger shows the viewport
+        // overview (VFXDebugSettings::Overview, taken at PrepareTick); the attribute table only for the request.
+        [[nodiscard]] bool DebugReading() const
+        {
+            return m_DebugRequest.Enabled || m_DebugCounts;
+        }
+        void FillDebugStats( VFX::VFXDebugStats& stats ) const override;
+
     private:
         // Grows the pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
         bool EnsurePoolCapacity( uint32_t particles );
         // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
-                             const ParticlePoolRange& range, uint32_t entityId, const glm::vec3& worldPos,
-                             float stepSeconds, uint32_t stepSerial );
+                             const Assets::Serialization::VFXEmitterData& data, const ParticlePoolRange& range,
+                             uint32_t entityId, uint32_t emitterIndex, const glm::mat4& localToWorld,
+                             float stepSeconds );
         // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
         // out.
         static bool EnsureTickBuffers( ParticleEmitterGpu& gpu, uint32_t stepCapacity );
         // Compiles emitter @p index of @p system into @p gpu (program, columns, parameters, curves).
         void BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
                            std::size_t index, uint32_t entityId );
+        // Fills every emitter's User rows of @p system from the placement's @p overrides (else the defaults).
+        static void ApplyUserOverrides( ParticleSystemGpu& system, const std::vector<ECS::VFXUserOverride>& overrides,
+                                        uint32_t entityId );
+        // Fills every emitter's PointSetData (and its PointSet rows' first/count) from the placement's @p sets,
+        // each point as painted, in the placement frame (the simulation's LocalToWorld places it); a buffer too
+        // small for the points is made anew.
+        static void ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
+                                    uint32_t entityId );
         // The host program for one compiled stack, by its key (null = refused, said once).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );
@@ -212,5 +395,11 @@ namespace Desert::Graphic::System
         ParticlePoolRanges                                             m_Ranges;
         ParticlePoolBuffers                                            m_Pool;
         ParticleTickClaim                                              m_Claim;
+        ParticleDebugRequest                                           m_DebugRequest;
+        std::vector<ParticleEmitterDebug>                              m_Debug;
+        uint32_t                                                       m_DebugSerial = 0;
+        std::vector<ShaderProtocols::PointLightPayload>                m_Lights;
+        uint32_t                                                       m_LightSerial = 0;
+        bool                                                           m_DebugCounts = false;
     };
 } // namespace Desert::Graphic::System

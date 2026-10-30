@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <optional>
@@ -66,8 +67,12 @@ namespace Desert::Graphic
         // below because a `VkPipeline` from a graphics pass and one from a compute dispatch are different
         // populations to both consumers (eviction never touches either; device-loss recovery rebuilds them
         // by different routes).
+        // DEVICE-OWNED AT CREATION (RT-LEDGER-4): a VkPipeline is compiled device state keyed by its
+        // shader and pass, shared by whatever draws with it; a view scope open around a lazy build must not
+        // make it that view's row. It carries no bytes, so no view's budget loses anything by this.
         explicit IPipeline( const ResourceKind kind ) : m_Accounting( ResourceOwnership::Take( kind ) )
         {
+            m_Accounting.Claim( ResourceOwner::Device );
         }
 
         // EVERY BUILT PIPELINE IS FINDABLE (RebuildPipelinesBehindTheirShader): a pipeline a renderer built once
@@ -128,6 +133,11 @@ namespace Desert::Graphic
      * no pipeline compile running on a worker (PipelineBuilds::WaitIdle).
      */
     size_t RebuildPipelinesBehindTheirShader();
+
+    /// How many RebuildPipelinesBehindTheirShader calls rebuilt something: a holder of RESOLVED answers (which
+    /// cell a material draws with, whether that cell is registered — DrawCommandCache) compares it to the epoch
+    /// it resolved at and re-resolves when a recompile moved it, since a reload can add or drop cells.
+    [[nodiscard]] uint64_t PipelineRebuildEpoch();
 
     /// Whether any live pipeline is behind its shader — asked first so a poll that changed nothing does not
     /// idle the device.
@@ -257,6 +267,11 @@ namespace Desert::Graphic
         // what an overlay lying on a surface needs to win against it. Both zero: no bias.
         float DepthBiasConstant = 0.0F;
         float DepthBiasSlope    = 0.0F;
+        // Depth clamp (VkPipelineRasterizationStateCreateInfo::depthClampEnable; the device's depthClamp is
+        // Required): a primitive outside the depth range is clamped onto its end instead of clipped. The virtual
+        // shadow map's casters draw with it (UE VSM "pancaking"), so a caster nearer the sun than a level's range
+        // still writes its nearest depth.
+        bool DepthClampEnable = false;
 
         float                LineWidth   = 1.0F;
         PrimitiveTopology    Topology    = PrimitiveTopology::Triangles;
@@ -436,6 +451,14 @@ namespace Desert::Graphic
     {
         std::shared_ptr<Shader> Shader;
         std::string             DebugName;
+        // Subgroup control of the compute stage (VK_EXT_subgroup_size_control, core in Vulkan 1.3; the device
+        // features subgroupSizeControl + computeFullSubgroups, NeuralComputeCaps::SubgroupSizeControl). A kernel
+        // whose subgroup operations need every lane present (cooperative-matrix tiles) sets RequireFullSubgroups;
+        // one built for one subgroup width (a driver's coopmat shapes are listed for its subgroupSize) sets
+        // RequiredSubgroupSize. 0 / false = the driver's choice. The caller asks the device first: a request the
+        // device cannot honour is a validation error, never silently dropped here.
+        uint32_t RequiredSubgroupSize = 0;
+        bool     RequireFullSubgroups = false;
     };
 
     /**
@@ -491,7 +514,10 @@ namespace Desert::Graphic
         // --- Resource-binding API (UE-style): set inputs/outputs/push-constants, then Dispatch ---
 
         /**
-         * Bind a sampled input image at @p binding. The descriptor names exactly the subresource the caller
+         * Bind a sampled input image at @p binding as a SEPARATE texture (`texture2D` / `texture3D` /
+         * `textureCube`): the image's view only, no sampler. The shader reads it through a shared sampler
+         * state the caller binds with SetSampler, the same split a graph pass makes (Texture + Sampler).
+         * The descriptor names exactly the subresource the caller
          * declared: @p range is the whole image (All), one mip over every layer (Mip: the view holds that mip
          * alone, so the shader samples it at lod 0), or a (mip, layer) rectangle (MipLayer / Layer: a 2D view of
          * that layer, made through the graph's handle on the imported image, so only inside a node). Its layout
@@ -507,6 +533,9 @@ namespace Desert::Graphic
          */
         virtual ComputePipeline& SetInput( uint32_t binding, Image* image, RDG::Access declared,
                                            RDG::SubresourceRange range ) = 0;
+        /** Bind the shared sampler state @p desc at @p binding (a `sampler` declaration). The VkSampler comes
+         *  from the engine sampler cache, the one every graph pass's Sampler entry is acquired from. */
+        virtual ComputePipeline& SetSampler( uint32_t binding, const RDG::SamplerDesc& desc ) = 0;
         /** Bind a writable storage output image at @p binding; @p mip selects the target mip view. */
         virtual ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) = 0;
         /** Bind a read-write storage buffer at @p binding (e.g. a luminance histogram). */

@@ -17,7 +17,7 @@
 
 namespace Desert::Graphic
 {
-    /// How many clip levels the block carries (CloudGpuPayload::Level, u_CloudLevel). Pinned equal to
+    /// How many clip levels the block carries (CloudGpuPayload::Level, CloudLevel). Pinned equal to
     /// Assets::kCloudProceduralClipLevels in CloudProceduralClipmap.cpp; a number here because this header
     /// is the GPU layout and does not pull the bake in.
     inline constexpr uint32_t kCloudClipLevelSlots = 3u;
@@ -134,7 +134,9 @@ namespace Desert::Graphic
 
         // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
         // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
-        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z unread (kCloudUnreadSlots).
+        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z the Coverage slider, laid
+        // over the uniform by PackCloudParams from the RESOLVED material (WTH-CLOUDS) — the march thresholds the
+        // baked field by it (Assets::CloudProceduralCoverageRemap), so the weather moves it with no re-bake.
         // The march remaps the baked profile by the W this decides — Assets::CloudProceduralCoverRemap is the CPU
         // half of the same remap. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
@@ -148,9 +150,14 @@ namespace Desert::Graphic
         glm::vec4 SpeciesWispBase;
         glm::vec4 SpeciesWispTop;
 
+        // PER SPECIES (x species 0 .. w species 3), the material's CloudTypeWeight of the slot the species
+        // came from (WTH-OVERCAST): the march cuts that species' channel at Coverage x this, so a weather fades
+        // cumulus out and a stratus deck in without a re-bake. Slots at or past the species count are zero.
+        glm::vec4 SpeciesCover;
+
         // THE PAINTED LAYOUT'S PLACE AND STRENGTH (WX-PAINT), Assets::CloudLayoutPlaceUniform /
         // CloudLayoutStrengthUniform: the march multiplies the cover by the painted W per column, as Unreal's
-        // Layout does, reading the u_CloudLayoutPattern / u_CloudLayoutMask block entries through these.
+        // Layout does, reading the CloudLayoutPatternTexture / CloudLayoutMaskTexture block entries through these.
         glm::vec4 LayoutPlace;
         glm::vec4 LayoutStrength;
 
@@ -195,11 +202,11 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudGpuPayload, Weather ) == 304 );
     static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 320 );
     static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 336 );
-    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 352 );
-    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 368 );
-    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 384 );
-    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 512 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 640 );
+    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 368 );
+    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 384 );
+    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 400 );
+    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 528 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 656 );
     // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
     // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
@@ -222,8 +229,10 @@ namespace Desert::Graphic
     // the smallest shape three contiguous components fit in.
     //
     // AND IT GREW BY 256 FOR THE FAR PATH (CLOUD-SEAM24): two vec4[8] of the coarsest level's statistics.
-    static_assert( sizeof( CloudGpuPayload ) == 652,
-                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s, two vec4[8] and a vec3 — the "
+    //
+    // AND BY SIXTEEN FOR SpeciesCover (WTH-OVERCAST): the per-type weights of the weather's cut.
+    static_assert( sizeof( CloudGpuPayload ) == 668,
+                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], eight more vec4s, two vec4[8] and a vec3 — the "
                    "shader reads exactly this and "
                    "nothing more." );
 
@@ -245,7 +254,7 @@ namespace Desert::Graphic
     /// of which member are actually fetched, and requires every unfetched one to appear here.
     struct CloudUnreadSlot
     {
-        /// The member's GLSL name, exactly as the block declares it (`u_CloudDetail`).
+        /// The member's GLSL name, exactly as the block declares it (`CloudDetail`).
         const char* Member;
         /// Which component, as the single swizzle letter a shader would fetch it by: 'x', 'y', 'z' or 'w'.
         char Component;
@@ -258,12 +267,11 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 3> kCloudUnreadSlots = {
-         { { "u_CloudLayoutStrength", 'z',
+    inline constexpr std::array<CloudUnreadSlot, 2> kCloudUnreadSlots = {
+         { { "CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
-           { "u_CloudLayoutStrength", 'w', "as z" },
-           { "u_CloudWeather", 'z', "held the cover's softness past a rank; the bake's since CUT-AT-BAKE" } } };
+           { "CloudLayoutStrength", 'w', "as z" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
@@ -476,7 +484,7 @@ namespace Desert::Graphic
      * also the shipped state: both fields default to zero, so the disabled interval is the one every
      * scene already carries.
      *
-     * The shader's gate (`u_CloudFade.z > 0`) is exactly equivalent to `end > start` under this
+     * The shader's gate (`CloudFadeParams.z > 0`) is exactly equivalent to `end > start` under this
      * guarantee, because the only pair with a zero end this returns is the pair with a zero start.
      */
     struct CloudNearFadeKm
@@ -620,7 +628,7 @@ namespace Desert::Graphic
 
         /// The volume each of the DistinctCount slots holds, in slot order. Entries at or past
         /// DistinctCount repeat Volume[0], so every one of the four descriptors has a valid image
-        /// whatever the layer names — see the note at u_CloudNoise1 in Programs/Clouds/CloudRaymarch.shader.
+        /// whatever the layer names — see the note at CloudNoise1Texture in Programs/Clouds/CloudRaymarch.shader.
         Assets::AssetHandle Volume[kCloudSpeciesSlots] = {};
     };
 
@@ -887,9 +895,21 @@ namespace Desert::Graphic
         // travels per species and the multiply moves to the point of use. The artist's Density Scale,
         // Extinction Scale and Detail Strength are still multipliers ON them, so "1" keeps meaning "these
         // types as they are"; what changed is where the multiplication happens, not what it means.
+        Assets::AssetHandle authoredTypes[ECS::kCloudTypeSlots];
+        material.TypeSlots( authoredTypes );
+        float typeWeights[ECS::kCloudTypeSlots];
+        material.TypeWeights( typeWeights );
+        const ECS::CloudSpeciesResolution typeResolution = ECS::ResolveCloudSpecies( authoredTypes );
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
             const int at = static_cast<int>( slot );
+            // The built-in default has no authored slot; it answers to the first weight, as the slot it stands in.
+            p.SpeciesCover[at] =
+                 slot < species
+                      ? std::clamp(
+                             typeWeights[typeResolution.BuiltInDefault ? 0u : typeResolution.AuthoredSlot[slot]],
+                             0.0f, 1.0f )
+                      : 0.0f;
             if ( slot >= species )
             {
                 // Zero rather than the default type's numbers. An unfilled slot must not be able to put
@@ -957,6 +977,10 @@ namespace Desert::Graphic
         // a second authored copy here is how the fill and the read end up disagreeing about the slice
         // mapping.
         p.Weather        = region.Weather;
+        // THE COVERAGE THRESHOLD IS THIS FRAME'S, not the bake's (WTH-CLOUDS): the region's uniform is a function
+        // of the baked parameters, which no longer change with Coverage, so the live value comes from the
+        // material resolved this frame — the .demat chain with the weather's DynamicParams laid over it.
+        p.Weather.z      = std::clamp( material.Coverage, 0.0f, 1.0f );
         p.LayoutPlace    = region.LayoutPlace;
         p.LayoutStrength = glm::vec4( region.LayoutStrength, 0.0f, 0.0f );
         for ( uint32_t band = 0; band < kCloudFarBandSlots; ++band )

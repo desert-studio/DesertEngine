@@ -13,7 +13,7 @@
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ViewportModes.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 
@@ -22,13 +22,19 @@
 #include "ViewportCameraPreset.hpp"
 #include "PerfHudOverlay.hpp"
 #include "Tools/FoliagePaintTool.hpp"
+#include "Tools/VFXPaintTool.hpp"
 #include "Tools/LandscapePaintTool.hpp"
 #include "Tools/LandscapeSculptTool.hpp"
 #include "Tools/CubeGridTool.hpp"
 #include "Tools/CreateShapeTool.hpp"
 #include "Tools/ActiveToolBar.hpp"
 #include "Tools/ElementSelectTool.hpp"
+#include "Tools/MeshProcessingTool.hpp"
+#include "Tools/EditMaterialsTool.hpp"
+#include "Tools/PaintGroupsTool.hpp"
+#include "Tools/UVTool.hpp"
 #include "Tools/PolyEditTool.hpp"
+#include "Tools/SculptTool.hpp"
 #include "Tools/ToolCursor.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
@@ -211,6 +217,19 @@ namespace Desert::Editor
         // view the control channel's camera commands address. Refuses when no viewport is live.
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
                                                                  const ActorDrop::Target& target );
+        // Any live viewport's dropped mesh still importing on its worker, or cooked and not yet spawned (the
+        // "Loading meshes" overlay). The control channel's reply gate waits for it (PendingWork::MeshDrops).
+        static bool AnyMeshDropLoading();
+        // The palette's door to DropPrefabAsset (below), into the ACTIVE viewport, as DropMeshIntoActiveViewport.
+        static Common::BoolResultStr DropPrefabIntoActiveViewport( const std::string&              path,
+                                                                   const std::optional<glm::vec3>& surface );
+        // The Modeling LOD Manager's preview, into the ACTIVE viewport's renderer only
+        // (Graphic::SceneRenderer::SetLODPreview — a per-view lease the caller renews every frame; level < 0
+        // clears it). Refuses when no viewport is live.
+        static Common::BoolResultStr PreviewLODInActiveViewport( uint32_t entity, int level );
+        // The triangles the active viewport's renderer drew last frame, at the LODs it drew (a forced preview
+        // level included). Empty: no viewport or no renderer yet.
+        static std::optional<uint64_t> ActiveViewportTrianglesDrawn();
 
         bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
         bool OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e );
@@ -237,6 +256,13 @@ namespace Desert::Editor
         // the target names (ActorDrop::PlacedOrigin, UE's FActorPositioning). Refuses when this view has no scene
         // or no asset manager — nothing to drop into.
         Common::BoolResultStr DropMeshAsset( const std::string& path, const ActorDrop::Target& target );
+
+        // THE ONE BODY OF A PREFAB DROP (UE: dragging a Level Instance / Packed Level Actor into the level), for
+        // the mouse (a PrefabFile payload) and `Assets / Drop into the viewport: <file>.deprefab` alike. A world
+        // prefab's root lands at @p surface (or keeps the prefab's own root transform when nothing was met); a UI
+        // prefab goes into the canvas being authored. The placed root is selected and recorded for undo; its
+        // Translation/Rotation/Scale are the instance's placement, which a save always writes (PFX1).
+        Common::BoolResultStr DropPrefabAsset( const std::string& path, const std::optional<glm::vec3>& surface );
 
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
         // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.
@@ -415,11 +441,17 @@ namespace Desert::Editor
         PerfHudOverlay                        m_PerfHud; // View -> Perf HUD viewport overlay
         Tools::LandscapeSculptTool            m_LandscapeTool;      // UE-style landscape Sculpt / Smooth
         Tools::LandscapePaintTool             m_LandscapePaintTool; // Landscape mode Paint (weight layers)
+        Tools::VFXPaintTool                   m_VFXPaintTool; // VFX-15: VFX Paint mode's Painted Set brush
         Tools::FoliagePaintTool               m_FoliageTool;  // UE5-style foliage painting (extracted)
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)
         Tools::PolyEditTool                   m_PolyEditTool; // face select + push/pull (Modeling mode)
+        Tools::SculptTool                     m_SculptTool;   // brush strokes on the selected mesh (Modeling)
         Tools::ElementSelectTool              m_ElementSelectTool; // mesh element selection (Modeling mode)
         Tools::CreateShapeTool                m_CreateShapeTool;   // Create -> shapes (Modeling mode)
+        Tools::UVTool                         m_UVTool;            // UVs palette (Modeling mode)
+        Tools::MeshProcessingTool             m_MeshProcessingTool; // Deform palette (Modeling mode)
+        Tools::EditMaterialsTool              m_EditMaterialsTool;  // Attributes -> Edit Materials
+        Tools::PaintGroupsTool                m_PaintGroupsTool;    // Attributes -> Paint PolyGroups
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)
         std::unique_ptr<AsyncMeshLoader>      m_AsyncLoader; // background cook of dropped meshes (no hitch)

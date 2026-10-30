@@ -140,7 +140,7 @@ namespace
             out.Instance = instance.value();
 
             // The engine's judgement of the device, not a second one.
-            auto probed = SelectDevice( out.Instance );
+            auto probed = SelectDevice( out.Instance, DeviceRestrictions{} );
             if ( !probed )
             {
                 out.Error = probed.GetError();
@@ -188,6 +188,9 @@ namespace
 
             out.Rdg.Device        = out.Device.device;
             out.Rdg.Allocator     = out.Allocator;
+            out.Rdg.Limits        = out.Device.physical_device.properties.limits;
+            // The engine's sharing rule over this device's families (the async tests cross them).
+            out.Rdg.Sharing = VulkanResourceSharing::FromFamilies( out.QueueFamily, out.ComputeFamily, out.ComputeFamily );
             out.Rdg.CmdBeginLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
                  vkGetInstanceProcAddr( out.Instance.instance, "vkCmdBeginDebugUtilsLabelEXT" ) );
             out.Rdg.CmdEndLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
@@ -435,7 +438,7 @@ void main()
     {
         FrameObjects( Gpu& gpu, uint32_t frameSlots, bool asyncCompute = false )
              : Transients( gpu.Rdg, frameSlots ), Samplers( gpu.Device.device ),
-               Descriptors( gpu.Device.device, Samplers, frameSlots ),
+               Descriptors( gpu.Device.device, Samplers, frameSlots, false ),
                Objects( gpu.Device.device, gpu.QueueFamily,
                         asyncCompute && gpu.ComputeQueue != VK_NULL_HANDLE
                              ? std::optional<uint32_t>( gpu.ComputeFamily )

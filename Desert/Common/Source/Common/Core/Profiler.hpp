@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -219,11 +220,28 @@ namespace Common::Profiling
         IGpuProfilerSink* m_Sink   = nullptr;
         int32_t           m_Handle = -1;
     };
+
+    // CONSECUTIVE PHASES OF ONE LONG BODY, each its own row: Next() closes the running phase and opens the
+    // named one, and the last phase closes with the timer. For a function whose stages share locals across
+    // hundreds of lines (SceneRenderer::OnUpdate builds its graph that way), where a block scope per stage
+    // would have to move every local it declares out of the block.
+    class PhaseTimer
+    {
+    public:
+        void Next( const char* name )
+        {
+            m_Current.reset();
+            m_Current.emplace( name );
+        }
+
+    private:
+        std::optional<ScopedTimer> m_Current;
+    };
 } // namespace Common::Profiling
 
 // ── THE SHIPPING BOUNDARY, AND IT IS HERE BECAUSE THE MACROS ARE THE ONLY DOOR ──────────────────────
 //
-// Every timed scope in this engine goes through one of the six macros below — there is no second way in,
+// Every timed scope in this engine goes through one of the macros below — there is no second way in,
 // which is what makes a single `#if` enough to remove the whole instrument. Under `Shipping` they expand
 // to nothing, so:
 //
@@ -247,6 +265,8 @@ namespace Common::Profiling
 #define DESERT_PROFILE_PASS( NAME )
 #define DESERT_PROFILE_PASS_DYNAMIC( CSTR )
 #define DESERT_PROFILE_FRAME( NAME )
+#define DESERT_PROFILE_PHASES( VAR )
+#define DESERT_PROFILE_PHASE( VAR, NAME )
 
 #else
 
@@ -292,5 +312,10 @@ namespace Common::Profiling
 #define DESERT_PROFILE_FRAME( NAME )                                                                        \
     OPTICK_FRAME( NAME );                                                                                   \
     ::Common::Profiling::Profiler::Get().BeginFrame()
+
+// Consecutive phases of one body (PhaseTimer): DESERT_PROFILE_PHASES declares the timer, each
+// DESERT_PROFILE_PHASE closes the running phase and opens NAME; the last one closes at the end of the scope.
+#define DESERT_PROFILE_PHASES( VAR ) ::Common::Profiling::PhaseTimer VAR
+#define DESERT_PROFILE_PHASE( VAR, NAME ) VAR.Next( NAME )
 
 #endif // DESERT_DEV_INSTRUMENTS

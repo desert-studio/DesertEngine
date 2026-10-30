@@ -11,7 +11,7 @@
 #include "Editor/Core/OpenDocuments.hpp"
 #include "Editor/Core/PreviewViewpoints.hpp"
 #include "Editor/Core/UnsavedClose.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -258,7 +258,7 @@ namespace Desert::Editor
             const Engine::ViewBudget::Verdict verdict = AdmitDocumentView( *document, pending, reading );
             if ( !verdict.Ok )
             {
-                std::vector<Engine::ViewBudget::HeldView> views = Graphic::SceneRenderer::LiveHoldings();
+                std::vector<Engine::ViewBudget::HeldView> views = Graphic::ReadBudgetHoldings(); // + scene entries
                 std::vector<ViewConsumer>                 rows  = ViewCensus();
                 std::string                               census;
                 for ( const ViewConsumer& consumer : rows )

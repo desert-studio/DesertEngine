@@ -4,12 +4,12 @@
 
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/Graphic/Fog/FogPayload.hpp>
+#include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
-#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -35,26 +35,56 @@ namespace Desert::Graphic::System
      *                 closed-form fog integral of Common/HeightFog.glslh, samples the aerial-perspective
      *                 volume at that pixel's distance, and composes `Fog over AP`. Premultiplied
      *                 inscattering in .rgb, transmittance in .a.
-     *   S2  APPLY     a fullscreen triangle (ApplyPass), the FIRST translucency node: added by
-     *                 SceneRenderer::AddFrameTranslucency before everything else it composites, so
-     *                 every particle lands OVER the fogged scene rather than under it.
+     *   S2  APPLY     a fullscreen triangle (ApplyPass) over the OPAQUE scene: added by SceneRenderer right
+     *                 after S1, before the scene copy and every translucent draw, so the refraction reads the
+     *                 fogged scene and nothing translucent is fogged by the opaque depth behind it.
      *
-     * WHERE IT RUNS. S1 is an in-frame compute dispatch and must be issued OUTSIDE an open render pass,
-     * after the scene depth is finished. SceneRenderer::ExecuteAtmosphericFog() calls ExecuteInFrame()
-     * between the deferred block and ExecuteTransparency() —
-     * immediately AFTER SkyboxRenderer::ExecuteAtmosphereLuts filled this frame's AP volume, so the
-     * froxels a pixel reads were marched for the camera that pixel was drawn with.
+     * TRANSLUCENCY (UE's arrangement): glass, water, translucent meshes and particles fog THEMSELVES at their
+     * own depth, from the same evaluation (Common/ViewFog.glslh) and the same parameter block, which S1
+     * publishes every frame as FrameTransients::FogParams (gates 0 when there is no fog) beside the images it
+     * reads (FogAerialPerspective, FogDistantSkyLight, FogVolume; SceneRenderer imports them).
+     *
+     * WHERE IT RUNS. S1 is an in-frame compute dispatch, after the OPAQUE scene depth is final
+     * (SceneRenderer::AddFrameAtmosphericFog, after the sky's AP volume and the volumetric fog's froxels
+     * were filled this frame, so the froxels a pixel reads were marched for the camera it was drawn with).
      *
      * ZERO COST WHEN NEITHER IS PRESENT. A scene with no fog component (or the fog disabled) AND no
      * aerial perspective — every SkyModel::ArtisticGradient scene — dispatches nothing, allocates no
-     * target, and the apply pass draws nothing: the frame is what it was before this system existed.
-     * Either half alone is enough to run the pass, and the absent half composes as the exact arithmetic
-     * identity, so a gradient scene's pixels are unchanged bit for bit. What Initialize does build
-     * regardless is the two pipelines and the 80-byte parameter buffer
-     * exactly; the RGBA16F fog image is a transient of the frame graph (Builder::CreateTexture, sized
-     * from this frame's view), created only on a fogged frame and published as
+     * fog image, and the apply pass draws nothing: the frame is what it was before this system existed
+     * (the only cost is the gated-off parameter block the translucent cells declare). Either half alone is
+     * enough to run the pass, and the absent half composes as the exact arithmetic identity, so a gradient
+     * scene's pixels are unchanged bit for bit. The RGBA16F fog image is a transient of the frame graph
+     * (Builder::CreateTexture, sized from this frame's view), created only on a fogged frame and published as
      * FrameTransients::HeightFog for the apply.
      */
+    // The Fog shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct HeightFogFogShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, FogApplyTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, GlobalFilterSampler );
+        DESERT_SHADER_PARAMETER( Texture, AerialPerspectiveTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, DistantSkyLightTexture );
+        // The frame's fog block (kSceneFogParamsBlockName) and the volumetric fog's integrated froxels.
+        DESERT_SHADER_PARAMETER( StorageBuffer, FogParamsBuffer );
+        DESERT_SHADER_PARAMETER( Texture, VolumetricFogTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( FogApplyTexture ),        RDG::Erase( SceneDepthTexture ),
+                                          RDG::Erase( GlobalFilterSampler ),    RDG::Erase( AerialPerspectiveTexture ),
+                                          RDG::Erase( LinearRepeatSampler ),    RDG::Erase( DistantSkyLightTexture ),
+                                          RDG::Erase( FogParamsBuffer ),        RDG::Erase( VolumetricFogTexture ),
+                                          RDG::Erase( LinearClampSampler ) };
+    };
+
+    // The Apply shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct HeightFogApplyShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FogApplyTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( FogApplyTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
     class HeightFogRenderer final : public RenderSystem
     {
     public:
@@ -83,9 +113,12 @@ namespace Desert::Graphic::System
          * @brief Stage S1. Must be called outside any render pass, after the scene depth is final and
          *        after this frame's aerial-perspective volume has been filled. Creates this frame's fog
          *        image in @p graph and stores its ref in @p transients.HeightFog (left invalid when the
-         *        pass does not run this frame - the apply then draws nothing).
+         *        pass does not run this frame - the apply then draws nothing). @p volume is this frame's
+         *        volumetric fog (VolumetricFogRenderer::GetFrameResult, after its nodes were added): composed in
+         *        front of the analytic fog when its volume is set.
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients );
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
+                                                               const VolumetricFogFrameResult& volume );
 
     private:
         bool CreatePipelines();
@@ -96,8 +129,6 @@ namespace Desert::Graphic::System
         // reloaded.
         mutable ShaderBindingLayoutCache m_FogLayout;
         mutable ShaderBindingLayoutCache m_ApplyLayout;
-
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
 
         ECS::ExponentialHeightFogData m_Data{};
         float                         m_FogHeightY = 0.0f;

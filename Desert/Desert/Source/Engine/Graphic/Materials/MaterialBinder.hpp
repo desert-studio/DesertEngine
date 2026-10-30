@@ -4,7 +4,10 @@
 
 #include <Common/Core/Memory/Buffer.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace Desert::Graphic::MaterialBinder
@@ -62,23 +65,58 @@ namespace Desert::Graphic::MaterialBinder
     {
         Core::Formats::MaterialParamRow row( layout.RowStride / Core::Formats::kMaterialParamSlotSize );
         for ( const auto& p : layout.Params )
-            row[p.Offset / Core::Formats::kMaterialParamSlotSize] = p.Default;
+            row[p.Offset / Core::Formats::kMaterialParamSlotSize] =
+                 Core::Formats::MaterialRowSlotValue( p.Type, p.Default );
         return row;
     }
 
-    // Write a parameter by name into its whole slot (the components past its width are the generated
-    // struct's padding). False when the cell's row has no such parameter; the row is then untouched.
+    // Write a parameter by name into its whole slot, as the bytes of its declared GLSL type
+    // (Core::Formats::MaterialRowSlotValue; the components past its width are the generated struct's
+    // padding). False when the cell's row has no such parameter; the row is then untouched.
     inline bool WriteRowParam( const Core::Formats::MaterialLayout& layout, Core::Formats::MaterialParamRow& row,
                                std::string_view name, const glm::vec4& value )
     {
         const auto* p = layout.FindParam( name );
-        if ( p == nullptr )
+        // A texture slot is written from the material's texture (DataDrivenMaterial::GetParamRow), not a value.
+        if ( p == nullptr || p->IsTexture )
             return false;
         const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
         if ( slot >= row.size() )
             return false;
-        row[slot] = value;
+        row[slot] = Core::Formats::MaterialRowSlotValue( p->Type, value );
         return true;
+    }
+
+    // Read a parameter by name from its slot: WriteRowParam's twin, for a consumer that needs the value the row
+    // resolved to (defaults, then overrides) outside the draw that binds it. Empty when the cell's row has no
+    // such numeric parameter.
+    inline std::optional<glm::vec4> ReadRowParam( const Core::Formats::MaterialLayout&   layout,
+                                                  const Core::Formats::MaterialParamRow& row,
+                                                  std::string_view                       name )
+    {
+        const auto* p = layout.FindParam( name );
+        if ( p == nullptr || p->IsTexture )
+            return std::nullopt;
+        const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
+        if ( slot >= row.size() )
+            return std::nullopt;
+        return row[slot];
+    }
+
+    // Read a texture parameter's slot by name: (bindless table slot, sampler index) as
+    // DataDrivenMaterial::WriteTextureSlots wrote them (the bits of the slot's x and y). Empty when the cell's row
+    // has no such texture parameter.
+    inline std::optional<glm::uvec2> ReadRowTexture( const Core::Formats::MaterialLayout&   layout,
+                                                     const Core::Formats::MaterialParamRow& row,
+                                                     std::string_view                       name )
+    {
+        const auto* p = layout.FindParam( name );
+        if ( p == nullptr || !p->IsTexture )
+            return std::nullopt;
+        const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
+        if ( slot >= row.size() )
+            return std::nullopt;
+        return glm::uvec2( glm::floatBitsToUint( row[slot].x ), glm::floatBitsToUint( row[slot].y ) );
     }
 
     // The row a material asset asks for: the layout's defaults, then every persisted `{Name, Value}` the

@@ -32,25 +32,24 @@ namespace Desert::Graphic::API::Vulkan
         // blocks of this size instead of any one pool guessing the total; a set is a handful of descriptors,
         // so a block is a few tens of kilobytes of driver memory.
         constexpr uint32_t                            kSetsPerBlock = 128;
-        constexpr std::array<VkDescriptorPoolSize, 4> kBlockSizes{ {
+        // SAMPLED_IMAGE / SAMPLER: every texture slot (a pass's separate textures, a material property's texture)
+        // and every sampler state (a pass's shared states, a property's own `<name>Sampler`). The combined
+        // sampler's former 1024 moved to both, since each property texture is now one of each.
+        constexpr std::array<VkDescriptorPoolSize, 5> kBlockSizes{ {
              { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256 },
-             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024 },
              { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64 },
              { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 256 },
+             { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1280 },
+             { VK_DESCRIPTOR_TYPE_SAMPLER, 1088 },
         } };
 
         class ViewPoolChain final : public IViewResourceCopy
         {
         public:
-            DescriptorPoolChain<ViewPoolBlock> Chain;
-
             // A descriptor pool's storage is allocated by the driver, which Vulkan never reports in bytes
-            // (VkDescriptorPoolCreateInfo carries counts, not a size), and it is not in the device-local heap
-            // the budget reads. Any number here would be a guess presented as a measurement.
-            [[nodiscard]] uint64_t HeldBytes() const noexcept override
-            {
-                return 0;
-            }
+            // (VkDescriptorPoolCreateInfo carries counts, not a size): it opens no ledger row and the view's
+            // budget (the view's ledger rows) does not guess one.
+            DescriptorPoolChain<ViewPoolBlock> Chain;
         };
 
         class ViewPoolChainFactory final : public IViewResourceCopyFactory
@@ -108,6 +107,8 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanViewSets::~VulkanViewSets()
     {
+        // The bindless table's place holds no set of this pool (AllocateViewSets).
+        std::erase( m_Sets, VkDescriptorSet{ VK_NULL_HANDLE } );
         if ( m_Pool )
             Allocator()->RT_FreeDescriptorSets( m_Pool->Get(), std::move( m_Sets ) );
     }
@@ -130,13 +131,23 @@ namespace Desert::Graphic::API::Vulkan
                                             const std::string_view                     shaderName,
                                             std::unique_ptr<IViewDescriptorSetCopy>&   out )
     {
+        // Material sets are allocated per material and view; the bindless table's set is one per device and is
+        // bound as it is (VulkanMaterialBackend::BindDescriptorSets puts the live table set at its index). So the
+        // table's layout is left out of the allocation and its place in the returned vector stays VK_NULL_HANDLE:
+        // a private copy would be a never-written table, and the live one is replaced when the table grows.
+        const bool                          bindless = BindlessTableIn( layouts ) != nullptr;
+        std::vector<DescriptorSetLayoutRef> owned;
+        owned.reserve( layouts.size() );
+        for ( size_t index = 0; index < layouts.size(); ++index )
+            if ( !bindless || index != kBindlessSetIndex )
+                owned.push_back( layouts[index] );
         ViewResources&       view = ViewResourceRegistry::Active();
         ViewPoolChainFactory factory;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): ChainKey names this exact type
         auto& chain = static_cast<ViewPoolChain&>( view.Acquire( ChainKey(), 0, factory ) );
 
-        const std::vector<VkDescriptorSetLayout> handles = RawHandles( layouts );
-        const Graphic::DescriptorRequest         cost    = DescriptorCostOf( layouts );
+        const std::vector<VkDescriptorSetLayout> handles = RawHandles( owned );
+        const Graphic::DescriptorRequest         cost    = DescriptorCostOf( owned );
 
         // Asked of the block's own accounting BEFORE the driver, which is the whole point: a block that cannot
         // hold this material is left untouched, so no vkAllocateDescriptorSets ever fails on the turnover path
@@ -169,6 +180,8 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>(
                  "shader '{}', view '{}': {} descriptor set(s) not allocated -- {}", shaderName, viewName,
                  handles.size(), allocated.GetError() );
+        if ( bindless )
+            sets.insert( sets.begin() + kBindlessSetIndex, VK_NULL_HANDLE );
         out = std::make_unique<VulkanViewSets>( std::move( sets ), std::move( from ) );
         return Common::MakeSuccess( true );
     }

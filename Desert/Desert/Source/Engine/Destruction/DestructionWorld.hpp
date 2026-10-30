@@ -31,7 +31,7 @@
 
 #include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/Destruction/FractureFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -43,6 +43,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Destruction
@@ -75,6 +76,10 @@ namespace Desert::Destruction
         /// levels past the list keep the bake's (UE ApplyAssetDefaults: the asset is the default)
         std::vector<float>  DamageThreshold;
         DestructionSettings Settings;
+        /// The spawned body's velocities (cm/s, rad/s): zero for an object placed at rest; a fracture made at
+        /// run time replacing a moving whole (DST-RUNTIME, At Impact) starts as the whole was moving.
+        glm::vec3 LinearVelocity  = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 AngularVelocity = { 0.0f, 0.0f, 0.0f };
     };
 
     using DestructibleHandle                                 = uint32_t;
@@ -129,6 +134,10 @@ namespace Desert::Destruction
         /// The body carrying @p node now: its own, its ancestor's or its group's. kInvalidBody once removed,
         /// and for a node above the bodies (the root after the first break).
         [[nodiscard]] Physics::BodyHandle GetNodeBody( DestructibleHandle object, int32_t node ) const;
+        /// The velocity of the body carrying @p node: linear (cm/s, at its centre of mass) and angular (rad/s);
+        /// zero for no body. What a run-time fracture replacing a whole spawns with (DestructibleDesc).
+        [[nodiscard]] std::pair<glm::vec3, glm::vec3> GetNodeVelocity( DestructibleHandle object,
+                                                                       int32_t            node ) const;
         /// How many bodies @p object is in now.
         [[nodiscard]] uint32_t GetBodyCount( DestructibleHandle object ) const;
 

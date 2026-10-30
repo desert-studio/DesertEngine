@@ -181,8 +181,10 @@ namespace Desert::World::Landscape
         Physics, ///< LandscapeCollision: the Jolt heightfield.
         Weights, ///< LandscapeECSSystem: the RGBA8 weightmap copy. Told about weight writes ONLY — a paint
                  ///< stroke changes no height, so neither the R16 copy nor the heightfield is re-sent for it.
+        Grass,   ///< LandscapeECSSystem: the grass field (heights and grass-layer weights) the grass grows from.
+        Water,   ///< WaterZoneECSSystem: the WaterInfo ground (the zone's bottom seen from above, UE WaterInfo).
     };
-    inline constexpr size_t kLandscapeDirtyConsumerCount = 3u;
+    inline constexpr size_t kLandscapeDirtyConsumerCount = 5u;
 
     /// How many weightmap layers one tile carries — owner decision O3 of the landscape programme (up to eight
     /// paint layers). A ninth is refused by name (AddWeightLayer, SetWeightLayers, DecodeLandscapeTile), never

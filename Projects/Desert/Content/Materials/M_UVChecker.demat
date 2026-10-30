@@ -1,0 +1,40 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "5d359543f63041d09be634607cebd631",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "3facba2f99300a42b32d1af712ab96e9"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.6000000238418579, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [8.0, 8.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "3facba2f99300a42b32d1af712ab96e9",
+            "Path": "assets:Textures/T_Checker.detex"
+        }
+    ],
+    "CloudAssets": []
+}

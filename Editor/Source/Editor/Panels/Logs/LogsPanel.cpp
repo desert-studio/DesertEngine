@@ -1,7 +1,9 @@
 #include "LogsPanel.hpp"
+#include <Common/Core/Profiler.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/LogView.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -62,27 +64,65 @@ namespace Desert::Editor
         Refresh();
     }
 
+    void LogsPanel::ResetParsed()
+    {
+        m_Entries.clear();
+        m_PendingLine.clear();
+        m_ReadOffset = 0;
+        m_CountInfo = m_CountWarning = m_CountError = 0;
+        s_SessionTail.clear();
+    }
+
     void LogsPanel::Refresh()
     {
+        DESERT_PROFILE_SCOPE( "Logs: Refresh" );
         // The file the logger placed (Common::Logger::LogFilePath) — never a bare name, which would be read
         // from whatever directory the editor was started in.
         const std::filesystem::path logFile = Common::Logger::LogFilePath();
-        std::error_code             ec;
-        if ( logFile.empty() || !std::filesystem::exists( logFile, ec ) )
+        if ( logFile.empty() )
             return;
 
-        auto writeTime = std::filesystem::last_write_time( logFile, ec );
-        if ( writeTime == m_LastWriteTime )
-            return;
-
-        m_LastWriteTime = writeTime;
-        m_Entries.clear();
-        m_CountInfo = m_CountWarning = m_CountError = 0;
-
-        std::ifstream file( logFile );
-        std::string   line;
-        while ( std::getline( file, line ) )
+        // TAILED, not re-read: only the bytes written since the last call are parsed. Re-reading the whole
+        // file on every change made this panel O(log size) per frame - the logger writes every frame, so a
+        // 28k-line Bistro session spent 110 ms of a 233 ms frame here. The file stays OPEN between frames:
+        // opening it (plus exists/file_size) twice a frame cost 8.9 ms of a 28 ms Bistro frame on Windows,
+        // where every open is scanned. A file shorter than what was already read was truncated (Clear, or a
+        // new session reusing the name): start over from its first byte.
+        if ( !m_File.is_open() || m_FilePath != logFile )
         {
+            m_File.close();
+            m_File.open( logFile, std::ios::binary );
+            m_FilePath = logFile;
+            ResetParsed();
+            if ( !m_File.is_open() )
+                return;
+        }
+        m_File.clear();
+        m_File.seekg( 0, std::ios::end );
+        const std::streamoff end = m_File.tellg();
+        if ( end < 0 || static_cast<std::uintmax_t>( end ) == m_ReadOffset )
+            return;
+        const auto size = static_cast<std::uintmax_t>( end );
+        if ( size < m_ReadOffset )
+            ResetParsed();
+
+        m_File.seekg( static_cast<std::streamoff>( m_ReadOffset ) );
+        std::string chunk( static_cast<std::size_t>( size - m_ReadOffset ), '\0' );
+        m_File.read( chunk.data(), static_cast<std::streamsize>( chunk.size() ) );
+        chunk.resize( static_cast<std::size_t>( m_File.gcount() ) );
+        m_ReadOffset += chunk.size();
+
+        // A line the logger is still writing has no '\n' yet; it waits in m_PendingLine for the rest.
+        const std::size_t firstNew = m_Entries.size();
+        std::size_t       begin    = 0;
+        for ( std::size_t end = chunk.find( '\n' ); end != std::string::npos; end = chunk.find( '\n', begin ) )
+        {
+            std::string line = std::move( m_PendingLine );
+            m_PendingLine.clear();
+            line.append( chunk, begin, end - begin );
+            begin = end + 1;
+            if ( !line.empty() && line.back() == '\r' )
+                line.pop_back();
             if ( line.empty() )
                 continue;
 
@@ -109,19 +149,21 @@ namespace Desert::Editor
 
             m_Entries.push_back( { std::move( line ), level } );
         }
+        m_PendingLine.append( chunk, begin, std::string::npos );
+        if ( m_Entries.size() == firstNew )
+            return;
 
         s_SessionWarnings = m_CountWarning;
         s_SessionErrors   = m_CountError;
         s_SessionInfo     = m_CountInfo;
 
-        // Rebuilt from the entries just parsed rather than appended to as lines arrive: Refresh re-reads
-        // the WHOLE file whenever it changes, so an appended tail would accumulate every line several
-        // times over and the channel would report a log the editor never wrote.
-        s_SessionTail.clear();
-        const std::size_t tailStart =
-             m_Entries.size() > kTailCapacity ? m_Entries.size() - kTailCapacity : std::size_t{ 0 };
-        for ( std::size_t i = tailStart; i < m_Entries.size(); ++i )
+        // Extended by the lines just parsed - each line is read once now, so appending cannot repeat one -
+        // and trimmed back to the newest kTailCapacity.
+        for ( std::size_t i = firstNew; i < m_Entries.size(); ++i )
             s_SessionTail.push_back( m_Entries[i].Text );
+        if ( s_SessionTail.size() > kTailCapacity )
+            s_SessionTail.erase( s_SessionTail.begin(),
+                                 s_SessionTail.end() - static_cast<std::ptrdiff_t>( kTailCapacity ) );
 
         m_ScrollToBottom = true;
     }
@@ -189,11 +231,13 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_DELETE_SWEEP_OUTLINE ) )
         {
             m_Entries.clear();
+            m_PendingLine.clear();
             m_CountInfo = m_CountWarning = m_CountError = 0;
             s_SessionWarnings = s_SessionErrors = 0;
+            s_SessionTail.clear();
             if ( const std::filesystem::path logFile = Common::Logger::LogFilePath(); !logFile.empty() )
                 std::ofstream( logFile, std::ios::trunc ).close();
-            m_LastWriteTime = {};
+            m_ReadOffset = 0;
         }
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( "Clear the log" );
@@ -303,45 +347,39 @@ namespace Desert::Editor
         // O(visible) even for a huge log; all rows are single-line, so it is exact.
         // Rebuild the row list ONLY when something it depends on changed — see the note on m_Rows. Doing
         // this per frame cost more than rendering the scene.
-        const bool viewDirty = m_RowsBuiltFromCount != m_Entries.size() || m_RowsInfo != m_ShowInfo ||
-                               m_RowsWarnings != m_ShowWarnings || m_RowsErrors != m_ShowErrors ||
-                               m_RowsCollapse != m_Collapse ||
-                               std::strncmp( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) ) != 0;
-        if ( viewDirty )
+        // A filter change rebuilds the rows; new log lines only extend them (the collapse folds a new line into
+        // the last run exactly as a rebuild would), so the cost per frame is the lines written that frame.
+        const bool filtersChanged = m_RowsInfo != m_ShowInfo || m_RowsWarnings != m_ShowWarnings ||
+                                    m_RowsErrors != m_ShowErrors || m_RowsCollapse != m_Collapse ||
+                                    std::strncmp( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) ) != 0;
+        if ( filtersChanged || m_RowsBuiltFromCount > m_Entries.size() )
         {
-            std::vector<std::pair<std::string, int>> filtered;
-            filtered.reserve( m_Entries.size() );
-            for ( const auto& entry : m_Entries )
-            {
-                if ( entry.Level == 0 && !m_ShowInfo )     continue;
-                if ( entry.Level == 1 && !m_ShowWarnings ) continue;
-                if ( entry.Level == 2 && !m_ShowErrors )   continue;
-                if ( !LogMatches( entry.Text, m_Filter ) ) continue;
-                filtered.emplace_back( entry.Text, entry.Level );
-            }
-
+            m_Rows.clear();
+            m_RowsBuiltFromCount = 0;
+        }
+        for ( std::size_t i = m_RowsBuiltFromCount; i < m_Entries.size(); ++i )
+        {
+            const LogEntry& entry = m_Entries[i];
+            if ( entry.Level == 0 && !m_ShowInfo )     continue;
+            if ( entry.Level == 1 && !m_ShowWarnings ) continue;
+            if ( entry.Level == 2 && !m_ShowErrors )   continue;
+            if ( !LogMatches( entry.Text, m_Filter ) ) continue;
             if ( m_Collapse )
             {
-                m_Rows = CollapseRepeats( filtered );
+                AppendCollapsed( m_Rows, entry.Text, entry.Level );
             }
             else
             {
-                m_Rows.clear();
-                m_Rows.reserve( filtered.size() );
-                for ( auto& [text, level] : filtered )
-                {
-                    const std::string time( ParseLogLine( text ).Time );
-                    m_Rows.push_back( { std::move( text ), level, 1, time, time } );
-                }
+                const std::string time( ParseLogLine( entry.Text ).Time );
+                m_Rows.push_back( { entry.Text, entry.Level, 1, time, time } );
             }
-
-            m_RowsBuiltFromCount = m_Entries.size();
-            m_RowsInfo           = m_ShowInfo;
-            m_RowsWarnings       = m_ShowWarnings;
-            m_RowsErrors         = m_ShowErrors;
-            m_RowsCollapse       = m_Collapse;
-            std::memcpy( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) );
         }
+        m_RowsBuiltFromCount = m_Entries.size();
+        m_RowsInfo           = m_ShowInfo;
+        m_RowsWarnings       = m_ShowWarnings;
+        m_RowsErrors         = m_ShowErrors;
+        m_RowsCollapse       = m_Collapse;
+        std::memcpy( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) );
 
         const std::vector<LogRepeatRun>& rows = m_Rows;
 
@@ -359,14 +397,19 @@ namespace Desert::Editor
         {
             if ( ImGui::MenuItem( "Copy visible" ) )
             {
-                std::string all;
+                static const ::Desert::Core::TextTemplate kVisible(
+                     "LogsCopyVisible",
+                     "{% for row in rows %}{{ row.text }}{% if row.count > 1 %}  (x{{ row.count }}){% endif %}\n"
+                     "{% endfor %}" );
+                Common::Json::Value::Array lines;
+                lines.reserve( rows.size() );
                 for ( const auto& r : rows )
-                {
-                    all += r.Text;
-                    if ( r.Count > 1 )
-                        all += "  (x" + std::to_string( r.Count ) + ")";
-                    all += '\n';
-                }
+                    lines.emplace_back(
+                         Common::Json::ObjectBuilder().Set( "text", r.Text ).Set( "count", r.Count ).Build() );
+                const std::string all = kVisible.RenderOrLog(
+                     Common::Json::Value( Common::Json::ObjectBuilder()
+                                               .Set( "rows", Common::Json::Value( std::move( lines ) ) )
+                                               .Build() ) );
                 ImGui::SetClipboardText( all.c_str() );
             }
             ImGui::EndPopup();

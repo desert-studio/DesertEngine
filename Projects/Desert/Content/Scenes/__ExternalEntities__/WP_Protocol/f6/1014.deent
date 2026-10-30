@@ -1,0 +1,13 @@
+{
+    "id": 1014,
+    "Tag": "Landscape Tile 3_1",
+    "Translation": [0.0, 0.0, 0.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "LandscapeTile": {
+        "Landscape": "1004",
+        "TileX": 3,
+        "TileZ": 1,
+        "HeightFile": "assets:Scenes/WP_Protocol_Landscape/1014.dlht"
+    }
+}

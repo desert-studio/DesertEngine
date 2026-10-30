@@ -43,6 +43,18 @@ namespace Desert::Editor
         Common::BoolResultStr SetUniformScale( Assets::SourceImportSettings& settings, float scale );
         void                  SetUpAxis( Assets::SourceImportSettings& settings, Assets::MeshSourceUpAxis axis );
         void                  SetCombineMeshes( Assets::SourceImportSettings& settings, bool on );
+        // Displacement (CONTRACT-DISPLACE §9.7): None / Runtime / Baked; Baked is refused for @p kind SkeletalMesh
+        // (§9.8). The Shown one probes what the shown source holds to know its kind.
+        Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings& settings,
+                                               Assets::MeshDisplacementMode mode, ImportContentKind kind );
+        // Virtual Geometry (VIRT-GEOM contract §1, §6): the static mesh cooks a cluster DAG. Refused for @p kind
+        // SkeletalMesh (the skinned path stays binned) and beside Displacement Runtime (a surface diced per frame
+        // has no fixed clusters); SetDisplacement refuses Runtime while it is on. Materials are judged by the
+        // import itself (VirtualGeometryGate.hpp): the window does not know them yet.
+        Common::BoolResultStr SetVirtualGeometry( Assets::SourceImportSettings& settings, bool on,
+                                                  ImportContentKind kind );
+        Common::BoolResultStr SetShownVirtualGeometry( bool on );
+        Common::BoolResultStr SetShownDisplacement( Assets::MeshDisplacementMode mode );
         Common::BoolResultStr SetShownUniformScale( float scale );
         Common::BoolResultStr SetShownUpAxis( Assets::MeshSourceUpAxis axis );
         Common::BoolResultStr SetShownCombineMeshes( bool on );
@@ -98,5 +110,12 @@ namespace Desert::Editor
         Common::BoolResultStr SetSectionUniformScale( const std::filesystem::path& assetPath, float scale );
         Common::BoolResultStr SetSectionUpAxis( const std::filesystem::path& assetPath,
                                                 Assets::MeshSourceUpAxis     axis );
+        // THE STATIC MESH'S VIRTUAL GEOMETRY FLAG ON AN EXISTING ASSET (UE: Asset Actions > Nanite > Enable /
+        // Disable; the palette's "Assets / Static Mesh: Virtual Geometry on|off" over the Content Browser
+        // selection). A mesh whose source sits beside it: the section's working copy (SetVirtualGeometry) and
+        // Reimport. Any other .stmesh (a node of a split import, an edit, a modeling output): the file's own flag,
+        // judged by VirtualGeometryGate over its material slots, written, and every loaded copy rebuilt now. An
+        // error names the refusal (not a static mesh, skinned, a refused material, a failed write or rebuild).
+        Common::BoolResultStr SetStoredVirtualGeometry( const std::filesystem::path& assetPath, bool on );
     } // namespace ImportOptions
 } // namespace Desert::Editor

@@ -13,7 +13,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
@@ -147,6 +147,15 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false, "no entity is selected" );
                                   return Tools::FoliagePaintTool::FillEntity( *scene, *assets, *selected );
                               } } );
+        commands.push_back( { "Foliage", "Repartition foliage", [&scene]() -> Common::BoolResultStr
+                              {
+                                  if ( !scene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  if ( !scene->GetWorldPartition().has_value() )
+                                      return PaletteCommandOutcome(
+                                           false, "the world is not partitioned: there are no cells to file by" );
+                                  return Tools::FoliagePaintTool::RepartitionFoliage( *scene );
+                              } } );
         commands.push_back( { "Foliage", "Select no instances", [&scene]() -> Common::BoolResultStr
                               {
                                   if ( !scene )
@@ -270,8 +279,10 @@ namespace Desert::Editor
                    const auto ref = scene->FindEntityByID( uuid );
                    if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                        return Common::MakeError( "the edited type has no instanced mesh" );
-                   bool& casts = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().CastShadows;
-                   casts       = !casts;
+                   ECS::InstancedStaticMeshDesc desc =
+                        ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                   desc.CastShadows = !desc.CastShadows;
+                   ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
                    return BOOLSUCCESS;
                } },
         };

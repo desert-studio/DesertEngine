@@ -8,8 +8,10 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -27,6 +29,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <format>
 #include <unordered_map>
 
 namespace Desert::Runtime
@@ -44,13 +47,13 @@ namespace Desert::Runtime
             registry.view<ECS::StaticMeshComponent>().each(
                  [&]( ECS::StaticMeshComponent& mesh )
                  {
-                     for ( const auto& slot : mesh.MaterialSlots )
+                     for ( const auto& slot : mesh.GetMaterialSlots() )
                          if ( slot == materialHandle )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
+                             mesh.RuntimeMaterialInstances().clear();
                              // Dropped, not emptied: a draw recorded this frame may still hold the old
                              // binding, and it must keep the instances it names alive until it has run.
-                             mesh.RuntimeSlots.reset();
+                             mesh.RuntimeSlots().reset();
                              break;
                          }
                  } );
@@ -58,10 +61,10 @@ namespace Desert::Runtime
             registry.view<ECS::SkinnedMeshComponent>().each(
                  [&]( ECS::SkinnedMeshComponent& mesh )
                  {
-                     for ( const auto& slot : mesh.MaterialSlots )
+                     for ( const auto& slot : mesh.GetMaterialSlots() )
                          if ( slot == materialHandle )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
+                             mesh.RuntimeMaterialInstances().clear();
                              break;
                          }
                  } );
@@ -83,7 +86,9 @@ namespace Desert::Runtime
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
         PollLandscapeLayerInfos( assetManager );
+        PollLandscapeGrassTypes( assetManager );
         PollPrefabs( assetManager );
+        PollVFXEffectTypes( assetManager );
         m_ContentWatch.Poll();
         m_FirstScan = false;
     }
@@ -266,6 +271,63 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] Landscape layer info '{}' reloaded — the next frame and stroke use it.", key );
+        }
+    }
+
+    void AssetHotReload::PollLandscapeGrassTypes( Assets::AssetManager& assetManager )
+    {
+        // No service to notify, for the layer info's reason: LandscapeGrassTypeService hands out the asset, the
+        // landscape system reads its varieties every frame and compares its Revision for what it derived from
+        // them.
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::LandscapeGrassTypeAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            const auto& path = asset->GetMetadata().Filepath;
+            if ( !TouchWatched( path ) )
+                continue;
+
+            const std::string key = path.generic_string();
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Landscape grass type '{}' could not be re-read: {}", key,
+                           reloaded.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] Landscape grass type '{}' reloaded — the next frame grows it.", key );
+        }
+    }
+
+    void AssetHotReload::PollVFXEffectTypes( Assets::AssetManager& assetManager )
+    {
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::VFXEffectTypeAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            // Touched before the readiness test, for the prefab's reason.
+            const auto& path    = asset->GetMetadata().Filepath;
+            const bool  changed = TouchWatched( path );
+            if ( !changed || !asset->IsReadyForUse() )
+                continue;
+
+            const std::string key = path.generic_string();
+            if ( const auto reloaded = asset->LoadFromFile(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] VFX effect type '{}' could not be re-read (the last good levels are kept): {}",
+                           key, reloaded.GetError() );
+                continue;
+            }
+
+            std::string levels;
+            for ( const auto& level : asset->GetData().Levels )
+                levels += std::format( "{}{:.0f} cm x{:.2f}", levels.empty() ? "" : ", ", level.MaxDistance,
+                                       level.SpawnCountScale );
+            LOG_INFO( "[HotReload] VFX effect type '{}' reloaded - levels (MaxDistance x SpawnCountScale): {}; the "
+                      "next VFX tick reads them.",
+                      key, levels );
         }
     }
 
@@ -508,23 +570,22 @@ namespace Desert::Runtime
             if ( !shader )
                 continue;
 
-            // A pipeline compile on a worker reads this shader's stage infos; Reload replaces them.
-            Graphic::PipelineBuilds::Get().WaitIdle();
-            if ( const auto res = shader->Reload(); !res )
+            // THE SERVICE'S ONE RECOMPILE (ShaderService::Recompile), the path every editor recompile takes too:
+            // the refusals of this file's variants are forgotten (a fixed shader draws, one still broken is
+            // reported again with its new reason), the program reloads, and so does every live variant of the
+            // same file - a cloud march compiled against an authored medium is a different Shader object built
+            // from these bytes, and leaving it on its old code would read as "editing the shader stopped working
+            // once I authored a medium".
+            const auto recompiled = shaderService->Recompile( handle );
+            if ( !recompiled )
             {
                 // Compile errors land here (and in the Logs panel). Existing pipelines keep the
                 // previous working code; save again to retry.
                 LOG_ERROR( "[HotReload] Shader '{}' failed to compile: {}", shader->GetName(),
-                           res.GetError() );
+                           recompiled.GetError() );
                 continue;
             }
-
-            // AND EVERY LIVE VARIANT OF THE SAME FILE. A cloud march compiled against an authored
-            // medium is a different Shader object built from these same bytes; reloading only the
-            // registered program would leave it on the code it was built with, and the symptom would be
-            // "editing the shader stopped working once I authored a medium" — a staleness that names
-            // the wrong cause.
-            if ( const int variants = shaderService->ReloadVariantsOf( handle ); variants > 0 )
+            if ( const int variants = recompiled.GetValue(); variants > 0 )
                 LOG_INFO( "[HotReload] Shader '{}': {} variant(s) recompiled with it.", shader->GetName(),
                           variants );
 

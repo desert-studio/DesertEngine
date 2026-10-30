@@ -3,8 +3,9 @@
         "Kind": "Scene",
         "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
-            "SCNE": 54,
-            "UNIT": 1
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["003085b663f8dac28c0a750a38cf6db8", "443da08f9e394860b5c2bd3bb619e9cd", "d4fbdf9b566d4035ab03ab0f9a35330e", "e06572ed86a043209146d11062e05b5c"]
     },
@@ -23,16 +24,22 @@
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -100,6 +107,12 @@
                 "TimeOfDay": 12.0,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
                 "NorthOffset": 0.0
             }
         },
@@ -111,7 +124,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [60.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -128,7 +141,7 @@
                 "Playing": true,
                 "Loop": true,
                 "PlaybackSpeed": 1.0,
-                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
+                "Graph": "assets:AnimGraphs/ScriptDriven.danimgraph"
             },
             "Script": {
                 "Scripts": [
@@ -139,9 +152,9 @@
                 ]
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
@@ -157,7 +170,7 @@
                 "Playing": true,
                 "Loop": true,
                 "PlaybackSpeed": 1.0,
-                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
+                "Graph": "assets:AnimGraphs/ScriptDriven.danimgraph"
             },
             "Script": {
                 "Scripts": [
@@ -176,9 +189,9 @@
                 ]
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
@@ -220,14 +233,13 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 1.0,
-                    "Gamma": 2.200000047683716,
+                    "ManualExposureEV100": 0.5260688662528992,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
@@ -271,6 +283,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

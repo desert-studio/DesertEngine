@@ -4,7 +4,7 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
@@ -81,9 +81,9 @@ namespace Desert::ECS
         {
             const auto pick = [slot]( const auto& mesh ) -> Graphic::MaterialInstance*
             {
-                if ( slot >= mesh.MaterialSlots.size() || slot >= mesh.RuntimeMaterialInstances.size() )
+                if ( slot >= mesh.GetMaterialSlots().size() || slot >= mesh.RuntimeMaterialInstances().size() )
                     return nullptr;
-                return mesh.RuntimeMaterialInstances[slot].get();
+                return mesh.RuntimeMaterialInstances()[slot].get();
             };
             if ( !registry.valid( entity ) )
                 return nullptr;

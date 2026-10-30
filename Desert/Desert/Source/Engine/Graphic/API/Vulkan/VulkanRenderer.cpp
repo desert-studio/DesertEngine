@@ -1,7 +1,11 @@
+#include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanSharedGpuMemory.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <span>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -16,6 +20,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRayTracingPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
@@ -27,12 +32,14 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -68,6 +75,22 @@ namespace Desert::Graphic::API::Vulkan
         // explains the failure. Rolling at the top means the readable count always belongs to the last
         // frame that actually recorded.
         DrawCounter::Roll();
+        // The geometry pool's bind counters roll with the draw counter, and its released spans older than the
+        // frames in flight return to the free lists before this frame uploads anything (GeometryPool).
+        GeometryPool::Get().BeginFrame();
+        // The virtual-geometry cluster tables follow the pool's frame rule: released rows retire, rows registered
+        // since the last frame (StaticMesh::Invalidate) go up before any pass reads them.
+        if ( const Common::BoolResultStr uploaded = VirtualGeometry::VirtualMeshTable::Get().RT_Upload();
+             !uploaded )
+            LOG_ERROR( "{}; virtual-geometry meshes registered since the last frame are not on the device",
+                       uploaded.GetError() );
+
+        // Before any view begins: a vendor runtime that refused a method since the catalog offered it withdraws
+        // it here, and Resolve lowers it (VulkanPhysicalDevice::RefreshRuntimeOffers) - the frame's views read a
+        // resolution that no longer names a method that cannot run.
+        SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+             ->GetPhysicalDevice()
+             ->RefreshRuntimeOffers();
 
         // ONE PATH, WINDOW OR NOT. BeginRdgFrame waited this slot's fence (VulkanFrameLoop::BeginSlot) and began
         // its objects; the frame records into a graphics command buffer of the slot, already begun. A window is
@@ -88,12 +111,13 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>( "the frame's command buffer: {}", frame.GetError() );
         }
         m_CurrentCommandBuffer = frame.GetValue();
+        m_BoundGeometry.reset(); // a freshly begun buffer holds no geometry binding
 
         // Resolve the previous results and reset this frame's queries. Must be here: vkCmdResetQueryPool
         // is illegal inside a render pass, and this is the one point in the frame where the command buffer
         // is recording and no pass is open.
 #if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.BeginFrame( m_CurrentCommandBuffer );
+        m_GpuProfiler.BeginFrame();
 #endif
 
         return BOOLSUCCESS;
@@ -113,7 +137,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( IsRecording() )
         {
 #if DESERT_DEV_INSTRUMENTS
-            m_GpuProfiler.EndFrame( m_CurrentCommandBuffer );
+            m_GpuProfiler.EndFrame();
 #endif
 
             VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
@@ -170,12 +194,16 @@ namespace Desert::Graphic::API::Vulkan
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
+        if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
         SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
              ->GetVulkanAllocator()
              ->ProcessDeletionQueue();
+        (void)CommandBufferAllocator::GetInstance().CollectFinished();
         return BOOLSUCCESS;
     }
 
@@ -349,7 +377,13 @@ namespace Desert::Graphic::API::Vulkan
         // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
         if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
         {
+            // THE RENDERER'S ROW (the device's own, no instance): this grows lazily inside whichever view's ledger
+            // scope drew first, and outlives that view (VIEW-CLOSE-LEAK). A category scope clears that view's instance.
+            const ResourceAttributionScope rendererRows( ResourceOwner::Device );
             std::vector<MeshVertexStreams> defaults( capacity );
+            // The device's own, shared by every view: grown by whichever view first draws more vertices, so
+            // without this scope it was booked to THAT view and outlived its close (EDITOR-LOG-CLEAN).
+            const ResourceAttributionScope owned( ResourceOwner::Device );
             m_DefaultVertexStreams = VertexBuffer::Create(
                  defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
             const auto uploaded = m_DefaultVertexStreams->RT_Invalidate();
@@ -357,6 +391,25 @@ namespace Desert::Graphic::API::Vulkan
             m_DefaultVertexStreamsCapacity = capacity;
         }
         return m_DefaultVertexStreams;
+    }
+
+    VkBuffer VulkanRendererAPI::VisibleRowIdentity( const uint32_t rows )
+    {
+        if ( m_VisibleRowIdentity == nullptr || rows > m_VisibleRowIdentityRows )
+        {
+            // Doubled past the request, so a scene that grows by one draw does not reallocate every frame.
+            const uint32_t        capacity = std::max( { rows, m_VisibleRowIdentityRows * 2u, 1024u } );
+            std::vector<uint32_t> identity( capacity );
+            for ( uint32_t row = 0; row < capacity; ++row )
+                identity[row] = row;
+            const ResourceAttributionScope owned( ResourceOwner::Device );
+            m_VisibleRowIdentity = VertexBuffer::Create(
+                 identity.data(), static_cast<uint32_t>( identity.size() * sizeof( uint32_t ) ) );
+            const auto uploaded = m_VisibleRowIdentity->RT_Invalidate();
+            DESERT_VERIFY( uploaded.IsSuccess(), "the instance id identity buffer could not be uploaded" );
+            m_VisibleRowIdentityRows = capacity;
+        }
+        return sp_cast<API::Vulkan::VulkanVertexBuffer>( m_VisibleRowIdentity )->GetVulkanBuffer();
     }
 
     void VulkanRendererAPI::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
@@ -441,11 +494,23 @@ namespace Desert::Graphic::API::Vulkan
             using Sets = std::vector<VkDescriptorSet>;
             Sets sets;
             sets.reserve( layouts.size() );
+            // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
+            // bound as it is, and slots written into it later reach commands already recorded. A layout is the
+            // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
+            // table exists whenever this matches.
+            const VulkanBindlessTextureTable* bindless   = BindlessTableIn( layouts );
+            const auto                        isBindless = [bindless]( size_t set )
+            { return bindless != nullptr && set == kBindlessSetIndex; };
             for ( size_t index = 0; index < layouts.size(); ++index )
             {
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
+                if ( isBindless( index ) )
+                {
+                    sets.push_back( bindless->GetDescriptorSet() );
+                    continue;
+                }
                 const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
                 if ( !set )
                     return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
@@ -459,6 +524,11 @@ namespace Desert::Graphic::API::Vulkan
                 if ( entry.Slot.Set >= sets.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
                                                              pass, name, entry.Slot.Set, sets.size() );
+                if ( isBindless( entry.Slot.Set ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
+                         "through BindlessTextureTable::Register",
+                         pass, name, entry.Slot.Set );
                 const VkDescriptorSetLayoutBinding* binding =
                      FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
                 if ( binding == nullptr )
@@ -467,26 +537,38 @@ namespace Desert::Graphic::API::Vulkan
                          entry.Slot.Set, entry.Slot.Binding );
                 VkDescriptorSet       set     = sets[entry.Slot.Set];
                 Common::BoolResultStr written = Common::MakeSuccess( true );
-                if ( entry.Texture != nullptr )
+                if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                {
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
+                             static_cast<int>( binding->descriptorType ) );
+                    const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
+                    if ( !made )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
+                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                }
+                else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
                     const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
                                       : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
-                    VkSampler sampler = VK_NULL_HANDLE;
-                    if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-                    {
-                        if ( !texture.Sampler )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
-                                                                     pass, name );
-                        const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
-                        if ( !made )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                        sampler = made.GetValue();
-                    }
-                    written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout, sampler );
+                    if ( texture.Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
+                             "texture is read through a Sampler slot of the pass",
+                             pass, name, static_cast<int>( binding->descriptorType ) );
+                    written =
+                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
+                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
+                }
+                else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
+                {
+                    written = descriptors.WriteAccelerationStructure(
+                         set, entry.Slot.Binding, binding->descriptorType, entry.Buffer->Buffer );
                 }
                 else
                 {
@@ -566,7 +648,7 @@ namespace Desert::Graphic::API::Vulkan
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         if ( const Common::BoolResultStr bound = BindComputePassState( bindings, pipeline, cmd ); !bound )
             return bound;
-        vkCmdDispatchIndirect( cmd, buffer.GetValue()->GetBuffer(), offset );
+        vkCmdDispatchIndirect( cmd, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset );
         return Common::MakeSuccess( true );
     }
 
@@ -631,6 +713,56 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::TraceRays( const RDG::PassBindings&                   bindings,
+                                                        const RayTracingPipeline&                  pipeline,
+                                                        const RayTracing::RayTracingHitGroupTable& hits,
+                                                        const uint32_t width, const uint32_t height )
+    {
+        const RDG::PassContext&                  context = bindings.GetContext();
+        const std::string_view                   pass    = context.GetPassName();
+        const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !cmd )
+            return Common::MakeError( cmd.GetError() );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
+             VulkanRdgBackend::DescriptorsOf( context );
+        if ( !descriptors )
+            return Common::MakeError( descriptors.GetError() );
+
+        auto& traced =
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
+             // only the Vulkan API makes pipelines; a launch writes the pipeline's own shader binding table
+             const_cast<VulkanRayTracingPipeline&>( static_cast<const VulkanRayTracingPipeline&>( pipeline ) );
+        const auto* program = dynamic_cast<const VulkanShader*>( traced.GetSpecification().Program.get() );
+        if ( program == nullptr || traced.GetVkPipeline() == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "{}: ray tracing pipeline '{}' is not built", pass,
+                                               traced.GetSpecification().DebugName );
+
+        // The program's reflection is the pipeline's layout (VulkanRayTracingPipeline::Build): the pass's
+        // bindings resolve against it alone, as a compute dispatch's against its program; no setter route.
+        const auto resolved =
+             ResolveRdgPassBindings( program->GetReflectionData(), program->GetName(), bindings, RdgOtherRoute{} );
+        if ( !resolved )
+            return Common::MakeError( resolved.GetError() );
+        const auto sets =
+             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
+        if ( !sets )
+            return Common::MakeError( sets.GetError() );
+
+        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipeline() );
+        if ( !sets.GetValue().empty() )
+            vkCmdBindDescriptorSets(
+                 cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipelineLayout(), 0,
+                 static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
+        const std::span<const std::byte> push = ChoosePushConstants( bindings, {} );
+        if ( !push.empty() )
+            vkCmdPushConstants( cmd.GetValue(), traced.GetVkPipelineLayout(), traced.GetPushConstantStages(), 0,
+                                static_cast<uint32_t>( push.size() ), push.data() );
+        if ( const Common::BoolResultStr launched = traced.RecordTraceRays( cmd.GetValue(), hits, width, height );
+             !launched )
+            return Common::MakeFormattedError( "{}: {}", pass, launched.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
                                                              const GraphicsPipeline&  pipeline,
                                                              const MaterialExecutor*  material,
@@ -639,7 +771,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
                                                bindings.GetContext().GetPassName(), vertexCount, instanceCount );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
         // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
         DrawCounted( vertexCount, instanceCount, 0, 0 );
@@ -668,9 +800,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( !buffer )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
                                                buffer.GetError() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), offset, 1,
+        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
@@ -684,7 +816,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( indexCount == 0u )
             return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
                                                bindings.GetContext().GetPassName() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
@@ -693,30 +825,105 @@ namespace Desert::Graphic::API::Vulkan
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
         vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        m_BoundGeometry.reset(); // bindings 0 and the index buffer now hold this batch's, not a mesh's
         // Vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
-                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                         const glm::mat4&        transform,
-                                                         const MaterialExecutor& material, uint32_t instanceCount,
-                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
-                                                         uint32_t lodLevel )
+    Common::BoolResultStr VulkanRendererAPI::BindMeshBuffers( const std::string_view     pass,
+                                                              const GraphicsPipeline&    pipeline,
+                                                              const MeshGeometryBinding& geometry,
+                                                              const VkBuffer visibleRows, const bool shared )
     {
-        DESERT_PROFILE_FUNC();
+        if ( geometry.Vertices == nullptr )
+            return Common::MakeFormattedError( "{}: mesh has no vertices on the GPU", pass );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        // Binding 2, the instance id stream (GpuScene.glslh a_VisibleRow): exactly when the stage reads it. A
+        // stage reading it with no stream given would read whatever binding 2 last held: refused, and so is a
+        // stream handed to a stage that does not read it (the caller drew the wrong cell).
+        if ( graphics->ReadsVisibleRow() != ( visibleRows != VK_NULL_HANDLE ) )
+            return Common::MakeFormattedError(
+                 "{}: pipeline '{}' {} the instance id stream but the draw {}", pass,
+                 pipeline.GetSpecification().DebugName, graphics->ReadsVisibleRow() ? "reads" : "does not read",
+                 visibleRows != VK_NULL_HANDLE ? "binds one" : "binds none (no binned rows for it)" );
+
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+        const VkBuffer vbuffer = static_cast<const VulkanVertexBuffer*>( geometry.Vertices )->GetVulkanBuffer();
+        // Binding 1, the optional streams (MeshVertexLayout): the geometry's own, or the shared default holding
+        // at least as many vertices as this mesh - one pipeline, one stride either way. HasVertexStreams is read
+        // off the pipeline's BUILT vertex input (layout and vertex-stage inputs,
+        // VulkanPipeline::CreateVertexInputState): a pipeline whose shader reads no stream has no binding 1 and
+        // gets no buffer there. It implies a layout.
+        VkBuffer     sbuffer = VK_NULL_HANDLE;
+        VkDeviceSize soffset = 0;
+        if ( const auto& layout = pipeline.GetSpecification().Layout;
+             graphics->HasVertexStreams() && layout.has_value() )
+        {
+            if ( geometry.Streams != nullptr )
+            {
+                sbuffer = static_cast<const VulkanVertexBuffer*>( geometry.Streams )->GetVulkanBuffer();
+                soffset = geometry.StreamOffset;
+            }
+            else
+            {
+                const uint64_t size  = geometry.Vertices->GetSize();
+                const uint64_t bytes = size - std::min( size, geometry.VertexOffset );
+                sbuffer = sp_cast<VulkanVertexBuffer>(
+                               DefaultVertexStreams(
+                                    DefaultVertexStreamsFor( *layout, bytes, m_DefaultVertexStreamsCapacity ).Capacity ) )
+                               ->GetVulkanBuffer();
+            }
+        }
+        const VkBuffer ibuffer = geometry.Indices != nullptr
+                                      ? static_cast<const VulkanIndexBuffer*>( geometry.Indices )->GetVulkanBuffer()
+                                      : VK_NULL_HANDLE;
+        // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+
+        // THE BIND-SKIP (GeometryPool::RecordBind): the same buffers at the same offsets for the same pipeline on
+        // the same command buffer are already bound, so nothing is recorded. Keyed by the VkBuffer handles, not the
+        // buffer objects: a pool arena that grew keeps its object and changes its handle, and a draw after the
+        // growth must bind the new one. Every pooled mesh's shared binding is its arena at offset 0, so the binned
+        // passes bind once per pipeline switch.
+        const BoundGeometry key{ m_CurrentCommandBuffer, &pipeline, vbuffer, geometry.VertexOffset, sbuffer,
+                                 soffset,                ibuffer,   geometry.IndexOffset };
+        if ( !m_BoundGeometry.has_value() || *m_BoundGeometry != key )
+        {
+            const VkDeviceSize voffset = geometry.VertexOffset;
+            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, &voffset );
+            if ( sbuffer != VK_NULL_HANDLE )
+                vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, &soffset );
+            if ( ibuffer != VK_NULL_HANDLE )
+                vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, geometry.IndexOffset, VK_INDEX_TYPE_UINT32 );
+            m_BoundGeometry = key;
+            GeometryPool::Get().RecordBind( shared );
+        }
+        if ( visibleRows != VK_NULL_HANDLE )
+        {
+            const VkDeviceSize zero = 0;
+            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &visibleRows,
+                                    &zero );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr
+    VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                          const Mesh& mesh, const glm::mat4& transform,
+                                          const MaterialExecutor& material, const SubmeshMask hiddenSubmeshMask,
+                                          const VkBuffer visibleRows, const SubmeshDraw& draw )
+    {
         const std::string_view pass = bindings.GetContext().GetPassName();
-        if ( instanceCount == 0u )
-            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
         // The push block is the per-submesh transform the material carries (written below for each submesh).
         if ( !bindings.GetPushConstants().empty() )
             return Common::MakeFormattedError(
                  "{}: a mesh draw's push constants are its per-submesh transform; the bindings carry their own",
                  pass );
-        if ( !mesh.GetVertexBuffer() )
-            return Common::MakeFormattedError( "{}: mesh has no vertex buffer", pass );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound )
+        const MeshGeometry& geometry = mesh.GetGeometry();
+        if ( !geometry.IsResident() )
+            return Common::MakeFormattedError( "{}: mesh has no vertices on the GPU", pass );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound || !bound.GetValue() )
             return bound;
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
@@ -724,34 +931,12 @@ namespace Desert::Graphic::API::Vulkan
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
 
-        const VkDeviceSize offsets[] = { 0 };
-        VkBuffer vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
-        // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
-        // least as many vertices as this mesh - one pipeline, one stride either way. HasVertexStreams is read off
-        // the pipeline's BUILT vertex input (layout and vertex-stage inputs,
-        // VulkanPipeline::CreateVertexInputState): a pipeline whose shader reads no stream has no binding 1 and
-        // gets no buffer there. It implies a layout.
-        if ( const auto& layout = pipeline.GetSpecification().Layout;
-             graphics->HasVertexStreams() && layout.has_value() )
-        {
-            const auto& own = mesh.GetStreamBuffer();
-            VkBuffer    sbuffer =
-                 sp_cast<API::Vulkan::VulkanVertexBuffer>(
-                      own != nullptr ? own
-                                     : DefaultVertexStreams(
-                                            DefaultVertexStreamsFor( *layout, mesh.GetVertexBuffer()->GetSize(),
-                                                                     m_DefaultVertexStreamsCapacity )
-                                                 .Capacity ) )
-                      ->GetVulkanBuffer();
-            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
-        }
-        const auto& indexBuffer = mesh.GetIndexBuffer();
-        if ( indexBuffer )
-        {
-            VkBuffer ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( indexBuffer )->GetVulkanBuffer();
-            vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-        }
+        // The per-mesh bind: the geometry at this mesh's own offsets, so every submesh range stays mesh-relative.
+        if ( const Common::BoolResultStr buffers =
+                  BindMeshBuffers( pass, pipeline, geometry.MeshBinding(), visibleRows, false );
+             !buffers )
+            return buffers;
+        const uint32_t indexCount = geometry.Indices != nullptr ? geometry.IndexCount : 0u;
 
         // The push block of every submesh: the material's (the pipeline layout's full range, so the per-object
         // values the caller wrote past the transform go too; zero past what the material holds) with the submesh's
@@ -772,11 +957,12 @@ namespace Desert::Graphic::API::Vulkan
                 std::memcpy( push.data(), materialPush.Data, std::min<size_t>( push.size(), materialPush.Size ) );
         }
 
-        // RenderMesh's walk: the hidden-submesh mask, the per-submesh push block and the LOD clamp.
+        // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
         const auto& submeshes = mesh.GetSubmeshes();
+        uint32_t    drawn     = 0;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
-            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) != 0 )
+            if ( hiddenSubmeshMask.Hides( si ) )
                 continue;
             const auto&     submesh        = submeshes[si];
             const glm::mat4 finalTransform = transform * submesh.Transform;
@@ -787,28 +973,198 @@ namespace Desert::Graphic::API::Vulkan
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
-
-            if ( !indexBuffer )
-            {
-                DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
-                continue;
-            }
-            uint32_t drawOffset = submesh.IndexOffset;
-            uint32_t drawCount  = submesh.IndexCount;
-            if ( !submesh.LODs.empty() )
-            {
-                const uint32_t lvl =
-                     lodLevel < submesh.LODs.size() ? lodLevel : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
-                drawOffset = submesh.LODs[lvl].IndexOffset;
-                drawCount  = submesh.LODs[lvl].IndexCount;
-            }
-            if ( drawOffset + drawCount > indexBuffer->GetCount() )
-                return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer",
-                                                   pass, si, drawOffset, drawOffset + drawCount,
-                                                   indexBuffer->GetCount() );
-            DrawIndexedCounted( drawCount, instanceCount, drawOffset, static_cast<int32_t>( submesh.VertexOffset ),
-                                firstInstance );
+            if ( auto recorded = draw( drawn++, si, submesh, indexCount ); !recorded )
+                return recorded;
         }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
+                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                         const glm::mat4&        transform,
+                                                         const MaterialExecutor& material, uint32_t instanceCount,
+                                                         uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
+                                                         uint32_t lodLevel )
+    {
+        DESERT_PROFILE_FUNC();
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        if ( instanceCount == 0u )
+            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask, VK_NULL_HANDLE,
+             [&]( uint32_t, const size_t si, const Submesh& submesh,
+                  const uint32_t indexCount ) -> Common::BoolResultStr
+             {
+                 if ( indexCount == 0u )
+                 {
+                     DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                     return Common::MakeSuccess( true );
+                 }
+                 const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
+                 if ( range.First + range.Count > indexCount )
+                     return Common::MakeFormattedError(
+                          "{}: submesh {} reads indices [{}, {}) of a {}-index mesh", pass, si, range.First,
+                          range.First + range.Count, indexCount );
+                 DrawIndexedCounted( range.Count, instanceCount, range.First,
+                                     static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+         const glm::mat4& transform, const MaterialExecutor& material, const RDG::BufferRef args,
+         const uint64_t offset, const SubmeshMask hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        if ( offset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {}, not a multiple of four",
+                                               context.GetPassName(), offset );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               declared.GetError() );
+        const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !buffer )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               buffer.GetError() );
+        const uint64_t bytes  = declared.GetValue().Desc->Bytes;
+        const VkBuffer vkArgs = buffer.GetValue()->GetBuffer();
+        // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
+        // The VSM caster draw instances through its remap (firstInstance = RemapBase), never a binned id stream.
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask, VK_NULL_HANDLE,
+             [&]( const uint32_t drawn, const size_t si, const Submesh&,
+                  const uint32_t indexCount ) -> Common::BoolResultStr
+             {
+                 const uint64_t record =
+                      order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
+                 const uint64_t at = offset + ( record * kMeshDrawArgumentsBytes );
+                 if ( at + kMeshDrawArgumentsBytes > bytes )
+                     return Common::MakeFormattedError(
+                          "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",
+                          context.GetPassName(), drawn, at, declared.GetValue().Name, bytes );
+                 // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh pass.
+                 DrawCounter::RecordCpuIndirect();
+                 if ( indexCount == 0u )
+                     vkCmdDrawIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                                        static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
+                 else
+                     vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                                               static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
+                                                                      const GraphicsPipeline&      pipeline,
+                                                                      const MeshGeometryBinding&   geometry,
+                                                                      const MeshIndirectGroupDraw& draw )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        const std::string_view  pass    = context.GetPassName();
+        if ( draw.MaxDraws == 0u )
+            return Common::MakeSuccess( true );
+        if ( draw.Stride < sizeof( VkDrawIndexedIndirectCommand ) || draw.Stride % 4u != 0u ||
+             draw.ArgsOffset % 4u != 0u )
+            return Common::MakeFormattedError(
+                 "{}: indirect group of stride {} at byte {}: the stride holds a VkDrawIndexedIndirectCommand "
+                 "and both are multiples of four",
+                 pass, draw.Stride, draw.ArgsOffset );
+        if ( geometry.Indices == nullptr )
+            return Common::MakeFormattedError( "{}: an indirect group's geometry has no index buffer", pass );
+        const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", pass, declared.GetError() );
+        const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !args )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", pass, args.GetError() );
+        const uint64_t end = draw.ArgsOffset + ( uint64_t{ draw.MaxDraws - 1u } * draw.Stride ) +
+                             sizeof( VkDrawIndexedIndirectCommand );
+        if ( end > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: {} indirect records at byte {} (stride {}) pass the end of '{}' ({} bytes)", pass,
+                 draw.MaxDraws, draw.ArgsOffset, draw.Stride, declared.GetValue().Name,
+                 declared.GetValue().Desc->Bytes );
+        if ( draw.MaxDrawsPerCall == 0u )
+            return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
+
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material );
+             !bound || !bound.GetValue() )
+            return bound;
+        // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
+        // VisibleInstances the record's firstInstance points into (BindMeshBuffers refuses a pipeline reading
+        // a_VisibleRow without it, and a stream handed to one that does not).
+        const VkBuffer visibleRows =
+             draw.VisibleRows != 0u ? VisibleRowIdentity( draw.VisibleRows ) : VK_NULL_HANDLE;
+        // The group's shared binding (the pool arena at offset 0): bound once per pipeline switch, the records'
+        // FirstIndex / VertexOffset are pool-absolute (DrawCommandCache).
+        if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, geometry, visibleRows, true );
+             !buffers )
+            return buffers;
+
+        // Not counted by DrawCounter: the instance counts are the GPU's (RenderMeshIndirect likewise).
+        // One fixed table (decision 10-28): every bin's record is drawn, a culled one with InstanceCount 0.
+        const VkBuffer vkArgs = args.GetValue()->GetBuffer();
+        // The mesh pass's issued bins and calls (DrawCounter::LastFrameMeshPass).
+        // MaxDraws > 0 here; maxDrawIndirectCount may be 2^32 - 1, so no rounding-up sum.
+        DrawCounter::RecordBins( draw.MaxDraws, ( ( draw.MaxDraws - 1u ) / draw.MaxDrawsPerCall ) + 1u );
+        for ( uint32_t first = 0; first < draw.MaxDraws; first += draw.MaxDrawsPerCall )
+        {
+            const uint32_t count = std::min( draw.MaxDraws - first, draw.MaxDrawsPerCall );
+            vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs,
+                                      draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count, draw.Stride );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
+                                                                         const GraphicsPipeline&         pipeline,
+                                                                         const ClusterIndirectGroupDraw& draw )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        const std::string_view  pass    = context.GetPassName();
+        if ( draw.ArgsOffset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: cluster group arguments at byte {}: not a multiple of four",
+                                               pass, draw.ArgsOffset );
+        const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, declared.GetError() );
+        if ( draw.ArgsOffset + sizeof( VkDrawIndirectCommand ) > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: cluster group arguments at byte {} pass the end of '{}' ({} bytes)", pass, draw.ArgsOffset,
+                 declared.GetValue().Name, declared.GetValue().Desc->Bytes );
+        const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !args )
+            return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, args.GetError() );
+        const auto rowsDeclared = context.GetBuffer( draw.Rows, RDG::Access::VertexIndex );
+        if ( !rowsDeclared )
+            return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rowsDeclared.GetError() );
+        const auto rows = VulkanRdgBackend::BufferOf( rowsDeclared.GetValue() );
+        if ( !rows )
+            return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rows.GetError() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        if ( !static_cast<const VulkanPipeline*>( &pipeline )->ReadsVisibleRow() )
+            return Common::MakeFormattedError( "{}: pipeline '{}' does not read the instance id stream: not a "
+                                               "`.VirtualGeometry` cell",
+                                               pass, pipeline.GetSpecification().DebugName );
+
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material );
+             !bound || !bound.GetValue() )
+            return bound;
+        // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is consumed,
+        // VulkanShaderReflection feeds the consumed locations only), so the bind-skip key of the meshes'
+        // buffers (m_BoundGeometry) is untouched; the next mesh draw binds binding 2 itself.
+        const VkBuffer     rowBuffer = rows.GetValue()->GetBuffer();
+        const VkDeviceSize zero      = 0;
+        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
+                                &zero );
+        DrawCounter::RecordBins( 1u, 1u );
+        vkCmdDrawIndirect( m_CurrentCommandBuffer, args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
+                           static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
 
@@ -908,6 +1264,10 @@ namespace Desert::Graphic::API::Vulkan
             vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
         }
 
+        // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
+        // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
+        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+            return Common::MakeSuccess( false );
         if ( !BindGraphicsPipeline( &pipeline ) )
             return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
                                                pass, pipeline.GetSpecification().DebugName );
@@ -1133,9 +1493,6 @@ namespace Desert::Graphic::API::Vulkan
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
-#if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
-#endif
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
@@ -1156,9 +1513,7 @@ namespace Desert::Graphic::API::Vulkan
             return fail( next.GetError() );
         }
         m_CurrentCommandBuffer = next.GetValue();
-#if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.SetCommandBuffer( m_CurrentCommandBuffer );
-#endif
+        m_BoundGeometry.reset(); // a freshly begun buffer holds no geometry binding
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
@@ -1176,17 +1531,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
         {
             m_CurrentCommandBuffer = nullptr;
-#if DESERT_DEV_INSTRUMENTS
-            m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
-#endif
             return;
         }
         m_CurrentCommandBuffer = commandBuffer;
-#if DESERT_DEV_INSTRUMENTS
-        // The graph's passes are timed by the backend through the profiler sink: their scopes go into the
-        // segment buffer the pass records into, not the frame buffer ended before the graph.
-        m_GpuProfiler.SetCommandBuffer( commandBuffer );
-#endif
+        // A segment's buffer may be one begun again since it last recorded (same handle, empty state).
+        m_BoundGeometry.reset();
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()
@@ -1199,6 +1548,11 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
             m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
             m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
+            m_RdgDevice.Limits        = properties.limits;
+            // The same sharing rule VulkanAllocator creates every engine resource with (VulkanResourceSharing.hpp).
+            m_RdgDevice.Sharing       = device->GetPhysicalDevice()->GetResourceSharing();
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
@@ -1207,8 +1561,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors =
-                 std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, EngineSamplerCache(), slots );
+            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>(
+                 m_RdgDevice.Device, EngineSamplerCache(), slots, device->GetRayTracingFunctions().Complete() );
 
             // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
             // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose
@@ -1376,6 +1730,18 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::ResultStr<std::shared_ptr<SharedGpuBuffer>>
+    VulkanRendererAPI::CreateSharedBuffer( const std::string_view name, const uint64_t bytes )
+    {
+        return CreateVulkanSharedBuffer( name, bytes );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+    VulkanRendererAPI::CreateSharedTimeline( const std::string_view name )
+    {
+        return CreateVulkanSharedTimeline( name );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                                  RDG::ExternalBuffer&                 into )
     {
@@ -1409,6 +1775,40 @@ namespace Desert::Graphic::API::Vulkan
                 record.State = state;
             return Common::MakeSuccess( true );
         };
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                                      const uint64_t offset, const uint64_t bytes,
+                                                                      RDG::ExternalBuffer& into )
+    {
+        const std::shared_ptr<VulkanVertexBuffer> vulkanBuffer =
+             std::dynamic_pointer_cast<VulkanVertexBuffer>( buffer );
+        if ( !vulkanBuffer )
+            return Common::MakeError( "ImportVertexBufferRange: not a Vulkan vertex buffer" );
+        const VkBuffer handle = vulkanBuffer->GetVulkanBuffer();
+        const uint64_t size   = vulkanBuffer->GetSize();
+        if ( handle == VK_NULL_HANDLE || size == 0 )
+            return Common::MakeError( "ImportVertexBufferRange: the vertex buffer has not been built" );
+        if ( bytes == 0 || offset > size || bytes > size - offset )
+            return Common::MakeFormattedError( "ImportVertexBufferRange: the span [{}, +{}) is outside the {}-byte "
+                                               "buffer",
+                                               offset, bytes, size );
+        if ( vulkanBuffer->GetUsage() != BufferUsage::Pooled )
+        {
+            // A mesh's own buffer (a GPU-written twin) holds that mesh alone from byte 0: the whole buffer, with
+            // its state record, since a graph may write it.
+            if ( offset != 0 )
+                return Common::MakeError( "ImportVertexBufferRange: a span at a non-zero offset of a buffer a "
+                                          "graph may write (only a GeometryPool buffer is imported by span)" );
+            return ImportVertexBuffer( buffer, into );
+        }
+        // A storage descriptor of the span needs minStorageBufferOffsetAlignment (<= 256 by the spec): the pool
+        // starts every span on a 256-byte boundary of each of its buffers (GeometryPool.cpp kSpanByteAlignment).
+        into.Desc.Bytes       = bytes;
+        into.Physical         = VulkanRdgBuffer::Wrap( handle, bytes, offset );
+        into.State            = RDG::GetAccessState( RDG::Access::None );
+        into.RecordFinalState = []( const RDG::AccessState& ) -> Common::BoolResultStr { return BOOLSUCCESS; };
         return Common::MakeSuccess( true );
     }
 
@@ -1486,6 +1886,47 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, toImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                                       const RDG::BufferRef    source,
+                                                                       const RDG::TextureRef   target )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from = context.GetBuffer( source, RDG::Access::CopySrc );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to = context.GetTexture( target, RDG::Access::CopyDst );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromBuffer = VulkanRdgBackend::BufferOf( from.GetValue() );
+        if ( !fromBuffer )
+            return Common::MakeError( fromBuffer.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        const uint64_t bytes = Core::Formats::CalculateImageSize( dst.Size.Width, dst.Size.Height, dst.Format );
+        if ( dst.Dim != RDG::TextureDim::Tex2D || dst.Samples != 1 || from.GetValue().Desc->Bytes < bytes )
+            return Common::MakeError( std::format(
+                 "CopyGraphBufferToTexture: '{}' ({} bytes) into '{}' ({}x{}, {} sample(s), {} bytes at mip 0); a "
+                 "texel upload needs a single-sample 2D target and a buffer holding all of its mip 0",
+                 from.GetValue().Name, from.GetValue().Desc->Bytes, to.GetValue().Name, dst.Size.Width,
+                 dst.Size.Height, dst.Samples, bytes ) );
+
+        // The graph's Copy node put the buffer in TRANSFER_READ and the texture in TRANSFER_DST.
+        VkBufferImageCopy region{};
+        region.bufferOffset      = fromBuffer.GetValue()->GetOffset();
+        region.bufferRowLength   = 0; // tightly packed
+        region.bufferImageHeight = 0;
+        region.imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+        region.imageExtent       = { dst.Size.Width, dst.Size.Height, 1 };
+        vkCmdCopyBufferToImage( commands.GetValue(), fromBuffer.GetValue()->GetBuffer(),
+                                toImage.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
         return BOOLSUCCESS;
     }
 

@@ -3,104 +3,47 @@
 
 // THE SHADOW OF A POINT OR SPOT LIGHT, read from the view's local shadow atlas (Graphic/LocalShadows.hpp says
 // why it is one 2D pool of tiles). Declares no binding: the includer declares, at slots free in ITS layout,
-//     sampler2D u_LocalShadowAtlas;                         (R32F, standard-Z depth of each view's casters)
+//     LocalShadowAtlasTexture (a sampler2D, or a texture2D + #define over a shared point-clamped state) (R32F, standard-Z depth)
 //     ReadBuffer LocalShadowViewsUB { LocalShadowView localShadowViews[]; };
+// and the view's ShadowUB with ShadowFilter (y = Scalability Shadows.FilterTaps, the PCF's taps),
 // (the row struct is Mesh/LocalLightShadowView.glslh, included BEFORE the buffer) and includes this AFTER
 // them, the way Mesh/CascadedShadow.glslh is included. The lights' contact shadows (their ContactShadowLength)
 // are applied here too: Common/ContactShadow.glslh, which the includer has included with its inputs.
+//
+// UNDER Shadows.Method VirtualMaps (DESERT_LOCAL_SHADOW_VSM) the atlas does not exist for this reader: a light reads
+// its virtual map (UE: every receiver of a local light samples its VSM), through the reader the G-buffer's
+// "VSM: Project Local" uses (Common/VirtualShadowMap.glslh, VsmLocalVisibility / VsmLocalTransmission). The light's
+// shadowMaskSlot is its index in the frame's VsmLocalLights (SceneRenderer::AddFrameVirtualShadows: slot = layer =
+// light), -1 = not shadowed this frame. The includer declares, instead of the atlas and its views, the reader's tables
+// (VsmFrameData, VsmPageTable, PhysicalPoolTexture: Core::kVsmReadFrameDataBinding ..) and
+//     readonly buffer VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; };
+// and includes Common/VirtualShadowMap.glslh's reader (DESERT_VSM_READ) before this header.
+#include <Common/ShadowFilterDisk.glslh>
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LocalLightShadowView.glslh>
 
-// The world distance along the view's axis a stored standard-Z depth stands for.
-float LocalShadowLinearDepth(float z, float nearPlane, float farPlane)
-{
-    return nearPlane * farPlane / (farPlane - z * (farPlane - nearPlane));
-}
+#include <Mesh/LocalLightShadowLookup.glslh>
 
-// 3x3 PCF with bilinear weights over a 4x4 texel footprint (UE's Manual3x3PCF shape), every tap clamped into the
-// view's own tile so a filter at its edge never reads the neighbouring view. 1 = lit.
-float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
-{
-    const float side   = 1.0 / v.params2.y;
-    const vec2  lo     = v.atlasRect.xy * side;
-    const vec2  hi     = lo + v.atlasRect.zw * side - 1.0;
-    const vec2  texel  = (v.atlasRect.xy + tileUV * v.atlasRect.zw) * side - 0.5;
-    const vec2  base   = floor(texel);
-    const vec2  f      = texel - base;
-    const vec4  wx     = vec4(1.0 - f.x, 1.0, 1.0, f.x);
-    const vec4  wy     = vec4(1.0 - f.y, 1.0, 1.0, f.y);
-    float       lit    = 0.0;
-    for (int j = 0; j < 4; ++j)
-    {
-        for (int i = 0; i < 4; ++i)
-        {
-            const vec2  t        = clamp(base + vec2(float(i - 1), float(j - 1)), lo, hi);
-            const float occluder = LocalShadowLinearDepth(texelFetch(u_LocalShadowAtlas, ivec2(t), 0).r,
-                                                          v.params.x, v.params.y);
-            lit += wx[i] * wy[j] * (receiverDepth <= occluder ? 1.0 : 0.0);
-        }
-    }
-    return lit / 9.0;
-}
-
-// One view's verdict on a receiver. The receiver is moved along its normal by a fraction of a texel (more as the
-// light grazes it) and compared with a depth bias in texels at its own distance: one texel of a perspective map
-// grows with the distance from the light, so both biases are measured in it rather than in centimetres.
-float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
-{
-    const LocalShadowView v       = localShadowViews[viewIndex];
-    const float           NdotL   = clamp(dot(N, L), 0.0, 1.0);
-    const float           depth0  = (v.viewProj * vec4(worldPosition, 1.0)).w;
-    const float           texelAt = v.params.z * max(depth0, 0.0);
-    const vec3            sample_ = worldPosition + N * texelAt * (0.5 + 1.5 * (1.0 - NdotL));
-    const vec4            clip    = v.viewProj * vec4(sample_, 1.0);
-    if (clip.w <= v.params.x)
-        return 1.0;
-    const vec3 ndc = clip.xyz / clip.w;
-    const vec2 uv  = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
-        return 1.0;
-    const float tanTheta = sqrt(max(1.0 - NdotL * NdotL, 0.0)) / max(NdotL, 1e-3);
-    const float bias     = v.params.z * clip.w * (v.params.w + v.params2.x * min(tanTheta, 4.0));
-    return LocalShadowPCF(v, uv, clip.w - bias);
-}
-
-// The cube face a direction FROM the light falls in, in the order the faces were drawn
-// (Graphic::PointShadowFaceViewProj): +X -X +Y -Y +Z -Z.
-int PointShadowFace(vec3 fromLight)
-{
-    const vec3 a = abs(fromLight);
-    if (a.x >= a.y && a.x >= a.z)
-        return fromLight.x > 0.0 ? 0 : 1;
-    if (a.y >= a.z)
-        return fromLight.y > 0.0 ? 2 : 3;
-    return fromLight.z > 0.0 ? 4 : 5;
-}
-
-float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
-{
-    if (source.shadowView < 0)
-        return 1.0;
-    const vec3 fromLight = worldPosition - source.position;
-    return LocalShadowAt(source.shadowView + PointShadowFace(fromLight), worldPosition, N, normalize(-fromLight));
-}
-
-float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
-{
-    if (source.shadowView < 0)
-        return 1.0;
-    return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition));
-}
-
-// The lights as a shading model receives them, with their shadow.
+// The lights as a shading model receives them, with their shadow and their contact shadow - offered to an includer
+// that included Common/ContactShadow.glslh first (it marches the includer's screen depth). One with no screen
+// depth (the surface cache's card lighting) reads PointLightShadow / SpotLightShadow above instead.
+#ifdef CONTACT_SHADOW_GLSLH
 // `subsurfaceOpacity`: the receiver's (DesertSubsurfaceOpacity; -1 = not a subsurface model), for its contact shadow.
 DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, vec3 N, float subsurfaceOpacity)
 {
     DesertLight light = DesertPointLightAt(source, worldPosition);
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
-        light.Shadow = PointLightShadow(source, worldPosition, N) *
-                       ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
+    {
+        const float contact =
+             ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
+        light.Shadow = PointLightShadow(source, worldPosition, N) * contact;
+        // Only a subsurface receiver (opacity >= 0) has a model that reads the transmitted share.
+        if (subsurfaceOpacity >= 0.0)
+            light.TransmissionShadow =
+                 PointLightTransmission(source, worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
+                 contact;
+    }
     return light;
 }
 
@@ -109,9 +52,18 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
     DesertLight light = DesertSpotLightAt(source, worldPosition);
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
-        light.Shadow = SpotLightShadow(source, worldPosition, N) *
-                       ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
+    {
+        const float contact =
+             ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
+        light.Shadow = SpotLightShadow(source, worldPosition, N) * contact;
+        // Only a subsurface receiver (opacity >= 0) has a model that reads the transmitted share.
+        if (subsurfaceOpacity >= 0.0)
+            light.TransmissionShadow =
+                 SpotLightTransmission(source, worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
+                 contact;
+    }
     return light;
 }
+#endif // CONTACT_SHADOW_GLSLH
 
 #endif // LOCAL_LIGHT_SHADOW_GLSLH

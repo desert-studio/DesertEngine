@@ -33,18 +33,23 @@ Shader "SkyDistantLight"
         // rgba32f for one texel: the cost of the exact format is a rounding error here, and the value is
         // read by a pass that adds it to a fog colour, where a half's three decimal digits at very low
         // night radiances would quantise visibly.
-        layout(binding = 0, rgba32f) restrict writeonly uniform image2D u_DistantSkyLight;
+        layout(binding = 0, rgba32f) restrict writeonly uniform image2D DistantSkyLightTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding).
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
-        Uniform(2) sampler2D u_TransmittanceLut;
-        Uniform(3) sampler2D u_MultiScatterLut;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler GlobalFilterSampler;
+        Uniform(2) texture2D TransmittanceLutTexture;
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, GlobalFilterSampler)
+        Uniform(3) texture2D MultiScatterLutTexture;
+        #define MultiScatterLutTexture sampler2D(MultiScatterLutTexture, GlobalFilterSampler)
 
         // The same read-side mappings every other consumer of the cached pair uses: raw uv for the
         // transmittance LUT, texel-centre remap for the multi-scatter LUT — each the exact inverse of
@@ -53,7 +58,7 @@ Shader "SkyDistantLight"
         {
             vec2 uv = SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
-            return texture(u_TransmittanceLut, uv).rgb;
+            return texture(TransmittanceLutTexture, uv).rgb;
         }
 
         vec3 SkySampleMultiScatterLut(SkyAtmParams atm, float radiusKm, float sunZenithCos)
@@ -61,7 +66,7 @@ Shader "SkyDistantLight"
             vec2 unit = SkyMultiScatterUnitFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
             vec2 uv   = vec2(SkyUnitToTexelUv(unit.x, 32.0f), SkyUnitToTexelUv(unit.y, 32.0f));
-            return texture(u_MultiScatterLut, uv).rgb;
+            return texture(MultiScatterLutTexture, uv).rgb;
         }
 
         #define SKY_SCATTERING_SUN_TRANSMITTANCE(atm, radiusKm, sunZenithCos) SkySampleSunTransmittanceLut(atm, radiusKm, sunZenithCos)
@@ -78,7 +83,7 @@ Shader "SkyDistantLight"
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),
@@ -92,13 +97,23 @@ Shader "SkyDistantLight"
             vec3  sunDir       = vec3(sunZenithSin, sunZenithCos, 0.0f);
 
             // Outer-space sun illuminance — the same pair every other physical pass reads.
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             vec3 direction = SkyDistantLightDirection(int(index));
 
             vec3 radiance = SkyDistantLightRadiance(atm, direction, sunDir, sunIlluminance,
                                                     SKY_DISTANT_LIGHT_ALTITUDE_KM,
                                                     SKY_DISTANT_LIGHT_SAMPLES);
+
+            // Atmosphere light 1 (the moon): the same mean over the same directions, in a frame of its own
+            // (only its zenith angle matters for the same reason as the sun's), added.
+            if (UnpackLight1Present(s))
+            {
+                float light1ZenithCos = clamp(UnpackLight1Direction(s).y, -1.0f, 1.0f);
+                vec3  light1Dir = vec3(sqrt(max(1.0f - light1ZenithCos * light1ZenithCos, 0.0f)), light1ZenithCos, 0.0f);
+                radiance += SkyDistantLightRadiance(atm, direction, light1Dir, UnpackLight1Illuminance(s),
+                                                    SKY_DISTANT_LIGHT_ALTITUDE_KM, SKY_DISTANT_LIGHT_SAMPLES);
+            }
 
             // The art-direction tint that belongs INSIDE every scattering integration (UE's
             // SkyAndAerialPerspectiveLuminanceFactor): the ambient a fog receives has to be the ambient
@@ -122,7 +137,7 @@ Shader "SkyDistantLight"
             {
                 vec3 mean = s_Radiance[0] / float(SKY_DISTANT_LIGHT_DIRECTIONS);
 
-                imageStore(u_DistantSkyLight, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), vec4(mean, 1.0f));
+                imageStore(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), vec4(mean, 1.0f));
             }
         }
     }

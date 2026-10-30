@@ -1,30 +1,78 @@
 // Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17),
 // bent by the foliage wind the push block carries — the vertex stage of Programs/Surface/StaticMeshLit_Instanced.shader,
 // StaticMeshGBuffer_Instanced.shader and Programs/Shadow/Shadow_Instanced.shader (which share one push block).
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
-// white / (0,0) buffer at the same stride.
-// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
-// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
+// (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
+// DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
+// set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+// THE VIRTUAL GEOMETRY CELL (`.VirtualGeometry`, DShaderParser kSurfaceVirtualGeometryPaths; a binned cell; UE:
+// Nanite's instanced static mesh): no vertex buffer - one draw instance is one visible cluster of ONE instance of
+// the field (Common/GpuScene.glslh DesertResolveVgDraw: the cut's (instance, cluster) row; the instance's GpuScene
+// row carries its transform), the vertex is triangle x 3 + corner of it, fetched through the cluster's DAG
+// (Common/VirtualGeometry.glslh VgFetchMeshVertex) into the very names the vertex inputs carry; the wind, the
+// velocity and the rest of this stage are the binned cell's. The cut tested the clusters' boxes widened by the
+// row's wind pad (Programs/VirtualGeometry/ClusterCut.shader, InstanceCull's WindExpandedBounds).
+#define DESERT_GPU_SCENE_VIRTUAL_GEOMETRY 1
+#include <Mesh/MeshVertexAccess.glslh>
+#else
+#include <Mesh/MeshVertexInputs.glslh>
 #endif
 
 #include <Common/CameraUB.glslh>
-#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view's depth prepass (Mesh/Surface/Pass_Depth.glslh) and the base pass test each other's depth for equality:
+// one gl_Position, bit for bit, whichever cell computes it (GLSL invariance, UE's precise position).
+invariant gl_Position;
+#endif
+#ifdef DESERT_SURFACE_CASTER_PASS
 #include <Common/ShadowCasterBias.glslh>
 #endif
-#include <Common/ObjectMotion.glslh>
+#include <Common/Velocity.glslh>
 
+#ifdef DESERT_SURFACE_BINNED
+// Binned (SurfaceTypes.glslh): the instance id names the GpuScene instance, whose world is Primitive.LocalToWorld x
+// Instance.InstanceToPrimitive x the submesh's transform, and whose primitive row carries the field's wind
+// (GpuScene_WindA / GpuScene_WindB). No InstanceTransforms, nothing pushed.
+#define DESERT_GPU_SCENE_PRIMITIVES 1
+#define DESERT_GPU_SCENE_DRAWS 1
+#include <Common/GpuScene.glslh>
+#else
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
 };
+#endif
+
+#if defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) && defined( DESERT_SURFACE_PASS_VirtualShadowDepth )
+// "VSM: Raster VirtualGeometry" (MeshRenderer::AddVirtualShadowRasterPasses): one pass for every level, the level is
+// the cluster's cut view; its matrix is the level's (Common/VirtualShadowRaster.glslh's VsmFrameData, binding 53),
+// not the carrier's camera block, and the fragment stage takes the level from v_VsmLevel (as Vertex_Static.glslh).
+#define DESERT_VSM_CLUSTER_RASTER 1
+#include <Common/VirtualShadowMap.glslh>
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+layout( std430, binding = kVsmFrameDataBinding ) restrict readonly buffer VsmFrameData
+{
+    VsmFrame Frame;
+    VsmLevel Levels[];
+};
+layout( location = 15 ) flat out uint v_VsmLevel;
+#endif
+
+#if defined( DESERT_SURFACE_PASS_VirtualShadowDepth ) && !defined( DESERT_SURFACE_BINNED )
+// The virtual shadow map's CPU walk draws only the instances "VSM: Cull Casters" kept for this level: gl_InstanceIndex
+// is a slot of the draw's compacted list (the records' first instance is the draw's remap base), the slot holds the
+// instance to fetch (UE: the per-page draw's instance id list). A binned cell resolves its instance through
+// a_VisibleRow (Common/GpuScene.glslh) and reads no remap.
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+layout( std430, binding = kVsmInstanceRemapBinding ) restrict readonly buffer VsmInstanceRemap
+{
+    uint InstanceRemap[];
+};
+#define DESERT_INSTANCE_INDEX InstanceRemap[gl_InstanceIndex]
+#else
+#define DESERT_INSTANCE_INDEX gl_InstanceIndex
+#endif
 
 #include <Common/MaterialTransport.glslh>
 #include <Common/FoliageWind.glslh>
@@ -35,9 +83,41 @@ DESERT_SURFACE_VARYINGS( out )
 
 void main()
 {
-    const mat4 model = transforms[gl_InstanceIndex];
-    const vec3 worldPosition =
-         InstancedWorldPosition( model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB );
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+    const DesertVgDraw vg       = DesertResolveVgDraw();
+    const uint         triangle = uint( gl_VertexIndex ) / 3u;
+    if ( triangle >= VgClusterTriangleCount( vg.Cluster ) )
+    {
+        // Past the cluster's triangles (the draw is kClusterMaxTriangles x 3 vertices): a degenerate, clipped.
+        gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 );
+        return;
+    }
+    const VgMeshVertex vertex =
+         VgFetchMeshVertex( vg.Dag, VgClusterCornerVertex( vg.Dag, vg.Cluster, triangle, uint( gl_VertexIndex ) % 3u ) );
+    const vec3              a_Position     = vertex.Position;
+    const vec3              a_Normal       = vertex.Normal;
+    const vec3              a_Tangent      = vertex.Tangent;
+    const vec3              a_Bitangent    = vertex.Bitangent;
+    const vec2              a_TextureCoord = vertex.TextureCoord;
+    const vec4              a_Color        = vertex.Color;
+    const vec2              a_TexCoord1    = vertex.TexCoord1;
+    const DesertMeshDraw    draw           = vg.Draw;
+    const GpuScenePrimitive row            = gpuScene.Primitives[draw.Primitive];
+    const mat4              model          = draw.World;
+    const vec4              windA          = GpuScene_WindA( row );
+    const vec4              windB          = GpuScene_WindB( row, false );
+#elif defined( DESERT_SURFACE_BINNED )
+    const DesertMeshDraw    draw  = DesertResolveMeshDraw();
+    const GpuScenePrimitive row   = gpuScene.Primitives[draw.Primitive];
+    const mat4              model = draw.World;
+    const vec4              windA = GpuScene_WindA( row );
+    const vec4              windB = GpuScene_WindB( row, false );
+#else
+    const mat4 model = transforms[DESERT_INSTANCE_INDEX];
+    const vec4 windA = m_PushConstants.WindA;
+    const vec4 windB = m_PushConstants.WindB;
+#endif
+    const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
     const vec3 T             = normalize( normalMatrix * a_Tangent );
@@ -45,30 +125,54 @@ void main()
     const vec3 N             = normalize( normalMatrix * a_Normal );
     v_Surface.WorldPosition  = worldPosition;
     v_Surface.Normal         = N;
-    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
 #endif
+#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
+#endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // An instanced batch is world-static by construction (moving an instance rebuilds the batch), so its previous
-    // world is its world; only the wind moves it, evaluated again at the view's previous time (WindB.z,
-    // Graphic::InstanceWindPush). No motion row is read.
-    const vec3 prevWorldPosition = InstancedWorldPosition(
-         model, a_Position, m_PushConstants.WindA, vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+    // The instance's previous world: transforms[i + offset], the offset in WindB.w's bits
+    // (Graphic::InstanceWindPush, GpuInstancedRenderData::PrevInstanceOffset). A producer whose instances move
+    // (particle Mesh rows: ParticleMeshInstances writes last frame's transforms after this frame's, UE
+    // NiagaraMeshVertexFactory's PrevPosition) states it; a batch that is world-static by construction (moving an
+    // instance rebuilds it; grass) pushes 0 = its own transform. The wind is evaluated again at the view's previous
+    // time (WindB.z). No motion row is read.
+#ifdef DESERT_SURFACE_BINNED
+    // Binned: the primitive's previous world x the same instance / submesh transforms; the wind at the row's previous clock.
+    const mat4 prevModel         = draw.PrevWorld;
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, windA, GpuScene_WindB( row, true ) );
+#else
+    const mat4 prevModel         = transforms[DESERT_INSTANCE_INDEX + floatBitsToUint( m_PushConstants.WindB.w )];
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, m_PushConstants.WindA,
+                                                           vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+#endif
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the INSTANCE moved (a producer whose
+    // instances move states their previous transforms); the wind bends the vertices of a still instance and leaves it 0.
+    v_Surface.ObjectMoved = prevModel != model ? 1.0 : 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
-    gl_Position = cameraUB.JitteredViewProjection * vec4( worldPosition, 1.0 );
-#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#ifdef DESERT_VSM_CLUSTER_RASTER
+    v_VsmLevel                      = vg.View;
+    const mat4 rasterViewProjection = Levels[vg.View].ViewProjection;
+#else
+    const mat4 rasterViewProjection = cameraUB.JitteredViewProjection;
+#endif
+    gl_Position = rasterViewProjection * vec4( worldPosition, 1.0 );
+#ifdef DESERT_SURFACE_CASTER_PASS
     // The caster's slope depth bias, from the instance's vertex normal (UE: ShadowDepthVertexShader.usf); the
     // wind bends the position, not the normal, as the shading normal above.
-    gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
+    gl_Position = ShadowCasterSlopeBias( gl_Position, rasterViewProjection,
                                          transpose( inverse( mat3( model ) ) ) * a_Normal, cameraUB.ShadowSlopeBias,
                                          cameraUB.ShadowSlopeClamp );
 #endif

@@ -96,7 +96,7 @@ namespace Desert::Core
         ECS::Entity pawn = placed.GetValue();
         // The start's facing is the pawn's facing (UE spawns at the PlayerStart's rotation); only yaw and
         // pitch of a camera matter for Play from Here, and the prefab's own scale is kept.
-        pawn.GetComponent<ECS::TransformComponent>().Rotation = glm::eulerAngles( rotation );
+        pawn.SetLocalRotation( glm::eulerAngles( rotation ) );
         // The player is where the world must exist: UE's player controller is a streaming source by default. A
         // prefab that authored its own (a range, a priority, or Enabled off for a pawn that should not stream)
         // keeps it.
@@ -198,6 +198,25 @@ namespace Desert::Core
 
     Common::BoolResultStr BeginPlay( Scene& scene, const Assets::AssetManager& assets, const PlayRequest& request )
     {
+        if ( request.Simulate )
+        {
+            // UE's Simulate In Editor: no player logs in, so nothing is spawned or possessed and the view stays
+            // the editor camera (UpdateActiveCameraSource with no view target). The game rules still begin.
+            if ( request.SpawnAt.has_value() || !request.PlayerStartTag.empty() )
+                return Common::MakeFormattedError(
+                     "level '{}': Simulate spawns no player, so it takes no start spot or Player Start tag",
+                     scene.GetSceneName() );
+            scene.SetPlayerPawn( entt::null );
+            scene.SetPlayerController( entt::null );
+            scene.SetPlayFromHere( false );
+            scene.SetSimulating( true );
+            scene.GetGameMode().Begin( {} );
+            for ( const auto e : scene.GetRegistry().view<ECS::UIAnimComponent>() )
+                scene.GetRegistry().get<ECS::UIAnimComponent>( e ).Data.Playback.reset();
+            scene.SetState( Scene::SceneState::Play );
+            return BOOLSUCCESS;
+        }
+        scene.SetSimulating( false );
         const auto pawn = SpawnDefaultPawn( scene, assets, request );
         if ( !pawn )
             return Common::MakeError( pawn.GetError() );

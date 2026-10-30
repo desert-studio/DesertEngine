@@ -1,0 +1,35 @@
+# M25 VoxBlend (UE UVoxelBlendMeshesTool): Box 100 cm and Sphere 100 cm with a 20 cm gap -> Blend Falloff 40 cm (preview, Accept = new entity "Box VoxBlend", inputs hidden, Undo), then Blend Falloff 5 cm and Cancel. The operator runs in the background; the status frames cover its time.
+Дано --subject viewport set Camera.Direction 0,-0.35,1
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 120,0,0
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run "Level Viewport" "Focus Selected"
+Дано run Modeling "VoxBlend inputs: Hide Inputs"
+Дано --subject modeling set VoxBlend.VoxelCount 64
+Дано --subject modeling set VoxBlend.BlendFalloff 40
+Тогда 0_inputs Box at the origin and a Sphere 20 cm to its right, both selected, VoxOps palette
+Когда run Modeling "VoxOps tool: VoxBlend"
+Тогда 1a_blend_computing the panel status says VoxBlend is computing (DesertCtl has no wait-for-background step, these window frames cover it)
+Тогда 1a2_blend_wait still the VoxBlend panel
+Тогда 1a3_blend_status the panel status line reports the Blend Falloff 40 cm result
+Тогда-вид 1_blend_preview VoxBlend bar (Accept/Cancel); Box and Sphere are fused by a smooth bridge across the gap; the inputs are not drawn
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 1_blend a new entity "Box VoxBlend" (box and sphere joined by a smooth bridge); both inputs hidden
+Тогда 1b_blend_outliner the outliner shows "Box VoxBlend" selected, Box and Sphere hidden
+Когда run Action Undo
+Тогда-вид 1_undo the VoxBlend entity is gone; Box and Sphere are visible and separate, no trace of the fused shape under them
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано --subject modeling set VoxBlend.BlendFalloff 5
+Когда run Modeling "VoxOps tool: VoxBlend"
+Тогда 2a_small_computing the panel status says VoxBlend is computing
+Тогда 2a2_small_wait still the VoxBlend panel
+Тогда 2a3_small_status the panel status line reports the Blend Falloff 5 cm result
+Тогда-вид 2_small_falloff no bridge (or a barely visible one): the box and the sphere stay almost separate
+Когда run Modeling "Active tool: Cancel"
+Тогда-вид 2_cancel the tool ended; Box and Sphere both visible

@@ -25,17 +25,21 @@ Shader "SkyMultiScatterLut"
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
 
-        layout(binding = 0, rgba16f) restrict writeonly uniform image2D u_MultiScatterLut;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image2D MultiScatterLutTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding).
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // Written by SkyTransmittanceLut in the same dispatch batch, ALWAYS before this pass runs —
         // SkyboxRenderer orders the two. Binding = Graphic::kSkyTransmittanceLutBinding.
-        Uniform(2) sampler2D u_TransmittanceLut;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler GlobalFilterSampler;
+        Uniform(2) texture2D TransmittanceLutTexture;
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, GlobalFilterSampler)
 
         const int   kSqrtDirectionCount = 8;  // 8x8 = the paper's 64 uniform sphere directions
         const int   kMarchSampleCount   = 20; // the reference implementation's fixed count
@@ -45,20 +49,20 @@ Shader "SkyMultiScatterLut"
         {
             vec2 uv = SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
-            return texture(u_TransmittanceLut, uv).rgb;
+            return texture(TransmittanceLutTexture, uv).rgb;
         }
 
         LocalSize(8, 8, 1);
         void main()
         {
-            ivec2 size  = imageSize(u_MultiScatterLut);
+            ivec2 size  = imageSize(MultiScatterLutTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),
@@ -168,7 +172,7 @@ Shader "SkyMultiScatterLut"
 
             vec3 psiMs = inScattered * seriesSum * atm.MultiScatteringFactor;
 
-            imageStore(u_MultiScatterLut, coord, vec4(psiMs, 1.0f));
+            imageStore(MultiScatterLutTexture, coord, vec4(psiMs, 1.0f));
         }
     }
 }

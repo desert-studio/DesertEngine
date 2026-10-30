@@ -1,0 +1,23 @@
+{
+    "Header": {
+        "Kind": "SkinnedMesh",
+        "Guid": "3f35626bd5995ef228962827b290b01f",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "CesiumMan.glb",
+    "Bounds": {
+        "Min": [-56.9136962890625, -0.0000211246770049911, -13.099983215332031],
+        "Max": [56.9136848449707, 150.655029296875, 18.095413208007812]
+    },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "Displacement": "Runtime"
+    },
+    "SourceHash": 4107047370034990793
+}

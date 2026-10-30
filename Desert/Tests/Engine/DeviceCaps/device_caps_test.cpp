@@ -202,7 +202,7 @@ TEST( DeviceCaps, TheStartupLineSaysWhereEachRowCameFrom )
     EXPECT_NE( line.find( "!swapchain=ext" ), std::string::npos ) << line;
     EXPECT_NE( line.find( "!tessellationShader=1.0" ), std::string::npos ) << line;
     EXPECT_NE( line.find( " dynamicRendering=ext" ), std::string::npos ) << line;
-    EXPECT_NE( line.find( " timelineSemaphore=core1.2" ), std::string::npos ) << line;
+    EXPECT_NE( line.find( "!timelineSemaphore=core1.2" ), std::string::npos ) << line;
     EXPECT_NE( line.find( " synchronization2=no" ), std::string::npos ) << line;
 }
 
@@ -214,9 +214,12 @@ TEST( DeviceCaps, TheRequiredSetIsWhatTheRendererUsesToday )
         if ( spec.Need == CapabilityNeed::Required )
             required.insert( std::string( spec.Name ) );
     // imageCubeArray: REFL-CAPTURE keeps every reflection capture in one cube array.
+    // depthClamp: the virtual shadow map's casters are flattened onto a clipmap level's near plane.
+    // timelineSemaphore: the upload sync point the async-compute pipe waits (CommandBufferAllocator::NewestUploadSync).
     EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "independentBlend", "imageCubeArray",
-                                                  "swapchain" } ) );
-    EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_1 );
+                                                  "depthClamp", "swapchain", "timelineSemaphore",
+                                                  "descriptorIndexing" } ) );
+    EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_2 );
 }
 
 // VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605: the view pipelines give each colour attachment its

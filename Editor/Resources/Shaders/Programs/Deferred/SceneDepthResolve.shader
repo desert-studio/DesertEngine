@@ -20,11 +20,17 @@ Shader "SceneDepthResolve"
         // Sample 0 of the pixel, fetched: the resolved depth is a real depth of the scene at that pixel, never an
         // average of an edge's two surfaces (a depth between them would be a surface that does not exist).
 
-        Uniform(1) sampler2DMS u_Depth;
+        // A separate multisampled texture read (texelFetch) through the pass's point-clamped shared state.
+
+        Uniform(2) sampler PointClampSampler;
+
+        Uniform(1) texture2DMS SourceDepthTexture;
+
+        #define SourceDepthTexture sampler2DMS(SourceDepthTexture, PointClampSampler)
 
         void main()
         {
-        	gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r;
+        	gl_FragDepth = texelFetch(SourceDepthTexture, ivec2(gl_FragCoord.xy), 0).r;
         }
     }
 }

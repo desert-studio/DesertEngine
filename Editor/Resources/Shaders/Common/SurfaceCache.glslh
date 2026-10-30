@@ -1,0 +1,87 @@
+#ifndef SURFACE_CACHE_GLSLH
+#define SURFACE_CACHE_GLSLH
+
+// THE SURFACE CACHE, GPU side (UE LumenCardCommon.ush + LumenSurfaceCacheSampling.ush). The C++ side and the
+// design notes are Graphic/GlobalIllumination/SurfaceCache.hpp; every record here must match it byte for byte.
+// Binding-free: the includer declares the buffers (cards as `surfaceCards[]`, pages as `surfaceCardPages[]`,
+// mesh cards as `meshCards[]`) and the atlas samplers.
+
+#define SURFACE_CACHE_PHYSICAL_PAGE_SIZE 128u
+#define SURFACE_CACHE_VIRTUAL_PAGE_SIZE 127u
+#define SURFACE_CACHE_MIN_CARD_RESOLUTION 8u
+#define SURFACE_CACHE_MIN_RES_LEVEL 3u
+#define SURFACE_CACHE_MAX_RES_LEVEL 11u
+#define SURFACE_CACHE_SUB_ALLOCATION_RES_LEVEL 7u
+#define SURFACE_CACHE_CARD_DIRECTIONS 6u
+#define SURFACE_CACHE_MAX_CARDS_PER_MESH 32u
+
+// std430 — must match SurfaceCache::CardPayload (96 bytes).
+struct SurfaceCard {
+    vec4  worldToLocal[3]; // rows of world -> card rotation in xyz; the card origin (world, cm) in w
+    vec4  localExtent;     // xyz = half size in card space (z = depth range); w = texel size (cm)
+    uvec4 pages;           // x = SizeInPages (x | y << 16), y = PageTableOffset, z = HiResSizeInPages, w = HiResPageTableOffset
+    uvec4 info;            // x = packed (see SurfaceCardDirection et al.), y = mesh cards index
+};
+
+// std430 — must match SurfaceCache::CardPagePayload (80 bytes).
+struct SurfaceCardPage {
+    uvec4 card;                // x = card index, y = mapped, z = 1 when captured this frame, w = 0
+    vec4  cardUVRect;          // the page in card UV
+    vec4  physicalAtlasUVRect; // the page in atlas UV
+    vec4  texelScale;          // xy = card UV texel scale, zw = atlas UV texel scale
+    uvec4 updates;             // last direct / radiosity update frames, radiosity / direct temporal indices
+};
+
+// std430 — must match SurfaceCache::MeshCardsPayload (112 bytes).
+struct MeshCards {
+    vec4  worldToLocal[3]; // as SurfaceCard
+    uvec4 cards;           // x = first card, y = card count, z = flags (bit 0 heightfield, bit 1 mostly two-sided)
+    uvec4 cardLookup[2];   // per direction, the mask of the cards facing it: [0].xyzw = 0..3, [1].xy = 4..5
+    vec4  fallbackAlbedo;  // rgb = what a hit outside card coverage is shaded with
+};
+
+// ---- The packed card word (UE GetLumenCardData, Packed0W: same bits) ----------------------------------------
+uvec2 SurfaceCardResLevelXYBias( SurfaceCard card )
+{
+    return uvec2( card.info.x & 0xFFu, ( card.info.x >> 8u ) & 0xFFu );
+}
+uint SurfaceCardDirection( SurfaceCard card )
+{
+    return ( card.info.x >> 16u ) & 0xFu;
+}
+uint SurfaceCardLightingChannels( SurfaceCard card )
+{
+    return ( card.info.x >> 20u ) & 0xFu;
+}
+bool SurfaceCardVisible( SurfaceCard card )
+{
+    return ( ( card.info.x >> 24u ) & 1u ) != 0u;
+}
+bool SurfaceCardHeightfield( SurfaceCard card )
+{
+    return ( ( card.info.x >> 25u ) & 1u ) != 0u;
+}
+
+// World position -> card space (cm along the card's axes, origin at the card centre).
+vec3 SurfaceCardWorldToLocal( SurfaceCard card, vec3 worldPosition )
+{
+    const vec3 origin = vec3( card.worldToLocal[0].w, card.worldToLocal[1].w, card.worldToLocal[2].w );
+    const vec3 p      = worldPosition - origin;
+    return vec3( dot( card.worldToLocal[0].xyz, p ), dot( card.worldToLocal[1].xyz, p ),
+                 dot( card.worldToLocal[2].xyz, p ) );
+}
+
+// Whether @p mesh is mostly two-sided (cards.z bit 1; UE FLumenMeshCardsData::bMostlyTwoSided): its cards were
+// captured from both faces of thin geometry (foliage).
+bool MeshCardsMostlyTwoSided( MeshCards mesh )
+{
+    return ( mesh.cards.z & 2u ) != 0u;
+}
+
+// The mask of @p mesh's cards facing direction @p direction (0..5, SurfaceCache::CardDirection).
+uint MeshCardsFacing( MeshCards mesh, uint direction )
+{
+    return direction < 4u ? mesh.cardLookup[0][direction] : mesh.cardLookup[1][direction - 4u];
+}
+
+#endif // SURFACE_CACHE_GLSLH

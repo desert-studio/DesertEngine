@@ -28,7 +28,7 @@ namespace Desert::Graphic
     {
         if ( packedBoneMatrices.empty() )
             return;
-        if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name ) )
+        if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Parameter ) )
             sb->SetRawData( packedBoneMatrices.data(),
                             static_cast<uint32_t>( packedBoneMatrices.size() * sizeof( glm::mat4 ) ) );
     }
@@ -38,5 +38,16 @@ namespace Desert::Graphic
         // `BoneOffset` in Silhouette_Skinned's push block, found by name in the cell's layout; the whole
         // reflected range is pushed per draw.
         WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
+    }
+
+    void MaterialSilhouetteSkinned::SetSkinCache( const uint64_t address, const uint32_t vertexCount )
+    {
+        // The push block's SkinCache* fields (Programs/Silhouette/Silhouette_Skinned.shader), found by name like
+        // BoneOffset.
+        const uint32_t addressLo = static_cast<uint32_t>( address & 0xffffffffu );
+        const uint32_t addressHi = static_cast<uint32_t>( address >> 32u );
+        WritePushField( "SkinCacheVertexCount", &vertexCount, sizeof( uint32_t ) );
+        WritePushField( "SkinCacheAddressLo", &addressLo, sizeof( uint32_t ) );
+        WritePushField( "SkinCacheAddressHi", &addressHi, sizeof( uint32_t ) );
     }
 } // namespace Desert::Graphic

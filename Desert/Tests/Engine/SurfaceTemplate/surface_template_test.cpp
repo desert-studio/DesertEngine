@@ -38,6 +38,7 @@ namespace
     Domain Surface
     TwoSided
     BlendMode Masked
+    OpacityMask u_BaseTexture Channel(A)
 
     Properties Binding(2) TextureBinding(20)
     {
@@ -51,7 +52,7 @@ namespace
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-            const vec4 base = texture( u_BaseTexture, i.UV0 ) * u_Material.Tint;
+            const vec4 base = texture( u_BaseTexture, i.UV0 ) * Material.Tint;
             s.BaseColor     = base.rgb;
             s.Opacity       = base.a;
             return s;
@@ -76,9 +77,9 @@ namespace
 
     std::vector<std::string> ExpectedCells()
     {
-        return { "Static.Forward",    "Static.GBuffer",    "Static.ShadowDepth",
-                 "Instanced.Forward", "Instanced.GBuffer", "Instanced.ShadowDepth",
-                 "Skinned.Forward",   "Skinned.GBuffer",   "Skinned.ShadowDepth" };
+        return { "Static.Forward",    "Static.GBuffer",    "Static.ShadowDepth",    "Static.VirtualShadowDepth",
+                 "Instanced.Forward", "Instanced.GBuffer", "Instanced.ShadowDepth", "Instanced.VirtualShadowDepth",
+                 "Skinned.Forward",   "Skinned.GBuffer",   "Skinned.ShadowDepth",   "Skinned.VirtualShadowDepth" };
     }
 
     std::string ParseError( const std::string& text )
@@ -182,8 +183,10 @@ TEST_F( SurfaceTemplateFixture, TheTemplateSettingsAreRefusedWhereTheyCannotAppl
                     .find( "Domain Surface" ),
                std::string::npos );
 
+    // A Fragment block, not a Vertex one: a generic program's Vertex block is refused on its own, which would let
+    // this probe pass on the wrong message if the refusal order ever changed.
     EXPECT_NE( ParseError( R"(Shader "M" { Domain Surface TwoSided
-        Vertex { void main() { gl_Position = vec4( 0.0 ); } } })" )
+        Fragment { layout( location = 0 ) out vec4 o_Color; void main() { o_Color = vec4( 1.0 ); } } })" )
                     .find( "TwoSided" ),
                std::string::npos )
          << "TwoSided without a Surface block shapes nothing";
@@ -258,7 +261,7 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 namespace
 {
     // THE STANDARD SURFACE, as shipped: the template whose cells replaced StaticMeshLit(_Instanced),
-    // StaticMeshGBuffer(_Instanced) and SkinnedMeshLit (SURF1c). SURF1b held each cell to the program it
+    // StaticMeshGBuffer(_Instanced) and StandardSurface's Vertex_Skinned cell (SURF1c). SURF1b held each cell to the program it
     // replaced by reflection before those programs were deleted; what remains checkable against a shipped
     // program is the shadow-depth cells, whose Shadow* programs are still drawn with (SURF1d).
     std::string StandardSurfaceText()

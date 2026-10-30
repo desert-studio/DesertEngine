@@ -19,11 +19,15 @@ namespace Desert::Reflection
     {
         // The asset types a reflected field stores as {"Guid", "Path"}: skyboxes since SCNE 29, textures
         // (the UI sprites and the splash) since SCNE 30, the level's Default Pawn prefab since SCNE 40, the Audio
-        // Source's sound since SCNE 42. Every other type still stores its key alone.
+        // Source's sound since SCNE 42, static meshes and materials since asset-reference format v1 (AREF,
+        // STATICMESH-FORMAT: the Static Mesh's MeshHandle / MaterialSlots and every Asset<MaterialAsset> field), a
+        // water body's wave set (WaterBodyData::WaterWaves) as its material beside it.
+        // Every other type still stores its key alone.
         bool IsStoredByGuid( const std::string& assetType )
         {
             return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset" ||
-                   assetType == "FoliageTypeAsset" || assetType == "SoundAsset";
+                   assetType == "FoliageTypeAsset" || assetType == "SoundAsset" || assetType == "StaticMeshAsset" ||
+                   assetType == "MaterialAsset" || assetType == "WaterWavesAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )
@@ -247,8 +251,8 @@ namespace Desert::Reflection
         LOG_ERROR( "[ComponentRegistry] {0} names GUID {1}, but its locator '{2}' {3} - the reference stays "
                    "empty",
                    what, text, path,
-                   located == 0 ? std::string( "loads no " ) + type
-                                : "holds a different asset (handle " + std::to_string( located ) + ")" );
+                   located == 0 ? std::format( "loads no {}", type )
+                                : std::format( "holds a different asset (handle {})", located ) );
         return 0;
     }
 
@@ -342,8 +346,7 @@ namespace Desert::Reflection
                             WriteIntBySize( p, field.Size, v.GetValue() );
                     }
                     else
-                        g.Report( issues,
-                                  "integer enumerator of a " + std::to_string( field.Size ) + "-byte enum" );
+                        g.Report( issues, std::format( "integer enumerator of a {}-byte enum", field.Size ) );
                     break;
                 }
                 case FieldType::AssetHandle:

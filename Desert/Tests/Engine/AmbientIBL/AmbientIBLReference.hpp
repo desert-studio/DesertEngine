@@ -3,7 +3,7 @@
 // Compiles Editor/Resources/Shaders/Mesh/AmbientIBL.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that StaticMeshLit.shader,
-// StaticMeshLit_Instanced.shader, SkinnedMeshLit.shader and Deferred/DeferredLighting.shader compile as
+// StaticMeshLit_Instanced.shader, StandardSurface's Vertex_Skinned cell and Deferred/DeferredLighting.shader compile as
 // GLSL. A hand-written CPU copy could only ever prove that the copy agrees with itself, and this is
 // precisely the quantity where that failed once already: the deferred composite had its own ambient, it
 // disagreed with the forward one by two orders of magnitude, and nothing said so for months.

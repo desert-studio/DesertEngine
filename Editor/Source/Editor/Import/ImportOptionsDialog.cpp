@@ -4,6 +4,7 @@
 #include "ImportManager.hpp"
 #include "ImportedAssetSource.hpp"
 #include "ImportSettingsEdits.hpp"
+#include "VirtualGeometryGate.hpp"
 
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -15,6 +16,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -36,6 +38,9 @@
 
 namespace Desert::Editor::ImportOptions
 {
+    // Desert::ImGui (the editor's ImGuiLayer) shadows the library inside Desert; MSVC finds it.
+    namespace ImGui = ::ImGui;
+
     namespace
     {
         namespace Ser = Assets::Serialization;
@@ -99,12 +104,12 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<Assets::MeshLodPolicy, 2> kLods = { Assets::MeshLodPolicy::Generate,
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
-        constexpr std::array<Assets::FbxSpecularMap, 3> kSpecularMaps = {
-             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic,
-             Assets::FbxSpecularMap::RoughnessMetallic };
-        constexpr std::array<const char*, 3> kSpecularMapLabels = { "Specular (FBX's meaning)",
-                                                                    "Packed AO/Roughness/Metal (R/G/B)",
-                                                                    "Packed Roughness/Metal (G/B, R unused)" };
+        constexpr std::array<Assets::FbxSpecularMap, 4> kSpecularMaps = {
+             Assets::FbxSpecularMap::FromImage, Assets::FbxSpecularMap::Specular,
+             Assets::FbxSpecularMap::OcclusionRoughnessMetallic, Assets::FbxSpecularMap::RoughnessMetallic };
+        constexpr std::array<const char*, 4> kSpecularMapLabels = {
+             "From Image (its texels decide)", "Specular (FBX's meaning)", "Packed AO/Roughness/Metal (R/G/B)",
+             "Packed Roughness/Metal (G/B, R unused)" };
 
         constexpr std::array<Assets::MeshFileUnit, 6> kFileUnits = {
              Assets::MeshFileUnit::FromFile, Assets::MeshFileUnit::Millimetres, Assets::MeshFileUnit::Centimetres,
@@ -314,6 +319,63 @@ namespace Desert::Editor::ImportOptions
         settings.CombineMeshes = on;
     }
 
+    Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings&      settings,
+                                           const Assets::MeshDisplacementMode mode, const ImportContentKind kind )
+    {
+        // CONTRACT-DISPLACE §9.8: a skeletal mesh is displaced over its skinned pose each frame; a bake is one
+        // pose.
+        if ( kind == ImportContentKind::SkeletalMesh && mode == Assets::MeshDisplacementMode::Baked )
+            return Common::MakeFormattedError<bool>(
+                 "Displacement {}: a skeletal mesh is displaced None or Runtime",
+                 Assets::MeshDisplacementModeName( mode ) );
+        if ( settings.Mesh.VirtualGeometry && mode == Assets::MeshDisplacementMode::Runtime )
+            return Common::MakeError<bool>(
+                 "Displacement Runtime: the mesh is Virtual Geometry, whose clusters are "
+                 "cooked once; a surface diced per frame has none (turn Virtual "
+                 "Geometry off first)" );
+        settings.Mesh.Displacement = mode;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetVirtualGeometry( Assets::SourceImportSettings& settings, const bool on,
+                                              const ImportContentKind kind )
+    {
+        if ( on && kind == ImportContentKind::SkeletalMesh )
+            return Common::MakeError<bool>( "Virtual Geometry: a skeletal mesh is drawn by the binned path (its "
+                                            "clusters would be one pose)" );
+        if ( on && settings.Mesh.Displacement == Assets::MeshDisplacementMode::Runtime )
+            return Common::MakeError<bool>( "Virtual Geometry: Displacement Runtime dices the surface per frame, "
+                                            "so it has no cooked clusters (choose None or Baked first)" );
+        settings.Mesh.VirtualGeometry = on;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetShownVirtualGeometry( const bool on )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        QueuedSource& source = Window().Queue.front(); // the shown one (DrawWindow shows the queue's front)
+        if ( !source.Kind )
+            source.Kind = SharedImporter().ProbeContent( source.Source );
+        if ( !*source.Kind )
+            return Common::MakeError<bool>( source.Kind->GetError() );
+        return SetVirtualGeometry( *shown.GetValue(), on, source.Kind->GetValue() );
+    }
+
+    Common::BoolResultStr SetShownDisplacement( const Assets::MeshDisplacementMode mode )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        QueuedSource& source = Window().Queue.front(); // the shown one (DrawWindow shows the queue's front)
+        if ( !source.Kind )
+            source.Kind = SharedImporter().ProbeContent( source.Source );
+        if ( !*source.Kind )
+            return Common::MakeError<bool>( source.Kind->GetError() );
+        return SetDisplacement( *shown.GetValue(), mode, source.Kind->GetValue() );
+    }
+
     Common::BoolResultStr SetShownUniformScale( const float scale )
     {
         const auto shown = ShownSettings();
@@ -497,9 +559,76 @@ namespace Desert::Editor::ImportOptions
         }
         UI::EndPropertyRow();
 
+        // VIRT-GEOM (contract §1, §6): a static mesh only. The import refuses it, naming the reason in the log,
+        // for a mesh that draws a Masked / Translucent / Additive material (VirtualGeometryGate.hpp).
+        if ( kind == ImportContentKind::StaticMesh )
+        {
+            UI::BeginPropertyRow( "Virtual Geometry",
+                                  "On: the mesh cooks a cluster DAG (128-triangle clusters, continuous LOD); its "
+                                  "LODs are cuts of that DAG. Refused for Displacement Runtime, and by the "
+                                  "import for a mesh whose material is Masked or Translucent." );
+            bool virtualGeometry = settings.Mesh.VirtualGeometry;
+            if ( ImGui::Checkbox( "##VirtualGeometry", &virtualGeometry ) )
+            {
+                if ( const auto set = SetVirtualGeometry( settings, virtualGeometry, kind ); !set )
+                    ImGui::SetTooltip( "%s", set.GetError().c_str() );
+                else
+                    changed = true;
+            }
+            UI::EndPropertyRow();
+        }
+
+        // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings. A skeletal
+        // mesh offers None/Runtime only (§9.8: displaced over the skin cache each frame; a bake would be one pose)
+        // and no edge length (it has no baked surface: its collision is its physics asset).
+        const bool skeletal = kind == ImportContentKind::SkeletalMesh;
+        UI::BeginPropertyRow( "Displacement",
+                              skeletal ? "Sections whose material assigns its Height move along the surface. "
+                                         "Runtime: diced per frame by screen size over the skinned pose."
+                                       : "Sections whose material assigns its Height move along the surface. "
+                                         "Runtime: diced per frame by screen size. Baked: a dense mesh cooked at "
+                                         "the edge length below, drawn with its own LODs. Collision uses the "
+                                         "baked surface in both modes." );
+        static constexpr std::array<const char*, 3> kDisplacementLabels = { "None", "Runtime", "Baked" };
+        static constexpr std::array<Assets::MeshDisplacementMode, 3> kDisplacementModes = {
+             Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
+             Assets::MeshDisplacementMode::Baked };
+        const int modeCount = skeletal ? 2 : static_cast<int>( kDisplacementLabels.size() );
+        int       mode      = 0;
+        for ( std::size_t i = 0; i < kDisplacementModes.size(); ++i )
+            if ( kDisplacementModes[i] == settings.Mesh.Displacement )
+                mode = static_cast<int>( i );
+        if ( ImGui::Combo( "##Displacement", &mode, kDisplacementLabels.data(), modeCount ) )
+        {
+            if ( const auto set =
+                      SetDisplacement( settings, kDisplacementModes[static_cast<std::size_t>( mode )], kind );
+                 !set )
+                ImGui::SetTooltip( "%s", set.GetError().c_str() );
+            else
+                changed = true;
+        }
+        UI::EndPropertyRow();
+
+        if ( !skeletal && settings.Mesh.Displacement != Assets::MeshDisplacementMode::None )
+        {
+            UI::BeginPropertyRow( "Bake Edge Length",
+                                  "Centimetres per diced edge of the baked surface (Baked draw and collision). "
+                                  "Clusters that cannot dice this fine bake at their densest level." );
+            float edge = settings.Mesh.DisplacementBake.EdgeLengthCm;
+            if ( ImGui::DragFloat( "##DisplacementEdge", &edge, 0.05f, 0.05f, 100.0f, "%.2f cm" ) &&
+                 edge > 0.0f && edge != settings.Mesh.DisplacementBake.EdgeLengthCm )
+            {
+                settings.Mesh.DisplacementBake.EdgeLengthCm = edge;
+                changed                                     = true;
+            }
+            UI::EndPropertyRow();
+        }
+
         UI::BeginPropertyRow(
              "FBX Specular Map",
-             "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
+             "What the FBX Specular map holds. From Image (default): read per map from its texels - R 0 "
+             "everywhere with G/B in use is Packed Roughness/Metal, anything else Specular; the import logs "
+             "what it read. Specular: a specular-colour image, as FBX defines "
              "it (the surface template has no input for it; the import says so). Packed AO/Roughness/"
              "Metal: AO in R, roughness in G, metalness in B. Packed Roughness/Metal: roughness in "
              "G, metalness in B, R holds no occlusion (Lumberyard Bistro / ORCA, Falcor's "
@@ -802,6 +931,83 @@ namespace Desert::Editor::ImportOptions
         if ( !edit )
             return Common::MakeError<bool>( edit.GetError() );
         SetUpAxis( edit.GetValue()->Edit, axis );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetStoredVirtualGeometry( const std::filesystem::path& assetPath, const bool on )
+    {
+        if ( assetPath.extension() != ".stmesh" )
+            return Common::MakeFormattedError<bool>( "'{}' is not a static mesh asset",
+                                                     assetPath.generic_string() );
+        // A mesh whose source sits beside it under its own name stores what its import made: the flag is the
+        // import's (its record), so it is set on the section's working copy and the mesh reimported from it.
+        if ( Common::Content::MeshSourceBeside( assetPath ) && !Assets::IsEditedImportedMesh( assetPath ) )
+        {
+            const auto source = ImportSourceOfAsset( assetPath );
+            if ( !source )
+                return Common::MakeFormattedError<bool>( "'{}' has no import source", assetPath.generic_string() );
+            const auto kind = RecordedImportKind( *source );
+            if ( !kind )
+                return Common::MakeError<bool>( kind.GetError() );
+            const auto edit = EditOf( *source );
+            if ( !edit )
+                return Common::MakeError<bool>( edit.GetError() );
+            if ( const auto set = SetVirtualGeometry( edit.GetValue()->Edit, on, kind.GetValue() ); !set )
+                return set;
+            return Reimport( assetPath );
+        }
+
+        // THE ASSET IS THE FILE (a node of a split import, an edited import, a modeling output): UE's Asset
+        // Actions > Nanite > Enable - the stored flag changes and the mesh is derived again from the geometry the
+        // file holds (the DDC key states the flag, MeshDerivedData), with no source file read.
+        auto asset = Assets::ReadMeshSourceAssetFile( assetPath );
+        if ( !asset )
+            return Common::MakeError<bool>( asset.GetError() );
+        Assets::MeshSourceAsset stored = asset.ExtractValue();
+        if ( stored.Kind != Common::Content::ContentKind::StaticMesh || stored.Source.Skin.has_value() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}': Virtual Geometry: a skinned mesh is drawn by the binned "
+                 "path (its clusters would be one pose)",
+                 assetPath.generic_string() );
+        if ( stored.Import.Settings.VirtualGeometry == on )
+            return BOOLSUCCESS;
+        Assets::MeshImportSettings settings = stored.Import.Settings;
+        settings.VirtualGeometry            = on;
+        // The materials are judged where the import wrote them (MaterialAdoption: beside the import source); a
+        // mesh with no import source names its own folder.
+        const std::filesystem::path materialsOf =
+             stored.Import.Provenance == Assets::MeshSourceProvenance::Imported &&
+                       !stored.Import.SourceFile.empty()
+                  ? Common::AssetHandle::PathForStableKey( stored.Import.SourceFile )
+                  : assetPath;
+        if ( const auto refused = VirtualGeometryRefusal( settings, stored.Source.MaterialSlots, materialsOf ) )
+            return Common::MakeFormattedError<bool>( "'{}': Virtual Geometry refused: {}",
+                                                     assetPath.generic_string(), *refused );
+        stored.Import.Settings = settings;
+        if ( auto written = Assets::WriteMeshSourceAssetFile( assetPath, stored ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", assetPath.generic_string(),
+                                                     written.GetError() );
+        Assets::ContentRegistry::NoteFile( assetPath );
+        // Every entity that draws it draws the new derivation from now (ModelingToolTargetAsset's commit): the
+        // parsed payload and the built GPU mesh are dropped and read again now, the user waiting on the command.
+        const auto row = Assets::ContentRegistry::RowAtPath( Common::Content::ContentKind::StaticMesh, assetPath );
+        if ( !row )
+            return Common::MakeFormattedError<bool>( "'{}' was written but the registry has no row for it",
+                                                     assetPath.generic_string() );
+        auto* service = Runtime::ResourceRegistry::GetMeshService();
+        if ( auto* loaded = service->GetAsset( row->Handle ); loaded != nullptr )
+        {
+            if ( auto unloaded = loaded->Unload(); !unloaded.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "'{}' was written but not reloaded: {}",
+                                                         assetPath.generic_string(), unloaded.GetError() );
+            service->EvictBuilt( row->Handle );
+            if ( !service->LoadNow( row->Handle ) )
+                return Common::MakeFormattedError<bool>(
+                     "'{}' was written but could not be rebuilt (the log names "
+                     "why)",
+                     assetPath.generic_string() );
+        }
+        LOG_INFO( "[Import] '{}': Virtual Geometry {}", assetPath.generic_string(), on ? "on" : "off" );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::ImportOptions

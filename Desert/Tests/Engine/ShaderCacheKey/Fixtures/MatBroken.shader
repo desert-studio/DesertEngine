@@ -20,6 +20,12 @@
 // IT CARRIES THE SHDR 1 HEADER LINE ABOVE (MIG1). Since T7j ShaderAsset::LoadFromFile refuses a headerless
 // shader BEFORE compiling it, so a generation-0 fixture would reach that refusal instead of the "no compiled
 // stages" state it stands for. It was raised by `scripts/Dev/migrate.sh --write`, like every shipped shader.
+//
+// IT DECLARES A "DepthNormal" PASS (RT-SHADOWS). An opaque Domain Surface program without a Surface block must
+// (DShaderParser kGenericDepthNormalPass), or it is refused at PARSE - a different refusal than the one this
+// fixture stands for. The pass is well-formed and is not what is broken: the default pass's fragment stage is.
+// IT HAS NO VERTEX BLOCKS (GPU-DRIVEN-PASSES-11): a generic program's vertex stage is the mesh vertex factory and
+// a Vertex block is a parse error; the fragment reads the factory's varyings (v_Surface.UV0).
 Shader "MatBroken"
 {
     Domain Surface
@@ -31,21 +37,28 @@ Shader "MatBroken"
         ZWrite On
     }
 
-    Vertex
-    {
-        #include <Common/GraphVertex.glslh>
-    }
-
     Fragment
     {
-        layout( location = 0 ) in vec2 v_UV;
         layout( location = 0 ) out vec4 o_Color;
 
         void main()
         {
-            vec2 n0 = v_UV;
+            vec2 n0 = v_Surface.UV0;
             vec4 albedo = n0;
             o_Color = vec4( albedo.rgb + ( vec4( 0.0 ) ).rgb, albedo.a * ( 1.0 ) );
+        }
+    }
+
+    Pass "DepthNormal"
+    {
+        Fragment
+        {
+            #include <Mesh/Generic/DepthNormal.glslh>
+
+            void main()
+            {
+                DesertWriteDepthNormal( vec3( 0.0, 0.0, 1.0 ), 1.0 );
+            }
         }
     }
 }

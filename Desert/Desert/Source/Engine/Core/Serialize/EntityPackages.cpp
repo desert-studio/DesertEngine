@@ -60,14 +60,18 @@ namespace Desert::Core
         m_NotLoaded.clear();
     }
 
-    void EntityPackages::AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded )
+    void EntityPackages::AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded,
+                                      std::span<const Common::UUID> unsaved )
     {
+        std::unordered_set<std::uint64_t> notOfFiles;
+        for ( const Common::UUID id : unsaved )
+            notOfFiles.insert( Bits( id ) );
         std::unordered_set<std::uint64_t> alive;
         for ( const LiveEntity& entity : live )
         {
             const std::uint64_t id = Bits( entity.Id );
             alive.insert( id );
-            if ( m_SavedRevision.contains( id ) )
+            if ( m_SavedRevision.contains( id ) || notOfFiles.contains( id ) )
                 continue;
             // Just read from its file: what the file holds is what the entity is.
             m_SavedRevision[id] = CurrentOf( id );
@@ -102,6 +106,16 @@ namespace Desert::Core
             return true;
         const auto saved = m_SavedRevision.find( Bits( id ) );
         return saved == m_SavedRevision.end() || saved->second != CurrentOf( Bits( id ) );
+    }
+
+    bool EntityPackages::HasUnsavedChanges( std::span<const LiveEntity> live ) const
+    {
+        if ( !m_BaselinePath )
+            return true;
+        // The save plan of the baseline's own files: with the path matching, a whole save is only planned for an
+        // edit no record can name or a gone entity no record states - both unsaved changes.
+        const PackageSavePlan plan = Plan( *m_BaselinePath, live, true );
+        return plan.Whole || !plan.Changed.empty() || !plan.Removed.empty();
     }
 
     PackageSavePlan EntityPackages::Plan( const std::filesystem::path& scenePath, std::span<const LiveEntity> live,

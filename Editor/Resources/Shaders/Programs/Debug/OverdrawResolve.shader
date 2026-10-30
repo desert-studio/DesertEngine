@@ -22,7 +22,11 @@ Shader "OverdrawResolve"
     {
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_Overdraw; // .r = accumulated step (0.1 per fragment drawn)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(0) sampler LinearRepeatSampler;
+        Uniform(1) texture2D OverdrawTexture; // .r = accumulated step (0.1 per fragment drawn)
+        #define OverdrawTexture sampler2D(OverdrawTexture, LinearRepeatSampler)
 
         Out(0) vec4 oColor;
 
@@ -37,7 +41,7 @@ Shader "OverdrawResolve"
 
         void main()
         {
-        	float acc = texture(u_Overdraw, v_TexCoord).r;
+        	float acc = texture(OverdrawTexture, v_TexCoord).r;
         	if (acc <= 0.0001)
         		discard; // no geometry drawn here -> keep the scene/sky underneath
 

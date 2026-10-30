@@ -1,5 +1,6 @@
 #include "ImportedMeshAsset.hpp"
 #include "SourceToEngine.hpp"
+#include "VirtualGeometryGate.hpp"
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Common/Content/ImportRecord.hpp>
@@ -16,7 +17,7 @@
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <array>
 #include <mutex>
 #include <unordered_map>
@@ -417,6 +418,61 @@ namespace Desert::Editor
         return ThumbnailFreshness::WithInfo( bytes, *info == 0 ? std::nullopt : info );
     }
 
+    namespace
+    {
+        // The envelope of @p source's current bytes under the record's identity @p guid, Put into the DDC - the
+        // one write an import and a cook share (the cook's record and beside-source file stay as they are).
+        Common::ResultStr<MeshAssetWrite> PutImportedMeshEnvelope( const Ser::MeshAssetData& imported,
+                                                                   std::span<const Assets::MeshMaterialSlot> named,
+                                                                   const std::filesystem::path&      source,
+                                                                   const Common::Content::AssetGuid  guid,
+                                                                   const Assets::MeshImportSettings& recorded,
+                                                                   const uint64_t                    hash )
+        {
+            // The settings the envelope stores: the record's, with the import's verdict on Virtual Geometry
+            // (VirtualGeometryGate.hpp) - judged first, so an unchanged re-import of a refused mesh is a hit.
+            const Assets::MeshImportSettings stored =
+                 GateVirtualGeometry( recorded, imported, named, source, source.generic_string() );
+            const uint64_t key = Assets::MeshSourceDerivedDataKey( hash );
+            // This exact content is already cached - unless it was imported with other options (a re-import from
+            // the Details' Import Settings keeps the bytes and changes the scale, the axis or the LOD policy).
+            if ( const auto cached = Common::DDC::Get( Assets::kMeshSourceDeriver, key ) )
+            {
+                const auto decoded = Assets::DecodeMeshSourceAsset( std::as_bytes( std::span{ *cached } ) );
+                if ( decoded && decoded.GetValue().Import.Settings == stored )
+                    return Common::MakeSuccess( MeshAssetWrite::Unchanged );
+            }
+
+            // THE ENVELOPE STATES THE RECORD'S GUID (FIX8). Its DDC key is the source's bytes, so an edit of the
+            // source makes a new envelope - under the same identity, because the record is not rewritten. (AF4h
+            // minted a GUID per import here, and every reference by GUID died with the next edit of the .fbx.)
+            Assets::MeshSourceAsset asset;
+            asset.Kind              = Common::Content::ContentKind::StaticMesh;
+            asset.Guid              = guid;
+            asset.Name              = source.stem().string();
+            asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
+            asset.Import.SourceHash = hash;
+            asset.Import.Settings   = stored;
+            auto sourceData         = MeshSourceFromImport( imported, named, source.string() );
+            if ( !sourceData )
+                return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );
+            if ( const std::string warning = SkippedFacesWarning( sourceData.GetValue(), source.string() );
+                 !warning.empty() )
+                LOG_WARN( "{}", warning );
+            asset.Source = std::move( sourceData.ExtractValue().Source );
+
+            auto bytes = Assets::EncodeMeshSourceAsset( asset );
+            if ( !bytes )
+                return Common::MakeError<MeshAssetWrite>( bytes.GetError() );
+            std::string blob( bytes.GetValue().size(), '\0' );
+            std::memcpy( blob.data(), bytes.GetValue().data(), blob.size() );
+            if ( auto put = Common::DDC::Put( Assets::kMeshSourceDeriver, key, blob ); !put )
+                return Common::MakeFormattedError<MeshAssetWrite>(
+                     "'{}': imported source built but not cached: {}", source.string(), put.GetError() );
+            return Common::MakeSuccess( MeshAssetWrite::Written );
+        }
+    } // namespace
+
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Ser::MeshAssetData&                 imported,
                                                               std::span<const Assets::MeshMaterialSlot> named,
                                                               const std::filesystem::path&              source )
@@ -424,7 +480,6 @@ namespace Desert::Editor
         const auto hash = Assets::HashMeshSourceFile( source );
         if ( !hash )
             return Common::MakeError<MeshAssetWrite>( hash.GetError() );
-        const uint64_t key = Assets::MeshSourceDerivedDataKey( hash.GetValue() );
 
         if ( const auto beside = RemoveBesideSourceFile( source ); !beside )
             return Common::MakeError<MeshAssetWrite>( beside.GetError() );
@@ -446,43 +501,42 @@ namespace Desert::Editor
              SourceToEngineBounds( *bounds, settings.GetValue().Mesh ), settings.GetValue() );
         if ( !identity )
             return Common::MakeError<MeshAssetWrite>( identity.GetError() );
+        return PutImportedMeshEnvelope( imported, named, source, identity.GetValue(), settings.GetValue().Mesh,
+                                        hash.GetValue() );
+    }
 
-        // This exact content is already cached - unless it was imported with other options (a re-import from
-        // the Details' Import Settings keeps the bytes and changes the scale, the axis or the LOD policy).
-        if ( const auto cached = Common::DDC::Get( Assets::kMeshSourceDeriver, key ) )
-        {
-            const auto decoded = Assets::DecodeMeshSourceAsset( std::as_bytes( std::span{ *cached } ) );
-            if ( decoded && decoded.GetValue().Import.Settings == settings.GetValue().Mesh )
-                return Common::MakeSuccess( MeshAssetWrite::Unchanged );
-        }
-
-        // THE ENVELOPE STATES THE RECORD'S GUID (FIX8). Its DDC key is the source's bytes, so an edit of the
-        // source makes a new envelope - under the same identity, because the record is not rewritten. (AF4h
-        // minted a GUID per import here, and every reference by GUID died with the next edit of the .fbx.)
-        Assets::MeshSourceAsset asset;
-        asset.Kind              = Common::Content::ContentKind::StaticMesh;
-        asset.Guid              = identity.GetValue();
-        asset.Name              = source.stem().string();
-        asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
-        asset.Import.SourceHash = hash.GetValue();
-        asset.Import.Settings   = settings.GetValue().Mesh;
-        auto sourceData         = MeshSourceFromImport( imported, named, source.string() );
-        if ( !sourceData )
-            return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );
-        if ( const std::string warning = SkippedFacesWarning( sourceData.GetValue(), source.string() );
-             !warning.empty() )
-            LOG_WARN( "{}", warning );
-        asset.Source = std::move( sourceData.ExtractValue().Source );
-
-        auto bytes = Assets::EncodeMeshSourceAsset( asset );
-        if ( !bytes )
-            return Common::MakeError<MeshAssetWrite>( bytes.GetError() );
-        std::string blob( bytes.GetValue().size(), '\0' );
-        std::memcpy( blob.data(), bytes.GetValue().data(), blob.size() );
-        if ( auto put = Common::DDC::Put( Assets::kMeshSourceDeriver, key, blob ); !put )
-            return Common::MakeFormattedError<MeshAssetWrite>( "'{}': imported source built but not cached: {}",
-                                                               source.string(), put.GetError() );
-        return Common::MakeSuccess( MeshAssetWrite::Written );
+    Common::ResultStr<MeshAssetWrite> CookImportedMeshEnvelope( const Ser::MeshAssetData&                 imported,
+                                                                std::span<const Assets::MeshMaterialSlot> named,
+                                                                const std::filesystem::path&              source,
+                                                                const Assets::SourceImportSettings& settings )
+    {
+        const auto hash = Assets::HashMeshSourceFile( source );
+        if ( !hash )
+            return Common::MakeError<MeshAssetWrite>( hash.GetError() );
+        // A file beside the source is Content (an edit, or a file this import refuses by name): a re-import
+        // removes it, a cook leaves it where it is.
+        const std::filesystem::path beside = CookPaths::MeshAsset( source );
+        std::error_code             ec;
+        if ( std::filesystem::exists( Common::Constants::Path::FullPath( beside ), ec ) )
+            return Common::MakeFormattedError<MeshAssetWrite>(
+                 "'{}': '{}' is beside it, and a cook neither reads nor removes it - re-import the source",
+                 source.generic_string(), beside.generic_string() );
+        const auto bounds = Ser::MeshDataBounds( imported );
+        if ( !bounds )
+            return Common::MakeFormattedError<MeshAssetWrite>( "'{}': the import has no submesh, so no box",
+                                                               source.string() );
+        // THE RECORD IS READ, NOT WRITTEN: it must already state this import (kind, box, options), so the
+        // envelope rebuilt from the source is the one the last import Put - under the identity references hold.
+        const auto identity = Assets::Serialization::ReadCurrentImportRecord(
+             source, Common::Content::ContentKind::StaticMesh, SourceToEngineBounds( *bounds, settings.Mesh ),
+             settings );
+        if ( !identity )
+            return Common::MakeFormattedError<MeshAssetWrite>(
+                 "'{}': its derived mesh is missing and a cook writes nothing into Content, but {} - re-import "
+                 "the source (Import Settings > Reimport)",
+                 source.generic_string(), identity.GetError() );
+        return PutImportedMeshEnvelope( imported, named, source, identity.GetValue(), settings.Mesh,
+                                        hash.GetValue() );
     }
 
     Common::ResultStr<Assets::AssetGuidRef> PreviewMeshRefFor( const std::filesystem::path& source )

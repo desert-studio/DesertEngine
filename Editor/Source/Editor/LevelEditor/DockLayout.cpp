@@ -10,7 +10,7 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>

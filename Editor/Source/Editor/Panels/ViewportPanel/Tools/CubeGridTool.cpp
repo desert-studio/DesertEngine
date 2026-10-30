@@ -4,6 +4,7 @@
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutCollision.hpp>
@@ -16,6 +17,8 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
+#include <Engine/Geometry/MeshBooleanOperation.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -41,7 +44,131 @@ namespace Desert::Editor::Tools
         {
             return ImVec4( c.x, c.y, c.z, alpha );
         }
+
+        // One in-tool step (UE: the FToolCommandChange a Push/Pull emits): the session before and after it.
+        // It writes into the tool, not the scene - the preview entity is the tool's until Accept records it -
+        // so it names the tool as its edited object and the session's end drops it (CommandHistory::DropFor).
+        class CubeGridStepCommand final : public ICommand
+        {
+        public:
+            CubeGridStepCommand( CubeGridTool& tool, CubeGridTool::SessionState before,
+                                 CubeGridTool::SessionState after, std::string label )
+                 : m_Tool( tool ), m_Before( std::move( before ) ), m_After( std::move( after ) ),
+                   m_Label( std::move( label ) )
+            {
+            }
+            bool Undo() override
+            {
+                m_Tool.RestoreState( m_Before );
+                return true;
+            }
+            bool Redo() override
+            {
+                m_Tool.RestoreState( m_After );
+                return true;
+            }
+            [[nodiscard]] const void* EditedObject() const override
+            {
+                return &m_Tool;
+            }
+            std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+        private:
+            CubeGridTool&              m_Tool;
+            CubeGridTool::SessionState m_Before;
+            CubeGridTool::SessionState m_After;
+            std::string                m_Label;
+        };
+
+        // The tool half of a scene-mesh step (PushPullMesh): the session's selection before and after the
+        // boolean, undone / redone WITH the mesh (RecordMeshChange's `alongside`), so the highlight returns to the
+        // restored surface. The mesh step is the scene's and outlives the session; this half holds the session
+        // weakly and does nothing once that session has ended (ResetSession renews the token, the tool's end
+        // drops it).
+        class CubeGridMeshSelectionCommand final : public ICommand
+        {
+        public:
+            CubeGridMeshSelectionCommand( CubeGridTool& tool, std::weak_ptr<int> session,
+                                          CubeGridTool::SessionState before, CubeGridTool::SessionState after )
+                 : m_Tool( tool ), m_Session( std::move( session ) ), m_Before( std::move( before ) ),
+                   m_After( std::move( after ) )
+            {
+            }
+            bool Undo() override
+            {
+                if ( !m_Session.expired() )
+                    m_Tool.RestoreState( m_Before );
+                return true;
+            }
+            bool Redo() override
+            {
+                if ( !m_Session.expired() )
+                    m_Tool.RestoreState( m_After );
+                return true;
+            }
+            std::string GetLabel() const override
+            {
+                return "CubeGrid selection";
+            }
+
+        private:
+            CubeGridTool&              m_Tool;
+            std::weak_ptr<int>         m_Session;
+            CubeGridTool::SessionState m_Before;
+            CubeGridTool::SessionState m_After;
+        };
     } // namespace
+
+    CubeGridTool::~CubeGridTool()
+    {
+        m_Alive.reset();
+        CommandHistory::Get().DropFor( this );
+    }
+
+    CubeGridTool::SessionState CubeGridTool::CaptureState() const
+    {
+        return SessionState{ m_Volume, m_Materials,  m_HasSel,    m_Sel,
+                             m_Plane,  m_CornerMode, m_Crosswise, m_CornerH };
+    }
+
+    void CubeGridTool::RestoreState( const SessionState& state )
+    {
+        m_Volume     = state.Volume;
+        m_Materials  = state.Materials;
+        m_HasSel     = state.HasSel;
+        m_Sel        = state.Sel;
+        m_Plane      = state.Plane;
+        m_CornerMode = state.CornerMode;
+        m_Crosswise  = state.Crosswise;
+        m_CornerH    = state.CornerH;
+        m_Selecting = m_DragExtrude = m_CornerSweep = false;
+        m_PendingRegen                              = true;
+    }
+
+    void CubeGridTool::BeginChange()
+    {
+        if ( m_ChangeDepth++ == 0 )
+        {
+            m_ChangeBefore = CaptureState();
+            m_ChangeDirty  = false;
+        }
+    }
+
+    void CubeGridTool::EndChange( const char* label )
+    {
+        if ( m_ChangeDepth == 0 || --m_ChangeDepth > 0 )
+            return;
+        // A session that ended inside the change (an edit that emptied a reopened blockout cancels it) has
+        // nothing left to step back into: ResetSession already dropped the state.
+        if ( m_ChangeBefore && m_ChangeDirty )
+            CommandHistory::Get().PushCommand( std::make_unique<CubeGridStepCommand>(
+                 *this, std::move( *m_ChangeBefore ), CaptureState(), label ) );
+        m_ChangeBefore.reset();
+        m_ChangeDirty = false;
+    }
 
     bool CubeGridTool::WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
                                       const glm::vec2& size, glm::vec2& out )
@@ -103,9 +230,126 @@ namespace Desert::Editor::Tools
         if ( !material )
             return;
         const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
-        // One block = K base cells tall; x Blocks Per Step.
+        // On a mesh this session did not build: the boolean into THAT mesh (UE CubeGridBooleanOp), not voxels.
+        // A Pull off something that is no modeling target - the ground primitive - starts a new piece, as UE's
+        // tool builds a new mesh when it has no target; a Push into one is refused by name (PushPullMesh).
+        const auto onTargetMesh = [&]
+        {
+            const auto ref = scene.FindEntityByID( m_SelEntity );
+            return ref && ref->get().HasComponent<ECS::StaticMeshComponent>() &&
+                   GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() ).IsSuccess();
+        };
+        if ( m_SelEntity != Common::UUID::Null() && m_SelEntity != m_Entity && ( dir < 0 || onTargetMesh() ) )
+        {
+            PushPullMesh( scene, m_SelEntity, dir, K * steps );
+            return;
+        }
+        // One block = K base cells tall; x Blocks Per Step. One undo step (nested in a drag's, when dragging).
+        BeginChange();
         m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps, *material );
         RegenMesh( scene );
+        EndChange( dir > 0 ? "CubeGrid Push" : "CubeGrid Pull" );
+    }
+
+    void CubeGridTool::PushPullMesh( ::Desert::Core::Scene& scene, const Common::UUID& target, int dir,
+                                     int height )
+    {
+        const bool        pull   = dir > 0;
+        const char* const label  = pull ? "CubeGrid Pull" : "CubeGrid Push";
+        auto              refuse = [&]( const std::string& why )
+        {
+            LOG_WARN( "[CubeGrid] {} on the mesh refused: {}", label, why );
+            ToastManager::Push( std::string( label ) + " refused: " + why, ToastLevel::Warning, 8.0f );
+        };
+        auto ref = scene.FindEntityByID( target );
+        if ( !ref )
+            return refuse( "the targeted entity is no longer in the scene" );
+        ECS::Entity e = ref->get();
+        if ( !e.HasComponent<ECS::StaticMeshComponent>() )
+            return refuse( "the targeted entity has no static mesh" );
+        auto& smc   = e.GetComponent<ECS::StaticMeshComponent>();
+        auto  input = GetToolTargetMesh( smc );
+        if ( !input.IsSuccess() )
+            return refuse( input.GetError() );
+
+        // The box as cells of the active lattice (UE builds it from the grid frame and the selection's box). The
+        // plane's `Cell` is the layer just outside the face. A Push takes `height` cells inside the face plus that
+        // outside one; a Pull takes `height` outside plus one inside. Either way the box crosses the face instead
+        // of sharing its plane, which the boolean could not weld.
+        const auto& ms = Core::ModelingState::Get();
+        Volume      box;
+        box.m_Unit   = m_Volume.m_Unit;
+        box.m_Frame  = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
+        const int na = m_Plane.Na;
+        const int ua = ( na + 1 ) % 3;
+        const int va = ( na + 2 ) % 3;
+        for ( int cu = m_Sel.UMin; cu <= m_Sel.UMax; ++cu )
+            for ( int cv = m_Sel.VMin; cv <= m_Sel.VMax; ++cv )
+                for ( int s = -1; s < height; ++s )
+                {
+                    glm::ivec3 c{ 0 };
+                    c[na] = pull ? m_Plane.Cell + m_Plane.Sign * s : m_Plane.Cell - m_Plane.Sign * ( 1 + s );
+                    c[ua]                  = cu;
+                    c[va]                  = cv;
+                    box.m_Cells[Pack( c )] = Cell{};
+                }
+        Geometry::RenderMeshData cutterQuads = box.Bake();
+        // The bake is in the world; the boolean runs in the target's space.
+        const glm::mat4 world    = e.GetWorldTransform();
+        const glm::mat4 toLocal  = glm::inverse( world );
+        const glm::mat3 vecLocal = glm::mat3( toLocal );
+        const glm::mat3 nrmLocal = glm::transpose( glm::mat3( world ) );
+        for ( auto& v : cutterQuads.Vertices )
+        {
+            v.Position  = glm::vec3( toLocal * glm::vec4( v.Position, 1.0f ) );
+            v.Normal    = glm::normalize( nrmLocal * v.Normal );
+            v.Tangent   = glm::normalize( vecLocal * v.Tangent );
+            v.Bitangent = glm::normalize( vecLocal * v.Bitangent );
+        }
+        auto cutter = Geometry::DynamicMeshFromRenderMesh( cutterQuads );
+        if ( !cutter.IsSuccess() )
+            return refuse( "the box did not become a mesh: " + cutter.GetError() );
+
+        // The new faces take the Quick Material (UE: the op's material ID of the current material): the target's
+        // slot holding it, or a slot added for it. Slots never shrink (CoverMaterialIds' rule), so an Undo
+        // leaves the added slot unused rather than renumbering the mesh's IDs.
+        const Common::AssetHandle        want  = ms.QuickMaterial;
+        std::vector<Common::AssetHandle> slots = smc.GetMaterialSlots();
+        if ( slots.empty() )
+            slots.emplace_back();
+        auto slotIt = std::find( slots.begin(), slots.end(), want );
+        if ( slotIt == slots.end() )
+            slotIt = slots.insert( slots.end(), want );
+        const int              slot  = static_cast<int>( slotIt - slots.begin() );
+        Geometry::DynamicMesh3 piece = cutter.GetValue().Mesh;
+        if ( !piece.HasAttributes() )
+            piece.EnableAttributes();
+        if ( !piece.Attributes()->HasMaterialID() )
+            piece.Attributes()->EnableMaterialID();
+        for ( int tid = 0; tid < piece.MaxTriangleID(); ++tid )
+            if ( piece.IsTriangle( tid ) )
+                piece.Attributes()->GetMaterialID()->SetValue( tid, slot );
+
+        auto result = Geometry::RunMeshBoolean( pull ? Geometry::BooleanOperation::Union
+                                                     : Geometry::BooleanOperation::Difference,
+                                                *input.GetValue().Mesh, piece );
+        if ( !result.IsSuccess() )
+            return refuse( result.GetError() );
+        // Slots and mesh are one write: a refused mesh leaves the slots as they were too. The writer drops
+        // the runtime instances when the slots change, so the mesh system rebuilds them.
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots       = std::move( slots );
+        if ( auto set = ECS::SetEditableMesh( desc, result.GetValue().Mesh ); !set.IsSuccess() )
+            return refuse( set.GetError() );
+        ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), desc );
+        // The selection follows the edit - up onto the bump, down into the pit - so the next Push/Pull continues
+        // it (the voxel path's plane moves with the edit the same way), and comes back with the mesh on Undo.
+        SessionState before = CaptureState();
+        m_Plane.Cell += ( pull ? 1 : -1 ) * m_Plane.Sign * height;
+        Commands::RecordMeshChange( target, label, input.GetValue().Committed,
+                                    std::make_unique<CubeGridMeshSelectionCommand>(
+                                         *this, m_Alive, std::move( before ), CaptureState() ) );
+        LOG_INFO( "[CubeGrid] {} {} cells on '{}' (material slot {})", label, height, target.ToString(), slot );
     }
 
     void CubeGridTool::SlideSelection( int dir, int K )
@@ -121,6 +365,15 @@ namespace Desert::Editor::Tools
     {
         if ( !m_HasSel )
             return;
+        BeginChange(); // OpMaterialId may append to the material set: part of the step
+        struct EndOnExit
+        {
+            CubeGridTool& Tool;
+            ~EndOnExit()
+            {
+                Tool.EndChange( "CubeGrid Paint" );
+            }
+        } end{ *this };
         const auto material = OpMaterialId();
         if ( !material )
             return;
@@ -168,13 +421,12 @@ namespace Desert::Editor::Tools
         slots.reserve( submeshMaterialIds.size() );
         for ( const int id : submeshMaterialIds )
             slots.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
-        if ( slots == smc.MaterialSlots )
+        if ( slots == smc.GetMaterialSlots() )
             return;
-        smc.MaterialSlots = std::move( slots );
-        // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-        smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeSlots.reset();
-        smc.SeenMaterialsVersion = 0;
+        // The writer drops the runtime instances on the slot change, so the mesh system rebuilds them.
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots       = std::move( slots );
+        ECS::SetStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
     }
 
     void CubeGridTool::ResetSession()
@@ -182,11 +434,18 @@ namespace Desert::Editor::Tools
         m_Volume.m_Cells.clear();
         m_Volume.m_Frozen.clear();
         m_HasSel = m_Selecting = m_CornerMode = m_DragExtrude = false;
+        m_HoverEntity = m_SelEntity = Common::UUID::Null();
         m_Volume.m_Unit = m_BakedUnit = -1.0f;
         m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
         m_Materials.assign( 1, Common::AssetHandle{} );
         m_Before.reset();
         m_EntityFrame = GridFrame{};
+        // The session's steps end with it: Accept recorded the piece as one step, Cancel put it back.
+        CommandHistory::Get().DropFor( this );
+        m_Alive = std::make_shared<int>( 0 ); // the scene-mesh steps' selection halves end with the session
+        m_ChangeBefore.reset();
+        m_ChangeDirty  = false;
+        m_PendingRegen = false;
     }
 
     Volume CubeGridTool::LocalVolume() const
@@ -254,7 +513,7 @@ namespace Desert::Editor::Tools
         m_EntityFrame = opened.GetValue().EntityFrame;
         m_Volume      = std::move( opened.ExtractValue().Volume );
         // Accept stored the material IDs as the entity's slot indices (StoreVoxels), so the slots ARE the set.
-        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
         if ( !slots.empty() )
             m_Materials = slots;
 
@@ -263,7 +522,7 @@ namespace Desert::Editor::Tools
         const Layer&         last = m_Volume.m_Frozen.back();
         ms.GridOrigin             = last.Frame.Origin;
         ms.GridRotation           = glm::degrees( glm::eulerAngles( last.Frame.Rotation ) );
-        ms.CellSize               = last.Unit;
+        ms.SetCurrentBlockSize( last.Unit );
         m_Volume.m_Frame          = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
         m_Volume.m_Unit = m_BakedUnit = -1.0f;
         LOG_INFO( "[CubeGrid] editing '{}': {} layer(s)", name, m_Volume.m_Frozen.size() );
@@ -320,8 +579,13 @@ namespace Desert::Editor::Tools
             ms.ReqCubeGridEditSelected = false;
             EditSelected( scene );
         }
+        if ( m_PendingRegen )
+        {
+            m_PendingRegen = false;
+            RegenMesh( scene );
+        }
 
-        const float gs = std::max( ms.CellSize, Core::ModelingState::MinCellSize );
+        const float gs = std::max( ms.CellSize(), Core::ModelingState::MinCellSize );
 
         // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin AND orientation
         // (UE 5.8 CubeGridTool.cpp:2560-2566: the actor's transform with its scale removed).
@@ -434,7 +698,8 @@ namespace Desert::Editor::Tools
                 changed = true;
             }
         const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Volume.m_Unit ) ) );
-        ms.CellSize   = static_cast<float>( K ) * m_Volume.m_Unit; // snap the shown Block Size to a base multiple
+        ms.SetCurrentBlockSize( static_cast<float>( K ) *
+                                m_Volume.m_Unit ); // snap the Block Size to a base multiple
         const float u = m_Volume.m_Unit;
 
         // Resizing the grid with a selection up but nothing pushed yet re-bases the whole volume, so the
@@ -447,11 +712,13 @@ namespace Desert::Editor::Tools
         if ( ms.ReqClear )
         {
             ms.ReqClear = false;
+            BeginChange();
             m_Volume.m_Cells.clear();
             m_Volume.m_Frozen.clear();
             m_HasSel = m_Selecting = m_CornerMode = false;
             m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             RegenMesh( scene );
+            EndChange( "CubeGrid Clear" );
         }
 
         // World coord of a plane (na, planeCell, sign) — the surface a Push extrudes from.
@@ -522,8 +789,9 @@ namespace Desert::Editor::Tools
             // on top of an imported prop. Bounding-box level (Scene::Raycast), which is all a work-plane
             // needs; it never wins over a nearer blockout face.
             const float cellT    = bestT; // nearest blockout face (FLT_MAX when the cursor missed them all)
-            bool        sceneHit = false;
-            float       sceneT   = FLT_MAX;
+            bool         sceneHit    = false;
+            float        sceneT      = FLT_MAX;
+            Common::UUID sceneEntity = Common::UUID::Null();
             if ( ms.HitUnrelated )
             {
                 ::Desert::Core::RaycastHit rh;
@@ -531,13 +799,15 @@ namespace Desert::Editor::Tools
                                  rh.Entity != m_Entity; // never target the live blockout's own mesh
                 if ( got )
                 {
-                    sceneHit = true;
-                    sceneT   = rh.Distance;
+                    sceneHit    = true;
+                    sceneT      = rh.Distance;
+                    sceneEntity = rh.Entity;
                     // Snap the hit surface onto the lattice, then work from there.
                     snapToLattice( frame.ToFramePoint( rh.Point ), frame.ToFrameVector( rh.Normal ) );
                 }
             }
 
+            m_HoverEntity = ( sceneHit && !( hit && cellT <= sceneT ) ) ? sceneEntity : Common::UUID::Null();
             if ( hit && cellT <= sceneT )
             {
                 bestT = cellT;
@@ -810,7 +1080,11 @@ namespace Desert::Editor::Tools
         auto step = [&]( int dir )
         {
             if ( m_CornerMode )
+            {
+                BeginChange();
                 moveCorners( dir );
+                EndChange( dir > 0 ? "CubeGrid Raise Corners" : "CubeGrid Lower Corners" );
+            }
             else
                 PushPull( scene, dir, K );
         };
@@ -823,7 +1097,7 @@ namespace Desert::Editor::Tools
             if ( ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
             {
                 if ( ctrl ) // Ctrl+E — coarser grid
-                    ms.DoubleBlockSize();
+                    ms.GridPowerUp();
                 else if ( shift ) // Shift+E — slide the selection back (out of the surface), UE SlideBack
                     SlideSelection( +1, K );
                 else
@@ -832,7 +1106,7 @@ namespace Desert::Editor::Tools
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Q, false ) )
             {
                 if ( ctrl ) // Ctrl+Q — finer grid
-                    ms.HalveBlockSize();
+                    ms.GridPowerDown();
                 else if ( shift ) // Shift+Q — slide the selection forward (into the surface), UE SlideForward
                     SlideSelection( -1, K );
                 else
@@ -920,6 +1194,7 @@ namespace Desert::Editor::Tools
                 m_Plane.Sign = tSign;
                 m_Plane.Cell = tPlaneCell;
                 m_Anchor     = { tU, tV };
+                m_SelEntity  = m_HoverEntity;
                 m_Sel.UMin   = FloorDiv( tU, K ) * K;
                 m_Sel.UMax   = m_Sel.UMin + n * K - 1;
                 m_Sel.VMin   = FloorDiv( tV, K ) * K;
@@ -959,11 +1234,15 @@ namespace Desert::Editor::Tools
             m_DragStart      = LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction );
             m_DragApplied    = 0;
             m_DragExtrude    = true;
+            BeginChange(); // the whole drag is ONE undo step, however many blocks it applied on the way
         }
         if ( m_DragExtrude )
         {
             if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) || !m_HasSel )
+            {
                 m_DragExtrude = false;
+                EndChange( m_CornerMode ? "CubeGrid Drag Corners" : "CubeGrid Drag Push/Pull" );
+            }
             else
             {
                 const float delta =
@@ -1006,6 +1285,7 @@ namespace Desert::Editor::Tools
             m_Plane.Sign = tSign;
             m_Plane.Cell = tPlaneCell;
             m_Anchor    = { tU, tV };
+            m_SelEntity  = m_HoverEntity;
         }
 
         if ( m_Selecting )
@@ -1211,12 +1491,12 @@ namespace Desert::Editor::Tools
                 // Block Size readout in centimetres (UE numbers: 100 cm = one metre = the default block).
                 ::ImGui::SameLine( 0.0f, 14.0f );
                 if ( ::ImGui::Button( ICON_MDI_MINUS "##grid_dn" ) )
-                    ms.CellSize = std::max( ms.CellSize * 0.5f, Core::ModelingState::MinCellSize );
+                    ms.GridPowerDown();
                 ::ImGui::SameLine();
-                ::ImGui::Text( "Grid %.0f cm", static_cast<float>( K ) * u );
+                ::ImGui::Text( "Grid Power %d - %g cm", ms.GridPower, static_cast<double>( K ) * u );
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( ICON_MDI_PLUS "##grid_up" ) )
-                    ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
+                    ms.GridPowerUp();
             }
             ::ImGui::End();
             ::ImGui::PopStyleVar( 3 );
@@ -1227,7 +1507,10 @@ namespace Desert::Editor::Tools
 
         // Accept ("Accept and Start New" in UE's panel): keep the built mesh, select it, and hand the tool
         // a clean slate — the grid frame and Block Size stay so you carry straight on with the next piece.
-        if ( ms.ReqAccept )
+        // Only CubeGrid's own Accept: ReqAccept is shared by every Modeling tool, and a MeshOps tool (Remesh,
+        // Simplify, ...) keeps its request raised across frames while its background compute lands - this
+        // Update runs after theirs, so an ungated check swallowed that Accept (scripted Accept committed nothing).
+        if ( ms.ReqAccept && toolActive )
         {
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;
@@ -1286,9 +1569,21 @@ namespace Desert::Editor::Tools
     void CubeGridTool::RegenMesh( ::Desert::Core::Scene& scene )
     {
         m_BakedUnit = m_Volume.m_Unit;
+        if ( m_ChangeDepth > 0 )
+            m_ChangeDirty = true;
         if ( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() )
         {
-            if ( m_Before )
+            // A new blockout with no blocks (pulled away, or undone back past its first push) has no preview
+            // entity, and the session stays open with its steps, as UE's tool shows an empty mesh: the next
+            // Push - or a Redo - builds the entity again.
+            if ( !m_Before )
+            {
+                if ( m_Entity != Common::UUID::Null() )
+                    if ( auto ref = scene.FindEntityByID( m_Entity ) )
+                        scene.DestroyEntity( ref->get() );
+                m_Entity = Common::UUID::Null();
+                return;
+            }
                 ToastManager::Push( "CubeGrid: the edit removed every block, so the blockout is back as it was; "
                                     "delete the entity to remove it",
                                     ToastLevel::Warning, 8.0f );
@@ -1311,9 +1606,9 @@ namespace Desert::Editor::Tools
             return;
         }
         ECS::Entity entity = ref->get();
-        auto&       smc    = entity.HasComponent<ECS::StaticMeshComponent>()
-                                  ? entity.GetComponent<ECS::StaticMeshComponent>()
-                                  : entity.AddComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = entity.HasComponent<ECS::StaticMeshComponent>()
+                                        ? entity.GetComponent<ECS::StaticMeshComponent>().GetDesc()
+                                        : ECS::StaticMeshDesc{};
         // The quads become a DynamicMesh3 - the entity's source of truth, the thing the scene saves - and the
         // render mesh is derived from it (EditableMesh.hpp). The weld joins each quad's corners with its
         // neighbours' into shared topology; the normal, tangent and UV each become a seam exactly where two
@@ -1326,13 +1621,14 @@ namespace Desert::Editor::Tools
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        if ( auto set = ECS::SetEditableMesh( smc, std::make_shared<const Geometry::DynamicMesh3>(
-                                                        std::move( imported.ExtractValue().Mesh ) ) );
+        if ( auto set = ECS::SetEditableMesh( desc, std::make_shared<const Geometry::DynamicMesh3>(
+                                                         std::move( imported.ExtractValue().Mesh ) ) );
              !set.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
             return;
         }
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
         ApplyMaterialSlots( scene, quads.SubmeshMaterialIds );
     }
 

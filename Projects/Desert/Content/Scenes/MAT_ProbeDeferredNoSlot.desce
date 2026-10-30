@@ -3,8 +3,11 @@
         "Kind": "Scene",
         "Guid": "5fc47a56d28c79566bd248237ba28f5b",
         "Versions": {
-            "SCNE": 54,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 71,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "91bde2ac45c15dd230d961a447b6fba7", "b7de7b6da944bded0382e39126712944", "e04d99eaf3ddd30e0184e38e5c3bcc57"]
     },
@@ -18,7 +21,12 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
             "StaticMesh": {
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -29,9 +37,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [6.0, 6.0, 0.20000000298023224],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -42,93 +58,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.600000023841858, 1.600000023841858, 1.600000023841858],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Glass.demat"],
-                "MaterialGuids": ["b7de7b6da944bded0382e39126712944"],
-                "Primitive": "Sphere"
-            }
-        },
-        {
-            "id": 6521001340747128329,
-            "siblingIndex": 2,
-            "Tag": "CB_LeftRed",
-            "Translation": [-300.0, 300.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.20000000298023224, 6.0, 6.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Red.demat"],
-                "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 6853468216349300670,
-            "siblingIndex": 7,
-            "Tag": "CB_Sun",
-            "Translation": [50.70925521850586, -84.51541900634766, 16.90308380126953],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
-            "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
-                "Intensity": 1.0,
-                "AtmosphereSunLight": true,
-                "AtmosphereSunLightIndex": 0,
-                "AffectedByAtmosphereTransmittance": true,
-                "LightShaftBloom": false,
-                "BloomScale": 0.20000000298023224,
-                "BloomThreshold": 0.0,
-                "BloomMaxBrightness": 100.0,
-                "BloomTint": [1.0, 1.0, 1.0],
-                "CastShadows": true,
-                "ShadowBias": 1.0,
-                "ShadowSlopeBias": 2.0,
-                "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
-            }
-        },
-        {
-            "id": 9365333062700381311,
-            "siblingIndex": 6,
-            "Tag": "CB_BackLight",
-            "Translation": [0.0, 250.0, -250.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
-            "PointLight": {
-                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
-                "Intensity": 8.0,
-                "Radius": 1200.0,
-                "MinRadius": 0.0,
-                "Falloff": 1,
-                "ShowRadius": false,
-                "CastShadows": true,
-                "ShadowBias": 0.5,
-                "ShadowSlopeBias": 0.5,
-                "ShadowResolutionScale": 1.0
-            }
-        },
-        {
-            "id": 15565269528183323252,
-            "siblingIndex": 0,
-            "Tag": "CB_Floor",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [6.0, 0.20000000298023224, 6.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 15846755177518281318,
-            "siblingIndex": 3,
-            "Tag": "CB_RightGreen",
-            "Translation": [300.0, 300.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.20000000298023224, 6.0, 6.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Green.demat"],
-                "MaterialGuids": ["91bde2ac45c15dd230d961a447b6fba7"],
-                "Primitive": "Cube"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b7de7b6da944bded0382e39126712944",
+                        "Path": "assets:Materials/CB_Glass.demat"
+                    }
+                ]
             }
         },
         {
@@ -155,14 +95,24 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 1.0,
-                    "Gamma": 2.200000047683716,
+                    "ManualExposureEV100": 0.5260688662528992,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
@@ -189,8 +139,133 @@
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
+            }
+        },
+        {
+            "id": 6521001340747128329,
+            "siblingIndex": 2,
+            "Tag": "CB_LeftRed",
+            "Translation": [-300.0, 300.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 6.0, 6.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                        "Path": "assets:Materials/CB_Red.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 6853468216349300670,
+            "siblingIndex": 7,
+            "Tag": "CB_Sun",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-1.768191933631897, -0.5318081378936768, 0.641492486000061],
+            "Scale": [100.0, 100.0, 100.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 1.0,
+                "AtmosphereSunLight": true,
+                "AtmosphereSunLightIndex": 0,
+                "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
+                "LightShaftBloom": false,
+                "BloomScale": 0.20000000298023224,
+                "BloomThreshold": 0.0,
+                "BloomMaxBrightness": 100.0,
+                "BloomTint": [1.0, 1.0, 1.0],
+                "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
+                "ShadowBias": 1.0,
+                "ShadowSlopeBias": 2.0,
+                "ShadowCascadeBiasDistribution": 1.0,
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
+            }
+        },
+        {
+            "id": 9365333062700381311,
+            "siblingIndex": 6,
+            "Tag": "CB_BackLight",
+            "Translation": [0.0, 250.0, -250.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "PointLight": {
+                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
+                "Intensity": 8.0,
+                "IntensityUnits": 0,
+                "Radius": 1200.0,
+                "MinRadius": 0.0,
+                "SourceRadius": 0.0,
+                "Falloff": 1,
+                "ShowRadius": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0,
+                "ShadowMethod": 0,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
+            }
+        },
+        {
+            "id": 15565269528183323252,
+            "siblingIndex": 0,
+            "Tag": "CB_Floor",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [6.0, 0.20000000298023224, 6.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 15846755177518281318,
+            "siblingIndex": 3,
+            "Tag": "CB_RightGreen",
+            "Translation": [300.0, 300.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 6.0, 6.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "91bde2ac45c15dd230d961a447b6fba7",
+                        "Path": "assets:Materials/CB_Green.demat"
+                    }
+                ]
             }
         }
     ],
@@ -206,6 +281,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

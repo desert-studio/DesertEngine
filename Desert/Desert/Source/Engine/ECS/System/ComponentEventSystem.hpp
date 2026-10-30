@@ -1,8 +1,9 @@
 #pragma once
 
 // THE GAMEPLAY FRAMEWORK DELIVERS THE FACTS. Physics reports contacts (PhysicsEventQueue) and destruction reports
-// breaks (DestructionEventQueue) as facts named by entity; this system turns each fact into the EVENT of the
-// component it happened to — RigidBodyData::OnHit / OnBeginOverlap / OnEndOverlap, DestructibleData::OnBreak —
+// breaks, collisions and removals (DestructionEventQueue) as facts named by entity; this system turns each fact
+// into the EVENT of the component it happened to — RigidBodyData::OnHit / OnBeginOverlap / OnEndOverlap,
+// DestructibleData::OnBreak / OnCollision / OnRemoved —
 // and calls whoever subscribed to that entity (ComponentEvents). UE: UPrimitiveComponent::DispatchBlockingHit ->
 // OnComponentHit.Broadcast, and the geometry collection's DispatchBreakEvent -> OnChaosBreakEvent.Broadcast; the
 // physics scene never calls gameplay itself.

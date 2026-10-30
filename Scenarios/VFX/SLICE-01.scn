@@ -1,0 +1,33 @@
+# SLICE-01 "Torch": a torch effect authored on the new VFX system (Content/VFX/Torch.dfx, three emitters - Flame
+# (additive, size and colour over life by curves), Smoke (translucent, grows and fades by curves, curl noise),
+# Embers (additive, curl noise, colour over life)) placed on the Starter scene's Campfire entity, lifted onto the
+# Cylinder's top as a torch post, in place of Campfire.dfx, simulated 3 s, shot from three angles; then Stop, Simulate again and the same 3 s must
+# give the same side frame (the system Seed 4711 + entity UUID fix every emitter's random stream).
+# The scenario does NOT save the scene: the System change is an unsaved edit of Starter.desce.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+# VFX.System takes the asset handle: HandleForGuid(5c1e7a93d40b4f28a6e2b17f09c3d854) = Torch.dfx
+Дано set 1414213562373095048 VFX.System 241330729926691968
+# the torch stands on the Cylinder (120, 75, 260; 150 cm tall): the Campfire entity is lifted onto its top
+Дано run Entity "Add to selection Campfire"
+Дано --subject selection set Translation 120,150,260
+Когда run Action Simulate
+Когда advance 1.5
+Когда advance 1.5
+Когда --subject viewport set Camera.Position 400,190,260
+Когда --subject viewport set Camera.Direction -1,0.1,0
+Тогда-вид 0_side a torch flame (narrow, tall, yellow-white core to orange tips) with a grey smoke column rising above it and small orange embers drifting up - not the wide campfire
+Когда --subject viewport set Camera.Position 440,570,260
+Когда --subject viewport set Camera.Direction -0.707,-0.707,0
+Тогда-вид 1_above the same effect from 45 degrees above, the smoke column readable over the flame
+Когда --subject viewport set Camera.Position 120,500,260
+Когда --subject viewport set Camera.Direction 0.01,-1,0
+Тогда-вид 2_top the flame seen from the top: a bright round core with smoke spreading around it
+Когда run Action Stop
+Когда run Action Simulate
+Когда advance 1.5
+Когда advance 1.5
+Когда --subject viewport set Camera.Position 400,190,260
+Когда --subject viewport set Camera.Direction -1,0.1,0
+Тогда-вид 3_replay the same frame as 0_side after Stop and a second Simulate of the same 3 s
+Когда run Action Stop

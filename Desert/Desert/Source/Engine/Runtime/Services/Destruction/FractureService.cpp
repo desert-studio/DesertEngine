@@ -52,6 +52,10 @@ namespace Desert::Runtime
     FractureService::Get( const Assets::AssetHandle& handle )
     {
         using Result = std::shared_ptr<const Destruction::FractureData>;
+        // An asset the manager unloaded (eviction) holds an empty FractureData; serving it would hand a
+        // destructible a fracture with no nodes. It is requested again and is pending until it has loaded.
+        if ( const auto held = m_Ready.find( handle ); held != m_Ready.end() && !held->second->IsReadyForUse() )
+            m_Ready.erase( held );
         Request( handle );
         if ( const auto failed = m_Failed.find( handle ); failed != m_Failed.end() )
             return Common::MakeError<Result>( failed->second );

@@ -1,0 +1,76 @@
+// The engine's Monte Carlo sampling of a specular lobe (UE MonteCarlo.ush): the GGX distribution of visible
+// normals, its pdf and the Smith term left of BRDF * cos / pdf, plus the per-pixel sequence the samples walk.
+// Shared by the reflection trace (Common/SSRTrace.glslh) and the screen probe gather's rough specular
+// (Programs/GlobalIllumination/ScreenProbeIntegrate.shader), so both sample one lobe the same way.
+#ifndef MONTE_CARLO_GLSLH
+#define MONTE_CARLO_GLSLH
+
+const float kPi = 3.14159265358979;
+
+// Per-pixel hash: decorrelates neighbouring texels' ray sequences.
+float hash12(vec2 p)
+{
+	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+// The R2 low-discrepancy sequence (Roberts 2018): sample n of a 2D sequence that fills the square evenly
+// for every prefix length, offset per pixel by a Cranley-Patterson rotation. Frames and rays share one index,
+// so the denoiser's temporal accumulation gathers successive, well-spread lobe samples.
+vec2 RayRandom(vec2 rotation, uint index)
+{
+	return fract(rotation + vec2(0.7548776662, 0.5698402910) * float(index));
+}
+
+// Orthonormal basis around n (Duff et al. 2017, "Building an Orthonormal Basis, Revisited").
+void Basis(vec3 n, out vec3 t, out vec3 b)
+{
+	const float s = n.z >= 0.0 ? 1.0 : -1.0;
+	const float a = -1.0 / (s + n.z);
+	const float c = n.x * n.y * a;
+	t = vec3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
+	b = vec3(c, s + n.y * n.y * a, -n.y);
+}
+
+// Heitz 2018, "Sampling the GGX Distribution of Visible Normals" (UE ImportanceSampleVisibleGGX): a microfacet
+// normal in tangent space seen from ve (tangent space, z = the surface normal), alpha = roughness^2.
+vec3 SampleGGXVNDF(vec3 ve, float alpha, vec2 u)
+{
+	const vec3  vh    = normalize(vec3(alpha * ve.x, alpha * ve.y, ve.z));
+	const float lensq = vh.x * vh.x + vh.y * vh.y;
+	const vec3  t1    = lensq > 0.0 ? vec3(-vh.y, vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+	const vec3  t2    = cross(vh, t1);
+	const float r     = sqrt(u.x);
+	const float phi   = 2.0 * kPi * u.y;
+	const float p1    = r * cos(phi);
+	const float s     = 0.5 * (1.0 + vh.z);
+	const float p2    = (1.0 - s) * sqrt(max(0.0, 1.0 - p1 * p1)) + s * r * sin(phi);
+	const vec3  nh    = p1 * t1 + p2 * t2 + sqrt(max(0.0, 1.0 - p1 * p1 - p2 * p2)) * vh;
+	return normalize(vec3(alpha * nh.x, alpha * nh.y, max(0.0, nh.z)));
+}
+
+// log2 of the pdf with which SampleGGXVNDF + reflect draws the direction Lt (tangent space) for the view
+// Ve: D(H) * G1(V) / (4 * N.V) (Heitz 2018 eq. 17 through the reflection Jacobian). The reconstruction divides
+// its own BRDF by it to reuse this texel's estimate (Stachowiak 2015). log2: the pdf of a smooth lobe
+// exceeds half-float range.
+float Log2VNDFReflectionPdf(vec3 Ve, vec3 Lt, float alpha)
+{
+	const vec3  H   = normalize(Ve + Lt);
+	const float a2  = alpha * alpha;
+	const float d   = H.z * H.z * (a2 - 1.0) + 1.0;
+	const float D   = a2 / (kPi * d * d);
+	const float nDotV = max(Ve.z, 1e-4);
+	const float G1V = 2.0 * nDotV / (nDotV + sqrt(a2 + (1.0 - a2) * nDotV * nDotV));
+	return log2(max(D * G1V / (4.0 * nDotV), 1e-30));
+}
+
+// Smith's masking term for GGX, G1(l) - the separable Smith G2 / G1(v) that is left of BRDF * cos / pdf once
+// the visible-normal pdf has cancelled D and G1(v) (Heitz 2018 eq. 19), Fresnel excluded (the split sum's).
+float SmithG1(float nDotL, float alpha)
+{
+	const float a2 = alpha * alpha;
+	return 2.0 * nDotL / (nDotL + sqrt(a2 + (1.0 - a2) * nDotL * nDotL));
+}
+
+#endif // MONTE_CARLO_GLSLH

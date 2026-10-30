@@ -17,17 +17,17 @@
 // and the emitter's alive list - nothing else of the particle system.
 layout( std430, binding = 9 ) readonly buffer AttributeFloats
 {
-    float u_DrawFloats[];
+    float DrawFloats[];
 };
 
 layout( std430, binding = 10 ) readonly buffer AliveList
 {
-    uint u_Alive[];
+    uint AliveData[];
 };
 
 layout( std430, binding = 11 ) readonly buffer DrawLayout
 {
-    ParticleDrawLayout u_DrawLayout;
+    ParticleDrawLayout DrawLayoutData;
 };
 
 #include <Common/ParticleDrawRead.glslh>
@@ -43,7 +43,7 @@ layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time
 void main()
 {
     const uint corner = uint( gl_VertexIndex ) % 6u;
-    const uint index  = u_Alive[uint( gl_VertexIndex ) / 6u]; // a pool index
+    const uint index  = AliveData[uint( gl_VertexIndex ) / 6u]; // a pool index
     const uint n      = ParticleLocalIndex( index );            // its row in the emitter's columns
 
     const vec3  position = ParticleWorldPosition( n );
@@ -64,8 +64,22 @@ void main()
     const vec3  facing    = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
     const float sinR      = sin( rotation );
     const float cosR      = cos( rotation );
-    const vec3  right     = cosR * viewRight + sinR * viewUp;
-    const vec3  up        = cosR * viewUp - sinR * viewRight;
+    vec3        right     = cosR * viewRight + sinR * viewUp;
+    vec3        up        = cosR * viewUp - sinR * viewRight;
+    // VelocityAligned (UE ENiagaraSpriteAlignment::VelocityAligned, NiagaraSpriteVertexFactory.ush): the quad's
+    // height runs along the particle's velocity, its width across it in the plane facing the eye - a spark's
+    // streak. A particle at rest, or flying straight at the eye, keeps the camera-facing axes above.
+    if ( DrawLayoutData.Range.w == 1u )
+    {
+        const vec3  velocity = ParticleWorldVelocity( n );
+        const vec3  across   = cross( facing, velocity );
+        const float acrossL  = length( across );
+        if ( acrossL > 1e-3 * max( length( velocity ), 1e-6 ) && dot( velocity, velocity ) > 1e-6 )
+        {
+            right = across / acrossL;
+            up    = normalize( velocity - facing * dot( velocity, facing ) );
+        }
+    }
     const vec3  worldPos  = position + right * ( c.x * size.x * 0.5 ) + up * ( c.y * size.y * 0.5 );
 
     v_Surface.WorldPosition  = worldPos;
@@ -77,6 +91,8 @@ void main()
     // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
+    v_Surface.ObjectMoved = 1.0;
 
     // Relative time = age / lifetime (UE NormalizedAge); Random is drawn from the particle's pool slot and its
     // lifetime, which is itself drawn at spawn — constant over one life, different for the next particle that takes

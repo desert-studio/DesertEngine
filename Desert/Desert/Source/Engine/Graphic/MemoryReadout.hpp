@@ -5,6 +5,7 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace Desert::Graphic
@@ -44,11 +45,22 @@ namespace Desert::Graphic
      * different things on the development machine and the target platform is worse than no number, so
      * the three are printed side by side and the reader is told they overlap.
      */
+    // Slots in use and slots allocated in the bindless table's live descriptor set.
+    struct BindlessOccupancy
+    {
+        uint32_t Live     = 0;
+        uint32_t Capacity = 0;
+    };
+
     struct MemoryReadout
     {
         Engine::DeviceMemoryReport      Device;
         ResourceCensus                  Ledger;
         Common::Utils::ProcessFootprint Process;
+        // The global bindless texture table (BindlessTextureTable.hpp): live slots and current capacity. Empty
+        // (no line) until the device has made the table — never a 0 that reads as "empty". Filled by both takers:
+        // two counters, no walk, so the per-frame sample carries it to the viewport HUD.
+        std::optional<BindlessOccupancy> Bindless;
 
         /**
          * @brief Three live queries. Cached by nothing, at any layer.
@@ -129,6 +141,10 @@ namespace Desert::Graphic
         /// The first sampled frame's readings, i.e. the boot baseline every delta is measured from.
         [[nodiscard]] static uint64_t BaselineProcessResident();
         [[nodiscard]] static uint64_t BaselineDeviceLocalUsage();
+
+        /// The bindless table as the LAST sampled frame saw it — an instant, not a peak; the HUD's line.
+        /// Empty when nothing was sampled or the table did not exist yet.
+        [[nodiscard]] static std::optional<BindlessOccupancy> LastBindless();
 
         /// The sampler's own lines: baseline, peak, and the growth between them. Separate from
         /// `MemoryReadout::Report()` because one is an instant and the other is a history, and a reader

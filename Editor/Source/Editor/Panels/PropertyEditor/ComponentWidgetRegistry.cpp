@@ -11,6 +11,7 @@
 #include <ImGui/imgui.h>
 
 #include <cstring>
+#include <format>
 #include <string>
 
 namespace Desert::Editor
@@ -79,6 +80,17 @@ namespace Desert::Editor
         }
     } // namespace
 
+    Common::BoolResultStr AddComponentUndoable( ECS::Entity& entity, const ComponentEditorEntry& entry )
+    {
+        if ( !entry.Add )
+            return Common::MakeError<bool>( std::format( "'{}' is not addable from Details", entry.Name ) );
+        if ( entry.Has && entry.Has( entity ) )
+            return Common::MakeError<bool>( std::format( "the entity already has '{}'", entry.Name ) );
+        Commands::MutateEntityUndoable( entity.GetComponent<ECS::UUIDComponent>().UUID,
+                                        [&] { entry.Add( entity ); } );
+        return Common::MakeSuccess( true );
+    }
+
     void DrawAddComponentMenu( ECS::Entity& entity, ImGuiTextFilter& filter )
     {
         ImGui::AlignTextToFramePadding();
@@ -93,8 +105,7 @@ namespace Desert::Editor
         const auto addEntry = [&]( const ComponentEditorEntry& entry )
         {
             if ( ImGui::Selectable( entry.Name.c_str() ) && entry.Add )
-                Commands::MutateEntityUndoable( entity.GetComponent<ECS::UUIDComponent>().UUID,
-                                                [&] { entry.Add( entity ); } );
+                (void)AddComponentUndoable( entity, entry );
         };
 
         if ( filter.IsActive() )

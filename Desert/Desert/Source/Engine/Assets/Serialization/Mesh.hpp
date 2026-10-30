@@ -11,7 +11,9 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/MeshDisplacementSettings.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 
 namespace Desert::Assets::Serialization
 {
@@ -73,6 +75,11 @@ namespace Desert::Assets::Serialization
         // generated at load. New field — meshes cooked before it exists load via rfl::DefaultIfMissing with an
         // empty list (so they fall back to load-time generation, unchanged).
         std::vector<std::vector<IndexData>> LODs;
+
+        // THE SUBMESH'S CLUSTER LOD DAG (MeshBinary v7, VIRT-GEOM): built at cook for a mesh imported with
+        // MeshImportSettings::VirtualGeometry, empty (no clusters) otherwise. Vertex refs are submesh-relative, as
+        // the triangles of Indices / LODs are.
+        Geometry::ClusterDag ClusterDag;
     };
 
     // Blendshape / morph target on disk: per-vertex deltas index-aligned with the mesh's global vertex array
@@ -96,6 +103,9 @@ namespace Desert::Assets::Serialization
         std::vector<SubmeshData>       Submeshes;
         // THE MESH'S SKELETON (MeshBinary v5, SKEL-TREE): the .skeleton's header GUID; null for a static mesh.
         Common::Content::AssetGuid Skeleton;
+        // THE SKINNED MESH'S DISPLACEMENT MODE (MeshBinary v6, CONTRACT-DISPLACE §9.8): its import setting, kept in
+        // its own file (no source envelope). None for every static mesh: its mode is its source's IMPT.
+        MeshDisplacementMode Displacement = MeshDisplacementMode::None;
         // Blendshapes (empty for meshes without morph targets). New field — meshes cooked before this exists
         // are read with rfl::DefaultIfMissing so they simply come back with an empty list.
         std::vector<MorphTargetData>   MorphTargets;

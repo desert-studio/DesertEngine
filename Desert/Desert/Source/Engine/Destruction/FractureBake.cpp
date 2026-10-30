@@ -35,6 +35,8 @@ namespace Desert::Destruction
                 return "Planar";
             case FractureMethod::Brick:
                 return "Brick";
+            case FractureMethod::Radial:
+                return "Radial";
         }
         return "?";
     }
@@ -126,6 +128,15 @@ namespace Desert::Destruction
                              "level {}: Brick sizes must be positive, not {} x {} x {} cm", index + 1,
                              level.Brick.Length, level.Brick.Height, level.Brick.Depth );
                     break;
+                case FractureMethod::Radial:
+                    if ( level.Radial.RadialSteps < 1 || level.Radial.AngularSteps < 1 ||
+                         !( level.Radial.Radius > 0.0 ) || !( level.Radial.Variability >= 0.0 ) )
+                        return Common::MakeFormattedError<bool>(
+                             "level {}: Radial needs >= 1 shell of >= 1 site, a positive radius and a variability "
+                             "of zero or more, not {} x {} within {} cm, variability {} cm",
+                             index + 1, level.Radial.RadialSteps, level.Radial.AngularSteps, level.Radial.Radius,
+                             level.Radial.Variability );
+                    break;
             }
             return BOOLSUCCESS;
         }
@@ -139,10 +150,13 @@ namespace Desert::Destruction
                     return ComputeVoronoiCells( GenerateUniformSites( pieceBounds, level.SiteCount, random ),
                                                 cellBounds );
                 case FractureMethod::Clustered:
+                case FractureMethod::Radial:
                 {
                     std::vector<glm::dvec3> sites =
-                         GenerateClusteredSites( pieceBounds, level.Clusters, level.SitesPerCluster,
-                                                 level.MinRadius, level.MaxRadius, random );
+                         level.Method == FractureMethod::Radial
+                              ? GenerateRadialSites( level.Radial, pieceBounds, random )
+                              : GenerateClusteredSites( pieceBounds, level.Clusters, level.SitesPerCluster,
+                                                        level.MinRadius, level.MaxRadius, random );
                     // A site the radius pushed past the cell box yields no cell (ComputeVoronoiCells); it is
                     // dropped here, by the same rule, so the remaining sites keep their order.
                     std::erase_if( sites,

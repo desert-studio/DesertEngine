@@ -5,11 +5,9 @@
 // CornellSymmetry suite); this file adds the scene's buffer of them and the debug-view helpers.
 #include "LightSources.glslh"
 
-// Unbounded storage buffer — no MAX_POINT_LIGHT cap. Count comes from LightsMetadata.PointLightCount.
-ReadBuffer(6) PointLightsUB
-{
-    PointLight pointLights[];
-};
+// Unbounded storage buffer (binding 6) — no MAX_POINT_LIGHT cap. Count comes from LightsMetadata.PointLightCount.
+// GENERATED from Engine/Graphic/ShaderProtocols/PointLight.hpp by the shader includer.
+#include <Mesh/PointLightsUB.glslh>
 
 // HSV hue (0..1) -> fully-saturated RGB.
 vec3 HueToRGB(float h)

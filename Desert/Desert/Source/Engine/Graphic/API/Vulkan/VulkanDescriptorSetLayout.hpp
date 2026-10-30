@@ -37,6 +37,12 @@ namespace Desert::Graphic::API::Vulkan
         // Creates the layout. @p owner is the shader name, carried only so a mismatch can name itself.
         VulkanDescriptorSetLayout( VkDevice device, uint32_t set,
                                    const std::vector<VkDescriptorSetLayoutBinding>& bindings, std::string owner );
+        // The same with per-binding flags (VkDescriptorSetLayoutBindingFlagsCreateInfo, one per binding) and
+        // layout create flags: the bindless table's update-after-bind layout.
+        VulkanDescriptorSetLayout( VkDevice device, uint32_t set,
+                                   const std::vector<VkDescriptorSetLayoutBinding>& bindings, std::string owner,
+                                   const std::vector<VkDescriptorBindingFlags>& bindingFlags,
+                                   VkDescriptorSetLayoutCreateFlags             createFlags );
         ~VulkanDescriptorSetLayout();
 
         // Neither copyable nor movable: the handle's lifetime is this object's lifetime, and the whole

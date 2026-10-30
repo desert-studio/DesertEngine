@@ -4,6 +4,7 @@
 // a CommandHistory entry; the target layer is a name in the root's LandscapeComponent::Layers, not a ULayerInfo.
 
 #include "LandscapePaintTool.hpp"
+#include "ViewportPress.hpp"
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -179,7 +180,7 @@ namespace Desert::Editor::Tools
             return;
         }
 
-        const bool pressed = hovered && ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive();
+        const bool pressed = hovered && ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !WidgetClaimsMouse();
         if ( !pressed )
         {
             if ( m_Stroke )

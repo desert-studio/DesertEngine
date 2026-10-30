@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <format>
 #include <memory>
 #include <new>
 #include <string>
@@ -88,7 +89,7 @@ namespace Common::Json
         // frame is taken, so the nesting depth of the file costs heap, not the call stack.
         yyjson_mut_val* MergeLevel( yyjson_mut_doc* doc, yyjson_val* fresh, yyjson_val* source,
                                     const KeyIsOurs& ours, std::string_view replacedKey,
-                                    yyjson_mut_val* replacement )
+                                    yyjson_mut_val* replacement, const MemberKeyIsOurs* memberOurs = nullptr )
         {
             struct Frame
             {
@@ -96,9 +97,11 @@ namespace Common::Json
                 yyjson_val*     Source;
                 yyjson_mut_val* Merged;
                 bool            Top;
+                // The top level's key this object sits under (a record's component block), empty deeper down.
+                std::string Member;
             };
             yyjson_mut_val*    root = Allocated( yyjson_mut_obj( doc ) );
-            std::vector<Frame> stack{ Frame{ fresh, source, root, true } };
+            std::vector<Frame> stack{ Frame{ fresh, source, root, true, {} } };
             while ( !stack.empty() )
             {
                 const Frame frame = stack.back();
@@ -115,7 +118,11 @@ namespace Common::Json
                          yyjson_obj_getn( frame.Fresh, yyjson_get_str( key ), yyjson_get_len( key ) );
                     if ( inFresh == nullptr )
                     {
-                        if ( !frame.Top || !ours( KeyOf( key ) ) )
+                        const bool cleared = frame.Top ? ours( KeyOf( key ) )
+                                                       : !frame.Member.empty() && memberOurs != nullptr &&
+                                                              *memberOurs &&
+                                                              ( *memberOurs )( frame.Member, KeyOf( key ) );
+                        if ( !cleared )
                             Add( doc, frame.Merged, key, Copy( doc, sourceValue ) );
                         continue;
                     }
@@ -127,7 +134,8 @@ namespace Common::Json
                     {
                         yyjson_mut_val* nested = Allocated( yyjson_mut_obj( doc ) );
                         Add( doc, frame.Merged, key, nested );
-                        stack.push_back( Frame{ inFresh, sourceValue, nested, false } );
+                        stack.push_back( Frame{ inFresh, sourceValue, nested, false,
+                                                frame.Top ? KeyOf( key ) : std::string{} } );
                     }
                     else
                     {
@@ -177,7 +185,8 @@ namespace Common::Json
                 if ( match == sourceById.end() || match->first.empty() )
                     element = Copy( doc, record );
                 else
-                    element = MergeLevel( doc, record, match->second, ours, {}, nullptr );
+                    element =
+                         MergeLevel( doc, record, match->second, ours, {}, nullptr, &rule.RecordMemberKeyIsOurs );
                 if ( !yyjson_mut_arr_append( merged, element ) )
                     throw std::bad_alloc();
             }
@@ -199,8 +208,8 @@ namespace Common::Json
         yyjson_read_err error{};
         yyjson_doc*     doc = yyjson_read_opts( buffer.data(), buffer.size(), 0, nullptr, &error );
         if ( doc == nullptr )
-            return MakeError<TextDocument>( "document: not JSON at byte " + std::to_string( error.pos ) + ": " +
-                                            ( error.msg != nullptr ? error.msg : "unknown error" ) );
+            return MakeError<TextDocument>( std::format( "document: not JSON at byte {}: {}", error.pos,
+                                                         error.msg != nullptr ? error.msg : "unknown error" ) );
         return MakeSuccess( TextDocument( Own( doc ) ) );
     }
 

@@ -18,6 +18,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -29,13 +30,17 @@ namespace Desert::Assets
     [[nodiscard]] inline bool PrefabIsAtCurrentVersion( const PrefabData& prefab )
     {
         return StatedVersion( prefab.Header, kSceneSchemaTag ) == Core::kSceneVersion &&
-               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion;
+               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion &&
+               StatedVersion( prefab.Header, kWorldPartitionSchemaTag ) == Core::kWorldPartitionVersion &&
+               StatedVersion( prefab.Header, kAssetRefSchemaTag ) == Core::kAssetRefVersion &&
+               StatedVersion( prefab.Header, kLightSchemaTag ) == Core::kLightVersion;
     }
 
     // The refusal, as a string: which file, what it is, what this engine needs, and the exact command
     // that fixes it — the four things a reader must have to act without opening any source.
     [[nodiscard]] std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion,
-                                                   int foundUnitVersion );
+                                                   int foundUnitVersion, int foundWorldPartitionVersion,
+                                                   int foundAssetRefVersion, int foundLightVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0).
     [[nodiscard]] std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab );
@@ -61,5 +66,18 @@ namespace Desert::Assets
 
     // The GUID a prefab's header states; null when it states none or not a readable one.
     [[nodiscard]] Common::Content::AssetGuid PrefabStatedGuid( const PrefabData& prefab );
+
+    // HOW A FILE STATES A PREFAB IT INSTANTIATES (EntityData::PrefabPath): relative to the assets root, as
+    // a material, a landscape layer and a mesh are stated, so the reference ships with the project and the
+    // scene's dependency list can find the file it names (Core::StatedPathGuid resolves a relative path only).
+    // A prefab outside the assets root keeps its absolute spelling — it has no project-relative one.
+    //
+    // THE WRITER AND EVERY READER GO THROUGH THESE TWO. The asset's own filepath is whatever spelling it was
+    // created from (the Assets window hands an absolute path), and writing that verbatim made every prefab
+    // instance placed in the editor unsaveable: the dependency gather refused the absolute spelling.
+    [[nodiscard]] std::string StatePrefabPath( const std::filesystem::path& file );
+
+    // The file a stated PrefabPath names: the content key expanded, an absolute path as is, a bare spelling refused.
+    [[nodiscard]] std::filesystem::path ResolvePrefabPath( std::string_view stated );
 
 } // namespace Desert::Assets

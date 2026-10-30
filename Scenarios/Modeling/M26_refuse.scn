@@ -1,0 +1,22 @@
+# M26 Bake Normal Map refuses a target whose UVs overlap (a Box sphere: its six faces share one UV square)
+# Expected outcome: the run stops at the Bake line with the refusal reason (DesertCtl exit 1 = the editor refused);
+# fail.png is the [3_refuse] frame - the log names the overlap, and Textures/Baked gets no Sphere2_Normal.*.
+# (play_scenario has no expected-refusal form yet: «Ожидать» is reserved until tests are back.)
+Дано run Panel "Open Modeling"
+Дано run Panel "Open Logs"
+Дано --subject viewport set Camera.Position 0,250,-400
+Дано --subject viewport set Camera.Direction 0,-0.5,0.866
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 64
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 64
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,60,0
+Дано run Modeling "Create shape sphere: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,60,0
+Дано --subject viewport set Camera.Position 0,110,-200
+Дано --subject viewport set Camera.Direction 0,0,1
+Когда run Entity "Add to selection Sphere"
+Когда run Modeling "Bake Normal Map"
+Тогда 3_refuse not reached on purpose: the Bake line above is refused - fail.png shows the log with the overlap reason

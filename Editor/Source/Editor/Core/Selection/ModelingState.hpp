@@ -1,13 +1,27 @@
 #pragma once
 
+#include <optional>
+
 #include <string>
+#include <vector>
+
+#include <glm/mat4x4.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
+#include <Engine/Geometry/DynamicMeshSculpt.hpp>
+#include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
+#include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshHoleFillOperation.hpp>
+#include <Engine/Geometry/MeshJacketOperation.hpp>
+#include <Engine/Geometry/MeshProjectOperation.hpp>
+#include <Engine/Geometry/MeshWeldEdgesOperation.hpp>
+#include <Engine/Geometry/MeshVoxelOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
+#include <Engine/Geometry/MeshAttributeOperations.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -28,10 +42,45 @@ namespace Desert::Editor::Core
             PolyEdit,
             ElementSelect, // mesh element selection (MeshElementSelection)
             CreateShape,   // place a parametric shape (CreateShapeTool, UE's Add Primitive tools)
+            // UE's UVs palette (UVTool): each previews on the selected mesh and commits on Accept.
+            AutoUV,
+            UVProject,
+            UVUnwrap,
+            UVLayout,
+            UVTransform, // UE's UV Editor Transform tool (UUVEditorTransformTool)
+            // UE's Deform palette (MeshProcessingTool): previews on the selected mesh and commits on Accept.
+            Smooth,
+            Offset,
+            Warp,    // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
+            Lattice, // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
+            // UE's Attributes palette (same preview/Accept session as Deform, MeshProcessingTool).
+            Tangents,      // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
+            Normals,       // UE's UEditNormalsTool: recompute / split / invert the normal overlay
+            EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot
+                           // (EditMaterialsTool)
+            PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
+            // UE's MeshOps palette (same preview/Accept session as Deform, MeshProcessingTool).
+            HoleFill,  // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
+            Remesh,    // UE's URemeshMeshTool: the whole mesh remeshed to an even, isotropic triangulation
+            Simplify,  // UE's USimplifyMeshTool: the whole mesh reduced by QEM edge collapses
+            Jacket,    // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
+            Project,   // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
+            WeldEdges, // UE's UWeldMeshEdgesTool: coincident open edges merged (FMergeCoincidentMeshEdges)
+            // UE's VoxOps palette (same preview/Accept session, MeshProcessingTool).
+            VoxWrap,    // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
+            VoxBoolean, // UE's UVoxelCSGMeshesTool: CSG of the two selected meshes' fields -> a new entity
+            VoxMorph,   // UE's UVoxelMorphologyMeshesTool: Dilate/Contract/Close/Open of the mesh's field -> a new
+                        // entity
+            VoxBlend,   // UE's UVoxelBlendMeshesTool: the two selected meshes' fields blended -> a new entity
+            // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh
+            // (Standard, Smooth, Move; Geometry/DynamicMeshSculpt.hpp).
+            Sculpt,
         };
 
-        // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
-        // is not here: it is an upright card for the scene's Add menu; the palette's flat card is Rectangle.
+        // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid, and UE's
+        // revolve generators (FRevolvePlanarPolygonGenerator, FSpiralRevolvePlanarPolygonGenerator) as Revolve,
+        // Spiral. Plane is not here: it is an upright card for the scene's Add menu; the palette's flat card is
+        // Rectangle.
         enum class Shape
         {
             Box,
@@ -45,10 +94,13 @@ namespace Desert::Editor::Core
             Arrow,
             Disc,
             Rectangle,
+            Revolve,
+            Spiral,
         };
-        static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder, Shape::Cone,
-                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs,   Shape::Torus,
-                                             Shape::Arrow,   Shape::Disc,    Shape::Rectangle };
+        static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder,  Shape::Cone,
+                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs,    Shape::Torus,
+                                             Shape::Arrow,   Shape::Disc,    Shape::Rectangle, Shape::Revolve,
+                                             Shape::Spiral };
 
         static constexpr const char* ShapeName( Shape shape )
         {
@@ -76,6 +128,10 @@ namespace Desert::Editor::Core
                     return "Disc";
                 case Shape::Rectangle:
                     return "Rectangle";
+                case Shape::Revolve:
+                    return "Revolve";
+                case Shape::Spiral:
+                    return "Spiral";
             }
             return "Box";
         }
@@ -130,6 +186,8 @@ namespace Desert::Editor::Core
             Geometry::ArrowShape         Arrow;
             Geometry::DiscShape          Disc;
             Geometry::RectangleShape     Rectangle;
+            Geometry::RevolveShape       Revolve;
+            Geometry::SpiralShape        Spiral;
             Geometry::ShapePolygroupMode Groups = Geometry::ShapePolygroupMode::PerFace;
             Geometry::ShapePivot         Pivot  = Geometry::ShapePivot::Base;
             Placement                    Place  = Placement::OnScene;
@@ -148,34 +206,40 @@ namespace Desert::Editor::Core
 
         // Smallest CubeGrid block, in world units (= 1 cm). Both the panel and the tool clamp to it.
         static constexpr float MinCellSize = 1.0f;
-        // Grid Power 0 is a one-metre block; each step halves it (Power 2 = 25 cm), like UE's Grid Power.
-        static constexpr float BaseBlockSize = 100.0f;
-        static constexpr int   MaxGridPower  = 6;
-        static constexpr float MaxCellSize   = 100000.0f;
+        // CUBEGRID GRID POWER = UE FCubeGrid (CubeGrid.cpp; UCubeGridToolProperties::GridPower/BlockBaseSize,
+        // CubeGridTool.h): the cell is BlockBaseSize * 2^GridPower, so Power up = a BIGGER cell. The default base
+        // 3.125 cm at Power 5 is UE's one-metre block. GridPower and BlockBaseSize are the only stored values; the
+        // cell size is derived from them everywhere (panel, tool, overlay, control channel).
+        static constexpr float DefaultBlockBaseSize = 3.125f;
+        static constexpr int   DefaultGridPower     = 5;
+        static constexpr float MaxCellSize          = 100000.0f;
+        static constexpr int   MaxGridPower = 14; // 3.125 cm * 2^14 = 512 m, the largest step under MaxCellSize
 
-        // Grid Power, the step the block size is nearest to: the slider shows it, and a free Current Block
-        // Size still wins because only a write through SetGridPower snaps the size.
-        [[nodiscard]] int GridPower() const
+        [[nodiscard]] float CellSize() const
         {
-            int power = 0;
-            for ( float sz = BaseBlockSize; power < MaxGridPower && sz > CellSize + 0.01f; ++power )
-                sz *= 0.5f;
-            return power;
+            return BlockBaseSize * static_cast<float>( 1 << GridPower );
         }
         void SetGridPower( int power )
         {
-            power    = power < 0 ? 0 : ( power > MaxGridPower ? MaxGridPower : power );
-            CellSize = BaseBlockSize / static_cast<float>( 1 << power );
-            CellSize = CellSize < MinCellSize ? MinCellSize : CellSize;
+            GridPower = power < 0 ? 0 : ( power > MaxGridPower ? MaxGridPower : power );
+            while ( GridPower > 0 && CellSize() > MaxCellSize ) // a re-based (larger) base tops out sooner
+                --GridPower;
         }
-        // The panel's /2 and x2, the Ctrl+Q / Ctrl+E shortcuts and the palette entries are these two.
-        void HalveBlockSize()
+        // UE Ctrl+E / Ctrl+Q (the panel's x2 and /2, the palette's "Grid Power +1/-1"): one power step.
+        void GridPowerUp()
         {
-            CellSize = CellSize * 0.5f < MinCellSize ? MinCellSize : CellSize * 0.5f;
+            SetGridPower( GridPower + 1 );
         }
-        void DoubleBlockSize()
+        void GridPowerDown()
         {
-            CellSize = CellSize * 2.0f > MaxCellSize ? MaxCellSize : CellSize * 2.0f;
+            SetGridPower( GridPower - 1 );
+        }
+        // A typed Current Block Size (UE CurrentBlockSize): the power stays, the base is re-derived so
+        // BlockBaseSize * 2^GridPower is exactly the size asked for — then Power up/down still doubles/halves it.
+        void SetCurrentBlockSize( float size )
+        {
+            size          = size < MinCellSize ? MinCellSize : ( size > MaxCellSize ? MaxCellSize : size );
+            BlockBaseSize = size / static_cast<float>( 1 << GridPower );
         }
 
         // Panel -> tool
@@ -183,9 +247,16 @@ namespace Desert::Editor::Core
         // the live mesh inline), so a Static/Dynamic choice would be a knob nothing reads. It comes back
         // with the reader that makes it mean something, defaulting to Static Mesh (owner's decision).
         Tool ActiveTool = Tool::None;
-        // CubeGrid block size (Resize Grid) in world units — one unit is one centimetre, so the default
-        // 100 is a one-metre block, the same default as UE.
-        float CellSize = 100.0f;
+        // LOD MANAGER (UE 5.8 LODManagerTool, Modeling panel -> LODs): the level the active viewport previews the
+        // selected mesh at, -1 = Auto (the renderer's screen-size pick). A preview, not an edit: the panel renews
+        // the renderer's per-view lease each frame while its LODs tab is open, so leaving the tab returns Auto.
+        int LODPreviewLevel = -1;
+        // One-shot: the control channel's "LOD Manager: open" (true) / "close" (false) for the panel's rail.
+        std::optional<bool> ReqLODManager;
+        // CubeGrid grid (UE FCubeGrid): cell = BlockBaseSize * 2^GridPower in world units (1 unit = 1 cm); the
+        // defaults give UE's one-metre block. Write them through SetGridPower / SetCurrentBlockSize.
+        int   GridPower     = DefaultGridPower;
+        float BlockBaseSize = DefaultBlockBaseSize;
         int   BlocksPerStep = 1; // cells extruded/removed per Push/Pull (UE "Blocks Per Step")
 
         // --- Grid frame (UE "Grid Reinitialization" / "Options") ---
@@ -250,8 +321,6 @@ namespace Desert::Editor::Core
         // Subdivide: UE's Subdivide tool settings with its defaults (level 3, Catmull-Clark, smooth corners,
         // generated normals).
         Geometry::SubdivideSettings ElementSubdivide{};
-        // Simplify: UE's Simplify tool settings with its defaults (50 %, polygroup borders kept).
-        Geometry::SimplifySettings ElementSimplify{};
         // Mirror: the plane is perpendicular to ElementMirrorAxis (0 = X, 1 = Y, 2 = Z) through the entity's
         // origin along its own axis, or - ElementMirrorWorld - through the world's origin along the world's.
         // Cut and Mirror keeps the positive side of that axis, the negative one with ElementMirrorKeepNegative.
@@ -283,6 +352,111 @@ namespace Desert::Editor::Core
         Geometry::SplitMethod     XformSplit = Geometry::SplitMethod::ConnectedComponents;
         Geometry::PatternSettings XformPattern;
         bool                      XformPatternSeparate = false;
+
+        // UVs palette (UVTool, Geometry/DynamicMeshUVOperations.hpp): one settings block per tool; the tool
+        // previews the selected mesh with them and recomputes whenever they change.
+        Geometry::AutoUVSettings    UVAuto;
+        Geometry::UVProjectSettings UVProject;
+        Geometry::UVUnwrapSettings  UVUnwrap;
+        Geometry::UVLayoutSettings  UVLayout;
+        Geometry::UVTransformSettings UVTransform;
+        // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
+        std::string UVStatus;
+        // UE's UV tools' material mode Checkerboard (UExistingMeshMaterialProperties): the previewed mesh drawn
+        // with a checker of its new UVs, CheckerDensity cells per UV unit (UE default 20).
+        bool  UVShowChecker    = true;
+        float UVCheckerDensity = 20.0f;
+
+        // Deform palette (MeshProcessingTool, Geometry/MeshDeformOperations.hpp): UE's Smooth and Offset tools' property
+        // sets; the tool previews the selected mesh with them and recomputes whenever they change.
+        Geometry::SmoothSettings DeformSmooth;
+        Geometry::OffsetSettings DeformOffset;
+        // VoxOps -> VoxWrap (UE UVoxelSolidifyMeshesTool, Geometry/MeshVoxelOperations.hpp).
+        Geometry::VoxWrapSettings VoxWrap;
+        // VoxOps -> VoxBoolean (UE UVoxelCSGMeshesTool): its operation and voxel settings, and what Accept does
+        // with the two inputs (UE's HandleSourcesProperties; the result is always a new entity, UE
+        // Create-From-Selected).
+        Geometry::VoxBooleanSettings VoxBoolean;
+        BooleanInputs                VoxBooleanInputs = BooleanInputs::Delete;
+        // VoxOps -> VoxMorph (UE UVoxelMorphologyMeshesTool, also a Create-From-Selected tool): its operation,
+        // distance and voxel settings, and what Accept does with the input.
+        Geometry::VoxMorphSettings VoxMorph;
+        BooleanInputs              VoxMorphInputs = BooleanInputs::Delete;
+        // VoxOps -> VoxBlend (UE UVoxelBlendMeshesTool, Create-From-Selected on two inputs): its operation, blend
+        // falloff/power and voxel settings, and what Accept does with the inputs.
+        Geometry::VoxBlendSettings VoxBlend;
+        BooleanInputs              VoxBlendInputs = BooleanInputs::Delete;
+        // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is
+        // the deformation axis and whose origin the bounds are measured from. The tool places it on the mesh's
+        // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.
+        Geometry::WarpSettings DeformWarp;
+        glm::mat4              WarpGizmo{ 1.0f };
+        // Lattice (UE ULatticeDeformerTool): resolution + interpolation, the control points (object space of the
+        // edited mesh, numbered as Geometry::FFDLattice::Index; the tool fills them at start and whenever the
+        // resolution changes, which resets the lattice as in UE), the selected points (UE
+        // ULatticeControlPointsMechanic selection) and the gizmo on them: a world frame placed on the
+        // selection's centroid; moving or turning it carries the selected points along.
+        Geometry::LatticeSettings DeformLattice;
+        std::vector<glm::dvec3>   LatticePoints;
+        std::vector<int32_t>      LatticeSelection;
+        glm::mat4                 LatticeGizmo{ 1.0f };
+        // Attributes palette -> Normals (UE UEditNormalsProperties, Geometry/MeshAttributeOperations.hpp);
+        // previewed by MeshProcessingTool like the Deform tools, its report in DeformStatus.
+        Geometry::NormalsSettings AttribNormals;
+        // Attributes palette -> Tangents (UE UMeshTangentsToolProperties), the same session.
+        Geometry::TangentsSettings AttribTangents;
+        // MeshOps palette -> Hole Fill (UE UHoleFillToolProperties / USmoothHoleFillProperties), the same session.
+        // The holes are the session input's MeshBoundaryLoops, numbered as its m_Loops; the selected ones are
+        // filled in the preview. Select All / Clear are UE's tool actions; a click on a hole's edge toggles it.
+        // HoleFillLoopCount is what the tool reports for the panel (0 while no session).
+        Geometry::HoleFillSettings MeshHoleFill;
+        std::vector<int32_t>       HoleFillSelected;
+        bool                       HoleFillReqSelectAll = false;
+        bool                       HoleFillReqClear     = false;
+        int32_t                    HoleFillLoopCount    = 0;
+        // MeshOps palette -> Jacket (UE URemoveOccludedTrianglesToolProperties), the same session.
+        Geometry::JacketSettings MeshJacket;
+        // MeshOps palette -> Remesh (UE URemeshMeshToolProperties), the same session: the preview is the remeshed
+        // mesh, Accept is ONE undo step (lengths in world cm).
+        Geometry::RemeshMeshSettings MeshRemesh;
+        // MeshOps palette -> Simplify (UE USimplifyMeshToolProperties), the same session: the preview is the
+        // simplified mesh, Accept is ONE undo step (Edge Length in world cm).
+        Geometry::SimplifySettings MeshSimplify;
+        // MeshOps palette -> Project (UE UProjectToTargetTool's URemeshMeshToolProperties), the same session.
+        Geometry::ProjectSettings MeshProject;
+        // MeshOps palette -> Weld Edges (UE UWeldMeshEdgesToolProperties), the same session.
+        Geometry::WeldEdgesSettings MeshWeldEdges;
+        // Attributes palette -> Edit Materials (UE UEditMeshMaterialsTool, EditMaterialsTool): the slot Assign
+        // writes, the tool's one-shot requests, and what it reports for the panel (its slots, its status).
+        int                      EditMaterialsActiveSlot    = 0;
+        bool                     EditMaterialsReqAssign     = false;
+        bool                     EditMaterialsReqAddSlot    = false;
+        bool                     EditMaterialsReqRemoveSlot = false;
+        std::string              EditMaterialsReqSlotMaterial; // a material asset path for the active slot
+        std::vector<std::string> EditMaterialsSlotNames;
+        std::string              EditMaterialsStatus;
+        // Attributes palette -> Paint PolyGroups (UE UMeshGroupPaintTool / UGroupPaintBrushFilterProperties,
+        // PaintGroupsTool): Brush paints the triangles under the brush, Fill floods the clicked group's connected
+        // region; the group they write, the brush radius (world cm), New Group, and the tool's report.
+        enum class PaintGroupsModeKind
+        {
+            Brush,
+            Fill,
+        };
+        PaintGroupsModeKind PaintGroupsMode        = PaintGroupsModeKind::Brush;
+        int                 PaintGroupsCurrent     = 0;
+        float               PaintGroupsRadius      = 25.0f;
+        bool                PaintGroupsReqNewGroup = false;
+        std::string         PaintGroupsStatus;
+        // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
+        std::string DeformStatus;
+
+        // Sculpt tool (SculptTool, Geometry/DynamicMeshSculpt.hpp): the brush every stroke uses.
+        Geometry::SculptBrushSettings Sculpt;
+        // Dynamic Sculpt (UE's UDynamicMeshSculptTool): the same tool with the brush's region remeshed toward
+        // DynamicSculptTopology.TargetEdgeLength before every stamp (Refine = splits, Collapse = collapses).
+        bool                     SculptDynamic = false;
+        Geometry::RemeshSettings DynamicSculptTopology{ .TargetEdgeLength = 2.0f };
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

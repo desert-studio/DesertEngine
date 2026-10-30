@@ -1,0 +1,46 @@
+// SSS-PROFILE: Burley normalized diffusion (Christensen-Burley 2015), the port of UE
+// BurleyNormalizedSSSCommon.ush's profile / CDF / root find and SubsurfaceProfileCommon.ush's scaling - the parts
+// the screen pass reads. Distances in centimetres (CONTRACT §2.5: no WorldUnitScale).
+#ifndef SUBSURFACE_PROFILE_COMMON_GLSLH
+#define SUBSURFACE_PROFILE_COMMON_GLSLH
+
+#include <Common/SubsurfaceProfileLayout.glslh>
+
+#define BURLEY_PI 3.14159265359
+
+// UE GetSearchLightDiffuseScalingFactor3D: the scaling s of the searchlight configuration, d = DMFP / s.
+vec3 BurleyScalingFactor(vec3 albedo)
+{
+	const vec3 a = albedo - 0.33;
+	return 3.5 + 100.0 * a * a * a * a;
+}
+
+// The normalized diffusion profile R(r) for shape d (both cm): integrates to 1 over the plane (2 pi r dr).
+vec3 BurleyProfile(float r, vec3 d)
+{
+	const float rr = max(r, 1e-4);
+	return (exp(-rr / d) + exp(-rr / (3.0 * d))) / (8.0 * BURLEY_PI * d * rr);
+}
+
+float BurleyProfile1(float r, float d)
+{
+	const float rr = max(r, 1e-4);
+	return (exp(-rr / d) + exp(-rr / (3.0 * d))) / (8.0 * BURLEY_PI * d * rr);
+}
+
+// The radius x = r / d whose CDF is u: CDF(x) = 1 - exp(-x)/4 - 3 exp(-x/3)/4 (UE GetCDFInverse's Newton solve).
+float BurleyInverseCDF(float u)
+{
+	float x = -3.0 * log(max(1.0 - u, 1e-6)) * 0.75;
+	for (int i = 0; i < 6; ++i)
+	{
+		const float e1  = exp(-x);
+		const float e3  = exp(-x / 3.0);
+		const float f   = 1.0 - 0.25 * e1 - 0.75 * e3 - u;
+		const float df  = 0.25 * e1 + 0.25 * e3;
+		x = max(x - f / max(df, 1e-6), 0.0);
+	}
+	return x;
+}
+
+#endif // SUBSURFACE_PROFILE_COMMON_GLSLH

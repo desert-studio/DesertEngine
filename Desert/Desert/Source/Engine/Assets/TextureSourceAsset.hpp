@@ -28,7 +28,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
+#include <Projects/RendererSettings.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -48,7 +50,30 @@ namespace Desert::Assets
     //   1  IMPT = SourceFile, SourceHash, Intent
     //   2  + ColorSpace (TEX-SRGB, UE UTexture::SRGB). A version-1 asset is REFUSED by the reader and raised by
     //      SceneMigrator (UpgradeTextureSourceAsset), never read leniently.
-    inline constexpr uint32_t kTextureAssetSubsystemVersion = 2;
+    //   3  + AlphaCoverageThresholds (FOLIAGE-ALPHA-MIPS, UE UTexture::AlphaCoverageThresholds). Versions 1 and 2
+    //      are raised by UpgradeTextureSourceAsset with no channel preserved (the cook they had).
+    //   4  + ColorDilationMask (GRASS-ASSET p5, UE UTexture::CompositeTexture pattern). Versions 1-3 are raised by
+    //      UpgradeTextureSourceAsset with no mask (the cook they had).
+    inline constexpr uint32_t kTextureAssetSubsystemVersion = 4;
+
+    // COLOUR DILATION UNDER ANOTHER TEXTURE'S MASK (GRASS-ASSET p5). A foliage atlas whose opacity is a SEPARATE
+    // image (Poly Haven: `*_diff` + `*_alpha`) ships its colour BLACK where the mask cuts the card away; every mip
+    // then box-filters the blade with that black, and a distant blade (deep mip) renders 2-3x darker than its
+    // texels (measured: grass_medium_02 blade G 0.28 at level 0, 0.10 at 8x8). The cook pads the colour into the
+    // cut-away texels BEFORE the mip chain (push-pull: each hole takes the masked average of the nearest coarser
+    // level), as Megascans/Substance atlases ship dilated. The mask is referenced by GUID like UE's
+    // UTexture::CompositeTexture (another texture that shapes this one's cook); only RGB is touched.
+    struct TextureDilationMask
+    {
+        Common::Content::AssetGuid Texture;          // the opacity texture; null = no dilation
+        uint32_t                   Channel   = 0;    // 0..3 = R, G, B, A of that texture
+        float                      Threshold = 0.0f; // a texel is kept where mask >= Threshold; 0 = no dilation
+        bool                       Enabled() const
+        {
+            return !Texture.IsNull() && Threshold > 0.0f;
+        }
+        bool operator==( const TextureDilationMask& ) const = default;
+    };
 
     // Import settings: what, besides the source bytes, shapes the platform data. Serialized into IMPT and,
     // separately and in a fixed order, into the DDC key (SerializeTextureSettingsForKey).
@@ -60,6 +85,14 @@ namespace Desert::Assets
         // ORM/masks Linear) or, with no slot, DefaultTextureColorSpace. Drives the mip filter (linear light)
         // and the GPU view format (*_SRGB).
         Core::Formats::TextureColorSpace ColorSpace = Core::Formats::TextureColorSpace::SRGB;
+        // UE UTexture::bPreserveAlphaCoverage + AlphaCoverageThresholds, one field: a channel (R, G, B, A) whose
+        // threshold is > 0 keeps, in every mip, the share of texels at or above it that level 0 has
+        // (Serialization::BuildMipChain). Set at material import on the image a MASKED material clips (threshold =
+        // its OpacityMaskClipValue, channel = its OpacityChannel) so foliage keeps its silhouette with distance;
+        // all 0 = plain filtering. Part of the DDC key.
+        std::array<float, 4>             AlphaCoverageThresholds{ 0.0f, 0.0f, 0.0f, 0.0f };
+        // Colour padded under another texture's mask before the mip chain (TextureDilationMask). Part of the DDC key.
+        TextureDilationMask              ColorDilationMask;
         bool                             operator==( const TextureImportSettings& ) const = default;
     };
 
@@ -133,8 +166,19 @@ namespace Desert::Assets
     Core::Formats::TextureColorSpace DefaultTextureColorSpace( Core::Formats::TextureIntent intent,
                                                                std::span<const std::byte>   sourceBytes );
 
-    // SceneMigrator's step for a version-1 `.detex` (no ColorSpace): the same asset at the current version with
-    // ColorSpace = DefaultTextureColorSpace. nullopt = already current; an error = not a texture asset or
+    // Writes AlphaCoverageThresholds into the texture asset at @p path (UE: the texture's Details). true = the file
+    // changed, false = it already carried them.
+    Common::ResultStr<bool> SetTextureAlphaCoverage( const std::filesystem::path& path,
+                                                     const std::array<float, 4>&  thresholds );
+
+    // Writes ColorDilationMask into the texture asset at @p path (the colour atlas of a foliage card whose opacity
+    // is a separate texture). true = the file changed, false = it already carried it.
+    Common::ResultStr<bool> SetTextureColorDilationMask( const std::filesystem::path& path,
+                                                         const TextureDilationMask&   mask );
+
+    // SceneMigrator's step for a version-1 `.detex` (no ColorSpace) or a version-2 one (no AlphaCoverageThresholds):
+    // the same asset at the current version, a version-1 one with ColorSpace = DefaultTextureColorSpace, both with
+    // no channel's coverage preserved. nullopt = already current; an error = not a texture asset or
     // unreadable at either version.
     Common::ResultStr<std::optional<std::vector<std::byte>>>
     UpgradeTextureSourceAsset( std::span<const std::byte> file );
@@ -171,6 +215,10 @@ namespace Desert::Assets
     {
         TextureImportSettings Import;
         uint32_t              EncoderVersion = 0; // the block encoder's own version (TextureImporter)
+        // The BC7 kernel's effort the build runs at (Project::TextureEncodingSettings). Appended to the key only
+        // when it is not the full search, 1.0 -- the effort every key before the setting existed was built at --
+        // so a final entry keeps its key and a fast one never answers for it (UE keys the encode speed too).
+        float Bc7Effort = 1.0f;
     };
     std::vector<std::byte> SerializeTextureSettingsForKey( const TextureBuildSettings& settings );
 
@@ -183,7 +231,40 @@ namespace Desert::Assets
     // The block encoder's own version -- an input of every texture key, so it lives beside the deriver and
     // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
     // 2: a DDS source keeps its blocks or is encoded by intent without the gates (IMP-DDS-BLOCKS).
-    inline constexpr uint32_t kTextureBlockEncoderVersion = 2;
+    // 3: BC7 searches all eight modes (Compressonator CMP_Core, ThirdParty/compressonator) instead of mode 6 only.
+    // 4: the kernel's solid-colour endpoint table is patched (a 255 sentinel reached mode-2 endpoints).
+    inline constexpr uint32_t kTextureBlockEncoderVersion = 4;
+
+    // ── ENCODE SPEED: FAST FOR THE EDITOR, FINAL FOR THE COOK ─────────────────────────────────────────
+    // UE FTexturePlatformData::Cache with ETextureEncodeSpeed: the editor builds a DDC miss at the fast effort
+    // and, with FinalIfAvailable, first FETCHES the final entry a cook put there (FetchFirst / FetchOrBuild keys),
+    // so a texture TextureCook already baked is never re-encoded in the editor. Which process is which is the
+    // process's own statement (UE IsRunningCookCommandlet): the editor's builder is the Editor role; TextureCook
+    // and the packager are the Cook role.
+    enum class TextureEncodeRole : uint32_t
+    {
+        Editor,
+        Cook,
+    };
+
+    // Where the project's Texture Encoding settings come from (the editor and the tools register
+    // Project::CurrentRendererSettings().TextureEncoding; Projects/ is not compiled into every tool that keys a
+    // texture, so the engine does not call it itself). Unset = the settings' defaults, which is what a project
+    // without Config/Engine.json has.
+    using TextureEncodingSource = std::function<Project::TextureEncodingSettings()>;
+    void SetTextureEncodingSource( TextureEncodingSource source );
+
+    // What one role does for one texture: the effort a miss is built at, and the effort whose entry is fetched
+    // first when the role takes a final entry if one exists (nullopt = fetch only what it builds).
+    struct TextureEncodePlan
+    {
+        float                BuildEffort = 1.0f;
+        std::optional<float> FetchFirstEffort;
+    };
+    TextureEncodePlan PlanTextureEncode( TextureEncodeRole role );
+    // Revision of how the block-format gate grades a colour under a ColorDilationMask (1 = only texels the mask
+    // keeps visible, plus their bilinear neighbours, at every level). Part of the DDC key of masked textures only.
+    inline constexpr uint32_t kTextureMaskedGateVersion = 1;
 
     // What the runtime needs from a `.detex` to reach its platform data (UE: the package summary + the
     // FTextureSource id, not the bulk data). Read from IMPT in an editor asset, from PAYL in a cooked one;
@@ -194,10 +275,16 @@ namespace Desert::Assets
         Common::Content::AssetGuid   Guid;               // the header's; the handle is HandleForGuid(Guid)
         std::string                  SourceFile;         // TextureImportInfo::SourceFile
         uint64_t                     SourceHash     = 0; // TextureImportInfo::SourceHash
-        uint64_t                     DerivedDataKey = 0;
+        uint64_t                     DerivedDataKey = 0; // FetchOrBuild: where a miss is built and put
+        uint64_t                     FetchFirstKey  = 0; // a final entry taken first when there is one; 0 = none
     };
-    // Reads a prefix of the file (header + TOC + IMPT or PAYL), never the source an editor asset carries.
-    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset );
+    // Reads a prefix of the file (header + TOC + IMPT or PAYL), never the source an editor asset carries. An
+    // editor asset's keys are the @p role's plan (PlanTextureEncode); a cooked asset's is the one it states.
+    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset,
+                                                            TextureEncodeRole role = TextureEncodeRole::Editor );
+
+    // The DDC entry the key names: FetchFirstKey's when it has one, else DerivedDataKey's; nullopt = a miss.
+    std::optional<std::string> FetchTexturePlatformData( const TextureAssetKey& key );
 
     // The cooked form of an editor `.detex` (see the top of this file): header and Meta kept, IMPT and
     // SRCE replaced by the PAYL key record. Refuses anything that is not an editor texture asset, so a

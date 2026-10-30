@@ -51,8 +51,9 @@ namespace Desert::Engine::ViewBudget
         uint64_t      CeilingBytes = 0;
         CeilingSource Source       = CeilingSource::HeapSize;
         /// Bytes this process already holds in device-local memory. When `UsageKnown` is false the driver
-        /// did not say, and this is the sum of what the open views hold — the only part this process can
-        /// count itself — and the refusal text says so.
+        /// did not say, and this is the sum of what the open views and their scenes' shared state hold
+        /// (ledger rows, ViewBudgetGate::ReadBudgetHoldings) — the only part this process can count itself —
+        /// and the refusal text says so.
         uint64_t UsageBytes = 0;
         bool     UsageKnown = false;
     };
@@ -62,8 +63,8 @@ namespace Desert::Engine::ViewBudget
      *
      * `budgetKnown`/`driverBudget`/`driverUsage`/`deviceLocalHeapSize` are Engine::DeviceMemoryReport's
      * fields, passed flat so this header needs no device. `overrideBytes` is `--view-budget-mib` in bytes,
-     * 0 when not given. `heldByViews` is what the open views hold; it stands in for usage only when the
-     * driver gave none.
+     * 0 when not given. `heldByViews` is what the open views and the live scenes' shared
+     * state hold (one entry per view, one per scene); it stands in for usage only when the driver gave none.
      */
     [[nodiscard]] constexpr Reading ReadCeiling( const bool budgetKnown, const uint64_t driverBudget,
                                                  const uint64_t driverUsage, const uint64_t deviceLocalHeapSize,
@@ -146,7 +147,8 @@ namespace Desert::Engine::ViewBudget
         return growth > free ? growth - free : 0;
     }
 
-    /// One open view and what it holds (SceneRenderer::HeldBytes), for the refusal text.
+    /// One holder and what it holds, measured from its ledger rows, for the refusal text: an open view
+    /// (SceneRenderer::HeldBytes) or a live scene's shared state (SceneRenderer::SceneHoldings), each once.
     struct HeldView
     {
         std::string Name;

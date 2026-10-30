@@ -295,6 +295,102 @@ namespace Desert::Assets::Serialization
                 }
             }
         }
+
+        // ── PRESERVED ALPHA COVERAGE (UE TextureCompressorModule: bPreserveAlphaCoverage / AlphaCoverageThresholds,
+        // ComputeAlphaCoverage + ComputeAlphaScale). A masked material keeps a texel where its opacity >= the clip
+        // value. A box filter averages a thin leaf with the sky around it, so a distant level has FEWER texels above
+        // the clip than level 0 and the crown dissolves with distance. Each level's channel is scaled so the share
+        // of texels at or above the threshold equals level 0's; the scale is found by bisection (UE: [0, 4], ten
+        // steps, the best error kept).
+        struct CoverageTexels
+        {
+            unsigned char* Data;
+            size_t         Count;
+            bool           Float;
+            bool           Srgb;
+
+            float Get( const size_t texel, const uint32_t c ) const
+            {
+                if ( Float )
+                    return reinterpret_cast<const float*>( Data )[texel * 4 + c];
+                const float v = static_cast<float>( Data[texel * 4 + c] ) / 255.0f;
+                return Srgb && c < 3 ? SRGBToLinear( v ) : v;
+            }
+            void Set( const size_t texel, const uint32_t c, const float v ) const
+            {
+                if ( Float )
+                {
+                    reinterpret_cast<float*>( Data )[texel * 4 + c] = v;
+                    return;
+                }
+                Data[texel * 4 + c] = Srgb && c < 3
+                                           ? LinearToSRGBByte( v )
+                                           : static_cast<unsigned char>( std::clamp( v * 255.0f + 0.5f, 0.0f, 255.0f ) );
+            }
+        };
+
+        float AlphaCoverage( const CoverageTexels& t, const uint32_t c, const float threshold, const float scale )
+        {
+            if ( t.Count == 0 )
+                return 0.0f;
+            size_t covered = 0;
+            for ( size_t i = 0; i < t.Count; ++i )
+                covered += t.Get( i, c ) * scale >= threshold ? 1u : 0u;
+            return static_cast<float>( covered ) / static_cast<float>( t.Count );
+        }
+
+        float AlphaScaleForCoverage( const CoverageTexels& t, const uint32_t c, const float threshold,
+                                     const float desired )
+        {
+            float lo = 0.0f, hi = 4.0f, scale = 1.0f;
+            float best = 1.0f, bestError = 2.0f;
+            for ( int step = 0; step < 10; ++step )
+            {
+                const float coverage = AlphaCoverage( t, c, threshold, scale );
+                const float error    = std::fabs( coverage - desired );
+                if ( error < bestError )
+                {
+                    bestError = error;
+                    best      = scale;
+                }
+                if ( coverage < desired )
+                    lo = scale;
+                else if ( coverage > desired )
+                    hi = scale;
+                else
+                    break;
+                scale = ( lo + hi ) * 0.5f;
+            }
+            return best;
+        }
+
+        // Scales levels 1.. of @p chain (largest first) in place; the log line names every level's coverage before
+        // and after, so a regression reads as numbers rather than as a thinner crown.
+        void PreserveAlphaCoverage( std::vector<std::vector<unsigned char>>& chain, const bool isFloat, const bool srgb,
+                                    const std::array<float, 4>& thresholds )
+        {
+            const size_t bpp = isFloat ? 16u : 4u;
+            for ( uint32_t c = 0; c < 4; ++c )
+            {
+                const float threshold = thresholds[c];
+                if ( !( threshold > 0.0f ) )
+                    continue;
+                const CoverageTexels base{ chain[0].data(), chain[0].size() / bpp, isFloat, srgb };
+                const float          desired = AlphaCoverage( base, c, threshold, 1.0f );
+                std::string          report;
+                for ( size_t level = 1; level < chain.size(); ++level )
+                {
+                    const CoverageTexels t{ chain[level].data(), chain[level].size() / bpp, isFloat, srgb };
+                    const float          before = AlphaCoverage( t, c, threshold, 1.0f );
+                    const float          scale  = AlphaScaleForCoverage( t, c, threshold, desired );
+                    for ( size_t i = 0; i < t.Count; ++i )
+                        t.Set( i, c, std::min( t.Get( i, c ) * scale, 1.0f ) );
+                    report += fmt::format( " {}:{:.3f}->{:.3f}", level, before, AlphaCoverage( t, c, threshold, 1.0f ) );
+                }
+                LOG_INFO( "[TextureCook] alpha coverage channel {} threshold {:.3f}: level 0 {:.3f};{}", c, threshold,
+                          desired, report );
+            }
+        }
     } // namespace
 
     bool LooksLikeTextureBinary( const std::string_view bytes )
@@ -329,11 +425,122 @@ namespace Desert::Assets::Serialization
              std::string( whatFor ) );
     }
 
+    Common::ResultStr<uint64_t> DilateColorUnderMask( const uint32_t width, const uint32_t height,
+                                                      const Core::Formats::ImageFormat format,
+                                                      std::vector<unsigned char>& base, std::span<const float> mask,
+                                                      const float threshold, const Core::Formats::TextureColorSpace space )
+    {
+        using Fmt         = Core::Formats::ImageFormat;
+        const size_t area = static_cast<size_t>( width ) * height;
+        if ( format != Fmt::RGBA8F && format != Fmt::RGBA32F )
+            return Common::MakeError<uint64_t>( "colour dilation knows RGBA8 and RGBA32F sources only" );
+        if ( mask.size() != area || base.size() != area * ( format == Fmt::RGBA8F ? 4u : 16u ) )
+            return Common::MakeFormattedError<uint64_t>(
+                 "colour dilation was handed a {}-texel mask and {} bytes for a {}x{} image", mask.size(),
+                 base.size(), width, height );
+        const bool srgb    = space == Core::Formats::TextureColorSpace::SRGB && format == Fmt::RGBA8F;
+        auto       readRgb = [&]( const size_t i, const int c ) -> float {
+            if ( format == Fmt::RGBA32F )
+                return reinterpret_cast<const float*>( base.data() )[i * 4 + c];
+            const float v = static_cast<float>( base[i * 4 + c] ) / 255.0f;
+            return srgb ? SRGBToLinear( v ) : v;
+        };
+
+        // PULL: level 0 = premultiplied kept colour + weight; each coarser level sums its 2x2 (clamped at odd edges).
+        struct Level
+        {
+            uint32_t           W = 0, H = 0;
+            std::vector<float> Rgbw; // premultiplied RGB, weight
+        };
+        std::vector<Level> levels( 1 );
+        levels[0]     = { width, height, std::vector<float>( area * 4, 0.0f ) };
+        uint64_t kept = 0;
+        for ( size_t i = 0; i < area; ++i )
+        {
+            if ( !( mask[i] >= threshold ) )
+                continue;
+            ++kept;
+            for ( int c = 0; c < 3; ++c )
+                levels[0].Rgbw[i * 4 + c] = readRgb( i, c );
+            levels[0].Rgbw[i * 4 + 3] = 1.0f;
+        }
+        if ( kept == 0 )
+            return Common::MakeFormattedError<uint64_t>(
+                 "colour dilation: no texel of the mask reaches {}, so there is no colour to pad with", threshold );
+        if ( kept == area )
+            return Common::MakeSuccess( uint64_t{ 0 } );
+        while ( levels.back().W > 1 || levels.back().H > 1 )
+        {
+            const Level& src = levels.back();
+            Level        dst{ std::max( 1u, src.W / 2 ), std::max( 1u, src.H / 2 ), {} };
+            dst.Rgbw.assign( static_cast<size_t>( dst.W ) * dst.H * 4, 0.0f );
+            for ( uint32_t y = 0; y < dst.H; ++y )
+                for ( uint32_t x = 0; x < dst.W; ++x )
+                    for ( uint32_t dy = 0; dy < 2; ++dy )
+                        for ( uint32_t dx = 0; dx < 2; ++dx )
+                        {
+                            const uint32_t sx = std::min( src.W - 1, x * 2 + dx );
+                            const uint32_t sy = std::min( src.H - 1, y * 2 + dy );
+                            for ( int c = 0; c < 4; ++c )
+                                dst.Rgbw[( static_cast<size_t>( y ) * dst.W + x ) * 4 + c] +=
+                                     src.Rgbw[( static_cast<size_t>( sy ) * src.W + sx ) * 4 + c];
+                        }
+            levels.push_back( std::move( dst ) );
+        }
+
+        // PUSH: from the coarsest level down, a texel with no kept weight takes its parent's average.
+        for ( size_t l = levels.size() - 1; l-- > 0; )
+        {
+            Level&       child  = levels[l];
+            const Level& parent = levels[l + 1];
+            for ( uint32_t y = 0; y < child.H; ++y )
+                for ( uint32_t x = 0; x < child.W; ++x )
+                {
+                    float*       t = &child.Rgbw[( static_cast<size_t>( y ) * child.W + x ) * 4];
+                    const float* p = &parent.Rgbw[( static_cast<size_t>( std::min( parent.H - 1, y / 2 ) ) *
+                                                         parent.W +
+                                                    std::min( parent.W - 1, x / 2 ) ) *
+                                                   4];
+                    if ( t[3] > 0.0f )
+                        continue;
+                    for ( int c = 0; c < 3; ++c )
+                        t[c] = p[c] / p[3];
+                    t[3] = 1.0f;
+                }
+            // Normalise the kept texels too, so the next level down reads plain colour from this one.
+            for ( size_t i = 0; i < static_cast<size_t>( child.W ) * child.H; ++i )
+                if ( child.Rgbw[i * 4 + 3] != 1.0f )
+                {
+                    for ( int c = 0; c < 3; ++c )
+                        child.Rgbw[i * 4 + c] /= child.Rgbw[i * 4 + 3];
+                    child.Rgbw[i * 4 + 3] = 1.0f;
+                }
+        }
+
+        for ( size_t i = 0; i < area; ++i )
+        {
+            if ( mask[i] >= threshold )
+                continue;
+            for ( int c = 0; c < 3; ++c )
+            {
+                const float v = levels[0].Rgbw[i * 4 + c];
+                if ( format == Fmt::RGBA32F )
+                    reinterpret_cast<float*>( base.data() )[i * 4 + c] = v;
+                else
+                    base[i * 4 + c] = srgb ? LinearToSRGBByte( v )
+                                           : static_cast<unsigned char>(
+                                                  std::clamp( v * 255.0f + 0.5f, 0.0f, 255.0f ) );
+            }
+        }
+        return Common::MakeSuccess( static_cast<uint64_t>( area - kept ) );
+    }
+
     Common::ResultStr<std::vector<TextureLevel>> BuildMipChain( const uint32_t width, const uint32_t height,
                                                                 const Core::Formats::ImageFormat       format,
                                                                 const std::vector<unsigned char>&      base,
                                                                 std::vector<unsigned char>&            chainOut,
-                                                                const Core::Formats::TextureColorSpace space )
+                                                                const Core::Formats::TextureColorSpace space,
+                                                                const std::array<float, 4>& alphaCoverageThresholds )
     {
         using Fmt = Core::Formats::ImageFormat;
 
@@ -407,6 +614,10 @@ namespace Desert::Assets::Serialization
             srcH = dstH;
         }
 
+        // AFTER the whole chain is filtered: each level is made from the UNSCALED level above it, so a scale
+        // never compounds down the chain (each level answers to level 0 alone).
+        PreserveAlphaCoverage( scratch, format == Fmt::RGBA32F, srgb, alphaCoverageThresholds );
+
         std::vector<TextureLevel> levels( levelCount );
         chainOut.clear();
 
@@ -433,7 +644,8 @@ namespace Desert::Assets::Serialization
     Common::ResultStr<std::vector<unsigned char>> BlockCompressChain(
          const uint32_t width, const uint32_t height, const uint32_t levelCount, const uint32_t layerCount,
          const Core::Formats::ImageFormat sourceFormat, const Core::Formats::ImageFormat blockFormat,
-         const std::vector<TextureLevel>& sourceLevels, const std::vector<unsigned char>& sourcePixels )
+         const std::vector<TextureLevel>& sourceLevels, const std::vector<unsigned char>& sourcePixels,
+         const Core::Formats::BlockEncodeSettings& settings )
     {
         if ( !Core::Formats::IsBlockCompressed( blockFormat ) )
         {
@@ -484,7 +696,7 @@ namespace Desert::Assets::Serialization
 
                 auto encoded = Core::Formats::BlockCompressImage(
                      source.Width, source.Height, sourceFormat, blockFormat,
-                     sourcePixels.data() + source.ByteOffset, static_cast<std::size_t>( source.ByteSize ) );
+                     sourcePixels.data() + source.ByteOffset, static_cast<std::size_t>( source.ByteSize ), settings );
                 if ( !encoded.IsSuccess() )
                     return Common::MakeError<std::vector<unsigned char>>( encoded.GetError() );
 

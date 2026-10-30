@@ -18,6 +18,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <filesystem>
+#include <format>
 
 #include <Editor/Panels/Animation/AnimGraphPanel.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
@@ -67,6 +68,22 @@ namespace Desert::Editor
         ImGui::Checkbox( "##updateInEditor", &animation.UpdateAnimationInEditor );
         Utils::ImGuiUtilities::EndPropertyRow();
 
+        // UE ERootMotionMode, by its enum's order (Animation/RootMotion.hpp).
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Root Motion Mode",
+             "UE Root Motion Mode. No Root Motion Extraction: the root bone plays as authored. Ignore Root "
+             "Motion: the root is locked and its movement discarded. Root Motion From Everything: the root is "
+             "locked and its movement, blended across crossfades, moves the character (its parent's Character "
+             "Controller, else this entity) in Play." );
+        {
+            static constexpr const char* kModes[] = { "No Root Motion Extraction", "Ignore Root Motion",
+                                                      "Root Motion From Everything" };
+            int                          mode     = static_cast<int>( animation.RootMotion );
+            if ( ImGui::Combo( "##rootMotionMode", &mode, kModes, IM_ARRAYSIZE( kModes ) ) )
+                animation.RootMotion = static_cast<Animation::RootMotionMode>( mode );
+        }
+        Utils::ImGuiUtilities::EndPropertyRow();
+
         // ============================================================
         // SOURCE — ONE CHOICE (design 07 §14.1)
         // ============================================================
@@ -75,7 +92,7 @@ namespace Desert::Editor
         // SAME rule AnimationECSSystem resolves the name this slot writes (SkeletonReference.hpp). Asked when the
         // widget draws, not cached: a cache keyed by anything but the library's contents offered stale clips.
         const Assets::AssetHandle meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
-                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle()
                                                     : Assets::AssetHandle{};
         const auto clips = m_AnimationLibrary->GetForMesh( m_AnimationLibrary->IdentifyMeshHandle( meshHandle ) );
 
@@ -458,7 +475,7 @@ namespace Desert::Editor
         // THE TARGET SKELETON IS PICKED AT CREATION (UE: UAnimBlueprint::TargetSkeleton): the graph animates
         // the skeleton of the mesh it is created for. A mesh that names none gets no graph, by name.
         const Assets::AssetHandle        meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
-                                                           ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                           ? entity.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle()
                                                            : Assets::AssetHandle{};
         const Common::Content::AssetGuid skeleton =
              m_AnimationLibrary->IdentifyMeshHandle( meshHandle ).Skeleton.Guid;
@@ -499,7 +516,7 @@ namespace Desert::Editor
         std::filesystem::path path;
         for ( int i = 0; i < 256; ++i )
         {
-            const std::string candidate = i == 0 ? stem : stem + std::to_string( i );
+            const std::string candidate = i == 0 ? stem : std::format( "{}{}", stem, i );
             path                        = Common::Constants::Path::ANIM_GRAPH_PATH /
                    ( candidate + std::string( Animation::Graph::kAnimGraphExtension ) );
             if ( !std::filesystem::exists( path ) )

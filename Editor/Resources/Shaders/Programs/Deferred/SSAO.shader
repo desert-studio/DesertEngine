@@ -1,138 +1,216 @@
 // DesertAsset {"Kind":"Shader","Guid":"c9a95e12430cebced5d5e4c735cb68ed","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSAO"
 {
-    // Screen-space ambient occlusion (fullscreen). Reads the G-buffer world position + normal, writes a
-    // single-channel AO factor the deferred lighting pass multiplies into the ambient term.
+    // Screen-space ambient occlusion as Ground-Truth AO (Jimenez et al. 2016, "Practical Real-Time Strategies for
+    // Accurate Indirect Occlusion"), ported from UE 5.8 Engine/Shaders/Private/PostProcessAmbientOcclusion.usf:
+    // SearchForLargestAngleDual (828-875), ComputeInnerIntegral (951-976), GetRandomVector (992-1018) and
+    // GTAOCombinedPSandCS (1025-1103) - r.AmbientOcclusion.Method 1 with r.GTAO.Combined. Adapted: the depth is
+    // reconstructed through the jittered inverse view-projection (Common/ReconstructPosition.glslh) and carried into
+    // UE's view space (x right, y up, +z forward) through the camera's View matrix; the G-buffer normal is used
+    // (UE r.GTAO.UseNormals 1); a sky texel (reversed-Z depth 0) is skipped by the search instead of being a far
+    // plane; the step count is the scalability's AmbientOcclusionSamples (UE GTAO_NUMTAPS by shader quality); the
+    // result is the integral itself - no 2/PI storage scale (UE re-multiplies it in the spatial filter, which this
+    // pass has none of: the per-frame rotation is resolved by the temporal AA after the composite) and no
+    // Intensity/Power artist remap (UE defaults 0.5 / 2 halve the occlusion; this is the visibility it measured).
+    //
+    // WHY GTAO and not the hemisphere point test this replaced: the point test counted samples behind the depth
+    // buffer and threw away every occluder more than one radius nearer the camera (its range check). A thin blade in
+    // front of the ground under a meadow is exactly such an occluder, so the floor of a grass field measured ~0.8 and
+    // was lit by the whole sky. The horizon search asks the question AO is defined by - how much of the cosine
+    // hemisphere does the nearest horizon in each direction hide - and the thickness heuristic lets a thin occluder
+    // hide less than a wall without dropping it.
 
-    Vertex
+    // COMPUTE (UE r.AmbientOcclusion.Compute 1, GTAOCombinedCS): one thread per AO texel, the result stored into the
+    // AO target as a storage image. Every input is a graph resource, so the pass may run on the async compute pipe.
+    // A thread's uv is its texel centre, (id + 0.5) / size - the texel centre the fullscreen raster version
+    // interpolated - and its noise position the texel itself (what the raster version truncated its fragment
+    // coordinate to), so the AO is the same function of the pixel. Every read is textureLod(.., 0): a compute stage
+    // has no derivatives, and the G-buffer images have one mip.
+    Compute
     {
-        #include <Common/FullscreenTriangle.glslh>
-
-        Out(0) vec2 v_TexCoord;
-
-        void main()
-        {
-        	v_TexCoord  = FullscreenTriangleUV();
-        	gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
-        }
-    }
-
-    Fragment
-    {
-        // Screen-space ambient occlusion (SSAO). Reads the G-buffer depth (world position reconstructed through
-        // Common/ReconstructPosition.glslh) + world normal, samples a
-        // hemisphere of points around each fragment, projects them back to screen space and counts how many are
-        // occluded by nearer geometry -> an ambient-occlusion factor in [0,1] (1 = fully lit, 0 = fully occluded).
-        // Self-contained: hemisphere directions come from a Hammersley sequence, rotated per-pixel by a hash (no
-        // noise texture). The deferred lighting pass multiplies the ambient term by this.
-
         #include <Common/ReconstructPosition.glslh>
 
-        In(0) vec2 v_TexCoord;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler PointClampSampler;
+        Uniform(4) sampler LinearRepeatSampler;
+        Uniform(1) texture2D GBufferDepthTexture;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(2) texture2D GBufferNormalTexture; // rgb = world normal
+        #define GBufferNormalTexture sampler2D(GBufferNormalTexture, LinearRepeatSampler)
 
-        Uniform(1) sampler2D u_GBufferDepth;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
-        Uniform(2) sampler2D u_GBufferNormal; // rgb = world normal
-
-        Out(0) vec4 oAO;
+        layout(binding = 5, rgba8) writeonly uniform image2D SsaoOutputTexture; // ViewTargetFormats::kSSAO
 
         Uniform(0) SSAOUB
         {
-        	mat4 u_ViewProj;    // world -> clip (to project sample points back to screen)
-        	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
-        	vec4 u_CameraPos;   // xyz = camera world position
-        	vec4 u_SSAOParams;  // x = radius, y = bias, z = power, w = sample count
+        	mat4 InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
+        	mat4 WorldToView;               // the camera's View matrix (right-handed, -z forward)
+        	vec4 Target;                    // xy = AO target size in pixels, zw = 1 / size
+        	vec4 Horizon;                   // x = world radius (cm), y = thickness blend (UE-remapped), z = taps per
+        	                                //     direction, w = pixels per world unit at view depth 1
+        	vec4 Temporal;                  // xy = cos/sin of this frame's slice rotation, z = step offset, w = angles
         };
 
-        const uint MAX_SAMPLES = 32u;
+        const float kPiHalf             = 1.5707963;
+        const float kPi                 = 3.1415927;
+        const float kMaxPixelRadius     = 256.0; // UE GTAO_MAX_PIXEL_SCREEN_RADIUS
+        const uint  kMaxTaps            = 32u;
 
-        // Van der Corput / Hammersley low-discrepancy 2D point.
-        vec2 hammersley(uint i, uint n)
+        // UE's view space from a world position: x right, y up, +z forward (the View matrix looks down -z).
+        vec3 ToViewUE(vec3 world)
         {
-        	uint bits = i;
-        	bits = (bits << 16u) | (bits >> 16u);
-        	bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-        	bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-        	bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-        	bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-        	return vec2(float(i) / float(n), float(bits) * 2.3283064365386963e-10);
+        	const vec3 v = vec3(WorldToView * vec4(world, 1.0));
+        	return vec3(v.x, v.y, -v.z);
         }
 
-        // Cosine-weighted hemisphere direction around +Z.
-        vec3 hemisphereDir(vec2 u)
+        // UE ScreenToViewPos through our depth: the texel's world position, in UE's view space. false = sky.
+        bool ViewPosAt(vec2 uv, out vec3 viewPos)
         {
-        	float r   = sqrt(u.x);
-        	float phi = 6.2831853 * u.y;
-        	return vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x)));
+        	const float deviceZ = textureLod(GBufferDepthTexture, uv, 0.0).r;
+        	if (deviceZ <= 0.0)
+        	{
+        		viewPos = vec3(0.0);
+        		return false;
+        	}
+        	viewPos = ToViewUE(ReconstructWorldPosition(uv, deviceZ, InvJitteredViewProjection));
+        	return true;
         }
 
-        float hash12(vec2 p)
+        // UE SearchForLargestAngleDual: the cosine of the highest horizon on each side of the slice.
+        vec2 SearchForLargestAngleDual(uint numSteps, vec2 baseUV, vec2 screenDir, float searchRadius,
+                                       float initialOffset, vec3 viewPos, vec3 viewDir, float attenFactor)
         {
-        	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-        	p3 += dot(p3, p3.yzx + 33.33);
-        	return fract((p3.x + p3.y) * p3.z);
+        	vec2        bestAng   = vec2(-1.0, -1.0);
+        	const float thickness = Horizon.y;
+
+        	for (uint i = 0u; i < numSteps; i++)
+        	{
+        		const float fi       = float(i);
+        		vec2        uvOffset = screenDir * max(searchRadius * (fi + initialOffset), fi + 1.0);
+        		uvOffset.y *= -1.0;
+        		const vec4 uv2 = baseUV.xyxy + vec4(uvOffset.xy, -uvOffset.xy);
+
+        		vec3 samplePos;
+        		if (ViewPosAt(uv2.xy, samplePos))
+        		{
+        			const vec3  v       = samplePos - viewPos;
+        			const float lenSq   = dot(v, v);
+        			float       ang     = dot(v, viewDir) * inversesqrt(lenSq + 0.0001);
+        			const float fallOff = clamp(lenSq * attenFactor, 0.0, 1.0);
+        			ang       = mix(ang, bestAng.x, fallOff);
+        			bestAng.x = (ang > bestAng.x) ? ang : mix(ang, bestAng.x, thickness);
+        		}
+        		if (ViewPosAt(uv2.zw, samplePos))
+        		{
+        			const vec3  v       = samplePos - viewPos;
+        			const float lenSq   = dot(v, v);
+        			float       ang     = dot(v, viewDir) * inversesqrt(lenSq + 0.0001);
+        			const float fallOff = clamp(lenSq * attenFactor, 0.0, 1.0);
+        			ang       = mix(ang, bestAng.y, fallOff);
+        			bestAng.y = (ang > bestAng.y) ? ang : mix(ang, bestAng.y, thickness);
+        		}
+        	}
+        	return vec2(acos(clamp(bestAng.x, -1.0, 1.0)), acos(clamp(bestAng.y, -1.0, 1.0)));
         }
 
+        // UE ComputeInnerIntegral: the cosine-weighted visible arc of the slice between the two horizons, with the
+        // normal projected onto the slice plane.
+        float ComputeInnerIntegral(vec2 angles, vec2 screenDir, vec3 viewDir, vec3 viewSpaceNormal)
+        {
+        	const vec3 planeNormal = normalize(cross(vec3(screenDir.xy, 0.0), viewDir));
+        	const vec3 perp        = cross(viewDir, planeNormal);
+        	const vec3 projNormal  = viewSpaceNormal - planeNormal * dot(viewSpaceNormal, planeNormal);
+
+        	const float lenProjNormal = length(projNormal) + 0.000001;
+        	const float recipMag      = 1.0 / lenProjNormal;
+
+        	const float cosAng   = dot(projNormal, perp) * recipMag;
+        	const float gamma    = acos(clamp(cosAng, -1.0, 1.0)) - kPiHalf;
+        	const float cosGamma = dot(projNormal, viewDir) * recipMag;
+        	const float sinGamma = cosAng * -2.0;
+
+        	// Clamp to the normal's hemisphere.
+        	angles.x = gamma + max(-angles.x - gamma, -kPiHalf);
+        	angles.y = gamma + min(angles.y - gamma, kPiHalf);
+
+        	return lenProjNormal * 0.25 *
+        	       ((angles.x * sinGamma + cosGamma - cos((2.0 * angles.x) - gamma)) +
+        	        (angles.y * sinGamma + cosGamma - cos((2.0 * angles.y) - gamma)));
+        }
+
+        float InterleavedGradientNoise(vec2 iPos)
+        {
+        	return fract(52.9829189 * fract((iPos.x * 0.06711056) + (iPos.y * 0.00583715)));
+        }
+
+        // UE GetRandomVector: the slice direction (interleaved gradient noise, rotated by this frame's angle) and the
+        // step offset (a 4x4 pattern plus this frame's offset).
+        vec3 GetRandomVector(uvec2 iPos)
+        {
+        	iPos.y = 16384u - iPos.y;
+        	const float gradientNoise = InterleavedGradientNoise(vec2(iPos));
+        	const vec2  randomTexVec  = vec2(cos(gradientNoise * kPi), sin(gradientNoise * kPi));
+        	const float scaleOffset   = (1.0 / 4.0) * float((iPos.y - iPos.x) & 3u);
+
+        	vec3 randomVec;
+        	randomVec.x = dot(randomTexVec, vec2(Temporal.x, -Temporal.y));
+        	randomVec.y = dot(randomTexVec, vec2(Temporal.y, Temporal.x));
+        	randomVec.z = fract(scaleOffset + Temporal.z);
+        	return randomVec;
+        }
+
+        LocalSize(8, 8, 1);
         void main()
         {
-        	vec3 normal = texture(u_GBufferNormal, v_TexCoord).rgb;
-        	// No geometry (G-buffer cleared to 0): fully lit, no occlusion.
-        	if (dot(normal, normal) <= 0.001)
+        	const uvec2 texel = gl_GlobalInvocationID.xy;
+        	if (texel.x >= uint(Target.x + 0.5) || texel.y >= uint(Target.y + 0.5))
+        		return;
+        	const ivec2 store    = ivec2(texel);
+        	const vec2  texCoord = (vec2(texel) + 0.5) * Target.zw;
+
+        	const vec3 worldNormal = textureLod(GBufferNormalTexture, texCoord, 0.0).rgb;
+        	vec3       viewSpacePos;
+        	// No geometry (the G-buffer cleared to 0, or the sky's depth): unoccluded.
+        	if (dot(worldNormal, worldNormal) <= 0.001 || !ViewPosAt(texCoord, viewSpacePos))
         	{
-        		oAO = vec4(1.0);
+        		imageStore(SsaoOutputTexture, store, vec4(1.0));
         		return;
         	}
 
-        	vec3 worldPos = ReconstructWorldPosition(v_TexCoord, texture(u_GBufferDepth, v_TexCoord).r,
-        	                                         u_InvJitteredViewProjection);
-        	vec3 N        = normalize(normal);
+        	const vec3 n               = mat3(WorldToView) * normalize(worldNormal);
+        	const vec3 viewSpaceNormal = vec3(n.x, n.y, -n.z);
+        	const vec3 viewDir         = normalize(-viewSpacePos);
 
-        	float radius = u_SSAOParams.x;
-        	float bias   = u_SSAOParams.y;
-        	float power  = u_SSAOParams.z;
-        	uint  count  = uint(u_SSAOParams.w + 0.5);
-        	if (count > MAX_SAMPLES) count = MAX_SAMPLES;
+        	const uint  numTaps     = min(uint(Horizon.z + 0.5), kMaxTaps);
+        	const float worldRadius = Horizon.x;
+        	// The radius in pixels at this depth, between the tap count and UE's screen cap.
+        	const float pixelRadius = max(min(worldRadius * Horizon.w / viewSpacePos.z, kMaxPixelRadius), float(numTaps));
+        	const float stepRadius  = pixelRadius / (float(numTaps) + 1.0);
+        	const float attenFactor = 2.0 / (worldRadius * worldRadius);
 
-        	// Per-pixel rotated tangent basis (breaks up banding without a noise texture).
-        	float ang = hash12(v_TexCoord * 4096.0) * 6.2831853;
-        	vec3  rvec = vec3(cos(ang), sin(ang), 0.0);
-        	vec3  T    = normalize(rvec - N * dot(rvec, N));
-        	vec3  B    = cross(N, T);
-        	mat3  TBN  = mat3(T, B, N);
+        	const vec3 randomAndOffset = GetRandomVector(texel);
+        	vec2       screenDir       = randomAndOffset.xy;
+        	float      offset          = randomAndOffset.z;
 
-        	float camDistFrag = distance(u_CameraPos.xyz, worldPos);
+        	const uint  numAngles     = uint(Temporal.w + 0.5);
+        	const float sinDeltaAngle = sin(kPi / float(numAngles));
+        	const float cosDeltaAngle = cos(kPi / float(numAngles));
 
-        	float occlusion = 0.0;
-        	for (uint i = 0u; i < count; i++)
+        	float sum = 0.0;
+        	for (uint a = 0u; a < numAngles; a++)
         	{
-        		vec3 dir       = hemisphereDir(hammersley(i, count));
-        		// Weight samples toward the origin for a tighter, contact-focused AO.
-        		float scale    = mix(0.1, 1.0, float(i) / float(count));
-        		vec3  samplePos = worldPos + (TBN * dir) * radius * scale;
+        		const vec2 angles = SearchForLargestAngleDual(numTaps, texCoord, screenDir * Target.zw, stepRadius, offset,
+        		                                              viewSpacePos, viewDir, attenFactor);
+        		sum += ComputeInnerIntegral(angles, screenDir, viewDir, viewSpaceNormal);
 
-        		vec4 clip = u_ViewProj * vec4(samplePos, 1.0);
-        		if (clip.w <= 0.0) continue;
-        		vec3 ndc = clip.xyz / clip.w;
-        		vec2 suv = ndc.xy * 0.5 + 0.5;
-        		suv.y = 1.0 - suv.y; // engine renders through a Y-flipped viewport
-        		if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
-
-        		vec3 sampledNormal = texture(u_GBufferNormal, suv).rgb;
-        		if (dot(sampledNormal, sampledNormal) <= 0.001) continue; // sky -> not an occluder
-
-        		vec3  sampledPos   = ReconstructWorldPosition(suv, texture(u_GBufferDepth, suv).r,
-        		                                              u_InvJitteredViewProjection);
-        		float camDistSurf  = distance(u_CameraPos.xyz, sampledPos);
-        		float camDistSample= distance(u_CameraPos.xyz, samplePos);
-
-        		// The real surface at this screen texel is nearer the camera than our sample point -> it occludes.
-        		// Range check discards occluders far from the fragment (avoids dark halos across depth gaps).
-        		float rangeCheck = smoothstep(0.0, 1.0, radius / max(0.0001, abs(camDistFrag - camDistSurf)));
-        		if (camDistSurf < camDistSample - bias)
-        			occlusion += rangeCheck;
+        		// Rotate for the next angle.
+        		const vec2 previous = screenDir;
+        		screenDir.x         = (previous.x * cosDeltaAngle) + (previous.y * -sinDeltaAngle);
+        		screenDir.y         = (previous.x * sinDeltaAngle) + (previous.y * cosDeltaAngle);
+        		offset              = fract(offset + 0.617);
         	}
 
-        	float ao = 1.0 - occlusion / float(count);
-        	oAO = vec4(vec3(pow(clamp(ao, 0.0, 1.0), power)), 1.0);
+        	imageStore(SsaoOutputTexture, store, vec4(vec3(clamp(sum / float(numAngles), 0.0, 1.0)), 1.0));
         }
     }
 }

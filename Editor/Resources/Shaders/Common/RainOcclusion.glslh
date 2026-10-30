@@ -1,0 +1,52 @@
+#ifndef DESERT_COMMON_RAIN_OCCLUSION_GLSLH
+#define DESERT_COMMON_RAIN_OCCLUSION_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+
+// THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp) — one text for every reader: the wetted surfaces
+// (Mesh/Surface/SurfaceWeather.glslh, the forward and G-buffer cells) and the precipitation that must stop at a roof.
+//
+// The map is the top-down depth of every caster in a box around the camera (MeshRenderer::RainOcclusionPass,
+// "Weather: RainOcclusion"), standard-Z and orthographic, so depth is the height under the box's top, linear (0 at the
+// top, 1 at the bottom; 1 = nothing overhead). The two scene-read slots are Core::kRainOcclusionMapBinding /
+// kRainOcclusionBlockBinding (ShaderGraphBindings.hpp); the map is bound from the frame graph
+// (SceneViewInputs::RainOcclusionMap, System.White when the view has none), the block by SceneFrameBinding::ApplyTo.
+layout( binding = kRainOcclusionMapBinding ) uniform texture2D RainOcclusionMapTexture;
+Uniform sampler RainOcclusionSampler;
+layout( std140, binding = kRainOcclusionBlockBinding ) uniform RainOcclusionUB
+{
+    mat4 RainOcclusionWorldToMap; // world -> the map's clip (uv = (x, -y) * 0.5 + 0.5, z = depth)
+    vec4 RainOcclusionParams;     // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)
+};
+
+// The map's texel, in world centimetres (0 when the view has no map).
+float DesertRainOcclusionTexel()
+{
+    return RainOcclusionParams.y < 0.5 ? 0.0 : RainOcclusionParams.w;
+}
+
+// How covered from the sky the world position @p p is, in [0, 1]: 1 under a roof, 0 in the open. A 2x2 gather, each
+// texel compared with the bias and ramped over one more bias, filtered bilinearly (a soft edge one texel wide).
+// Outside the box nothing is known, so nothing covers.
+float DesertRainOcclusionAt( const vec3 p )
+{
+    if ( RainOcclusionParams.y < 0.5 )
+        return 0.0;
+    const vec4 c   = RainOcclusionWorldToMap * vec4( p, 1.0 );
+    const vec3 ndc = c.xyz / c.w;
+    // The map is drawn through the engine's negative-height (Y-flipped) viewport, like the cascades
+    // (Mesh/CascadedShadow.glslh): clip +Y is the texture's first row.
+    const vec2 uv  = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
+    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) || ndc.z < 0.0 || ndc.z > 1.0 )
+        return 0.0;
+    const float range    = RainOcclusionParams.x;
+    const float bias     = RainOcclusionParams.z;
+    const float receiver = ndc.z * range; // cm under the box's top
+    const vec4  occluder = textureGather( sampler2D( RainOcclusionMapTexture, RainOcclusionSampler ), uv ) * range;
+    const vec4  covered  = clamp( ( receiver - occluder - bias ) / bias, 0.0, 1.0 );
+    // Gather order: (0,1) (1,1) (1,0) (0,0).
+    const vec2 size = vec2( textureSize( sampler2D( RainOcclusionMapTexture, RainOcclusionSampler ), 0 ) );
+    const vec2 f    = fract( uv * size - 0.5 );
+    return mix( mix( covered.w, covered.z, f.x ), mix( covered.x, covered.y, f.x ), f.y );
+}
+
+#endif

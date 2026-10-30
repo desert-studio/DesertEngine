@@ -46,6 +46,15 @@ namespace Desert::World::Landscape
      *
      * Edit layers are authoring data: a cooked or runtime landscape reads only the merged result, as UE's does.
      */
+    /// What writes a layer's data (UE 5.8: the edit layer's class). Manual: the brushes. Splines: UE's
+    /// ULandscapeEditLayerSplines (LandscapeEditLayer.h:450) — procedural, one per stack, its data re-derived
+    /// from the root's LandscapeSplines (RasterizeLandscapeSplines); brushes refuse it (SupportsEditingTools).
+    enum class LandscapeEditLayerKind : uint8_t
+    {
+        Manual,
+        Splines,
+    };
+
     struct LandscapeEditLayer
     {
         Common::UUID Guid;            ///< The key a tile's LandscapeEditLayerTileData carries. Never null.
@@ -56,6 +65,7 @@ namespace Desert::World::Landscape
         float HeightAlpha = 1.0f;
         /// UE WeightmapAlpha, 0..1: the layer's weights, and how much they cover the layers below, scale by it.
         float WeightAlpha = 1.0f;
+        LandscapeEditLayerKind Kind = LandscapeEditLayerKind::Manual;
     };
 
     /// The Guid of the Base layer a new landscape starts with (UE: a new ALandscape's layer 0, "Layer"). A Guid
@@ -69,9 +79,11 @@ namespace Desert::World::Landscape
         std::vector<LandscapeEditLayer> Layers;
 
         [[nodiscard]] const LandscapeEditLayer* Find( const Common::UUID& guid ) const;
+        /// The stack's Splines layer (at most one, ValidateLandscapeEditLayerStack), or null.
+        [[nodiscard]] const LandscapeEditLayer* FindSplinesLayer() const;
     };
 
-    /// Refuses a null or repeated Guid, an empty name, and an alpha outside its range or not finite — naming it.
+    /// Refuses a null or repeated Guid, a second Splines layer, an empty name, and an alpha outside its range or not finite — naming it.
     Common::BoolResultStr ValidateLandscapeEditLayerStack( const LandscapeEditLayerStack& stack );
 
     /**
@@ -111,8 +123,8 @@ namespace Desert::World::Landscape
         Common::UUID                    Layer;
     };
 
-    /// Refuses an invalid stack, a layer the stack does not name and a Locked layer (UE: a locked layer
-    /// cannot be edited) — naming it.
+    /// Refuses an invalid stack, a layer the stack does not name, a Locked layer (UE: a locked layer
+    /// cannot be edited) and the procedural Splines layer (UE: SupportsEditingTools() == false) — naming it.
     Common::BoolResultStr CheckLandscapeEditLayerTarget( const LandscapeEditLayerTarget& target );
 
     /// Layer @p layer's height at (x, z) of @p tile, relative to kLandscapeMidSample: its plane there, or mid

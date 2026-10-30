@@ -13,8 +13,12 @@ namespace Desert::ECS
     // One clock per scene: when several entities carry this component, the lowest UUID drives the sun
     // (Graphic::SelectPrimarySky, the same rule the sky collector applies to skies).
     //
-    // These five fields lived on SkyAtmosphereData until TOD-SPLIT; the SceneMigrator step
-    // MigrateTimeOfDayComponentV43ToV44 moved them onto a TimeOfDay block on the sky's own entity.
+    // The first five fields lived on SkyAtmosphereData until TOD-SPLIT; the SceneMigrator step
+    // MigrateTimeOfDayComponentV43ToV44 moved them onto a TimeOfDay block on the sky's own entity. The
+    // calendar (date, longitude, time zone, daylight saving) is UE SunPosition's and arrived with v58
+    // (MigrateSunCalendarV57ToV58): before it the sun ran the equinox path in solar time.
+    //
+    // Default date: the March 2026 equinox at longitude 0 in UTC, the calendar closest to that old path.
     struct TimeOfDayData
     {
         REFLECT()
@@ -36,6 +40,37 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Latitude" ), Category( "Time Of Day" ), Range( -90.0f, 90.0f ), Units( "deg" ),
                   EditCondition( "DriveSunFromTimeOfDay" ) )
         float Latitude = 45.0f;
+
+        PROPERTY( DisplayName( "Longitude" ), Category( "Time Of Day" ), Range( -180.0f, 180.0f ), Units( "deg" ),
+                  EditCondition( "DriveSunFromTimeOfDay" ), Tooltip( "Positive east of Greenwich." ) )
+        float Longitude = 0.0f;
+
+        PROPERTY( DisplayName( "Time Zone" ), Category( "Time Of Day" ), Range( -12.0f, 14.0f ), Units( "h" ),
+                  EditCondition( "DriveSunFromTimeOfDay" ),
+                  Tooltip( "Offset of the local clock from UTC, positive east (UTC+3 is 3). Time Of Day is read "
+                           "in this zone." ) )
+        float TimeZone = 0.0f;
+
+        PROPERTY( DisplayName( "Daylight Saving Time" ), Category( "Time Of Day" ),
+                  EditCondition( "DriveSunFromTimeOfDay" ),
+                  Tooltip( "The local clock runs one hour ahead of the time zone." ) )
+        bool DaylightSavingTime = false;
+
+        // The calendar: the date decides the sun's declination, so how high noon gets and where the sun rises
+        // and sets. The clock carries midnight into it while the day runs.
+        PROPERTY( DisplayName( "Year" ), Category( "Time Of Day" ), Range( 1.0f, 9999.0f ),
+                  EditCondition( "DriveSunFromTimeOfDay" ) )
+        int Year = 2026;
+
+        PROPERTY( DisplayName( "Month" ), Category( "Time Of Day" ), Range( 1.0f, 12.0f ),
+                  EditCondition( "DriveSunFromTimeOfDay" ) )
+        int Month = 3;
+
+        PROPERTY( DisplayName( "Day" ), Category( "Time Of Day" ), Range( 1.0f, 31.0f ),
+                  EditCondition( "DriveSunFromTimeOfDay" ),
+                  Tooltip( "Day of the month; a date the calendar does not have (30 February) stops the clock "
+                           "with an error." ) )
+        int Day = 20;
 
         PROPERTY( DisplayName( "North Offset" ), Category( "Time Of Day" ), Range( 0.0f, 360.0f ), Units( "deg" ),
                   EditCondition( "DriveSunFromTimeOfDay" ) )

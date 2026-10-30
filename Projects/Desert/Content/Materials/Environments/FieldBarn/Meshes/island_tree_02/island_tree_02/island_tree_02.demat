@@ -1,0 +1,55 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "55d64d107f0770cf65fbc9d9748069a8",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "296bbf200da5a3785d4b23968b01ff27", "d15bed3de7fcce53f255645b72da5f97", "6e44bc21a4727f59f9f4eab8ac2a1f6f"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "296bbf200da5a3785d4b23968b01ff27",
+            "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_diff_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "d15bed3de7fcce53f255645b72da5f97",
+            "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "6e44bc21a4727f59f9f4eab8ac2a1f6f",
+            "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

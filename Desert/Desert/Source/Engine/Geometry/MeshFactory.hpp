@@ -53,13 +53,22 @@ namespace Desert::Graphic
                 return nullptr;
             }
 
+            asset->AcquireCpuGeometryForUpload(); // a rebuild after ReleaseCpuGeometry reads the arrays back
             const auto staticMesh = std::make_shared<StaticMesh>(
-                 asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(), asset->GetVertexStreams() );
+                 asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(), asset->GetVertexStreams(),
+                 VirtualGeometrySource{ asset->GetClusterDags(), asset->GetMetadata().Filepath.string() } );
             if ( !staticMesh->Invalidate() )
             {
                 DESERT_VERIFY( false );
             }
             staticMesh->SetDistanceField( asset->GetDistanceField() );
+            staticMesh->SetCards( asset->GetCards() );
+            staticMesh->SetDisplacementTopology( asset->GetDisplacementTopology() );
+            staticMesh->SetDisplacedMesh( asset->GetDisplacedMesh() );
+            // The GPU copy is staged (StageGeometry copied the bytes): the asset's CPU arrays are released, UE
+            // bAllowCPUAccess=false. The distance-field/cards/displacement job took its copy in
+            // ResolveDependencies.
+            asset->ReleaseCpuGeometry();
 
             return staticMesh;
         }
@@ -95,6 +104,8 @@ namespace Desert::Graphic
             {
                 DESERT_VERIFY( false );
             }
+            // Runtime displacement over the skin cache's posed vertices (CONTRACT-DISPLACE §9.8): null slot = none.
+            skinnedMesh->SetDisplacementTopology( asset->GetDisplacementTopology() );
 
             return skinnedMesh;
         }

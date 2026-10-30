@@ -20,11 +20,6 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanSwapChain final : public SwapChain
     {
     public:
-        VkSampleCountFlagBits GetMSAASamples() const
-        {
-            return m_MSAASamples;
-        }
-
         VulkanSwapChain( const GLFWwindow* window );
         ~VulkanSwapChain() override;
 
@@ -50,6 +45,14 @@ namespace Desert::Graphic::API::Vulkan
             return m_SwapChainImages.ImagesView;
         }
 
+        // The engine format the back buffer is drawn as (composite framebuffer, ImportBackBuffer): RGBA16F on the
+        // scRGB output (HDR-OUTPUT), BGRA8 otherwise.
+        [[nodiscard]] Core::Formats::ImageFormat BackBufferFormat() const
+        {
+            return m_ColorFormat == VK_FORMAT_R16G16B16A16_SFLOAT ? Core::Formats::ImageFormat::RGBA16F
+                                                                  : Core::Formats::ImageFormat::BGRA8F;
+        }
+
         VkFormat GetColorFormat() const
         {
             return m_ColorFormat;
@@ -67,16 +70,6 @@ namespace Desert::Graphic::API::Vulkan
         VkColorSpaceKHR GetColorSpace() const
         {
             return m_ColorSpace;
-        }
-
-        const auto& GetColorImages() const
-        {
-            return m_ColorImages;
-        }
-
-        const auto& GetDepthImages() const
-        {
-            return m_DepthStencilImages;
         }
 
         const auto& GetOutput() const
@@ -165,12 +158,9 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] bool HasDrawableSurfaceArea( const Graphic::ViewExtent& requested ) const;
         [[nodiscard]] Common::ResultStr<Graphic::AcquireStatus>
         AcquireNextImage( VkSemaphore presentCompleteSemaphore, uint32_t* imageIndex );
-        [[nodiscard]] Common::ResultStr<VkResult>
-        CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device );
 
     private:
         std::unique_ptr<VulkanSwapChainOutput> m_Output;
-        VkSampleCountFlagBits              m_MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         std::weak_ptr<VulkanLogicalDevice> m_LogicalDevice;
 
         VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
@@ -193,7 +183,7 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The staging buffer a recorded capture will land in, alive between RecordFrameCapture and
         /// TakeCapturedFrameRGBA8. Null means no capture is in flight.
-        /// `void*` rather than VmaAllocation for the reason m_VmaAllocation below is one: the allocator's
+        /// `void*` rather than VmaAllocation: the allocator's
         /// header would otherwise have to be visible to everything that includes this file.
         VkBuffer m_CaptureStaging    = VK_NULL_HANDLE;
         void*    m_CaptureAllocation = nullptr;
@@ -202,25 +192,11 @@ namespace Desert::Graphic::API::Vulkan
 
         struct
         {
-            VkImage     Image;
-            VkImageView ImageView;
-        } m_ColorImages;
-
-        struct
-        {
-            VkImage     Image;
-            VkImageView ImageView;
-        } m_DepthStencilImages;
-
-        struct
-        {
             std::vector<VkImage>     Images;
             std::vector<VkImageView> ImagesView;
         } m_SwapChainImages;
         // ImportBackBuffer's handle per swapchain image (index = image index); emptied with the image views.
         std::vector<std::shared_ptr<::Desert::Graphic::RDG::IPhysicalTexture>> m_BackBufferGraphTextures;
-
-        std::array<const void*, 2> m_VmaAllocation;
 
         std::shared_ptr<::Desert::Graphic::Framebuffer> m_CompositeFramebuffer;
 

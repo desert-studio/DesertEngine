@@ -2,6 +2,7 @@
 #include "EditorUIPass.hpp"
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 #include <Engine/Core/LevelTravel.hpp>
 #include <Engine/UI/Ecs/LoadingOverlay.hpp>
@@ -34,7 +35,14 @@ namespace Desert::Editor::Render
     {
         m_Scene = scene;
 
-        if ( const auto result = m_Render2D.Init( scene->GetTargetFramebuffer() ); !result )
+        // The UI is drawn into the document's view (view 0, whose target this is), so its rows are that view's
+        // (RT-LEDGER-4). The document's RenderRegistry, which owns this pass, is destroyed before that view's
+        // renderer (SceneWorkspace), so the view closes with none of them left.
+        const ::Desert::Graphic::SceneRenderer* view = scene->GetSceneRenderer();
+        if ( view == nullptr )
+            return Common::MakeError( "EditorUIPass: the scene has no view to draw its UI for" );
+        if ( const auto result = m_Render2D.Init( scene->GetTargetFramebuffer(), view->GetLedgerInstance() );
+             !result )
             return Common::MakeError( "EditorUIPass: " + result.GetError() );
 
         Graphic::ExtensionPass pass;
@@ -184,7 +192,7 @@ namespace Desert::Editor::Render
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
             // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
-            // of this view's graph (ctx.Graph): each glass batch's block names it (u_Backdrop).
+            // of this view's graph (ctx.Graph): each glass batch's block names it (BackdropTexture).
             if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
                 declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
                                Graphic::RDG::SubresourceRange::All() );

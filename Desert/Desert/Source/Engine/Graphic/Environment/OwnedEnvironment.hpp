@@ -10,7 +10,7 @@ namespace Desert::Graphic
     /**
      * @brief A baked Environment whose cubes belong to the view that baked it, and die with it.
      *
-     * WHY: EnvironmentManager::CreateProcedural registers the irradiance and prefiltered cubes in the
+     * WHY: the procedural sky capture (SkyCapture) registers the irradiance and prefiltered cubes in the
      * process-wide ImageService, which holds them until someone unregisters. SkyboxRenderer released the
      * PREVIOUS environment on a rebake and nothing released the LAST one, so every closed view with a sky
      * left 8.16 MiB (EnvPrefiltered 8.06 + EnvDiffuseIrradiance 0.09) resident for the rest of the session —

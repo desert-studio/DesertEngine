@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
@@ -9,6 +10,7 @@
 #include <glm/vec4.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -61,12 +63,28 @@ namespace Desert::Editor
         // writes into a texture asset it creates for that slot (UE: the sampler type sets TC_Normalmap).
         std::map<std::string, ::Desert::Core::Formats::TextureIntent, std::less<>> TextureIntents;
         std::string                        Guid;    // the shader's header GUID (the .demat's Shader reference)
+        // The template's `BlendMode` (the DSL parser's, ShaderProgramMeta::Blend): what a material made from it
+        // draws as. The import reads it to refuse Virtual Geometry for a Translucent mesh
+        // (VirtualGeometryGate.hpp).
+        ::Desert::Core::Formats::SurfaceBlendMode Blend = ::Desert::Core::Formats::SurfaceBlendMode::Opaque;
         std::string                        Locator; // "engine:Shaders/..." — the reference's Path half
     };
 
     // A shader file as an import template: its declared name, manifest, texture Properties (the DSL parser's
     // own schema, so the kinds have one home) and header GUID. Refuses a file any of those readers refuse.
     Common::ResultStr<ImportTemplate> ReadImportTemplate( std::string_view source, std::string locator );
+
+    // A shader's BlendMode as the DSL parser reads it (ShaderProgramMeta::Blend), keyed by its header GUID: what a
+    // material drawing with that shader draws as, whether or not the shader is an import template. The import
+    // reads it to refuse Virtual Geometry for a Translucent mesh (VirtualGeometryGate.hpp).
+    struct ShaderBlendRow
+    {
+        std::string                               Guid; // the shader's header GUID (a .demat's Shader reference)
+        ::Desert::Core::Formats::SurfaceBlendMode Blend = ::Desert::Core::Formats::SurfaceBlendMode::Opaque;
+    };
+
+    // @p source's header GUID and BlendMode; refuses a file without a header GUID or one the DSL parser refuses.
+    Common::ResultStr<ShaderBlendRow> ReadShaderBlend( std::string_view source, std::string_view locator );
 
     // What a template's rows make of one source material.
     struct ImportedParam
@@ -127,7 +145,18 @@ namespace Desert::Editor
     inline constexpr std::string_view kFbxSpecularMapKey             = "fbx.SpecularColor";
     inline constexpr std::string_view kFbxOcclusionRoughnessMetalKey = "fbx.OcclusionRoughnessMetallic";
     inline constexpr std::string_view kFbxRoughnessMetalKey          = "fbx.RoughnessMetallic";
-    SourceMaterial WithFbxSpecularMap( SourceMaterial material, Assets::FbxSpecularMap meaning );
+    // `FromImage` is resolved before this call (ResolveFbxSpecularMap): passing it is a caller defect and refused.
+    Common::ResultStr<SourceMaterial> WithFbxSpecularMap( SourceMaterial         material,
+                                                          Assets::FbxSpecularMap meaning );
+
+    // WHAT AN FBX SPECULAR MAP'S TEXELS SAY IT HOLDS (the FromImage rule, one RGBA8 image, 4 bytes a texel): R
+    // at most kFbxSpecularUnusedR on every texel while some G or B is above it = the metal-rough packing
+    // (`RoughnessMetallic`: Falcor / ORCA / Lumberyard Bistro write R = 0, and a BC1 block encodes 0 exactly);
+    // anything else = FBX's specular colour (`Specular`). A specular-colour image has R as large as G and B
+    // (grey or tinted), so it never reads as the packing; an AO/roughness/metal (ORM) map is indistinguishable
+    // from a tinted specular colour by its texels and stays the user's statement.
+    inline constexpr uint8_t kFbxSpecularUnusedR = 1;
+    Assets::FbxSpecularMap   FbxSpecularMapOfTexels( std::span<const uint8_t> rgba );
 
     // Why an unread key is lost, beyond "no Import row": the one key whose meaning is the user's to state (the
     // FBX Specular map) names the setting that states it. Empty for every other key.

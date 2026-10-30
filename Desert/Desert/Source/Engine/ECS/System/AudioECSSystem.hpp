@@ -3,7 +3,7 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
 
 #include <glm/glm.hpp>
@@ -97,7 +97,7 @@ namespace Desert::ECS
 
                 audio.SetSourceVolume( it->second, source.Volume );
                 if ( source.Spatial )
-                    audio.SetSourcePosition( it->second, transform.Translation );
+                    audio.SetSourcePosition( it->second, transform.GetTranslation() );
             }
 
             PlaySequenceAudio( registry, audio );

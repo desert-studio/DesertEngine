@@ -1,0 +1,26 @@
+#ifndef DESERT_THIN_GEOMETRY_COVERAGE_GLSLH
+#define DESERT_THIN_GEOMETRY_COVERAGE_GLSLH
+// The view's thin-geometry coverage (Graphic::ViewTargetFormats::kThinGeometryCoverage): what the base pass that
+// writes a pixel's depth says about its material, for TSR's thin-geometry detection (TSR.DetectThinGeometry).
+// Ported from UE 5.8 Engine/Shaders/Private/TemporalSuperResolution/TSRMeasureCoverage.usf GetThinGeometry :25-37
+// and TSRThinGeometryCommon.ush EncodeThinGeometryMaterial, adapted: written by every pass that writes the view's
+// depth (the surface cells' G-buffer and forward passes, the terrain's two programs, the water surface) instead of
+// a compute pass over the G-buffer, so forward-shaded surfaces carry it too. UE's ShadingRange (Foliage /
+// VaryingRange) is the detection's reading of these values, not the encoding.
+#include <Generated/ShadingModels.glslh>
+
+// Unlit, or nothing drawn (the target's clear).
+const float kThinGeometryCoverageNone = 0.0;
+// Any lit surface that is not two-sided foliage, whichever program shades it (UE: every shading model but unlit
+// and foliage, water included).
+const float kThinGeometryCoverageSurface = 0.5;
+const float kThinGeometryCoverageFoliage = 1.0;
+
+float DesertThinGeometryCoverage( const int shadingModel )
+{
+    if ( shadingModel == SHADING_MODEL_INDEX_UNLIT )
+        return kThinGeometryCoverageNone;
+    return shadingModel == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE ? kThinGeometryCoverageFoliage
+                                                                  : kThinGeometryCoverageSurface;
+}
+#endif

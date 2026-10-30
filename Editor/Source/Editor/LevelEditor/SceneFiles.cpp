@@ -10,6 +10,7 @@
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Editor/Panels/WorldPartition/EditorLoadedRegions.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
@@ -181,7 +182,42 @@ namespace Desert::Editor
 
     bool SceneFiles::SaveOpenScene()
     {
-        const Common::Filepath destination    = SceneSaveDestination();
+        return SaveOpenSceneTo( SceneSaveDestination() );
+    }
+
+    Common::BoolResultStr SceneFiles::SaveOpenSceneAs( const std::string& sceneName )
+    {
+        if ( sceneName.empty() || sceneName.find_first_of( "/\\.:" ) != std::string::npos )
+            return Common::MakeError<bool>( std::format(
+                 "'{}' is not a scene name: a name is one file name without a folder, a dot or an extension.",
+                 sceneName ) );
+
+        // The rule's own fallback for a scene with no file yet — the scene directory + the name — so a
+        // Save As lands exactly where File -> Save would put a new scene of that name.
+        const Common::Filepath destination{ Editor::Core::Rules::SceneSaveDestination(
+             "", sceneName, Common::Constants::Path::SCENE_PATH.generic_string(),
+             Common::Constants::Extensions::SCENE_EXTENSION ) };
+        if ( std::filesystem::exists( destination ) )
+            return Common::MakeError<bool>(
+                 std::format( "'{}' already exists. Save As writes a NEW level and never overwrites another "
+                              "one: choose another name, or open that scene.",
+                              destination.string() ) );
+
+        const std::string previousName = m_Workspace.ActiveScene()->GetSceneName();
+        m_Workspace.ActiveScene()->SetSceneName( sceneName );
+        (void)SaveOpenSceneTo( destination );
+        // m_OpenScenePath moves to the destination exactly when the save landed (MarkSceneSaved).
+        if ( m_OpenScenePath != destination )
+        {
+            m_Workspace.ActiveScene()->SetSceneName( previousName );
+            return Common::MakeError<bool>( std::format(
+                 "the scene was NOT saved as '{}'; the log line above says why.", destination.string() ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    bool SceneFiles::SaveOpenSceneTo( const Common::Filepath& destination )
+    {
         const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
         const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
              m_Workspace.ActiveScene()->Serialize( m_Assets.get(), destination ),
@@ -258,15 +294,26 @@ namespace Desert::Editor
         // and says why, with the command that fixes the file.
         Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
 
-        // A PARTITIONED WORLD OPENS UNLOADED (WP20, owner's decision O3 - UE's World Partition editor): only its
-        // always-loaded part is read, and the user loads regions from the World Partition panel's map. Play plays
-        // the whole world whatever is loaded (PlaySession::Play completes it from the files). A level template
-        // or a recovery copy is not the world's files - it is read whole, as the scene it becomes.
+        // A PARTITIONED WORLD OPENS WITH WHAT THE USER HAD LOADED (WP20/WP19-REST, owner's decision O3 - UE's
+        // World Partition editor): its always-loaded part and the regions of the last region load in this
+        // project (EditorLoadedRegions, UE's EditorLoadedRegions), nothing else read; the user changes them from
+        // the World Partition panel's map. Play plays the whole world whatever is loaded (PlaySession::Play
+        // completes it from the files). A level template or a recovery copy is not the world's files - it is
+        // read whole, as the scene it becomes.
         const bool opensItsFiles = openAs != OpenAs::Untitled && !Autosave::SceneFor( path );
+        bool       heldWhole     = false; // the editor had the whole world loaded (Load All): no region breakdown
         const auto read          = [&]() -> Common::ResultStr<Desert::Core::EditorRegions::OpenRead>
         {
             if ( opensItsFiles )
-                return Desert::Core::EditorRegions::ReadForOpen( path );
+            {
+                auto held = Editor::EditorLoadedRegions::Remembered( path );
+                if ( !held )
+                    return Common::MakeError<Desert::Core::EditorRegions::OpenRead>( std::format(
+                         "'{}' was not opened: the regions the editor had loaded could not be read: {}",
+                         path.string(), held.GetError() ) );
+                heldWhole = held.GetValue().Whole;
+                return Desert::Core::EditorRegions::ReadForOpen( path, held.GetValue() );
+            }
             auto whole = Desert::Core::ExternalEntities::ReadSceneFileText( path );
             if ( !whole )
                 return Common::MakeError<Desert::Core::EditorRegions::OpenRead>( whole.GetError() );
@@ -315,9 +362,14 @@ namespace Desert::Editor
         m_SavedRevision = CommandHistory::Get().Revision(); // a freshly loaded scene is "clean"
 
         phases.Lap( "wait for the GPU, drop the undo history", 0 );
+        // This open's device-memory window ("[Memory] scene open #N ... peak"): from here, with the old world
+        // still resident, to the next open (FIELD-MEM p4).
+        m_Workspace.BeginSceneOpenMeasure( path.filename().string() );
         const std::size_t outgoing = m_Workspace.ActiveScene()->GetAllEntities().size();
         m_Workspace.ActiveScene()->Clear();
         phases.Lap( "clear the open scene", outgoing );
+        m_Workspace.ReleaseActiveWorld();
+        phases.Lap( "release the old world's GPU resources, drain deferred deletions", outgoing );
 
         const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
         // Cannot fire - the same text passed the same check above, before anything was torn down. It is
@@ -353,6 +405,7 @@ namespace Desert::Editor
         m_Workspace.ActiveSceneReplaced();
         phases.Lap( "rebuild the render registry, drop the old world's selection", incoming );
         phases.LogSummary();
+        m_Workspace.SampleSceneOpenMeasure();
 
         // THE OPEN SCENE IS NOW THIS FILE, and it is set HERE rather than at the top of the function on
         // purpose: every early return above leaves a scene that was NOT replaced, and adopting a path for
@@ -391,9 +444,22 @@ namespace Desert::Editor
         {
             const Desert::Core::SceneSerializer         held( m_Workspace.ActiveScene().get(), m_Assets.get() );
             const std::vector<Desert::Core::LiveEntity> live = held.LiveEntities();
-            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
-            LOG_INFO( "[WorldPartition] '{}' opened unloaded: {} always-loaded composite(s), {} record(s) on disk",
-                      path.string(), opened.Selection.AlwaysLoaded, opened.NotLoaded.size() );
+            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded, {} );
+            const std::size_t readCount = opened.Selection.Records.size();
+            const std::size_t total     = readCount + opened.NotLoaded.size();
+            if ( heldWhole )
+            {
+                LOG_INFO( "[WorldPartition] '{}' opened: {} of {} record(s) read (the editor had the whole world "
+                          "loaded); {} record(s) left on disk",
+                          path.string(), readCount, total, opened.NotLoaded.size() );
+            }
+            else
+            {
+                LOG_INFO( "[WorldPartition] '{}' opened: {} of {} record(s) read ({} always-loaded composite(s), "
+                          "{} in the editor's loaded regions); {} record(s) left on disk",
+                          path.string(), readCount, total, opened.Selection.AlwaysLoaded,
+                          opened.Selection.InRegions, opened.NotLoaded.size() );
+            }
         }
 
         // Update recent scenes

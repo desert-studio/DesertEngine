@@ -7,17 +7,23 @@ Shader "JFA_Init"
 
         Out(0) vec4 o_Seed;
 
-        Uniform(0, 0) sampler2D u_StencilTexture;
+        // Shared sampler states (UE's shared samplers): each input below is a separate texture read through one.
+
+        Uniform(0, 1) sampler PointClampSampler;
+
+        Uniform(0, 0) texture2D StencilTexture;
+
+        #define StencilTexture sampler2D(StencilTexture, PointClampSampler)
 
         void main()
         {
-            float mask = texture(u_StencilTexture, v_TexCoord).r;
+            float mask = texture(StencilTexture, v_TexCoord).r;
 
             // The silhouette mask is rendered white (1.0) for selected meshes on top of the
             // framebuffer clear color (~0.1). A 0.5 threshold cleanly separates seed from background.
             if (mask > 0.5)
             {
-                ivec2 texSize = textureSize(u_StencilTexture, 0);
+                ivec2 texSize = textureSize(StencilTexture, 0);
                 vec2 pixelCoord = v_TexCoord * vec2(texSize);
                 o_Seed = vec4(pixelCoord, 0.0, 1.0);
             }

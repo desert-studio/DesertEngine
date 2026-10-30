@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <Engine/Audio/AudioMix.hpp>
+#include <Audio/AudioMix.hpp>
 #include <Engine/Core/FramePacer.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -93,6 +93,10 @@ namespace
         bool IsDecorated() const override
         {
             return true;
+        }
+        float GetContentScale() const override
+        {
+            return 1.0f;
         }
         bool HasDrawableArea() const override
         {

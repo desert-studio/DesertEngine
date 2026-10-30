@@ -1,5 +1,7 @@
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <span>
@@ -50,5 +52,17 @@ namespace Desert::World::Landscape
                  "landscape tile {} has no edit layers; every tile carries at least the Base layer",
                  path.generic_string() );
         return decoded;
+    }
+
+    Common::ResultStr<LandscapeTileData> ReadLandscapeTileByKey( std::string_view heightFile )
+    {
+        const std::string prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
+        if ( heightFile.size() <= prefix.size() || !heightFile.starts_with( prefix ) )
+            return Common::MakeFormattedError<LandscapeTileData>(
+                 "the height file '{}' is not a content key ('{}...'); the scene predates format 67 — run the "
+                 "scene migrator",
+                 heightFile, prefix );
+        return ReadLandscapeTileFile(
+             Common::Constants::Path::FullPath( Common::AssetHandle::PathForStableKey( heightFile ) ) );
     }
 } // namespace Desert::World::Landscape

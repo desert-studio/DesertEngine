@@ -1,4 +1,5 @@
 #include "EntitySerializer.hpp"
+#include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include "ComponentRegistry.hpp"
 #include <Common/Json/Document.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -44,16 +45,16 @@ namespace Desert::Core::Serialize
             {
                 auto asset = assetManager.FindByHandle<Assets::PrefabAsset>( handle );
                 if ( asset )
-                    data.PrefabPath = asset->GetMetadata().Filepath.string();
+                    data.PrefabPath = Assets::StatePrefabPath( asset->GetMetadata().Filepath );
             }
         }
 
         if ( entity.HasComponent<ECS::TransformComponent>() )
         {
             const auto& tc  = entity.GetComponent<ECS::TransformComponent>();
-            data.Translation = tc.Translation;
-            data.Rotation    = tc.Rotation;
-            data.Scale       = tc.Scale;
+            data.Translation = tc.GetTranslation();
+            data.Rotation    = tc.GetRotation();
+            data.Scale       = tc.GetScale();
         }
 
         // ---- Components (generic, registry-driven), in the file's key order ----
@@ -80,10 +81,11 @@ namespace Desert::Core::Serialize
 
         if ( data.Translation || data.Rotation || data.Scale )
         {
-            auto& tc = entity.GetComponent<ECS::TransformComponent>();
-            if ( data.Translation ) tc.Translation = *data.Translation;
-            if ( data.Rotation )    tc.Rotation    = *data.Rotation;
-            if ( data.Scale )       tc.Scale       = *data.Scale;
+            ECS::LocalTransform local = entity.GetComponent<ECS::TransformComponent>().GetLocal();
+            if ( data.Translation ) local.Translation = *data.Translation;
+            if ( data.Rotation )    local.Rotation    = *data.Rotation;
+            if ( data.Scale )       local.Scale       = *data.Scale;
+            entity.SetLocalTransform( local );
         }
 
         // ---- Components (generic, registry-driven) ----
@@ -110,7 +112,8 @@ namespace Desert::Core::Serialize
         // ---- Prefab link (meta) ----
         if ( data.PrefabPath )
         {
-            auto asset = assetManager.FindByPath<Assets::PrefabAsset>( *data.PrefabPath );
+            auto asset =
+                 assetManager.FindByPath<Assets::PrefabAsset>( Assets::ResolvePrefabPath( *data.PrefabPath ) );
             if ( asset )
                 entity.AddComponent<ECS::PrefabComponent>().Prefab = asset->GetMetadata().Handle;
         }

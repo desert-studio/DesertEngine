@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace Desert::Editor::Graph
 {
@@ -41,7 +42,7 @@ namespace Desert::Editor::Graph
 
             if ( ordinal == 0 )
                 return name;
-            return name + "\x1f#" + std::to_string( ordinal + 1 );
+            return std::format( "{}\x1f#{}", name, ordinal + 1 );
         }
 
         std::string TransitionKey( const std::string& from, const std::string& to )
@@ -223,7 +224,7 @@ namespace Desert::Editor::Graph
         // no unbounded arm to reason about.
         for ( size_t suffix = 1; suffix <= states.size() + 1; ++suffix )
         {
-            std::string candidate = base + "_" + std::to_string( suffix );
+            std::string candidate = std::format( "{}_{}", base, suffix );
             if ( !taken( candidate ) )
                 return candidate;
         }
@@ -258,7 +259,7 @@ namespace Desert::Editor::Graph
         // has no unbounded arm to reason about. The same argument `MakeUniqueStateName` runs.
         for ( size_t suffix = 1; suffix <= graph.Parameters.size() + 1; ++suffix )
         {
-            std::string candidate = base + "_" + std::to_string( suffix );
+            std::string candidate = std::format( "{}_{}", base, suffix );
             if ( !taken( candidate ) )
             {
                 return candidate;

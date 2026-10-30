@@ -15,9 +15,19 @@
 #include <memory>
 #include <string_view>
 
+namespace Common
+{
+    class UUID;
+}
+
+namespace Desert::Core
+{
+    class Scene;
+}
+
 namespace Desert::ECS
 {
-    struct StaticMeshComponent;
+    class StaticMeshComponent;
 }
 
 namespace Desert::Editor
@@ -41,12 +51,18 @@ namespace Desert::Editor
     // content, so repeated calls return the SAME mesh object: the element selection tracks by identity.
     [[nodiscard]] Common::ResultStr<ToolTargetMesh> GetToolTargetMesh( const ECS::StaticMeshComponent& component );
 
+    // The component a Modeling tool's session edits: the StaticMeshComponent of the entity @p id in @p scene, or
+    // null when the entity is gone or draws no static mesh. One definition for every tool (it used to be a
+    // per-file copy in EditMaterials/MeshProcessing/UV, and two copies in one unity blob were C2084).
+    [[nodiscard]] ECS::StaticMeshComponent* FindToolTargetComponent( ::Desert::Core::Scene& scene,
+                                                                     const Common::UUID&    id );
+
     // UE's Accept on a static mesh target (CommitDynamicMeshUpdate): the component's EditableMesh is written
-    // INTO its static mesh asset, same GUID (Editor/Import/EditedMeshAsset.hpp says where an imported mesh's
-    // edit lives), the asset is reloaded for every entity that draws it, and the component drops its own copy.
-    // Refused, by name, for an entity with no edit or no asset. Returns the file written.
-    [[nodiscard]] Common::ResultStr<std::filesystem::path>
-    CommitEditableMeshToAsset( ECS::StaticMeshComponent& component );
+    // INTO its static mesh asset, same GUID (Editor/Core/Selection/EditedMeshAsset.hpp says where an imported
+    // mesh's edit lives), the asset is reloaded for every entity that draws it, and the component drops its own
+    // copy. Refused, by name, for an entity with no edit or no asset. Returns the file written.
+    [[nodiscard]] Common::ResultStr<std::filesystem::path> CommitEditableMeshToAsset( entt::registry& registry,
+                                                                                    entt::entity    entity );
 
     // The rule itself, with the component's two inputs already resolved: its EditableMesh (may be null) and the
     // file behind its MeshHandle (empty when it has none, or when the asset is not loaded).

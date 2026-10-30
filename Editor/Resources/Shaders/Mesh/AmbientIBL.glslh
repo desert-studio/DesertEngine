@@ -15,36 +15,51 @@
 //   * EvaluateAmbientIBL is PURE ALGEBRA over already-fetched samples. It declares no sampler, so it
 //     also compiles as C++ (see Desert/Tests/Engine/AmbientIBL) and the split-sum identity can be
 //     asserted without a GPU.
-//   * AmbientIBL does the three fetches and calls it. It names u_EnvIrradianceTex / u_EnvSpecularTex /
-//     u_BRDFLUTTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
+//   * AmbientIBL does the three fetches and calls it. It names EnvironmentIrradianceTexture / EnvironmentSpecularTexture /
+//     BrdfLutTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
 //     declared. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
 //
-// Requires Mesh/BRDF.glslh (fresnelSchlick) to have been included first.
-
-// The anti-black epsilon, and NOT an ambient model. Real ambient comes from the environment cubes above;
-// this only keeps a fully-occluded face with no environment bound from reading as a pure-black hole. It
-// is deliberately two orders of magnitude below the old deferred constant so it cannot double-count the
-// sky the way that constant did. Multiply it by albedo * ao at the call site.
-const vec3 SURFACE_AMBIENT_FLOOR = vec3(0.008, 0.009, 0.012);
 
 // Split-sum image-based lighting (Karis 2013) from samples the caller already took:
 //   irradiance    — the diffuse irradiance cube at N (exitant radiance for a Lambertian BRDF, so it is
 //                   NOT divided by PI again here);
 //   prefiltered   — the GGX-prefiltered radiance cube at reflect(-view, N), roughness-selected mip;
-//   specularBRDF  — the .rg of the split-sum BRDF LUT at (cosLo, roughness);
-//   cosLo         — max(0, dot(N, view)).
-// The Fresnel term uses cosLo rather than a half-vector angle because the prefiltered cube integrates
-// over many incident directions and there is no single L to build an H from (Lagarde 2011).
-vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, vec3 F0, vec3 albedo,
-                        float metalness, float cosLo)
+//   specularBRDF  — the .rg of the split-sum BRDF LUT at (max(0, N.V), roughness).
+// The diffuse half keeps the energy the specular lobe did not take: 1 - E, E = F0 * scale + bias being the lobe's
+// directional albedo from the same LUT sample (UE ComputeEnergyPreservation, ShadingEnergyConservationTemplate.ush:
+// 1 - luminance(E)). It was (1 - F) with F = Schlick at N.V, which is 1 at a grazing or turned-away shading normal:
+// the diffuse vanished there and the surface drew as its reflection alone - the pale fleck of every leaf seen
+// edge-on and the white rim of every pavement joint (FOLIAGE-LOOK-3). With 1 - E the two halves sum to at most
+// the environment (the split-sum's old 4 % white-furnace excess is gone).
+// The two halves apart, for a model that occludes them differently (ComposeAmbient below).
+vec3 EvaluateAmbientIBLDiffuse(vec3 irradiance, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
 {
-	vec3 F  = fresnelSchlick(F0, cosLo);
-	vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);
+	const vec3 E  = F0 * specularBRDF.x + specularBRDF.y;
+	const vec3 kd = vec3((1.0 - metalness) * (1.0 - dot(E, vec3(0.2126, 0.7152, 0.0722))));
+	return kd * albedo * irradiance;
+}
 
-	vec3 diffuseIBL  = kd * albedo * irradiance;
-	vec3 specularIBL = (F0 * specularBRDF.x + specularBRDF.y) * prefiltered;
+vec3 EvaluateAmbientIBLSpecular(vec3 prefiltered, vec2 specularBRDF, vec3 F0)
+{
+	return (F0 * specularBRDF.x + specularBRDF.y) * prefiltered;
+}
 
-	return diffuseIBL + specularIBL;
+vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
+{
+	return EvaluateAmbientIBLDiffuse(irradiance, specularBRDF, F0, albedo, metalness) +
+	       EvaluateAmbientIBLSpecular(prefiltered, specularBRDF, F0);
+}
+
+// UE GetSpecularOcclusion (DeferredShadingCommon.ush; ReflectionEnvironmentPixelShader.usf calls it with
+// Pow2(GBuffer.Roughness) and AO = GBufferAO * the screen's AO): Lagarde & de Rousiers 2014, the share of the
+// specular lobe an ambient occlusion of @p ao leaves visible from @p NoV. A smooth lobe takes the AO as it is
+// (pow(.., 0) = 1); a rough one is occluded MORE than the AO where the view grazes - the lobe then leans into the
+// occluded hemisphere - and less where the view is head-on. Without it a leaf deep in a canopy, its AO low but its
+// grazing-view Fresnel near 1, mirrored the open sky as pale-blue flecks (FOLIAGE-SPEC-OCC).
+float DesertSpecularOcclusion(float NoV, float roughness, float ao)
+{
+	// GLSL leaves pow(0, 0) undefined (a fully occluded mirror seen edge-on); the floor keeps it pow's 1.
+	return clamp(pow(max(NoV + ao, 1e-6), roughness * roughness) - 1.0 + ao, 0.0, 1.0);
 }
 
 // The whole ambient contribution of a surface, assembled — and the reason this is a function rather
@@ -54,15 +69,18 @@ vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, ve
 // arrives as INCIDENT light from a bounce gather and still has to be reflected. Getting that backwards
 // is a whole-frame error that looks like a tuning problem.
 //
-//   ibl       — EvaluateAmbientIBL / AmbientIBL for this surface;
-//   albedo    — linear base colour;
-//   ao        — the occlusion factor, 1 = unoccluded. It attenuates the ENTIRE ambient, which is what
-//               makes it ambient occlusion and not a second albedo;
-//   indirect  — one-bounce incident light, vec3(0.0) where the path has no GI (the forward mesh
-//               shaders); the deferred composite passes its screen-space or RSM gather here.
-vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
+//   diffuseIBL        — EvaluateAmbientIBLDiffuse for this surface;
+//   specularIBL       — EvaluateAmbientIBLSpecular for this surface;
+//   albedo            — linear base colour;
+//   ao                — the occlusion factor, 1 = unoccluded. It attenuates the ENTIRE diffuse ambient, which is
+//                       what makes it ambient occlusion and not a second albedo;
+//   specularOcclusion — the same occlusion as the specular lobe sees it: DesertSpecularOcclusion(N.V, roughness,
+//                       ao) (UE ReflectionEnvironment: SpecularOcclusion multiplies the reflection, AO the diffuse);
+//   indirect          — one-bounce incident light, vec3(0.0) where the path has no GI (the forward mesh
+//                       shaders); the deferred composite passes its screen-space or RSM gather here.
+vec3 ComposeAmbient(vec3 diffuseIBL, vec3 specularIBL, vec3 albedo, float ao, float specularOcclusion, vec3 indirect)
 {
-	return ibl * ao + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
+	return diffuseIBL * ao + specularIBL * specularOcclusion + albedo * ao * indirect;
 }
 
 // THE CHAIN OF REFLECTION SOURCES, for one specular lobe: a traced source (screen-space reflections today; the
@@ -92,7 +110,7 @@ vec3 DesertComposeTracedReflection(vec4 traced, vec3 environment)
 // ones the split sum below makes: the sky cubes through the sky look's rotation and gain.
 vec3 DesertAmbientIrradiance(vec3 worldDirection)
 {
-	return ApplySkyGain(texture(u_EnvIrradianceTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy)).rgb,
+	return ApplySkyGain(texture(EnvironmentIrradianceTexture, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy)).rgb,
 	                    skyLook.Gain.rgb);
 }
 
@@ -100,9 +118,9 @@ vec3 DesertAmbientSpecular(vec3 worldDirection, float roughness)
 {
 	// The engine's one roughness -> mip ramp (Common/ReflectionCaptureMip.glslh), the inverse of PrefilterEnvMap's.
 	const float lod =
-	     ComputeReflectionCaptureMipFromRoughness(roughness, float(textureQueryLevels(u_EnvSpecularTex) - 1));
+	     ComputeReflectionCaptureMipFromRoughness(roughness, float(textureQueryLevels(EnvironmentSpecularTexture) - 1));
 	return ApplySkyGain(
-	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), lod).rgb,
+	     textureLod(EnvironmentSpecularTexture, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), lod).rgb,
 	     skyLook.Gain.rgb);
 }
 
@@ -114,9 +132,9 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 	// reflect(-view, N) = 2*dot(N,view)*N - view (unclamped, correct specular reflection)
 	vec3 specularIrradiance = DesertAmbientSpecular(reflect(-view, N), roughness);
 
-	vec2 specularBRDF = texture(u_BRDFLUTTexture, vec2(cosLo, roughness)).rg;
+	vec2 specularBRDF = texture(BrdfLutTexture, vec2(cosLo, roughness)).rg;
 
-	return EvaluateAmbientIBL(irradiance, specularIrradiance, specularBRDF, F0, albedo, metalness, cosLo);
+	return EvaluateAmbientIBL(irradiance, specularIrradiance, specularBRDF, F0, albedo, metalness);
 }
 
 // The environment at a shaded point as a shading model receives it (DesertAmbient): the same three samples
@@ -130,23 +148,67 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 #include <Common/ReflectionEnvironment.glslh>
 #endif
 
-DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusion)
+// With the view's diffuse estimator stated: @p irradiance is the diffuse the pixel receives (/ pi) and @p remainder
+// the specular the reflection environment falls back to where no capture covers the lobe - the sky's two cubes for
+// the overload below, the traced GI's final gather in the deferred composite's GI mode 2.
+DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 irradiance, vec3 remainder, vec3 indirect, float occlusion)
 {
 	DesertAmbient A;
-	A.Irradiance   = DesertAmbientIrradiance(S.N);
-	A.Prefiltered  = DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness);
+	A.Irradiance  = irradiance;
+	A.Prefiltered = remainder;
 #ifdef DESERT_REFLECTION_CAPTURES
-	// UE's IndirectIrradiance for the normalisation: the local diffuse ambient (the sky's irradiance under the
-	// occlusion, plus the bounce), as luminance.
-	const float indirectIrradiance = dot(A.Irradiance * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
-	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.Roughness, A.Prefiltered,
+	// UE's IndirectIrradiance for the normalisation: the diffuse this pixel receives under its occlusion, plus the
+	// bounce, as luminance (Graphic ReflectionCaptureLighting: what the captures' stored side is under each
+	// estimator). Where the view has a radiance cache it is the cache's SMOOTH read, not the final gather that
+	// lights the pixel: the gather's visibility steps from cell to cell, and a ratio of it scaled a smooth cube into
+	// wall patches (REFL-NORM-SMOOTH); UE reads the as smooth lightmap. The sky's irradiance cube is smooth already.
+	vec3 estimator = A.Irradiance;
+#ifdef DESERT_VIEW_RADIANCE_CACHE
+	if (radianceCache.shape.x != 0u)
+	{
+		const vec4 smoothIrradiance = RadianceCacheSmoothIrradianceAt(S.WorldPosition, S.N);
+		estimator                   = smoothIrradiance.a > 0.0 ? smoothIrradiance.rgb : vec3(0.0);
+	}
+#endif
+	const float indirectIrradiance = dot(estimator * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
+	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.N, S.Roughness, A.Prefiltered,
 	                                            indirectIrradiance);
 #endif
-	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
+	A.SpecularBRDF = texture(BrdfLutTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;
+	A.BackIrradiance = DesertAmbientIrradiance(-S.N);
+	A.Traced       = 0.0; // the sky cubes (and the captures); DeferredLighting sets 1 where a traced gather replaces them
 	return A;
 }
+
+// The sky's estimator: its irradiance cube lights the pixel, its prefiltered cube is the remainder.
+DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusion)
+{
+	return DesertSampleAmbient(S, DesertAmbientIrradiance(S.N), DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness),
+	                           indirect, occlusion);
+}
+
+#ifdef DESERT_VIEW_RADIANCE_CACHE
+// THE FORWARD PASSES' ESTIMATOR (Mesh/Surface/ViewIndirect.glslh): the view's world radiance cache where the view
+// traces GI - read in place at the pixel, the irradiance about N and the cosine lobe about the reflection under the
+// same eight probes and weights, exactly the ProbeVolume final gather the deferred composite takes in GI mode 2
+// (Programs/GlobalIllumination/IrradianceFieldGather.shader), black where no traced probe answers as there (never
+// the sky through a wall) - else the sky's two cubes. The cache with no clipmap is the view without traced GI.
+// @p indirect is the pass's own indirect term (the forward cells': the MegaLights volume's isotropic local light,
+// zero when the volume is off). @p pixel picks the clipmap fade's dither (gl_FragCoord.xy).
+DesertAmbient DesertSampleViewAmbient(DesertSurface S, vec3 indirect, float occlusion, vec2 pixel)
+{
+	if (radianceCache.shape.x == 0u)
+		return DesertSampleAmbient(S, indirect, occlusion);
+	vec3       specular;
+	const vec4 diffuse = RadianceCacheIrradianceAtImpl(S.WorldPosition, S.N, S.V, reflect(-S.V, S.N),
+	                                                    RadianceCachePixelDither(pixel), true, specular);
+	const bool answered = diffuse.a > 0.0;
+	return DesertSampleAmbient(S, answered ? diffuse.rgb : vec3(0.0), answered ? specular : vec3(0.0), indirect,
+	                           occlusion);
+}
+#endif
 
 #endif // AMBIENT_IBL_NO_SAMPLERS
 

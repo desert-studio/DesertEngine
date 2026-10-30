@@ -4,8 +4,8 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/LevelEditor/LevelToolbar.hpp>
-#include <Editor/Panels/AssetEditorToolbar.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/AssetEditorToolbar.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <Engine/Assets/AssetMetadata.hpp>
 
@@ -19,6 +19,8 @@
 
 namespace Desert::Editor::AssetEditorFrame
 {
+    namespace ImGui = ::ImGui; // engine headers introduce a Desert::ImGui that would otherwise shadow ::ImGui
+
     namespace
     {
         // The level toolbar's strip (LevelToolbar::Draw): #161616, the same padding and frame metrics, so an asset

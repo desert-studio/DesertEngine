@@ -3,7 +3,7 @@
 // Compiles Editor/Resources/Shaders/Mesh/DirectLighting.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that StaticMeshLit.shader,
-// StaticMeshLit_Instanced.shader, SkinnedMeshLit.shader, Deferred/DeferredLighting.shader,
+// StaticMeshLit_Instanced.shader, StandardSurface's Vertex_Skinned cell, Deferred/DeferredLighting.shader,
 // ShadingModels/DefaultLit.shadingmodel compile as GLSL. A hand-written CPU copy could only
 // ever prove that the copy agrees with itself, and this is precisely the quantity where that failed:
 // there were FOUR copies of this BRDF in the shaders and the forward mesh shaders' copy had lost the

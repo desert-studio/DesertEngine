@@ -302,7 +302,7 @@ namespace Desert::Editor
         std::filesystem::path path;
         for ( int i = 0; i < 256; ++i )
         {
-            const std::string candidate = i == 0 ? name : name + std::to_string( i );
+            const std::string candidate = i == 0 ? name : std::format( "{}{}", name, i );
             path = std::filesystem::path( directory ) / ( candidate + std::string( SG::kExtension ) );
             if ( !std::filesystem::exists( path ) )
             {
@@ -681,21 +681,20 @@ namespace Desert::Editor
                 char buf[48];
                 std::snprintf( buf, sizeof( buf ), "%s", node.ParamName.c_str() );
                 ImGui::SetNextItemWidth( 140.0f );
-                if ( ImGui::InputText( ( "##pn" + std::to_string( node.Id ) ).c_str(), buf,
-                                       sizeof( buf ) ) )
+                if ( ImGui::InputText( std::format( "##pn{}", node.Id ).c_str(), buf, sizeof( buf ) ) )
                     node.ParamName = buf;
             }
             if ( spec && spec->HasColorValue )
             {
                 ImGui::SetNextItemWidth( 200.0f );
-                ImGui::DragFloat4( ( "##cv" + std::to_string( node.Id ) ).c_str(), node.Value.data(),
-                                   0.01f, 0.0f, 4.0f, "%.2f" );
+                ImGui::DragFloat4( std::format( "##cv{}", node.Id ).c_str(), node.Value.data(), 0.01f, 0.0f, 4.0f,
+                                   "%.2f" );
             }
             if ( spec && spec->HasFloatValue )
             {
                 ImGui::SetNextItemWidth( 100.0f );
-                ImGui::DragFloat( ( "##fv" + std::to_string( node.Id ) ).c_str(), node.Value.data(),
-                                  0.01f, -64.0f, 64.0f, "%.2f" );
+                ImGui::DragFloat( std::format( "##fv{}", node.Id ).c_str(), node.Value.data(), 0.01f, -64.0f,
+                                  64.0f, "%.2f" );
             }
 
             ImGui::BeginGroup(); // inputs

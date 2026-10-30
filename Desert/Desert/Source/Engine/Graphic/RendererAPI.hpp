@@ -1,14 +1,20 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <span>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+#include <Engine/Graphic/RayTracingPipeline.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <memory>
+#include <string>
+#include <string_view>
 
 namespace Desert::ShaderResources
 {
@@ -18,6 +24,8 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class VertexBuffer;
+    class SharedGpuBuffer;
+    class SharedGpuTimeline;
     namespace RDG
     {
         class Builder;
@@ -32,6 +40,42 @@ namespace Desert::Graphic
     // One triangle covering the viewport (Common/FullscreenTriangle.glslh): the vertex stage builds it from
     // gl_VertexIndex with no vertex buffer, so every fullscreen draw is Draw(3, 1, 0, 0).
     inline constexpr uint32_t kFullscreenTriangleVertexCount = 3;
+
+    // One IndirectGroup of a binned mesh pass (GpuDriven/IndirectDrawSubmission.hpp): MaxDraws records of
+    // VkDrawIndexedIndirectCommand at Stride from ArgsOffset of Args, every one an indexed draw of the group's
+    // mesh. The MaxDraws records are read as they are (a culled bin's InstanceCount is 0), MaxDrawsPerCall per
+    // vkCmdDrawIndexedIndirect (1 = one call per record: a device without multiDrawIndirect). Args is declared
+    // Access::IndirectArgs.
+    struct MeshIndirectGroupDraw
+    {
+        RDG::BufferRef Args{};
+        uint64_t       ArgsOffset      = 0;
+        uint32_t       MaxDraws        = 0;
+        uint32_t       Stride          = 0;
+        uint32_t       MaxDrawsPerCall = 1;
+        // The pass state the group's shader reads beside the graph block: the scene/view blocks (camera, lights,
+        // the lent GpuScene primitives and material table) its `.Binned` cell's per-view carrier holds. Null =
+        // the block alone.
+        const MaterialExecutor* Material = nullptr;
+        // The instance id stream at binding 2 (a_VisibleRow): rows [0, VisibleRows) of the identity stream, so
+        // a_VisibleRow = gl_InstanceIndex = the record's firstInstance + i, a row of the pass's culled
+        // VisibleInstances. 0 = the pipeline reads no stream.
+        uint32_t VisibleRows = 0;
+    };
+
+    // One material group of the virtual-geometry raster (VirtualGeometry::RasterBins): ONE non-indexed
+    // VkDrawIndirectCommand at Args + ArgsOffset (vertexCount = kClusterMaxTriangles x 3, instanceCount = the
+    // group's clusters, firstInstance = its first Rows entry), drawn with the group's `.VirtualGeometry` cell.
+    // Rows is bound at binding 2 as the instance id stream (a_VisibleRow = a VisibleClusters row); the cell
+    // fetches its vertices from the cluster (Common/VirtualGeometry.glslh), so no vertex or index buffer is bound.
+    struct ClusterIndirectGroupDraw
+    {
+        RDG::BufferRef Args{}; // Access::IndirectArgs
+        uint64_t       ArgsOffset = 0;
+        RDG::BufferRef Rows{}; // uint32 rows - Access::VertexIndex
+        // The view's carrier of the scene blocks, as MeshIndirectGroupDraw::Material.
+        const MaterialExecutor* Material = nullptr;
+    };
 
     enum class RendererAPIType : uint8_t
     {
@@ -102,8 +146,41 @@ namespace Desert::Graphic
         // Fails for a buffer that has not been built.
         virtual Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                           RDG::ExternalBuffer&                 into ) = 0;
+        // A mesh's span [@p offset, + @p bytes) of a vertex buffer (MeshGeometry: a GeometryPool arena, or a
+        // twin's own buffer). A Pooled buffer is imported by span: no graph writes it (its uploads and growth are
+        // blocking copies outside every graph), so the span starts from no access and records no final state,
+        // and the graph's handle addresses, describes and fences the span only (VulkanRdgBuffer::GetOffset).
+        // Any other buffer holds one mesh from byte 0 and goes through ImportVertexBuffer whole (its state
+        // record). Fails for a buffer that has not been built, a span past its end, or a non-zero offset into a
+        // buffer that is not Pooled.
+        virtual Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                               uint64_t offset, uint64_t bytes,
+                                                               RDG::ExternalBuffer& into ) = 0;
+
+        // GPU memory and order shared with another API on this GPU (SharedGpuMemory.hpp; the reader is the path
+        // tracer's OIDN). A device-local storage buffer of @p bytes and a timeline semaphore, both exportable by
+        // the handle type CapabilityCatalog::Sharing names. Refused by name when the catalog says
+        // GpuSharing::None. Not pure: a renderer API that shares nothing (the tests' fakes) refuses here.
+        [[nodiscard]] virtual Common::ResultStr<std::shared_ptr<SharedGpuBuffer>>
+        CreateSharedBuffer( std::string_view name, uint64_t /*bytes*/ )
+        {
+            return Common::MakeError<std::shared_ptr<SharedGpuBuffer>>( std::string( "CreateSharedBuffer(" ) +
+                                                                        std::string( name ) +
+                                                                        "): this renderer API shares no memory" );
+        }
+        [[nodiscard]] virtual Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+        CreateSharedTimeline( std::string_view name )
+        {
+            return Common::MakeError<std::shared_ptr<SharedGpuTimeline>>(
+                 std::string( "CreateSharedTimeline(" ) + std::string( name ) +
+                 "): this renderer API shares no semaphore" );
+        }
 
         // Vertexless draw in the pipeline's topology (the vertex stage pulls from a storage buffer by index).
+        // Code outside the renderer bound vertex / index buffers on the current command buffer (the ImGui
+        // backend): the next mesh draw must bind its geometry, whatever the renderer last bound.
+        virtual void InvalidateGeometryBinding() = 0;
+
         virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                    const MaterialExecutor* materialExecutor ) = 0;
 
@@ -122,6 +199,14 @@ namespace Desert::Graphic
                                                                              const ComputePipeline&   pipeline,
                                                                              RDG::BufferRef           args,
                                                                              uint64_t                 offset ) = 0;
+        // The ray tracing pipeline's launch (UE RayTraceDispatch): @p width x @p height ray generation invocations
+        // of @p pipeline with the pass's bindings resolved against its program, and the shader binding table built
+        // from @p hits (one hit record per segment of the frame's TLAS, RayTracingHitGroupTable.hpp) for this
+        // launch. Refused on a pipeline that is not built or a hit record naming a group the pipeline lacks.
+        [[nodiscard]] virtual Common::BoolResultStr TraceRays( const RDG::PassBindings&                   bindings,
+                                                               const RayTracingPipeline&                  pipeline,
+                                                               const RayTracing::RayTracingHitGroupTable& hits,
+                                                               uint32_t width, uint32_t height ) = 0;
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose
         // vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex (UE DrawPrimitive; the
         // fullscreen triangle is 3 x 1; the SSR tile grid is six vertices per tile).
@@ -150,7 +235,26 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel ) = 0;
+                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel ) = 0;
+        // RenderMesh with its counts in a graph buffer (see Renderer::RenderMeshIndirect).
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+                            const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
+                            uint64_t offset, SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
+        // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
+        // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream /
+        // index buffers (the group's shared binding: one bind per pipeline switch), then the indirect draws @p
+        // draw names. No push block is written: a binned draw reads its per-draw state from GpuScene through
+        // gl_InstanceIndex.
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                 const MeshGeometryBinding& geometry, const MeshIndirectGroupDraw& draw ) = 0;
+        // One material group of the VG raster (ClusterIndirectGroupDraw): @p pipeline's pass state (the group's
+        // `.VirtualGeometry` cell), the Rows stream at binding 2, one vkCmdDrawIndirect. Refused: a pipeline that
+        // does not read the instance id stream, arguments past the end of their buffer.
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderClusterIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                    const ClusterIndirectGroupDraw& draw ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.
@@ -203,6 +307,13 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                              RDG::TextureRef source, RDG::TextureRef target,
                                                              uint32_t targetLayer ) = 0;
+        // Copy the tightly packed texels of the graph buffer @p source into mip 0, layer 0 of the colour graph
+        // texture @p target, inside the exec of the Copy node @p context that declared @p source CopySrc and
+        // @p target CopyDst (UE: a texture upload recorded on the graph's command list; no submit, no wait). The
+        // buffer must hold at least Width x Height texels of the target's format, else refused and named.
+        virtual Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                                RDG::BufferRef          source,
+                                                                RDG::TextureRef         target ) = 0;
 
         virtual void                         ResizeWindowEvent( uint32_t width, uint32_t height ) = 0;
         virtual void                         WaitDeviceIdle()                                     = 0;

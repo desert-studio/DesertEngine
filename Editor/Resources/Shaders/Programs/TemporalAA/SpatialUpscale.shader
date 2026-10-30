@@ -26,21 +26,25 @@ Shader "SpatialUpscale"
 
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_Source;
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Destination;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler PointClampSampler;
+        Uniform(0) texture2D SourceColorTexture;
+        #define SourceColorTexture sampler2D(SourceColorTexture, PointClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D DestinationColorTexture;
 
         // The C++ side is Graphic::SpatialUpscalePush (View/SpatialUpscale.hpp).
         PushConstant PushConstants
         {
-            int u_SourceWidth;
-            int u_SourceHeight;
-            int u_DestinationWidth;
-            int u_DestinationHeight;
+            int SourceWidth;
+            int SourceHeight;
+            int DestinationWidth;
+            int DestinationHeight;
         };
 
         vec3 Tap(ivec2 p)
         {
-            const vec3 c = max(texelFetch(u_Source, clamp(p, ivec2(0), ivec2(u_SourceWidth, u_SourceHeight) - 1), 0).rgb,
+            const vec3 c = max(texelFetch(SourceColorTexture, clamp(p, ivec2(0), ivec2(SourceWidth, SourceHeight) - 1), 0).rgb,
                                vec3(0.0));
             return c / (1.0 + max(c.r, max(c.g, c.b)));
         }
@@ -98,10 +102,10 @@ Shader "SpatialUpscale"
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (pixel.x >= u_DestinationWidth || pixel.y >= u_DestinationHeight)
+            if (pixel.x >= DestinationWidth || pixel.y >= DestinationHeight)
                 return;
 
-            const vec2 scale = vec2(u_SourceWidth, u_SourceHeight) / vec2(u_DestinationWidth, u_DestinationHeight);
+            const vec2 scale = vec2(SourceWidth, SourceHeight) / vec2(DestinationWidth, DestinationHeight);
             vec2        pp    = (vec2(pixel) + 0.5) * scale - 0.5;
             const vec2  fp    = floor(pp);
             pp -= fp;
@@ -172,7 +176,7 @@ Shader "SpatialUpscale"
             const vec3 t  = clamp(aC / aW, mn, mx);
             // Inverse of the reversible tonemap (t's max stays below 1: every tap's does).
             const vec3 linearColor = t / max(1.0 - max(t.r, max(t.g, t.b)), 1.0 / 65504.0);
-            imageStore(u_Destination, pixel, vec4(linearColor, 1.0));
+            imageStore(DestinationColorTexture, pixel, vec4(linearColor, 1.0));
         }
     }
 }

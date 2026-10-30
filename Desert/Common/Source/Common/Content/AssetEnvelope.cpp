@@ -4,6 +4,7 @@
 #include "MeshBinaryHeader.hpp"
 
 #include <Common/Utilities/Crc32c.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include <istream>
 #include <limits>
 #include <random>
+#include <sstream>
 
 namespace Common::Content
 {
@@ -670,11 +672,11 @@ namespace Common::Content
                                                                 "(GUID), this build reads only version "
                                                                 "{} - re-import it from its source",
                                                                 version, kMeshBinaryVersion );
-                    if ( version < kMeshBinaryVersion )
+                    if ( version < kMeshBinaryOldestReadVersion )
                         return MakeFormattedError<AssetHeader>(
-                             "mesh header: mesh version {}, this build reads only version {} - raise it with "
+                             "mesh header: mesh version {}, this build reads versions {}-{} - raise it with "
                              "Tools/SceneMigrator (scripts/Dev/migrate.sh)",
-                             version, kMeshBinaryVersion );
+                             version, kMeshBinaryOldestReadVersion, kMeshBinaryVersion );
                 }
                 if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
                     return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
@@ -692,7 +694,7 @@ namespace Common::Content
                 const std::optional<AssetGuid> guid = ReadMeshHeaderGuid( prefix );
                 if ( !guid || guid->IsNull() )
                     return MakeFormattedError<AssetHeader>( "mesh header: a version {} mesh states a null GUID",
-                                                            kMeshBinaryVersion );
+                                                            header.Version );
                 AssetHeader stated;
                 stated.Kind = ( header.Flags & kMeshFlagIsSkinned ) != 0 ? ContentKind::SkinnedMesh
                                                                          : ContentKind::StaticMesh;
@@ -738,9 +740,21 @@ namespace Common::Content
                                                                    const AssetHeaderReadContext& context )
     {
         using Out = std::optional<AssetHeader>;
-        std::ifstream in( file, std::ios::binary );
-        if ( !in )
-            return MakeFormattedError<Out>( "asset header: cannot open '{}'", file.string() );
+        // THROUGH THE FILE LAYER (disk + mounted paks): a packaged game's assets live in its archive, and a
+        // disk-only open gave every packed mesh a path-derived handle while the cooked registry stated its
+        // GUID's ("loaded as handle ..., but its header GUID folds to ..."). Disk first (a stream, no
+        // whole-file read); an archive entry is read whole into memory.
+        std::ifstream      onDisk( file, std::ios::binary );
+        std::istringstream packed;
+        if ( !onDisk )
+        {
+            auto bytes = Utils::FileSystem::ReadFileContent( file );
+            if ( !bytes.IsSuccess() )
+                return MakeFormattedError<Out>( "asset header: cannot open '{}': {}", file.string(),
+                                                bytes.GetError() );
+            packed.str( bytes.ExtractValue() );
+        }
+        std::istream& in = onDisk ? static_cast<std::istream&>( onDisk ) : static_cast<std::istream&>( packed );
         std::array<std::byte, ASSET_HEADER_SNIFF_BYTES> leading{};
         in.read( reinterpret_cast<char*>( leading.data() ), static_cast<std::streamsize>( leading.size() ) );
         const auto sniffed =

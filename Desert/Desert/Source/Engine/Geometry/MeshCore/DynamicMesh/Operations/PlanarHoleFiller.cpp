@@ -2,7 +2,8 @@
 // (see the header for the line ranges and what was replaced).
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/PlanarHoleFiller.hpp"
 
-#include "Engine/Geometry/MeshCore/CompGeom/PolygonTriangulation.hpp"
+#include "Engine/Geometry/MeshCore/CompGeom/ConstrainedDelaunay2.hpp"
+#include "Engine/Geometry/MeshCore/Curve/PlanarComplex.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 
 #include <spdlog/fmt/fmt.h>
@@ -23,23 +24,6 @@ namespace
         const double B    = Normal.x * Normal.y * A;
         OutX              = glm::dvec3( 1.0 + Sign * Normal.x * Normal.x * A, Sign * B, -Sign * Normal.x );
         OutY              = glm::dvec3( B, Sign + Normal.y * Normal.y * A, -Normal.y );
-    }
-
-    // Crossing-number test of Point against the closed polygon Poly (both in the plane frame). Stands in for
-    // FPlanarComplex::FindSolidRegions' nesting test, which P14b ports.
-    bool PointInPolygon( const glm::dvec2& Point, const std::vector<glm::dvec2>& Poly )
-    {
-        bool      bInside = false;
-        const int N       = static_cast<int>( Poly.size() );
-        for ( int I = 0, J = N - 1; I < N; J = I++ )
-        {
-            const glm::dvec2& A = Poly[I];
-            const glm::dvec2& B = Poly[J];
-            if ( ( A.y > Point.y ) != ( B.y > Point.y ) &&
-                 Point.x < ( B.x - A.x ) * ( Point.y - A.y ) / ( B.y - A.y ) + A.x )
-                bInside = !bInside;
-        }
-        return bInside;
     }
 
     // HoleFillUtil::FillOverlayElements for vertex loops and no new vertex: each fill triangle takes, per corner,
@@ -106,54 +90,49 @@ bool PlanarHoleFiller::Fill( int GroupID )
     MakePerpVectors( Normal, PlaneX, PlaneY );
 
     const std::vector<std::vector<int>>& Loops = *m_VertexLoops;
-    std::vector<std::vector<glm::dvec2>> Polygons( Loops.size() );
-    for ( size_t L = 0; L < Loops.size(); ++L )
-        for ( const int VID : Loops[L] )
+    PlanarComplex                        Complex;
+    for ( const std::vector<int>& Loop : Loops )
+    {
+        Polygon2& Polygon = Complex.m_Polygons.emplace_back();
+        for ( const int VID : Loop )
         {
             const glm::dvec3 VertMinusOrigin = m_Mesh->GetVertex( VID ) - m_PlaneOrigin;
-            Polygons[L].emplace_back( glm::dot( PlaneX, VertMinusOrigin ), glm::dot( PlaneY, VertMinusOrigin ) );
+            Polygon.emplace_back( glm::dot( PlaneX, VertMinusOrigin ), glm::dot( PlaneY, VertMinusOrigin ) );
         }
-    for ( size_t Inner = 0; Inner < Loops.size(); ++Inner )
-        for ( size_t Outer = 0; Outer < Loops.size(); ++Outer )
-            if ( Inner != Outer && !Polygons[Inner].empty() &&
-                 PointInPolygon( Polygons[Inner][0], Polygons[Outer] ) )
-            {
-                m_FailureReason = fmt::format(
-                     "the section has a hole: loop {} ({} vertices) lies inside loop {} ({} vertices); filling a "
-                     "section with holes is a limitation of this port (v1) - UE fills it through "
-                     "ConstrainedDelaunay2 / PlanarComplex, ported by P14b",
-                     Inner, Loops[Inner].size(), Outer, Loops[Outer].size() );
-                return false;
-            }
+    }
+    Complex.m_bTrustOrientations    = true;
+    Complex.m_bAllowOverlappingHoles = false;
+    Complex.FindSolidRegions();
 
-    bool                 bAddedAll = true;
-    std::vector<Index3i> Triangles;
-    for ( size_t L = 0; L < Loops.size(); ++L )
+    bool bAddedAll = true;
+    for ( const PlanarComplex::PolygonNesting& Nest : Complex.m_Solids )
     {
-        const std::vector<int>& Loop = Loops[L];
-        std::vector<glm::dvec3> Positions;
-        Positions.reserve( Loop.size() );
-        for ( const int VID : Loop )
-            Positions.push_back( m_Mesh->GetVertex( VID ) );
-        Triangles.clear();
-        PolygonTriangulation::TriangulateSimplePolygon( Positions, Triangles, true );
+        const GeneralPolygon2      GPoly     = Complex.ConvertNestToGeneralPolygon( Nest );
+        const std::vector<Index3i> Triangles = ConstrainedDelaunayTriangulate( GPoly );
         if ( Triangles.empty() )
         {
-            m_FailureReason = fmt::format( "loop {} ({} vertices) did not triangulate", L, Loop.size() );
-            return false;
+            if ( bAddedAll )
+                m_FailureReason = fmt::format( "the section of loop {} ({} vertices, {} holes) did not triangulate",
+                                               Nest.OuterIndex, Loops[Nest.OuterIndex].size(),
+                                               Nest.HoleIndices.size() );
+            bAddedAll = false;
+            continue;
         }
+        // the local triangulation's vertices -> mesh vertex IDs: the outer loop, then each hole loop
+        std::vector<int> VertexMapping = Loops[Nest.OuterIndex];
+        for ( const int HoleIdx : Nest.HoleIndices )
+            VertexMapping.insert( VertexMapping.end(), Loops[HoleIdx].begin(), Loops[HoleIdx].end() );
         for ( const Index3i& SourceTri : Triangles )
         {
-            const Index3i OutTri( Loop[SourceTri.A], Loop[SourceTri.B], Loop[SourceTri.C] );
+            const Index3i OutTri( VertexMapping[SourceTri.A], VertexMapping[SourceTri.B], VertexMapping[SourceTri.C] );
             const int     NewTID = m_Mesh->AppendTriangle( OutTri, GroupID );
             // e.g. a triangle that would make the mesh non-manifold is skipped, as in UE
             if ( NewTID < 0 )
             {
                 if ( bAddedAll )
-                    m_FailureReason =
-                         fmt::format( "a fill triangle of loop {} ({}, {}, {}) could not join the mesh "
-                                      "(error {})",
-                                      L, OutTri.A, OutTri.B, OutTri.C, NewTID );
+                    m_FailureReason = fmt::format( "a fill triangle of loop {} ({}, {}, {}) could not join the mesh "
+                                                   "(error {})",
+                                                   Nest.OuterIndex, OutTri.A, OutTri.B, OutTri.C, NewTID );
                 bAddedAll = false;
             }
             else

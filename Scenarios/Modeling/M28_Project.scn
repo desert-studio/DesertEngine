@@ -1,0 +1,27 @@
+# M28 Project (UE UProjectToTargetTool, MeshOps palette "Mesh"): a Box 100 cm and a Sphere 80 cm (radius 50 x 0.8)
+# share their centre (centre pivots, both at the origin); Box selected first (the source), Sphere second (the
+# target) -> Project (default remesh: Target Triangle Count 5000, Smoothing 0.25, 20 iterations, Projection on)
+# -> Accept -> Undo. Wireframe, seen from above and to the side.
+Дано run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Direction 0.3,-0.6,0.5
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Rotation 0,0,0
+Дано --subject selection set Translation 0,0,0
+Дано run Modeling "Active tool: Accept"
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Scale 0.8,0.8,0.8
+Дано --subject selection set Rotation 0,0,0
+Дано --subject selection set Translation 0,0,0
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run "Level Viewport" "Focus Selected"
+Тогда-вид 0_pair Wireframe: both meshes drawn - the cube's corners stick out past the sphere
+Когда run Modeling "Mesh tool: Project"
+Когда run Modeling "Active tool: Accept"
+Тогда 1_project after Accept the Box is sphere-shaped (its silhouette is the sphere's, no corners), its wireframe dense and even (remeshed); the Sphere is unchanged; the status reads "Project: N triangles, ..."
+Когда run Action Undo
+Тогда-вид 2_undo after Undo the Box is a cube with corners again, around the sphere

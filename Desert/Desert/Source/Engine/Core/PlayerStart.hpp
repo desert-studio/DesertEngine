@@ -79,6 +79,9 @@ namespace Desert::Core
         // Play from Here: the pawn stands at this world transform (the editor camera's) instead of a
         // PlayerStart, and the editor camera becomes the last-resort view target.
         std::optional<glm::mat4> SpawnAt;
+        // UE's Simulate In Editor (bIsSimulatingInEditor): the world runs with NO player - no pawn, no player
+        // controller, no view target - so the editor camera and the editor's overlays stay (Scene::IsSimulating).
+        bool Simulate = false;
     };
 
     // The packaged game's `--player-start <tag>` (UE's "?StartSpot=" travel option) read from its command

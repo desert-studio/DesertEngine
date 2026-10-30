@@ -20,7 +20,16 @@ namespace Desert::Graphic::System
             glm::vec2 SrcTexelSize;
             int32_t   FirstPass;
             float     Threshold;
+            float     ExposureKey;  // auto-exposure key (composite's ExposureKey)
+            int32_t   AutoExposure; // 1 => threshold is after exposure, divided by key / adapted luminance
+            float     Exposure;     // manual exposure (auto-exposure off)
+            float     InversePreExposure;
+            glm::vec4 LocalExposureContrast; // the composite's four vectors (TonemapRenderer::FillMaterial)
+            glm::vec4 LocalExposureThreshold;
+            glm::vec4 LocalExposureUV;
+            glm::vec4 LocalExposureSlice; // w: 1 apply, 0 not produced
         };
+        static_assert( sizeof( DownsamplePush ) == 96, "DownsamplePush must match BloomDownsample.shader" );
 
         struct UpsamplePush
         {
@@ -44,6 +53,12 @@ namespace Desert::Graphic::System
         if ( !CreatePipelines() )
             return Common::MakeError( "BloomRenderer: failed to create compute pipelines" );
 
+        if ( const auto valid = m_DownsampleLayout.Validate( m_DownsamplePipeline->GetSpecification().Shader, BloomDownsampleShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_UpsampleLayout.Validate( m_UpsamplePipeline->GetSpecification().Shader, BloomUpsampleShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -88,19 +103,27 @@ namespace Desert::Graphic::System
     }
 
     void BloomRenderer::DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
-                                                   RDG::TextureRef chain, uint32_t mip ) const
+                                                   RDG::TextureRef chain, RDG::TextureRef adaptedLuminance,
+                                                   RDG::TextureRef localExposureGrid,
+                                                   RDG::TextureRef blurredLogLuminance, uint32_t mip ) const
     {
         if ( !m_DownsamplePipeline )
             return;
         auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
         if ( mip == 0 )
-            block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() );
+            block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         else
-            block.Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
-                           RDG::SamplerDesc::LinearClamp() );
-        block.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
+            block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
+        block.Sampler( BloomDownsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Sampler( BloomDownsampleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Texture( BloomDownsampleShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Texture( BloomDownsampleShaderParameters::LumBilateralGrid, localExposureGrid,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Texture( BloomDownsampleShaderParameters::BlurredLogLuminance, blurredLogLuminance,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        block.Storage( BloomDownsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
     }
 
@@ -129,9 +152,23 @@ namespace Desert::Graphic::System
             srcH = MipSize( bh, mip - 1 );
         }
 
-        const DownsamplePush push{
-             glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), first ? 1 : 0,
-             m_Threshold };
+        // Local exposure: the composite's own numbers (TonemapRenderer::FillMaterial), applied on mip 0 only.
+        const TonemapRenderer::LocalExposureFrame& le = m_LocalExposure;
+        const LocalExposureParams                  p  = le.Produced ? le.Params : LocalExposureParams{};
+        const DownsamplePush                       push{
+             glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
+             first ? 1 : 0,
+             m_Threshold * m_PreExposure,
+             m_ExposureKey,
+             m_AutoExposure ? 1 : 0,
+             m_ManualExposure,
+             1.0f / std::max( m_PreExposure, 1e-30f ),
+             glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength, p.BlurredLumBlend ),
+             glm::vec4( p.HighlightThreshold, p.ShadowThreshold, p.HighlightThresholdStrength,
+                                              p.ShadowThresholdStrength ),
+             glm::vec4( le.GridUVScale, le.BlurUVScale ),
+             glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV,
+                        le.Produced ? 1.0f : 0.0f ) };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, sizeof( push ) );
@@ -147,9 +184,9 @@ namespace Desert::Graphic::System
             return; // RecordUpsample refuses both by name
         pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_UpsamplePipeline ) )
-             .Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )
+             .Texture( BloomUpsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
+             .Sampler( BloomUpsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( BloomUpsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip - 1 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( UpsamplePush ) ) );
     }
 

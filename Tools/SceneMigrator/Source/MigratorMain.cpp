@@ -47,6 +47,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
@@ -64,6 +65,7 @@
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
+#include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -83,6 +85,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <set>
 #include <fstream>
 #include <format>
 #include <map>
@@ -126,9 +129,10 @@ namespace
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (IsCloudLayout).
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
-                                                ".destrings",  ".detheme",  ".derig",
-                                                ".retarget",   ".skeleton", ".defoliage" };
+    // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
+                                                ".detheme",    ".derig",  ".retarget",    ".skeleton",
+                                                ".defoliage",  ".dfx",    ".dfxtype" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -359,6 +363,8 @@ namespace
          TextHeaderGate{ ".danimgraph", "ANGR", Desert::Assets::kAnimGraphSchemaVersion },
          TextHeaderGate{ ".skeleton", "SKEL", Desert::Assets::kSkeletonSchemaVersion },
          TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
+         TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
+         TextHeaderGate{ ".dfxtype", "VFXT", Desert::Assets::kVFXEffectTypeSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -450,14 +456,15 @@ namespace
         }
         Content::MeshBinaryFileHeader header{};
         if ( bytes.size() < sizeof( header ) )
-            return Fail( "is " + std::to_string( bytes.size() ) + " bytes, shorter than a mesh header" );
+            return Fail( std::format( "is {} bytes, shorter than a mesh header", bytes.size() ) );
         std::memcpy( &header, bytes.data(), sizeof( header ) );
         if ( header.ByteOrder != Content::kMeshBinaryByteOrderTag )
             return Fail( "is a cooked mesh of the other byte order; re-cook it on this host" );
-        if ( header.Version != Content::kMeshBinaryVersion )
-            return Fail( "is mesh version " + std::to_string( header.Version ) + "; this tool reads only v" +
-                         std::to_string( Content::kMeshBinaryVersion ) +
-                         " (older cooked meshes are not supported - re-cook it from its source)" );
+        if ( !Content::IsReadableMeshBinaryVersion( header.Version ) )
+            return Fail( std::format( "is mesh version {}; this tool reads v{}-v{} (older cooked meshes are not "
+                                      "supported - re-cook it from its source)",
+                                      header.Version, Content::kMeshBinaryOldestReadVersion,
+                                      Content::kMeshBinaryVersion ) );
         return Common::MakeSuccess( header.Version );
     }
 
@@ -508,6 +515,57 @@ namespace
                 out << "; kept " << kept;
             out << ")";
         }
+        if ( report.SourceAngleRaised && report.SourceAnglesStated > 0 )
+            out << std::format( " scene v{}->v{} ({} DirectionLight block(s) given SourceAngle {})",
+                                Desert::Migration::kSceneVersionScriptDefaults,
+                                Desert::Migration::kSceneVersionSourceAngle, report.SourceAnglesStated,
+                                Desert::Migration::kSourceAngleDefault );
+        if ( report.LightUnitsRaised && ( report.LightUnits.Lights > 0 || report.LightUnits.Volumes > 0 ) )
+            out << " scene v" << Desert::Migration::kSceneVersionSourceAngle << "->v"
+                << Desert::Migration::kSceneVersionLightUnits << " (" << report.LightUnits.Lights
+                << " light(s) state Unitless, " << report.LightUnits.Volumes << " exposure range(s) in EV100)";
+        if ( report.SkySunFromLightRaised &&
+             ( report.SkySunFromLight.Skies > 0 || report.SkySunFromLight.Volumes > 0 ) )
+            out << " scene v" << Desert::Migration::kSceneVersionLightUnits << "->v"
+                << Desert::Migration::kSceneVersionSkySunFromLight << " (" << report.SkySunFromLight.Skies
+                << " physical sky sun(s) folded into UE factors, " << report.SkySunFromLight.Volumes
+                << " manual exposure(s) in EV100)";
+        if ( report.SunCalendarRaised && report.SunCalendar.Clocks > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionSkySunFromLight << "->v"
+                << Desert::Migration::kSceneVersionSunCalendar << " (" << report.SunCalendar.Clocks
+                << " clock(s) state the equinox calendar)";
+        if ( report.GIMethodLadderRaised && report.GIMethodLadder.Restated > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionSunCalendar << "->v"
+                << Desert::Migration::kSceneVersionGIMethodLadder << " (" << report.GIMethodLadder.Restated
+                << " GI method(s) re-stated on today's ladder)";
+        if ( report.DisplayTransferRaised && report.DisplayTransfer.Dropped > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionGIMethodLadder << "->v"
+                << Desert::Migration::kSceneVersionDisplayTransfer << " (" << report.DisplayTransfer.Dropped
+                << " Gamma key(s) dropped: the display transfer is the sRGB OETF)";
+        if ( report.LandscapeHeightKeysRaised && report.LandscapeHeightKeys.Keyed > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionGridNames << "->v"
+                << Desert::Migration::kSceneVersionLandscapeHeightKeys << " (" << report.LandscapeHeightKeys.Keyed
+                << " landscape height file(s) named by content key)";
+        if ( report.AssetKeysRaised && report.AssetKeys.Keyed > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionLandscapeHeightKeys << "->v"
+                << Desert::Migration::kSceneVersionAssetKeys << " (" << report.AssetKeys.Keyed
+                << " bare asset reference(s) restated as content keys, " << report.AssetKeys.PrefabPathsKeyed
+                << " of them PrefabPath)";
+        if ( report.WorldPartitionTagRaised )
+            out << " world partition v" << report.StatedWorldPartitionVersion << "->v"
+                << Desert::Migration::kWorldPartitionVersionTagged << " (the WPAR tag is stated)";
+        if ( report.ReflectedAssetRefsRaised )
+            out << " asset references v" << report.StatedAssetRefVersion << "->v"
+                << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
+                << " Static Mesh block(s) and " << report.ReflectedAssetRefs.MaterialFields
+                << " material field(s) restated as {Guid, Path})";
+        if ( report.SunRotationRaised && ( report.SunRotation.Aimed > 0 || report.SunRotation.Overrides > 0 ||
+                                           report.SunRotation.Undirected > 0 ) )
+            out << std::format( " lights v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
+                                "with an identity parent, {} without a direction kept their Rotation)",
+                                report.StatedLightVersion,
+                                Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
+                                report.SunRotation.Overrides, report.SunRotation.Undirected );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
@@ -644,13 +702,14 @@ namespace Desert::Migration
         }
 
         int changed = 0;
-        // Materials raised MATL 4 -> 5: a --check with any is pending work.
+        // Materials raised MATL 5 -> 6: a --check with any is pending work.
         int materialsRaised = 0;
         // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
         int meshesRaised = 0;
         int failed  = 0;
         int relaid  = 0;
-        // Materials whose retired OcclusionStrength was renamed AOStrength (MaterialAOParam.hpp).
+        // Materials with a retired parameter renamed: OcclusionStrength -> AOStrength (MaterialAOParam.hpp),
+        // AlphaCutoff -> the masked template's OpacityMaskClipValue (MaterialMaskClipParam.hpp).
         int materialsRenamed = 0;
 
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
@@ -681,9 +740,12 @@ namespace Desert::Migration
                  bytes.size() >= 16 &&
                  std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u || stated == 5u ) )
             {
-                const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version.
+                const auto raised = stated == 5u
+                                         ? Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes )
+                                         : Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
                 if ( !raised )
                 {
                     err << "FAIL   " << raised.GetError() << "\n";
@@ -747,6 +809,10 @@ namespace Desert::Migration
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )
                 {
+                    // An MSAS 1 or 2 asset is raised by the DISPLACE / VIRT-GEOM pass below; only a file no version reads fails
+                    // here.
+                    if ( Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) ) )
+                        continue;
                     err << "FAIL   " << path.string() << " — neither a cooked DESTMESH mesh nor a readable mesh "
                         << "asset: " << asset.GetError() << "\n";
                     ++failed;
@@ -917,8 +983,8 @@ namespace Desert::Migration
             if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
             {
                 err << "FAIL   " << path.string() << " — "
-                    << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool reads SHDR " +
-                                       std::to_string( Desert::Assets::kShaderSchemaVersion )
+                    << ( header ? std::format( "states SHDR {}; this tool reads SHDR {}", stated,
+                                               Desert::Assets::kShaderSchemaVersion )
                                 : header.GetError() )
                     << "\n";
                 ++failed;
@@ -994,8 +1060,8 @@ namespace Desert::Migration
             {
                 out << " canonical text of " << canonical.BlocksRestated << " reflected block(s) ("
                     << canonical.KeysAdded << " key(s) added, " << canonical.ValuesRestated
-                    << " value(s) restated, component keys sorted in " << canonical.RecordsRekeyed
-                    << " record(s)), version unchanged";
+                    << " value(s) restated, component keys sorted in " << canonical.RecordsRekeyed << " record(s)"
+                    << ( canonical.RecordsReordered ? ", records put in id order" : "" ) << "), version unchanged";
             };
 
             // A partitioned world at the head whose records are still INLINE (written by a tool that
@@ -1079,8 +1145,8 @@ namespace Desert::Migration
             ++changed;
         }
 
-        // THE MATERIALS. MATL v4 is raised to v5 (FIELD-GRAIN-b: PatchStrength becomes the clear share of the
-        // sky); anything older is no longer raised (the legacy steps, their material-number register and the
+        // THE MATERIALS. MATL v5 is raised to v6 (SHADER-NAMING: a texture is stored under its parameter name,
+        // not its GLSL spelling); anything older is no longer raised (the legacy steps, their material-number register and the
         // path-derived asset table were retired with LEG1): an older or newer generation FAILS by its number, a
         // current one is only re-laid-out if its text layout is not canonical.
         const auto engineShaders = EngineShaderLocatorsByGuid();
@@ -1100,16 +1166,21 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( stated.GetValue() == 4u )
+            if ( stated.GetValue() == 5u || stated.GetValue() == 6u )
             {
-                const auto raised = Desert::Migration::MigrateMaterialV4ToV5( source );
+                // The chain: 5 -> 6 (SHADER-NAMING), 6 -> 7 (SSS-PROFILE).
+                auto raised = stated.GetValue() == 5u ? Desert::Migration::MigrateMaterialV5ToV6( source )
+                                                      : Common::MakeSuccess( std::string( source ) );
+                if ( raised )
+                    raised = Desert::Migration::MigrateMaterialV6ToV7( raised.GetValue() );
                 if ( !raised )
                 {
-                    err << "FAIL   " << path.string() << " — MATL 4 -> 5: " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — MATL " << stated.GetValue() << " -> 7: "
+                        << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 4 -> "
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL " << stated.GetValue() << " -> "
                     << Desert::Assets::kMaterialSchemaVersion << "\n";
                 if ( !check && !WriteText( path, raised.GetValue(), err ) )
                 {
@@ -1162,19 +1233,36 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( oneAO.GetValue() )
+            // CUT-OUT IS A BLEND MODE (MaterialMaskClipParam.hpp): a retired AlphaCutoff is re-stated as the
+            // masked template's OpacityMaskClipValue (an opaque StandardSurface drops the mask) - on the text the
+            // AO step left, so one run does both.
+            const std::string& afterAO  = oneAO.GetValue() ? *oneAO.GetValue() : source;
+            const auto         maskClip = Desert::Migration::MaterialWithMaskedTemplate( path.string(), afterAO );
+            if ( !maskClip )
             {
+                err << "FAIL   " << maskClip.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( oneAO.GetValue() || maskClip.GetValue() )
+            {
+                const std::string renamed = maskClip.GetValue() ? *maskClip.GetValue() : afterAO;
+                const std::string what =
+                     oneAO.GetValue() && maskClip.GetValue()
+                          ? "OcclusionStrength -> AOStrength, AlphaCutoff -> the masked template"
+                     : oneAO.GetValue() ? "OcclusionStrength -> AOStrength"
+                                        : "AlphaCutoff -> the masked template";
                 ++materialsRenamed;
                 if ( check )
-                    out << "WOULD  " << path.string() << " — OcclusionStrength -> AOStrength\n";
-                else if ( !WriteText( path, *oneAO.GetValue(), err ) )
+                    out << "WOULD  " << path.string() << " — " << what << "\n";
+                else if ( !WriteText( path, renamed, err ) )
                 {
                     err << "FAIL   " << path.string() << " — the rename could not be written; the original file "
                         << "is untouched\n";
                     ++failed;
                 }
                 else
-                    out << "renamed " << path.string() << " — OcclusionStrength -> AOStrength\n";
+                    out << "renamed " << path.string() << " — " << what << "\n";
                 continue;
             }
             if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
@@ -1393,6 +1481,9 @@ namespace Desert::Migration
 
         int foliageRaised    = 0;
         int cloudTypesRaised = 0;
+        int vfxSystemsRaised = 0;
+        // Default effect types this pass created (or, under --check, would create): one per VFX root.
+        std::set<std::string> createdEffectTypes;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1554,6 +1645,99 @@ namespace Desert::Migration
                     continue;
                 }
             }
+            // VFXS 1 .. 4 -> current, one chain on the untyped body (MigrateVFXSystem): 1 -> 2 renderer rows
+            // (VFX-09), 2 -> 3 the Default effect type (VFX-11), 3 -> 4 module assets (VFX-MODULE-ASSET), 4 -> 5
+            // emitter bounds (VFX-PORT-2).
+            if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXS" );
+                if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXSystem( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
+                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS " << stated.GetValue()
+                        << " -> " << Desert::Assets::kVFXSystemSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    if ( stated.GetValue() >= 3u )
+                    {
+                        // Already named its effect type: the 2 -> 3 step did not run.
+                        ++vfxSystemsRaised;
+                        continue;
+                    }
+                    // The 2 -> 3 step names `Default`: the project's VFX root must hold it (UE DefaultEffectType).
+                    // Created once, beside the first system raised, when the project has none; an existing one is
+                    // kept.
+                    const auto vfxRoot = Common::Constants::Path::RootForContentPath(
+                         Common::Constants::Path::ContentDir::VFX, path );
+                    if ( !vfxRoot )
+                    {
+                        err << "FAIL   " << path.string()
+                            << " — VFXS 3 names the Default effect type, and this file is not under a VFX "
+                               "content folder to create it in\n";
+                        ++failed;
+                        continue;
+                    }
+                    const std::filesystem::path defaultType =
+                         *vfxRoot /
+                         Common::Constants::Path::CONTENT_DIRS[static_cast<std::size_t>(
+                                                                    Common::Constants::Path::ContentDir::VFX )]
+                              .Rel /
+                         ( std::string( "Default" ) + Desert::Assets::Serialization::kVFXEffectTypeExtension );
+                    std::error_code typeEc;
+                    if ( !std::filesystem::exists( defaultType, typeEc ) &&
+                         !createdEffectTypes.contains( defaultType.lexically_normal().generic_string() ) )
+                    {
+                        createdEffectTypes.insert( defaultType.lexically_normal().generic_string() );
+                        out << ( check ? "would create " : "created " ) << defaultType.string()
+                            << " (the Default effect type VFXS 3 names)\n";
+                        if ( !check )
+                            if ( auto saved = Desert::Assets::Serialization::SaveVFXEffectTypeFile(
+                                      defaultType, Desert::Migration::DefaultVFXEffectTypeForV3() );
+                                 !saved )
+                            {
+                                err << "FAIL   " << defaultType.string() << ": " << saved.GetError() << "\n";
+                                ++failed;
+                                continue;
+                            }
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+            }
+            // VFXT 1 -> 2 (VFX-11 p7): the type's CullReaction / Significance and the levels' limits and culls.
+            if ( path.extension() == Desert::Assets::Serialization::kVFXEffectTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXT" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXEffectTypeV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXT 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXT 1 -> "
+                        << Desert::Assets::kVFXEffectTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+            }
             if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "FOLT" );
@@ -1623,6 +1807,38 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
+        // THE MESH ASSETS (DISPLACE, VIRT-GEOM): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT,
+        // 2 -> 3 the VirtualGeometry flag. The step
+        // is the engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a
+        // cooked MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
+        for ( const auto& path : meshes )
+        {
+            const std::string bytes = ReadAll( path );
+            if ( std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) )
+                continue;
+            const auto raised = Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
+            if ( !raised )
+            {
+                err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !raised.GetValue() )
+                continue;
+            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1/2 -> "
+                << Desert::Assets::kMeshAssetSubsystemVersion << "\n";
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
+        }
+
         // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw
         // source beside it is that source's import; its record states the source's hash, or the editor re-imports
         // it at its first start and rewrites committed files.
@@ -1656,7 +1872,8 @@ namespace Desert::Migration
             }
         }
 
-        // THE TEXTURE ASSETS (TEX-SRGB): TXAS 1 -> 2 states the texture's colour space in IMPT. The step is the
+        // THE TEXTURE ASSETS: TXAS 1 -> 2 states the texture's colour space in IMPT (TEX-SRGB), 2 -> 3 its alpha coverage
+        // thresholds (FOLIAGE-ALPHA-MIPS). The step is the
         // engine's own UpgradeTextureSourceAsset (one statement of the format): nullopt = already current, a file
         // it cannot read FAILS by name and is left untouched.
         int texturesRaised = 0;
@@ -1673,7 +1890,7 @@ namespace Desert::Migration
             if ( !raised.GetValue() )
                 continue;
             ++texturesRaised;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS 1 -> "
+            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS -> "
                 << Desert::Assets::kTextureAssetSubsystemVersion << "\n";
             if ( check )
                 continue;
@@ -1689,12 +1906,14 @@ namespace Desert::Migration
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << materialsRaised << ( check ? " would be raised, " : " raised, " )
-            << materialsRenamed << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " )
+            << materialsRenamed
+            << ( check ? " would rename a retired parameter, " : " renamed a retired parameter, " )
             << prefabs.size() << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " )
             << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
-            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << vfxSystemsRaised
+            << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " ) << animGraphsRaised
             << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
@@ -1706,9 +1925,10 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
-                            foliageRaised > 0 || cloudTypesRaised > 0 || animGraphsRaised > 0 ||
-                            meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check &&
+                 ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
+                   cloudTypesRaised > 0 || vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
+                   recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

@@ -12,6 +12,11 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 
+#include <cstddef>
+#include <memory>
+#include <span>
+#include <utility>
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -37,14 +42,14 @@ namespace Desert::Graphic::System
             return Common::MakeError( "HeightFogRenderer: the fog shaders could not be resolved "
                                       "(HeightFog / HeightFogApply)" );
 
-        // Non-persistent, so the driver keeps one copy per (frame x recording renderer slot) — the
-        // Docs/RENDERER_FRAME_STATE.md rule; a shared buffer would let a preview renderer overwrite the
-        // viewport's fog mid-frame.
-        m_ParamsBuffer = ShaderResources::StorageBuffer::Create( "FogParams", kFogPayloadBytes, kFogParamsBinding,
-                                                                 /*persistent=*/false );
-        if ( !m_ParamsBuffer )
-            return Common::MakeError( "HeightFogRenderer: could not create the fog parameter buffer" );
-
+        // The parameter block is not created here: it is a buffer of each frame's graph (DeclareFrameNodes), one
+        // per (frame x view) by construction, read by the opaque composite and by every translucent surface.
+        if ( const auto valid = m_FogLayout.Validate( m_FogPipeline->GetShader(), HeightFogFogShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_ApplyLayout.Validate( m_ApplyPipeline->GetShader(), HeightFogApplyShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -120,13 +125,31 @@ namespace Desert::Graphic::System
         m_FogHeightY = fogHeightY;
     }
 
-    std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes( RDG::Builder&    graph,
-                                                                              FrameTransients& transients )
+    std::vector<ComputeNodeDeclaration>
+    HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
+                                          const VolumetricFogFrameResult& volume )
     {
         std::vector<ComputeNodeDeclaration> nodes;
 
-        if ( !m_FogPipeline || !m_ApplyPipeline || !m_ParamsBuffer )
+        // THE PARAMETER BLOCK EXISTS EVERY FRAME, fog or not: the translucent surfaces declare it in their cells
+        // and evaluate the fog at their own depth from it (Common/ViewFog.glslh), so a frame without fog uploads
+        // one with both gates 0 (every reader then leaves its colour untouched) rather than leaving the slot
+        // unbound. A buffer of THIS frame's graph: one per (frame x view), uploaded before the graph runs.
+        FogGpuPayload payload{};
+        const auto    publishParams = [&graph, &transients, &payload]()
+        {
+            const RDG::BufferRef params =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( FogGpuPayload ) }, "HeightFog.Params" );
+            graph.QueueBufferUpload( params, std::as_bytes( std::span( &payload, 1 ) ) );
+            transients.FogParams = params;
+            return params;
+        };
+
+        if ( !m_FogPipeline || !m_ApplyPipeline )
+        {
+            publishParams();
             return nodes;
+        }
 
         // What this dispatch has to evaluate. The two halves are independent: a scene can have fog and no
         // atmosphere, a physical atmosphere and no fog component, or both. The volume handle is null
@@ -137,75 +160,84 @@ namespace Desert::Graphic::System
         const bool fogActive = m_Present && m_Data.Enabled;
         const bool apActive  = atmosphere.AerialPerspectiveVolume != nullptr;
 
-        // The zero-cost contract, now stated over both halves: a scene with neither leaves here, before
-        // any allocation, upload or dispatch, and the frame is what it was before this system existed.
-        if ( !fogActive && !apActive )
-            return nodes;
-
+        // The zero-cost contract, now stated over both halves: a scene with neither dispatches nothing and
+        // allocates no fog image; its only cost is the gated-off parameter block above.
         const auto* camera = m_SceneRenderer->GetMainCamera();
-        if ( !camera )
+        const auto  target = m_TargetFramebuffer.lock();
+        if ( ( !fogActive && !apActive ) || camera == nullptr || !target ||
+             target->GetDepthAttachmentCount() == 0 )
+        {
+            publishParams();
             return nodes;
-
-        const auto target = m_TargetFramebuffer.lock();
-        if ( !target || target->GetDepthAttachmentCount() == 0 )
-            return nodes;
+        }
 
         const uint32_t fogWidth  = target->GetFramebufferWidth();
         const uint32_t fogHeight = target->GetFramebufferHeight();
         if ( fogWidth == 0 || fogHeight == 0 )
-            return nodes;
-
-        // The atmosphere is a coupling, not a dependency: without one the fog keeps its authored colour
-        // and drops the sun lobe and the sky ambient (PackFogParams says so per term). Fog on a
-        // sky-less scene is legitimate, so there is no bail-out here.
-        const FogGpuPayload payload = PackFogParams( m_Data, atmosphere, m_FogHeightY );
-        // BUILD TIME: the node exists only when this upload lands; it fills this frame's slot before the graph
-        // runs.
-        const auto uploaded = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
-        if ( !uploaded.IsSuccess() )
         {
-            // The push constants below carry the camera and the pass would run with THIS frame's
-            // camera against LAST frame's fog block — a height and a density belonging to a different
-            // moment, which reads as fog sliding relative to the world rather than as a missing effect.
-            LOG_ERROR( "[Fog] the fog pass does not run this frame, its parameters were not uploaded: {}",
-                       uploaded.GetError() );
+            publishParams();
             return nodes;
         }
 
-        FogPush push{};
-        push.InverseViewProjection = glm::inverse( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
-        push.CameraPosition        = glm::vec4( camera->GetPosition(), 0.0f );
-        push.AerialPerspective =
-             glm::vec4( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
-                        apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f );
-
-        // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
-        // and writes the fog image the apply (HeightFogApply, a Transparency raster node) samples.
-        // Single-sample: the scene depth at MSAA 1, SceneDepthResolved at MSAA > 1 (a sampler2D over a
-        // multisampled image is invalid). With a depth target it always exists: at MSAA > 1 the resolve is part
-        // of the renderer, and a resolve that failed to build said so at startup and is said again here.
+        // The single-sample scene depth, checked before the block is published with its gates on: a frame that
+        // cannot composite the opaque fog does not fog its translucency either (one fog or none, never half).
+        // The scene depth at MSAA 1, SceneDepthResolved at MSAA > 1 (a sampler2D over a multisampled image is
+        // invalid). With a depth target it always exists: at MSAA > 1 the resolve is part of the renderer, and a
+        // resolve that failed to build said so at startup and is said again here.
         const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
         if ( !depth )
         {
             LOG_ERROR( "[Fog] the fog pass has no single-sample scene depth: SceneDepthResolve was not "
                        "built for the multisampled scene target (see the startup error)" );
-            return {};
+            publishParams();
+            return nodes;
         }
-        // The fog image lives this frame only (written here, sampled by HeightFogApply, the first translucency
-        // node): a transient of the graph at this frame's view size, published for the apply.
+
+        // The atmosphere is a coupling, not a dependency: without one the fog keeps its authored colour
+        // and drops the sun lobe and the sky ambient (PackFogParams says so per term). Fog on a
+        // sky-less scene is legitimate, so there is no bail-out here.
+        payload = PackFogParams( m_Data, atmosphere, m_FogHeightY );
+        // The volumetric fog runs only with the fog itself (VolumetricFogRenderer::IsActive), so a volume here is
+        // always one this fog block describes.
+        const bool volumetric = fogActive && volume.Integrated != nullptr;
+        if ( volumetric )
+        {
+            payload.Volumetric0 = glm::vec4( volume.GridPixels, static_cast<float>( volume.GridSize.x ),
+                                             static_cast<float>( volume.GridSize.y ), 1.0f );
+            payload.Volumetric1 = glm::vec4( volume.GridZParams.x, volume.GridZParams.y, volume.GridZParams.z,
+                                             static_cast<float>( volume.GridSize.z ) );
+        }
+        payload.View =
+             glm::vec4( static_cast<float>( fogWidth ), static_cast<float>( fogHeight ),
+                        atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale );
+        // z = the scale the scene colour is stored at this frame (ViewFrame::PreExposure): ViewFogEvaluate writes
+        // the inscattering multiplied by it, for the opaque composite and every translucent surface alike.
+        const ViewFrame* viewFrame  = m_SceneRenderer->GetViewFrame();
+        payload.Gates               = glm::vec4( apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f,
+                                                 viewFrame ? viewFrame->PreExposure : 1.0f, 0.0f );
+        payload.Forward             = glm::vec4( FogCameraForward( camera->GetViewMatrix() ), 0.0f );
+        payload.Camera              = glm::vec4( camera->GetPosition(), 0.0f );
+        const RDG::BufferRef params = publishParams();
+
+        FogPush push{};
+        push.InverseViewProjection = glm::inverse( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+
+        // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
+        // and writes the fog image the apply (HeightFogApply, the raster node right after it) samples.
+        // The fog image lives this frame only (written here, sampled by HeightFogApply): a transient of the graph
+        // at this frame's view size, published for the apply.
         const RDG::TextureDesc fogDesc{ .Size   = RDG::Extent3D{ .Width = fogWidth, .Height = fogHeight },
                                         .Format = ViewTargetFormats::kHeightFog };
         const RDG::TextureRef  fogImage = graph.CreateTexture( fogDesc, "HeightFog.Fog" );
         ComputeNodeDeclaration fog;
         fog.Name = "AtmosphericFog";
-        // SETUP: the parameter buffer is the renderer's own, set on the pipeline route here; every image is an
-        // entry of the node's one block (block 0), and each entry is the declaration of its read or write.
-        m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
+        // SETUP: the parameter block and every image are entries of the node's one block (block 0), and each entry
+        // is the declaration of its read or write.
 
         // The sky's two images, ALWAYS entries even when the shader will not read them: a declared sampler with
         // no image is an invalid descriptor set, not an unused one, and ComputePipeline refuses to dispatch when
         // a volume input has no view, so a fog-only scene would silently lose its fog. When the sky publishes
-        // null the engine fallback stands in; push.AerialPerspective.z (the volume) and the payload's Ambient.w
+        // null the engine fallback stands in; the payload's Gates.x (the volume) and the payload's Ambient.w
         // (the distant sky light, PackFogParams sets it from this same handle) say it is never sampled. Each is
         // read with the sampler it carried as its own image: VolumeSampler() for the 3D volume,
         // GlobalTextureFilterSampler() for the 2D images.
@@ -216,17 +248,28 @@ namespace Desert::Graphic::System
              atmosphere.DistantSkyLight
                   ? std::shared_ptr<Image>( atmosphere.DistantSkyLight )
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
+        // The integrated froxels, or the 3D fallback when the volumetric fog did not run (Volumetric0.w = 0 says
+        // it is never sampled). Named here, not as a conditional inside the by-value argument: MSVC 19.44 hangs on
+        // a const lvalue / prvalue conditional there.
+        std::shared_ptr<Image> volumetricImage =
+             volumetric ? volume.Integrated
+                        : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
         auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
-        block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
-             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
-                       "SceneDepth.Compute" )
-             .Sampled( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute, VolumeSampler(),
+        block.Storage( HeightFogFogShaderParameters::FogApplyTexture, fogImage, RDG::Access::StorageWrite )
+             .Storage( HeightFogFogShaderParameters::FogParamsBuffer, params, RDG::Access::StorageRead )
+             .Texture( HeightFogFogShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( HeightFogFogShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+             .Texture( HeightFogFogShaderParameters::AerialPerspectiveTexture, aerialPerspective, RDG::Access::SampledCompute,
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
-             .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
-                       GlobalTextureFilterSampler(),
-                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" );
+             .Sampler( HeightFogFogShaderParameters::LinearRepeatSampler, VolumeSampler() )
+             .Texture( HeightFogFogShaderParameters::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
+                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" )
+             .Texture( HeightFogFogShaderParameters::VolumetricFogTexture, std::move( volumetricImage ),
+                       RDG::Access::SampledCompute,
+                       volumetric ? "VolumetricFog.Integrated" : "HeightFog.VolumetricFogFallback" )
+             .Sampler( HeightFogFogShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -238,7 +281,7 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( fog ) );
 
-        transients.HeightFog = fogImage; // -> HeightFogApply (u_FogApply)
+        transients.HeightFog = fogImage; // -> HeightFogApply (FogApplyTexture)
         return nodes;
     }
 
@@ -274,8 +317,9 @@ namespace Desert::Graphic::System
                 return;
             }
             declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
-                 .Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 .Texture( HeightFogApplyShaderParameters::FogApplyTexture, refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( HeightFogApplyShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         };
 
         return config;

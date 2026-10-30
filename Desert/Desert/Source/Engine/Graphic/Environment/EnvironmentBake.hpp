@@ -3,15 +3,16 @@
 // THE .HDR ENVIRONMENT, BAKED — why an IBL chain is now a file and not a recipe.
 //
 // WHAT IT REPLACED, MEASURED ON THIS TREE. An `.hdr` skybox reached the screen through three compute
-// passes every time a scene naming it was opened: `PanoramaToCubemap` into a 1024 face, `DiffuseIrradiance`
-// into a 32 face and `PrefilterEnvMap` into a 256 face with a nine-level GGX chain. Nothing about that
-// depends on anything but the FILE, which is on disk — so the
-// work was the same work, repeated, at every load. What it cost is in `SkyRules.hpp` beside the sizes.
+// passes every time a scene naming it was opened: `PanoramaToCubemap` into a 1024 face, the irradiance
+// into a 32 face (today `SkyCaptureIrradiance`, summed over the radiance cube's 16-face mip) and `PrefilterEnvMap`
+// into a 256 face with a nine-level GGX chain. Nothing about that depends on anything but the FILE, which is on
+// disk — so the work was the same work, repeated, at every load. What it cost is in `SkyRules.hpp` beside the
+// sizes.
 //
 // ── THE BOUNDARY, AND IT IS THE WHOLE DESIGN ────────────────────────────────────────────────────────
 //
 // THE SKY HAS TWO PATHS AND ONLY ONE OF THEM MAY BE BAKED. `EnvironmentManager::Create` reads a FILE;
-// `EnvironmentManager::CreateProcedural` reads the atmosphere's parameters, which carry the sun's
+// the procedural sky capture (`SkyCapture`) reads the atmosphere's parameters, which carry the sun's
 // direction and therefore the time of day. Baking the second would freeze one instant of the day cycle
 // into a cache and hand it back for every other instant — a defect with no symptom at the moment it is
 // written and no way back once content depends on it. The formulation to keep: the path that gets baked

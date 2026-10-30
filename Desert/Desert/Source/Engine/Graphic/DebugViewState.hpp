@@ -21,13 +21,13 @@ namespace Desert::Graphic
     // screen with a raw G-buffer channel so the deferred passes can be inspected. Only used in the Deferred path.
     enum class DeferredDebugMode : int
     {
-        Off             = 0,
-        Albedo          = 1,
-        Normal          = 2,
-        Metallic        = 3,
-        Roughness       = 4,
-        AO              = 5,
-        GI              = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
+        Off       = 0,
+        Albedo    = 1,
+        Normal    = 2,
+        Metallic  = 3,
+        Roughness = 4,
+        AO        = 5,
+        GI        = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -42,13 +42,48 @@ namespace Desert::Graphic
         // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
         // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
         Velocity = 12,
+        // The WORLD light grid (Graphic/LightGrid.hpp, LightGridLayout::WorldClipmaps): per pixel, the number of
+        // point/spot lights the radiance-cache clipmap cell around its surface lists — what a GI ray hitting that
+        // surface is lit by — heat-mapped, cell edges drawn. Deferred only; drawn by "Debug: LightGridWorld" after
+        // the temporal resolve, and the only reason the frame builds the world grid until GI-RADIANCE-CACHE reads
+        // it.
+        LightGridWorld = 13,
         // The global distance field (Graphic/DistanceField/GlobalDistanceField): UE's "Global DistanceField"
         // visualization - every pixel sphere-traces the four clipmaps; the hit lit by the field's gradient, tinted
         // by the clipmap that answered, the march's step count heat-mapped. Deferred only; drawn by
         // "Debug: Global Distance Field" after the temporal resolve. Today the only reader of the field, so the
         // field is built only while this mode is on.
-        GlobalDistanceField = 13,
+        GlobalDistanceField = 14,
+        // The surface cache (Graphic/GlobalIllumination/SurfaceCacheRenderer): UE's r.Lumen.Visualize views. The
+        // atlas
+        // - its captured layers, a quadrant each (albedo, normal, depth, opacity) - and the Lumen Scene: the world
+        // drawn from the captured cards alone, each card's albedo placed back at its captured depth - and the
+        // Lit Lumen Scene: the same cards showing their FinalLighting (direct light of every source with its
+        // shadow + emissive), UE r.Lumen.Visualize "Lumen Scene" lit. Deferred only; drawn after the temporal
+        // resolve.
+        SurfaceCacheAtlas    = 15,
+        SurfaceCacheScene    = 16,
+        SurfaceCacheSceneLit = 17,
+        // The traced reflections alone (UE ShowFlag.Reflections / r.Lumen.Visualize reflections): what the traced
+        // path of the reflection trace wrote into the composite's reflection input (DeferredLighting.shader
+        // REFLECTION_INPUT_TRACED) - its hits' radiance by their coverage, over black: no environment for a miss,
+        // no rough specular of the GI, no direct or diffuse light. Proves the tracer: an object behind the camera
+        // shows in a mirror under SoftwareTraced / HardwareTraced. Deferred only; under any other reflection
+        // method the frame is black and the renderer refuses by name - never the screen trace in its place.
+        Reflections = 18,
+        // UE's Local Exposure visualisation (PostProcessVisualizeLocalExposure.cpp): the tonemap draws each pixel's
+        // local exposure (green = lifted, red = pulled down, grey = 1) over the scene's luminance. Post only.
+        LocalExposure = 19,
     };
+
+    // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel, and
+    // the sun-shadow receive bit) shows the stored surface value: no height fog or cloud layer is composited over it
+    // (GRASS-ASSET p5: the Albedo view read +0.08 fog blue on the far cover).
+    [[nodiscard]] constexpr bool IsGBufferView( const DeferredDebugMode mode )
+    {
+        return ( mode >= DeferredDebugMode::Albedo && mode <= DeferredDebugMode::AO ) ||
+               mode == DeferredDebugMode::ShadingModel || mode == DeferredDebugMode::SunShadowReceive;
+    }
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
     // property of the world.
@@ -84,6 +119,15 @@ namespace Desert::Graphic
     // viewport and dies with the toggle, while the stored flag belongs to the user and outlives the
     // session. К10 exists because the two were once the same field, which made every unrelated save of
     // the preference file able to write a transient mode into the user's permanent answer.
+    // The virtual-geometry views (UE r.Nanite.Visualize). Clusters: every level-0 cluster of each drawn
+    // virtual-geometry mesh in its own colour over the lit scene (VirtualGeometry/VirtualGeometryClusterView.hpp);
+    // every other mesh unchanged.
+    enum class VirtualGeometryView : int
+    {
+        Off      = 0,
+        Clusters = 1,
+    };
+
     struct DebugViewState
     {
         // The editor's infinite ground grid. Drawn by Editor::Render::EditorGridPass, which is compiled
@@ -106,6 +150,11 @@ namespace Desert::Graphic
         glm::vec3 BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
         float     BoundingBoxLineWidth = 1.5f;
 
+        // The surface-cache card placement (UE r.Lumen.Visualize.CardPlacement): every drawn static mesh's cards
+        // as wireframe boxes coloured by the direction they face - the check that cards cover the walls and the
+        // kerbs. Drawn by MeshRenderer's debug line pass, like the AABBs (MeshRenderer::SetCardPlacementView).
+        bool ShowCardPlacement = false;
+
         // View modes. These are alternatives to "Lit" rather than overlays, and the editor's View Mode
         // dropdown is what keeps them mutually exclusive; the renderer simply honours whatever it is given.
         //
@@ -123,6 +172,7 @@ namespace Desert::Graphic
 
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
+        VirtualGeometryView VirtualGeometry = VirtualGeometryView::Off;
 
         // The view modes are ONE choice: every channel off, so the one the caller sets next is the only one
         // on. Shared by the View Mode dropdown and the palette's "View mode: ..." entries, so the two cannot
@@ -135,6 +185,7 @@ namespace Desert::Graphic
             LightingDebug = false;
             DeferredDebug = DeferredDebugMode::Off;
             ShadowDebug   = ShadowDebugMode::Off;
+            VirtualGeometry = VirtualGeometryView::Off;
         }
 
         // Render-graph pass culling off (RDG::Builder::SetPassCulling, set on the view's graph every frame).
@@ -142,6 +193,28 @@ namespace Desert::Graphic
         // with this on names a pass whose effect the graph cannot see - it needs a declaration or NeverCull.
         // Costs GPU time only, never the picture of a correct graph.
         bool DisablePassCulling = false;
+
+        // GPU-DRIVEN CULL validation (GpuDriven::InstanceCullValidation): the frame also runs the GPU instance cull
+        // for the main view, the sun's cascades and the VSM levels, reads its per (view, instance) words back and
+        // logs, per view, how many disagree with the CPU rules (frustum, ISM distance, VSM page mask, LOD). Draws
+        // nothing and changes no picture; costs the cull passes and a readback. Set from a scenario through the
+        // viewport subject's 'Debug.ValidateGpuCulling'.
+        bool ValidateGpuCulling = false;
+
+        // VIRTUAL-GEOMETRY FALLBACK check (VIRT-GEOM step 26; UE: a primitive the cluster path cannot draw renders
+        // its fallback mesh): every cluster cut of the frame (main view, sun cascades, VSM levels) is refused
+        // AFTER InstanceCull took the VG instances out of the bins, so the CPU walk (MeshRenderer::CpuWalkHidden)
+        // must draw them - a picture equal to VG off. Logged once while on. Set from a scenario through the
+        // viewport subject's 'Debug.ForceVirtualGeometryCutRefusal'.
+        bool ForceVirtualGeometryCutRefusal = false;
+
+        // VIRTUAL-GEOMETRY POST CUT check (VIRT-GEOM step 29; UE Nanite two-pass: the main pass tests occlusion
+        // only when the post pass runs): the main view's post-occlusion cluster cut is refused for the frame, and
+        // that refusal is decided BEFORE the main cut (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb), so the
+        // main cut tests no HZB and holds nothing back - every visible cluster is drawn in phase 1, a picture
+        // equal to VG off within the cut's LOD. Logged once while on. Set from a scenario through the viewport
+        // subject's 'Debug.ForceVirtualGeometryPostCutRefusal'.
+        bool ForceVirtualGeometryPostCutRefusal = false;
 
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
         // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent

@@ -1,7 +1,8 @@
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <vk-bootstrap/VkBootstrap.h>
@@ -20,6 +21,7 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 
 #include <algorithm> // std::max — largest device-local heap
 #include <array>
@@ -61,6 +63,13 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.SupportsAnisotropy           = m_DeviceCaps.Has( Capability::SamplerAnisotropy );
         m_Capabilities.SupportsNonSolidFill         = m_DeviceCaps.Has( Capability::FillModeNonSolid );
         m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
+        m_Capabilities.SupportsMultiDrawIndirect    = m_DeviceCaps.Has( Capability::MultiDrawIndirect );
+        m_Capabilities.SupportsBufferDeviceAddress  = m_DeviceCaps.Has( Capability::BufferDeviceAddress );
+        m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
+        // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
+        m_Capabilities.Neural = m_DeviceCaps.Neural;
+        // machine.json HideRayTracing, applied at the probe (DeviceCaps::RayTracingHidden): the reason rt is off.
+        m_Capabilities.RayTracingHidden = m_DeviceCaps.RayTracingHidden;
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
@@ -102,8 +111,20 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
             m_Capabilities.MaxColorAttachments       = deviceProperties.limits.maxColorAttachments;
+            m_Capabilities.MaxComputeSharedMemorySize = deviceProperties.limits.maxComputeSharedMemorySize;
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
+
+            // The per-stage descriptor ceilings a shader's bindings are held against (MoltenVK reports
+            // Metal's, far below a desktop driver's): logged so a stage near the limit is seen at start-up.
+            LOG_INFO( "[Vulkan] per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage "
+                      "buffers {}, storage images {}, resources {}",
+                      deviceProperties.limits.maxPerStageDescriptorSamplers,
+                      deviceProperties.limits.maxPerStageDescriptorSampledImages,
+                      deviceProperties.limits.maxPerStageDescriptorUniformBuffers,
+                      deviceProperties.limits.maxPerStageDescriptorStorageBuffers,
+                      deviceProperties.limits.maxPerStageDescriptorStorageImages,
+                      deviceProperties.limits.maxPerStageResources );
 
             // Float render targets: RGBA32F must be usable as a colour attachment AND blendable, which is
             // what every accumulating screen-space pass (SSR trace/resolve, GI resolve, bloom) relies on.
@@ -131,6 +152,19 @@ namespace Desert::Graphic::API::Vulkan
                                                                                            : "other";
             LOG_INFO( "[Vulkan] GPU: {} ({}, {}, {} MB VRAM)", m_Capabilities.Name, m_Capabilities.VendorName,
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
+            // WHICH driver answered (core 1.2): on macOS the ICD is the pinned MoltenVK built by
+            // scripts/MacOS/BuildMoltenVK.sh, and this line is how a run proves it was not Homebrew's.
+            // The device's cross-API identity (core 1.1) rides the same query: DeviceCapabilities::DeviceUuid.
+            VkPhysicalDeviceIDProperties     ids{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
+            VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES, &ids };
+            VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
+            vkGetPhysicalDeviceProperties2( m_PhysicalDevice, &props2 );
+            std::copy_n( ids.deviceUUID, VK_UUID_SIZE, m_Capabilities.DeviceUuid.begin() );
+            std::copy_n( ids.deviceLUID, VK_LUID_SIZE, m_Capabilities.DeviceLuid.begin() );
+            m_Capabilities.DeviceLuidValid = ids.deviceLUIDValid == VK_TRUE;
+            LOG_INFO( "[Vulkan] Driver: {} ({}), conformance {}.{}.{}.{}", driver.driverName, driver.driverInfo,
+                      driver.conformanceVersion.major, driver.conformanceVersion.minor,
+                      driver.conformanceVersion.subminor, driver.conformanceVersion.patch );
             LOG_INFO( "[Vulkan] Caps: maxTex2D {}, colorAttachments {}, float RTs {}, "
                       "timestamps {} (period {} ns/tick)",
                       m_Capabilities.MaxTexture2DSize, m_Capabilities.MaxColorAttachments,
@@ -144,12 +178,53 @@ namespace Desert::Graphic::API::Vulkan
 
             // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
+            m_RuntimeOffers = AskRuntimeOffers();
             m_Capabilities.Catalog =
                  BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
             LOG_INFO( "[Vulkan] {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
 
             m_QueueFamilyProperties = m_Bootstrap->get_queue_families();
             m_DepthFormat           = FindDepthFormat();
+    }
+
+    void VulkanPhysicalDevice::ProbeSurface( VkSurfaceKHR surface )
+    {
+        if ( m_SurfaceProbed || surface == VK_NULL_HANDLE )
+            return;
+        m_SurfaceProbed        = true;
+        m_ProbedSurface        = surface;
+        m_RuntimeOffers        = AskRuntimeOffers();
+        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
+        LOG_INFO( "[Vulkan] with the surface: {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
+    }
+
+    VulkanPhysicalDevice::RuntimeOffers VulkanPhysicalDevice::AskRuntimeOffers()
+    {
+        CatalogProbe runtimes;
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( runtimes );
+        return { .Dlss                         = runtimes.DlssAvailable,
+                 .DlssRayReconstruction        = runtimes.DlssRayReconstructionAvailable,
+                 .DlssRefused                  = runtimes.DlssRefused,
+                 .DlssRayReconstructionRefused = runtimes.DlssRayReconstructionRefused,
+                 .Xess                         = runtimes.XessAvailable,
+                 .MetalFx                      = runtimes.MetalFxAvailable };
+    }
+
+    void VulkanPhysicalDevice::RefreshRuntimeOffers()
+    {
+        // The driver's half of the probe cannot change while the device lives; the runtimes' half can.
+        const RuntimeOffers now = AskRuntimeOffers();
+        if ( now == m_RuntimeOffers )
+            return;
+        // Rebuilt whole from the probe, as at the surface, so the one builder's rules (DLSS NVIDIA-only, RR
+        // beside DLSS) hold; the surface is the one the catalog was completed with (none on a windowless host).
+        m_RuntimeOffers        = now;
+        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, m_ProbedSurface, m_DeviceCaps ) );
+        LOG_WARN( "[Vulkan] a vendor runtime changed what it offers: {}",
+                  Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::Create( ProbedDevice probed )
@@ -182,6 +257,9 @@ namespace Desert::Graphic::API::Vulkan
         device->m_ResolvedQueueFamilies.Graphics = *families.GraphicsFamily;
         device->m_ResolvedQueueFamilies.Compute  = *families.ComputeFamily;
         device->m_ResolvedQueueFamilies.Transfer = *families.TransferFamily;
+        device->m_ResourceSharing = VulkanResourceSharing::FromFamilies(
+             device->m_ResolvedQueueFamilies.Graphics, device->m_ResolvedQueueFamilies.Compute,
+             device->m_ResolvedQueueFamilies.Transfer );
         device->m_QueueFamiliesResolved          = true;
 
         return Common::MakeSuccess( std::move( device ) );
@@ -189,12 +267,28 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> VulkanLogicalDevice::Create()
     {
-        auto probed = SelectDevice( VulkanContext::GetBootstrapInstance() );
+        // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,
+        // before the probe, so the device is created as the restricted card would create it.
+        const DeviceRestrictions restrictions{ .HideRayTracing =
+                                                    Common::Settings::MachineSettings::Get().HideRayTracing };
+        auto                     probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
         if ( !probed )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
+        if ( restrictions.HideRayTracing )
+            LOG_WARN( "[Vulkan] ray tracing hidden by {} (HideRayTracing): acceleration_structure, ray_query and "
+                      "ray_tracing_pipeline are not enabled; the renderer runs the non-RT methods",
+                      Common::Settings::MachineSettings::File().string() );
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
+        LOG_INFO( "[Vulkan] {}", FormatDescriptorLimits( probed.GetValue().Caps ) );
+        // The NN layer's line (NeuralComputeCaps.hpp): the kernel path chosen and every field it was chosen from.
+        LOG_INFO( "[Vulkan] {}", Engine::FormatNeuralComputeCaps( probed.GetValue().Caps.Neural ) );
+
+        // A platform runtime enables what it needs on the chosen device before the catalog is probed from it and
+        // before vkCreateDevice (VulkanDeviceExtensions.hpp).
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->OnPhysicalDeviceSelected( VulkanContext::GetVulkanInstance(), *probed.GetValue().Physical );
 
         auto physical = VulkanPhysicalDevice::Create( probed.ExtractValue() );
         if ( !physical )
@@ -242,7 +336,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         const std::scoped_lock queues( m_QueueMutex );
-        const VkResult         idle = vkDeviceWaitIdle( m_LogicalDevice );
+        const VkResult         idle = m_Presentation.vkDeviceWaitIdle( m_LogicalDevice );
         if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkDeviceWaitIdle", __FILE__, __LINE__ ) )
             LOG_ERROR( "[Device] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
     }
@@ -293,37 +387,6 @@ namespace Desert::Graphic::API::Vulkan
         return m_DeviceName;
     }
 
-    bool VulkanLogicalDevice::IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
-                                                 Engine::FormatUsage                  usage ) const
-    {
-        const VkFormat vkFormat = GetImageVulkanFormat( format );
-        if ( vkFormat == VK_FORMAT_UNDEFINED )
-            return false;
-
-        VkFormatProperties props{};
-        vkGetPhysicalDeviceFormatProperties( m_PhysicalDevice->GetVulkanPhysicalDevice(), vkFormat, &props );
-
-        // Optimal tiling only: every image the engine creates is VK_IMAGE_TILING_OPTIMAL. Asking about
-        // linear tiling would answer a question nothing here can act on.
-        const VkFormatFeatureFlags features = props.optimalTilingFeatures;
-
-        VkFormatFeatureFlags required = 0;
-        if ( usage & Engine::FormatUsage_Sampled )
-            required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-        if ( usage & Engine::FormatUsage_ColorAttachment )
-            required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
-        if ( usage & Engine::FormatUsage_DepthAttachment )
-            required |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        if ( usage & Engine::FormatUsage_Blendable )
-            required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
-        if ( usage & Engine::FormatUsage_Storage )
-            required |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
-        if ( usage & Engine::FormatUsage_LinearFilter )
-            required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-
-        return ( features & required ) == required;
-    }
-
     VkResult VulkanLogicalDevice::SubmitToQueue( VkQueue queue, uint32_t submitCount, const VkSubmitInfo* submits,
                                                  VkFence fence ) const
     {
@@ -334,7 +397,7 @@ namespace Desert::Graphic::API::Vulkan
     VkResult VulkanLogicalDevice::PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const
     {
         const std::scoped_lock queues( m_QueueMutex );
-        return vkQueuePresentKHR( queue, &present );
+        return m_Presentation.vkQueuePresentKHR( queue, &present );
     }
 
     std::unique_lock<std::mutex> VulkanLogicalDevice::LockQueues() const
@@ -351,7 +414,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( Graphic::DeviceLost::AllowWork() )
             {
                 const std::scoped_lock queues( m_QueueMutex );
-                vkDeviceWaitIdle( m_LogicalDevice );
+                m_Presentation.vkDeviceWaitIdle( m_LogicalDevice );
             }
 
             // THE LAST MOMENT AT WHICH THIS DEVICE IS STILL ALIVE, and therefore the only place from which
@@ -366,12 +429,23 @@ namespace Desert::Graphic::API::Vulkan
             // window -> device -> context: by the time the context is destroyed this device is already
             // gone, so a release there would free device children through a destroyed device. Every owner
             // that queues work — the swapchain included — has already run by the time we get here.
+            // The table's own missing texture goes while the context can still retire its image.
+            if ( m_Bindless )
+                m_Bindless->ReleaseMissingTexture();
             if ( const auto context = EngineContext::GetInstance().GetRendererContext() )
                 context->Shutdown();
 
             // Every texture, slot and graph pass that held a sampler is gone with the content released above;
-            // the samplers themselves are the device's, so they go here, last before the device.
+            // the table's sets name those samplers, so it goes first; the samplers last before the device.
+            m_Bindless.reset();
             m_Samplers.reset();
+
+            // The GPU is idle (above): a platform runtime releases what it made on this device while it exists.
+            // Its presentation proxies go first: the runtime unloads them in OnDeviceDestroying (slShutdown, then
+            // the interposer's FreeLibrary), and nothing presents past this point.
+            m_Presentation = {};
+            for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+                extension->OnDeviceDestroying();
 
             if ( m_PipelineCache != VK_NULL_HANDLE )
             {
@@ -425,9 +499,39 @@ namespace Desert::Graphic::API::Vulkan
                  built.error().message(), static_cast<int>( built.vk_result() ) );
         m_LogicalDevice = built.value().device;
 
+        // Acceleration-structure entry points exist only through the device and only where the probe enabled
+        // the extension (DeviceCaps). An enabled extension whose functions do not resolve is a broken driver,
+        // not a device without ray tracing: refuse it rather than run with half a table.
+        const VkDevice device = m_LogicalDevice;
+        m_RayTracingFunctions =
+             LoadRayTracingDeviceFunctions( m_PhysicalDevice->GetDeviceCaps(), [device]( const char* name )
+                                            { return vkGetDeviceProcAddr( device, name ); } );
+        SetRdgRayTracingShaderStages( m_PhysicalDevice->GetDeviceCaps().Has( Capability::RayTracingPipeline ) );
+        if ( m_PhysicalDevice->GetDeviceCaps().Has( Capability::AccelerationStructure ) &&
+             !m_RayTracingFunctions.Complete() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' enabled VK_KHR_acceleration_structure but vkGetDeviceProcAddr did not resolve all of its "
+                 "entry points",
+                 m_DeviceName );
+
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetGraphicsFamily(), 0, &m_GraphicsQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetComputeFamily(), 0, &m_ComputeQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetTransferFamily(), 0, &m_TransferQueue );
+
+        VulkanDeviceHandles handles;
+        handles.Instance              = VulkanContext::GetVulkanInstance();
+        handles.PhysicalDevice        = m_PhysicalDevice->GetBootstrapDevice().physical_device;
+        handles.Device                = m_LogicalDevice;
+        handles.GraphicsFamily        = graphics;
+        handles.ComputeFamily         = compute;
+        handles.GraphicsQueuesCreated = 1;
+        handles.ComputeQueuesCreated  = 1;
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->OnDeviceCreated( handles );
+        // Before any swapchain exists (a swapchain is made on this device): the swapchain is created, acquired,
+        // presented and destroyed through the same entry points for its whole life.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendPresentationDispatch( m_Presentation );
 
         CreatePipelineCache();
         m_Samplers = std::make_unique<VulkanSamplerCache>( m_LogicalDevice );
@@ -440,6 +544,23 @@ namespace Desert::Graphic::API::Vulkan
         DESERT_VERIFY( m_Samplers != nullptr,
                        "GetSamplerCache: the device was not created or is already destroyed" );
         return *m_Samplers;
+    }
+
+    VulkanBindlessTextureTable& VulkanLogicalDevice::GetBindlessTextureTable()
+    {
+        if ( m_Bindless )
+            return *m_Bindless;
+        DESERT_VERIFY( m_LogicalDevice != VK_NULL_HANDLE,
+                       "GetBindlessTextureTable: the device was not created or is already destroyed" );
+        const DescriptorIndexingLimits& limits = m_PhysicalDevice->GetDeviceCaps().DescriptorIndexing;
+        const uint32_t                  ceiling =
+             BindlessCapacityCeiling( kBindlessInitialTextureCapacity, limits.SampledImageCeiling() );
+        // Published before Initialize: the missing texture registers itself through this getter.
+        m_Bindless = std::make_unique<VulkanBindlessTextureTable>( m_LogicalDevice, ceiling, &AcquireSlotSampler );
+        const auto initialized = m_Bindless->Initialize();
+        DESERT_VERIFY( initialized.IsSuccess(), "{}",
+                       initialized.IsSuccess() ? std::string{} : initialized.GetError() );
+        return *m_Bindless;
     }
 
     VulkanSamplerCache& EngineSamplerCache()
@@ -660,4 +781,37 @@ namespace Desert::Graphic::API::Vulkan
         return VK_FORMAT_UNDEFINED;
     }
 
+    namespace
+    {
+        VulkanLogicalDevice* EngineVulkanDevice()
+        {
+            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() ).get();
+        }
+    } // namespace
+
+    VulkanBindlessTextureTable* BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts )
+    {
+        const VulkanLogicalDevice*  device = EngineVulkanDevice();
+        VulkanBindlessTextureTable* table  = device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
+        if ( table == nullptr || layouts.size() <= kBindlessSetIndex ||
+             layouts[kBindlessSetIndex] != table->GetLayout() )
+            return nullptr;
+        return table;
+    }
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic
+{
+    BindlessTextureTable& GetBindlessTextureTable()
+    {
+        API::Vulkan::VulkanLogicalDevice* device = API::Vulkan::EngineVulkanDevice();
+        DESERT_VERIFY( device != nullptr, "GetBindlessTextureTable: no engine device" );
+        return device->GetBindlessTextureTable();
+    }
+
+    BindlessTextureTable* TryGetBindlessTextureTable()
+    {
+        API::Vulkan::VulkanLogicalDevice* device = API::Vulkan::EngineVulkanDevice();
+        return device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
+    }
+} // namespace Desert::Graphic

@@ -1,0 +1,109 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "95cdc28154e34f40b1ff8399d707b5b8",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["9d6d6db70d7f0b397eac782bfb709efd", "27b8f83777d6944d37e9eb7144613193", "3c399950503552aea9de995d6eb42ee5", "2a7a6e8f860d050ebec8e10b29c7b89f", "0afdff21dd650e8e6ea63bb25b7feeea", "c730e67be3da4598b852ba1021a94692"]
+    },
+    "Shader": {
+        "Guid": "9d6d6db70d7f0b397eac782bfb709efd",
+        "Path": "engine:Shaders/Programs/Terrain/Terrain.shader"
+    },
+    "Params": [
+        {
+            "Name": "FarTilingDistance",
+            "Value": [2500.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "FarTilingScale",
+            "Value": [4.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroVariationSize",
+            "Value": [5000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroVariationStrength",
+            "Value": [0.15, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailNormalScale",
+            "Value": [8.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailNormalStrength",
+            "Value": [0.8, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueSize",
+            "Value": [3000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueStrength",
+            "Value": [0.2, 0, 0, 0]
+        },
+        {
+            "Name": "DisplacementMagnitude",
+            "Value": [20.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DisplacementCenter",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DisplacementFadeStart",
+            "Value": [800.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DisplacementFadeEnd",
+            "Value": [1500.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer0Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer0TileSize",
+            "Value": [400.0, 0, 0, 0]
+        },
+        {
+            "Name": "Layer0Tint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "Layer0NormalStrength",
+            "Value": [1.0, 0, 0, 0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "Layer0AlbedoTexture",
+            "Guid": "27b8f83777d6944d37e9eb7144613193",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_diff_2k.detex"
+        },
+        {
+            "Name": "Layer0NormalTexture",
+            "Guid": "3c399950503552aea9de995d6eb42ee5",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer0ArmTexture",
+            "Guid": "2a7a6e8f860d050ebec8e10b29c7b89f",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_arm_2k.detex"
+        },
+        {
+            "Name": "Layer0HeightTexture",
+            "Guid": "0afdff21dd650e8e6ea63bb25b7feeea",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_disp_2k.detex"
+        }
+    ],
+    "CloudAssets": [
+        {
+            "Name": "Layer0Layer",
+            "Guid": "c730e67be3da4598b852ba1021a94692",
+            "Path": "assets:Landscape/Layers/Shore/ShoreSand.delayerinfo"
+        }
+    ]
+}

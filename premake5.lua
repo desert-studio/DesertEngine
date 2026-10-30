@@ -15,6 +15,8 @@ include "BuildScripts/PlatformMacOS.lua"
 include "BuildScripts/UnityBuild.lua"
 -- The engine's module table and the one way to link the engine (one library per module): before any project.
 include "BuildScripts/DesertModuleLibs.lua"
+-- The editor's five layered libraries and the one way to link them: before the tests and tools that link them.
+include "BuildScripts/EditorLibs.lua"
 
 group "ThirdParty"
 include "ThirdParty/"
@@ -27,7 +29,6 @@ include "Tools/DShaderTool/"
 include "Tools/PakTool/"
 include "Tools/SceneMigrator/"
 include "Tools/WorldGen/"
-include "Tools/WorldCook/"
 include "Tools/ImageStat/"
 include "Tools/LineJump/"
 include "Tools/ImageDiff/"
@@ -37,6 +38,9 @@ include "Tools/DomeSheet/"
 -- must not link the engine at all (Tools/CrashReporter/premake5.lua says why). It needs only GLFW,
 -- which is a ThirdParty project already included above.
 include "Tools/CrashReporter/"
+-- Same reasoning: a dev-only UI sketchpad that compiles the editor's theme and Dear ImGui straight in and
+-- links nothing of the engine (Tools/UIMockup/premake5.lua).
+include "Tools/UIMockup/"
 group ""
 
 include "Desert/"
@@ -55,11 +59,13 @@ include "Tools/LatticePeak/"
 include "Tools/AssetClosure/"
 -- AssetRegistryTool writes the file both hosts now boot from, and checks it in CI (T2.4/T2.7).
 include "Tools/AssetRegistryTool/"
--- GamePackager is the PLAYER's artifact with no editor in the loop. Here for the same reason
--- AssetClosure is here and not under Editor/: it compiles two Editor translation units into itself
--- rather than linking the Editor project, which is what keeps it buildable on a machine that has no
--- display and no Vulkan driver (see Tools/GamePackager/premake5.lua).
+-- GamePackager is the PLAYER's artifact with no editor UI in the loop: it links the editor's library
+-- (BuildScripts/EditorLibs.lua, as ordinary archives: the cook and the importers it reaches) and the engine libraries,
+-- never the Editor executable (see Tools/GamePackager/premake5.lua).
 include "Tools/GamePackager/"
+-- WorldCook links the engine libraries the same way, for the HLOD builders its cook shares with Play and the
+-- packager (see Tools/WorldCook/premake5.lua).
+include "Tools/WorldCook/"
 -- TextureCook compiles the editor's TextureImporter into itself for the same reason, and cooks the one
 -- texture a script has to: the editor splash that scripts/MacOS/Package.sh puts in the engine drop.
 include "Tools/TextureCook/"

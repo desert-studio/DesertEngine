@@ -38,6 +38,8 @@ namespace Desert::Graphic::System
         m_Pipeline = pipeline.GetValue();
 
         m_MaterialFXAA = std::make_unique<MaterialFXAA>();
+        if ( const auto valid = m_BindingLayout.Validate( shader, FXAAShaderParameters::kAll ); !valid )
+            return valid;
 
         return BOOLSUCCESS;
     }
@@ -54,8 +56,8 @@ namespace Desert::Graphic::System
             return;
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
-             .Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearRepeat() );
+             .Texture( FXAAShaderParameters::LdrSceneColorTexture, input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( FXAAShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
     }
 
     Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context )

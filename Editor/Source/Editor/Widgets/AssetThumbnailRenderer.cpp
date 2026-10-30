@@ -9,6 +9,7 @@
 
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
@@ -108,7 +109,7 @@ namespace Desert::Editor
             return;
 
         m_Scene           = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get() );
-        const auto inited = m_Scene->Init();
+        const auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen );
         if ( !inited.IsSuccess() )
         {
             // `m_Inited` stays false so the next call retries, which is the whole reason this is not a
@@ -173,13 +174,15 @@ namespace Desert::Editor
         // So FitTarget reads the pose from the camera's OWN matrices (ThumbnailFraming::PlaceInView) and no
         // camera constant is written down anywhere in this file. A pose that is measured cannot go stale.
 
-        // Key light pointing toward the camera-facing hemisphere (DirectionLight stores the *travel*
-        // direction in Translation; the shader lights along -Direction). From above + the camera's side.
-        auto  light           = m_Scene->CreateNewEntity( "ThumbLight" );
+        // Key light pointing toward the camera-facing hemisphere, aimed by its Rotation along the direction
+        // the light TRAVELS; the shader lights along -Direction. From above + the camera's side. The sky
+        // below takes the same vector, so the one constant is named once.
+        const glm::vec3 keyTravel( 2.0f, -6.0f, 5.0f );
+        auto            light = m_Scene->CreateNewEntity( "ThumbLight" );
         auto& lightC          = light.AddComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = 3.5f;
         lightC.Data.Color     = { 1.0f, 0.97f, 0.92f }; // warm key
-        light.GetComponent<ECS::TransformComponent>().Translation = { 2.0f, -6.0f, 5.0f };
+        ECS::AimDirectionalLight( *light.GetRegistry(), light.GetHandle(), keyTravel );
 
         m_Target = m_Scene->CreateNewEntity( "ThumbTarget" );
         m_Target.AddComponent<ECS::StaticMeshComponent>();
@@ -199,8 +202,8 @@ namespace Desert::Editor
         // direct SceneRenderer::SetProceduralSky below so the sky is enabled from frame 0 (the ECS command
         // path alone proved insufficient in this minimal scene). Sun dir = the ThumbLight.
         // Through the engine's ONE negation, not a second hand-written one (ECS::Rules::AtmosphereSunDirection):
-        // the light's Translation is the direction it TRAVELS, the sky wants the direction toward the sun.
-        const glm::vec3 sunDir = ECS::Rules::AtmosphereSunDirection( glm::vec3( 2.0f, -6.0f, 5.0f ) );
+        // the light TRAVELS along keyTravel, the sky wants the direction toward the sun.
+        const glm::vec3 sunDir = ECS::Rules::AtmosphereSunDirection( keyTravel );
 
         // IMPORTANT: which part of the dome ends up behind the subject is NOT knowable here. The subject is
         // placed on whatever view axis the engine's default camera currently has (see FitTarget), so the
@@ -249,7 +252,7 @@ namespace Desert::Editor
         // Default SunLightFx: a thumbnail has no sun light entity to read shafts from, and streaks in a
         // 128px preview would be noise anyway.
         m_Renderer->SetProceduralSky( true, sunDir, /*bakeNow=*/true, Graphic::MakeSkySettings( skyC.Data ),
-                                      Graphic::SunLightFx{} );
+                                      Graphic::SunLightFx{}, Graphic::AtmosphereLight1{} );
 
         // Resize ONCE here (after the camera exists) so the camera projection becomes square. We render at
         // kRenderSize (2x the output) and downscale on write = supersampled anti-aliasing. The renderer was
@@ -281,9 +284,6 @@ namespace Desert::Editor
 
     void AssetThumbnailRenderer::FitTarget( const glm::vec3& center, float worldSize )
     {
-        auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
-        tc.Rotation = glm::vec3( 0.0f );
-
         // Frame from the camera's OWN view/projection rather than an assumed pose (see ThumbnailFraming
         // for why: the preview camera's position and look-at both moved in the centimetre migration, which
         // is what made re-captured material thumbnails come out as a wall of colour or an empty sky — Д30).
@@ -292,16 +292,14 @@ namespace Desert::Editor
         {
             // No camera yet (should not happen after EnsureInit): keep the subject visible at unit scale
             // rather than divide framing math by a matrix that is not there.
-            tc.Scale       = glm::vec3( 1.0f );
-            tc.Translation = -center;
+            m_Target.SetLocalTransform( ECS::LocalTransform{ -center, glm::vec3( 0.0f ), glm::vec3( 1.0f ) } );
             return;
         }
 
         const auto placement = ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(),
                                                               worldSize, center, m_PendingThumbnail.Orbit );
-        tc.Scale       = glm::vec3( placement.Scale );
-        tc.Translation = placement.Translation;
-        tc.Rotation          = glm::eulerAngles( placement.Rotation );
+        m_Target.SetLocalTransform( ECS::LocalTransform{
+             placement.Translation, glm::eulerAngles( placement.Rotation ), glm::vec3( placement.Scale ) } );
     }
 
     void AssetThumbnailRenderer::RecordRender()
@@ -605,18 +603,21 @@ namespace Desert::Editor
 
     void AssetThumbnailRenderer::StagePose()
     {
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
 
         // As PreviewViewport::SetSkinnedMesh + ApplyAnimationTime stage it: this scene runs no
         // AnimationECSSystem either, so the animator is built here and evaluated once.
-        auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
+        ECS::SkinnedMeshDesc skinned;
         skinned.MeshHandle    = m_PendingHandle;
         skinned.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
+        ECS::SetSkinnedMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), skinned );
         auto& anim            = m_Target.AddComponent<ECS::AnimationComponent>();
         anim.CurrentClip      = m_PendingClip ? m_PendingClip->GetClip().AnimationName : std::string();
         anim.Playing          = false;
@@ -659,12 +660,14 @@ namespace Desert::Editor
             m_Target.RemoveComponent<ECS::AnimationComponent>();
         if ( m_Target.HasComponent<ECS::SkinnedMeshComponent>() )
             m_Target.RemoveComponent<ECS::SkinnedMeshComponent>();
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
 
         // The layers: switched OFF rather than destroyed — destroying the deck would give back its 10 MiB
         // and pay for it again on the next cloud material, of which this project has 52.
@@ -695,11 +698,13 @@ namespace Desert::Editor
         // is the SKY it authors, from a camera standing on a rise and looking up.
         if ( IsDomeCapture() )
         {
-            smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            smc.Primitive.reset();
-            smc.MaterialSlots.clear();
-            smc.RuntimeMaterialInstances.clear();
-            ECS::ClearEditableMesh( smc );
+            ECS::StaticMeshDesc desc = smc.GetDesc();
+            desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            desc.Primitive.reset();
+            desc.MaterialSlots.clear();
+            ECS::ClearEditableMesh( desc );
+            ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+            smc.RuntimeMaterialInstances().clear();
 
             if ( m_PendingSky )
             {
@@ -745,10 +750,10 @@ namespace Desert::Editor
         {
             // Asset mesh, auto-framed by its bounds. Apply the mesh's linked (sidecar) material to every slot
             // if one was provided, so the preview shows the real look instead of a flat default gray.
-            ECS::ClearEditableMesh( smc );
-            smc.Primitive.reset();
-            smc.RuntimeMaterialInstances.clear();
-            smc.MeshHandle = m_PendingHandle;
+            ECS::StaticMeshDesc desc = smc.GetDesc();
+            ECS::ClearEditableMesh( desc );
+            desc.Primitive.reset();
+            desc.MeshHandle = m_PendingHandle;
 
             // Framed by the asset's bounds measured at the request (RequestMesh refused a mesh without them).
             if ( auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle ) )
@@ -758,15 +763,18 @@ namespace Desert::Editor
                 // scene draws them (MeshECSSystem). Clearing them here photographed every import in the
                 // fallback grey. Resolved once at the request, which refuses an unresolved slot by index.
                 if ( static_cast<uint64_t>( m_PendingMaterial ) != 0 )
-                    smc.MaterialSlots.assign( std::max<size_t>( 1, mesh->GetSubmeshes().size() ),
-                                              m_PendingMaterial );
+                    desc.MaterialSlots.assign( std::max<size_t>( 1, mesh->GetSubmeshes().size() ),
+                                               m_PendingMaterial );
                 else
-                    smc.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
+                    desc.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
             }
             else
             {
-                smc.MaterialSlots.clear();
+                desc.MaterialSlots.clear();
             }
+            ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+            // A new handle with the same slots keeps the instances built for the old mesh; dropped here.
+            smc.RuntimeMaterialInstances().clear();
             m_FitFrame = m_PendingFrame;
             FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
         }
@@ -775,11 +783,13 @@ namespace Desert::Editor
             // Material preview. Geometry is built once and reused; clearing the runtime instances forces a
             // rebuild against the current material handle. Always the sphere: a masked material is cut by
             // the mesh path's alpha discard, so its blades show against the backdrop.
-            smc.MeshHandle    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            smc.Primitive     = PrimitiveFor( m_PendingThumbnail.Primitive );
-            smc.MaterialSlots = { m_PendingHandle };
-            smc.RuntimeMaterialInstances.clear();
-            ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds
+            ECS::StaticMeshDesc desc = smc.GetDesc();
+            desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            desc.Primitive           = PrimitiveFor( m_PendingThumbnail.Primitive );
+            desc.MaterialSlots       = { m_PendingHandle };
+            ECS::ClearEditableMesh( desc ); // drop any previously-built primitive so the type change rebuilds
+            ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+            smc.RuntimeMaterialInstances().clear();
 
             // MEASURED from the very mesh MeshECSSystem will draw for this component (the process-wide
             // shared primitive), never assumed. The assumption this replaces — the literal `worldSize = 1.0`
@@ -791,7 +801,7 @@ namespace Desert::Editor
             // sphere the camera was practically resting on: a wall of albedo under sky, with no sphere in
             // it. See ThumbnailFraming for the framing rule and the measured geometry.
             // No stand-in: a sphere that cannot be measured is not photographed (TickCapture abandons it).
-            const auto* prim  = Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive );
+            const auto* prim  = Geometry::PrimitiveMeshFactory::GetShared( *smc.GetPrimitive() );
             const auto  frame = prim != nullptr ? ThumbnailFraming::MeasureSubmeshes( prim->GetSubmeshes() )
                                                 : ThumbnailFraming::Frame{};
             if ( !frame.Valid )
@@ -804,26 +814,6 @@ namespace Desert::Editor
             m_FitFrame = frame;
             FitTarget( frame.Center, frame.Extent );
         }
-        return true;
-    }
-
-    bool AssetThumbnailRenderer::EnvironmentIsStillSettling()
-    {
-        if ( !m_Renderer->IsEnvironmentSettling() )
-        {
-            m_EnvironmentFrames = 0;
-            return false;
-        }
-        if ( m_EnvironmentFrames >= kDomeMaxSettleFrames )
-        {
-            if ( m_EnvironmentFrames == kDomeMaxSettleFrames )
-                LOG_WARN( "[AssetThumbnailRenderer] the sky environment for '{}' had not landed after {} "
-                          "frames — capturing anyway, so the tile may be lit without its sky.",
-                          m_PendingPng, kDomeMaxSettleFrames );
-            ++m_EnvironmentFrames;
-            return false;
-        }
-        ++m_EnvironmentFrames;
         return true;
     }
 
@@ -938,12 +928,6 @@ namespace Desert::Editor
 
         // The dome's frames do not count as warm-up until the volume is there and the march has settled.
         if ( DomeIsStillSettling() )
-            return;
-
-        // NOR DOES ANY CAPTURE'S, until the sky that lights it has landed: the renderer's environment bake is
-        // submitted, not waited for, so the first frames of a new renderer have no ambient or reflections at
-        // all. Bounded by the dome's window, for the dome's reason — a late picture beats no pictures.
-        if ( EnvironmentIsStillSettling() )
             return;
 
         if ( m_Phase > 1 )

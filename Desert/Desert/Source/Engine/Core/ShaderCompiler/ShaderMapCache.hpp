@@ -44,14 +44,19 @@ namespace Desert::Core
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
     // 5: RDG-DEV1 merge — the int/rdg line's ShaderParam::EngineSet (v2) and dev's ShaderParam::Sampler (v4) in
     // one layout. 6: ShaderProgramMeta::ParticleSource (VFX-06) on top of 5.
-    inline constexpr uint32_t kShaderMapFormatVersion = 7; // 7: ShaderParam::SlotIntent (IMP-DDS-BLOCKS)
+    // 7: ShaderParam::SlotIntent (IMP-DDS-BLOCKS). 8: ShaderProgramMeta::OpacityMask (MAT-MASKED).
+    // 9: shared samplers numbered (MAT-BINDLESS-5) on top of 8. 12: ShaderParam::IsArrayTexture / ElementOf /
+    // ElementIndex (LANDSCAPE-MAT-2) on top of 11; ShaderProgramMeta::Height (POM, SurfaceHeight) on top of 11.
+    // 13: both 12s together. 14: SurfaceOpacityMask::DitherParam (FOLIAGE-ALPHA-MIPS).
+    // 15: ShaderProgramMeta::ShadingModel (GDT-2: the renderer names a section's shading model).
+    inline constexpr uint32_t kShaderMapFormatVersion = 15;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xffde3b0e41474931ULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x97ee79c5496d0139ULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself. The shading-model
     // registry and manifest reader are listed because the parser calls them while producing a surface map (the

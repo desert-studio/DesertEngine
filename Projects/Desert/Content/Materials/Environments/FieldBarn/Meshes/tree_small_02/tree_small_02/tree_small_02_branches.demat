@@ -1,0 +1,67 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "a01d5f6910eb84d6f3d9acff10de4d49",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "5150aa2c289dadf89464503255821b23", "d21112eaf71fa9583caeb82302886d94", "8767bccd4453ccb380251a9c23178cc4"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "UVOffset",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [3.0, 0.5999999046325684, 0.0, 0.0]
+        },
+        {
+            "Name": "UVRotation",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "5150aa2c289dadf89464503255821b23",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_branch_diff_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "d21112eaf71fa9583caeb82302886d94",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_branch_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "8767bccd4453ccb380251a9c23178cc4",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_branch_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

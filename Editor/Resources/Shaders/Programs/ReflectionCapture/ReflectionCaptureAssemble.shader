@@ -10,22 +10,31 @@ Shader "ReflectionCaptureAssemble"
         // only convention read. The six 90-degree frusta partition the sphere along the major axis, so the major
         // axis of the direction names the one face view that saw it.
 
-        Uniform(0) sampler2D u_FacePosX;
-        Uniform(1) sampler2D u_FaceNegX;
-        Uniform(2) sampler2D u_FacePosY;
-        Uniform(3) sampler2D u_FaceNegY;
-        Uniform(4) sampler2D u_FacePosZ;
-        Uniform(5) sampler2D u_FaceNegZ;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler LinearClampSampler;
+        Uniform(0) texture2D FacePositiveXTexture;
+        #define FacePositiveXTexture sampler2D(FacePositiveXTexture, LinearClampSampler)
+        Uniform(1) texture2D FaceNegativeXTexture;
+        #define FaceNegativeXTexture sampler2D(FaceNegativeXTexture, LinearClampSampler)
+        Uniform(2) texture2D FacePositiveYTexture;
+        #define FacePositiveYTexture sampler2D(FacePositiveYTexture, LinearClampSampler)
+        Uniform(3) texture2D FaceNegativeYTexture;
+        #define FaceNegativeYTexture sampler2D(FaceNegativeYTexture, LinearClampSampler)
+        Uniform(4) texture2D FacePositiveZTexture;
+        #define FacePositiveZTexture sampler2D(FacePositiveZTexture, LinearClampSampler)
+        Uniform(5) texture2D FaceNegativeZTexture;
+        #define FaceNegativeZTexture sampler2D(FaceNegativeZTexture, LinearClampSampler)
 
         // Rotation-only view-projections (the views' translation removed: a direction, not a point, is
         // projected), in the face order above; Probe.x = a distance inside every view's depth range.
         ReadBuffer(6) ReflectionCaptureFacesUB
         {
-            mat4 u_FaceViewProjection[6];
-            vec4 u_FaceProbe;
+            mat4 FaceViewProjection[6];
+            vec4 FaceProbe;
         };
 
-        layout(binding = 7, rgba16f) writeonly uniform imageCube u_Output;
+        layout(binding = 7, rgba16f) writeonly uniform imageCube DestinationCubeTexture;
 
         // The cube texel's direction, in the convention every cube of the engine is written in
         // (Programs/Compute/PrefilterEnvMap.shader, getSamplingVector).
@@ -45,18 +54,18 @@ Shader "ReflectionCaptureAssemble"
 
         vec3 SampleFace(int face, vec2 uv)
         {
-        	if (face == 0) return textureLod(u_FacePosX, uv, 0.0).rgb;
-        	if (face == 1) return textureLod(u_FaceNegX, uv, 0.0).rgb;
-        	if (face == 2) return textureLod(u_FacePosY, uv, 0.0).rgb;
-        	if (face == 3) return textureLod(u_FaceNegY, uv, 0.0).rgb;
-        	if (face == 4) return textureLod(u_FacePosZ, uv, 0.0).rgb;
-        	return textureLod(u_FaceNegZ, uv, 0.0).rgb;
+        	if (face == 0) return textureLod(FacePositiveXTexture, uv, 0.0).rgb;
+        	if (face == 1) return textureLod(FaceNegativeXTexture, uv, 0.0).rgb;
+        	if (face == 2) return textureLod(FacePositiveYTexture, uv, 0.0).rgb;
+        	if (face == 3) return textureLod(FaceNegativeYTexture, uv, 0.0).rgb;
+        	if (face == 4) return textureLod(FacePositiveZTexture, uv, 0.0).rgb;
+        	return textureLod(FaceNegativeZTexture, uv, 0.0).rgb;
         }
 
         LocalSize(8, 8, 1);
         void main()
         {
-        	const ivec2 size = imageSize(u_Output);
+        	const ivec2 size = imageSize(DestinationCubeTexture);
         	if (gl_GlobalInvocationID.x >= uint(size.x) || gl_GlobalInvocationID.y >= uint(size.y))
         		return;
 
@@ -70,12 +79,12 @@ Shader "ReflectionCaptureAssemble"
         	else
         		face = d.z >= 0.0 ? 4 : 5;
 
-        	const vec4 clip = u_FaceViewProjection[face] * vec4(d * u_FaceProbe.x, 1.0);
+        	const vec4 clip = FaceViewProjection[face] * vec4(d * FaceProbe.x, 1.0);
         	const vec2 ndc  = clip.xy / clip.w;
         	// The inverse of Common/ScreenUV.glslh's ScreenUVToNdc.
         	const vec2 uv = clamp(vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5), vec2(0.0), vec2(1.0));
 
-        	imageStore(u_Output, ivec3(gl_GlobalInvocationID), vec4(SampleFace(face, uv), 1.0));
+        	imageStore(DestinationCubeTexture, ivec3(gl_GlobalInvocationID), vec4(SampleFace(face, uv), 1.0));
         }
     }
 }

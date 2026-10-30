@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Import/MaterialImportContract.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <filesystem>
 #include <string_view>
@@ -37,6 +38,16 @@ namespace Desert::Editor
     // texture asset `asset` (a `.detex`, project key or absolute) through Assets::WriteTextureSource — created
     // with a fresh GUID, or re-taken with its GUID kept, or left untouched when it already carries them. No image
     // file is written into the content: the asset carries its source, as UE's UTexture::Source does.
+    // THE FBX SPECULAR MAP'S MEANING FOR ONE MATERIAL (SourceImportSettings::SpecularMap): a stated meaning as
+    // it stands; `FromImage` read from the map's own texels (FbxSpecularMapOfTexels), decoded as the packer
+    // decodes a part. A material with no Specular map resolves to `Specular` (nothing to route). Never returns
+    // FromImage; refuses an unreadable map, naming it and the setting that states the meaning instead.
+    Common::ResultStr<Assets::FbxSpecularMap> ResolveFbxSpecularMap( const SourceMaterial&  material,
+                                                                     Assets::FbxSpecularMap stated );
+
+    // `settingsIfCreated` (intent, colour space) is written only when the asset is created; an existing asset
+    // keeps the settings it states.
     Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& asset,
-                                                        std::string_view imageExtension );
+                                                        std::string_view                     imageExtension,
+                                                        const Assets::TextureImportSettings& settingsIfCreated );
 } // namespace Desert::Editor

@@ -33,11 +33,9 @@ project "LatticePeak"
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
+    }
+    includedirs(DesertModuleLibs.IncludeDirs())
+    includedirs {
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders", -- CloudProceduralVolume.cpp compiles Common/CloudNoise.glslh
     }
     externalincludedirs {
@@ -45,11 +43,6 @@ project "LatticePeak"
     }
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
-        externalincludedirs { path }
-    end
-
-    -- rfl/json.hpp, which CloudTypeData.cpp reads the type library through.
-    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 

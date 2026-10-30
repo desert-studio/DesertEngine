@@ -27,6 +27,8 @@
 #include <Engine/Assets/MeshDerivedData.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <thread>
+#include <condition_variable>
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -36,6 +38,7 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
 #include <fstream>
@@ -85,7 +88,7 @@ namespace Desert::Editor
         // A COOK WRITES NOTHING INTO CONTENT (SELF-COOK; UE: the cook reads the packages the import made and puts
         // only derived data into the DDC). Every branch of the import that creates or rewrites a file beside the
         // source - the import record, the skeleton, the clips, the skinned or static mesh, the material and the
-        // textures it packs or imports - asks here first: the user's import writes, the boot/background cook is
+        // textures it packs or imports - asks here first: the user's import writes, a load's on-demand cook is
         // refused with the file and the re-import that writes it. A checkout that was merely opened stays clean.
         Common::BoolResultStr ContentWriteAllowed( const ImportPass pass, const std::filesystem::path& source,
                                                    const std::filesystem::path& file, std::string_view what )
@@ -392,6 +395,43 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
+        // THE MATERIALS ARE WRITTEN BEFORE THE MESHES: the import judges a mesh's Virtual Geometry flag by the
+        // .demat each submesh draws (VirtualGeometryGate.hpp), so that file must already be the one the project
+        // holds - written here, or adopted above.
+        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
+        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
+        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
+        // thumbnails.
+        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap), or, by
+        // default (FromImage), what its texels say (ResolveFbxSpecularMap); the template's rows then route it like
+        // any other key. Every map's meaning read from its image is logged with the material.
+        for ( const auto& material : resolved.Materials )
+        {
+            const auto meaning = ResolveFbxSpecularMap( material.Source, settings.SpecularMap );
+            if ( !meaning )
+            {
+                record( Common::MakeError<bool>( meaning.GetError() ) );
+                continue;
+            }
+            if ( settings.SpecularMap == Assets::FbxSpecularMap::FromImage &&
+                 material.Source.Has( kFbxSpecularMapKey ) )
+                LOG_INFO( "[Import] '{}' material '{}': FBX Specular map read from its texels as {}{}",
+                          sourcePath.filename().string(), material.Source.Name,
+                          Assets::FbxSpecularMapName( meaning.GetValue() ),
+                          meaning.GetValue() == Assets::FbxSpecularMap::RoughnessMetallic
+                               ? " (R is 0 on every texel, G/B carry data: roughness G, metalness B)"
+                               : " (R carries data: FBX's specular colour)" );
+            ImportedMaterial stated = material;
+            auto             routed = WithFbxSpecularMap( std::move( stated.Source ), meaning.GetValue() );
+            if ( !routed )
+            {
+                record( Common::MakeError<bool>( routed.GetError() ) );
+                continue;
+            }
+            stated.Source = routed.ExtractValue();
+            record( SerializeMaterialAsset( stated, sourcePath, pass ) );
+        }
+
         // IMPORT OPTIONS REACH EVERY MESH OF THE FILE (UE FBX Import Options): a static mesh carries them in its
         // source and the deriver applies them; a skinned mesh, its skeleton and its clips are written in render
         // form, so Uniform Scale / Up Axis are baked into all three here (SourceToEngine.hpp) and LOD Generate
@@ -490,50 +530,70 @@ namespace Desert::Editor
             {
                 if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
                     BakeMeshLODs( resolved.Mesh.value() );
-                const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
+                // The skinned mesh's displacement mode lives in its own file (MeshBinary v6): the import
+                // record's setting is copied there; Baked has no meaning for a surface that deforms each frame.
+                resolved.Mesh->Displacement = settings.Mesh.Displacement;
+                const auto serialized =
+                     Assets::IsDisplacementModeAllowedForSkinned( settings.Mesh.Displacement )
+                          ? SerializeMeshAsset( resolved.Mesh.value(), sourcePath )
+                          : Common::MakeFormattedError<bool>(
+                                 "'{}': a skinned mesh cannot be Baked-displaced (its surface deforms each frame, a "
+                                 "bake is one pose); choose Runtime or None in its Import Settings",
+                                 sourcePath.string() );
                 if ( serialized )
                     writtenMeshes.push_back( mesh );
                 record( serialized );
             }
         }
-        else if ( resolved.Mesh && pass == ImportPass::Cook )
-            record( ContentWriteAllowed( pass, sourcePath, CookPaths::MeshAsset( sourcePath ), "static mesh" ) );
         else if ( resolved.Mesh )
         {
-            // The static mesh is a source asset beside its file (ImportedMeshAsset.hpp); its slots are named
-            // from the materials resolved above, whose GUIDs the submeshes now carry.
+            // The static mesh's slots are named from the materials resolved above, whose GUIDs the submeshes now
+            // carry.
             std::vector<Assets::MeshMaterialSlot> named;
             named.reserve( resolved.Materials.size() );
             for ( const auto& material : resolved.Materials )
                 named.push_back( { material.Name, material.Guid } );
-            // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
-            // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or Combine
-            // Meshes on, is the one combined mesh.
-            auto written = WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath,
-                                                  settings );
-            if ( !written )
-                record( Common::MakeError<bool>( written.GetError() ) );
+            // THE COOK REBUILDS THE DERIVED MESH, NOT THE CONTENT (UE: a DDC miss rebuilds from the package): the
+            // combined import's envelope goes into the DDC under the identity the record states; the record and
+            // a split import's node meshes are Content, written only by the import below.
+            if ( pass == ImportPass::Cook )
+            {
+                record( CookStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath,
+                                              settings ) );
+            }
             else
             {
-                for ( const auto& [node, path] : written.GetValue() )
+                // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
+                // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or
+                // Combine Meshes on, is the one combined mesh.
+                auto written = WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named,
+                                                      sourcePath, settings );
+                if ( !written )
+                    record( Common::MakeError<bool>( written.GetError() ) );
+                else
                 {
-                    Assets::ContentRegistry::NoteFile( path );
-                    writtenMeshes.push_back( path );
+                    for ( const auto& [node, path] : written.GetValue() )
+                    {
+                        Assets::ContentRegistry::NoteFile( path );
+                        writtenMeshes.push_back( path );
+                    }
                 }
             }
         }
 
-        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
-        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
-        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
-        // thumbnails.
-        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap); the
-        // template's rows then route it like any other key.
-        for ( const auto& material : resolved.Materials )
+        // THE FILE'S LIGHTS (BISTRO-LIGHTS; UE FbxSceneImport places a light actor per FBX light): stated in the
+        // record in the engine's space, so placing the source places them (NodeActors.hpp PlaceSourceLights).
+        // Every mesh import writes them - none removes the key - once the mesh above recorded the import.
+        if ( resolved.Mesh && pass != ImportPass::Cook && firstFailure.empty() )
         {
-            ImportedMaterial stated = material;
-            stated.Source           = WithFbxSpecularMap( std::move( stated.Source ), settings.SpecularMap );
-            record( SerializeMaterialAsset( stated, sourcePath, pass ) );
+            const auto allowed = ContentWriteAllowed(
+                 pass, sourcePath, Common::Content::ImportRecordPathFor( sourcePath ), "import record" );
+            record( allowed ? Assets::Serialization::SetImportRecordLights(
+                                   sourcePath, SourceLightsToEngine( resolved.Lights, settings.Mesh ) )
+                            : allowed );
+            if ( !resolved.Lights.empty() )
+                LOG_INFO( "[Import] '{}': {} light(s) recorded for placement", sourcePath.generic_string(),
+                          resolved.Lights.size() );
         }
 
         if ( !firstFailure.empty() )
@@ -634,7 +694,7 @@ namespace Desert::Editor
         // THE IMPORT TEMPLATES ARE THE ASSET REGISTRY'S SHADERS (MAT1b), not a second scan of the shader
         // directory: whatever the editor loaded as a ShaderAsset, and only that, can take an imported material.
         // Published once the shaders are loaded (EditorLayer, after CompileEngineShaders) and read by every
-        // importer — the background cook's per-thread ones included — so the snapshot is swapped under a lock.
+        // importer — the on-demand cook's per-thread ones included — so the snapshot is swapped under a lock.
         std::mutex                                         s_TemplatesMutex;
         std::shared_ptr<const std::vector<ImportTemplate>> s_Templates;
 
@@ -643,6 +703,17 @@ namespace Desert::Editor
             const std::scoped_lock lock( s_TemplatesMutex );
             return s_Templates;
         }
+
+        // Every loaded shader's BlendMode by header GUID (VIRT-GEOM import gate): a material's blend is its
+        // shader's, whether or not that shader declares an Import block. Published beside the templates, from the
+        // same registry walk, and swapped under the same lock.
+        std::shared_ptr<const std::vector<ShaderBlendRow>> s_ShaderBlends;
+
+        std::shared_ptr<const std::vector<ShaderBlendRow>> ShaderBlends()
+        {
+            const std::scoped_lock lock( s_TemplatesMutex );
+            return s_ShaderBlends;
+        }
     } // namespace
 
     std::size_t ImportManager::PublishImportTemplates( const Assets::AssetManager& manager )
@@ -650,14 +721,23 @@ namespace Desert::Editor
         const std::filesystem::path resources =
              std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
         std::vector<ImportTemplate> templates;
+        std::vector<ShaderBlendRow> blends;
+        std::size_t                 unreadBlends = 0;
         for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !shader->IsReadyForUse() )
                 continue;
             const std::filesystem::path& file = shader->GetMetadata().Filepath;
-            auto                         read = ReadImportTemplate(
-                 shader->GetShaderContent(),
-                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() ) );
+            const std::string            locator =
+                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() );
+            // A shader the DSL parser does not read (an engine-internal pass without a Shader block) has no
+            // BlendMode: a material naming it is refused Virtual Geometry as "blend unknown", never guessed
+            // Opaque.
+            if ( auto blend = ReadShaderBlend( shader->GetShaderContent(), locator ) )
+                blends.push_back( blend.ExtractValue() );
+            else
+                ++unreadBlends;
+            auto read = ReadImportTemplate( shader->GetShaderContent(), locator );
             // A shader the readers refuse cannot take a material, and saying so is the refusal.
             if ( !read )
             {
@@ -666,7 +746,30 @@ namespace Desert::Editor
             else if ( read.GetValue().Manifest.DeclaresImport )
                 templates.push_back( read.ExtractValue() );
         }
+        LOG_INFO( "[Import] shader blend modes published: {} read, {} without a DSL BlendMode", blends.size(),
+                  unreadBlends );
+        PublishShaderBlends( std::move( blends ) );
         return PublishImportTemplates( std::move( templates ) );
+    }
+
+    void ImportManager::PublishShaderBlends( std::vector<ShaderBlendRow> blends )
+    {
+        auto published = std::make_shared<const std::vector<ShaderBlendRow>>( std::move( blends ) );
+        const std::scoped_lock lock( s_TemplatesMutex );
+        s_ShaderBlends = std::move( published );
+    }
+
+    std::optional<::Desert::Core::Formats::SurfaceBlendMode>
+    ImportManager::PublishedShaderBlend( const Common::Content::AssetGuid& shader )
+    {
+        const auto published = ShaderBlends();
+        if ( !published || shader.IsNull() )
+            return std::nullopt;
+        for ( const ShaderBlendRow& candidate : *published )
+            if ( const auto guid = Common::Content::AssetGuidFromText( candidate.Guid );
+                 guid && guid.GetValue() == shader )
+                return candidate.Blend;
+        return std::nullopt;
     }
 
     std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )
@@ -739,6 +842,8 @@ namespace Desert::Editor
             if ( !fresh && slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB )
                 at->second = ::Desert::Core::Formats::TextureColorSpace::SRGB;
         }
+        // The asset each slot ended on, for the colour atlas's dilation mask below.
+        std::map<std::string, std::pair<std::filesystem::path, Common::Content::AssetGuid>, std::less<>> slotAssets;
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
             std::filesystem::path image = slot.Parts.front().Source;
@@ -776,6 +881,30 @@ namespace Desert::Editor
                          "material '{}' in '{}': texture '{}': {}", material.Name, sourcePath.generic_string(),
                          created.GetValue().generic_string(), set.GetError() ) );
             }
+            // THE CLIP KEEPS ITS SILHOUETTE IN EVERY MIP (FOLIAGE-ALPHA-MIPS; UE: bPreserveAlphaCoverage on the
+            // opacity texture of a masked material). The image a masked material clips (the template's
+            // `OpacityTexture` Property) is marked with the material's clip value on the channel it reads, before it
+            // is cooked, so a distant crown is as dense as a near one.
+            if ( slot.Slot == "OpacityTexture" )
+            {
+                const auto clip    = std::ranges::find( data.Params, std::string_view( "OpacityMaskClipValue" ),
+                                                        &Assets::MaterialShaderParam::Name );
+                const auto channel = std::ranges::find( data.Params, std::string_view( "OpacityChannel" ),
+                                                        &Assets::MaterialShaderParam::Name );
+                if ( clip != data.Params.end() && clip->Value.x > 0.0f )
+                {
+                    std::array<float, 4> thresholds{};
+                    const int at = channel != data.Params.end() ? static_cast<int>( channel->Value.x ) : 3;
+                    thresholds[static_cast<size_t>( std::clamp( at, 0, 3 ) )] = std::clamp( clip->Value.x, 0.0f, 1.0f );
+                    const std::filesystem::path asset = image.extension() == Assets::kTextureAssetExtension
+                                                             ? image
+                                                             : TextureImporter::AssetPathFor( image );
+                    if ( const auto set = Assets::SetTextureAlphaCoverage( asset, thresholds ); !set )
+                        return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
+                                                                     material.Name, sourcePath.generic_string(),
+                                                                     asset.generic_string(), set.GetError() ) );
+                }
+            }
             if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
                 return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "
                                                              "was not imported (the texture importer logged why)",
@@ -789,6 +918,32 @@ namespace Desert::Editor
                                                              key.IsSuccess() ? "null GUID" : key.GetError() ) );
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
+            slotAssets[slot.Slot] = { asset, key.GetValue().Guid };
+        }
+        // THE COLOUR IS PADDED UNDER A SEPARATE OPACITY MAP (GRASS-ASSET p5, TextureDilationMask). A masked
+        // material whose opacity is ANOTHER image than its albedo (Poly Haven foliage: `*_diff` + `*_alpha`) gets
+        // its albedo marked with that mask at the clip value, so the matte under the cut-away never reaches a mip.
+        if ( const auto albedo = slotAssets.find( "AlbedoTexture" ), opacity = slotAssets.find( "OpacityTexture" );
+             albedo != slotAssets.end() && opacity != slotAssets.end() &&
+             albedo->second.second != opacity->second.second )
+        {
+            const auto clip    = std::ranges::find( data.Params, std::string_view( "OpacityMaskClipValue" ),
+                                                    &Assets::MaterialShaderParam::Name );
+            const auto channel = std::ranges::find( data.Params, std::string_view( "OpacityChannel" ),
+                                                    &Assets::MaterialShaderParam::Name );
+            if ( clip != data.Params.end() && clip->Value.x > 0.0f )
+            {
+                Assets::TextureDilationMask mask;
+                mask.Texture   = opacity->second.second;
+                mask.Channel   = static_cast<uint32_t>(
+                     std::clamp( channel != data.Params.end() ? static_cast<int>( channel->Value.x ) : 3, 0, 3 ) );
+                mask.Threshold = std::clamp( clip->Value.x, 0.0f, 1.0f );
+                if ( const auto set = Assets::SetTextureColorDilationMask( albedo->second.first, mask ); !set )
+                    return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
+                                                                 material.Name, sourcePath.generic_string(),
+                                                                 albedo->second.first.generic_string(),
+                                                                 set.GetError() ) );
+            }
         }
         data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                            Assets::MaterialTextSubsystems() );
@@ -846,4 +1001,74 @@ namespace Desert::Editor
         return asset;
     }
 
+    namespace
+    {
+        // The sources being cooked and the thread cooking each (a cook that reached its own source again
+        // through a load is refused rather than waiting for itself).
+        struct MeshSourceCooks
+        {
+            std::mutex                                       Mutex;
+            std::condition_variable                          Done;
+            std::unordered_map<std::string, std::thread::id> Running;
+        };
+
+        MeshSourceCooks& RunningMeshSourceCooks()
+        {
+            static MeshSourceCooks s_Cooks;
+            return s_Cooks;
+        }
+    } // namespace
+
+    CookVerdict CookMeshSource( const std::filesystem::path& source )
+    {
+        const std::string key   = Common::Constants::Path::FullPath( source ).lexically_normal().generic_string();
+        MeshSourceCooks&  cooks = RunningMeshSourceCooks();
+        {
+            std::unique_lock<std::mutex> lock( cooks.Mutex );
+            if ( const auto it = cooks.Running.find( key );
+                 it != cooks.Running.end() && it->second == std::this_thread::get_id() )
+            {
+                LOG_ERROR( "[Import] '{}': its cook reached a load of its own mesh; refused rather than waiting "
+                           "for itself",
+                           source.generic_string() );
+                return CookVerdict::Failed;
+            }
+            cooks.Done.wait( lock, [&] { return !cooks.Running.contains( key ); } );
+            cooks.Running.emplace( key, std::this_thread::get_id() );
+        }
+        thread_local ImportManager s_ThreadImporter;
+        const CookVerdict          verdict = s_ThreadImporter.Import( source, ImportPass::Cook );
+        {
+            const std::lock_guard<std::mutex> lock( cooks.Mutex );
+            cooks.Running.erase( key );
+        }
+        cooks.Done.notify_all();
+        return verdict;
+    }
+
+    std::size_t MeshSourceCooksRunning()
+    {
+        MeshSourceCooks&                  cooks = RunningMeshSourceCooks();
+        const std::lock_guard<std::mutex> lock( cooks.Mutex );
+        return cooks.Running.size();
+    }
+
+    Common::BoolResultStr BuildMeshSourceOnMiss( const std::filesystem::path& source )
+    {
+        const auto        start   = std::chrono::steady_clock::now();
+        const CookVerdict verdict = CookMeshSource( source );
+        const auto        ms =
+             std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - start )
+                  .count();
+        if ( verdict == CookVerdict::Cooked || verdict == CookVerdict::UpToDate )
+        {
+            LOG_INFO( "[Import] '{}': its derived mesh was missing from the DDC and was cooked on demand from the "
+                      "source in {} ms",
+                      source.generic_string(), ms );
+            return BOOLSUCCESS;
+        }
+        return Common::MakeFormattedError<bool>(
+             "'{}' was cooked on demand and did not write its derived mesh (its [Import] line says why)",
+             source.generic_string() );
+    }
 } // namespace Desert::Editor

@@ -1115,7 +1115,8 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # The engine links shaderc*.lib and spirv-cross-*.lib out of the SDK's Lib directory, so a
+      # The engine links shaderc*.lib out of the SDK's Lib directory (SPIR-V reflection is the vendored
+      # ThirdParty/SPIRV-Cross, built from source), so a
       # headers-only Vulkan install is not enough — this is the real LunarG SDK. Pinned so a new SDK
       # release cannot change the build under us, and cached because it is a ~200 MB download.
       # The cache only restores; scripts/CI/EnsureVulkanSdk.ps1 judges the restored TREE and installs
@@ -1158,6 +1159,16 @@ jobs:
       # BEFORE, the numbers to compare the first unity run against (ccache + MultiToolTask, run
       # 35863890019): Build step Release 74.7 min, Debug 36.0, Shipping 26.2; whole job Release 80.2,
       # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
+      # VENDOR RUNTIME BINARIES (owner 10-15): the DLSS runtime is downloaded by Setup.bat step 4b
+      # (FetchVendorBinaries.py, ~276 MB) and never committed. Keyed on the manifest that pins every file's
+      # SHA-256, so a new release is a new key; with the files restored the script touches nothing.
+      - name: Restore vendor runtime binaries
+        id: vendor-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ThirdParty\Streamline\bin\x64
+          key: vendor-bin-${{ hashFiles('ThirdParty/Streamline/manifest.json') }}
+
       - name: Setup dependencies + generate projects
         shell: cmd
         # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it: Desert/premake5.lua
@@ -1166,6 +1177,15 @@ jobs:
         run: |
           set "CI="
           scripts\Windows\Setup.bat --unity
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save vendor runtime binaries
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.vendor-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ThirdParty\Streamline\bin\x64
+          key: vendor-bin-${{ hashFiles('ThirdParty/Streamline/manifest.json') }}
 
       # ── THE COMPILER CACHE, WITHIN ONE BUILD ────────────────────────────────────────────────────
       #
@@ -1437,7 +1457,7 @@ jobs:
         run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Projects/Desert/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
 
       # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable installed. The workspace
-      # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc/spirv-cross are MD_DynamicRelease) and
+      # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc libraries are MD_DynamicRelease) and
       # GamePackager copies the VC++ runtime DLLs Runtime.exe imports next to it. This reads the packaged
       # binaries' own import tables, refuses any DLL outside scripts/CI/windows_allowed_dlls.txt, and
       # refuses an `app-local` DLL that is imported but not present in the package.
@@ -1519,6 +1539,103 @@ jobs:
         column: [none]
         shards: [0]
     steps: *windows-build-steps
+
+  # ── ONE REAL GPU FRAME WITH VALIDATION ON (task RT-VERIFY-INFRA) ────────────────────────────────────
+  #
+  # The hosted windows-2022 image has no Vulkan device, so nothing above ever creates one. This job runs on a
+  # SELF-HOSTED Windows machine with an RT-capable GPU: it builds the Debug editor (validation is compiled
+  # in only under DESERT_CONFIG_DEBUG, VulkanContext.cpp s_DebugValidation), photographs the Bistro scene
+  # headless, uploads the PNG and the log, and fails on any validation error line or a black frame
+  # (scripts/CI/GpuShotVerdict.py). The editor log also carries the GPU name and the capability table
+  # (VulkanDevice.cpp "[Vulkan] ..." line: acceleration_structure / ray_query / ray_tracing_pipeline rows).
+  #
+  # GATED ON vars.DESERT_GPU_RUNNER == 'true': with no runner registered a job on these labels would sit
+  # queued for 24 h and then fail, so until the owner registers one the job is skipped, not red.
+  #
+  # THE DEFAULT SCENE IS COMMITTED: Projects/Desert/Content/Scenes/Clouds_Protocol.desce, so the job never
+  # depends on content outside git. vars.DESERT_GPU_SHOT_SCENE may name another (absolute path to a .desce,
+  # its project content beside it) - e.g. GI_Bistro_Day, whose 3.2 GB of imported meshes are untracked: the
+  # runner keeps that copy OUTSIDE the workspace, because actions/checkout cleans untracked files. A named
+  # scene that is missing fails the job rather than silently photographing the default.
+  #
+  # REGISTERING THE RUNNER (owner only; needs a registration token from GitHub):
+  #   1. Repo Settings -> Actions -> Runners -> New self-hosted runner -> Windows x64; copy the token.
+  #   2. On the GPU machine, in PowerShell:  mkdir C:\actions-runner; cd C:\actions-runner
+  #      download and extract the actions-runner-win-x64 zip named on that page, then
+  #      .\config.cmd --url https://github.com/<owner>/<repo> --token <TOKEN> --labels gpu --runasservice
+  #      (self-hosted, windows and x64 labels are added by the runner itself; `gpu` is the one this job needs).
+  #      Run the service as the INTERACTIVE user, not LocalSystem/NetworkService: a session-0 service sees
+  #      no display adapter for Vulkan's WSI and the editor window cannot be created.
+  #   3. Install on that machine: Visual Studio 2022 Build Tools (v143, C++ desktop), Git, Python 3, the
+  #      LunarG Vulkan SDK 1.3.296.0 (with the validation layer) and a current NVIDIA/AMD driver.
+  #   4. Optional: copy an untracked scene (Bistro) and its content to a folder outside the runner's _work.
+  #   5. Repo Settings -> Variables: DESERT_GPU_RUNNER=true; DESERT_GPU_SHOT_SCENE=<absolute .desce path> only
+  #      to photograph a scene other than the committed default.
+  #
+  # CHEAPER HALF, NOT IMPLEMENTED: the validation-only check could run on hosted windows-2022 with Mesa's
+  # lavapipe ICD (VK_ICD_FILENAMES pointing at lvp_icd.x86_64.json) and the SDK's validation layer. It
+  # would catch API misuse in the raster path but not this card's point: lavapipe exposes no
+  # acceleration_structure / ray_query / ray_tracing_pipeline, so the RT rows stay unproved there.
+  windows-gpu-frame:
+    name: Windows GPU frame (self-hosted)
+    if: vars.DESERT_GPU_RUNNER == 'true'
+    runs-on: [ self-hosted, windows, gpu ]
+    timeout-minutes: 180
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: The scene exists on this runner
+        shell: bash
+        env:
+          SCENE: ${{ vars.DESERT_GPU_SHOT_SCENE || format('{0}/Projects/Desert/Content/Scenes/Clouds_Protocol.desce', github.workspace) }}
+        run: |
+          [ -f "$SCENE" ] || { echo "$SCENE does not exist on this runner; refusing to photograph another scene"; exit 1; }
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup dependencies + generate projects
+        shell: cmd
+        run: |
+          set "CI="
+          scripts\Windows\Setup.bat
+
+      - name: Build the Debug editor
+        shell: cmd
+        run: msbuild build\Projects\Editor.vcxproj -p:Configuration=Debug -p:Platform=x64 -m -v:minimal
+
+      - name: Photograph the scene headless
+        shell: bash
+        env:
+          SCENE: ${{ vars.DESERT_GPU_SHOT_SCENE || format('{0}/Projects/Desert/Content/Scenes/Clouds_Protocol.desce', github.workspace) }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/gpu-frame"
+          cd Editor
+          # --shot exits with code 3 by design; the verdict below is the image and the log, not the code.
+          timeout 900 ../build/Bin/Debug/Editor.exe --project "$GITHUB_WORKSPACE/Projects/Desert/Desert.deproj" \
+            --scene "$SCENE" --shot "$RUNNER_TEMP/gpu-frame/frame.png" --shot-frames 30 \
+            > "$RUNNER_TEMP/gpu-frame/editor.log" 2>&1 || echo "Editor exit code $?"
+          # The engine's log is a FILE, not stdout: Common::Logger relocates it to <project>/Saved/Logs/engine_log.txt
+          # (Editor/Source/Sandbox.hpp RelocateLogFile) - the [Vulkan] device line and every validation message are there.
+          cp "$GITHUB_WORKSPACE/Projects/Desert/Saved/Logs/engine_log.txt" "$RUNNER_TEMP/gpu-frame/engine_log.txt"
+          grep -m2 -E '\[Vulkan\] (device|GPU)' "$RUNNER_TEMP/gpu-frame/engine_log.txt" || true
+
+      - name: Verdict (validation errors, black frame)
+        shell: bash
+        run: python scripts/CI/GpuShotVerdict.py "$RUNNER_TEMP/gpu-frame/frame.png" "$RUNNER_TEMP/gpu-frame/engine_log.txt"
+
+      - name: Upload the frame and the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-frame-windows
+          path: ${{ runner.temp }}/gpu-frame/
+          retention-days: 14
 
   windows-debug-tests:
     name: Windows Debug tests ${{ matrix.shard }}/3

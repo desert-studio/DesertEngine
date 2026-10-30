@@ -30,13 +30,6 @@ namespace Desert::Graphic
         return frustum.Intersects( Geometry::TransformBounds( transform, localBounds ) );
     }
 
-    // The same rule for a box already in world space (a posed skinned mesh, SkinnedMeshRenderData::WorldBounds):
-    // no extent is drawn.
-    [[nodiscard]] inline bool IsWorldBoxInView( const Core::Frustum& frustum, const Common::Math::AABB& worldBounds )
-    {
-        return Geometry::IsEmpty( worldBounds ) || frustum.Intersects( worldBounds );
-    }
-
     // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree
     // HORIZONTAL lens; through a lens of horizontal focal scale k an object at distance d is as wide on screen as
     // it would be at d / k through that one, so it stays drawn to k times the authored distance. A zoomed-in

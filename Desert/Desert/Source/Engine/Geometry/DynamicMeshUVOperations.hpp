@@ -1,0 +1,183 @@
+#pragma once
+
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
+
+#include <Common/Core/ResultStr.hpp>
+
+#include <glm/vec2.hpp>
+#include <glm/mat3x3.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
+
+#include <cstdint>
+#include <span>
+#include <string>
+
+namespace Desert::Geometry
+{
+    // UV OPERATIONS - UE's UVs palette of Modeling Mode: AutoUV (UParameterizeMeshTool, PatchBuilder method),
+    // Project (UUVProjectionTool), Unwrap (URecomputeUVsTool), Layout (UUVLayoutTool) and Transform (the UV
+    // Editor's UUVEditorTransformTool).
+    //
+    // Same contract as the other mesh operation headers (DynamicMeshXformOperations.hpp): pure functions, the
+    // input is not touched, the result is a NEW mesh whose UV layer 0 is rewritten (a mesh without one gets it)
+    // and whose tangents, derived from those UVs, are rebuilt. A refusal names what and why. Units are
+    // centimetres; +Y is up.
+
+    struct UVOutcome
+    {
+        DynamicMesh3 Mesh;
+        int32_t      Islands = 0; // UV islands in the result
+        std::string  Report;      // what the tool did, for the log
+    };
+
+    // ---- AutoUV (UE UParameterizeMeshTool, Method = PatchBuilder) ----
+    // UE FPatchBasedMeshUVGenerator: patches of triangles whose normals stay within MaxNormalDeviationDeg of
+    // their patch's normal (UE grows initial patches by area-density point sampling, then merges them through
+    // FMeshRegionGraph; here a patch grows from its seed directly under the same deviation bound), each patch
+    // flattened by a discrete exponential map, oriented to its smallest bounding box and packed.
+    struct AutoUVSettings
+    {
+        float   MaxNormalDeviationDeg = 45.0f; // UE MaxAngleDeviationDeg
+        bool    RespectPolygroups     = false; // UE bRespectInputGroups: a patch never crosses a polygroup border
+        bool    AutoAlign             = true;  // UE bAutoAlignPatches
+        bool    AutoPack              = true;  // UE bAutoPack
+        int32_t PackingResolution     = 512;   // UE PackingTextureResolution
+
+        bool operator==( const AutoUVSettings& ) const = default;
+    };
+    [[nodiscard]] Common::ResultStr<UVOutcome> AutoUV( const DynamicMesh3& mesh, const AutoUVSettings& settings );
+
+    // ---- Project (UE UUVProjectionTool) ----
+    enum class UVProjectionType : uint8_t
+    {
+        Plane,
+        Box,
+        Cylinder,
+    };
+    [[nodiscard]] const char* ToString( UVProjectionType type );
+
+    // The projection frame is the placed mesh's world bounds centre plus CenterOffset, turned by RotationDeg
+    // (XYZ Euler, degrees); its Z axis is world +Y (up), so Plane projects from above and Cylinder stands
+    // upright. World space, as UE's FUVProjectionOp maps the mesh through the target's transform: an entity
+    // scaled non-uniformly still gets a square checker and a box-shaped (not sheared) volume.
+    // UV = position in the frame / Dimensions, then the UV transform (UE UVRotation / UVScale / UVTranslate).
+    struct UVProjectSettings
+    {
+        UVProjectionType Type        = UVProjectionType::Box;
+        bool             FitToBounds = true;   // UE Initialization = AutoFit: Dimensions = bounds size
+        glm::vec3        Dimensions{ 100.0f }; // cm, used when FitToBounds is off (UE default 100)
+        glm::vec3        CenterOffset{ 0.0f }; // cm, from the bounds centre
+        glm::vec3        RotationDeg{ 0.0f };
+        float            CylinderSplitAngle = 45.0f; // degrees: within it of the axis a face takes a cap
+        float            UVRotationDeg      = 0.0f;
+        glm::vec2        UVScale{ 1.0f };
+        glm::vec2        UVTranslate{ 0.0f };
+
+        bool operator==( const UVProjectSettings& ) const = default;
+    };
+    // @p meshToWorld: where the mesh stands (its entity's world transform).
+    [[nodiscard]] Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3& mesh, const glm::dmat4& meshToWorld,
+                                                           const UVProjectSettings& settings );
+
+    // The projection volume ProjectUVs maps through (UE UUVProjectionTool's projection box, which its gizmo
+    // moves): world space, unit axes, Dimensions in cm along AxisX / AxisY / AxisZ. The tool draws it and turns
+    // its gizmo back into the settings with UVProjectionRotationDeg, so the volume has one definition.
+    struct UVProjectionVolume
+    {
+        glm::dvec3 Origin{ 0.0 };
+        glm::dvec3 AxisX{ 1.0, 0.0, 0.0 };
+        glm::dvec3 AxisY{ 0.0, 0.0, -1.0 };
+        glm::dvec3 AxisZ{ 0.0, 1.0, 0.0 };
+        glm::dvec3 Dimensions{ 1.0 };
+    };
+    // Refused for a mesh with no vertex.
+    [[nodiscard]] Common::ResultStr<UVProjectionVolume>
+    ResolveUVProjectionVolume( const DynamicMesh3& mesh, const glm::dmat4& meshToWorld,
+                               const UVProjectSettings& settings );
+    // The RotationDeg whose volume has these axes (columns X, Y, Z of a rotation, world space).
+    [[nodiscard]] glm::vec3 UVProjectionRotationDeg( const glm::dmat3& axes );
+
+    // ---- Unwrap (UE URecomputeUVsTool) ----
+    enum class UVIslandSource : uint8_t
+    {
+        PolyGroups,  // one island per polygroup (connected part of it)
+        ExistingUVs, // the mesh's current UV islands
+    };
+    enum class UVUnwrapMethod : uint8_t
+    {
+        ExpMap,            // UE ERecomputeUVsUnwrapType::ExpMap
+        SpectralConformal, // UE ERecomputeUVsUnwrapType::SpectralConformal
+    };
+    [[nodiscard]] const char* ToString( UVIslandSource source );
+    [[nodiscard]] const char* ToString( UVUnwrapMethod method );
+
+    // An island with no boundary (a closed polygroup) cannot be flattened by either method: it is projected
+    // onto the plane of its average normal instead, and the Report counts it.
+    struct UVUnwrapSettings
+    {
+        UVIslandSource Source            = UVIslandSource::PolyGroups;
+        UVUnwrapMethod Method            = UVUnwrapMethod::SpectralConformal;
+        bool           AutoRotate        = true; // UE AutoRotation = MinBounds
+        bool           NormalizeAreas    = true; // UE bNormalizeAreas: UV area matches world area
+        bool           Pack              = true; // UE LayoutType = Repack
+        int32_t        PackingResolution = 1024;
+
+        bool operator==( const UVUnwrapSettings& ) const = default;
+    };
+    [[nodiscard]] Common::ResultStr<UVOutcome> UnwrapUVs( const DynamicMesh3&     mesh,
+                                                          const UVUnwrapSettings& settings );
+
+    // ---- Layout (UE UUVLayoutTool) ----
+    enum class UVLayoutType : uint8_t
+    {
+        Repack,    // UE EUVLayoutType::Repack: every island packed into the unit square
+        Transform, // UE EUVLayoutType::Transform: only the scale and translation below
+    };
+    [[nodiscard]] const char* ToString( UVLayoutType type );
+
+    struct UVLayoutSettings
+    {
+        UVLayoutType Type              = UVLayoutType::Repack;
+        int32_t      TextureResolution = 1024;
+        bool         PreserveScale     = false;
+        bool         PreserveRotation  = false;
+        bool         AllowFlips        = false;
+        float        Scale             = 1.0f; // UE UVScaleFactor, after packing
+        glm::vec2    Translation{ 0.0f };      // UE UVTranslation, after packing
+
+        bool operator==( const UVLayoutSettings& ) const = default;
+    };
+    // Refused for a mesh with no UV layer 0 or no UV-set triangle.
+    [[nodiscard]] Common::ResultStr<UVOutcome> LayoutUVs( const DynamicMesh3&     mesh,
+                                                          const UVLayoutSettings& settings );
+
+    // ---- Transform (UE UUVEditorTransformTool, "Transform" mode) ----
+    // Where the scale and the rotation are centred (UE EUVEditorPivotMode).
+    enum class UVTransformPivot : uint8_t
+    {
+        Origin,          // UE Origin: UV (0, 0)
+        IslandCenter,    // UE IndividualBoundingBoxCenter: each island about its own UV bounds' centre
+        SelectionCenter, // UE BoundingBoxCenter: everything transformed about the bounds of all of it
+        Manual,          // UE Manual: ManualPivot
+    };
+    [[nodiscard]] const char* ToString( UVTransformPivot pivot );
+
+    // UE applies scale, then rotation (counter-clockwise, degrees), about the pivot, then the translation.
+    struct UVTransformSettings
+    {
+        glm::vec2        Scale{ 1.0f };
+        float            RotationDeg = 0.0f;
+        glm::vec2        Translation{ 0.0f };
+        UVTransformPivot Pivot = UVTransformPivot::IslandCenter;
+        glm::vec2        ManualPivot{ 0.0f };
+
+        bool operator==( const UVTransformSettings& ) const = default;
+    };
+    // Transforms the UVs of @p triangles (all triangles when empty): every UV element they use moves once, so an
+    // element shared with a triangle outside them moves too (as in UE's UV Editor). Refused for a mesh with no
+    // UV layer 0, no UV-set triangle in the scope, or a zero scale (it would collapse the islands).
+    [[nodiscard]] Common::ResultStr<UVOutcome> TransformUVs( const DynamicMesh3&        mesh,
+                                                             const UVTransformSettings& settings,
+                                                             std::span<const int32_t>   triangles = {} );
+} // namespace Desert::Geometry

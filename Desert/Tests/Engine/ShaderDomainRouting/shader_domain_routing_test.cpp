@@ -17,6 +17,7 @@
 
 #include <array>
 #include <string>
+#include <string_view>
 
 using Desert::Core::Preprocess::DShaderParser;
 using namespace Desert::Core::Formats;
@@ -31,11 +32,15 @@ namespace
 
     // A minimal shader whose ONLY interesting property is the domain line. Written as source rather
     // than as a ShaderProgramMeta literal on purpose: the value under test has to come through the
-    // parser, because "the .shader says Terrain" and "the meta holds Terrain" are two claims.
+    // parser, because "the .shader says Terrain" and "the meta holds Terrain" are two claims. A mesh-path
+    // (Surface) program writes no Vertex block - its vertex stage is the mesh vertex factory - and is blended,
+    // so it needs no DepthNormal pass.
     std::string ShaderDeclaring( const char* domain )
     {
-        return std::string( "Shader \"Probe\"\n{\n    Domain " ) + domain +
-               "\n\n    Vertex\n    {\n        void main() { gl_Position = vec4(0.0); }\n    }\n"
+        const bool meshPath = std::string_view( domain ) == "Surface";
+        return std::string( "Shader \"Probe\"\n{\n    Domain " ) + domain + "\n" +
+               ( meshPath ? "\n    State\n    {\n        Blend On\n    }\n"
+                          : "\n    Vertex\n    {\n        void main() { gl_Position = vec4(0.0); }\n    }\n" ) +
                "\n    Fragment\n    {\n        layout( location = 0 ) out vec4 o_Color;\n"
                "        void main() { o_Color = vec4(1.0); }\n    }\n}\n";
     }
@@ -77,7 +82,7 @@ TEST( ShaderDomainRouting, OnlySchemaTexturesBecomeMaterialProperties )
     EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Albedo", false )->Name, "u_Albedo" );
     EXPECT_NE( FindMaterialTextureParameter( meta, "u_Environment", true ), nullptr );
     // A pass parameter: reflected by the shader, not in Properties (shadow cascades, BRDF LUT, scene textures).
-    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_ShadowCascades", false ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "ShadowCascadesTexture", false ), nullptr );
     EXPECT_EQ( FindMaterialTextureParameter( meta, "u_BRDFLut", true ), nullptr );
     // Declared as the other kind, an asset reference, or not a texture: no texture property either.
     EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Albedo", true ), nullptr );

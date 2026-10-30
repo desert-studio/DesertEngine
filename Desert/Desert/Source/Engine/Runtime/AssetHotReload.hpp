@@ -41,6 +41,9 @@ namespace Desert::Runtime
     //             asset nobody has loaded yet is left alone - its first load reads the file as it is now -
     //             and so is a capture not yet written (its payload is the only copy). Instances ALREADY placed
     //             in a scene are entities of their own and are not re-instanced.
+    //   .dfxtype — re-reads a VFX effect type in place (a failed re-read keeps the last good levels), so every
+    //             world's next tick culls and scales its systems by the new per-level MaxDistance /
+    //             SpawnCountScale.
     //   .shader — recompiles the program (errors land in the log / Logs panel, the old
     //             pipelines keep drawing); on success the pipeline cache entries for that
     //             shader are dropped after a device-idle wait, so the next frame draws with
@@ -71,9 +74,13 @@ namespace Desert::Runtime
         // frame, so re-registering the flattened table IS the whole of the reload — no scene to refresh.
         void PollUIThemes( Assets::AssetManager& assetManager );
         void PollLandscapeLayerInfos( Assets::AssetManager& assetManager );
+        void PollLandscapeGrassTypes( Assets::AssetManager& assetManager );
         // No scene argument: nothing in a scene caches a prefab's payload - its readers ask the asset each
         // time they need it - so re-reading the asset is the whole of the reload.
         void PollPrefabs( Assets::AssetManager& assetManager );
+        // No scene argument: every VFXWorld holds the type's asset and reads its levels each tick, so the
+        // re-read in place IS the whole of the reload - the next tick culls and scales by the new levels.
+        void PollVFXEffectTypes( Assets::AssetManager& assetManager );
 
         // Reports whether @p path CHANGED since the last poll (Common::Utils::WriteWatch: a moved stamp, or a
         // racy stamp over different content). A file seen for the first time returns false: the first

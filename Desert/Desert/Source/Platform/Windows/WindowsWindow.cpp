@@ -1,4 +1,6 @@
 #include <Platform/Windows/WindowsWindow.hpp>
+
+#include <algorithm>
 #include <Engine/Core/GlfwWindowMode.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
@@ -367,6 +369,16 @@ namespace Desert::Platform::Windows
     bool WindowsWindow::IsWindowMaximized() const
     {
         return glfwGetWindowAttrib( m_GLFWWindow, GLFW_MAXIMIZED ) == GLFW_TRUE;
+    }
+
+    float WindowsWindow::GetContentScale() const
+    {
+        // The larger of the two axes: the scale the window system resolves the framebuffer at (they are equal on
+        // every display GLFW reports today). Never below 1 -- a scale under one is not a high-DPI display.
+        float x = 1.0f;
+        float y = 1.0f;
+        glfwGetWindowContentScale( m_GLFWWindow, &x, &y );
+        return std::max( 1.0f, std::max( x, y ) );
     }
 
     bool WindowsWindow::HasDrawableArea() const

@@ -606,9 +606,17 @@ namespace
                 return 1;
             }
 
-            const std::vector<float> map = ProjectDown( baked.GetValue(), 0u, useSum );
+            // THE MARCH'S THRESHOLD, applied to the bytes it reads (WTH-CLOUDS): the bake writes the field
+            // without Coverage and the march cuts it by CloudProceduralCoverageRemap, so the sky this tool
+            // measures is the field cut here — one quantisation, as the RGBA8 volume the GPU filters.
+            std::vector<unsigned char> voxels = baked.GetValue();
+            for ( unsigned char& byte : voxels )
+                byte = Common::Math::QuantiseUnitToByte( Desert::Assets::CloudProceduralCoverageRemap(
+                     static_cast<float>( byte ) * ( 1.0f / 255.0f ), params.Coverage ) );
 
-            const VolumeAspect aspect = MeasureAspect( baked.GetValue(), 0u, voxelKm, params.LayerThicknessKm );
+            const std::vector<float> map = ProjectDown( voxels, 0u, useSum );
+
+            const VolumeAspect aspect = MeasureAspect( voxels, 0u, voxelKm, params.LayerThicknessKm );
             horizontalKm += aspect.HorizontalKm;
             verticalKm += aspect.VerticalKm;
             spanKm += aspect.VerticalSpanKm;

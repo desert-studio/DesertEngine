@@ -31,6 +31,24 @@ namespace Desert::Graphic::System
     // ("Lens Flare" category) — the same place UE keeps Lens Flares, in its Bloom group on the
     // post-process volume. The light shafts went the other way (onto the light) because a shaft is
     // scattering in the world, not in the glass.
+    // The BrightPass shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct LensFlareBrightPassShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, BrightPassTexture );
+        static constexpr std::array kAll{ RDG::Erase( SourceMipTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( BrightPassTexture ) };
+    };
+
+    // The Features shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct LensFlareFeaturesShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FlareSourceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, FlareTexture );
+        static constexpr std::array kAll{ RDG::Erase( FlareSourceTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( FlareTexture ) };
+    };
+
     class LensFlareRenderer final : public RenderSystem
     {
     public:

@@ -1,0 +1,64 @@
+#ifndef MEGALIGHTS_SCREEN_TRACE_GLSLH
+#define MEGALIGHTS_SCREEN_TRACE_GLSLH
+// THE SCREEN TRACE (UE MegaLights' screen traces, MegaLightsScreenSpaceTracing: TraceHZB over the closest HZB with a
+// relative depth thickness), one function for both of MegaLights' tracers: the surface samples
+// (Common/MegaLights.glslh MegaLightsVisibility, from the representative pixel's surface) and the volume's froxel
+// samples (Common/MegaLightsVolumeWrite.glslh VolumeVisibility, from the froxel point - UE leaves its volume
+// unshadowed by screen traces; ours marches the same HZB from the point toward the light).
+// The includer declares HzbTexture and includes Common/HZBTrace.glslh, then defines, before this file:
+//   MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP - the jittered world -> clip matrix the HZB's depth was rasterised with
+//   MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD - its inverse
+//   MEGALIGHTS_SCREEN_TRACE_EYE           - the eye (cm, world)
+#if !defined(MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP) || !defined(MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD) || !defined(MEGALIGHTS_SCREEN_TRACE_EYE)
+#error "MegaLightsScreenTrace.glslh: define MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP, _CLIP_TO_WORLD and _EYE"
+#endif
+
+#include <Common/ReconstructPosition.glslh>
+
+#define MEGALIGHTS_SCREEN_TRACE_ITERATIONS          64
+#define MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS  0.02
+
+vec3 MegaLightsToScreen(vec3 world)
+{
+	const vec4 clip = MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP * vec4(world, 1.0);
+	const vec3 ndc  = clip.xyz / clip.w;
+	return vec3(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z); // Common/ScreenUV.glslh, inverted
+}
+
+// The shadow ray from @p origin along @p dir for @p length cm, walked over the closest depth hierarchy
+// (Common/HZBTrace.glslh). Occluded when the walk stops on a depth texel the ray passes BEHIND by less than the
+// thickness (a surface in front of the ray, not a wall it merely went behind); a ray starting off the screen or
+// behind the near plane, or leaving them, is not occluded by what the screen does not hold (the next source
+// answers it, or none: unshadowed).
+bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
+{
+	if (length <= 0.0)
+		return false;
+	// The near plane cuts a segment that runs behind the eye: clip-space w along the ray is affine.
+	const float w0    = (MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP * vec4(origin, 1.0)).w;
+	const float w1    = (MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP * vec4(origin + dir * length, 1.0)).w;
+	const float nearW = 1.0; // 1 cm in front of the eye
+	if (w0 <= nearW)
+		return false;
+	const float reach = w1 >= nearW ? length : length * (w0 - nearW) / max(w0 - w1, 1e-6);
+	const vec3  start = MegaLightsToScreen(origin);
+	const vec3  end   = MegaLightsToScreen(origin + dir * reach);
+	if (any(lessThan(start.xy, vec2(0.0))) || any(greaterThan(start.xy, vec2(1.0))))
+		return false;
+	const HZBTraceResult walk = HZBTraceScreen(start, end, MEGALIGHTS_SCREEN_TRACE_ITERATIONS);
+	if (!walk.Stopped)
+		return false;
+	// The thickness test, in distance from the eye: the ray's point at the stop against the depth texel's surface.
+	const ivec2 texel = clamp(ivec2(walk.Position.xy * vec2(textureSize(HzbTexture, 0))), ivec2(0),
+	                          textureSize(HzbTexture, 0) - 1);
+	const float sceneZ = texelFetch(HzbTexture, texel, 0).r;
+	if (sceneZ <= 0.0)
+		return false; // the sky
+	const vec3  surface  = ReconstructWorldPosition(walk.Position.xy, sceneZ, MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD);
+	const vec3  ray      = ReconstructWorldPosition(walk.Position.xy, walk.Position.z, MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD);
+	const float dSurface = distance(surface, MEGALIGHTS_SCREEN_TRACE_EYE);
+	const float dRay     = distance(ray, MEGALIGHTS_SCREEN_TRACE_EYE);
+	return dRay >= dSurface && dRay - dSurface <= MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS * dSurface;
+}
+
+#endif // MEGALIGHTS_SCREEN_TRACE_GLSLH

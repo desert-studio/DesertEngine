@@ -71,10 +71,27 @@ namespace Desert::Editor
              FileTypeInfo{ FileType::CookedWorld, "Cooked World", { 0.50f, 0.50f, 0.55f, 1.00f }, ICON_MDI_MAP },
              FileTypeInfo{ FileType::Skybox, "Skybox", { 0.82f, 0.18f, 0.30f, 1.00f }, ICON_MDI_IMAGE_FILTER_HDR },
              FileTypeInfo{ FileType::WaterWaves, "Water Waves", { 0.20f, 0.55f, 0.85f, 1.00f }, ICON_MDI_WAVES },
+             FileTypeInfo{
+                  FileType::WorldParameters, "World Parameters", { 0.25f, 0.70f, 0.50f, 1.00f }, ICON_MDI_TUNE },
+             FileTypeInfo{ FileType::WeatherPreset,
+                           "Weather Preset",
+                           { 0.45f, 0.62f, 0.85f, 1.00f },
+                           ICON_MDI_WEATHER_RAINY },
              FileTypeInfo{ FileType::VFXDataChannel,
                            "VFX Data Channel",
                            { 0.95f, 0.70f, 0.20f, 1.00f },
                            ICON_MDI_ACCESS_POINT },
+             FileTypeInfo{ FileType::VFXEffectType,
+                           "VFX Effect Type",
+                           { 0.95f, 0.50f, 0.20f, 1.00f },
+                           ICON_MDI_TUNE_VARIANT },
+             FileTypeInfo{ FileType::LandscapeGrassType,
+                           "Landscape Grass Type",
+                           { 0.35f, 0.80f, 0.35f, 1.00f },
+                           ICON_MDI_GRASS },
+             FileTypeInfo{
+                  FileType::StateTree, "State Tree", { 0.30f, 0.65f, 0.95f, 1.00f }, ICON_MDI_STATE_MACHINE },
+             FileTypeInfo{ FileType::VFXModule, "VFX Module", { 0.95f, 0.55f, 0.20f, 1.00f }, ICON_MDI_PUZZLE },
         };
 
         constexpr bool RowsAreInEnumOrder()

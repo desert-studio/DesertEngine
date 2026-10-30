@@ -85,6 +85,14 @@ namespace Desert::Editor
             PushFieldEdit( std::make_unique<ByteCommand>( target, oldBytes, newBytes, size ) );
         }
 
+        // A reflected field edit that is neither bytes nor a string - one element of a std::vector field, restored
+        // through the field's typed container accessors (ReflectedFieldText's `Name[i]`). Recorded like Push: as
+        // the scoped entity's edit when a FieldSubject is alive.
+        void PushFieldCommand( std::unique_ptr<ICommand> command )
+        {
+            PushFieldEdit( std::move( command ) );
+        }
+
         // Reflected-property STRING edit: before/after VALUES, restored by assignment. The value and the
         // object's representation are different things for a std::string, and only the value survives
         // being stored (see Push above).

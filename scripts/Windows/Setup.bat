@@ -107,9 +107,16 @@ REM ---------------------------------------------------------------------------
 call :clone_dep "ThirdParty\optick\src\optick.h" "ThirdParty\optick" ^
     "https://github.com/bombomby/optick.git" ""
 
-REM meshoptimizer pinned to v0.20, the version BuildScripts/ThirdParty/MeshOptimizer.lua expects.
+REM meshoptimizer pinned to v1.3, the version BuildScripts/ThirdParty/MeshOptimizer.lua checks.
+REM A tree holding another version is re-fetched.
+if exist "ThirdParty\meshoptimizer\src\meshoptimizer.h" (
+    findstr /C:"define MESHOPTIMIZER_VERSION 1030" "ThirdParty\meshoptimizer\src\meshoptimizer.h" >nul || (
+        echo --- ThirdParty\meshoptimizer: not v1.3, re-fetching
+        rmdir /s /q "ThirdParty\meshoptimizer"
+    )
+)
 call :clone_dep "ThirdParty\meshoptimizer\src\meshoptimizer.h" "ThirdParty\meshoptimizer" ^
-    "https://github.com/zeux/meshoptimizer.git" "v0.20"
+    "https://github.com/zeux/meshoptimizer.git" "v1.3"
 
 REM reflect-cpp compiled sources. The header of this script used to claim Windows needs none of this
 REM because it "links the prebuilt ThirdParty/reflect-cpp/lib". There is no such directory and there
@@ -117,6 +124,15 @@ REM never was: BuildScripts/ThirdParty/ReflectCpp.lua builds one ReflectCpp proj
 REM and errors out if src/ is absent. The sources are committed, so this normally does nothing — but a
 REM tree that lost them must be repairable from Windows, not only from a Mac.
 call :fetch_reflectcpp
+
+REM ---------------------------------------------------------------------------
+REM 4b. Vendor runtime binaries (the DLSS runtime, NVIDIA Streamline): DOWNLOADED, never committed.
+REM     ThirdParty\Streamline\manifest.json pins the release and every file's SHA-256; the script fetches
+REM     the archive, checks it and writes ThirdParty\Streamline\bin\x64 (gitignored). Re-running with the
+REM     files in place touches nothing. Without them everything still generates and builds; the build
+REM     prints which file is missing, the editor and game report DLSS unavailable, the packager refuses.
+REM ---------------------------------------------------------------------------
+call :fetch_vendor_binaries
 
 REM ---------------------------------------------------------------------------
 REM 5. premake5 — fetched, not vendored.
@@ -412,7 +428,8 @@ echo --- MSVC installed at "!VSINSTALL!"
 exit /b 0
 
 REM --- Vulkan ----------------------------------------------------------------
-REM The engine links shaderc*.lib and spirv-cross-*.lib out of the SDK's Lib directory, so a
+REM The engine links shaderc*.lib out of the SDK's Lib directory (SPIRV-Cross is the vendored
+REM ThirdParty/SPIRV-Cross, built from source - never the SDK's), so a
 REM headers-only install is not enough. Pinned to the version CI builds against, and installed with
 REM the SAME optional component CI selects: com.lunarg.vulkan.debug is the "Debuggable Shader API
 REM Libraries", where shadercd.lib and friends live. A bare `install` takes the core only and the
@@ -534,6 +551,18 @@ if errorlevel 1 (
 REM A clone that exits 0 without producing the file we need is a silent wrong answer, so check the
 REM file rather than the exit code alone.
 if not exist "%ROOT%\!SENTINEL!" call :fail "!DEST! was cloned but !SENTINEL! is missing"
+exit /b 0
+
+REM --- vendor runtime binaries -----------------------------------------------
+:fetch_vendor_binaries
+echo --- Vendor runtime binaries (scripts\Windows\FetchVendorBinaries.py)
+where python >NUL 2>&1
+if errorlevel 1 (
+    call :fail "Python 3 not found in PATH: it fetches ThirdParty\Streamline\bin\x64 (winget install --id Python.Python.3.11 -e)"
+    exit /b 0
+)
+python "%ROOT%\scripts\Windows\FetchVendorBinaries.py"
+if errorlevel 1 call :fail "fetching the DLSS runtime into ThirdParty\Streamline\bin\x64 (the [ERROR] line above names why)"
 exit /b 0
 
 REM --- reflect-cpp -----------------------------------------------------------

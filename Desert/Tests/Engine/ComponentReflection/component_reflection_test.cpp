@@ -326,7 +326,8 @@ TEST( TimeOfDayReflection, TimeOfDayRowsAreGatedByTheirOwnSwitch )
 {
     const TypeInfo& clock = Type( "TimeOfDayData" );
     ASSERT_NE( Find( clock, "DriveSunFromTimeOfDay" ), nullptr );
-    for ( const char* name : { "TimeOfDay", "DayLengthSeconds", "Latitude", "NorthOffset" } )
+    for ( const char* name : { "TimeOfDay", "DayLengthSeconds", "Latitude", "Longitude", "TimeZone",
+                               "DaylightSavingTime", "Year", "Month", "Day", "NorthOffset" } )
     {
         const FieldInfo* f = Find( clock, name );
         ASSERT_NE( f, nullptr ) << name;
@@ -364,9 +365,10 @@ TEST( SkyAtmosphereReflection, BothSunPairsExplainTheSplit )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// ExponentialHeightFogData — 14 fields in three groups, UE's UExponentialHeightFogComponent parameter
-// for parameter (Docs/Sky/UE_SKYATMOSPHERE_RESEARCH.md section 3.2). The fog HEIGHT is deliberately
-// absent: it is the entity's TransformComponent Y, as UE takes it from the component transform.
+// ExponentialHeightFogData — 22 fields in four groups (VOLFOG added "Volumetric Fog"), UE's
+// UExponentialHeightFogComponent parameter for parameter (Docs/Sky/UE_SKYATMOSPHERE_RESEARCH.md section 3.2). The
+// fog HEIGHT is deliberately absent: it is the entity's TransformComponent Y, as UE takes it from the component
+// transform.
 // ---------------------------------------------------------------------------------------------------
 
 TEST( HeightFogReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
@@ -386,14 +388,23 @@ TEST( HeightFogReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "DirectionalInscatteringExponent",
          "DirectionalInscatteringStartDistance",
          "DirectionalInscatteringLuminance",
+         "VolumetricFog",
+         "VolumetricFogScatteringDistribution",
+         "VolumetricFogAlbedo",
+         "VolumetricFogEmissive",
+         "VolumetricFogExtinctionScale",
+         "VolumetricFogDistance",
+         "VolumetricFogStartDistance",
+         "VolumetricFogNearFadeInDistance",
     };
 
     const TypeInfo& fog = Type( "ExponentialHeightFogData" );
-    EXPECT_EQ( fog.Fields.size(), 14u );
+    EXPECT_EQ( fog.Fields.size(), 22u );
     EXPECT_EQ( FieldNames( fog ), expected );
 
     EXPECT_EQ( CountInCategory( fog, "Exponential Height Fog" ), 8u );
     EXPECT_EQ( CountInCategory( fog, "Second Fog Layer" ), 3u );
+    EXPECT_EQ( CountInCategory( fog, "Volumetric Fog" ), 8u );
     EXPECT_EQ( CountInCategory( fog, "Directional Inscattering" ), 3u );
 
     // The fog height is NOT a field — one owner, the transform, or the fog floor and the entity that
@@ -588,9 +599,12 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     // material schema now. CloudMaterialSchema asserts the schema names exactly four.
     EXPECT_EQ( Desert::Graphic::kCloudSpeciesSlots, 4u );
 
-    // The wind OFFSET is not a field: it is state the ECS system integrates against the timestep. A
-    // second copy on the component is a value that can disagree with the one the packer is handed.
-    EXPECT_EQ( Find( cloud, "WindOffset" ), nullptr );
+    // The wind offset's AUTHORED start is a field (CLOUD-OFFSET-BAKE: a saved scene shows the same sky every
+    // time it opens); the drift game time adds to it is runtime state and must not be reflected, or a save
+    // would bake wherever the clock happened to be.
+    EXPECT_NE( Find( cloud, "WindOffset" ), nullptr );
+    EXPECT_NE( Find( cloud, "Drift" ), nullptr );
+    EXPECT_EQ( Find( cloud, "DriftOffset" ), nullptr );
 }
 
 // The authored defaults of what REMAINS on the component. The moved thirty-three have their defaults
@@ -1413,7 +1427,8 @@ TEST( DirectionalLightReflection, GainsTheAtmosphereSunFields )
                                                                 "ContactShadowLength",
                                                                 "ContactShadowLengthInWorldSpace",
                                                                 "ContactShadowCastingIntensity",
-                                                                "ContactShadowNonCastingIntensity" } ) );
+                                                                "ContactShadowNonCastingIntensity",
+                                                                "VolumetricScatteringIntensity" } ) );
 
     // Sky Phase 4's coupling, UE's name and UE's default: ON. The light's colour is multiplied by the
     // atmosphere's transmittance toward the sun at ground level in SkyModel::PhysicalAtmosphere, so

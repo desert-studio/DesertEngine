@@ -1,0 +1,81 @@
+{
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "89f24c160b149347c112214c4f1582bf",
+        "Versions": {
+            "FOLT": 8
+        },
+        "Dependencies": ["3a128cc7205aa269d0fbaca6e09d04a0"]
+    },
+    "Kind": "Mesh",
+    "Prefab": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Density": 100.0,
+    "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ZOffset": {
+        "Min": -2.0,
+        "Max": 0.0
+    },
+    "AlignToNormal": true,
+    "RandomYaw": true,
+    "RandomPitchAngle": 6.0,
+    "GroundSlopeAngle": {
+        "Min": 0.0,
+        "Max": 40.0
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [],
+    "MinimumLayerWeight": 0.0,
+    "CullDistance": {
+        "Min": 0.0,
+        "Max": 0.0
+    },
+    "Wind": {
+        "Strength": 20.0,
+        "Speed": 0.6,
+        "Height": 150.0
+    },
+    "IncludeInHLOD": true,
+    "Mesh": {
+        "Guid": "3a128cc7205aa269d0fbaca6e09d04a0",
+        "Path": "assets:Environments/FieldBarn/Meshes/shrub_02/shrub_02_shrub_02_b.stmesh"
+    },
+    "Procedural": {
+        "CollisionRadius": 90.0,
+        "ShadeRadius": 30.0,
+        "NumSteps": 3,
+        "InitialSeedDensity": 0.6,
+        "AverageSpreadDistance": 50.0,
+        "SpreadVariance": 150.0,
+        "SeedsPerStep": 3,
+        "DistributionSeed": 9654,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": true,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 0.0,
+        "ProceduralScale": {
+            "Min": 1.2,
+            "Max": 2.0
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    }
+}

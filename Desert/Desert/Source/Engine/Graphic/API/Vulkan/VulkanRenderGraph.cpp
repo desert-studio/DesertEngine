@@ -6,6 +6,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <atomic>
+
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -59,18 +61,21 @@ namespace Desert::Graphic::API::Vulkan
             info.samples       = static_cast<VkSampleCountFlagBits>( std::max( 1u, desc.Samples ) );
             info.tiling        = VK_IMAGE_TILING_OPTIMAL;
             info.usage         = RdgImageUsage( accessMask );
-            info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
             info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            // The device's sharing rule (VulkanResourceSharing.hpp); the info points into @p device.Sharing.
+            device.Sharing.ApplyTo( info );
             return info;
         }
 
-        VkBufferCreateInfo RdgBufferInfo( const RDG::BufferDesc& desc, uint32_t accessMask )
+        VkBufferCreateInfo RdgBufferInfo( const VulkanRdgDevice& device, const RDG::BufferDesc& desc,
+                                          uint32_t accessMask )
         {
             VkBufferCreateInfo info{};
-            info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            info.size        = desc.Bytes;
-            info.usage       = RdgBufferUsage( accessMask );
-            info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            info.size  = desc.Bytes;
+            info.usage = RdgBufferUsage( accessMask );
+            // The device's sharing rule (VulkanResourceSharing.hpp); the info points into @p device.Sharing.
+            device.Sharing.ApplyTo( info );
             return info;
         }
 
@@ -100,6 +105,8 @@ namespace Desert::Graphic::API::Vulkan
             usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
         if ( RdgHas( accessMask, Access::StorageRead ) || RdgHas( accessMask, Access::StorageWrite ) )
             usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+        if ( RdgHas( accessMask, Access::ExternalWrite ) )
+            usage |= VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if ( RdgHas( accessMask, Access::ColorTarget ) )
             usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         if ( RdgHas( accessMask, Access::DepthWrite ) || RdgHas( accessMask, Access::DepthRead ) )
@@ -133,11 +140,26 @@ namespace Desert::Graphic::API::Vulkan
         if ( RdgHas( accessMask, Access::AccelStructBuildWrite ) || RdgHas( accessMask, Access::AccelStructRead ) )
             usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
                      VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        // A build's scratch is written as AccelStructBuildWrite too, and Vulkan requires scratch memory to be a
+        // storage buffer (VkAccelerationStructureBuildGeometryInfoKHR::scratchData VUID-03674).
+        if ( RdgHas( accessMask, Access::AccelStructBuildWrite ) )
+            usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         return usage;
     }
 
     // Vulkan 1.0 barriers (owner decision 2026-09-27: no synchronization2). The graph's stages are finer
     // than v1 in one place: Copy becomes TRANSFER.
+    namespace
+    {
+        // A device fact, written once at device creation (SetRdgRayTracingShaderStages) before any graph runs.
+        std::atomic<bool> g_RdgRayTracingShaderStages{ false };
+    } // namespace
+
+    void SetRdgRayTracingShaderStages( const bool enabled )
+    {
+        g_RdgRayTracingShaderStages.store( enabled, std::memory_order_relaxed );
+    }
+
     VkPipelineStageFlags RdgVulkanStages( RDG::PipelineStageFlags stages )
     {
         static constexpr std::array<std::pair<uint32_t, VkPipelineStageFlags>, 11> kTable = { {
@@ -159,6 +181,9 @@ namespace Desert::Graphic::API::Vulkan
             if ( ( stages & bit ) != 0 )
                 out |= vk;
         }
+        if ( ( stages & RDG::PipelineStage_ComputeShader ) != 0 &&
+             g_RdgRayTracingShaderStages.load( std::memory_order_relaxed ) )
+            out |= VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
         return out;
     }
 
@@ -332,6 +357,72 @@ namespace Desert::Graphic::API::Vulkan
 
     // ── Physical resources ─────────────────────────────────────────────────────────────────────────────
 
+    namespace
+    {
+        // The ledger kind of a graph image, by its dimension.
+        Graphic::ResourceKind RdgLedgerKind( const RDG::TextureDim dim )
+        {
+            switch ( dim )
+            {
+                case RDG::TextureDim::Tex3D:
+                    return Graphic::ResourceKind::Image3D;
+                case RDG::TextureDim::Cube:
+                case RDG::TextureDim::CubeArray:
+                    return Graphic::ResourceKind::ImageCube;
+                case RDG::TextureDim::Tex2D:
+                    break;
+            }
+            return Graphic::ResourceKind::Image2D;
+        }
+
+        // THE LEASE (VulkanRdgPool::AcquireTexture / AcquireBuffer). The pool keeps one reference to each
+        // resource; a hand-out is a pointer that shares ownership with a Lease holding a second one. While any
+        // copy of the hand-out lives the pool sees use_count() == 2 and does not hand the resource out again
+        // (unchanged rule); the last copy dropped destroys the Lease, which returns the ledger row to the device —
+        // the pool holds the memory from then on, whoever extracted it. The extractor never has to say it let go.
+        template <class T>
+        std::shared_ptr<T> LeaseTo( const std::shared_ptr<T>& resource, const ResourceAttribution& holder )
+        {
+            struct Lease
+            {
+                explicit Lease( std::shared_ptr<T> leased ) : Resource( std::move( leased ) )
+                {
+                }
+                Lease( const Lease& )            = delete;
+                Lease& operator=( const Lease& ) = delete;
+                Lease( Lease&& )                 = delete;
+                Lease& operator=( Lease&& )      = delete;
+                ~Lease()
+                {
+                    Resource->ClaimLedger( ResourceAttribution{ .Owner = ResourceOwner::Device } );
+                }
+                std::shared_ptr<T> Resource;
+            };
+            resource->ClaimLedger( holder );
+            const std::shared_ptr<Lease> lease = std::make_shared<Lease>( resource );
+            return std::shared_ptr<T>( lease, lease->Resource.get() );
+        }
+    } // namespace
+
+    namespace
+    {
+        AllocationLedger& MutableRdgDedicatedLedger()
+        {
+            static AllocationLedger ledger;
+            return ledger;
+        }
+        uint64_t RdgLedgerHandle( VmaAllocation allocation )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            return reinterpret_cast<uint64_t>( allocation );
+        }
+    } // namespace
+
+    const AllocationLedger& RdgDedicatedLedger()
+    {
+        return MutableRdgDedicatedLedger();
+    }
+
     Common::ResultStr<std::shared_ptr<VulkanRdgTexture>> VulkanRdgTexture::Create( const VulkanRdgDevice&  device,
                                                                                    const RDG::TextureDesc& desc,
                                                                                    uint32_t         accessMask,
@@ -352,8 +443,9 @@ namespace Desert::Graphic::API::Vulkan
         texture->m_Aspect     = GetImageVulkanAspect( desc.Format );
         texture->m_Desc       = desc;
         texture->m_AccessMask = accessMask;
-        const VkResult result = vmaCreateImage( device.Allocator, &info, &allocation, &texture->m_Image,
-                                                &texture->m_Allocation, nullptr );
+        VmaAllocationInfo allocated{};
+        const VkResult    result = vmaCreateImage( device.Allocator, &info, &allocation, &texture->m_Image,
+                                                   &texture->m_Allocation, &allocated );
         if ( result != VK_SUCCESS )
         {
             texture->m_Image = VK_NULL_HANDLE;
@@ -361,6 +453,12 @@ namespace Desert::Graphic::API::Vulkan
                  "texture '{}' ({}x{}, {} mips, {} layers): vmaCreateImage failed ({})", name, desc.Size.Width,
                  desc.Size.Height, desc.Mips, desc.Layers, static_cast<int>( result ) );
         }
+        // A dedicated allocation is a ledger row of its own (the pool claims it for its holder on every hand-out).
+        texture->m_Ledger =
+             ResourceOwnership::Take( RdgLedgerKind( desc.Dim ), static_cast<std::size_t>( allocated.size ) );
+        vmaSetAllocationName( device.Allocator, texture->m_Allocation, std::format( "RDG {}", name ).c_str() );
+        MutableRdgDedicatedLedger().Record( RdgLedgerHandle( texture->m_Allocation ), std::string( name ),
+                                            static_cast<std::size_t>( allocated.size ) );
         return Common::MakeSuccess( std::move( texture ) );
     }
 
@@ -428,6 +526,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         for ( const auto& [key, view] : m_Views )
             vkDestroyImageView( m_Device, view, nullptr );
+        if ( m_Allocation != nullptr )
+            MutableRdgDedicatedLedger().Release( RdgLedgerHandle( m_Allocation ) );
         if ( m_Allocator != nullptr && m_Image != VK_NULL_HANDLE )
             vmaDestroyImage( m_Allocator, m_Image, m_Allocation );
     }
@@ -507,7 +607,7 @@ namespace Desert::Graphic::API::Vulkan
                                                                                  std::string_view       name )
     {
         using Out                     = std::shared_ptr<VulkanRdgBuffer>;
-        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        const VkBufferCreateInfo info = RdgBufferInfo( device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
             return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes, usage from access mask {:#x} is empty",
                                                     name, desc.Bytes, accessMask );
@@ -531,6 +631,12 @@ namespace Desert::Graphic::API::Vulkan
                                                     desc.Bytes, static_cast<int>( result ) );
         }
         buffer->m_Mapped = host ? allocated.pMappedData : nullptr;
+        // A dedicated allocation is a ledger row of its own, as VulkanRdgTexture::Create's.
+        buffer->m_Ledger = ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer,
+                                                    static_cast<std::size_t>( allocated.size ) );
+        vmaSetAllocationName( device.Allocator, buffer->m_Allocation, std::format( "RDG {}", name ).c_str() );
+        MutableRdgDedicatedLedger().Record( RdgLedgerHandle( buffer->m_Allocation ), std::string( name ),
+                                            static_cast<std::size_t>( allocated.size ) );
         return Common::MakeSuccess( std::move( buffer ) );
     }
 
@@ -539,7 +645,7 @@ namespace Desert::Graphic::API::Vulkan
                                    VmaAllocation memory, uint64_t offset, std::string_view name )
     {
         using Out                     = std::shared_ptr<VulkanRdgBuffer>;
-        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        const VkBufferCreateInfo info = RdgBufferInfo( device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
             return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes, usage from access mask {:#x} is empty",
                                                     name, desc.Bytes, accessMask );
@@ -576,17 +682,29 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( buffer ) );
     }
 
-    std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::Wrap( VkBuffer buffer, uint64_t size )
+    std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::Wrap( VkBuffer buffer, uint64_t size, uint64_t offset )
     {
         std::shared_ptr<VulkanRdgBuffer> wrapped( new VulkanRdgBuffer() );
         wrapped->m_Buffer = buffer;
         wrapped->m_Size   = size;
+        wrapped->m_Offset = offset;
+        return wrapped;
+    }
+
+    std::shared_ptr<VulkanRdgBuffer>
+    VulkanRdgBuffer::WrapAccelerationStructure( VkBuffer buffer, uint64_t size,
+                                                VkAccelerationStructureKHR accelerationStructure )
+    {
+        std::shared_ptr<VulkanRdgBuffer> wrapped = Wrap( buffer, size );
+        wrapped->m_AccelerationStructure         = accelerationStructure;
         return wrapped;
     }
 
     VulkanRdgBuffer::~VulkanRdgBuffer()
     {
         // A wrapped engine buffer has no allocator: its owner destroys it.
+        if ( m_Allocation != nullptr )
+            MutableRdgDedicatedLedger().Release( RdgLedgerHandle( m_Allocation ) );
         if ( m_Allocator != nullptr && m_Buffer != VK_NULL_HANDLE )
             vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
     }
@@ -605,6 +723,14 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    std::span<const std::byte> VulkanRdgBuffer::ReadForHost() const
+    {
+        if ( m_Mapped == nullptr )
+            return {};
+        InvalidateForHost();
+        return { static_cast<const std::byte*>( m_Mapped ), static_cast<std::size_t>( m_Size ) };
+    }
+
     // ── Pool ───────────────────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgPool::VulkanRdgPool( const VulkanRdgDevice& device, uint32_t frameSlots )
@@ -616,14 +742,12 @@ namespace Desert::Graphic::API::Vulkan
     {
         m_Slot = slot % static_cast<uint32_t>( m_Slots.size() );
         ++m_Frame;
-        Slot& current = m_Slots[m_Slot];
-        current.Retired.clear(); // this slot's previous frame, and every frame before it, has completed
-        // Kept: whatever this slot's previous frame handed out, and whatever an extraction target still holds.
+        m_Slots[m_Slot].Retired.clear(); // this slot's previous frame, and every frame before it, has completed
+        // Kept: whatever a frame not yet waited for was handed, and whatever an extraction target still holds.
         auto stale = [&]( const auto& entry )
-        { return entry.LastFrame < current.PreviousFrame && entry.Resource.use_count() == 1; };
-        std::erase_if( current.Textures, stale );
-        std::erase_if( current.Buffers, stale );
-        current.PreviousFrame = m_Frame;
+        { return entry.LastFrame + m_Slots.size() < m_Frame && entry.Resource.use_count() == 1; };
+        std::erase_if( m_Textures, stale );
+        std::erase_if( m_Buffers, stale );
     }
 
     void VulkanRdgPool::Retire( std::shared_ptr<RDG::IPhysicalTexture> texture )
@@ -633,67 +757,61 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
-    VulkanRdgPool::AcquireTexture( const RDG::TextureDesc& desc, uint32_t accessMask, std::string_view name )
+    VulkanRdgPool::AcquireTexture( const RDG::TextureDesc& desc, uint32_t accessMask, std::string_view name,
+                                   const ResourceAttribution& holder )
     {
         using Out = std::shared_ptr<VulkanRdgTexture>;
         if ( m_Frame == 0 )
             return Common::MakeFormattedError<Out>( "texture '{}': VulkanRdgPool::BeginFrame was never called",
                                                     name );
-        Slot& slot = m_Slots[m_Slot];
-        for ( Entry<VulkanRdgTexture>& entry : slot.Textures )
+        for ( Entry<VulkanRdgTexture>& entry : m_Textures )
         {
-            if ( entry.LastFrame != m_Frame && entry.Resource.use_count() == 1 &&
+            if ( Fenced( entry.LastFrame ) && entry.Resource.use_count() == 1 &&
                  entry.Resource->Matches( desc, accessMask ) )
             {
                 entry.LastFrame = m_Frame;
-                return Common::MakeSuccess( entry.Resource );
+                return Common::MakeSuccess( LeaseTo( entry.Resource, holder ) );
             }
         }
         Common::ResultStr<Out> created = VulkanRdgTexture::Create( m_Device, desc, accessMask, name );
         if ( !created )
             return created;
-        slot.Textures.push_back( { created.GetValue(), m_Frame } );
-        return created;
+        m_Textures.push_back( { created.GetValue(), m_Frame } );
+        return Common::MakeSuccess( LeaseTo( m_Textures.back().Resource, holder ) );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
-    VulkanRdgPool::AcquireBuffer( const RDG::BufferDesc& desc, uint32_t accessMask, std::string_view name )
+    VulkanRdgPool::AcquireBuffer( const RDG::BufferDesc& desc, uint32_t accessMask, std::string_view name,
+                                  const ResourceAttribution& holder )
     {
         using Out = std::shared_ptr<VulkanRdgBuffer>;
         if ( m_Frame == 0 )
             return Common::MakeFormattedError<Out>( "buffer '{}': VulkanRdgPool::BeginFrame was never called",
                                                     name );
-        Slot& slot = m_Slots[m_Slot];
-        for ( Entry<VulkanRdgBuffer>& entry : slot.Buffers )
+        for ( Entry<VulkanRdgBuffer>& entry : m_Buffers )
         {
-            if ( entry.LastFrame != m_Frame && entry.Resource.use_count() == 1 &&
+            if ( Fenced( entry.LastFrame ) && entry.Resource.use_count() == 1 &&
                  entry.Resource->GetAccessMask() == accessMask && entry.Resource->GetSize() == desc.Bytes )
             {
                 entry.LastFrame = m_Frame;
-                return Common::MakeSuccess( entry.Resource );
+                return Common::MakeSuccess( LeaseTo( entry.Resource, holder ) );
             }
         }
         Common::ResultStr<Out> created = VulkanRdgBuffer::Create( m_Device, desc, accessMask, name );
         if ( !created )
             return created;
-        slot.Buffers.push_back( { created.GetValue(), m_Frame } );
-        return created;
+        m_Buffers.push_back( { created.GetValue(), m_Frame } );
+        return Common::MakeSuccess( LeaseTo( m_Buffers.back().Resource, holder ) );
     }
 
     size_t VulkanRdgPool::GetTextureCount() const
     {
-        size_t count = 0;
-        for ( const Slot& slot : m_Slots )
-            count += slot.Textures.size();
-        return count;
+        return m_Textures.size();
     }
 
     size_t VulkanRdgPool::GetBufferCount() const
     {
-        size_t count = 0;
-        for ( const Slot& slot : m_Slots )
-            count += slot.Buffers.size();
-        return count;
+        return m_Buffers.size();
     }
 
     // ── Memory requirements ────────────────────────────────────────────────────────────────────────────
@@ -730,7 +848,7 @@ namespace Desert::Graphic::API::Vulkan
         const std::string key = fmt::format( "b{}:{:x}", desc.Bytes, accessMask );
         if ( const auto found = m_Cache.find( key ); found != m_Cache.end() )
             return Common::MakeSuccess( found->second );
-        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        const VkBufferCreateInfo info = RdgBufferInfo( m_Device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
             return Common::MakeFormattedError<RDG::MemoryRequirements>( "{} bytes, no usage (access mask {:#x})",
                                                                         desc.Bytes, accessMask );
@@ -751,8 +869,9 @@ namespace Desert::Graphic::API::Vulkan
     // ── Pass descriptors ────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgPassDescriptors::VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers,
-                                                        uint32_t frameSlots )
-         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) ), m_SamplerCache( samplers )
+                                                        uint32_t frameSlots, bool accelerationStructures )
+         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) ), m_SamplerCache( samplers ),
+           m_AccelerationStructures( accelerationStructures )
     {
     }
 
@@ -787,7 +906,7 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
+    VkSamplerCreateInfo RdgSamplerCreateInfo( const RDG::SamplerDesc& desc )
     {
         VkSamplerCreateInfo info{};
         info.sType             = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -801,7 +920,12 @@ namespace Desert::Graphic::API::Vulkan
         info.minLod            = 0.0f;
         info.maxLod            = VK_LOD_CLAMP_NONE;
         info.borderColor       = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-        return m_SamplerCache.Acquire( info );
+        return info;
+    }
+
+    Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
+    {
+        return m_SamplerCache.Acquire( RdgSamplerCreateInfo( desc ) );
     }
 
     Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )
@@ -811,14 +935,15 @@ namespace Desert::Graphic::API::Vulkan
         const std::array<VkDescriptorPoolSize, 6> sizes = {
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kSets * 4 },
-             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, kSets },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
-             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 } };
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, kSets } };
         VkDescriptorPoolCreateInfo info{};
-        info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        info.maxSets            = kSets;
-        info.poolSizeCount      = static_cast<uint32_t>( sizes.size() );
+        info.sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        info.maxSets = kSets;
+        // The acceleration-structure row is last: a device without the extension leaves just that row out.
+        info.poolSizeCount      = static_cast<uint32_t>( sizes.size() ) - ( m_AccelerationStructures ? 0u : 1u );
         info.pPoolSizes         = sizes.data();
         VkDescriptorPool pool   = VK_NULL_HANDLE;
         const VkResult   result = vkCreateDescriptorPool( m_Device, &info, nullptr, &pool );
@@ -872,31 +997,43 @@ namespace Desert::Graphic::API::Vulkan
                                                                   VkDescriptorType           type,
                                                                   const RDG::TextureBinding& texture,
                                                                   RDG::SubresourceRange      range,
-                                                                  VkImageLayout layout, VkSampler sampler )
+                                                                  VkImageLayout layout, uint32_t element )
     {
-        const bool combined = type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE && !combined )
-            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not an image type",
-                                               texture.Name, static_cast<int>( type ) );
-        if ( combined != ( sampler != VK_NULL_HANDLE ) )
-            return Common::MakeFormattedError( "texture '{}': a sampler goes with COMBINED_IMAGE_SAMPLER only",
-                                               texture.Name );
+        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE )
+            return Common::MakeFormattedError(
+                 "texture '{}': descriptor type {} is not a separate or storage image "
+                 "type (a pass binds no combined sampler)",
+                 texture.Name, static_cast<int>( type ) );
         const Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
         const Common::ResultStr<VkImageView> view = physical.GetValue()->GetView( range, false );
         if ( !view )
             return Common::MakeFormattedError( "texture '{}': {}", texture.Name, view.GetError() );
-        const VkDescriptorImageInfo image{ sampler, view.GetValue(), layout };
+        const VkDescriptorImageInfo image{ VK_NULL_HANDLE, view.GetValue(), layout };
         VkWriteDescriptorSet        write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
         write.dstBinding      = binding;
+        write.dstArrayElement = element;
         write.descriptorCount = 1;
         write.descriptorType  = type;
         write.pImageInfo      = &image;
         vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgPassDescriptors::WriteSampler( VkDescriptorSet set, uint32_t binding, VkSampler sampler )
+    {
+        const VkDescriptorImageInfo image{ sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+        VkWriteDescriptorSet        write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER;
+        write.pImageInfo      = &image;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
     }
 
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteBuffer( VkDescriptorSet set, uint32_t binding,
@@ -909,7 +1046,8 @@ namespace Desert::Graphic::API::Vulkan
         const Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( buffer );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
-        const VkDescriptorBufferInfo info{ physical.GetValue()->GetBuffer(), 0, physical.GetValue()->GetSize() };
+        const VkDescriptorBufferInfo info{ physical.GetValue()->GetBuffer(), physical.GetValue()->GetOffset(),
+                                           physical.GetValue()->GetSize() };
         VkWriteDescriptorSet         write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
@@ -917,6 +1055,37 @@ namespace Desert::Graphic::API::Vulkan
         write.descriptorCount = 1;
         write.descriptorType  = type;
         write.pBufferInfo     = &info;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgPassDescriptors::WriteAccelerationStructure( VkDescriptorSet           set,
+                                                                                uint32_t                  binding,
+                                                                                VkDescriptorType          type,
+                                                                                const RDG::BufferBinding& tlas )
+    {
+        if ( type != VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR )
+            return Common::MakeFormattedError( "'{}': descriptor type {} is not an acceleration-structure type",
+                                               tlas.Name, static_cast<int>( type ) );
+        if ( !m_AccelerationStructures )
+            return Common::MakeFormattedError( "'{}': the device has no acceleration structures", tlas.Name );
+        const Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( tlas );
+        if ( !physical )
+            return Common::MakeError( physical.GetError() );
+        const VkAccelerationStructureKHR handle = physical.GetValue()->GetAccelerationStructure();
+        if ( handle == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "'{}' stores no acceleration structure", tlas.Name );
+        VkWriteDescriptorSetAccelerationStructureKHR structures{};
+        structures.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+        structures.accelerationStructureCount = 1;
+        structures.pAccelerationStructures    = &handle;
+        VkWriteDescriptorSet write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.pNext           = &structures;
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = type;
         vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
         return Common::MakeSuccess( true );
     }
@@ -1046,6 +1215,41 @@ namespace Desert::Graphic::API::Vulkan
         if ( graph.Result == nullptr )
             return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
                                                graph.Name );
+        // THE CROSSING RULE'S PRECONDITION (RecordBarriers): a graph with an AsyncCompute segment crosses queue
+        // families, and its release / acquire pairs name no family - valid only when every resource is CONCURRENT
+        // across both pipes' families (VulkanResourceSharing.hpp). A device set up otherwise is refused by name,
+        // never recorded with ownership the GPU does not have.
+        const bool crossesQueues = std::any_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
+                                                []( const RDG::PipeSegment& segment )
+                                                { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
+        if ( crossesQueues && ( !m_Device.Sharing.Contains( m_Queues->FamilyOf( RDG::Pipe::Graphics ) ) ||
+                                !m_Device.Sharing.Contains( m_Queues->FamilyOf( RDG::Pipe::AsyncCompute ) ) ||
+                                !m_Device.Sharing.IsConcurrent() ) )
+            return Common::MakeFormattedError( "graph '{}': it has an AsyncCompute segment, but the device's resources "
+                                               "are not CONCURRENT across the graphics and compute families "
+                                               "(VulkanRdgDevice::Sharing)",
+                                               graph.Name );
+        // THE ASYNC SEGMENTS, NAMED (FPS-CPU-6): which passes this graph runs on the compute queue, logged when the
+        // set changes, so a log shows what overlapped the graphics queue (and an empty async frame shows nothing).
+        m_Result = graph.Result;
+        if ( crossesQueues )
+        {
+            std::string line;
+            for ( const RDG::PipeSegment& segment : graph.Result->Segments )
+            {
+                if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
+                    continue;
+                line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
+                        graph.Result->Passes[segment.LastPosition].Name + ": " +
+                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes]";
+            }
+            std::string& logged = m_AsyncSegmentsLogged[std::string( graph.Name )];
+            if ( line != logged )
+            {
+                LOG_INFO( "[RDG] graph '{}' async compute segments:{}", graph.Name, line );
+                logged = std::move( line );
+            }
+        }
         // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
         const Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
@@ -1069,8 +1273,20 @@ namespace Desert::Graphic::API::Vulkan
         // Every used, non-extracted transient is PLACED at its planned heap offset, in plan order. Two that share
         // bytes are two resources over the same memory; the AliasAcquire barrier alone orders them.
         const RDG::AliasingPlan& plan = graph.Result->Aliasing;
-        if ( auto reserved = m_Transients->ReserveHeaps( graph.Name, plan.Heaps ); !reserved )
-            return reserved;
+        // A graph only on the graphics queue holds the slot's shared heaps in turn with the slot's other graphs
+        // (BISTRO-MEM-2 p5); one with an async-compute segment keeps its own (a compute submission is ordered
+        // after the earlier graphs only by the semaphores it waits on).
+        const bool graphicsOnly = !crossesQueues;
+        const Common::ResultStr<bool> reserved =
+             m_Transients->ReserveGraphHeaps( graph.Name, plan.Heaps, graphicsOnly );
+        if ( !reserved )
+            return Common::MakeFormattedError( "{}", reserved.GetError() );
+        // An earlier graph used the bytes (this frame or one in flight; same queue, earlier in submission order):
+        // its last accesses complete before this graph's first one, recorded into the first command buffer the
+        // graph opens (BeginGraph returns one only for a graph without segments).
+        m_SharedHeapBarrierPending = reserved.GetValue();
+        if ( first.GetValue() != VK_NULL_HANDLE )
+            RecordSharedHeapBarrier( first.GetValue() );
         m_GraphName = graph.Name;
         for ( const RDG::Allocation& allocation : plan.Allocations )
         {
@@ -1121,7 +1337,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !view.Extracted )
                     return Common::MakeFormattedError( "graph '{}': transient '{}' has no allocation in the plan",
                                                        graph.Name, view.Name );
-                auto acquired = m_Pool.AcquireTexture( *view.Texture, view.AccessMask, view.Name );
+                auto acquired =
+                     m_Pool.AcquireTexture( *view.Texture, view.AccessMask, view.Name, view.ExtractOwner );
                 if ( !acquired )
                     return Common::MakeError( acquired.GetError() );
                 m_Textures[view.Resource] = acquired.GetValue();
@@ -1142,7 +1359,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !view.Extracted )
                     return Common::MakeFormattedError( "graph '{}': transient '{}' has no allocation in the plan",
                                                        graph.Name, view.Name );
-                auto acquired = m_Pool.AcquireBuffer( *view.Buffer, view.AccessMask, view.Name );
+                auto acquired =
+                     m_Pool.AcquireBuffer( *view.Buffer, view.AccessMask, view.Name, view.ExtractOwner );
                 if ( !acquired )
                     return Common::MakeError( acquired.GetError() );
                 m_Buffers[view.Resource] = acquired.GetValue();
@@ -1187,11 +1405,22 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // At most TWO vkCmdPipelineBarrier: the queue family ownership transfers first, then everything else.
-        // A transfer may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
-        // 09633/09634), and a resource whose ownership returns before a plain barrier hands it on (an async
+        // At most TWO vkCmdPipelineBarrier: the halves of the graph's cross-pipe pairs first, then everything
+        // else. A pair half may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
+        // 09633/09634), and a resource that returns to Graphics before a plain barrier hands it on (an async
         // result read back by the host) needs the two in that order. Within a call the stage masks are the
         // union over the batch, each resource keeps its own access masks and layouts.
+        //
+        // THE CROSSING RULE (graphics -> async compute -> graphics). RDGCompile emits a release / acquire pair at
+        // every crossing of a resource it sees (TrackUse crossPipes, CollectFinalBarriers), the semaphore between
+        // the queues orders them. Every resource is CONCURRENT across the device's families whenever there is an
+        // async pipe (VulkanResourceSharing.hpp; refused otherwise in Execute), so the pair names no families:
+        //   release, on the source queue: the whole transition - the source's writes made available, the layout
+        //            changed - ending at BOTTOM_OF_PIPE; the semaphore signal after it covers it.
+        //   acquire, on the destination queue: chained to the semaphore wait through ALL_COMMANDS, it makes the
+        //            contents visible to the destination's stages in the layout the release left (old == new).
+        // A family-indexed transfer would be invalid on a CONCURRENT resource (VUID-VkImageMemoryBarrier-image-
+        // 04071), and an EXCLUSIVE one could not cover a read the graph never saw (a bindless upload).
         for ( const bool ownershipCall : { true, false } )
         {
             VkPipelineStageFlags               srcStages = 0;
@@ -1200,26 +1429,12 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<VkBufferMemoryBarrier> buffers;
             for ( const RDG::Barrier& barrier : barriers )
             {
-                const bool isOwnership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
-                                         barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
-                if ( isOwnership != ownershipCall )
-                    continue;
-                // Queue family ownership transfer (Vulkan 1.0): the release names the families and makes the
-                // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
-                // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the
-                // wait's stages, whatever they are).
-                const bool ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
-                                       barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
-                const uint32_t srcFamily =
-                     ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
-                const uint32_t dstFamily =
-                     ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;
-                srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
-                                  ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
-                                  : RdgVulkanStages( barrier.Before.Stages );
-                // A release's second scope is on the other queue: on this one it only ends the barrier.
                 const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
                 const bool acquire = barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                if ( ( release || acquire ) != ownershipCall )
+                    continue;
+                srcStages |= acquire ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : RdgVulkanStages( barrier.Before.Stages );
+                // A release's second scope is on the other queue: on this one it only ends the barrier.
                 dstStages |=
                      release ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : RdgVulkanStages( barrier.After.Stages );
                 // A write-free source has nothing to make available: its stages only order the work. An acquire
@@ -1234,11 +1449,13 @@ namespace Desert::Graphic::API::Vulkan
                     image.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                     image.srcAccessMask       = srcAccess;
                     image.dstAccessMask       = dstAccess;
-                    image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
-                                                                        : RdgVulkanLayout( barrier.Before.Layout );
+                    // The acquire's layout is already the release's newLayout: it transitions nothing.
+                    image.oldLayout           = acquire                   ? RdgVulkanLayout( barrier.After.Layout )
+                                                : barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
+                                                                          : RdgVulkanLayout( barrier.Before.Layout );
                     image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
-                    image.srcQueueFamilyIndex = srcFamily;
-                    image.dstQueueFamilyIndex = dstFamily;
+                    image.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    image.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     image.image               = texture.GetImage();
                     image.subresourceRange = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
                                                barrier.Range.BaseLayer, barrier.Range.LayerCount };
@@ -1250,11 +1467,12 @@ namespace Desert::Graphic::API::Vulkan
                     buffer.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
                     buffer.srcAccessMask       = srcAccess;
                     buffer.dstAccessMask       = dstAccess;
-                    buffer.srcQueueFamilyIndex = srcFamily;
-                    buffer.dstQueueFamilyIndex = dstFamily;
-                    buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
-                    buffer.offset              = 0;
-                    buffer.size                = VK_WHOLE_SIZE;
+                    buffer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    buffer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    const VulkanRdgBuffer& physical = *m_Buffers[barrier.Resource];
+                    buffer.buffer                   = physical.GetBuffer();
+                    buffer.offset                   = physical.GetOffset();
+                    buffer.size = physical.GetOffset() == 0 ? VK_WHOLE_SIZE : physical.GetSize();
                     buffers.push_back( buffer );
                 }
             }
@@ -1343,6 +1561,21 @@ namespace Desert::Graphic::API::Vulkan
                 key.Colours[attachment.Slot] = described;
                 colourViews[attachment.Slot] = { view.GetValue(), clear };
             }
+        }
+        if ( pass.AreaWidth != 0 )
+        {
+            // PassBuilder::RenderArea: no attachment, so the framebuffer has none and its size is the area. The
+            // device limits are the only bound (CapabilityCatalog refuses a renderer that needs more).
+            const VkPhysicalDeviceLimits& limits = m_Device.Limits;
+            if ( pass.AreaWidth > limits.maxFramebufferWidth || pass.AreaHeight > limits.maxFramebufferHeight ||
+                 pass.AreaWidth > limits.maxViewportDimensions[0] ||
+                 pass.AreaHeight > limits.maxViewportDimensions[1] )
+                return Common::MakeFormattedError(
+                     "render area of '{}': {}x{} exceeds the device's framebuffer {}x{} / viewport {}x{}",
+                     pass.Name, pass.AreaWidth, pass.AreaHeight, limits.maxFramebufferWidth,
+                     limits.maxFramebufferHeight, limits.maxViewportDimensions[0],
+                     limits.maxViewportDimensions[1] );
+            extent = { pass.AreaWidth, pass.AreaHeight };
         }
         const Common::ResultStr<VkRenderPass> renderPass = GetRenderPass( key );
         if ( !renderPass )
@@ -1440,7 +1673,8 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
         {
             const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
-            vkCmdUpdateBuffer( m_CommandBuffer, target->GetBuffer(), offset, size, bytes.data() + offset );
+            vkCmdUpdateBuffer( m_CommandBuffer, target->GetBuffer(), target->GetOffset() + offset, size,
+                               bytes.data() + offset );
         }
         return Common::MakeSuccess( true );
     }
@@ -1457,6 +1691,7 @@ namespace Desert::Graphic::API::Vulkan
             RecordBarriers( finalBarriers );
         Release();
         m_Segments.EndGraph();
+        m_Result = nullptr;
         return Common::MakeSuccess( true );
     }
 
@@ -1466,6 +1701,10 @@ namespace Desert::Graphic::API::Vulkan
             EndRenderPass();
         while ( !m_ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
+        if ( m_SegmentScope >= 0 && m_Device.Profiler != nullptr )
+            m_Device.Profiler->EndScope( m_SegmentScope );
+        m_SegmentScope = -1;
+        m_Result       = nullptr;
         Release();
         m_Segments.AbandonGraph();
         SetRecording( VK_NULL_HANDLE );
@@ -1497,13 +1736,42 @@ namespace Desert::Graphic::API::Vulkan
         if ( !begun )
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
+        if ( begun.GetValue() != VK_NULL_HANDLE )
+            RecordSharedHeapBarrier( begun.GetValue() );
+        // The async segment's own GPU row. Only a segment that waits on a fork: the frame's query reset is
+        // recorded at the head of the graphics queue, and only a fork orders this queue after it.
+        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
+             m_Device.Profiler != nullptr && m_Result != nullptr )
+        {
+            m_SegmentScopeName = "RDG Async: " + m_Result->Passes[segment.FirstPosition].Name + " .. " +
+                                 m_Result->Passes[segment.LastPosition].Name;
+            m_SegmentScope     = m_Device.Profiler->BeginScope( m_SegmentScopeName.c_str() );
+        }
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::RecordSharedHeapBarrier( VkCommandBuffer commandBuffer )
+    {
+        if ( !m_SharedHeapBarrierPending )
+            return;
+        m_SharedHeapBarrierPending = false;
+        VkMemoryBarrier barrier{};
+        barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
     }
 
     Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )
     {
         if ( m_OpenRenderPass )
             return Common::MakeError( "a render pass is open across a segment boundary" );
+        if ( m_SegmentScope >= 0 )
+        {
+            m_Device.Profiler->EndScope( m_SegmentScope );
+            m_SegmentScope = -1;
+        }
         const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )

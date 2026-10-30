@@ -24,10 +24,16 @@ if [ -n "$NEWEST_SRC" ]; then
     echo "         rebuild first: scripts/MacOS/BuildMacOS.sh $CONFIG" >&2
 fi
 
-# Make sure the Vulkan loader finds the MoltenVK ICD and validation layers from
-# Homebrew even when the environment doesn't provide them.
+# Validation layers come from Homebrew; the MoltenVK ICD does not (below).
 BREW_PREFIX="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}"
 export VK_LAYER_PATH="${VK_LAYER_PATH:-$BREW_PREFIX/share/vulkan/explicit_layer.d}"
+
+# THE DRIVER IS THE REPO'S: the pinned MoltenVK built by scripts/MacOS/BuildMoltenVK.sh, not Homebrew's
+# molten-vk (1.4.2 warns about blending on every non-blendable colour slot, blendEnable unread). A
+# missing build is a refusal, not a fall-back to whatever driver the loader would find.
+VK_ICD_JSON="$(bash scripts/MacOS/BuildMoltenVK.sh --icd)" || exit 1
+export VK_ICD_FILENAMES="$VK_ICD_JSON"
+export VK_DRIVER_FILES="$VK_ICD_JSON"
 
 # GLFW loads the Vulkan loader with dlopen("libvulkan.1.dylib"), and dyld does
 # not search the Homebrew prefix by default.

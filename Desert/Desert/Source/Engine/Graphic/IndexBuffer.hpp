@@ -38,10 +38,28 @@ namespace Desert::Graphic
             m_Accounting.RecordBytes( bytes );
         }
 
+        // The device address of this buffer's first byte, for a shader that reads it through a buffer reference
+        // (the emissive light list's Build pass, a BLAS build input). 0: none - a device without
+        // bufferDeviceAddress (the address table is filled only with the acceleration-structure row, so a device
+        // with no hardware ray tracing has no addresses), or the buffer is not resident. Read when used, never
+        // cached across frames: a pool arena's VkBuffer changes as it grows (VulkanGeometryAddress.hpp).
+        [[nodiscard]] virtual uint64_t GetDeviceAddress() const
+        {
+            return 0;
+        }
+
         virtual unsigned int GetSize() const  = 0;
         virtual unsigned int GetCount() const = 0;
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
+
+        // A Pooled buffer's range write (blocking one-off copy, like RT_Invalidate's upload). Refused by every
+        // other usage. A Pooled buffer never grows: the GeometryPool adds a page instead.
+        [[nodiscard]] virtual Common::BoolResultStr RT_WriteRange( uint64_t /*offset*/, const void* /*data*/,
+                                                                   uint64_t /*size*/ )
+        {
+            return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
+        }
 
         static std::shared_ptr<IndexBuffer> Create( const void* data, uint32_t size,
                                                     BufferUsage usage = BufferUsage::Static );

@@ -12,6 +12,7 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
 #include <ImGui/imgui.h>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -55,9 +56,9 @@ namespace Desert::Editor
             };
 
             if ( entity.HasComponent<ECS::StaticMeshComponent>() )
-                checkMesh( entity.GetComponent<ECS::StaticMeshComponent>().MeshHandle, "static" );
+                checkMesh( entity.GetComponent<ECS::StaticMeshComponent>().GetMeshHandle(), "static" );
             if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
-                checkMesh( entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle, "skinned" );
+                checkMesh( entity.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle(), "skinned" );
 
             if ( entity.HasComponent<ECS::SkyboxComponent>() )
             {
@@ -68,9 +69,9 @@ namespace Desert::Editor
             }
         }
 
-        ToastManager::Push( m_Issues.empty() ? "Scene validation: no broken references"
-                                             : "Scene validation: " + std::to_string( m_Issues.size() ) +
-                                                    " issue(s) found",
+        ToastManager::Push( m_Issues.empty()
+                                 ? "Scene validation: no broken references"
+                                 : std::format( "Scene validation: {} issue(s) found", m_Issues.size() ),
                             m_Issues.empty() ? ToastLevel::Success : ToastLevel::Warning );
     }
 

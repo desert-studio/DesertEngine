@@ -6,15 +6,9 @@
 
 namespace Desert::Geometry
 {
-    namespace
-    {
-        // Ratios for the auto LOD chain (LOD0 = original). A level that cannot beat the previous one yields an
-        // empty set so the assembler reuses that range, keeping LOD selection monotonic.
-        constexpr float kLODRatios[] = { 0.5f, 0.25f, 0.1f };
-    } // namespace
-
     std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
-                                                       const std::vector<Index>& localTris )
+                                                       const std::vector<Index>& localTris,
+                                                       const float*              attributes )
     {
         std::vector<std::vector<Index>> levels;
         levels.reserve( sizeof( kLODRatios ) / sizeof( kLODRatios[0] ) );
@@ -31,7 +25,13 @@ namespace Desert::Geometry
         std::size_t prevCount = flat.size(); // each level must strictly decrease
         for ( float ratio : kLODRatios )
         {
-            const auto         lod = SimplifyMesh( positions, vertexCount, flat, ratio );
+            const auto lod = SimplifyMesh( positions, vertexCount, flat, ratio, kNoErrorLimit, attributes );
+            LOG_INFO(
+                 "[MeshLOD] ratio {:.2f}: target {} tris, result {} of {} tris, deviation {:.4f} of the extent{}",
+                 ratio, static_cast<std::size_t>( flat.size() * ratio ) / 3, lod.Indices.size() / 3,
+                 flat.size() / 3, lod.Error, attributes ? "" : " (positions only)" );
+            if ( !lod.StopReason.empty() )
+                LOG_WARN( "[MeshLOD] ratio {:.2f} stopped short of its target: {}", ratio, lod.StopReason );
             std::vector<Index> tris;
             if ( lod.Indices.size() >= 3 && lod.Indices.size() < prevCount )
             {
@@ -43,6 +43,15 @@ namespace Desert::Geometry
             levels.push_back( std::move( tris ) ); // empty => reuse previous at assembly
         }
         return levels;
+    }
+
+    void AppendSimplifyAttributes( const glm::vec3& normal, const glm::vec2& uv, std::vector<float>& out )
+    {
+        out.push_back( normal.x );
+        out.push_back( normal.y );
+        out.push_back( normal.z );
+        out.push_back( uv.x );
+        out.push_back( uv.y );
     }
 
     std::vector<Index> BuildLODIndexBuffer( const std::vector<Vertex>& vertices,
@@ -76,15 +85,18 @@ namespace Desert::Geometry
                     localTris.push_back( baseIndices[triStart + t] );
 
                 std::vector<float> pos;
+                std::vector<float> attrs;
                 pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
+                attrs.reserve( static_cast<size_t>( sm.VertexCount ) * kSimplifyAttributeCount );
                 for ( uint32_t v = 0; v < sm.VertexCount; ++v )
                 {
-                    const auto& p = vertices[sm.VertexOffset + v].Position;
-                    pos.push_back( p.x );
-                    pos.push_back( p.y );
-                    pos.push_back( p.z );
+                    const auto& vertex = vertices[sm.VertexOffset + v];
+                    pos.push_back( vertex.Position.x );
+                    pos.push_back( vertex.Position.y );
+                    pos.push_back( vertex.Position.z );
+                    AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
                 }
-                levels = SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
+                levels = SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, attrs.data() );
             }
 
             for ( const auto& lvl : levels )

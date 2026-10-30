@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
@@ -14,6 +16,29 @@
 
 namespace Desert::Graphic
 {
+    // The binding kind of each material property type: what Material::Get's parameter must be declared as.
+    template <typename T>
+    inline constexpr RDG::ShaderResourceKind MaterialPropertyKind = []
+    {
+        if constexpr ( std::is_same_v<T, UniformBufferProperty> )
+            return RDG::ShaderResourceKind::UniformBuffer;
+        else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
+            return RDG::ShaderResourceKind::StorageBuffer;
+        else
+        {
+            static_assert( std::is_same_v<T, Texture2DProperty> || std::is_same_v<T, TextureCubeProperty>,
+                           "a material property is a uniform block, a storage block or a texture" );
+            return RDG::ShaderResourceKind::Texture;
+        }
+    }();
+
+    // The material row block (Core::Formats::kMaterialRowBlockName) as the parameter Material::Get takes.
+    inline constexpr RDG::StorageBufferParameter kMaterialRowBlock{ Core::Formats::kMaterialRowBlockName };
+    // The instanced cells' per-instance blocks (Mesh/*Instanced shaders): the transforms and the grass blade
+    // shape.
+    inline constexpr RDG::StorageBufferParameter kInstanceTransformsBlock{ "InstanceTransforms" };
+    inline constexpr RDG::StorageBufferParameter kGrassBladeShapeBlock{ "GrassBladeShape" };
+
     // The bits of the push field PrimitiveFlags (Common/MaterialTransport.glslh, DESERT_PRIMITIVE_FLAG_*): what a
     // G-buffer draw carries about its primitive into the shading word. A set bit is the NON-default, so a draw
     // that pushes 0 is a default primitive.
@@ -98,8 +123,8 @@ namespace Desert::Graphic
         // had nowhere else to write it from.
         void SetPushMatrix( const glm::mat4& matrix );
 
-        // A VIEW pass draw's row in the view's ObjectMotions[] (Common/ObjectMotion.glslh, one row per drawn
-        // primitive, MeshRenderer::BuildObjectMotions): the push field `PrimitiveIndex`. In a view pass the push
+        // A VIEW pass draw's row in the scene's GpuScene Primitives[] (Common/GpuScene.glslh, one row per
+        // primitive, MeshRenderer::SyncGpuScene): the push field `PrimitiveIndex`. In a view pass the push
         // Transform is then the submesh's transform relative to that row's World (Renderer::RenderMesh is handed
         // the identity), so current and previous world come from one place and a still object moves by exactly 0.
         void SetPrimitiveIndex( uint32_t row );
@@ -143,32 +168,40 @@ namespace Desert::Graphic
             return m_RegisteredProperties;
         }
 
+        // A property of the cell's shader, named by its parameter (RDGShaderParameters.hpp): a struct member or a
+        // named engine constant whose kind is the property's (a block: UniformBuffer / StorageBuffer, a texture:
+        // Texture), so the name is spelled once and a property of the wrong kind does not compile. Names an
+        // asset authors (DataDrivenMaterial) reach the executor directly; engine code never looks up by string.
         template <typename T>
-        T* Get( const std::string& name ) const
+        T* Get( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
-            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
-            {
-                return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
-            }
-
-            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
-            {
-                return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
-            }
-
-            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
-            {
-                return m_MaterialExecutor->GetTexture2DProperty( name ).get();
-            }
-
-            else if constexpr ( std::is_same_v<T, TextureCubeProperty> )
-            {
-                return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
-            }
-
-            DESERT_VERIFY( false, "Unsupported MaterialProperty type" );
-            return nullptr;
+            T* found = Find<T>( parameter );
+            // A parameter that names no property of the shader is a named error, not a silent null: the caller's
+            // write would otherwise land nowhere and the slot keep its default (a renamed slot rendered black).
+            if ( found == nullptr )
+                ReportMissingProperty( parameter.SlotName() );
+            return found;
         }
+
+        // Get for a slot the shader MAY leave out (UE's FShaderParameter::IsBound probe): null, said nowhere, when
+        // the shader declares no such property. Only for a program that legitimately lacks the slot (a shadow
+        // variant without the surface's blocks); a slot the shader must have goes through Get.
+        template <typename T>
+        T* Find( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
+        {
+            const std::string name = parameter.SlotName();
+            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
+                return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
+            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
+                return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
+            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
+                return m_MaterialExecutor->GetTexture2DProperty( name ).get();
+            else
+                return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
+        }
+
+        // Logs once that @p name is not a property of this material's shader (Get's miss).
+        void ReportMissingProperty( const std::string& name ) const;
 
         const std::vector<std::string>& GetPropertyNames() const
         {
@@ -203,8 +236,11 @@ namespace Desert::Graphic
         void ClaimOwnership( ResourceOwner owner, Common::AssetHandle asset = Common::AssetHandle{} );
 
     protected:
-        // Uploads all dirty TProperty members to the matching FieldProperty/Texture slot.
-        // Exposed as protected so non-instance Bind() overrides (JFA, etc.) can flush manually.
+        // MaterialExecutor::Apply uploads the pending properties at use (UploadRegisteredProperties).
+        friend class MaterialExecutor;
+
+        // Uploads all dirty TProperty members to the matching FieldProperty/Texture slot. Called by Bind and by
+        // MaterialExecutor::Apply (upload at use), so a material drawn without Bind needs no manual flush.
         //
         // It used to hand back the set of uniform buffers it had touched, and all four callers threw
         // that set away -- an out-parameter nobody read, which is a dead parameter by any reading of
@@ -239,6 +275,8 @@ namespace Desert::Graphic
         void CachePropertyNames();
 
         std::vector<std::string>          m_PropertyNames;
+        // Slots already reported by ReportMissingProperty: each (material, name) is logged once, not per frame.
+        mutable std::unordered_set<std::string> m_ReportedMissing;
         std::unique_ptr<MaterialExecutor> m_MaterialExecutor;
         std::vector<IProperty*>           m_RegisteredProperties;
 

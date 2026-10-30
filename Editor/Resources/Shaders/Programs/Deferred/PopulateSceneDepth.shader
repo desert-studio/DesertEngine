@@ -27,15 +27,19 @@ Shader "PopulateSceneDepth"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_Depth;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(0) sampler PointClampSampler;
+        Uniform(1) texture2D SourceDepthTexture;
+        #define SourceDepthTexture sampler2D(SourceDepthTexture, PointClampSampler)
 
         Out(0) vec4 oVelocity;
 
         void main()
         {
-        	const ivec2 size  = textureSize(u_Depth, 0);
+        	const ivec2 size  = textureSize(SourceDepthTexture, 0);
         	const ivec2 texel = clamp(ivec2(v_TexCoord * vec2(size)), ivec2(0), size - ivec2(1));
-        	gl_FragDepth      = texelFetch(u_Depth, texel, 0).r;
+        	gl_FragDepth      = texelFetch(SourceDepthTexture, texel, 0).r;
         	oVelocity         = vec4(0.0);
         }
     }

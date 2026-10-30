@@ -1,5 +1,6 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFallbackTextures.hpp>
 
@@ -11,6 +12,8 @@ namespace Desert::Graphic
     {
         if ( !s_Instance )
         {
+            // The device's own, whichever view first asked for one (RT-LEDGER-4): the set outlives every view.
+            const ResourceAttributionScope owned( ResourceOwner::Device );
             switch ( RendererAPI::GetAPIType() )
             {
                 case RendererAPIType::Vulkan:

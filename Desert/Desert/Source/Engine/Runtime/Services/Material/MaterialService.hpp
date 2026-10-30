@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRootPin.hpp>
@@ -37,9 +38,16 @@ namespace Desert::Runtime
     // (Graphic::MeshShaderFor). Every template, the shipped lit surface included, is built the same way:
     // a DataDrivenMaterial of that cell, its row and textures applied from the asset. Null when the asset
     // has no template or the template has no such cell — logged with the material's name.
-    std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
-                                                                        Graphic::MeshVertexPath      path,
-                                                                        Graphic::MeshPass            pass );
+    // @p permutation is the cell program's define set (a renderer-chosen axis, e.g. the ray-traced sun shadow):
+    // the material is built over ShaderService::AcquireVariant of the cell, so its descriptor sets are allocated
+    // from THAT program's reflection. Empty = the cell as registered.
+    std::shared_ptr<Graphic::DataDrivenMaterial>
+    // @p displaced: the material draws over DISPLACED geometry (a displacement twin or a baked displaced mesh,
+    // CONTRACT-DISPLACE §1a): it takes the template's base cell even when it assigns its height map, because the
+    // relief is already in the triangles - the `.Parallax` march over it would draw the relief twice.
+    CreateSurfaceMaterial( const Assets::MaterialAsset* asset, Graphic::MeshVertexPath path,
+                           Graphic::MeshPass pass, const Core::ShaderVariant& permutation = {},
+                           bool displaced = false );
 
     // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
     // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.
@@ -76,6 +84,12 @@ namespace Desert::Runtime
         /// The manager on-demand discovery creates `.demat` shells in (AL1-4): a handle nobody registered is
         /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+        /// That manager, for a CPU reader of a material's chain (Assets::ResolveGrassCoverLookInput); null when
+        /// none is bound or it is gone.
+        [[nodiscard]] std::shared_ptr<Assets::AssetManager> LockAssetManager() const
+        {
+            return m_Assets.lock();
+        }
 
         /// THE TEMPLATE THE RENDERER'S OWN DRAWS USE, found BY ROLE and never by a name: the project's `.deproj`
         /// DefaultSurfaceTemplate when it states one, else the one loaded shader declaring `Default Surface`
@@ -97,6 +111,11 @@ namespace Desert::Runtime
         /// shadow casters. Refused naming the pair when the table has a hole there.
         [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                            Graphic::MeshPass       pass ) const;
+        /// The (path x pass) shader of the STAND-IN surface (`Role StandInSurface`, UE WorldGridMaterial): the
+        /// checker a draw shows when the material it names is broken, missing or has no cell for that pair.
+        /// Refused naming the role or the pair; a name returned may still be unregistered (the caller checks).
+        [[nodiscard]] Common::ResultStr<std::string> StandInSurfaceShader( Graphic::MeshVertexPath path,
+                                                                           Graphic::MeshPass       pass ) const;
 
         /// ONE ROW OF A CLOSURE (AL1-8b, plan §2.4(b)): start the worker read of the `.demat` @p handle names
         /// (discovered from its registry row if nobody registered it) and append the loader handle to wait on
@@ -117,9 +136,12 @@ namespace Desert::Runtime
         // The defaults are (Static, Forward) because most callers ask "does this asset resolve to a
         // material at all?" and any cell answers that; the mesh renderers pass the cell they are about to
         // draw with.
+        // @p displaced: the sibling drawn over displaced geometry (CreateSurfaceMaterial); its own variant slot,
+        // and GetVariant keeps it, so every pass of a displaced draw stays on the base cells.
         Graphic::Material*  Get( const Assets::AssetHandle& handle,
-                                 Graphic::MeshVertexPath    path = Graphic::MeshVertexPath::Static,
-                                 Graphic::MeshPass          pass = Graphic::MeshPass::Forward ) const;
+                                 Graphic::MeshVertexPath    path      = Graphic::MeshVertexPath::Static,
+                                 Graphic::MeshPass          pass      = Graphic::MeshPass::Forward,
+                                 bool                       displaced = false ) const;
         Graphic::Material*  GetByExternalHandle( const Common::UUID& handle ) const;
         Assets::AssetHandle GetAssetHandleByExternal( const Common::UUID& uuid ) const;
         void                Clear();
@@ -156,8 +178,37 @@ namespace Desert::Runtime
         // as GetVariant's sibling is (same parameters, same textures), owned here beside it: an edit reaches
         // it through GetBuiltVariants and Invalidate retires it with the rest. Null on the same terms as
         // GetVariant.
+        //
+        // `owner` scopes the copy to its asker: a renderer that binds ITS OWN buffers into the copy (a view's
+        // GPU-instanced sections, MeshRendererGpuInstanced.cpp) passes itself, so two views never share a copy
+        // and the copy dies with the view through ReleaseViewVariants. nullptr = shared by every asker.
         Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
-                                                     Graphic::MeshPass pass, uint32_t view ) const;
+                                                     Graphic::MeshPass pass, uint32_t view,
+                                                     const void* owner = nullptr ) const;
+
+        // GetViewVariant in a PERMUTATION of the cell's program (GetVariant's third axis, one per view): a view's
+        // GPU-instanced forward section under Shadows.Method VirtualMaps reads the virtual shadow map
+        // (DESERT_LOCAL_SHADOW_VSM) through its own copy. A default permutation IS GetViewVariant.
+        Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                     Graphic::MeshPass pass, uint32_t view,
+                                                     const Core::ShaderVariant& permutation,
+                                                     const void*                owner ) const;
+
+        // Destroys, NOW, every view copy GetViewVariant built for `owner` (never nullptr): the owner's teardown.
+        // Not through the graveyard, because the owner is a view member and the view's ledger check runs as
+        // the view closes — the caller guarantees the device is idle (a SceneRenderer is destroyed after
+        // WaitDeviceIdle), which is what makes the immediate destruction safe.
+        void ReleaseViewVariants( const void* owner );
+
+        // The same cell as GetVariant, in a PERMUTATION of its program: the third axis of a sibling, keyed by
+        // (path, pass, defines). A renderer picks the permutation per frame (the ray-traced sun shadow reads a
+        // screen mask in place of the cascades, Pass_Forward DESERT_SUN_SHADOW_SCREEN_MASK), and a permutation
+        // declares different resources, so it needs descriptor sets of its own — built on miss from the asset
+        // exactly as GetVariant's sibling is, owned beside it, edited and retired with it. A permutation with no
+        // defines IS GetVariant. Null on GetVariant's terms, or when the permutation does not compile (logged).
+        Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                 Graphic::MeshPass          pass,
+                                                 const Core::ShaderVariant& permutation ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and
@@ -168,6 +219,19 @@ namespace Desert::Runtime
         // slot lost that mesh entirely, because its default material has no asset and so no sibling for
         // any other pass. The caller now recognises that case and draws it with a material of its own.
         bool Owns( const Graphic::Material* material ) const;
+
+        // A service-built material whose asset bound a slot's schema default because a texture was still
+        // Pending (RebuildWhenReady). A renderer does not draw such a section — the same gate as a pipeline still
+        // in the driver: one frame of a grass variety in default textures is a cell of another colour with a
+        // straight edge (GRASS-SETTLE). False for a material the service does not own.
+        bool AwaitsTextures( const Graphic::Material* built ) const;
+
+        // How many times the asset behind this built material has been rebuilt (Invalidate: a texture that
+        // landed, a shader swap, a live edit). A cache keyed by a built material — a surface-cache card set —
+        // keys by this and not by the material's address: a rebuilt material may land at the address its
+        // predecessor was freed from, and a key of addresses then never sees the rebuild (GRASS-SETTLE: a card
+        // captured in Pending defaults never recaptured). 0 for a material the service does not own.
+        uint32_t BuildRevision( const Graphic::Material* built ) const;
 
         // Every runtime material ALREADY BUILT for this handle, one per (path, pass) cell that has been
         // asked for. Live editing has to reach all of them: a parameter edit that updated only the static
@@ -189,7 +253,8 @@ namespace Desert::Runtime
         // one, and the renderer dropped it.
         Graphic::MaterialInstancePtr
         CreateRuntimeInstance( const Assets::AssetHandle& handle,
-                               Graphic::MeshVertexPath    path = Graphic::MeshVertexPath::Static ) const;
+                               Graphic::MeshVertexPath    path      = Graphic::MeshVertexPath::Static,
+                               bool                       displaced = false ) const;
 
         // The same resolution as CreateRuntimeInstance, but delivered as NAMED VALUES instead of a runtime
         // instance — for a renderer that owns one material of its own and applies a material's parameters
@@ -230,12 +295,23 @@ namespace Desert::Runtime
         // (the skinned thumbnail).
         [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
                                                     Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
+        // The registered program name of that cell (the parallax cell when the material assigns its template's
+        // height map) - what CreateSurfaceMaterial builds the (path x pass) sibling from. CellOf is this, asked
+        // as a yes/no. For the cook, which enumerates the permutations of the program a material draws with
+        // (Graphic::System::MeshRenderer::MaterialProgramVariants).
+        [[nodiscard]] Common::ResultStr<std::string> CellShaderNameOf( const Assets::AssetHandle& handle,
+                                                                       Graphic::MeshVertexPath   path,
+                                                                       Graphic::MeshPass         pass ) const;
 
         // The material ASSET's name (its file's stem, "UI_Gradient" for UI_Gradient.demat) - what a person looks
         // for when a log line names a broken material; the shader name is shared by every material on it. Empty
         // when
         // @p handle names no material asset.
         [[nodiscard]] std::string AssetNameOf( const Assets::AssetHandle& handle ) const;
+
+        // Was @p handle's last read REFUSED (AssetBase::IsBroken)? A renderer that draws its engine default in
+        // its place says which of the three it is: still loading (IsPending), broken, or not a material at all.
+        [[nodiscard]] bool IsBroken( const Assets::AssetHandle& handle ) const;
 
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
@@ -292,6 +368,15 @@ namespace Desert::Runtime
             return m_MaterialAssets.find( handle ) != m_MaterialAssets.end();
         }
 
+        // IS @p handle's READ STILL IN FLIGHT? Get() answers null both for "pending" and for "resolves to
+        // nothing"; a caller that reports the second (a renderer falling back to its engine default) asks this
+        // first, so a material that simply has not arrived yet is not logged as missing (UE: a material still
+        // compiling draws with the default material, silently, until it is ready).
+        [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const
+        {
+            return m_Requests.contains( handle );
+        }
+
         // FORGET a material asset entirely — its runtime materials, its shell, and its entry in the
         // external -> internal map.
         //
@@ -338,24 +423,39 @@ namespace Desert::Runtime
         // axes are closed sets the renderer enumerates — a map would let a cell exist that no draw can ask
         // for. Most cells stay empty for most assets: a scene with no skinned geometry and no deferred path
         // builds exactly one material per `.demat`, because nothing ever asks for the others.
+        // x2: every (path x pass) cell once as authored and once for displaced geometry.
         static constexpr size_t kVariantCount =
-             static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount;
+             static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount * 2;
         using PathVariants                    = std::array<std::shared_ptr<Graphic::Material>, kVariantCount>;
 
-        static constexpr size_t VariantSlot( Graphic::MeshVertexPath path, Graphic::MeshPass pass )
+        static constexpr size_t VariantSlot( Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                             bool displaced = false )
         {
-            return static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
+            return ( displaced ? static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount
+                               : 0u ) +
+                   static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
         }
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
+        // Per asset: bumped by every Invalidate of it (BuildRevision).
+        std::unordered_map<Assets::AssetHandle, uint32_t>             m_BuildRevisions;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
-        // GetViewVariant's materials: per asset, one per (cell slot x view), built on first ask.
+        // GetViewVariant's and the permutation GetVariant's materials: per asset, one per (cell slot x view x
+        // defines), built on first ask. A permutation sibling is shared by every view (kEveryView).
+        static constexpr uint32_t kEveryView = ~0u;
         struct ViewVariant
         {
             size_t                                       Slot = 0;
-            uint32_t                                     View = 0;
+            uint32_t                                     View = kEveryView;
+            std::vector<std::string>                     Defines;
+            const void*                                  Owner = nullptr; // GetViewVariant's owner
             std::shared_ptr<Graphic::DataDrivenMaterial> Material;
         };
+        // The one find-or-build behind GetViewVariant and the permutation GetVariant.
+        Graphic::DataDrivenMaterial* SiblingOf( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                Graphic::MeshPass pass, uint32_t view,
+                                                const Core::ShaderVariant& permutation,
+                                                const void*                owner = nullptr ) const;
         mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
         // cache fill, not a change of what the service answers.
@@ -393,6 +493,9 @@ namespace Desert::Runtime
         // material that is on its way to the graveyard, and the pass would draw with descriptors the next
         // CollectGarbage destroys. That is why Invalidate erases here and not in CollectGarbage.
         mutable std::unordered_map<const Graphic::Material*, Assets::AssetHandle> m_BuiltToAsset;
+        // The built materials of the displaced slots (VariantSlot(.., true)): GetVariant answers their siblings
+        // from the displaced slots too. Erased with m_BuiltToAsset.
+        mutable std::unordered_set<const Graphic::Material*> m_DisplacedBuilt;
 
         // Invalidated materials awaiting safe destruction (see Invalidate/CollectGarbage).
         Assets::FrameRetireQueue<std::shared_ptr<Graphic::Material>> m_Graveyard;

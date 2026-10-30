@@ -1,34 +1,59 @@
 // Surface cell vertex path: one static mesh, its transform in the push block — the vertex stage of
 // Programs/Surface/StaticMeshLit.shader and StaticMeshGBuffer.shader, and of Programs/Shadow/Shadow.shader for the
 // depth cell of an opaque template.
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
-// white / (0,0) buffer at the same stride.
-// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
-// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
+// (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
+// DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
+// set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+// THE VIRTUAL GEOMETRY CELL (`.VirtualGeometry`, DShaderParser kSurfaceVirtualGeometryCellSuffix; a binned cell):
+// no vertex buffer - one draw instance is one visible cluster (Common/GpuScene.glslh DesertResolveVgDraw), the
+// vertex is triangle x 3 + corner of it, fetched through the cluster's DAG (Common/VirtualGeometry.glslh
+// VgFetchMeshVertex) into the very names the vertex inputs carry; the rest of this stage is the binned one.
+#define DESERT_GPU_SCENE_VIRTUAL_GEOMETRY 1
+#include <Mesh/MeshVertexAccess.glslh>
+#else
+#include <Mesh/MeshVertexInputs.glslh>
 #endif
 
 #include <Common/CameraUB.glslh>
-#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view's depth prepass (Mesh/Surface/Pass_Depth.glslh) and the base pass test each other's depth for equality:
+// one gl_Position, bit for bit, whichever cell computes it (GLSL invariance, UE's precise position).
+invariant gl_Position;
+#endif
+#ifdef DESERT_SURFACE_CASTER_PASS
 #include <Common/ShadowCasterBias.glslh>
 #endif
-#ifdef DESERT_SURFACE_VIEW_PASS
-#define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
+#if defined( DESERT_SURFACE_VIEW_PASS ) || defined( DESERT_SURFACE_BINNED )
+#define DESERT_GPU_SCENE_PRIMITIVES 1 // this stage reads its primitive's GpuScene row
 #endif
-#include <Common/ObjectMotion.glslh>
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_GPU_SCENE_DRAWS 1 // ...through its instance id: the draw pushes nothing (SurfaceTypes.glslh)
+#endif
+#include <Common/GpuScene.glslh>
+#include <Common/Velocity.glslh>
+
+#if defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) && defined( DESERT_SURFACE_PASS_VirtualShadowDepth )
+// "VSM: Raster VirtualGeometry" (MeshRenderer::AddVirtualShadowRasterPasses): one pass for every level, the level is
+// the cluster's cut view; its matrix is the level's (Common/VirtualShadowRaster.glslh's VsmFrameData, binding 53),
+// not the carrier's camera block, and the fragment stage takes the level from v_VsmLevel.
+#define DESERT_VSM_CLUSTER_RASTER 1
+#include <Common/VirtualShadowMap.glslh>
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+layout( std430, binding = kVsmFrameDataBinding ) restrict readonly buffer VsmFrameData
+{
+    VsmFrame Frame;
+    VsmLevel Levels[];
+};
+layout( location = 15 ) flat out uint v_VsmLevel;
+#endif
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 // The ONE engine push block, as the fragment stage's material row index reads it.
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
-#else
+#elif !defined( DESERT_SURFACE_BINNED )
 // The shadow pass pushes the transform alone (Programs/Shadow/Shadow.shader, 64 bytes).
 layout( push_constant ) uniform constants
 {
@@ -39,12 +64,38 @@ m_PushConstants;
 
 void main()
 {
-#ifdef DESERT_SURFACE_VIEW_PASS
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+    const DesertVgDraw vg       = DesertResolveVgDraw();
+    const uint         triangle = uint( gl_VertexIndex ) / 3u;
+    if ( triangle >= VgClusterTriangleCount( vg.Cluster ) )
+    {
+        // Past the cluster's triangles (the draw is kClusterMaxTriangles x 3 vertices): a degenerate, clipped.
+        gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 );
+        return;
+    }
+    const VgMeshVertex vertex =
+         VgFetchMeshVertex( vg.Dag, VgClusterCornerVertex( vg.Dag, vg.Cluster, triangle, uint( gl_VertexIndex ) % 3u ) );
+    const vec3 a_Position     = vertex.Position;
+    const vec3 a_Normal       = vertex.Normal;
+    const vec3 a_Tangent      = vertex.Tangent;
+    const vec3 a_Bitangent    = vertex.Bitangent;
+    const vec2 a_TextureCoord = vertex.TextureCoord;
+    const vec4 a_Color        = vertex.Color;
+    const vec2 a_TexCoord1    = vertex.TexCoord1;
+    const DesertMeshDraw draw      = vg.Draw;
+    const mat4           world     = draw.World;
+    const mat4           prevWorld = draw.PrevWorld;
+#elif defined( DESERT_SURFACE_BINNED )
+    // Binned: the instance id names the instance, its primitive and its cached draw slot (Common/GpuScene.glslh).
+    const DesertMeshDraw draw      = DesertResolveMeshDraw();
+    const mat4           world     = draw.World;
+    const mat4           prevWorld = draw.PrevWorld;
+#elif defined( DESERT_SURFACE_VIEW_PASS )
     // View pass: the object's row holds its current and previous world; Transform is the submesh's transform
     // relative to it (identical in both frames), so a still object gives PrevWorld == World bit for bit.
-    const GpuObjectMotion row       = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
-    const mat4            world     = row.World * m_PushConstants.Transform;
-    const mat4            prevWorld = row.PrevWorld * m_PushConstants.Transform;
+    const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
+    const mat4            world     = GpuScene_LocalToWorld( row ) * m_PushConstants.Transform;
+    const mat4            prevWorld = GpuScene_PrevLocalToWorld( row ) * m_PushConstants.Transform;
 #else
     const mat4 world = m_PushConstants.Transform;
 #endif
@@ -56,25 +107,38 @@ void main()
     const vec3 N             = normalize( normalMatrix * a_Normal );
     v_Surface.WorldPosition  = worldPos.xyz;
     v_Surface.Normal         = N;
-    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
 #endif
+#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
+#endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // Velocity's two clip positions, both UNJITTERED (Common/ObjectMotion.glslh DesertVelocity).
+    // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh DesertVelocity).
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevWorld * vec4( a_Position, 1.0 ) );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the transform changed since last frame.
+    v_Surface.ObjectMoved = world != prevWorld ? 1.0 : 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
-    gl_Position = cameraUB.JitteredViewProjection * worldPos;
-#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#ifdef DESERT_VSM_CLUSTER_RASTER
+    v_VsmLevel                      = vg.View;
+    const mat4 rasterViewProjection = Levels[vg.View].ViewProjection;
+#else
+    const mat4 rasterViewProjection = cameraUB.JitteredViewProjection;
+#endif
+    gl_Position = rasterViewProjection * worldPos;
+#ifdef DESERT_SURFACE_CASTER_PASS
     // The caster's slope depth bias, from the vertex normal (UE: ShadowDepthVertexShader.usf).
-    gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
+    gl_Position = ShadowCasterSlopeBias( gl_Position, rasterViewProjection,
                                          transpose( inverse( mat3( world ) ) ) * a_Normal, cameraUB.ShadowSlopeBias,
                                          cameraUB.ShadowSlopeClamp );
 #endif

@@ -45,12 +45,12 @@ namespace
     }
 
     // All five image declarations at once, which is exactly what CLD-11 asks to be shown apart.
-    // u_EnvNoise is a sampler2D and u_Radiance a samplerCube: under name matching the first would be
+    // u_EnvNoise is a sampler2D and RadianceTexture a samplerCube: under name matching the first would be
     // filed as a cube and the second as 2D, so this shader alone fails if the old rule comes back.
     const char* kAllFiveImageKinds = R"(#version 450
 layout(binding = 0) uniform sampler2D   u_EnvNoise;
 layout(binding = 1) uniform sampler3D   u_ShapeNoise;
-layout(binding = 2) uniform samplerCube u_Radiance;
+layout(binding = 2) uniform samplerCube RadianceTexture;
 layout(binding = 3, rgba8) writeonly uniform image2D u_OutSlice;
 layout(binding = 4, rgba8) writeonly uniform image3D u_OutVolume;
 
@@ -62,7 +62,7 @@ void main()
 {
     vec4 c = texture(u_EnvNoise, vec2(0.5))
            + texture(u_ShapeNoise, vec3(0.5))
-           + texture(u_Radiance, vec3(0.0, 1.0, 0.0))
+           + texture(RadianceTexture, vec3(0.0, 1.0, 0.0))
            + u_Bounds + u_Extent;
     imageStore(u_OutSlice,  ivec2(gl_GlobalInvocationID.xy), c);
     imageStore(u_OutVolume, ivec3(gl_GlobalInvocationID),    c);
@@ -82,19 +82,19 @@ TEST( ShaderReflection, FiveImageKindsLandInFiveDistinctBuckets )
     ASSERT_EQ( data.ShaderDescriptorSets.size(), 1u );
     const auto& set0 = data.ShaderDescriptorSets.at( 0 );
 
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
-    ASSERT_EQ( set0.Image3DSamplers.size(), 1u );
-    ASSERT_EQ( set0.ImageCubeSamplers.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
     ASSERT_EQ( set0.StorageImage2DSamplers.size(), 1u );
     ASSERT_EQ( set0.StorageImage3DSamplers.size(), 1u );
 
-    EXPECT_EQ( set0.Image2DSamplers.at( 0 ).Name, "u_EnvNoise" );
-    EXPECT_EQ( set0.Image3DSamplers.at( 1 ).Name, "u_ShapeNoise" );
-    EXPECT_EQ( set0.ImageCubeSamplers.at( 2 ).Name, "u_Radiance" );
+    EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "u_EnvNoise" );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_ShapeNoise" );
+    EXPECT_EQ( set0.SampledImages.at( 2 ).Name, "RadianceTexture" );
     EXPECT_EQ( set0.StorageImage2DSamplers.at( 3 ).Name, "u_OutSlice" );
     EXPECT_EQ( set0.StorageImage3DSamplers.at( 4 ).Name, "u_OutVolume" );
 
-    EXPECT_EQ( set0.Image3DSamplers.at( 1 ).BindingPoint, 1u );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).BindingPoint, 1u );
     EXPECT_EQ( set0.StorageImage3DSamplers.at( 4 ).BindingPoint, 4u );
 }
 
@@ -148,10 +148,10 @@ void main()
     ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
 
     const auto& set0 = data.ShaderDescriptorSets.at( 0 );
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
-    ASSERT_EQ( set0.ImageCubeSamplers.size(), 1u );
-    EXPECT_EQ( set0.Image2DSamplers.at( 0 ).Name, "u_EnvCubeMap" );
-    EXPECT_EQ( set0.ImageCubeSamplers.at( 1 ).Name, "u_Density" );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "u_EnvCubeMap" );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_Density" );
 }
 
 // A stage that declares an image the engine cannot bind must be reported by name and type, and must
@@ -175,20 +175,22 @@ void main() { o_Color = texture(u_Slices, vec2(0.5)); }
 
     for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
     {
-        EXPECT_TRUE( descriptorSet.Image2DSamplers.empty() ) << "set " << set;
-        EXPECT_TRUE( descriptorSet.Image3DSamplers.empty() ) << "set " << set;
-        EXPECT_TRUE( descriptorSet.ImageCubeSamplers.empty() ) << "set " << set;
+        EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
+        EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
+        EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
     }
 }
 
-// sampler2DArray is the sun's shadow cascades (one layer each): the render graph's Tex2DArray texture hands it a
-// 2D_ARRAY view at every layer count, so it shares the Image2D bucket with no diagnostic.
-TEST( ShaderReflection, BindsSampler2DArrayThroughTheImage2DBucket )
+// texture2DArray is the sun's shadow cascades (one layer each): the render graph's Tex2DArray texture hands it a
+// 2D_ARRAY view at every layer count. It is a separate texture of its own dimension, so it is never mistaken for a
+// material's 2D texture property (GetUniformImage2DModels).
+TEST( ShaderReflection, ReflectsTexture2DArrayAsItsOwnDimension )
 {
     const char* kArrayed = R"(#version 450
-layout(binding = 0) uniform sampler2DArray u_ShadowCascades;
+layout(binding = 0) uniform texture2DArray ShadowCascadesTexture;
+layout(binding = 1) uniform sampler LinearRepeatSampler;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = texture(u_ShadowCascades, vec3(0.5)); }
+void main() { o_Color = texture(sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler), vec3(0.5)); }
 )";
 
     const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
@@ -200,7 +202,12 @@ void main() { o_Color = texture(u_ShadowCascades, vec3(0.5)); }
 
     size_t found = 0;
     for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
-        found += descriptorSet.Image2DSamplers.size();
+        for ( const auto& [binding, image] : descriptorSet.SampledImages )
+        {
+            EXPECT_EQ( image.Dimension,
+                       Desert::ShaderResources::ShaderLayout::SampledImageDimension::Texture2DArray );
+            ++found;
+        }
     EXPECT_EQ( found, 1u );
 }
 
@@ -209,8 +216,8 @@ void main() { o_Color = texture(u_ShadowCascades, vec3(0.5)); }
 TEST( ShaderReflection, BindsSampler2DMSThroughTheImage2DBucket )
 {
     const char* kMultisampled = R"(#version 450
-layout(binding = 1) uniform sampler2DMS u_Depth;
-void main() { gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r; }
+layout(binding = 1) uniform sampler2DMS SourceDepthTexture;
+void main() { gl_FragDepth = texelFetch(SourceDepthTexture, ivec2(gl_FragCoord.xy), 0).r; }
 )";
 
     const auto spirv = Compile( kMultisampled, shaderc_glsl_fragment_shader );
@@ -221,8 +228,8 @@ void main() { gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r; }
 
     EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
     const auto& set0 = data.ShaderDescriptorSets[0];
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
-    EXPECT_EQ( set0.Image2DSamplers.at( 1 ).Name, "u_Depth" );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "SourceDepthTexture" );
 
     spirv_cross::CompilerGLSL compiler( spirv );
     const auto                resources = compiler.get_shader_resources();
@@ -257,7 +264,7 @@ void main() { o_Color = texture(u_Textures[1], vec2(0.5)); }
 
 // Storage 2D and storage cube deliberately share one bucket — a storage binding is written from a mip
 // view that already carries its own view type. Asserted so the sharing stays a decision, not a
-// leftover: the IBL compute chain (PanoramaToCubemap, DiffuseIrradiance, PrefilterEnvMap) depends on
+// leftover: the IBL compute chain (PanoramaToCubemap, SkyCaptureIrradiance, PrefilterEnvMap) depends on
 // an `imageCube` output continuing to land exactly where it lands today.
 TEST( ShaderReflection, StorageCubeSharesTheStorage2DBucket )
 {
@@ -286,9 +293,9 @@ void main()
 
     // ...while the sampled cube DOES move: `inputTexture` names neither "Env" nor "Cube", so the old
     // rule filed this real samplerCube as a 2D sampler. This is PrefilterEnvMap.shader, verbatim.
-    ASSERT_EQ( set0.ImageCubeSamplers.size(), 1u );
-    EXPECT_EQ( set0.ImageCubeSamplers.at( 0 ).Name, "inputTexture" );
-    EXPECT_TRUE( set0.Image2DSamplers.empty() );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "inputTexture" );
+    EXPECT_TRUE( set0.SampledImages.empty() );
 }
 
 TEST( ShaderReflection, MergesStageMasksAcrossStages )
@@ -312,9 +319,9 @@ void main() { o_Color = texture(u_Shared, vec2(0.5)); }
                       .empty() );
 
     const auto& set0 = data.ShaderDescriptorSets.at( 0 );
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u ); // one descriptor, not one per stage
+    ASSERT_EQ( set0.SampledImages.size(), 1u ); // one descriptor, not one per stage
 
-    const uint32_t stages = (uint32_t)set0.Image2DSamplers.at( 0 ).ShaderStage;
+    const uint32_t stages = (uint32_t)set0.SampledImages.at( 0 ).ShaderStage;
     EXPECT_TRUE( stages & (uint32_t)ShaderStage::Vertex );
     EXPECT_TRUE( stages & (uint32_t)ShaderStage::Fragment );
 }
@@ -338,7 +345,7 @@ TEST( ShaderReflection, ClassifiesDimensionsDirectly )
             EXPECT_EQ( kind, ShaderReflection::ImageKind::Image3D );
             EXPECT_EQ( described, "sampler3D" );
         }
-        else if ( resource.name == "u_Radiance" )
+        else if ( resource.name == "RadianceTexture" )
         {
             EXPECT_EQ( kind, ShaderReflection::ImageKind::ImageCube );
             EXPECT_EQ( described, "samplerCube" );
@@ -441,9 +448,9 @@ TEST( ShaderReflection, RefusesAUniformBufferAndASamplerOnOneBinding )
     const char* kCrossBucket = R"(#version 450
 #define FOG_PARAMS_BINDING 3
 layout(binding = FOG_PARAMS_BINDING) uniform FogParams { vec4 u_Fog; };
-layout(binding = 3) uniform sampler2D u_Depth;
+layout(binding = 3) uniform sampler2D SourceDepthTexture;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = u_Fog + texture(u_Depth, vec2(0.5)); }
+void main() { o_Color = u_Fog + texture(SourceDepthTexture, vec2(0.5)); }
 )";
 
     const auto spirv = Compile( kCrossBucket, shaderc_glsl_fragment_shader );
@@ -454,7 +461,7 @@ void main() { o_Color = u_Fog + texture(u_Depth, vec2(0.5)); }
 
     ASSERT_EQ( diagnostics.size(), 1u ) << FirstOr( diagnostics, "no diagnostic at all" );
     EXPECT_NE( diagnostics.front().find( "FogParams" ), std::string::npos ) << diagnostics.front();
-    EXPECT_NE( diagnostics.front().find( "u_Depth" ), std::string::npos ) << diagnostics.front();
+    EXPECT_NE( diagnostics.front().find( "SourceDepthTexture" ), std::string::npos ) << diagnostics.front();
     EXPECT_NE( diagnostics.front().find( "binding 3" ), std::string::npos ) << diagnostics.front();
 
     const auto bindings = ShaderReflection::BuildLayoutBindings( data.ShaderDescriptorSets.at( 0 ) );
@@ -498,8 +505,8 @@ void main() { gl_Position = texture(u_Albedo, vec2(0.5)); }
 TEST( ShaderReflection, RefusesTwoStagesNamingDifferentResourcesOnOneSlot )
 {
     const char* kVertex   = R"(#version 450
-layout(binding = 0) uniform Transform { mat4 u_ViewProjection; };
-void main() { gl_Position = u_ViewProjection[0]; }
+layout(binding = 0) uniform Transform { mat4 ViewProjection; };
+void main() { gl_Position = ViewProjection[0]; }
 )";
     const char* kFragment = R"(#version 450
 layout(binding = 0) uniform sampler2D u_Albedo;
@@ -719,4 +726,58 @@ void main() { oColor = vec4(1.0); oVelocity = vec2(0.0); }
     EXPECT_EQ( opaque[0].colorWriteMask, kRgba );
     EXPECT_EQ( opaque[1].colorWriteMask, kRgba );
     EXPECT_EQ( opaque[1].blendEnable, VK_FALSE );
+}
+
+// RT-SCENE: a shader declaring `accelerationStructureEXT` (GL_EXT_ray_query) gets an AccelerationStructures entry
+// with its set, binding, name and stage, and the set layout built from the reflection holds a binding of
+// VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR there. Red if the acceleration_structures loop in ReflectStage is
+// dropped (the TLAS binding would be missing from the layout and the descriptor write would have no slot).
+// Ray query needs SPIR-V 1.4, i.e. the Vulkan 1.2 target every ray-tracing device meets (DeviceCaps routes the
+// acceleration_structure row from 1.2).
+TEST( ShaderReflection, AnAccelerationStructureIsReflectedOnItsSetAndBinding )
+{
+    const char*             source = R"(#version 460
+#extension GL_EXT_ray_query : require
+layout(set = 1, binding = 3) uniform accelerationStructureEXT SceneColorTexture;
+layout(binding = 0, r8) writeonly uniform image2D VisibilityTexture;
+layout(local_size_x = 8, local_size_y = 8) in;
+void main()
+{
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, SceneColorTexture, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, vec3(0.0), 0.0, vec3(0.0, 1.0, 0.0), 1000.0);
+    while (rayQueryProceedEXT(q)) {}
+    float lit = rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+    imageStore(VisibilityTexture, ivec2(gl_GlobalInvocationID.xy), vec4(lit));
+}
+)";
+    shaderc::Compiler       compiler;
+    shaderc::CompileOptions options;
+    options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2 );
+    options.SetTargetSpirv( shaderc_spirv_version_1_4 );
+    const auto result =
+         compiler.CompileGlslToSpv( source, shaderc_glsl_compute_shader, "rt_scene_test.glsl", options );
+    ASSERT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success ) << result.GetErrorMessage();
+    const std::vector<uint32_t> spirv( result.begin(), result.end() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+    ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
+
+    ASSERT_EQ( data.ShaderDescriptorSets.count( 1 ), 1u );
+    const auto& set1 = data.ShaderDescriptorSets.at( 1 );
+    ASSERT_EQ( set1.AccelerationStructures.size(), 1u );
+    const auto& as = set1.AccelerationStructures.at( 3 );
+    EXPECT_EQ( as.Name, "SceneColorTexture" );
+    EXPECT_EQ( as.BindingPoint, 3u );
+    EXPECT_EQ( as.DescriptorSet, 1u );
+    EXPECT_EQ( as.ShaderStage, ShaderStage::Compute );
+    // Not misfiled as another kind.
+    EXPECT_TRUE( set1.StorageBuffers.empty() );
+    EXPECT_TRUE( set1.UniformBuffers.empty() );
+
+    const auto bindings = ShaderReflection::BuildLayoutBindings( set1 );
+    ASSERT_EQ( bindings.size(), 1u );
+    EXPECT_EQ( bindings[0].binding, 3u );
+    EXPECT_EQ( bindings[0].descriptorType, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR );
+    EXPECT_EQ( bindings[0].descriptorCount, 1u );
 }

@@ -11,6 +11,7 @@
 #include <Render2DCore/Text/Utf8.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp>
+#include <Engine/Graphic/Systems/RayTracing/TextRayTracing.hpp>
 
 #include <limits>
 
@@ -136,10 +137,21 @@ namespace Desert::ECS
                      overrides.Params.emplace_back( "EmissiveIntensity",
                                                     glm::vec4( text.EmissiveIntensity, 0, 0, 0 ) );
 
+                     // In the ray tracing scene as UE's text render component is (bVisibleInRayTracing): the glyph
+                     // quads with the label's own hit group - the SDF coverage as the any hit, the TextSDF colour
+                     // as the emission (TextRayTracing.hpp), from the values this draw carries. No shadow caster:
+                     // the raster's shadow pass has no alpha test, and the ray tracing shadow mask follows it. A
+                     // font whose atlas is not made yet has no coverage to test: the label is not traced.
+                     const bool                                traced = font->Atlas != nullptr;
+                     Graphic::RayTracing::RayTracingProgramHit rayHit =
+                          traced ? Graphic::RayTracing::TextRayHit( text.Color, text.EmissiveIntensity,
+                                                                    *font->Atlas )
+                                 : Graphic::RayTracing::RayTracingProgramHit{};
                      renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
                           static_cast<uint32_t>( entity ), text.RuntimeMesh.get(), worldTransform,
                           std::string( "TextSDF" ), std::move( overrides ), /*outlined*/ false, font->Atlas.get(),
-                          std::string( "u_SDFAtlas" ) );
+                          std::string( "SdfAtlasTexture" ), /*castShadows*/ false, /*maxDrawDistance*/ 0.0f,
+                          /*visibleInRayTracing*/ traced, std::move( rayHit ) );
                  } );
         }
 
@@ -197,7 +209,10 @@ namespace Desert::ECS
                         Vertex vtx{};
                         vtx.Position = { x, y, 0.0F };
                         vtx.Normal   = { 0.0f, 0.0f, 1.0f };
-                        vtx.TexCoord = { u, v };
+                        // The ONE mesh UV convention (ShaderProtocols/VertexInputs.hpp MeshVertexAccessGlsl):
+                        // stored V up, so the mesh vertex factory's DesertMeshTextureUV hands the atlas its
+                        // top-left V.
+                        vtx.TexCoord = { u, 1.0F - v };
                         verts.push_back( vtx );
                         mn = glm::min( mn, vtx.Position );
                         mx = glm::max( mx, vtx.Position );

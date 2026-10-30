@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <unordered_map>
 
 namespace Desert::Core::Rules
 {
@@ -55,8 +56,14 @@ namespace Desert::Core::Rules
         }
     };
 
-    [[nodiscard]] inline bool CellHolds( const PlannedCell& cell, const StreamingSource& source )
+    // A source holds a cell only on a grid it targets (TargetsGrid): a source streaming the Near grid alone does
+    // not wait for the Main cell it stands in.
+    [[nodiscard]] inline bool CellHolds( const PlannedCell& cell, const StreamingSource& source,
+                                         const WorldPartitionSerialized& partition )
     {
+        if ( !source.TargetGrids.empty() &&
+             ( cell.Grid >= partition.Grids.size() || !TargetsGrid( source, partition.Grids[cell.Grid] ) ) )
+            return false;
         const float x = source.Position.x;
         const float z = source.Position.z;
         return x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ;
@@ -64,6 +71,7 @@ namespace Desert::Core::Rules
 
     // @p state sized for @p plan (an unsized state — before the first step — has nothing resident).
     [[nodiscard]] inline StreamingAssessment AssessStreaming( const WorldPartitionPlan&        plan,
+                                                              const WorldPartitionSerialized&  partition,
                                                               const ResidencySettings&         settings,
                                                               const ResidencyState&            state,
                                                               std::span<const StreamingSource> sources )
@@ -91,7 +99,7 @@ namespace Desert::Core::Rules
             const std::size_t unit = plan.AlwaysLoaded.size() + cell;
             bool              held = false;
             for ( const StreamingSource& source : sources )
-                held = held || CellHolds( plan.Cells[cell], source );
+                held = held || CellHolds( plan.Cells[cell], source, partition );
             if ( !held )
                 continue;
             const Residency now = stateOf( unit );
@@ -104,6 +112,45 @@ namespace Desert::Core::Rules
             out.Performance = StreamingPerformance::Critical;
         return out;
     }
+
+    // HAS ONE SOURCE'S WORLD ARRIVED (UE's UWorldPartitionSubsystem::IsStreamingCompleted for one streaming
+    // source provider): the cells THE QUERY wants for that source alone — its own shapes, without the unload
+    // band the residency widens them by — counted by their state. A failed cell does not hold completion back,
+    // for the reason it does not block play (above): it is logged and retried, and waiting on it would lock a
+    // game behind a missing file. The always-loaded part is resident before Play starts and is not counted.
+    struct SourceCompletion
+    {
+        std::size_t Wanted    = 0;
+        std::size_t Activated = 0;
+        std::size_t Failed    = 0;
+
+        [[nodiscard]] bool Complete() const
+        {
+            return Activated + Failed == Wanted;
+        }
+    };
+
+    // @p state sized for @p plan (an unsized state has nothing resident). Refused as THE QUERY refuses.
+    [[nodiscard]] inline Common::ResultStr<SourceCompletion>
+    AssessSourceCompletion( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
+                            const ResidencyState& state, const StreamingSource& source )
+    {
+        auto wish = QueryStreamingCells( plan, partition, std::span<const StreamingSource>( &source, 1 ) );
+        if ( !wish )
+            return Common::MakeError<SourceCompletion>( wish.GetError() );
+        SourceCompletion out;
+        for ( const WantedCell& wanted : wish.GetValue().Cells )
+        {
+            const std::size_t unit = plan.AlwaysLoaded.size() + wanted.Cell;
+            const Residency   now  = unit < state.Units.size() ? state.Units[unit].State : Residency::Unloaded;
+            ++out.Wanted;
+            if ( now == Residency::Activated )
+                ++out.Activated;
+            else if ( now == Residency::Failed )
+                ++out.Failed;
+        }
+        return Common::MakeSuccess( out );
+    }
 } // namespace Desert::Core::Rules
 
 namespace Desert::Core
@@ -115,5 +162,8 @@ namespace Desert::Core
     {
         Rules::StreamingAssessment Assessment;
         std::uint32_t              FramesWaiting = 0; // consecutive blocked ticks; drives the overlay's motion
+        // Each enabled StreamingSourceComponent's entity (entt id) and how much of what it wants is resident,
+        // as of this tick: what a script asks with entity:streamingCellsPending().
+        std::unordered_map<std::uint32_t, Rules::SourceCompletion> Sources;
     };
 } // namespace Desert::Core

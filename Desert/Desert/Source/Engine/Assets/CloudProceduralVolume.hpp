@@ -350,9 +350,13 @@ namespace Desert::Assets
         float BlendRadiusKm = 0.06f;
 
         /// HOW MUCH OF THE WEATHER IS CLOUD, 0..1 — THE THRESHOLD OF A CONTINUOUS FIELD (COVERAGE-FIELD,
-        /// owner 10-12; Unreal's Volumetric Cloud and Nubis' weather map): the bake writes
-        /// `remap(field, 1 - Coverage, 1, 0, 1)` (CloudProceduralCoverageRemap) of one field made of the
-        /// type's bodies and the fill noise between them (CloudProceduralFillField). The bodies set only the
+        /// owner 10-12; Unreal's Volumetric Cloud and Nubis' weather map): the MARCH cuts
+        /// `remap(field, 1 - Coverage, 1, 0, 1)` (CloudProceduralCoverageRemap; CloudCoverageThreshold in
+        /// Common/CloudField.glslh) of one field the bake writes WITHOUT this value (WTH-CLOUDS) — the type's
+        /// bodies and the fill noise between them (CloudProceduralFillField). NOT A BAKE INPUT: not in the key,
+        /// not in CloudProceduralParamsEqual, so the weather moves it every frame for free. It stays here for
+        /// the CPU mirrors of the march (EvaluateCloudProceduralProfile, CloudProceduralCellCoverage,
+        /// CloudProceduralColumnKept's caller). The bodies set only the
         /// FORM and their number is the type's, never the slider's, so the bake costs the same at every
         /// Coverage. 0 is exactly empty, the sky's cover rises monotonically with it, and 1 under W = 1 is a
         /// solid deck; the weather's true zeros (CloudWeatherPresence) stay clear at EVERY setting.
@@ -819,7 +823,7 @@ namespace Desert::Assets
     std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm );
 
     /// What the march needs to read the world weather W, as the GPU block carries it (CloudGpuPayload::Weather
-    /// / u_CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
+    /// / CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
     /// down (no strength, or a painted pattern is the weather, exactly as CloudProceduralLocalWeather
     /// decides), w 1 / kCloudFarWeatherPeriodKm, x CloudFarFieldScale (the far path's own read of the same
     /// map). z is zero and unread (Graphic::kCloudUnreadSlots): the cover's softness is the bake's since
@@ -999,10 +1003,12 @@ namespace Desert::Assets
     float CloudProceduralShapeReachKm( const CloudModellingBlob& blob );
 
     /// Whether column (@p x, @p z) of the baked @p voxels shows sky or cloud under the per-slot weathers
-    /// @p slotWeather (CloudProceduralLocalWeathers): cloud when ANY voxel's winning profile survives
-    /// CloudProceduralCoverRemap by its winner's weather, as the march decides. What a census reads.
+    /// @p slotWeather (CloudProceduralLocalWeathers) at the Coverage @p coverage: cloud when ANY voxel's
+    /// winning field, cut by CloudProceduralCoverageRemap at @p coverage and then by
+    /// CloudProceduralCoverRemap with its winner's weather, survives — as the march decides (WTH-CLOUDS: the
+    /// bake no longer applies Coverage). What a census reads.
     bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x,
-                                    uint32_t z, const glm::vec4& slotWeather );
+                                    uint32_t z, const glm::vec4& slotWeather, float coverage );
 
     /**
      * @brief The same bake, reporting progress and able to be abandoned.
@@ -1022,7 +1028,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001fULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000021ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.

@@ -82,9 +82,15 @@ namespace Common::Content
     // the world cook knows a material's backend without loading the shader (WorldCells::CustomShaderFrom).
     inline constexpr std::string_view kStandardSurfaceRole =
          "StandardSurface";                                              // the batched lit backend (until MAT1a)
+    // The standard surface cut out (BlendMode Masked): what a writer that knows only "this card cuts out" states
+    // (the Collections cook); an importer reaches it through its Import contract instead.
+    inline constexpr std::string_view kStandardSurfaceMaskedRole = "StandardSurfaceMasked";
     inline constexpr std::string_view kDebugColorRole    = "DebugColor"; // the scripting flat-colour material
     inline constexpr std::string_view kTerrainRole       = "Terrain";    // a new landscape material's template
     inline constexpr std::string_view kCloudMaterialRole = "CloudMaterial"; // a new cloud material's template
+    // UE WorldGridMaterial: the world-checker stand-in a draw shows when the material it NAMES cannot draw (a
+    // particle row's broken / missing material); DefaultSurface.shader declares it.
+    inline constexpr std::string_view kStandInSurfaceRole = "StandInSurface";
 
     const IAssetHeaderFormat& ShaderCommentHeaderFormat();
 } // namespace Common::Content

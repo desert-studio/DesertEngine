@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Core/Selection/BakeNormalMapSettings.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -37,16 +38,26 @@ namespace Desert::Editor::Core
         float            Max;
         float* ( *Float )( ModelingState& ); ///< the field, when it is a float (or a float3's first component)
         int* ( *Int )( ModelingState& );     ///< the field, when it is an int
+        // A field that is neither a float nor an int - a closed choice (an enum, as its index) or a double - is
+        // read and written through these instead, and Set refuses a value the widget's list does not hold.
+        double ( *Get )( ModelingState& )                            = nullptr;
+        Common::BoolResultStr ( *Set )( ModelingState&, double )     = nullptr;
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 70> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 165> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
            []( ModelingState& s ) { return &s.GridRotation.x; }, nullptr },
          { "CubeGrid.CurrentBlockSize", "Current Block Size", "CubeGrid", 1, false, ModelingState::MinCellSize,
-           ModelingState::MaxCellSize, []( ModelingState& s ) { return &s.CellSize; }, nullptr },
+           ModelingState::MaxCellSize, nullptr, nullptr,
+           []( ModelingState& s ) { return static_cast<double>( s.CellSize() ); },
+           []( ModelingState& s, double v ) -> Common::BoolResultStr
+           {
+               s.SetCurrentBlockSize( static_cast<float>( v ) );
+               return Common::MakeSuccess( true );
+           } },
          { "CubeGrid.BlocksPerStep",    "Blocks / Step",      "CubeGrid", 1, true, 1.0f, 32.0f, nullptr,
            []( ModelingState& s ) { return &s.BlocksPerStep; } },
          { "CreateShape.Box.Width", "Width", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
@@ -153,6 +164,32 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.CreateShape.Rectangle.CornerRadius; }, nullptr },
          { "CreateShape.Rectangle.CornerSlices", "Corner Slices", "Create Shape", 1, true, 3.0f, static_cast<float>( Geometry::kMaxShapeCount ), nullptr,
            []( ModelingState& s ) { return &s.CreateShape.Rectangle.CornerSlices; } },
+         { "CreateShape.Revolve.InnerRadius", "Inner Radius", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
+           []( ModelingState& s ) { return &s.CreateShape.Revolve.InnerRadius; }, nullptr },
+         { "CreateShape.Revolve.Width", "Width", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
+           []( ModelingState& s ) { return &s.CreateShape.Revolve.Width; }, nullptr },
+         { "CreateShape.Revolve.Height", "Height", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
+           []( ModelingState& s ) { return &s.CreateShape.Revolve.Height; }, nullptr },
+         { "CreateShape.Revolve.RevolveDegrees", "Degrees", "Create Shape", 1, false, 0.1f, 360.0f,
+           []( ModelingState& s ) { return &s.CreateShape.Revolve.RevolveDegrees; }, nullptr },
+         { "CreateShape.Revolve.DegreesOffset", "Degrees Offset", "Create Shape", 1, false, -36000.0f, 36000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.Revolve.DegreesOffset; }, nullptr },
+         { "CreateShape.Revolve.Steps", "Steps", "Create Shape", 1, true, 1.0f, static_cast<float>( Geometry::kMaxShapeCount ), nullptr,
+           []( ModelingState& s ) { return &s.CreateShape.Revolve.Steps; } },
+         { "CreateShape.Spiral.SpiralRadius", "Spiral Radius", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.SpiralRadius; }, nullptr },
+         { "CreateShape.Spiral.ProfileRadius", "Profile Radius", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.ProfileRadius; }, nullptr },
+         { "CreateShape.Spiral.ProfileSlices", "Profile Slices", "Create Shape", 1, true, 3.0f, static_cast<float>( Geometry::kMaxShapeCount ), nullptr,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.ProfileSlices; } },
+         { "CreateShape.Spiral.RisePerFullRevolution", "Rise Per Revolution", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.RisePerFullRevolution; }, nullptr },
+         { "CreateShape.Spiral.RevolveDegrees", "Degrees", "Create Shape", 1, false, 0.01f, 360000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.RevolveDegrees; }, nullptr },
+         { "CreateShape.Spiral.DegreesOffset", "Degrees Offset", "Create Shape", 1, false, -36000.0f, 36000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.DegreesOffset; }, nullptr },
+         { "CreateShape.Spiral.Steps", "Steps", "Create Shape", 1, true, 1.0f, static_cast<float>( Geometry::kMaxShapeCount ), nullptr,
+           []( ModelingState& s ) { return &s.CreateShape.Spiral.Steps; } },
          { "Element.Distance",          "Distance",           "Select Elements", 1, false, -10000.0f, 10000.0f,
            []( ModelingState& s ) { return &s.ElementOpDistance; }, nullptr },
          { "Element.LoopPosition",      "Loop at",            "Select Elements", 1, false, 0.01f, 0.99f,
@@ -162,10 +199,14 @@ namespace Desert::Editor::Core
          { "Element.SubdivideLevels",   "Levels",             "Select Elements", 1, true, 1.0f,
            static_cast<float>( Geometry::kMaxSubdivisionLevel ), nullptr,
            []( ModelingState& s ) { return &s.ElementSubdivide.Level; } },
-         { "Element.SimplifyPercentage", "Percentage",        "Select Elements", 1, false, 1.0f, 100.0f,
-           []( ModelingState& s ) { return &s.ElementSimplify.Percentage; }, nullptr },
-         { "Element.SimplifyVertexCount", "Vertex Count",     "Select Elements", 1, true, 3.0f, 1.0e6f, nullptr,
-           []( ModelingState& s ) { return &s.ElementSimplify.VertexCount; } },
+         { "Element.SubdivideScheme",   "Scheme",             "Select Elements", 1, true,
+           0.0f, 2.0f, nullptr, nullptr,
+           []( ModelingState& s ) { return static_cast<double>( s.ElementSubdivide.Scheme ); },
+           []( ModelingState& s, double v ) -> Common::BoolResultStr
+           {
+               s.ElementSubdivide.Scheme = static_cast<Geometry::SubdivisionScheme>( static_cast<int>( v ) );
+               return Common::MakeSuccess( true );
+           } },
          { "PlaneCut.Offset",           "Offset",             "Plane Cut", 1, false, -100000.0f, 100000.0f,
            []( ModelingState& s ) { return &s.ElementPlaneCutOffset; }, nullptr },
          { "XForm.PivotWorldPoint",     "World Point",        "XForm", 3, false, -1.0e6f, 1.0e6f,
@@ -184,6 +225,206 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.XformPattern.SpacingB; }, nullptr },
          { "Pattern.SweepDegrees",      "Sweep",              "Pattern", 1, false, -360.0f, 360.0f,
            []( ModelingState& s ) { return &s.XformPattern.SweepDegrees; }, nullptr },
+         { "AutoUV.MaxNormalDeviation", "Max Normal Deviation", "AutoUV", 1, false, 1.0f, 180.0f,
+           []( ModelingState& s ) { return &s.UVAuto.MaxNormalDeviationDeg; }, nullptr },
+         { "AutoUV.PackingResolution",  "Packing Resolution", "AutoUV", 1, true, 16.0f, 4096.0f, nullptr,
+           []( ModelingState& s ) { return &s.UVAuto.PackingResolution; } },
+         { "UVProject.Dimensions",      "Dimensions",         "UV Project", 3, false, 0.001f, 1.0e6f,
+           []( ModelingState& s ) { return &s.UVProject.Dimensions.x; }, nullptr },
+         { "UVProject.CenterOffset",    "Center Offset",      "UV Project", 3, false, -1.0e6f, 1.0e6f,
+           []( ModelingState& s ) { return &s.UVProject.CenterOffset.x; }, nullptr },
+         { "UVProject.Rotation",        "Rotation",           "UV Project", 3, false, -360.0f, 360.0f,
+           []( ModelingState& s ) { return &s.UVProject.RotationDeg.x; }, nullptr },
+         { "UVProject.CylinderSplitAngle", "Cylinder Split Angle", "UV Project", 1, false, 0.0f, 90.0f,
+           []( ModelingState& s ) { return &s.UVProject.CylinderSplitAngle; }, nullptr },
+         { "UVProject.UVRotation",      "UV Rotation",        "UV Project", 1, false, -360.0f, 360.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVRotationDeg; }, nullptr },
+         { "UVProject.UVScaleU",        "UV Scale U",         "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVScale.x; }, nullptr },
+         { "UVProject.UVScaleV",        "UV Scale V",         "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVScale.y; }, nullptr },
+         { "UVProject.UVTranslateU",    "UV Translate U",     "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVTranslate.x; }, nullptr },
+         { "UVProject.UVTranslateV",    "UV Translate V",     "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVTranslate.y; }, nullptr },
+         { "UVUnwrap.PackingResolution", "Packing Resolution", "UV Unwrap", 1, true, 16.0f, 4096.0f, nullptr,
+           []( ModelingState& s ) { return &s.UVUnwrap.PackingResolution; } },
+         { "UVTransform.ScaleU",        "Scale U",            "UV Transform", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVTransform.Scale.x; }, nullptr },
+         { "UVTransform.ScaleV",        "Scale V",            "UV Transform", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVTransform.Scale.y; }, nullptr },
+         { "UVTransform.Rotation",      "Rotation",           "UV Transform", 1, false, -360.0f, 360.0f,
+           []( ModelingState& s ) { return &s.UVTransform.RotationDeg; }, nullptr },
+         { "UVTransform.TranslateU",    "Translate U",        "UV Transform", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVTransform.Translation.x; }, nullptr },
+         { "UVTransform.TranslateV",    "Translate V",        "UV Transform", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVTransform.Translation.y; }, nullptr },
+         { "UVTransform.ManualPivotU",  "Manual Pivot U",     "UV Transform", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVTransform.ManualPivot.x; }, nullptr },
+         { "UVTransform.ManualPivotV",  "Manual Pivot V",     "UV Transform", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVTransform.ManualPivot.y; }, nullptr },
+         { "UVLayout.TextureResolution", "Texture Resolution", "UV Layout", 1, true, 16.0f, 4096.0f, nullptr,
+           []( ModelingState& s ) { return &s.UVLayout.TextureResolution; } },
+         { "UVLayout.Scale",            "Scale",              "UV Layout", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVLayout.Scale; }, nullptr },
+         { "UVLayout.TranslateU",       "Translate U",        "UV Layout", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVLayout.Translation.x; }, nullptr },
+         { "UVLayout.TranslateV",       "Translate V",        "UV Layout", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVLayout.Translation.y; }, nullptr },
+         { "Smooth.SmoothingPerStep",   "Smoothing Per Step", "Smooth", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSmooth.SmoothingPerStep; }, nullptr },
+         { "Smooth.Steps",              "Steps",              "Smooth", 1, true, 1.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformSmooth.Steps; } },
+         { "Smooth.Smoothness",         "Smoothness",         "Smooth", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSmooth.Smoothness; }, nullptr },
+         { "Smooth.VolumeCorrection",   "Volume Correction",  "Smooth", 1, false, 0.0f, 10.0f,
+           []( ModelingState& s ) { return &s.DeformSmooth.VolumeCorrection; }, nullptr },
+         { "Offset.Distance",           "Distance",           "Offset", 1, false, -10000.0f, 10000.0f,
+           []( ModelingState& s ) { return &s.DeformOffset.Distance; }, nullptr },
+         { "Offset.Steps",              "Steps",              "Offset", 1, true, 1.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformOffset.Steps; } },
+         { "Offset.SmoothingPerStep",   "Smoothing Per Step", "Offset", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformOffset.SmoothingPerStep; }, nullptr },
+         { "Offset.Smoothness",         "Smoothness",         "Offset", 1, false, 0.0f, 100.0f,
+           []( ModelingState& s ) { return &s.DeformOffset.Smoothness; }, nullptr },
+         { "Warp.UpperBound",           "Upper Bound",        "Warp", 1, false, 0.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.UpperBound; }, nullptr },
+         { "Warp.LowerBound",           "Lower Bound",        "Warp", 1, false, -100000.0f, 0.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.LowerBound; }, nullptr },
+         { "Warp.BendDegrees",          "Bend Degrees",       "Warp", 1, false, -3600.0f, 3600.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.BendDegrees; }, nullptr },
+         { "Warp.TwistDegrees",         "Twist Degrees",      "Warp", 1, false, -3600.0f, 3600.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.TwistDegrees; }, nullptr },
+         { "Warp.FlarePercentY",        "Flare Percent Y",    "Warp", 1, false, -1000.0f, 2000.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.FlarePercentY; }, nullptr },
+         { "Warp.FlarePercentX",        "Flare Percent X",    "Warp", 1, false, -1000.0f, 2000.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.FlarePercentX; }, nullptr },
+         { "Warp.GizmoX",               "Gizmo X",            "Warp", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.WarpGizmo[3].x; }, nullptr },
+         { "Warp.GizmoY",               "Gizmo Y",            "Warp", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.WarpGizmo[3].y; }, nullptr },
+         { "Warp.GizmoZ",               "Gizmo Z",            "Warp", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.WarpGizmo[3].z; }, nullptr },
+         { "Lattice.XAxisResolution",   "X Axis Resolution",  "Lattice", 1, true, 2.0f, 25.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformLattice.XResolution; } },
+         { "Lattice.YAxisResolution",   "Y Axis Resolution",  "Lattice", 1, true, 2.0f, 25.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformLattice.YResolution; } },
+         { "Lattice.ZAxisResolution",   "Z Axis Resolution",  "Lattice", 1, true, 2.0f, 25.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformLattice.ZResolution; } },
+         { "Lattice.GizmoX",            "Gizmo X",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[3].x; }, nullptr },
+         { "Lattice.GizmoY",            "Gizmo Y",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[3].y; }, nullptr },
+         { "Lattice.GizmoZ",            "Gizmo Z",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[3].z; }, nullptr },
+         // The gizmo's axis lengths (its scale handles): the selected points scale about the gizmo by the change.
+         { "Lattice.GizmoScaleX",       "Gizmo Scale X",      "Lattice", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[0].x; }, nullptr },
+         { "Lattice.GizmoScaleY",       "Gizmo Scale Y",      "Lattice", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[1].y; }, nullptr },
+         { "Lattice.GizmoScaleZ",       "Gizmo Scale Z",      "Lattice", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[2].z; }, nullptr },
+         { "Normals.SharpEdgeAngleThreshold", "Sharp Edge Angle Threshold", "Normals", 1, false, 0.0f, 180.0f,
+           []( ModelingState& s ) { return &s.AttribNormals.SharpEdgeAngleThreshold; }, nullptr },
+         // VoxWrap (UE UVoxelProperties + UVoxelSolidifyMeshesToolProperties).
+         { "VoxWrap.WindingThreshold",  "Winding Threshold",  "VoxWrap", 1, false, -10.0f, 10.0f,
+           []( ModelingState& s ) { return &s.VoxWrap.WindingThreshold; }, nullptr },
+         { "VoxWrap.VoxelCount",        "Voxel Count",        "VoxWrap", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxWrap.VoxelCount; } },
+         { "VoxWrap.ExtendBounds",      "Extend Bounds",      "VoxWrap", 1, false, 0.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxWrap.ExtendBounds; }, nullptr },
+         { "VoxWrap.SurfaceSearchSteps", "Surface Search Steps", "VoxWrap", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxWrap.SurfaceSearchSteps; } },
+         { "VoxWrap.ThickenShells",     "Thicken Shells",     "VoxWrap", 1, false, 0.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxWrap.ShellThickness; }, nullptr },
+         // VoxBoolean (UE UVoxelProperties).
+         { "VoxBoolean.VoxelCount",     "Voxel Count",        "VoxBoolean", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBoolean.VoxelCount; } },
+         { "VoxBoolean.SurfaceSearchSteps", "Surface Search Steps", "VoxBoolean", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBoolean.SurfaceSearchSteps; } },
+         // VoxMorph (UE UVoxelMorphologyMeshesToolProperties + UVoxelProperties).
+         { "VoxMorph.Distance",         "Distance",           "VoxMorph", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxMorph.Distance; }, nullptr },
+         { "VoxMorph.VoxelCount",       "Voxel Count",        "VoxMorph", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxMorph.VoxelCount; } },
+         { "VoxMorph.SurfaceSearchSteps", "Surface Search Steps", "VoxMorph", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxMorph.SurfaceSearchSteps; } },
+         // VoxBlend (UE UVoxelBlendMeshesToolProperties + UVoxelProperties).
+         { "VoxBlend.BlendFalloff",     "Blend Falloff",      "VoxBlend", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxBlend.BlendFalloff; }, nullptr },
+         { "VoxBlend.BlendPower",       "Blend Power",        "VoxBlend", 1, false, 0.1f, 10.0f,
+           []( ModelingState& s ) { return &s.VoxBlend.BlendPower; }, nullptr },
+         { "VoxBlend.VoxelCount",       "Voxel Count",        "VoxBlend", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBlend.VoxelCount; } },
+         { "VoxBlend.SurfaceSearchSteps", "Surface Search Steps", "VoxBlend", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBlend.SurfaceSearchSteps; } },
+         // The Bake palette (ModelingPanel::DrawBakePalette): its settings are Core::BakeNormalMapSettings(),
+         // shared with the Modeling / Bake Normal Map command, not a ModelingState field.
+         { "Bake.Resolution",           "Resolution",         "Bake", 1, true, 256.0f, 4096.0f, nullptr, nullptr,
+           []( ModelingState& ) { return static_cast<double>( BakeNormalMapSettings().Settings.Resolution ); },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               const int resolution = static_cast<int>( v );
+               if ( resolution != 256 && resolution != 512 && resolution != 1024 && resolution != 2048 &&
+                    resolution != 4096 )
+                   return Common::MakeFormattedError<bool>(
+                        "'Bake.Resolution' = {} is not on the panel's list (256, 512, 1024, 2048, 4096)", resolution );
+               BakeNormalMapSettings().Settings.Resolution = resolution;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.ProjectionDistance",   "Projection Distance", "Bake", 1, false, 0.001f, 1.0e6f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.ProjectionDistance; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               BakeNormalMapSettings().Settings.ProjectionDistance = v;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.Gutter",               "Gutter",             "Bake", 1, true, 0.0f, 64.0f, nullptr,
+           []( ModelingState& ) { return &BakeNormalMapSettings().Settings.GutterTexels; } },
+         { "Bake.AmbientOcclusion",     "Ambient Occlusion",  "Bake", 1, true, 0.0f, 1.0f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.Occlusion ? 1.0 : 0.0; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               if ( v != 0.0 && v != 1.0 )
+                   return Common::MakeFormattedError<bool>( "Bake.AmbientOcclusion is 0 or 1, not {}", v );
+               BakeNormalMapSettings().Settings.Occlusion = v == 1.0;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.OcclusionRays",        "Occlusion Rays",     "Bake", 1, true, 1.0f, 1024.0f, nullptr,
+           []( ModelingState& ) { return &BakeNormalMapSettings().Settings.OcclusionRays; } },
+         { "Bake.Curvature",            "Curvature",          "Bake", 1, true, 0.0f, 1.0f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.Curvature ? 1.0 : 0.0; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               if ( v != 0.0 && v != 1.0 )
+                   return Common::MakeFormattedError<bool>( "Bake.Curvature is 0 or 1, not {}", v );
+               BakeNormalMapSettings().Settings.Curvature = v == 1.0;
+               return Common::MakeSuccess( true );
+           } },
+         { "Sculpt.BrushSize",          "Brush Size",         "Sculpt", 1, false, 0.1f, 1.0e5f,
+           []( ModelingState& s ) { return &s.Sculpt.Radius; }, nullptr },
+         { "Sculpt.Strength",           "Strength",           "Sculpt", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.Sculpt.Strength; }, nullptr },
+         { "Sculpt.Falloff",            "Falloff",            "Sculpt", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.Sculpt.Falloff; }, nullptr },
+         { "Sculpt.Spacing",            "Spacing",            "Sculpt", 1, false, 0.01f, 4.0f,
+           []( ModelingState& s ) { return &s.Sculpt.Spacing; }, nullptr },
+         { "DynamicSculpt.EdgeLength",  "Edge Length",        "Sculpt", 1, false, 0.01f, 1.0e4f,
+           []( ModelingState& s ) { return &s.DynamicSculptTopology.TargetEdgeLength; }, nullptr },
+         { "Simplify.Percentage",       "Percentage",         "Simplify", 1, false, 1.0f, 100.0f,
+           []( ModelingState& s ) { return &s.MeshSimplify.Percentage; }, nullptr },
+         { "Simplify.TargetCount",      "Target Count",       "Simplify", 1, true, 3.0f, 1.0e6f, nullptr,
+           []( ModelingState& s ) { return &s.MeshSimplify.TargetCount; } },
+         { "Simplify.TargetEdgeLength", "Target Edge Length", "Simplify", 1, false, 0.01f, 1.0e4f,
+           []( ModelingState& s ) { return &s.MeshSimplify.TargetEdgeLength; }, nullptr },
+         { "Remesh.TargetTriangleCount", "Target Triangle Count", "Remesh", 1, true, 1.0f, 1.0e6f, nullptr,
+           []( ModelingState& s ) { return &s.MeshRemesh.TargetTriangleCount; } },
+         { "Remesh.TargetEdgeLength",   "Target Edge Length", "Remesh", 1, false, 0.01f, 1.0e4f,
+           []( ModelingState& s ) { return &s.MeshRemesh.TargetEdgeLength; }, nullptr },
+         { "Remesh.SmoothingStrength",  "Smoothing Strength", "Remesh", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.MeshRemesh.SmoothingStrength; }, nullptr },
+         { "Remesh.Iterations",         "Remesh Iterations",  "Remesh", 1, true, 0.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.MeshRemesh.RemeshIterations; } },
     } };
     // clang-format on
 
@@ -200,7 +441,9 @@ namespace Desert::Editor::Core
             property.Components = row.Components;
             property.Min        = row.Min;
             property.Max        = row.Max;
-            if ( row.Integer )
+            if ( row.Get )
+                property.Value[0] = static_cast<float>( row.Get( state ) );
+            else if ( row.Integer )
                 property.Value[0] = static_cast<float>( *row.Int( state ) );
             else
                 for ( int i = 0; i < row.Components; ++i )
@@ -225,13 +468,13 @@ namespace Desert::Editor::Core
                     return Common::MakeFormattedError<bool>(
                          "'{}' = {} is outside the panel's range [{}, {}]; the widget cannot hold it either",
                          property, v, row.Min, row.Max );
+            if ( row.Integer && value[0] != std::floor( value[0] ) )
+                return Common::MakeFormattedError<bool>( "'{}' is a whole number and was given {}", property,
+                                                         value[0] );
+            if ( row.Set )
+                return row.Set( state, static_cast<double>( value[0] ) );
             if ( row.Integer )
-            {
-                if ( value[0] != std::floor( value[0] ) )
-                    return Common::MakeFormattedError<bool>( "'{}' is a whole number and was given {}", property,
-                                                             value[0] );
                 *row.Int( state ) = static_cast<int>( value[0] );
-            }
             else
                 for ( int i = 0; i < row.Components; ++i )
                     row.Float( state )[i] = value[static_cast<std::size_t>( i )];

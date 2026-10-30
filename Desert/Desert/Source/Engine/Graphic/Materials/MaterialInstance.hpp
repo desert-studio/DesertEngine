@@ -46,6 +46,11 @@ namespace Desert::Graphic
 
         // What the render path reads. Parallel to Owned, and rebuilt with it — never separately.
         std::vector<MaterialInstance*> Slots;
+
+        // The same slots for a draw over DISPLACED geometry (MaterialService displaced siblings: base cells, no
+        // parallax march - CONTRACT-DISPLACE §1a). Built with this binding when the mesh is displaced
+        // (Mesh::IsDisplaced), null otherwise; MeshRenderer::ApplyDisplacement swaps it in with the twin.
+        std::shared_ptr<const MaterialSlotBinding> Displaced;
     };
 
     using MaterialSlotBindingPtr = std::shared_ptr<const MaterialSlotBinding>;

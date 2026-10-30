@@ -167,7 +167,9 @@ namespace Desert::ShaderResources
 
             for ( const auto& model : models )
             {
-                AddImageCube( UniformImageCube::Create( model.Name, model.BindingPoint ), model.Name );
+                auto uniform              = UniformImageCube::Create( model.Name, model.BindingPoint );
+                uniform->m_SamplerBinding = model.SamplerBindingPoint;
+                AddImageCube( std::move( uniform ), model.Name );
             }
         }
 
@@ -179,7 +181,9 @@ namespace Desert::ShaderResources
 
             for ( const auto& model : models )
             {
-                AddImage2D( UniformImage2D::Create( model.Name, model.BindingPoint ), model.Name );
+                auto uniform              = UniformImage2D::Create( model.Name, model.BindingPoint );
+                uniform->m_SamplerBinding = model.SamplerBindingPoint;
+                AddImage2D( std::move( uniform ), model.Name );
             }
         }
     }

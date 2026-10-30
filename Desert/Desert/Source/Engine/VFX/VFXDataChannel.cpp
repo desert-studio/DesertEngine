@@ -1,6 +1,7 @@
 #include "VFXDataChannel.hpp"
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -225,15 +226,29 @@ namespace Desert::VFX
         }
         if ( !named )
         {
-            std::error_code ec;
-            if ( !std::filesystem::is_regular_file( path.GetValue(), ec ) )
-                return Common::MakeFormattedError<bool>( "no VFX data channel asset is named '{}' (looked in the "
-                                                         "asset manager and for {})",
-                                                         std::string( name ), path.GetValue().generic_string() );
-            named = assets.CreateAsset<Assets::VFXDataChannelAsset>( path.GetValue() );
+            // Not loaded yet: the content registry has a row for every `.dfxch` under the VFX root, in any folder
+            // (VFX/Channels/ is where the project keeps them), and the channel is the one whose file is named so.
+            std::filesystem::path file;
+            for ( const std::filesystem::path& row :
+                  Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::VFXDataChannel ) )
+            {
+                if ( row.stem().string() != name )
+                    continue;
+                if ( !file.empty() )
+                    return Common::MakeFormattedError<bool>(
+                         "two VFX data channel assets are named '{}' ({} and {}); a script names one channel",
+                         std::string( name ), file.generic_string(), row.generic_string() );
+                file = row;
+            }
+            if ( file.empty() )
+                return Common::MakeFormattedError<bool>(
+                     "no VFX data channel asset is named '{}' (looked in the asset manager and the content "
+                     "registry's {} files)",
+                     std::string( name ), path.GetValue().extension().string() );
+            named = assets.CreateAsset<Assets::VFXDataChannelAsset>( file );
             if ( !named )
                 return Common::MakeFormattedError<bool>( "VFX data channel asset '{}' did not load ({})",
-                                                         std::string( name ), path.GetValue().generic_string() );
+                                                         std::string( name ), file.generic_string() );
         }
         return Register( *named );
     }

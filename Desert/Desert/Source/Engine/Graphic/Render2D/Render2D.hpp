@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Render2D/PreparedDraws.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialCache.hpp>
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -47,7 +48,11 @@ namespace Desert::Graphic::Render2D
 
         // (Re)creates the pipeline against @p target (the scene HDR framebuffer, composited via a load pass).
         // Call after every Scene::Init — the framebuffers are recreated there. Idempotent.
-        Common::BoolResultStr Init( const std::shared_ptr<Framebuffer>& target );
+        // @p view: the ledger instance of the view this UI is drawn for (SceneRenderer::GetLedgerInstance). Every
+        // GPU object this renderer creates — buffers, executors, retained-layer targets and their renderers — is
+        // that view's row (RT-LEDGER-4, lead decision), so the view's budget holds its UI and closing the view
+        // after this renderer is gone finds none of them. Pipelines are the device's (IPipeline).
+        Common::BoolResultStr Init( const std::shared_ptr<Framebuffer>& target, ResourceOwnerInstance view );
 
         bool IsInitialized() const
         {
@@ -74,7 +79,7 @@ namespace Desert::Graphic::Render2D
         }
 
         // Upload the recorded geometry and draw it into the current render pass. No-op when nothing was recorded.
-        // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as u_Backdrop through
+        // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as BackdropTexture through
         // RDG::PassBindings over @p context, the UI node's context) at up to its coarsest mip, read from the
         // texture's own description (PassContext::GetTextureDesc); with an invalid ref (no blur this frame) they
         // draw as a flat tinted panel. Every batch is drawn through Renderer::DrawIndexed over @p context; the
@@ -88,7 +93,7 @@ namespace Desert::Graphic::Render2D
         // order (Flush opens block n for its n-th drawn command), each against the layout of the pipeline it
         // draws with and the route fill of its executor. The executors are filled here (a UI material's row,
         // push matrix and index; a 2D batch's projection), so the block validation sees what the draw will
-        // carry. A glass command declares u_Backdrop (@p backdrop, LinearClamp, every mip) and its push block.
+        // carry. A glass command declares BackdropTexture (@p backdrop, LinearClamp, every mip) and its push block.
         // Called after the canvas walk recorded this frame's draw list, before Flush, with the same backdrop.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef backdrop );
         void DeclareBindings( RenderPassDeclaration& declared, RDG::TextureRef backdrop );
@@ -137,6 +142,13 @@ namespace Desert::Graphic::Render2D
         }
 
     private:
+        // Rows opened while the returned scope lives are the view's this renderer draws for (Init's @p view).
+        // C++17 guaranteed elision returns the pinned scope.
+        [[nodiscard]] ResourceAttributionScope OpenLedgerScope() const
+        {
+            return ResourceAttributionScope( ResourceOwner::UserInterface, m_LedgerView );
+        }
+
         // One pooled layer target: an RGBA8 framebuffer (its colour image is what the graph imports; its render
         // pass is what the layer renderer's pipelines are built against), the graph-external record of that image
         // for the graph being built, and the Render2D that draws the layer. Sizes are rounded up to
@@ -229,7 +241,7 @@ namespace Desert::Graphic::Render2D
         // executor owns its own descriptor set, so switching textures across batches never overwrites a live
         // binding. @p sampler is the shader's sampler2D name the texture is bound to.
         MaterialExecutor* ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
-                                       const char* sampler, const void* texture, Image2D* image );
+                                       RDG::TextureParameter property, const void* texture, Image2D* image );
 
         std::shared_ptr<Shader>           m_Shader;      // UI2D  (solid / image)
         std::shared_ptr<Shader>           m_TextShader;  // UIText (SDF glyphs)
@@ -245,6 +257,8 @@ namespace Desert::Graphic::Render2D
         std::shared_ptr<IndexBuffer>      m_IndexBuffer;
         uint32_t                          m_VertexCapacity = 0;
         uint32_t                          m_IndexCapacity  = 0;
+        // The view this UI is drawn for (Init); every row this renderer opens carries it.
+        ResourceOwnerInstance m_LedgerView;
 
         std::shared_ptr<Texture2D> m_WhiteTexture;
         Image2D*                   m_WhiteImage = nullptr;
@@ -253,7 +267,7 @@ namespace Desert::Graphic::Render2D
 
         ExecutorCache m_Executors;     // UI2D, keyed by bound Image2D* (null => white)
         ExecutorCache m_TextExecutors; // UIText, keyed by font atlas Image2D*
-        // UIRetainer with the engine's white image written to u_Mask (an unmasked composite; the layer itself and
+        // UIRetainer with the engine's white image written to MaskLayerTexture (an unmasked composite; the layer itself and
         // a mask layer are graph textures bound through RDG::PassBindings). One entry, keyed by null.
         ExecutorCache m_RetainerExecutors;
 

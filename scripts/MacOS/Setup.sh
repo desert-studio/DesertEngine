@@ -25,7 +25,7 @@ fail() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. Homebrew packages: build tools + Vulkan (MoltenVK) + shader toolchain
+# 1. Homebrew packages: build tools + Vulkan loader/layers + shader toolchain (MoltenVK: step 3b)
 # ---------------------------------------------------------------------------
 if ! command -v brew >/dev/null 2>&1; then
     echo "Homebrew is required. Install it from https://brew.sh and re-run this script." >&2
@@ -37,10 +37,8 @@ BREW_PACKAGES=(
     cmake                   # used by some third-party builds
     vulkan-headers          # <vulkan/vulkan.h>
     vulkan-loader           # libvulkan.dylib
-    molten-vk               # Vulkan-over-Metal driver (ICD)
     vulkan-validationlayers # VK_LAYER_KHRONOS_validation (Debug builds)
     shaderc                 # libshaderc_combined.a — runtime GLSL compilation
-    spirv-cross             # SPIR-V reflection/translation
     assimp                  # model importing (Editor, FbxMeshSplitter)
     googletest              # unit tests (optional, --with-tests builds)
     # A BUILD DEPENDENCY, NOT A CONVENIENCE. The test suites compile engine translation units into
@@ -240,11 +238,27 @@ clone_dep "$ROOT/ThirdParty/optick/src/optick.h" \
     "$ROOT/ThirdParty/optick" \
     https://github.com/bombomby/optick.git
 
-# meshoptimizer (mesh simplification / LOD generation).
+# meshoptimizer (mesh simplification / LOD generation), pinned to v1.3 - the version
+# BuildScripts/ThirdParty/MeshOptimizer.lua checks. A tree holding another version is re-fetched.
+MESHOPT_DIR="$ROOT/ThirdParty/meshoptimizer"
+if [ -f "$MESHOPT_DIR/src/meshoptimizer.h" ] &&
+    ! grep -q "define MESHOPTIMIZER_VERSION 1030" "$MESHOPT_DIR/src/meshoptimizer.h"; then
+    echo "--- ThirdParty/meshoptimizer: not v1.3, re-fetching"
+    rm -rf "$MESHOPT_DIR"
+fi
 clone_dep "$ROOT/ThirdParty/meshoptimizer/src/meshoptimizer.h" \
     "$ROOT/ThirdParty/meshoptimizer" \
     https://github.com/zeux/meshoptimizer.git \
-    v0.20
+    v1.3
+
+# ---------------------------------------------------------------------------
+# 3b. MoltenVK, the Vulkan-over-Metal ICD, built from source at the commit pinned in
+#     scripts/MacOS/BuildMoltenVK.sh (Run*.sh export its ICD json; nothing falls back to Homebrew's).
+#     CI never creates a Vulkan device (it compiles, it does not render), so it does not pay the ~20 min
+#     Xcode build of a driver it would never load.
+if [ -z "${CI:-}" ]; then
+    bash "$ROOT/scripts/MacOS/BuildMoltenVK.sh"
+fi
 
 # ---------------------------------------------------------------------------
 # 4. reflect-cpp compiled sources. The vendored include/ headers are reflect-cpp
@@ -271,6 +285,16 @@ else
         fail "git clone reflect-cpp v0.19.0"
     fi
     rm -rf "$TMP_RCPP"
+fi
+
+# ---------------------------------------------------------------------------
+# 4b. Vendor runtime binaries, DOWNLOADED and SHA-256-checked, never committed:
+#     the manifests whose Platform is macos (ThirdParty/OIDN/manifest.macos.json:
+#     Intel Open Image Denoise, PathTracing.Denoiser OIDN). Idempotent.
+# ---------------------------------------------------------------------------
+echo "--- Vendor runtime binaries"
+if ! python3 "$ROOT/scripts/Windows/FetchVendorBinaries.py"; then
+    fail "python3 scripts/Windows/FetchVendorBinaries.py (OIDN runtime)"
 fi
 
 # ---------------------------------------------------------------------------

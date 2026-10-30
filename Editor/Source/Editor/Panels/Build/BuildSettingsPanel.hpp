@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <atomic>
 #include <string>

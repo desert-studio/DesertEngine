@@ -70,6 +70,13 @@ namespace Desert::Editor
     inline constexpr const char* kViewportCameraPosition  = "Camera.Position";
     inline constexpr const char* kViewportCameraDirection = "Camera.Direction";
     inline constexpr const char* kViewportCameraFOV       = "Camera.FOV";
+    // DebugViewState::ValidateGpuCulling of the viewport (the "Validate GPU Culling" checkbox): 0 or 1.
+    inline constexpr const char* kViewportValidateGpuCulling = "Debug.ValidateGpuCulling";
+    // DebugViewState::ForceVirtualGeometryCutRefusal of the viewport: 0 or 1 ([vg_refused_fallback]).
+    inline constexpr const char* kViewportForceVgCutRefusal = "Debug.ForceVirtualGeometryCutRefusal";
+    // DebugViewState::ForceVirtualGeometryPostCutRefusal of the viewport: 0 or 1 ([vg_refused_fallback], post
+    // cut).
+    inline constexpr const char* kViewportForceVgPostCutRefusal = "Debug.ForceVirtualGeometryPostCutRefusal";
 
     /// The field of view the viewport's own FOV slider offers, in degrees — one range for the slider and for
     /// a `set`, so a client cannot put the lens where a person's hands could not.
@@ -104,7 +111,8 @@ namespace Desert::Editor
     /// NO Min/Max. A world position has no clamp in an engine whose unit is the centimetre, and inventing
     /// one here would refuse a legitimate placement on the authority of a number nobody chose.
     [[nodiscard]] inline std::vector<EditableProperty>
-    DescribeViewportCamera( const glm::vec3& position, const glm::vec3& forward, float fovDegrees )
+    DescribeViewportCamera( const glm::vec3& position, const glm::vec3& forward, float fovDegrees,
+                            bool validateGpuCulling, bool forceVgCutRefusal, bool forceVgPostCutRefusal )
     {
         std::vector<EditableProperty> census;
 
@@ -137,6 +145,39 @@ namespace Desert::Editor
         fovRow.Value      = { fovDegrees, 0.0f, 0.0f, 0.0f };
         census.push_back( fovRow );
 
+        EditableProperty cullRow;
+        cullRow.Name       = kViewportValidateGpuCulling;
+        cullRow.Label      = "Validate GPU Culling";
+        cullRow.Group      = "Debug";
+        cullRow.Type       = "float";
+        cullRow.Components = 1;
+        cullRow.Min        = 0.0f;
+        cullRow.Max        = 1.0f;
+        cullRow.Value      = { validateGpuCulling ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f };
+        census.push_back( cullRow );
+
+        EditableProperty refuseRow;
+        refuseRow.Name       = kViewportForceVgCutRefusal;
+        refuseRow.Label      = "Force Virtual Geometry Cut Refusal";
+        refuseRow.Group      = "Debug";
+        refuseRow.Type       = "float";
+        refuseRow.Components = 1;
+        refuseRow.Min        = 0.0f;
+        refuseRow.Max        = 1.0f;
+        refuseRow.Value      = { forceVgCutRefusal ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f };
+        census.push_back( refuseRow );
+
+        EditableProperty postRefuseRow;
+        postRefuseRow.Name       = kViewportForceVgPostCutRefusal;
+        postRefuseRow.Label      = "Force Virtual Geometry Post Cut Refusal";
+        postRefuseRow.Group      = "Debug";
+        postRefuseRow.Type       = "float";
+        postRefuseRow.Components = 1;
+        postRefuseRow.Min        = 0.0f;
+        postRefuseRow.Max        = 1.0f;
+        postRefuseRow.Value      = { forceVgPostCutRefusal ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f };
+        census.push_back( postRefuseRow );
+
         return census;
     }
 
@@ -146,6 +187,9 @@ namespace Desert::Editor
         Position,
         Direction,
         FOV,
+        ValidateGpuCulling,
+        ForceVgCutRefusal,
+        ForceVgPostCutRefusal,
     };
 
     /**
@@ -166,13 +210,28 @@ namespace Desert::Editor
         const bool isPosition  = ( property == kViewportCameraPosition );
         const bool isDirection = ( property == kViewportCameraDirection );
         const bool isFOV       = ( property == kViewportCameraFOV );
+        const bool isCull      = ( property == kViewportValidateGpuCulling );
+        const bool isRefuse     = ( property == kViewportForceVgCutRefusal );
+        const bool isPostRefuse = ( property == kViewportForceVgPostCutRefusal );
 
-        if ( !isPosition && !isDirection && !isFOV )
+        if ( !isPosition && !isDirection && !isFOV && !isCull && !isRefuse && !isPostRefuse )
         {
             return Common::MakeFormattedError<ViewportCameraWrite>(
-                 "'{}' is not a property of the viewport. It offers '{}', '{}' and '{}'; ask 'properties' for "
-                 "the same subject to see their current values.",
-                 property, kViewportCameraPosition, kViewportCameraDirection, kViewportCameraFOV );
+                 "'{}' is not a property of the viewport. It offers '{}', '{}', '{}', '{}', '{}' and '{}'; ask "
+                 "'properties' for the same subject to see their current values.",
+                 property, kViewportCameraPosition, kViewportCameraDirection, kViewportCameraFOV,
+                 kViewportValidateGpuCulling, kViewportForceVgCutRefusal, kViewportForceVgPostCutRefusal );
+        }
+
+        if ( isCull || isRefuse || isPostRefuse )
+        {
+            if ( value.size() != 1 || !( value[0] == 0.0f || value[0] == 1.0f ) )
+                return Common::MakeFormattedError<ViewportCameraWrite>(
+                     "'{}' takes one number, 0 (off) or 1 (on).", property );
+            if ( isCull )
+                return Common::MakeSuccess( ViewportCameraWrite::ValidateGpuCulling );
+            return Common::MakeSuccess( isRefuse ? ViewportCameraWrite::ForceVgCutRefusal
+                                                 : ViewportCameraWrite::ForceVgPostCutRefusal );
         }
 
         if ( isFOV )

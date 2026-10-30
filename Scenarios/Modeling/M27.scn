@@ -1,0 +1,21 @@
+# M27 Sculpt undo: three strokes on a new sphere are three undo steps; redo + Accept writes the .stmesh
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Direction 0.6,-0.53,0.6
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Sculpt "Sculpt tool"
+Тогда-вид 0_before a smooth new sphere at the viewport centre
+Когда --subject viewport drag 650,290 780,290 20
+Когда --subject viewport drag 650,330 780,330 20
+Когда --subject viewport drag 650,370 780,370 20
+Тогда-вид 1_strokes the sphere carries three raised horizontal brush strokes
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда-вид 2_undo the sphere is smooth again, as in 0_before, and still in place
+Когда run Action "Redo"
+Когда run Action "Redo"
+Когда run Action "Redo"
+Тогда-вид 2b_redo the three strokes are back
+Когда run Modeling "Accept: write the edit into the static mesh asset"
+Тогда 3_accept the editor after Accept: sculpted sphere kept, no error toast

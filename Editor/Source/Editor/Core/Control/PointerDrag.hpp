@@ -29,18 +29,26 @@ namespace Desert::Editor::Control
         /// The one rising edge of the drag: the frame the layers must also see as a mouse-press event,
         /// because entity/bone picking listens to that event and not to ImGui's button state.
         bool Press = false;
+        /// Modifier keys held on this frame (kModShift | kModControl | kModAlt | kModSuper of InputInjection.hpp):
+        /// held from the hover through the release, as a hand holds Shift across the whole click.
+        int32_t Mods = 0;
     };
 
-    /// Where a target's image sits on screen this frame, in ImGui points, and which platform viewport
-    /// holds it. Published by the panel that draws the image; `Frame` is ImGui's frame count at that time.
+    /// Where a target's image sits on screen this frame, in ImGui points, which platform viewport holds it,
+    /// and how many PIXELS that image has (the render target a shot of this subject writes). Published by the
+    /// panel that draws the image; `Frame` is ImGui's frame count at that time. A drag is planned in POINTS
+    /// (PointerDrag::Plan); the pixel size is the panel's to state for what reads the stroke against the
+    /// image it rendered (the foliage stroke log), because only the panel knows what it renders at.
     struct PointerTargetRect
     {
-        float    X          = 0.0f;
-        float    Y          = 0.0f;
-        float    Width      = 0.0f;
-        float    Height     = 0.0f;
-        uint32_t ViewportId = 0;
-        int32_t  Frame      = -1;
+        float    X           = 0.0f;
+        float    Y           = 0.0f;
+        float    Width       = 0.0f;
+        float    Height      = 0.0f;
+        uint32_t ViewportId  = 0;
+        int32_t  Frame       = -1;
+        uint32_t ImageWidth  = 0;
+        uint32_t ImageHeight = 0;
     };
 
     class PointerDrag
@@ -50,39 +58,40 @@ namespace Desert::Editor::Control
         /// The step count a drag request that states none is played with (Request::Steps absent).
         static constexpr uint32_t kDefaultSteps = 8;
 
-        /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); @p pixelsPerPoint
-        /// converts them to ImGui points (the framebuffer scale, 2 on a Retina display).
-        [[nodiscard]] static Common::ResultStr<PointerDrag> Plan( const PointerTargetRect&    target,
-                                                                  const std::array<float, 4>& fromTo,
-                                                                  uint32_t steps, float pixelsPerPoint )
+        /// @p from / @p to are ImGui POINTS from the target image's top-left corner — the one unit of the
+        /// whole control channel: a `shot-viewport` PNG is drawn at the viewport's size in points, so a
+        /// coordinate read straight off that frame is the coordinate to send, and `input` takes panel
+        /// points too. (A framebuffer-pixel unit here, divided by the display scale, made every caller
+        /// that read the frame land at half the place on a Retina display — four times in one night.)
+        [[nodiscard]] static Common::ResultStr<PointerDrag>
+        Plan( const PointerTargetRect& target, const std::array<float, 4>& fromTo, uint32_t steps )
         {
             if ( steps == 0 || steps > kMaxSteps )
                 return Common::MakeFormattedError<PointerDrag>(
                      "a drag takes 1..{} steps, not {}: zero would press and release on one spot, and "
                      "more would hold the channel for seconds.",
                      kMaxSteps, steps );
-            if ( target.Width <= 0.0f || target.Height <= 0.0f || pixelsPerPoint <= 0.0f )
+            if ( target.Width <= 0.0f || target.Height <= 0.0f )
                 return Common::MakeFormattedError<PointerDrag>(
-                     "the target's image is {}x{} points at {} pixels per point; there is nothing to drag on.",
-                     target.Width, target.Height, pixelsPerPoint );
+                     "the target's image is {}x{} points; there is nothing to drag on.", target.Width,
+                     target.Height );
 
-            const float widthPx  = target.Width * pixelsPerPoint;
-            const float heightPx = target.Height * pixelsPerPoint;
             for ( std::size_t i = 0; i < 4; ++i )
             {
-                const float limit = ( i % 2 == 0 ) ? widthPx : heightPx;
+                const float limit = ( i % 2 == 0 ) ? target.Width : target.Height;
                 if ( fromTo[i] < 0.0f || fromTo[i] >= limit )
                     return Common::MakeFormattedError<PointerDrag>(
-                         "drag point {} ({}, {}) lies outside the target's {}x{} pixels; a press outside "
+                         "drag point {} ({}, {}) lies outside the target's {}x{} points; a press outside "
                          "the image would land on some other widget and the reply would still say done.",
-                         i / 2 == 0 ? "from" : "to", fromTo[i / 2 * 2], fromTo[i / 2 * 2 + 1], widthPx, heightPx );
+                         i / 2 == 0 ? "from" : "to", fromTo[i / 2 * 2], fromTo[i / 2 * 2 + 1], target.Width,
+                         target.Height );
             }
 
             PointerDrag drag;
-            drag.m_FromX      = target.X + fromTo[0] / pixelsPerPoint;
-            drag.m_FromY      = target.Y + fromTo[1] / pixelsPerPoint;
-            drag.m_ToX        = target.X + fromTo[2] / pixelsPerPoint;
-            drag.m_ToY        = target.Y + fromTo[3] / pixelsPerPoint;
+            drag.m_FromX      = target.X + fromTo[0];
+            drag.m_FromY      = target.Y + fromTo[1];
+            drag.m_ToX        = target.X + fromTo[2];
+            drag.m_ToY        = target.Y + fromTo[3];
             drag.m_Steps      = steps;
             drag.m_ViewportId = target.ViewportId;
             return Common::MakeSuccess( drag );
@@ -97,11 +106,19 @@ namespace Desert::Editor::Control
         [[nodiscard]] PointerStep At( const uint32_t frame ) const noexcept
         {
             if ( frame <= 1 )
-                return { m_FromX, m_FromY, frame == 1, frame == 1 };
+                return { m_FromX, m_FromY, frame == 1, frame == 1, m_Mods };
             if ( frame >= m_Steps + 2 )
-                return { m_ToX, m_ToY, false, false };
+                return { m_ToX, m_ToY, false, false, m_Mods };
             const float t = static_cast<float>( frame - 1 ) / static_cast<float>( m_Steps );
-            return { m_FromX + ( m_ToX - m_FromX ) * t, m_FromY + ( m_ToY - m_FromY ) * t, true, false };
+            return { m_FromX + ( m_ToX - m_FromX ) * t, m_FromY + ( m_ToY - m_FromY ) * t, true, false, m_Mods };
+        }
+
+        /// The same drag with @p mods (a ParseInputModifiers mask) held for its whole length.
+        [[nodiscard]] PointerDrag WithModifiers( const int32_t mods ) const noexcept
+        {
+            PointerDrag held = *this;
+            held.m_Mods      = mods;
+            return held;
         }
 
         [[nodiscard]] uint32_t ViewportId() const noexcept
@@ -113,6 +130,7 @@ namespace Desert::Editor::Control
         float    m_FromX = 0.0f, m_FromY = 0.0f, m_ToX = 0.0f, m_ToY = 0.0f;
         uint32_t m_Steps      = 1;
         uint32_t m_ViewportId = 0;
+        int32_t  m_Mods       = 0;
     };
 
     /**

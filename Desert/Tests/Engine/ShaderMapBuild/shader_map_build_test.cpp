@@ -13,6 +13,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 
@@ -294,7 +295,7 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
 
 // EVERY PROGRAM THE ENGINE SHIPS COMPILES, built through the very call BootContent makes at a cold start.
 //
-// WHY THIS SUITE AND NOT THE CLOUD ONES. FARWX-b2 read u_CloudWeather inside Common/CloudField.glslh, which every
+// WHY THIS SUITE AND NOT THE CLOUD ONES. FARWX-b2 read CloudWeather inside Common/CloudField.glslh, which every
 // cloud pass includes BEFORE Common/CloudParams.glslh declares the block — and GLSL declares no variable forward.
 // CloudRaymarch, CloudShadowMap, CloudSkyOcclusionVolume and BakeProceduralSky lost every stage, the sky drew no
 // cloud, and every cloud suite stayed green: they compile the headers as C++, where the seam's macros are the
@@ -303,9 +304,9 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
 // each for stages — the editor's own answer to "did it compile", logged as "registered but has no compiled
 // stages".
 //
-// MUTATION: restore `#define CLOUD_WEATHER u_CloudWeather` in Programs/Clouds/CloudRaymarch.shader and read it
+// MUTATION: restore `#define CLOUD_WEATHER CloudWeather` in Programs/Clouds/CloudRaymarch.shader and read it
 // as `vec4 weather = CLOUD_WEATHER;` in Common/CloudField.glslh's producer — CloudRaymarch goes red here, naming
-// CloudField.glslh:<line>: 'u_CloudWeather' : undeclared identifier.
+// CloudField.glslh:<line>: 'CloudWeather' : undeclared identifier.
 TEST_F( ShaderMapBuildFixture, EveryShippedProgramCompilesToStages )
 {
     const auto root = Common::Constants::Path::ShaderDir() / "Programs";
@@ -352,6 +353,56 @@ TEST_F( ShaderMapBuildFixture, EveryShippedProgramCompilesToStages )
         EXPECT_TRUE( builtPasses[i].Error.empty() ) << builtPasses[i].Error;
         EXPECT_FALSE( builtPasses[i].Map.Stages.empty() ) << "the pass has no compiled stages";
     }
+}
+
+// RAY QUERY COMPILES THROUGH THE ENGINE'S OWN COMPILE CALL. GL_EXT_ray_query emits SPV_KHR_ray_query, which needs
+// SPIR-V 1.4; the compiler targets the oldest accepted device (ShaderTarget.hpp <- kMinimumDeviceApiVersion), and
+// a Vulkan 1.1 target (SPIR-V 1.3) rejects the shader. No device is involved: this is shaderc alone.
+//
+// MUTATION: set kMinimumDeviceApiVersion back to VK_API_VERSION_1_1 (DeviceCaps.hpp) - this test goes red with
+// glslang's "requires SPIR-V 1.4" error, and TheShaderTargetFollowsTheMinimumDeviceVersion with it.
+TEST_F( ShaderMapBuildFixture, ARayQueryShaderCompilesForTheShaderTarget )
+{
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildRayQuery" );
+    const std::string                             source =
+         "#version 460\n"
+         "#extension GL_EXT_ray_query : require\n"
+         "layout( local_size_x = 8, local_size_y = 8 ) in;\n"
+         "layout( set = 0, binding = 0 ) uniform accelerationStructureEXT SceneColorTexture;\n"
+         "layout( set = 0, binding = 1, r32f ) uniform writeonly image2D VisibilityTexture;\n"
+         "void main()\n"
+         "{\n"
+         "    rayQueryEXT query;\n"
+         "    rayQueryInitializeEXT( query, SceneColorTexture, gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,\n"
+         "                           vec3( 0.0 ), 0.0, vec3( 0.0, 0.0, -1.0 ), 1000.0 );\n"
+         "    while ( rayQueryProceedEXT( query ) ) {}\n"
+         "    const bool hit = rayQueryGetIntersectionTypeEXT( query, true ) !=\n"
+         "                     gl_RayQueryCommittedIntersectionNoneEXT;\n"
+         "    imageStore( VisibilityTexture, ivec2( gl_GlobalInvocationID.xy ), vec4( hit ? 0.0 : 1.0 ) );\n"
+         "}\n";
+         const auto compiled =
+              Desert::Core::ShaderCompiler::CompileGLSLToSPIRV( Desert::Core::Formats::ShaderStage::Compute,
+                                                                source,
+                                                                "Resources/Shaders/Programs/Tmp/RayQuery.shader" );
+    ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+    const std::vector<uint32_t>& spirv = compiled.GetValue();
+    ASSERT_GE( spirv.size(), 2u );
+    EXPECT_GE( spirv[1], 0x00010400u ) << "the module's SPIR-V version is below the 1.4 ray query needs";
+}
+
+// The compiler's target and the cache key's fingerprint read one constant; a literal anywhere would let the device
+// minimum move without the SPIR-V (or with the SPIR-V but not the key, serving stale artifacts).
+TEST( ShaderTarget, TheShaderTargetFollowsTheMinimumDeviceVersion )
+{
+    EXPECT_EQ( Desert::Core::kShaderTargetApiVersion, Desert::Graphic::API::Vulkan::kMinimumDeviceApiVersion );
+    EXPECT_EQ( Desert::Core::kShaderTargetEnvVersion,
+               Desert::Core::ShaderTargetEnvVersion( Desert::Graphic::API::Vulkan::kMinimumDeviceApiVersion ) );
+    EXPECT_EQ( Desert::Core::ShaderTargetEnvVersion( VK_API_VERSION_1_1 ), shaderc_env_version_vulkan_1_1 );
+    EXPECT_EQ( Desert::Core::ShaderTargetEnvVersion( VK_API_VERSION_1_2 ), shaderc_env_version_vulkan_1_2 );
+    EXPECT_EQ( Desert::Core::ShaderTargetEnvVersion( VK_API_VERSION_1_3 ), shaderc_env_version_vulkan_1_3 );
+    // Ray query (SPIR-V 1.4) needs at least a Vulkan 1.2 target.
+    EXPECT_GE( static_cast<int>( Desert::Core::kShaderTargetEnvVersion ),
+               static_cast<int>( shaderc_env_version_vulkan_1_2 ) );
 }
 
 namespace

@@ -1,0 +1,11 @@
+# VFX-SYS-REF2: every PROPERTY'd AssetHandle names its asset type (UE TSoftObjectPtr<T>). The census found two
+# untyped handles - AIPawnData.AIController (now Asset<PrefabAsset>) and StateTreeData.StateTree (now
+# Asset<StateTreeAsset>, a StateTree content kind + registry picker row) - both on components whose COMPONENT
+# marker is still GATED (AI-CONTROLLER / AI-ST-ASSET), so no entity can carry them yet. DesertHeaderTool now
+# refuses an untyped reflected AssetHandle at reflection time, so the editor building is the census.
+# What the live editor can show: every registered component's asset fields draw a typed picker, 0 "(no Details
+# slot" lines, on the Starter scene's asset-carrying entities.
+Дано run Scene "Open Scene Starter.desce"
+Когда run Entity "Add to selection Campfire"
+Когда state
+Тогда 0_details Details shows the VFX component's System as a typed VFX System picker (= Campfire), never "(no Details slot for asset type ...)"; editor.log 0 such lines

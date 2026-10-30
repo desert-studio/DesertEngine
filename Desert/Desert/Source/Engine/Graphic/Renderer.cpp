@@ -2,6 +2,8 @@
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -175,6 +177,14 @@ namespace Desert::Graphic
         return s_RendererAPI->DispatchComputeIndirect( bindings, pipeline, args, offset );
     }
 
+    Common::BoolResultStr Renderer::TraceRays( const RDG::PassBindings&                   bindings,
+                                               const RayTracingPipeline&                  pipeline,
+                                               const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
+                                               uint32_t height )
+    {
+        return s_RendererAPI->TraceRays( bindings, pipeline, hits, width, height );
+    }
+
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline&  pipeline,
                                                     const MaterialExecutor*  material )
@@ -212,10 +222,20 @@ namespace Desert::Graphic
                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                 const glm::mat4& transform, const MaterialExecutor& material,
                                                 uint32_t instanceCount, uint32_t firstInstance,
-                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel )
+                                                SubmeshMask hiddenSubmeshMask, uint32_t lodLevel )
     {
         return s_RendererAPI->RenderMesh( bindings, pipeline, mesh, transform, material, instanceCount,
                                           firstInstance, hiddenSubmeshMask, lodLevel );
+    }
+
+    Common::BoolResultStr
+    Renderer::RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                  const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
+                                  const RDG::BufferRef args, const uint64_t offset,
+                                  const SubmeshMask hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
+    {
+        return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, args, offset,
+                                                  hiddenSubmeshMask, order );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )
@@ -249,6 +269,13 @@ namespace Desert::Graphic
                                                            const uint32_t          targetLayer )
     {
         return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer );
+    }
+
+    Common::BoolResultStr Renderer::CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                              const RDG::BufferRef    source,
+                                                              const RDG::TextureRef   target )
+    {
+        return s_RendererAPI->CopyGraphBufferToTexture( context, source, target );
     }
 
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
@@ -298,10 +325,52 @@ namespace Desert::Graphic
         return s_RendererAPI->ImportBuffer( buffer, into );
     }
 
+    Common::ResultStr<std::shared_ptr<SharedGpuBuffer>> Renderer::CreateSharedBuffer( const std::string_view name,
+                                                                                      const uint64_t bytes )
+    {
+        return s_RendererAPI->CreateSharedBuffer( name, bytes );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+    Renderer::CreateSharedTimeline( const std::string_view name )
+    {
+        return s_RendererAPI->CreateSharedTimeline( name );
+    }
+
     Common::BoolResultStr Renderer::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                         RDG::ExternalBuffer&                 into )
     {
         return s_RendererAPI->ImportVertexBuffer( buffer, into );
+    }
+
+    Common::BoolResultStr Renderer::ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                             const uint64_t offset, const uint64_t bytes,
+                                                             RDG::ExternalBuffer& into )
+    {
+        return s_RendererAPI->ImportVertexBufferRange( buffer, offset, bytes, into );
+    }
+
+    void Renderer::InvalidateGeometryBinding()
+    {
+        s_RendererAPI->InvalidateGeometryBinding();
+    }
+
+    Common::BoolResultStr Renderer::ImportMeshVertices( const MeshGeometry& geometry, RDG::ExternalBuffer& into )
+    {
+        if ( !geometry.IsResident() )
+            return Common::MakeError( "ImportMeshVertices: the mesh has no resident vertices" );
+        return s_RendererAPI->ImportVertexBufferRange(
+             geometry.Vertices, geometry.VertexByteOffset,
+             uint64_t{ geometry.VertexCount } * uint64_t{ geometry.VertexStride }, into );
+    }
+
+    Common::BoolResultStr Renderer::ImportMeshStreams( const MeshGeometry& geometry, RDG::ExternalBuffer& into )
+    {
+        if ( !geometry.IsResident() || !geometry.Streams )
+            return Common::MakeError( "ImportMeshStreams: the mesh has no resident stream buffer" );
+        return s_RendererAPI->ImportVertexBufferRange(
+             geometry.Streams, geometry.StreamByteOffset,
+             uint64_t{ geometry.VertexCount } * uint64_t{ kGeometryStreamStride }, into );
     }
 
     void Renderer::BeginDebugLabel( const char* name )
@@ -369,6 +438,10 @@ namespace Desert::Graphic
         {
             LOG_ERROR( "[Renderer] schema default textures were not released: {}", released.GetError() );
         }
+
+        // The pool's arena buffers are device memory owned by a static: dropped here, before the device.
+        GeometryPool::Get().RT_Shutdown();
+        VirtualGeometry::VirtualMeshTable::Get().RT_Shutdown();
 
         s_RendererAPI->Shutdown();
         delete s_RendererAPI;

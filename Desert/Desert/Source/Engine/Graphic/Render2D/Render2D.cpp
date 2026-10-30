@@ -24,6 +24,39 @@
 #include <bit>
 #include <format>
 
+namespace
+{
+    // The texture properties of the 2D materials (the element, text and retainer shaders), spelled once.
+    struct Render2DMaterialShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, ElementTexture );
+        DESERT_SHADER_PARAMETER( Texture, SdfAtlasTexture );
+        DESERT_SHADER_PARAMETER( Texture, MaskLayerTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct Render2DMaskedLayerShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, RetainedLayerTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, MaskLayerTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct Render2DLayerShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, RetainedLayerTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct Render2DBackdropShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, BackdropTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
+
 namespace Desert::Graphic::Render2D
 {
     // Both glass-panel failure sites (backdrop description, the draw itself) report under one shape.
@@ -33,11 +66,13 @@ namespace Desert::Graphic::Render2D
     // said here: a Texture2D unregisters its own image (Texture.hpp).
     Render2D::~Render2D() = default;
 
-    Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target )
+    Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target,
+                                          const ResourceOwnerInstance         view )
     {
-        // The three pipelines, the two buffers and the 1x1 white texture below belong to the UI backend
-        // and to no asset — one scope rather than six claims. See Engine/Graphic/ResourceLedger.hpp.
-        const ResourceAttributionScope owned( ResourceOwner::UserInterface );
+        // The two buffers and the 1x1 white texture below belong to the UI backend and to no asset, and to the
+        // view this UI is drawn for — one scope rather than claims. See Engine/Graphic/ResourceLedger.hpp.
+        m_LedgerView                         = view;
+        const ResourceAttributionScope owned = OpenLedgerScope();
 
         if ( !target )
             return Common::MakeError( "Render2D::Init: null target framebuffer" );
@@ -50,10 +85,9 @@ namespace Desert::Graphic::Render2D
         if ( !m_Shader )
             return Common::MakeError( "Render2D::Init: missing shader 'UI2D'" );
 
-        // Pixel-space quads: pos(vec2) + uv(vec2) + straight RGBA(vec4). Matches DrawList2D::Vertex2D.
-        const VertexBufferLayout layout( { VertexBufferElement( ShaderDataType::Float2, "a_Position" ),
-                                           VertexBufferElement( ShaderDataType::Float2, "a_TexCoord" ),
-                                           VertexBufferElement( ShaderDataType::Float4, "a_Color" ) } );
+        // Pixel-space quads: pos(vec2) + uv(vec2) + straight RGBA(vec4), DrawList2D::Vertex2D — the format the
+        // UI shaders' inputs are generated from (ShaderProtocols/VertexInputs.hpp, Common/UIVertexInputs.glslh).
+        const VertexBufferLayout layout = VertexBufferLayout::FromVertexInputs( ShaderProtocols::kUIVertexInputs );
 
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "UI2DPipeline";
@@ -165,6 +199,8 @@ namespace Desert::Graphic::Render2D
         // failed GPU allocation left the renderer believing it owned a buffer of the new size: this
         // function then never retried, and every later draw wrote through the failed buffer. Leaving the
         // old capacity means the next call attempts the growth again.
+        // Grown while a frame is drawn, under whatever scope the caller has open: the view's rows regardless.
+        const ResourceAttributionScope owned = OpenLedgerScope();
         if ( vertexCount > m_VertexCapacity )
         {
             const uint32_t cap = std::max( vertexCount, m_VertexCapacity ? m_VertexCapacity * 2 : 4096u );
@@ -188,7 +224,7 @@ namespace Desert::Graphic::Render2D
     }
 
     MaterialExecutor* Render2D::ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
-                                             const char* sampler, const void* texture, Image2D* image )
+                                             RDG::TextureParameter property, const void* texture, Image2D* image )
     {
         const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
 
@@ -201,12 +237,13 @@ namespace Desert::Graphic::Render2D
         }
         else
         {
-            auto owned = MaterialExecutor::Create( "Render2D", shader );
+            const ResourceAttributionScope ledger = OpenLedgerScope();
+            auto                           owned  = MaterialExecutor::Create( "Render2D", shader );
             exec       = owned.get();
             cache.emplace( texture, CachedExecutor{ std::move( owned ), frame } );
         }
 
-        if ( auto texProp = exec->GetTexture2DProperty( sampler ) )
+        if ( auto texProp = exec->GetTexture2DProperty( property.SlotName() ) )
             texProp->SetImage( image, RDG::Access::SampledGraphics );
         return exec;
     }
@@ -284,10 +321,11 @@ namespace Desert::Graphic::Render2D
             resolved.Retained = &it->second;
             if ( !it->second.Mask.IsValid() )
             {
-                // Without a mask, u_Mask is the engine's white image, a written slot of the retainer executor,
+                // Without a mask, MaskLayerTexture is the engine's white image, a written slot of the retainer executor,
                 // which then carries the push block; a slot is never bound by both routes.
                 MaterialExecutor* rexec =
-                     ExecutorFor( m_RetainerExecutors, m_RetainerShader, "u_Mask", nullptr, m_WhiteImage );
+                     ExecutorFor( m_RetainerExecutors, m_RetainerShader,
+                                  Render2DMaterialShaderParameters::MaskLayerTexture, nullptr, m_WhiteImage );
                 if ( rexec == nullptr )
                 {
                     LOG_ERROR( "[Render2D] a retained UI layer's composite is not drawn: no UIRetainer executor" );
@@ -327,19 +365,21 @@ namespace Desert::Graphic::Render2D
         if ( cmd.Text )
         {
             // Text always carries a valid font-atlas texture; route it to the SDF pipeline.
-            exec              = ExecutorFor( m_TextExecutors, m_TextShader, "u_SDFAtlas", cmd.Texture,
-                                             ImageOfTextureId( cmd.Texture ) );
+            exec = ExecutorFor( m_TextExecutors, m_TextShader, Render2DMaterialShaderParameters::SdfAtlasTexture,
+                                cmd.Texture, ImageOfTextureId( cmd.Texture ) );
             resolved.Pipeline = m_TextPipeline.get();
             resolved.Layout   = &m_TextLayout;
         }
         else
         {
             Image2D* img      = cmd.Texture != nullptr ? ImageOfTextureId( cmd.Texture ) : m_WhiteImage;
-            exec              = ExecutorFor( m_Executors, m_Shader, "u_Texture", cmd.Texture, img );
+            exec = ExecutorFor( m_Executors, m_Shader, Render2DMaterialShaderParameters::ElementTexture,
+                                cmd.Texture, img );
             // The UI layer is RGBA8 holding display-encoded values: an sRGB texture is drawn from its
             // stored bytes (TEX-SRGB), as before the colour space existed, not from its linear decode.
             if ( exec != nullptr )
-                if ( auto texProp = exec->GetTexture2DProperty( "u_Texture" ) )
+                if ( auto texProp = exec->GetTexture2DProperty(
+                          Render2DMaterialShaderParameters::ElementTexture.SlotName() ) )
                     texProp->SetSamplesEncoded( true );
             resolved.Pipeline = m_Pipeline.get();
             resolved.Layout   = &m_PlainLayout;
@@ -379,7 +419,7 @@ namespace Desert::Graphic::Render2D
             {
                 // The composite samples the layer (and its mask) the retained pass drew: graph textures, read by
                 // name through this block. A masked composite's push block goes through the graph too; a
-                // mask-less one is carried by the retainer executor (u_Mask = white), written here.
+                // mask-less one is carried by the retainer executor (MaskLayerTexture = white), written here.
                 const DrawCommand&     cmd = list.GetCommands()[draw.Command];
                 const RetainedPicture& pic = *resolved.Retained;
                 if ( pic.Mask.IsValid() )
@@ -387,10 +427,12 @@ namespace Desert::Graphic::Render2D
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
                                     RDG::OtherRouteFill{} )
-                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
-                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                         .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                         .Texture( Render2DMaskedLayerShaderParameters::RetainedLayerTexture, pic.Content,
+                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                         .Sampler( Render2DMaskedLayerShaderParameters::LinearClampSampler,
                                    RDG::SamplerDesc::LinearClamp() )
+                         .Texture( Render2DMaskedLayerShaderParameters::MaskLayerTexture, pic.Mask,
+                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RetainerPush ) ) );
                 }
                 else
@@ -400,8 +442,10 @@ namespace Desert::Graphic::Render2D
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
                                     resolved.Executor->GetRouteFill() )
-                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
-                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                         .Texture( Render2DLayerShaderParameters::RetainedLayerTexture, pic.Content,
+                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                         .Sampler( Render2DLayerShaderParameters::LinearClampSampler,
+                                   RDG::SamplerDesc::LinearClamp() );
                 }
                 continue;
             }
@@ -410,7 +454,9 @@ namespace Desert::Graphic::Render2D
                 // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
                 declared
                      .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-                     .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                     .Texture( Render2DBackdropShaderParameters::BackdropTexture, backdrop,
+                               RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( Render2DBackdropShaderParameters::LinearClampSampler,
                                RDG::SamplerDesc::LinearClamp() )
                      .PushConstantBytes( static_cast<uint32_t>( sizeof( GlassPush ) ) );
                 continue;
@@ -536,7 +582,7 @@ namespace Desert::Graphic::Render2D
             {
                 // A retained layer's composite. The layer (and its mask) are graph textures this pass's setup
                 // declared (DeclareRetainedReads + the block DeclareInto opened); with a mask the push block goes
-                // through the graph bindings, without one the retainer executor (u_Mask = white) carries it.
+                // through the graph bindings, without one the retainer executor (MaskLayerTexture = white) carries it.
                 const RetainedPicture& pic = *resolved.Retained;
                 ApplyScissor( cmd );
                 RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
@@ -781,8 +827,8 @@ namespace Desert::Graphic::Render2D
                 return t.get();
             }
 
-        const ResourceAttributionScope owned( ResourceOwner::UserInterface );
-        auto                           t = std::make_unique<RetainedTarget>();
+        const ResourceAttributionScope owned = OpenLedgerScope();
+        auto                           t     = std::make_unique<RetainedTarget>();
         FramebufferSpecification       spec;
         spec.Width       = W;
         spec.Height      = H;
@@ -806,7 +852,7 @@ namespace Desert::Graphic::Render2D
             return nullptr;
         }
         t->Renderer = std::make_unique<Render2D>();
-        if ( const auto init = t->Renderer->Init( t->Target ); !init )
+        if ( const auto init = t->Renderer->Init( t->Target, m_LedgerView ); !init )
         {
             LOG_ERROR( "[Render2D] retained-layer renderer: {}", init.GetError() );
             return nullptr;

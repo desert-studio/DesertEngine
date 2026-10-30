@@ -18,14 +18,14 @@ Shader "DebugLine"
 
         ReadBuffer(1) Lines
         {
-            LineVertex u_Lines[];
+            LineVertex LinesData[];
         };
 
         Out(0) vec4 v_Color;
 
         void main()
         {
-            LineVertex lv = u_Lines[gl_VertexIndex];
+            LineVertex lv = LinesData[gl_VertexIndex];
             gl_Position   = cameraUB.Projection * cameraUB.View * vec4(lv.PositionWS.xyz, 1.0);
             v_Color       = lv.Color;
         }

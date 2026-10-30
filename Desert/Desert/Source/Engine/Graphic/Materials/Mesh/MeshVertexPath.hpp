@@ -140,9 +140,28 @@ namespace Desert::Graphic
         // has its cell (ParticleSprite.Forward); it has no G-buffer, glass or shadow-depth cell: sprites are drawn
         // over the lit scene by ParticleRenderer and cast nothing.
         ParticleSprite = 3,
+        // A procedural grass blade per instance (GRASS-BLADE; Ghost of Tsushima's blade, a vertex factory UE does
+        // not have): the instance's matrix from InstanceTransforms (binding 17) places a blade strip whose
+        // vertices the stage bends, tapers, colours and sways from the variety's GrassBladeShape (binding 13).
+        // Only a template that declares `Usage GrassBlades` has its cells; it draws in the passes a mesh does.
+        GrassBlade = 4,
+        // A camera-facing strip through an emitter's live particles in age order (UE: the Niagara ribbon vertex
+        // factory, a material's "Used with Niagara Ribbons"), pulled from the same attribute columns / alive list
+        // as the sprite path plus the pool's slots (binding 13, which particles are alive). Only a template that
+        // declares `Usage ParticleRibbons` has its cell (ParticleRibbon.Forward); drawn by ParticleRenderer only.
+        ParticleRibbon = 5,
     };
 
-    inline constexpr uint32_t kMeshVertexPathCount = 4;
+    inline constexpr uint32_t kMeshVertexPathCount = 6;
+
+    // The paths whose Forward cell MeshRenderer draws in the view's opaque mesh passes - and so draws, under
+    // Shadows.Method VirtualMaps, in its DESERT_LOCAL_SHADOW_VSM permutation (MeshRenderer::ForwardVirtualCell):
+    // the per-object static, the skinned, the CPU/GPU instanced and the GPU grass blade. The cook ships each
+    // one's permutations from this list (MeshRenderer::MaterialProgramVariants). MeshVertexPath.cpp asserts it
+    // holds every path with a G-buffer cell (an opaque mesh path), so a new mesh path cannot be drawn without
+    // its virtual-shadow permutation being cooked. The particle paths are ParticleRenderer's.
+    inline constexpr MeshVertexPath kMeshRendererForwardPaths[] = {
+         MeshVertexPath::Static, MeshVertexPath::Skinned, MeshVertexPath::Instanced, MeshVertexPath::GrassBlade };
 
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a
@@ -159,9 +178,21 @@ namespace Desert::Graphic
         GBuffer     = 1, // deferred albedo/normal MRT (also the Reflective Shadow Map, from the sun)
         Glass       = 2, // transparent, samples the composited scene for refraction
         ShadowDepth = 3, // depth only, into a cascade
+        // Depth + G-buffer normal only, for a template WITHOUT a Surface block (drawn on the generic path): the
+        // deferred path's "Deferred: Forward Depth/Normal" prepass, so the screen-space consumers of the
+        // G-buffer (the ray-traced sun's mask, SSAO, SSR) see the forward-shaded opaque meshes too (UE: the
+        // depth prepass every opaque mesh draws). A surface template has no such cell: it is in the G-buffer.
+        DepthNormal = 4,
+        // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth
+        // cell's vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
+        VirtualShadowDepth = 5,
+        // Depth only, into the VIEW's scene depth before the base pass (UE: the DepthPass mesh pass): the view
+        // header's vertex stage (the base pass's very gl_Position), Mesh/Surface/Pass_Depth.glslh's fragment stage
+        // (nothing / the opacity mask's clip / the relief's depth). The base pass then tests equal and writes none.
+        Depth = 6,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 4;
+    inline constexpr uint32_t kMeshPassCount = 7;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).
@@ -176,8 +207,9 @@ namespace Desert::Graphic
     // holes are deliberate and each has a reason:
     //
     //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of every surface
-    //                          template, which has every path. The skinned mesh is still drawn forward
-    //                          (MeshRenderer::RenderSkinnedManual); the cell exists unused.
+    //                          template, which has every path. The deferred path draws the skinned mesh
+    //                          through it in the G-buffer node (MeshRenderer::BuildSkinnedDraws), as UE's
+    //                          base pass; there is no forward redraw over the composite.
     //   (* x Glass)          — no cell of its own: the translucency pass draws a translucent template's
     //                          (Static x Forward) cell (MeshShaderFor); no skinned or instanced glass exists.
     //
@@ -199,13 +231,20 @@ namespace Desert::Graphic
     // found by that role — MaterialService::DefaultSurfaceTemplate), never from a literal here.
     std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass );
 
+    // THE TRANSLUCENT FRONT LAYER CELL of the translucent template @p templateName ("<Template>/Static.FrontLayer",
+    // DShaderParser kSurfaceFrontLayerPass): the program that writes the template's surface into the front layer's
+    // G-buffer (Reflections.TranslucentFrontLayer). Outside the (path x pass) table: one cell, of translucent
+    // templates only, drawn by one pass. Empty when no template is named.
+    std::optional<std::string> FrontLayerShaderFor( std::string_view templateName );
+
     // THE ONE RULE of which (path x pass) cells a material on the template @p templateName HAS, and the shader
     // that draws each. A template with a Surface block registers every cell of the table ("<Template>/<Cell>"),
     // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own
-    // default program on the generic path, which is its (Static x Forward) and nothing else — so every other cell
-    // is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
-    // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
-    // here" and "what draws here" cannot disagree. Empty = no cell.
+    // default program on the generic path, which is its (Static x Forward), and its declared depth-normal pass
+    // (DShaderParser kGenericDepthNormalPass, "<Template>/DepthNormal") is its (Static x DepthNormal) — every
+    // other cell is a hole the caller must refuse. @p isRegistered answers whether a program of that name is
+    // registered (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can
+    // this draw here" and "what draws here" cannot disagree. Empty = no cell.
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered );
@@ -217,6 +256,34 @@ namespace Desert::Graphic
     // skinned / instanced path" — answered by the SHADER the material was allocated from, never by its C++
     // class or its template's name.
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName );
+
+    // THE PARALLAX PERMUTATION of a cell (DShaderParser kSurfaceParallaxCellSuffix): "<Template>/<Cell>.Parallax",
+    // registered for every template that declares `Height <Texture2D> ... Scale(<Float>)`. A material takes it, for EVERY pass, when
+    // it assigns that height map (MaterialService CellShaderOf): the march, the Pixel Depth Offset in the G-buffer,
+    // the forward pass and both caster passes (Mesh/Surface/SurfaceParallax.glslh). A material without one keeps the
+    // base cells and pays nothing.
+    [[nodiscard]] std::string ParallaxCellOf( std::string_view cellShader );
+    // Whether a compiled cell shader is a `.Parallax` permutation (its caster is its own; see ShadowCasterCellFor).
+    [[nodiscard]] bool IsParallaxCell( std::string_view shaderName );
+
+    // THE BINNED PERMUTATION of a cell (DShaderParser kSurfaceBinnedCellSuffix):
+    // "<Template>/<Cell>[.Parallax].Binned", the cell a GPU-driven bin draws (GpuDriven::DrawCommandCache): it
+    // reads World / PrevWorld / material row / primitive flags through its instance id and pushes nothing.
+    // Registered for every Forward / GBuffer / ShadowDepth mesh cell of a non-translucent template.
+    [[nodiscard]] std::string BinnedCellOf( std::string_view cellShader );
+    [[nodiscard]] bool        IsBinnedCell( std::string_view shaderName );
+
+    // THE VIRTUAL GEOMETRY PERMUTATION of a binned Static or Instanced cell (DShaderParser
+    // kSurfaceVirtualGeometryCellSuffix, kSurfaceVirtualGeometryPaths): "<Template>/<Cell>[.Parallax].Binned.
+    // VirtualGeometry", the cell the VG raster's material group draws (one instance = one visible cluster of one
+    // GpuScene instance, Common/GpuScene.glslh DesertResolveVgDraw). @p binnedCell is the `.Binned` cell whose
+    // group the clusters were binned into.
+    [[nodiscard]] std::string VirtualGeometryCellOf( std::string_view binnedCell );
+    [[nodiscard]] bool        IsVirtualGeometryCell( std::string_view shaderName );
+    // Whether @p path's binned cells have a `.VirtualGeometry` permutation: its name is in DShaderParser's
+    // kSurfaceVirtualGeometryPaths (the one list; today a static mesh and an instanced static mesh, UE: Nanite
+    // ISM).
+    [[nodiscard]] bool HasVirtualGeometryPermutation( MeshVertexPath path );
 
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's
@@ -244,6 +311,9 @@ namespace Desert::Graphic
     {
         const void* PassState = nullptr;
         std::string CellShader;
+        // ShaderVariant::Hash of a permutation of CellShader (ShaderService::AcquireVariant), which is not
+        // registered under the name; 0 = the program registered as CellShader.
+        uint64_t Variant = 0;
 
         bool operator==( const MeshCellPipelineKey& ) const = default;
     };
@@ -259,18 +329,25 @@ namespace Desert::Graphic
     // ShadowDepth cell — and batches by mesh. A Masked caster's depth has HOLES, and only its own template's
     // ShadowDepth cell (DESERT_SURFACE_MASKED -> EvaluateSurface + DESERT_SURFACE_CLIP) knows where: drawn
     // through the shared program, a leaf card casts its whole quad. Translucent keeps the shared caster, as
-    // before this existed (no translucent-shadow model yet).
+    // before this existed (no translucent-shadow model yet). A PARALLAX caster's depth is the relief's (Pixel Depth
+    // Offset), which only its own template's `.Parallax` ShadowDepth cell computes: Own as well (UE: a material with
+    // Pixel Depth Offset gets its own shadow-depth shader).
     enum class ShadowCasterCell : uint8_t
     {
         Shared, // the default surface template's (path x ShadowDepth) cell, one pipeline for all casters
         Own,    // the MATERIAL'S template's (path x ShadowDepth) cell, with its textures and its clip threshold
     };
-    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend );
+    // @p parallax: the material draws its template's `.Parallax` cells (IsParallaxCell of its cell shader).
+    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend, bool parallax );
 
     // The caster shader of a material on @p materialTemplate with @p blend, drawn on @p path:
     // MeshShaderFor on the material's template when ShadowCasterCellFor says Own, on @p defaultTemplate (the
-    // template declaring `Default Surface`) when it says Shared. Empty where MeshShaderFor is.
+    // template declaring `Default Surface`) when it says Shared; a parallax material's is its own template's
+    // `.Parallax` cell. Empty where MeshShaderFor is. @p casterPass: ShadowDepth (cascades, local lights) or
+    // VirtualShadowDepth (the virtual shadow map's caster cell, same rule); empty for any other pass.
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
-                                                      Core::Formats::SurfaceBlendMode blend, MeshVertexPath path );
+                                                      Core::Formats::SurfaceBlendMode blend, bool parallax,
+                                                      MeshVertexPath path,
+                                                      MeshPass       casterPass = MeshPass::ShadowDepth );
 } // namespace Desert::Graphic

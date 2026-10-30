@@ -27,6 +27,10 @@ namespace Desert::Editor::Core
     inline constexpr const char* kSelectionTranslation = "Translation";
     inline constexpr const char* kSelectionRotation    = "Rotation";
     inline constexpr const char* kSelectionScale       = "Scale";
+    // A directional light's place in the sky, in degrees - what its Details direction widget shows and edits
+    // (ECS::Rules::SunAngles). Written through ECS::AimDirectionalLight, one undo step like the three above.
+    inline constexpr const char* kSelectionSunElevation = "SunElevation";
+    inline constexpr const char* kSelectionSunAzimuth   = "SunAzimuth";
 
     struct SelectionTransform
     {

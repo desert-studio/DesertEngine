@@ -3,6 +3,13 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
+#include <Engine/Graphic/LocalShadowCache.hpp>
+#include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -13,6 +20,9 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#endif
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -27,7 +37,9 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <format>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
@@ -36,6 +48,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Core
 {
@@ -46,12 +59,12 @@ namespace Desert::Core
         // belongs here, where Raycast and the mesh systems can share it.
         ::Desert::Mesh* ResolveMesh( const ECS::StaticMeshComponent& c )
         {
-            if ( c.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
-            if ( c.RuntimeMesh )
-                return c.RuntimeMesh.get();
-            if ( c.Primitive.has_value() )
-                return Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() );
+            if ( c.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
+            if ( c.GetRuntimeMesh() )
+                return c.GetRuntimeMesh().get();
+            if ( c.GetPrimitive().has_value() )
+                return Geometry::PrimitiveMeshFactory::GetShared( c.GetPrimitive().value() );
             return nullptr;
         }
 
@@ -65,17 +78,17 @@ namespace Desert::Core
         };
         std::optional<MeshTriangles> StaticTriangles( const ECS::StaticMeshComponent& c )
         {
-            if ( c.MeshHandle )
+            if ( c.GetMeshHandle() )
             {
-                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.MeshHandle );
+                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.GetMeshHandle() );
                 const auto* data  = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
                 if ( !data )
                     return std::nullopt;
                 return MeshTriangles{ data->GetVertices(), data->GetIndices(), data->GetSubmeshes() };
             }
-            const DynamicMesh* mesh = c.RuntimeMesh ? c.RuntimeMesh.get()
-                                      : c.Primitive.has_value()
-                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() )
+            const DynamicMesh* mesh = c.GetRuntimeMesh() ? c.GetRuntimeMesh().get()
+                                      : c.GetPrimitive().has_value()
+                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.GetPrimitive().value() )
                                            : nullptr;
             if ( !mesh )
                 return std::nullopt;
@@ -108,10 +121,10 @@ namespace Desert::Core
         // Editor-built runtime rig takes priority over the cooked asset (mirrors the render path).
         ::Desert::Mesh* ResolveSkinnedMesh( const ECS::SkinnedMeshComponent& c )
         {
-            if ( c.RuntimeMesh )
-                return c.RuntimeMesh.get();
-            if ( c.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            if ( c.GetRuntimeMesh() )
+                return c.GetRuntimeMesh().get();
+            if ( c.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
             return nullptr;
         }
 
@@ -373,7 +386,14 @@ namespace Desert::Core
         return LiveSceneList();
     }
 
-    Scene::Scene() : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
+    Scene::Scene()
+         : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -381,7 +401,13 @@ namespace Desert::Core
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
          : m_SceneName( std::move( sceneName ) ),
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
+           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -409,7 +435,7 @@ namespace Desert::Core
         scenes.erase( std::remove( scenes.begin(), scenes.end(), this ), scenes.end() );
     }
 
-    NO_DISCARD Common::BoolResultStr Scene::Init()
+    NO_DISCARD Common::BoolResultStr Scene::Init( InitPurpose purpose )
     {
         for ( auto& view : m_Views.All() )
             view.Renderer->Init();
@@ -439,7 +465,8 @@ namespace Desert::Core
         // release nothing — which is exactly how "evict on scene change" quietly does nothing. The frame
         // loop runs it at the start of the next frame, by which time the old scene is gone and no command
         // buffer is open. See Assets/AssetEviction.hpp.
-        Assets::AssetEvictionSchedule::Request( "scene '" + m_SceneName + "' was initialised" );
+        if ( purpose == InitPurpose::World )
+            Assets::AssetEvictionSchedule::Request( "scene '" + m_SceneName + "' was initialised" );
 
         return BOOLSUCCESS;
     }
@@ -519,6 +546,19 @@ namespace Desert::Core
         return Common::MakeSuccess( entt::entity( m_ViewTarget ) );
     }
 
+    std::optional<glm::mat4> Scene::PlayerViewPoint()
+    {
+        if ( m_State != SceneState::Play && m_State != SceneState::Paused )
+            return std::nullopt;
+        if ( m_ViewTarget != entt::null && m_Registry.valid( m_ViewTarget ) &&
+             m_Registry.has<ECS::TransformComponent>( m_ViewTarget ) )
+            return ECS::Entity( m_ViewTarget, m_Registry ).GetWorldTransform();
+        const std::shared_ptr<Camera> camera = GetActiveCamera();
+        if ( !camera )
+            return std::nullopt;
+        return glm::inverse( camera->GetViewMatrix() );
+    }
+
     void Scene::UpdateActiveCameraSource()
     {
         // Camera source follows the play state: Edit/Paused -> EditorCamera; Play -> the view target
@@ -570,8 +610,55 @@ namespace Desert::Core
         }
     }
 
+    Common::BoolResultStr Scene::SyncWorldParameters()
+    {
+        const Common::AssetHandle named = m_Settings.WorldParameters;
+        if ( named == Common::AssetHandle{} )
+        {
+            m_WorldParameters.Adopt( named, nullptr );
+            return BOOLSUCCESS;
+        }
+        const auto data = Runtime::ResourceRegistry::GetWorldParametersService()->Get( named );
+        if ( !data )
+        {
+            m_WorldParameters.Adopt( Common::AssetHandle{}, nullptr );
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), data.GetError() );
+        }
+        // A Texture row names its .detex by path; the world holds the handle, each view its bindless slot.
+        std::string unresolved;
+        m_WorldParameters.Adopt( named, data.GetValue(),
+                                 [&unresolved]( const std::string& path )
+                                 {
+                                     const auto handle =
+                                          Runtime::ResourceRegistry::GetTextureService()->HandleForPath( path );
+                                     if ( !handle )
+                                     {
+                                         unresolved = handle.GetError();
+                                         return Common::AssetHandle{};
+                                     }
+                                     return Common::AssetHandle( handle.GetValue() );
+                                 } );
+        if ( !unresolved.empty() )
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), unresolved );
+        return BOOLSUCCESS;
+    }
+
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
+        // The world's parameters before anything reads them: the scripts below set them, every view after them
+        // snapshots them. The service logged a refusal once; the instance then holds none.
+        (void)SyncWorldParameters();
+
+        // THE RENDER-STATE FRAME BOUNDARY: what the previous frame (its systems, its editor edits, its views)
+        // dirtied is latched for scene.renderDirty and the next frame starts from an empty set.
+        {
+            std::lock_guard lock( m_RenderStateDirtyMutex );
+            m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
+            m_RenderStateDirty.clear();
+        }
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
@@ -637,10 +724,42 @@ namespace Desert::Core
             World::Foliage::RealizePrefabFoliage( *this );
         }
 
+        // THE WEATHER before the systems read the fog, the clouds and the wind: advanced by gameplay time (a
+        // script's Weather.set lands next frame's tick), and written at the active camera. In Edit the authored
+        // values show — the weather is world state, and the editor world does not run it.
+        if ( TicksGameplay() )
+        {
+            DESERT_PROFILE_SCOPE( "Weather" );
+            m_Weather.Tick( m_Registry, gameplayTs.GetSeconds() );
+            if ( const auto observer = GetActiveCamera() )
+                m_Weather.Apply( m_Registry, m_WorldParameters, observer->GetPosition() );
+        }
+        // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's
+        // one-frame items go unless the world is paused, timed items count down by the scene's time - the editor's
+        // step in Edit, gameplay's in Play, nothing while paused - as the effects clock below.
+        m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                          m_State != SceneState::Paused || TicksGameplay() );
+
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // THE GAMEPLAY DEBUGGER after the systems: the scripts' switches and the player's keys of this frame (the
+        // script system ticked the local player's input) are in, and what it draws is one-frame DebugDraw, aged
+        // with the rest at the top of the next update. Keys only while played: in Edit the player has no input.
+        {
+            DESERT_PROFILE_SCOPE( "Gameplay Debugger" );
+            const Input::LocalPlayerInput* playerInput = nullptr;
+            if ( m_State != SceneState::Edit )
+                if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
+                    playerInput = &scripts->PlayerInput();
+            m_GameplayDebugger.Tick( *this, playerInput,
+                                     m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                                     m_State != SceneState::Paused || TicksGameplay() );
+        }
+#endif
 
         // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
         // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview
@@ -651,6 +770,30 @@ namespace Desert::Core
             const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
             m_VFXWorld.Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
         }
+#if DESERT_DEV_INSTRUMENTS
+        // VFX-16 (UE Niagara debugger "show bounds"): every system's fixed bounds, its local box through the
+        // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
+        if ( m_VFXWorld.GetDebugSettings().DrawBounds )
+            for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld.GetDebugStats().Systems )
+                for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
+                {
+                    if ( emitter.Capacity == 0 )
+                        continue; // disabled: draws nothing, culls nothing
+                    // The box the renderer culls the emitter by (VFXBoundsAt: the entity's full transform).
+                    const Common::Math::AABB box =
+                         Assets::Serialization::VFXBoundsAt( emitter.Bounds, glm::mat4( system.Transform ) );
+                    glm::vec3 corner[8];
+                    for ( int i = 0; i < 8; ++i )
+                        corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,
+                                               ( i & 4 ) ? box.Max.z : box.Min.z );
+                    DebugDrawStyle style;
+                    style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
+                    for ( int i = 0; i < 8; ++i )
+                        for ( int axis = 1; axis < 8; axis <<= 1 )
+                            if ( ( i & axis ) == 0 )
+                                DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
+                }
+#endif
 
         // Dir lights
         {
@@ -665,59 +808,71 @@ namespace Desert::Core
             const ECS::AtmosphereSunPick pick = ECS::PickAtmosphereSun( m_Registry, ECS::SunCandidacy::Lit );
             if ( const auto sun = pick.Sun() )
             {
-                const auto& light     = m_Registry.get<ECS::DirectionLightComponent>( *sun );
-                const auto& transform = m_Registry.get<ECS::TransformComponent>( *sun );
-                // Chosen implies DirectionValid, so the gate below cannot refuse; asked anyway, because the
-                // optional is the one place that normalizes a light's Translation.
-                if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
-                    sceneRendererInfo.DirLights.DirectionLights.push_back(
-                         { glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
+                const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
+                const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
+                sceneRendererInfo.SunVolumetricScatteringIntensity = light.Data.VolumetricScatteringIntensity;
+                sceneRendererInfo.DirLights.DirectionLights.push_back(
+                     { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
 
-            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.
-            //
-            // A DirectionLightComponent takes its direction from its TRANSLATION, not its rotation, so a
-            // sun aimed with the rotation gizmo has a Translation of (0,0,0) and cannot be collected; and
-            // every visible light that is not the sun contributes nothing at all. Both used to be silent or
-            // truncated with a different rule than the sky's. Hidden lights are not in the pick: a light
-            // the artist deliberately hid is not one they mis-authored.
+            // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
+            // the sun, never a stand-in for it — it has no fallback. When it casts shadows it gets cascades of its
+            // own (SceneResources slot 1, MeshRenderer::UpdateCascades), fitted from these same fields.
+            static_assert( static_cast<int>( Graphic::SceneResources::kMaxShadowedDirectionalLights ) ==
+                                ECS::Rules::kAtmosphereLightCount,
+                           "a cascade slot per atmosphere light: the slot IS the Atmosphere Sun Light Index" );
+            const ECS::AtmosphereSunPick secondPick =
+                 ECS::PickAtmosphereLight( m_Registry, ECS::SunCandidacy::Lit, 1 );
+            const auto second = secondPick.Sun();
+            sceneRendererInfo.AtmosphereLight1.reset();
+            if ( second )
+            {
+                const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *second );
+                const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *second );
+                sceneRendererInfo.AtmosphereLight1 = Graphic::SceneRenderer::AtmosphereLight1Frame{
+                     .Light = Graphic::ShaderProtocols::DirectionLightPayload{
+                          glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
+                     .SourceAngleDegrees = light.Data.SourceAngle,
+                     .CastShadows        = light.Data.CastShadows,
+                     .ShadowBias         = { .BiasCm       = light.Data.ShadowBias,
+                                             .SlopeBiasCm  = light.Data.ShadowSlopeBias,
+                                             .Distribution = light.Data.ShadowCascadeBiasDistribution },
+                     .CascadeSplitLambda = light.Data.CascadeSplitLambda };
+            }
+
+            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT: every visible directional
+            // light that is not the sun contributes nothing at all. Hidden lights are not in the pick: a
+            // light the artist deliberately hid is not one they mis-authored.
             const auto nameOf = [&]( entt::entity entity ) -> std::string
             {
                 return m_Registry.has<ECS::TagComponent>( entity )
                             ? m_Registry.get<ECS::TagComponent>( entity ).Tag
                             : std::string( "<untagged>" );
             };
-            std::string degenerate;
             std::string unused;
             for ( size_t i = 0; i < pick.Candidates.size(); ++i )
             {
-                if ( !pick.Candidates[i].DirectionValid )
-                    degenerate += ( degenerate.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
-                else if ( pick.Selection.Chosen != i )
-                    unused += ( unused.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
+                if ( pick.Selection.Chosen != i && pick.Entities[i] != second )
+                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
+                                    nameOf( pick.Entities[i] ) );
             }
 
             // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR here
             // would bury the log at 60 lines a second, and a plain once-only flag would go quiet about the
             // SECOND state. Comparing the text reports each distinct state once and re-reports when the set
             // changes — including back to empty, which is the line that tells a user their fix worked.
-            const std::string report = degenerate + "|" + unused + "|" + ( pick.Sun() ? "sun" : "" );
+            const std::string report = std::format( "{}|{}", unused, pick.Sun() ? "sun" : "" );
             if ( report != m_DirLightsReported )
             {
                 m_DirLightsReported = report;
-                if ( !degenerate.empty() )
-                    LOG_ERROR( "[Scene] directional light(s) {} have a Translation shorter than {} and "
-                               "emit NOTHING. A directional light takes its direction from its "
-                               "TRANSLATION (the direction the light travels), not from its Rotation.",
-                               degenerate, ECS::Rules::kSunDirectionEpsilon );
                 if ( !unused.empty() && pick.Sun() )
-                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders one directional "
-                               "light, the atmosphere sun '{}'. Remove them, or mark the one you want as "
-                               "Atmosphere Sun Light (index 0).",
+                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders the two "
+                               "atmosphere lights only (the sun '{}' at index 0, a moon at index 1). Remove them, "
+                               "or mark them as Atmosphere Sun Light at a free index.",
                                unused, nameOf( *pick.Sun() ) );
                 if ( !pick.Sun() && m_Registry.view<ECS::DirectionLightComponent>().size() > 0 )
-                    LOG_ERROR( "[Scene] no visible directional light with a usable direction: the scene has "
-                               "NO sun — no direct light, no shadows, no atmosphere sun." );
+                    LOG_ERROR( "[Scene] no visible directional light: the scene has NO sun — no direct light, "
+                               "no shadows, no atmosphere sun." );
             }
         }
 
@@ -741,15 +896,38 @@ namespace Desert::Core
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
         {
+            // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
+            // of the family before any view renders): the frame's view origins - the cameras just ticked above -
+            // and the scene's budget and card tracer are stated before the first view opens, so the one update the
+            // first view to reach the cache runs captures the cards in front of every viewport, not its own.
+            const auto& frames = Engine::FrameManager::GetInstance();
+            m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            std::vector<glm::vec3> origins;
+            for ( const auto& view : m_Views.All() )
+                if ( view.Camera )
+                    origins.push_back( view.Camera->GetPosition() );
+            m_SurfaceCache->BeginFrame( frames.GetAbsoluteFrameCount(), std::move( origins ), m_Registry,
+                                        m_Settings.RenderingPath == RenderPath::Deferred );
+        }
+        {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
-            // any view opens, fed the same recorded draws. Only when a view reads them; the sky bake they are lit
-            // by is the one the first such view holds (every view bakes the one sky of this scene). A scope of
+            // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
+            // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
+            // scene; a face bakes none). A scope of
             // their own, so "Scene: Views" stays the cost of the views alone.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
             for ( auto& view : m_Views.All() )
             {
                 if ( !view.Renderer->ReadsReflectionCaptures() )
                     continue;
+                // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured again for
+                // is rendered into the captures with that sky, not under the old one. Index 0 is the atmosphere
+                // sun (ECS::Rules::AtmosphereSunDirection, the one negation).
+                const auto& suns = sceneRendererInfo.DirLights.DirectionLights;
+                const bool  skyFollows =
+                     !suns.empty() && view.Renderer->SkyLightRecapturesFor( ECS::Rules::AtmosphereSunDirection(
+                                           glm::vec3( suns.front().Direction ) ) );
                 m_ReflectionCaptures->RenderCaptureViews(
                      *this,
                      [this]( Graphic::SceneRenderer& face )
@@ -758,7 +936,7 @@ namespace Desert::Core
                              buffer->ExecuteAll( face );
                      },
                      sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
-                     view.Renderer->GetEnvironmentIdentity() );
+                     view.Renderer->GetEnvironment(), skyFollows );
                 break;
             }
         }
@@ -1159,11 +1337,33 @@ namespace Desert::Core
         // A reload empties this object and refills it: a new world at the same address. Entity ids restart, so
         // a view's history keyed by (generation, entity) must not survive it (SceneRenderer::BeginScene).
         m_Generation   = NextSceneGeneration();
+        // The GPU scene is keyed by entity (MotionKey): the restarted ids would inherit the old world's
+        // primitives and previous transforms, so the reloaded world gets a registry of its own.
+        m_GpuScene     = std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>();
+        // THE OLD WORLD'S RENDERER STATE GOES WITH IT (UE: the FScene is destroyed with its world, and the next
+        // world's is built empty). Kept, the distance-field brick atlas, the captures' cubes, the cached shadow
+        // depth and the ray-tracing variants of the old world stayed resident under the next scene and were
+        // still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects are queued for
+        // deletion here; the opener drains the queue before the new world loads (SceneWorkspace).
+        // The captures' renderer records into the views' frame graphs (faces, its face surface cache and global
+        // distance field, its own retire queues): frames in flight still read them, so it is parked whole like the
+        // surface cache below and dies with its queues once those frames retired (OnUpdate collects).
+        const std::uint64_t clearFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        m_RetiringReflectionCaptures.Park( std::move( m_ReflectionCaptures ), clearFrame );
+        m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
+        m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
+        m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
+        m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
+        // The surface cache's atlases, capture framebuffer and pipelines are still read by the frames in flight
+        // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
+        m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
+        m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;
         m_GameMode.Reset();
         m_PlayFromHere = false;
+        m_Simulating   = false;
 
         m_Entities.Clear();
         m_VFXWorld.Clear();
@@ -1178,6 +1378,67 @@ namespace Desert::Core
         // across registry.clear(), so re-connecting without this accumulates duplicate handler invocations.
         m_Registry.on_construct<ECS::CameraComponent>().disconnect( this );
         m_Registry.on_construct<ECS::CameraComponent>().connect<&Scene::OnEntityCreated_Camera>( this );
+
+        // The render-state dirty set (MarkRenderStateDirty), fed at the source.
+        m_Registry.on_construct<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        m_Registry.on_destroy<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        const auto connect = [this]<typename Component>()
+        {
+            m_Registry.on_construct<Component>().disconnect( this );
+            m_Registry.on_update<Component>().disconnect( this );
+            m_Registry.on_destroy<Component>().disconnect( this );
+            m_Registry.on_construct<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+            m_Registry.on_update<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+            m_Registry.on_destroy<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+        };
+        connect.template operator()<ECS::StaticMeshComponent>();
+        connect.template operator()<ECS::SkinnedMeshComponent>();
+        connect.template operator()<ECS::InstancedStaticMeshComponent>();
+        connect.template operator()<ECS::MaterialComponent>();
+        connect.template operator()<ECS::VisibilityComponent>();
+        {
+            std::lock_guard lock( m_RenderStateDirtyMutex );
+            m_RenderStateDirty.clear();
+            m_RenderStateDirtyLastFrame = 0;
+        }
+    }
+
+    void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
+    {
+        MarkRenderStateDirty( entity, true );
+    }
+
+    void Scene::OnRenderStateChanged( entt::registry&, entt::entity entity )
+    {
+        MarkRenderStateDirty( entity, false );
+    }
+
+    void Scene::MarkRenderStateDirty( entt::entity entity, bool subtree )
+    {
+        std::lock_guard lock( m_RenderStateDirtyMutex );
+        if ( !subtree )
+        {
+            m_RenderStateDirty.insert( entity );
+            return;
+        }
+        // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
+        // subtree dirtied when it entered — unless it entered alone (a mesh / material / visibility change),
+        // so the walk goes on below every entity regardless.
+        std::vector<entt::entity> pending{ entity };
+        while ( !pending.empty() )
+        {
+            const entt::entity current = pending.back();
+            pending.pop_back();
+            m_RenderStateDirty.insert( current );
+            if ( !m_Registry.valid( current ) )
+                continue;
+            if ( const auto* relation = m_Registry.try_get<ECS::RelationshipComponent>( current ) )
+                pending.insert( pending.end(), relation->Children.begin(), relation->Children.end() );
+        }
     }
 
     void Scene::Attach( ECS::Entity parent, ECS::Entity child )
@@ -1206,6 +1467,8 @@ namespace Desert::Core
 
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
+        // A new parent is a new world transform for the child and everything under it.
+        MarkRenderStateDirty( child.GetHandle(), true );
     }
 
     void Scene::ArrangeRoots( const std::vector<ECS::Entity>& roots )
@@ -1233,16 +1496,14 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        MarkRenderStateDirty( child.GetHandle(), true );
     }
 
     void Scene::SetVisibleRecursive( ECS::Entity entity, bool visible )
     {
         if ( !entity ) return;
 
-        if ( entity.HasComponent<ECS::VisibilityComponent>() )
-            entity.GetComponent<ECS::VisibilityComponent>().Visible = visible;
-        else
-            entity.AddComponent<ECS::VisibilityComponent>().Visible = visible;
+        entity.SetVisible( visible );
         if ( entity.HasComponent<ECS::UUIDComponent>() )
             MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
 

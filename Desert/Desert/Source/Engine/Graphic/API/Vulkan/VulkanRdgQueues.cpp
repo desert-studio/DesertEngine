@@ -117,6 +117,24 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( slot.Semaphores[slot.SemaphoresUsed++] );
     }
 
+    void VulkanRdgQueueObjects::SignalOnHost( const std::span<const RDG::ExternalTimelinePoint> points ) const
+    {
+        for ( const RDG::ExternalTimelinePoint& point : points )
+        {
+            const auto semaphore = reinterpret_cast<VkSemaphore>( point.Semaphore );
+            uint64_t   counter   = 0;
+            if ( vkGetSemaphoreCounterValue( m_Device, semaphore, &counter ) == VK_SUCCESS &&
+                 counter >= point.Value )
+                continue;
+            const VkSemaphoreSignalInfo info{
+                 .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO, .semaphore = semaphore, .value = point.Value };
+            if ( const VkResult signalled = vkSignalSemaphore( m_Device, &info ); signalled != VK_SUCCESS )
+                std::fprintf( stderr,
+                              "RDG: vkSignalSemaphore of a dropped external point (value %llu) failed (%d)\n",
+                              static_cast<unsigned long long>( point.Value ), static_cast<int>( signalled ) );
+        }
+    }
+
     // ── VulkanRdgQueueSet ───────────────────────────────────────────────────────────────────────────────────
 
     RDG::PipeCapabilities VulkanRdgQueueSet::GetCapabilities() const
@@ -151,7 +169,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( const Common::BoolResultStr closed = Close(); !closed )
                 return Common::MakeError<Out>( closed.GetError() );
         }
-        m_Result = &result;
+        m_Result  = &result;
+        m_Objects = queues.Objects;
         m_SyncSemaphores.assign( result.Syncs.size(), VK_NULL_HANDLE );
         m_NextSegment      = 0;
         m_GraphSubmissions = m_Submissions.size();
@@ -246,6 +265,26 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeError<Out>( semaphore.GetError() );
             m_Open->SignalSemaphores.push_back( semaphore.GetValue() );
         }
+        // RDG-EXTERNAL: the timeline points of ExternalQueue passes (PipeSegment::WaitExternal / SignalExternal).
+        // ALL_COMMANDS: the other API wrote raw memory any later stage may read.
+        if ( !segment.WaitExternal.empty() || segment.SignalExternal.has_value() )
+        {
+            m_Open->WaitValues.assign( m_Open->WaitSemaphores.size(), 0 );
+            m_Open->SignalValues.assign( m_Open->SignalSemaphores.size(), 0 );
+        }
+        for ( const RDG::ExternalTimelinePoint& point : segment.WaitExternal )
+        {
+            m_Open->WaitSemaphores.push_back( reinterpret_cast<VkSemaphore>( point.Semaphore ) );
+            m_Open->WaitStages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
+            m_Open->WaitValues.push_back( point.Value );
+        }
+        if ( segment.SignalExternal.has_value() )
+        {
+            m_Open->SignalSemaphores.push_back(
+                 reinterpret_cast<VkSemaphore>( segment.SignalExternal->Semaphore ) );
+            m_Open->SignalValues.push_back( segment.SignalExternal->Value );
+            m_Open->ExternalSignals.push_back( *segment.SignalExternal );
+        }
         return Common::MakeSuccess( m_Open->CommandBuffer );
     }
 
@@ -263,7 +302,9 @@ namespace Desert::Graphic::API::Vulkan
                 endJoins.push_back( sync );
         }
         const bool last = m_NextSegment == m_Result->Segments.size();
-        if ( last && segment.OnPipe == RDG::Pipe::Graphics && endJoins.empty() )
+        // A segment that signals another API's timeline is submitted as it is: nothing may record after the
+        // signal.
+        if ( last && segment.OnPipe == RDG::Pipe::Graphics && endJoins.empty() && !segment.SignalExternal )
             return Common::MakeSuccess( m_Open->CommandBuffer ); // the final barriers record into it
 
         if ( const Common::BoolResultStr closed = Close(); !closed )
@@ -294,6 +335,17 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRdgSegmentRecorder::AbandonGraph()
     {
         // A command buffer left recording is reset with its pool at the slot's next BeginFrameSlot.
+        // RDG-EXTERNAL: the timeline points the dropped submissions would have signalled are signalled from the
+        // host, so an ExternalQueue pass's enqueued work is released (its result is never read: the frame is
+        // dropped with it).
+        std::vector<RDG::ExternalTimelinePoint> dropped;
+        if ( m_Open )
+            dropped.insert( dropped.end(), m_Open->ExternalSignals.begin(), m_Open->ExternalSignals.end() );
+        for ( size_t i = std::min( m_Submissions.size(), m_GraphSubmissions ); i < m_Submissions.size(); ++i )
+            dropped.insert( dropped.end(), m_Submissions[i].ExternalSignals.begin(),
+                            m_Submissions[i].ExternalSignals.end() );
+        if ( !dropped.empty() && m_Objects != nullptr )
+            m_Objects->SignalOnHost( dropped );
         m_Open.reset();
         m_Submissions.resize( std::min( m_Submissions.size(), m_GraphSubmissions ) );
         m_Result = nullptr;

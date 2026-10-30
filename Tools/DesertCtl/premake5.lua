@@ -31,10 +31,12 @@ project "DesertCtl"
 
     defines { "FMT_HEADER_ONLY" }
 
-    externalincludedirs {
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include",
-    }
+    -- Common's headers and the third-party roots they include (glm, spdlog/fmt, reflect-cpp) come from ONE table,
+    -- Desert/Dependencies.lua Common.IncludeDir -- the same one Common itself compiles against. A hand-copied list
+    -- here missed glm when Common/Json/Document.hpp started reading glm vectors (run 40926375233, C1083).
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
+        externalincludedirs { path }
+    end
 
     -- ON EVERY PLATFORM, which it was not before. The Windows build of this tool used to be a dozen lines
     -- that printed "no transport on Windows" and returned: it reached no parser, so it linked no parser,

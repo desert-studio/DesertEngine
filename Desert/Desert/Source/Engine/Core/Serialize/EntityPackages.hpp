@@ -54,7 +54,9 @@ namespace Desert::Core
         Common::UUID Record;            // the entity whose record states this one (itself, unless it is inside a
                                         // prefab instance or a foliage field: then the instance's / field's root)
         Common::UUID  Parent;           // null for a root
-        std::uint32_t SiblingIndex = 0; // what the record's siblingIndex states (records only)
+        // What the record's siblingIndex states (records only); none for a root of an external-entities scene,
+        // whose root order is not persisted (UE: OFPA actors keep no order).
+        std::optional<std::uint32_t> SiblingIndex;
     };
 
     // What a save of a partitioned world has to do.
@@ -92,6 +94,9 @@ namespace Desert::Core
         void Baseline( const std::filesystem::path& scenePath, std::span<const LiveEntity> live );
 
         [[nodiscard]] bool IsDirty( Common::UUID id ) const;
+        // The scene of `live` differs from the files of its baseline (or has none): what a save of it to the
+        // baseline would write or remove is not nothing. UE's "the level has unsaved changes".
+        [[nodiscard]] bool HasUnsavedChanges( std::span<const LiveEntity> live ) const;
 
         // The files the baseline was taken from (the scene's open or last save), if any: the world on disk an
         // editor region loads from (WP19, EditorRegions.hpp).
@@ -103,8 +108,10 @@ namespace Desert::Core
         // WP19, UE's editor loader adapter: the scene now holds `live` of the baseline's world, and the records
         // `notLoaded` stay on disk. An entity new to the baseline was just read from its file (clean); one of the
         // baseline that is no longer live was unloaded, NOT deleted - its file is kept and the header lists it.
-        // Forget clears the set; a save keeps it.
-        void AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded );
+        // Forget clears the set; a save keeps it. `unsaved`: live entities the files do not hold (made since the
+        // open or last save) - kept through the region change, they get no saved revision and stay unsaved.
+        void AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded,
+                          std::span<const Common::UUID> unsaved );
 
         [[nodiscard]] bool IsLoaded( Common::UUID record ) const
         {
@@ -123,7 +130,7 @@ namespace Desert::Core
         struct SavedRecord
         {
             std::uint64_t Parent       = 0;
-            std::uint32_t SiblingIndex = 0;
+            std::optional<std::uint32_t> SiblingIndex;
         };
 
         [[nodiscard]] Revision CurrentOf( std::uint64_t id ) const;

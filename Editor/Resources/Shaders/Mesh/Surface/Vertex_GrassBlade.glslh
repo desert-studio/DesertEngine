@@ -1,0 +1,88 @@
+// Surface cell vertex path: a procedural grass blade per instance (GRASS-BLADE; Ghost of Tsushima, GDC 2021
+// "Procedural Grass in Ghost of Tsushima": the blade is a curve built in the vertex stage from a few numbers, no
+// mesh). The drawn mesh is GrassRenderer's blade strip, whose position is (side -1/+1, height share t 0..1, 0); the
+// instance's matrix (InstanceTransforms, written by Programs/Grass/GrassGenerate.shader) carries the blade's root,
+// its width axis (column 0, scaled by the width multiplier), its up and forward axes (columns 1 and 2, scaled by
+// the height multiplier) and three per-blade draws in the columns' w: the card draw, the curvature (and bend) draw
+// and the clump tint. The variety's shape (GrassBladeShape) picks its card and bends it; its look - outline,
+// colour, veins, dry tips - is the material's scanned atlas (Ghost of Tsushima's blade is coloured in code; here
+// the scan is the asset, the code only places, bends and sways it); the
+// scene's wind sways it as FoliageWind.glslh sways a mesh, resisted by the blade's stiffness. One function places
+// the blade for every pass, so the shadow and the depth a blade leaves are the blade that is drawn.
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
+// (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
+// DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
+// set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#include <Mesh/MeshVertexInputs.glslh>
+
+#include <Common/CameraUB.glslh>
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view's depth prepass (Mesh/Surface/Pass_Depth.glslh) and the base pass test each other's depth for equality:
+// one gl_Position, bit for bit, whichever cell computes it (GLSL invariance, UE's precise position).
+invariant gl_Position;
+#endif
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#include <Common/ShadowCasterBias.glslh>
+#endif
+#include <Common/Velocity.glslh>
+
+layout( std430, binding = 17 ) readonly buffer InstanceTransforms
+{
+    mat4 transforms[];
+};
+
+// The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
+#include <Mesh/Surface/GrassBlade.glslh>
+
+// The variety's shape (GrassBladeShapeGpu), std430.
+layout( std430, binding = 13 ) readonly buffer GrassBladeShape
+{
+    GrassBladeShapeData Blade;
+};
+
+#include <Common/MaterialTransport.glslh>
+
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+DESERT_SURFACE_VARYINGS( out )
+#endif
+
+void main()
+{
+    const mat4       model  = transforms[gl_InstanceIndex];
+    const float      side   = a_Position.x;
+    const float      t      = a_Position.y;
+    const BladePoint blade  = BladeAt( Blade, model, side, t, m_PushConstants.WindA, m_PushConstants.WindB );
+    const vec3       along  = normalize( blade.Along );
+    const vec3       normal = BladeNormal( blade, side );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    // The blade's look is its material's: UV0 is the card's place on the scanned atlas (texture space, set
+    // directly, not a stored mesh UV), UV1 carries the clump's draw and the height share for the material's clump
+    // tint and root occlusion (GrassBladeSurface.shader), so neither is a colour decided here.
+    const vec4 card = BladeCard( Blade, model[0].w );
+    v_Surface.WorldPosition = blade.Position;
+    v_Surface.Normal        = normal;
+    v_Surface.UV0           = BladeCardUV( card, side, t );
+    v_Surface.UV1           = vec2( model[2].w, t );
+    v_Surface.VertexColor   = a_Color;
+    v_Surface.TBN           = mat3( blade.Right, along, normal );
+#endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
+    // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
+    const BladePoint previous = BladeAt( Blade, model, side, t, m_PushConstants.WindA,
+                                         vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+    v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a blade never moves, only the wind bends it.
+    v_Surface.ObjectMoved = 0.0;
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
+    v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
+#endif
+    gl_Position = cameraUB.JitteredViewProjection * vec4( blade.Position, 1.0 );
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection, normal,
+                                         cameraUB.ShadowSlopeBias, cameraUB.ShadowSlopeClamp );
+#endif
+}

@@ -11,6 +11,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace Desert::Editor
@@ -63,7 +64,7 @@ namespace Desert::Editor
     {
         if ( parent < -1 || parent >= static_cast<int>( s_Bones.size() ) )
             parent = -1;
-        s_Bones.push_back( { "Bone_" + std::to_string( s_Bones.size() ), head, parent } );
+        s_Bones.push_back( { std::format( "Bone_{}", s_Bones.size() ), head, parent } );
         s_Selected = static_cast<int>( s_Bones.size() ) - 1;
         return s_Selected;
     }
@@ -152,7 +153,7 @@ namespace Desert::Editor
         }
 
         const auto& smc       = entity.GetComponent<ECS::StaticMeshComponent>();
-        auto        meshAsset = assets.FindByHandle<Assets::StaticMeshAsset>( smc.MeshHandle );
+        auto        meshAsset = assets.FindByHandle<Assets::StaticMeshAsset>( smc.GetMeshHandle() );
         if ( !meshAsset )
         {
             LOG_WARN( "[RigBuilder] Convert aborted: only asset-backed static meshes can be rigged (no "
@@ -209,9 +210,10 @@ namespace Desert::Editor
         // bound to the wrong vertex/pipeline layout) — the user re-assigns skinned materials afterward.
         entity.RemoveComponent<ECS::StaticMeshComponent>();
         scene.MarkModified( s_Target );
-        auto& out           = entity.AddComponent<ECS::SkinnedMeshComponent>();
+        ECS::SkinnedMeshDesc out;
         out.RuntimeSkeleton = skeleton;
         out.RuntimeMesh     = skinnedMesh;
+        ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), out );
 
         LOG_INFO( "[RigBuilder] Converted static mesh to skinned: {} bones, {} vertices.", s_Bones.size(),
                   skinned.size() );

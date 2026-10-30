@@ -10,39 +10,9 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// std430 layout — must match ShaderProtocols::PointLightPayload (64 bytes).
-struct PointLight {
-    vec3  color;
-    float intensity;
-    vec3  position;
-    float radius;
-    float minRadius;
-    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
-    float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
-    int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
-    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
-    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float _pad2;
-};
-
-// std430 layout — must match ShaderProtocols::SpotLightPayload (80 bytes).
-struct SpotLight {
-    vec3  color;
-    float intensity;
-    vec3  position;
-    float range;
-    vec3  direction;   // normalized, pointing OUT of the cone apex
-    float cosInner;    // cos(inner half-angle) — full intensity inside this
-    float cosOuter;    // cos(outer half-angle) — zero intensity outside this
-    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
-    float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
-    int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
-    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
-    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float _pad2;
-};
+// `struct PointLight` / `struct SpotLight` (std430, 80 / 112 bytes) are GENERATED from ShaderProtocols::PointLight /
+// SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp) by the shader includer.
+#include <Mesh/LightSourceLayouts.glslh>
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
 // casting intensity, non-casting intensity).
@@ -68,13 +38,15 @@ float SpotConeFactor(SpotLight light, vec3 L)
 
 
 // The sun. `lightTravel` is the direction the light travels (away from the sun), as both paths' uniform
-// blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer.
-DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow )
+// blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer;
+// `transmissionShadow` is the same for the light passing through (DesertLight::TransmissionShadow).
+DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float transmissionShadow )
 {
     DesertLight light;
-    light.L        = normalize( -lightTravel );
-    light.Radiance = radiance;
-    light.Shadow   = shadow;
+    light.L                  = normalize( -lightTravel );
+    light.Radiance           = radiance;
+    light.Shadow             = shadow;
+    light.TransmissionShadow = transmissionShadow;
     return light;
 }
 
@@ -86,7 +58,8 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     light.L        = normalize( toLight );
     light.Radiance = source.color * source.intensity *
                      LightFalloffFactor( distance, source.minRadius, source.radius, source.falloff );
-    light.Shadow   = 1.0;
+    light.Shadow             = 1.0;
+    light.TransmissionShadow = 1.0;
     return light;
 }
 
@@ -96,9 +69,10 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     const float distance = length( toLight );
     DesertLight light;
     light.L        = normalize( toLight );
-    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, 0.0, source.range, source.falloff ) *
+    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, source.minRadius, source.range, source.falloff ) *
                      SpotConeFactor( source, light.L );
-    light.Shadow   = 1.0;
+    light.Shadow             = 1.0;
+    light.TransmissionShadow = 1.0;
     return light;
 }
 

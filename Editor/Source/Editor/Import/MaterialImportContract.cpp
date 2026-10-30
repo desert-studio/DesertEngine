@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <format>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor
@@ -99,6 +100,7 @@ namespace Desert::Editor
         const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( std::string( source ) );
         if ( !parsed )
             return Common::MakeError<ImportTemplate>( std::format( "'{}': {}", out.Locator, parsed.GetError() ) );
+        out.Blend = parsed.GetValue().Meta.Blend;
         for ( const auto& param : parsed.GetValue().Meta.Params )
             if ( param.IsTexture )
             {
@@ -107,6 +109,19 @@ namespace Desert::Editor
                     out.TextureIntents.emplace( param.Name, param.SlotIntent );
             }
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::ResultStr<ShaderBlendRow> ReadShaderBlend( std::string_view source, std::string_view locator )
+    {
+        const auto header = Common::Content::ReadShaderHeader( source );
+        if ( !header )
+            return Common::MakeError<ShaderBlendRow>( std::format( "'{}': {}", locator, header.GetError() ) );
+        if ( header.GetValue().Guid.empty() )
+            return Common::MakeError<ShaderBlendRow>( std::format( "'{}': no header GUID", locator ) );
+        const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( std::string( source ) );
+        if ( !parsed )
+            return Common::MakeError<ShaderBlendRow>( std::format( "'{}': {}", locator, parsed.GetError() ) );
+        return Common::MakeSuccess( ShaderBlendRow{ header.GetValue().Guid, parsed.GetValue().Meta.Blend } );
     }
 
     bool ImportedTextureSlot::NeedsPacking() const
@@ -194,30 +209,55 @@ namespace Desert::Editor
                 fill.UnreadKeys.push_back( key );
         return fill;
     }
-    SourceMaterial WithFbxSpecularMap( SourceMaterial material, const Assets::FbxSpecularMap meaning )
+    Common::ResultStr<SourceMaterial> WithFbxSpecularMap( SourceMaterial               material,
+                                                          const Assets::FbxSpecularMap meaning )
     {
-        if ( meaning == Assets::FbxSpecularMap::Specular )
-            return material;
+        std::string_view key;
+        switch ( meaning )
+        {
+            case Assets::FbxSpecularMap::FromImage:
+                return Common::MakeFormattedError<SourceMaterial>(
+                     "[Import] material '{}': the FBX Specular map's meaning FromImage reached the template fill "
+                     "unresolved (ResolveFbxSpecularMap reads the image first)",
+                     material.Name );
+            case Assets::FbxSpecularMap::Specular:
+                return Common::MakeSuccess( std::move( material ) );
+            case Assets::FbxSpecularMap::OcclusionRoughnessMetallic:
+                key = kFbxOcclusionRoughnessMetalKey;
+                break;
+            case Assets::FbxSpecularMap::RoughnessMetallic:
+                key = kFbxRoughnessMetalKey;
+                break;
+        }
         if ( const auto found = material.Entries.find( kFbxSpecularMapKey ); found != material.Entries.end() )
         {
             auto node           = material.Entries.extract( found );
-            node.key()          = std::string( meaning == Assets::FbxSpecularMap::RoughnessMetallic
-                                                    ? kFbxRoughnessMetalKey
-                                                    : kFbxOcclusionRoughnessMetalKey );
+            node.key()          = std::string( key );
             node.mapped().Value = glm::vec4( 1.0f );
             material.Entries.insert( std::move( node ) );
         }
-        return material;
+        return Common::MakeSuccess( std::move( material ) );
+    }
+
+    Assets::FbxSpecularMap FbxSpecularMapOfTexels( const std::span<const uint8_t> rgba )
+    {
+        bool gbCarryData = false;
+        for ( std::size_t i = 0; i + 3 < rgba.size(); i += 4 )
+        {
+            if ( rgba[i] > kFbxSpecularUnusedR )
+                return Assets::FbxSpecularMap::Specular;
+            gbCarryData = gbCarryData || rgba[i + 1] > kFbxSpecularUnusedR || rgba[i + 2] > kFbxSpecularUnusedR;
+        }
+        return gbCarryData ? Assets::FbxSpecularMap::RoughnessMetallic : Assets::FbxSpecularMap::Specular;
     }
 
     std::string_view UnreadKeyHint( const std::string_view key )
     {
         if ( key == kFbxSpecularMapKey )
-            return "the FBX Specular map is a specular-colour image as FBX defines it, and the template has no "
-                   "Specular input; if this file packs roughness/metalness in G/B there (Lumberyard Bistro, ORCA: "
-                   "R "
-                   "unused) or AO/roughness/metalness in R/G/B, set Import Settings > FBX Specular Map to that "
-                   "Packed meaning and re-import with the .demat deleted";
+            return "the FBX Specular map was read as a specular-colour image, as FBX defines it (its R carries "
+                   "data, so it is not the G/B roughness/metal packing), and the template has no Specular input; "
+                   "if this file packs AO/roughness/metalness in R/G/B there, set Import Settings > FBX Specular "
+                   "Map to that Packed meaning and re-import with the .demat deleted";
         return {};
     }
 

@@ -113,6 +113,12 @@ namespace Desert::Runtime
         return &uiThemeService;
     }
 
+    LandscapeGrassTypeService* ResourceRegistry::GetLandscapeGrassTypeService()
+    {
+        static LandscapeGrassTypeService landscapeGrassTypeService;
+        return &landscapeGrassTypeService;
+    }
+
     LandscapeLayerInfoService* ResourceRegistry::GetLandscapeLayerInfoService()
     {
         static LandscapeLayerInfoService landscapeLayerInfoService;
@@ -149,6 +155,24 @@ namespace Desert::Runtime
         return &waterWavesService;
     }
 
+    WorldParametersService* ResourceRegistry::GetWorldParametersService()
+    {
+        static WorldParametersService worldParametersService;
+        return &worldParametersService;
+    }
+
+    WeatherPresetService* ResourceRegistry::GetWeatherPresetService()
+    {
+        static WeatherPresetService weatherPresetService;
+        return &weatherPresetService;
+    }
+
+    SubsurfaceProfileService* ResourceRegistry::GetSubsurfaceProfileService()
+    {
+        static SubsurfaceProfileService subsurfaceProfileService;
+        return &subsurfaceProfileService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -161,11 +185,15 @@ namespace Desert::Runtime
         GetUIThemeService()->BindAssetManager( assets );
         GetSkyboxService()->BindAssetManager( assets );
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
+        GetLandscapeGrassTypeService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
         GetFractureService()->BindAssetManager( assets );
         GetWaterWavesService()->BindAssetManager( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
         GetVFXSystemService()->BindAssetManager( assets );
+        GetWorldParametersService()->BindAssetManager( assets );
+        GetWeatherPresetService()->BindAssetManager( assets );
+        GetSubsurfaceProfileService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -173,6 +201,9 @@ namespace Desert::Runtime
         // Order matters in one place only: the ImageService holds the VkImages that the material, skybox,
         // font, icon and cloud services hand out views of, so it goes LAST.
         GetMaterialService()->Clear();
+        GetWorldParametersService()->Clear();
+        GetWeatherPresetService()->Clear();
+        GetSubsurfaceProfileService()->Clear();
         GetMeshService()->Clear();
         GetSkyboxService()->Clear();
         GetTextureService()->Clear();
@@ -187,6 +218,7 @@ namespace Desert::Runtime
         GetCloudLayoutService()->Clear();
         GetUIThemeService()->Clear();
         GetLandscapeLayerInfoService()->Clear();
+        GetLandscapeGrassTypeService()->Clear();
         GetFoliageTypeService()->Clear();
         GetFractureService()->Clear();
         GetWaterWavesService()->Clear();

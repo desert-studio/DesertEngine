@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/Graphic/RendererTypes.hpp>
+#include <Engine/Graphic/ShaderDataType.hpp>
+#include <Engine/Graphic/ShaderProtocols/VertexInputs.hpp>
 #include <Engine/Graphic/DynamicResources.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -8,27 +10,12 @@
 // Geometry/Mesh.hpp by translation units that never include Core.hpp on their own.
 #include <Common/Core/Core.hpp>
 
+#include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::Graphic
 {
-    enum class ShaderDataType
-    {
-        None = 0,
-        Float,
-        Float2,
-        Float3,
-        Float4,
-        Int,
-        Int2,
-        Int3,
-        Int4,
-        Bool,
-        // Four 8-bit channels read as 0..1 floats (VK_FORMAT_R8G8B8A8_UNORM): the vertex colour stream, as
-        // UE's FColor vertex colours.
-        UNorm8x4
-    };
-
     inline uint32_t ShaderDataTypeSize( ShaderDataType type )
     {
         switch ( type )
@@ -101,6 +88,36 @@ namespace Desert::Graphic
         VertexBufferLayout( const std::initializer_list<VertexBufferElement>& elements ) : m_Elements( elements )
         {
             CalculateOffsetsAndStride();
+        }
+
+        /// THE LAYOUT OF A GENERATED VERTEX FORMAT (ShaderProtocols/VertexInputs.hpp): binding 0's attributes in
+        /// location order, then the streams (binding 1) from their first location. The shader's inputs are
+        /// generated from the same fields, so this is the only way a pipeline is handed a format's layout.
+        [[nodiscard]] static VertexBufferLayout
+        FromVertexInputs( const std::span<const ShaderProtocols::VertexInputField> fields )
+        {
+            VertexBufferLayout layout;
+            for ( const ShaderProtocols::VertexInputField& field : fields )
+            {
+                VertexBufferElement element( field.Type, std::string( field.Name ), field.Normalized );
+                if ( field.Binding == 0 )
+                {
+                    DESERT_VERIFY( field.Location == layout.m_Elements.size(),
+                                   "a vertex format's binding-0 attributes are not at consecutive locations" );
+                    layout.m_Elements.push_back( element );
+                    continue;
+                }
+                if ( layout.m_StreamElements.empty() )
+                    layout.m_StreamFirstLocation = field.Location;
+                DESERT_VERIFY( field.Binding == 1 && field.Location == layout.m_StreamFirstLocation +
+                                                                             layout.m_StreamElements.size(),
+                               "a vertex format's streams are not binding 1 at consecutive locations" );
+                element.Offset = layout.m_StreamStride;
+                layout.m_StreamStride += element.Size;
+                layout.m_StreamElements.push_back( element );
+            }
+            layout.CalculateOffsetsAndStride();
+            return layout;
         }
 
         inline uint32_t GetStride() const
@@ -225,15 +242,45 @@ namespace Desert::Graphic
             m_Accounting.RecordBytes( bytes );
         }
 
+        // The device address of this buffer's first byte, for a shader that reads it through a buffer reference
+        // (the emissive light list's Build pass, a BLAS build input). 0: none - a device without
+        // bufferDeviceAddress (the address table is filled only with the acceleration-structure row, so a device
+        // with no hardware ray tracing has no addresses), or the buffer is not resident. Read when used, never
+        // cached across frames: a pool arena's VkBuffer changes as it grows (VulkanGeometryAddress.hpp).
+        [[nodiscard]] virtual uint64_t GetDeviceAddress() const
+        {
+            return 0;
+        }
+
         [[nodiscard]] virtual unsigned int GetSize() const = 0;
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
 
+        // A Pooled buffer's range write (blocking one-off copy, like RT_Invalidate's upload). Refused by every
+        // other usage. A Pooled buffer never grows: the GeometryPool adds a page instead.
+        [[nodiscard]] virtual Common::BoolResultStr RT_WriteRange( uint64_t /*offset*/, const void* /*data*/,
+                                                                   uint64_t /*size*/ )
+        {
+            return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
+        }
+
+        // @p file / @p line name the ledger row after the line that asked for the buffer: a vertex buffer has no
+        // name of its own, and a row a closing view leaves behind has to say WHOSE it is (EDITOR-LOG-CLEAN).
+        // __builtin_FILE/__builtin_LINE rather than std::source_location::current(): Apple clang 15 evaluates
+        // the consteval current() in a default argument at the DECLARATION (every row read
+        // "VertexBuffer.hpp:237"); the builtins are evaluated at the call site on clang, gcc and MSVC.
         static std::shared_ptr<VertexBuffer> Create( const void* data, uint32_t size,
-                                                     BufferUsage usage = BufferUsage::Static );
-        static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );
+                                                     BufferUsage usage = BufferUsage::Static,
+                                                     const char* file  = __builtin_FILE(),
+                                                     uint32_t    line  = __builtin_LINE() );
+        static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic,
+                                                     const char* file = __builtin_FILE(),
+                                                     uint32_t    line = __builtin_LINE() );
 
     private:
+        static std::shared_ptr<VertexBuffer> NamedAfter( std::shared_ptr<VertexBuffer> buffer, const char* file,
+                                                         uint32_t line );
+
         ResourceOwnership m_Accounting;
     };
 } // namespace Desert::Graphic

@@ -1,7 +1,11 @@
 #include "CloudNoiseVolumeSheet.hpp"
 
 #include <algorithm>
+#include <format>
 #include <string>
+#include <vector>
+
+#include <Common/Json/Template.hpp>
 
 namespace Desert::Assets
 {
@@ -59,19 +63,16 @@ namespace Desert::Assets
 
     std::string CloudNoiseSheetSizesDescription()
     {
-        std::string out;
+        std::vector<std::string> sizes;
         for ( const uint32_t resolution : LegalResolutions() )
         {
             const auto layout = CloudNoiseSheetLayoutFor( resolution );
             if ( !layout )
                 continue;
-
-            if ( !out.empty() )
-                out += ", ";
-            out += std::to_string( layout.GetValue().Width ) + "x" + std::to_string( layout.GetValue().Height ) +
-                   " (" + std::to_string( resolution ) + "^3)";
+            sizes.push_back(
+                 std::format( "{}x{} ({}^3)", layout.GetValue().Width, layout.GetValue().Height, resolution ) );
         }
-        return out;
+        return Common::Text::Join( sizes, ", " );
     }
 
     Common::ResultStr<CloudNoiseSheetImage> EncodeCloudNoiseVolumeToSheet( const CloudNoiseVolumeData& volume )

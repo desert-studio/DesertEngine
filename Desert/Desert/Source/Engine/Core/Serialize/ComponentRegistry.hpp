@@ -24,6 +24,11 @@ namespace Desert::Core::Serialize
     struct ComponentSerializer
     {
         std::string Key; // JSON key under the entity's "Components" object
+        // The members this block's writer states whenever it has a value (its serialized struct's member
+        // list, Common::Json::MemberNames). A save drops an old file's value under one of them that the
+        // writer omitted (cleared to its default) instead of carrying it back as another build's key.
+        // Empty = the block claims nothing, every unwritten member is carried.
+        std::vector<std::string> DeclaredMembers;
 
         std::function<bool( ECS::Entity )>                                                   Has;
         std::function<Common::Json::Value( ECS::Entity, const Assets::AssetManager& )>       Serialize;

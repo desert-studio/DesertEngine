@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/FileExplorer/AssetContextMenu.hpp>
@@ -15,7 +15,7 @@
 #include <Editor/Panels/FileExplorer/ContentBrowserToolbar.hpp>
 #include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Panels/FileExplorer/NewAssetMenu.hpp>
 #include <Editor/Panels/FileExplorer/ThumbnailEditMode.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
@@ -108,6 +108,9 @@ namespace Desert::Editor
         // A `.dfxch` with one Position field in the current folder, selected once listed. The ONE creation route
         // for the context menu and the palette's "Assets / New VFX Data Channel".
         Common::BoolResultStr CreateNewVFXDataChannel();
+        // A copy of an engine VFX system template (NewAssetMenu::VFXSystemTemplates) in the current folder.
+        Common::BoolResultStr CreateVFXSystemFromTemplate( const std::filesystem::path& templateFile );
+        Common::BoolResultStr CreateNewVFXModule();
 
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before
@@ -144,6 +147,10 @@ namespace Desert::Editor
         // hidden-file rule applied): the palette offers one Go to Folder / Sync to Asset per entry.
         std::vector<std::string> ContentFolders() const;
         std::vector<std::string> ContentFiles() const;
+        // How a palette label spells a folder / file of ContentFolders / ContentFiles: relative to the browser's
+        // root ("Foliage/boulder_01.defoliage", as UE's /Game/... paths do), so a command name is the same in
+        // every checkout of the project; the path itself stays the one the command runs on.
+        std::string ContentLabelPath( const std::string& path ) const;
         // The Content Browser commands (ContentBrowserCommands.hpp) on the selection: the item context menu
         // draws them through CommandMenuItem and the palette offers them; both land here. Refused, with the
         // reason, when the selection does not fit the command.

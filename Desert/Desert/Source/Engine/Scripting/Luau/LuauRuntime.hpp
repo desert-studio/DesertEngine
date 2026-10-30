@@ -99,6 +99,14 @@ namespace Desert::Scripting
         Reflection::Value Value;
     };
 
+    /// Whether a runtime reports to the script debugger (LuauDebugger.hpp): a world's scripts do; a runtime that
+    /// only probes a script (its schema, its SaveGame properties) runs its top level once and must not stop there.
+    enum class LuauDebugging
+    {
+        Off,
+        Attachable,
+    };
+
     /// THE LUAU RUNTIME — one VM, every script in its own sandbox, every call under the watchdog.
     ///
     /// The shape is Roblox's and Luau's own recommended embedding:
@@ -117,7 +125,8 @@ namespace Desert::Scripting
     class LuauRuntime
     {
     public:
-        explicit LuauRuntime( LuauLimits limits = {}, const LuauInstall& install = {} );
+        explicit LuauRuntime( LuauLimits limits = {}, const LuauInstall& install = {},
+                              LuauDebugging debugging = LuauDebugging::Off );
         ~LuauRuntime();
 
         LuauRuntime( const LuauRuntime& )            = delete;
@@ -174,7 +183,7 @@ namespace Desert::Scripting
         /// `Properties[property.Name] = <its value as the script reads it>` (an entity resolved in `world`).
         void SetProperty( LuauSlot slot, const ScriptProperty& property, const LuauPropertyWorld& world );
 
-        /// `Properties[name]` as a scalar of kind `type` (Number, Int, Bool, String, Enum): false when the slot,
+        /// `Properties[name]` as a scalar of kind `type` (LuauProperties::ReadScalar): false when the slot,
         /// the table or a value of that kind is not there.
         [[nodiscard]] bool ReadProperty( LuauSlot slot, const std::string& name, PropertyType type,
                                          ScriptValue& out ) const;

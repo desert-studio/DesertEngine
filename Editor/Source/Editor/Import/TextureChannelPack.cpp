@@ -14,6 +14,7 @@
 #include <format>
 #include <memory>
 #include <span>
+#include <utility>
 #include <string_view>
 #include <vector>
 
@@ -34,6 +35,47 @@ namespace Desert::Editor
                 return Data ? Data.get() : Owned.data();
             }
         };
+
+        // One source image as RGBA8 texels: a loose image or a texture asset (an embedded texture's), read
+        // through Assets::ReadTextureSourceImage. A DDS (a Lumberyard Bistro / ORCA packed map) is decoded by the
+        // one DDS reader, as the texture cook does; stb has no DDS decoder and would refuse it as an "unknown
+        // image type".
+        Common::ResultStr<Pixels> DecodeSourceImage( const std::filesystem::path& source )
+        {
+            const auto bytes = Assets::ReadTextureSourceImage( Common::Constants::Path::FullPath( source ) );
+            if ( !bytes.IsSuccess() )
+                return Common::MakeError<Pixels>(
+                     std::format( "cannot read '{}' ({})", source.generic_string(), bytes.GetError() ) );
+            Pixels                        image;
+            const std::vector<std::byte>& raw = bytes.GetValue();
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - the file's bytes viewed as characters
+            const std::string_view rawText( reinterpret_cast<const char*>( raw.data() ), raw.size() );
+            if ( IsDdsSource( rawText, source.generic_string() ) )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - bytes viewed as unsigned char
+                auto dds = DecodeDdsSource( reinterpret_cast<const unsigned char*>( raw.data() ), raw.size() );
+                if ( !dds.IsSuccess() || dds.GetValue().IsFloat )
+                    return Common::MakeError<Pixels>(
+                         std::format( "cannot read '{}' ({})", source.generic_string(),
+                                      dds.IsSuccess() ? "a float DDS is not an 8-bit map" : dds.GetError() ) );
+                DdsSourceImage decoded = dds.ExtractValue();
+                image.Width            = static_cast<int>( decoded.Width );
+                image.Height           = static_cast<int>( decoded.Height );
+                image.Owned            = std::move( decoded.Rgba8 );
+                return Common::MakeSuccess( std::move( image ) );
+            }
+            int components = 0;
+            // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes; the
+            // bytes reach it only through this cast.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            const auto* encoded = reinterpret_cast<const stbi_uc*>( raw.data() );
+            image.Data.reset( stbi_load_from_memory( encoded, static_cast<int>( raw.size() ), &image.Width,
+                                                     &image.Height, &components, 4 ) );
+            if ( !image.Data )
+                return Common::MakeError<Pixels>(
+                     std::format( "cannot read '{}' ({})", source.generic_string(), stbi_failure_reason() ) );
+            return Common::MakeSuccess( std::move( image ) );
+        }
     } // namespace
 
     std::filesystem::path PackedTexturePath( const ImportedTextureSlot& slot )
@@ -47,11 +89,9 @@ namespace Desert::Editor
             seen.push_back( part.Source );
             name += ( name.empty() ? "" : "+" ) + part.Source.stem().string();
         }
-        std::string_view slotName = slot.Slot;
-        if ( slotName.starts_with( "u_" ) )
-            slotName.remove_prefix( 2 );
+        // The slot is the material's parameter name (OrmTexture): no GLSL prefix to strip since SHADER-NAMING.
         return slot.Parts.front().Source.parent_path() /
-               std::format( "{}_{}{}", name, slotName, Assets::kTextureAssetExtension );
+               std::format( "{}_{}{}", name, slot.Slot, Assets::kTextureAssetExtension );
     }
 
     Common::ResultStr<PackOutcome> PackTextureChannels( const ImportedTextureSlot&   slot,
@@ -64,44 +104,11 @@ namespace Desert::Editor
         std::vector<Pixels> images;
         for ( const auto& part : slot.Parts )
         {
-            Pixels& image      = images.emplace_back();
-            int     components = 0;
-            const auto bytes = Assets::ReadTextureSourceImage( Common::Constants::Path::FullPath( part.Source ) );
-            if ( !bytes.IsSuccess() )
-                return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
-                                                                    slot.Slot, part.Source.generic_string(),
-                                                                    bytes.GetError() ) );
-            const std::vector<std::byte>& raw = bytes.GetValue();
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - the file's bytes viewed as characters
-            const std::string_view rawText( reinterpret_cast<const char*>( raw.data() ), raw.size() );
-            // A DDS (a Lumberyard Bistro / ORCA packed map) is decoded by the one DDS reader, as the texture cook
-            // does; stb has no DDS decoder and would refuse it as an "unknown image type".
-            if ( IsDdsSource( rawText, part.Source.generic_string() ) )
-            {
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - bytes viewed as unsigned char
-                auto dds = DecodeDdsSource( reinterpret_cast<const unsigned char*>( raw.data() ), raw.size() );
-                if ( !dds.IsSuccess() || dds.GetValue().IsFloat )
-                    return Common::MakeError<PackOutcome>( std::format(
-                         "[Import] slot '{}': cannot read '{}' ({})", slot.Slot, part.Source.generic_string(),
-                         dds.IsSuccess() ? "a float DDS is not a packable 8-bit map" : dds.GetError() ) );
-                DdsSourceImage decoded = dds.ExtractValue();
-                image.Width            = static_cast<int>( decoded.Width );
-                image.Height           = static_cast<int>( decoded.Height );
-                image.Owned            = std::move( decoded.Rgba8 );
-            }
-            else
-            {
-                // stb_image's C API takes `const stbi_uc*` (unsigned char), which may view any object's bytes;
-                // the bytes reach it only through this cast.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                const auto* encoded = reinterpret_cast<const stbi_uc*>( bytes.GetValue().data() );
-                image.Data.reset( stbi_load_from_memory( encoded, static_cast<int>( bytes.GetValue().size() ),
-                                                         &image.Width, &image.Height, &components, 4 ) );
-            }
-            if ( !image.Data && image.Owned.empty() )
-                return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
-                                                                    slot.Slot, part.Source.generic_string(),
-                                                                    stbi_failure_reason() ) );
+            auto decoded = DecodeSourceImage( part.Source );
+            if ( !decoded.IsSuccess() )
+                return Common::MakeError<PackOutcome>(
+                     std::format( "[Import] slot '{}': {}", slot.Slot, decoded.GetError() ) );
+            const Pixels& image = images.emplace_back( decoded.ExtractValue() );
             if ( image.Width != images.front().Width || image.Height != images.front().Height )
                 return Common::MakeError<PackOutcome>( std::format(
                      "[Import] slot '{}': '{}' is {}x{} and '{}' is {}x{}; packing needs one size", slot.Slot,
@@ -131,7 +138,16 @@ namespace Desert::Editor
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': cannot encode '{}'", slot.Slot, out.generic_string() ) );
 
-        auto written = WriteDerivedTexture( encoded, out, ".png" );
+        // THE PACK IS CREATED WITH WHAT IT IS (TEX-SRGB): the slot's colour space (Linear for an ORM / mask pack,
+        // glTF 2.0 3.9) and the matching intent, as UE's material importer creates a packed map with SRGB off and
+        // TC_Masks. Without them the asset was Unspecified, which DefaultTextureColorSpace reads as sRGB: every
+        // packed ORM sampled through an *_SRGB view. An existing asset keeps its own settings (a user's edit).
+        Assets::TextureImportSettings created;
+        created.ColorSpace = slot.ColorSpace;
+        created.Intent     = slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB
+                                  ? ::Desert::Core::Formats::TextureIntent::Colour
+                                  : ::Desert::Core::Formats::TextureIntent::PackedMasks;
+        auto written       = WriteDerivedTexture( encoded, out, ".png", created );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': {}", slot.Slot, written.GetError() ) );
@@ -139,7 +155,8 @@ namespace Desert::Editor
     }
 
     Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& asset,
-                                                        std::string_view imageExtension )
+                                                        std::string_view                     imageExtension,
+                                                        const Assets::TextureImportSettings& settingsIfCreated )
     {
         // `asset` is a project key (relative) or absolute; it lands off the project (FullPath), the root the
         // texture importer reads that key from - never off the working directory. The provenance key names the
@@ -149,14 +166,35 @@ namespace Desert::Editor
         std::filesystem::path       image  = onDisk;
         image.replace_extension( imageExtension );
         const auto view    = std::as_bytes( std::span( bytes ) );
-        const auto written = Assets::WriteTextureSource( onDisk, Common::Content::ContentKind::Texture,
-                                                         Common::AssetHandle::StableKeyForPath( image ),
-                                                         std::vector<std::byte>( view.begin(), view.end() ), {} );
+        const auto written = Assets::WriteTextureSource(
+             onDisk, Common::Content::ContentKind::Texture, Common::AssetHandle::StableKeyForPath( image ),
+             std::vector<std::byte>( view.begin(), view.end() ), settingsIfCreated );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>( std::format( "cannot write the texture asset '{}': {}",
                                                                 asset.generic_string(), written.GetError() ) );
         return Common::MakeSuccess( written.GetValue() == Assets::TextureSourceWrite::Unchanged
                                          ? PackOutcome::Unchanged
                                          : PackOutcome::Written );
+    }
+    Common::ResultStr<Assets::FbxSpecularMap> ResolveFbxSpecularMap( const SourceMaterial&        material,
+                                                                     const Assets::FbxSpecularMap stated )
+    {
+        if ( stated != Assets::FbxSpecularMap::FromImage )
+            return Common::MakeSuccess( Assets::FbxSpecularMap( stated ) );
+        const auto found = material.Entries.find( kFbxSpecularMapKey );
+        if ( found == material.Entries.end() || !found->second.Texture )
+            return Common::MakeSuccess( Assets::FbxSpecularMap::Specular ); // no map: nothing to route
+        const std::filesystem::path& map     = *found->second.Texture;
+        auto                         decoded = DecodeSourceImage( map );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeError<Assets::FbxSpecularMap>( std::format(
+                 "[Import] material '{}': the FBX Specular map's meaning is read from its texels, and "
+                 "{}; state Import Settings > FBX Specular Map instead",
+                 material.Name, decoded.GetError() ) );
+        const Pixels&     image = decoded.GetValue();
+        const std::size_t texels =
+             static_cast<std::size_t>( image.Width ) * static_cast<std::size_t>( image.Height );
+        return Common::MakeSuccess(
+             FbxSpecularMapOfTexels( std::span<const uint8_t>( image.Texels(), texels * 4 ) ) );
     }
 } // namespace Desert::Editor

@@ -33,8 +33,8 @@
 // ── HYSTERESIS: A DISTANCE, NOT A TIMER ───────────────────────────────────────────────────────────
 //
 // A unit is WANTED when the query wants it. A resident unit is KEPT while the same query with every source's
-// range grown by `UnloadMargin` still wants it, and unloaded the frame it is not. The band between the two
-// radii is where nothing changes: no load starts there and nothing resident leaves.
+// range (and look-ahead sweep) grown by `UnloadMargin` still wants it, and unloaded the frame it is not. The band
+// between the two radii is where nothing changes: no load starts there and nothing resident leaves.
 //
 // Why distance and not "N seconds out of range": that is how UE does it. Its policy unloads a cell the frame
 // the cell is outside every source's shape (WorldPartitionStreamingPolicy.cpp, the ToUnloadCells block) and
@@ -68,6 +68,7 @@
 // (at most `MaxRetryDelaySeconds`) has passed since the failure. Not every frame: a missing file would
 // otherwise be re-read sixty times a second.
 
+#include <format>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -77,6 +78,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <span>
 #include <string>
 #include <utility>
@@ -121,7 +123,7 @@ namespace Desert::Core::Rules
         // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
         double MsPerRecord = 0.02;
         // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin),
-        // and a sector's angle is widened by the same factor.
+        // and a sector's angle and a look-ahead's sweep length are widened by the same factor.
         float UnloadMargin = 0.25f;
         // Loads in flight at once.
         std::uint32_t MaxConcurrentLoads = 4;
@@ -177,10 +179,18 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline std::string DescribeResidencyUnit( const WorldPartitionPlan& plan, std::size_t unit )
     {
         if ( unit < plan.AlwaysLoaded.size() )
-            return "A" + std::to_string( unit );
+            return std::format( "A{}", unit );
         const PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
-        return "L" + std::to_string( cell.Level ) + "(" + std::to_string( cell.Cell.X ) + "," +
-               std::to_string( cell.Cell.Z ) + ")";
+        return std::format( "G{}L{}({},{})", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z );
+    }
+
+    // THE NEAREST AN HLOD OF @p unit IS EVER DRAWN (UE FHLODBuildContext::MinVisibleDistance, WP-FAR-6B): the
+    // LoadingRange of its cell's grid - nearer, the cell itself is loaded. Cell units only (an always-loaded unit
+    // has no HLOD); one statement for Play and the cook, which pick the landscape HLOD's LOD from it.
+    [[nodiscard]] inline float HLODMinVisibleDistance( const WorldPartitionSerialized& partition,
+                                                       const WorldPartitionPlan& plan, std::size_t unit )
+    {
+        return partition.Grids.at( plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid ).LoadingRange;
     }
 
     // Records a unit brings into the world: the members of every composite it holds.
@@ -238,15 +248,13 @@ namespace Desert::Core::Rules
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
                  !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) )
             {
-                return Common::MakeError<bool>(
-                     "StepResidency: settings ActivationBudgetMs " + std::to_string( s.ActivationBudgetMs ) +
-                     ", MsPerRecord " + std::to_string( s.MsPerRecord ) + ", UnloadMargin " +
-                     std::to_string( s.UnloadMargin ) + ", MaxConcurrentLoads " +
-                     std::to_string( s.MaxConcurrentLoads ) + ", RetryDelaySeconds " +
-                     std::to_string( s.RetryDelaySeconds ) + ", RetryBackoff " + std::to_string( s.RetryBackoff ) +
-                     ", MaxRetryDelaySeconds " + std::to_string( s.MaxRetryDelaySeconds ) +
-                     "; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the backoff "
-                     ">= 1 and the longest delay >= the first" );
+                return Common::MakeError<bool>( std::format(
+                     "StepResidency: settings ActivationBudgetMs {:f}, MsPerRecord {:f}, UnloadMargin {:f}, "
+                     "MaxConcurrentLoads {}, RetryDelaySeconds {:f}, RetryBackoff {:f}, MaxRetryDelaySeconds "
+                     "{:f}; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the "
+                     "backoff >= 1 and the longest delay >= the first",
+                     s.ActivationBudgetMs, s.MsPerRecord, s.UnloadMargin, s.MaxConcurrentLoads,
+                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds ) );
             }
             return Common::MakeSuccess( true );
         }
@@ -280,8 +288,8 @@ namespace Desert::Core::Rules
         if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
             return Common::MakeError<ResidencyStep>( valid.GetError() );
         if ( !std::isfinite( nowSeconds ) )
-            return Common::MakeError<ResidencyStep>( "StepResidency: the clock reads " +
-                                                     std::to_string( nowSeconds ) );
+            return Common::MakeError<ResidencyStep>(
+                 std::format( "StepResidency: the clock reads {:f}", nowSeconds ) );
 
         const std::size_t unitCount = ResidencyUnitCount( plan );
         if ( state.Units.empty() )
@@ -289,10 +297,9 @@ namespace Desert::Core::Rules
         if ( state.Units.size() != unitCount )
         {
             return Common::MakeError<ResidencyStep>(
-                 "StepResidency: the residency state has " + std::to_string( state.Units.size() ) +
-                 " unit(s) and the plan " + std::to_string( unitCount ) + " (" +
-                 std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded + " +
-                 std::to_string( plan.Cells.size() ) + " cells); a plan does not change under a running world" );
+                 std::format( "StepResidency: the residency state has {} unit(s) and the plan {} ({} "
+                              "always-loaded + {} cells); a plan does not change under a running world",
+                              state.Units.size(), unitCount, plan.AlwaysLoaded.size(), plan.Cells.size() ) );
         }
 
         ResidencyStep step;
@@ -302,15 +309,14 @@ namespace Desert::Core::Rules
         {
             if ( outcome.Unit >= unitCount )
             {
-                return Common::MakeError<ResidencyStep>( "StepResidency: a load outcome names unit " +
-                                                         std::to_string( outcome.Unit ) + " of " +
-                                                         std::to_string( unitCount ) );
+                return Common::MakeError<ResidencyStep>(
+                     std::format( "StepResidency: a load outcome names unit {} of {}", outcome.Unit, unitCount ) );
             }
             if ( !outcome.Ok && outcome.Reason.empty() )
             {
-                return Common::MakeError<ResidencyStep>(
-                     "StepResidency: the load of unit " + std::to_string( outcome.Unit ) + " (ticket " +
-                     std::to_string( outcome.Ticket ) + ") failed and the loader gave no reason" );
+                return Common::MakeError<ResidencyStep>( std::format(
+                     "StepResidency: the load of unit {} (ticket {}) failed and the loader gave no reason",
+                     outcome.Unit, outcome.Ticket ) );
             }
             UnitResidency& unit = state.Units[outcome.Unit];
             if ( unit.State != Residency::Loading || unit.Ticket != outcome.Ticket )
@@ -342,6 +348,11 @@ namespace Desert::Core::Rules
             source.RangeScale *= 1.0f + settings.UnloadMargin;
             source.AngleScale *=
                  1.0f + settings.UnloadMargin; // a sector's edge has the same band (UE's ExtraAngle)
+            // The look-ahead's tip has the same band: the sweep (speed x LookAheadTime, capped at MaxLookAhead)
+            // grows by the same factor, so a speed that jitters less than the margin does not unload the cell
+            // the path's tip has just loaded.
+            source.LookAheadTime *= 1.0f + settings.UnloadMargin;
+            source.MaxLookAhead *= 1.0f + settings.UnloadMargin;
         }
         auto keptWish = QueryStreamingCells( plan, partition, widened );
         if ( !keptWish.IsSuccess() )

@@ -7,6 +7,9 @@
 -- `if exist ... {COPYFILE}` for a DLL that was NEVER COMMITTED — so the copy silently did nothing on
 -- every Windows build, and `if exist` is what made the silence possible. Static now: nothing to copy,
 -- nothing to be missing, and Desert/Tests/Editor/AssimpBoundary asserts no build file names a toolset.
+-- dofile, not include: the dependency list was already include()'d by the engine projects.
+local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
+
 project "FbxMeshSplitter"
     kind "ConsoleApp"
     language "C++"
@@ -39,10 +42,12 @@ project "FbxMeshSplitter"
         "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
         "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
     }
-    externalincludedirs {
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include",
-    }
+    -- Common's headers and the third-party roots they include (glm, spdlog/fmt, reflect-cpp) come from ONE table,
+    -- Desert/Dependencies.lua Common.IncludeDir -- the same one Common itself compiles against. A hand-copied list
+    -- here missed glm when Common/Json/Document.hpp started reading glm vectors (run 40926375233, C1083).
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
+        externalincludedirs { path }
+    end
     links { "Assimp" }
 
     -- ON EVERY PLATFORM, as DesertCtl does for the same compiled-in Json.cpp. The `system:not windows`

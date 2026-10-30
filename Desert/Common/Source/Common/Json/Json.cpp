@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <Common/Json/Template.hpp>
+
 namespace Common::Json
 {
     namespace
@@ -117,14 +119,7 @@ namespace Common::Json
         {
             std::vector<std::string> lines;
             Describe( rflMessage, lines );
-            std::string joined;
-            for ( const auto& line : lines )
-            {
-                if ( !joined.empty() )
-                    joined += "; ";
-                joined += line;
-            }
-            return joined;
+            return Common::Text::Join( lines, "; " );
         }
     } // namespace Detail
 

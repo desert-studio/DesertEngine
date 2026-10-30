@@ -1,0 +1,349 @@
+// GPU-DRIVEN contract (C0): the rows of the scene's persistent GPU tables and of the culled-draw tables.
+//
+// C++ twin: Engine/Graphic/GpuDriven/GpuSceneLayout.hpp (std430; every offset below is a static_assert there).
+// UE: FPrimitiveSceneShaderData / FInstanceSceneShaderData (SceneData.ush) and the InstanceCulling draw records.
+//
+// Readers: the instance cull (Programs/GpuDriven/InstanceCull.shader) and, through VisibleInstances[gl_InstanceIndex],
+// the vertex stage of every binned mesh pass — which then reads World / PrevWorld / bones / material row from these
+// rows instead of the push block's Transform / MaterialIndex / PrimitiveIndex (Common/MaterialTransport.glslh) and
+// instead of the per-view ObjectMotions rows (Common/Velocity.glslh), which this header retires.
+//
+// Buffer declarations: the scene-read range (Core/ShaderCompiler/ShaderGraphBindings.hpp) holds the primitive
+// table at kGpuScenePrimitivesBinding and the bone palettes at kObjectBonesBinding (Generated/SceneBindings.glslh), each
+// declared by the stage that defines DESERT_GPU_SCENE_PRIMITIVES / DESERT_GPU_SCENE_BONES before including this
+// header (the view-pass vertex stages, Mesh/Surface/Vertex_Static.glslh / Vertex_Skinned.glslh). The binned draw's
+// four tables sit at 41-44 under DESERT_GPU_SCENE_DRAWS (below); the cull-only tables get theirs in phase CULL.
+
+#ifndef DESERT_GPU_SCENE_GLSLH
+#define DESERT_GPU_SCENE_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+
+// GpuDriven::PrimitiveFlags
+#define DESERT_GPU_PRIMITIVE_CASTS_SHADOW        1u
+#define DESERT_GPU_PRIMITIVE_WORLD_BOUNDS        2u
+#define DESERT_GPU_PRIMITIVE_SKINNED             4u
+#define DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW   8u
+#define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
+#define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
+
+// GpuDriven::CullViewFlags
+#define DESERT_GPU_CULL_VIEW_ORTHOGRAPHIC  1u
+#define DESERT_GPU_CULL_VIEW_TEST_HZB      2u
+#define DESERT_GPU_CULL_VIEW_SHADOW_CASTER 4u
+#define DESERT_GPU_CULL_VIEW_LOD_DISABLED  8u
+#define DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK 16u
+#define DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER  32u
+#define DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER 64u
+
+// GpuDriven::CullVisibility (one word per view x instance of the cull's Visibility[])
+#define DESERT_GPU_CULL_VISIBILITY_LOD_MASK     0xFFu
+#define DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE 0x20000000u
+#define DESERT_GPU_CULL_VISIBILITY_OCCLUDED     0x40000000u
+#define DESERT_GPU_CULL_VISIBILITY_IN_VIEW      0x80000000u
+
+#define DESERT_GPU_INVALID_INDEX 0xFFFFFFFFu
+
+// An affine transform packed 3x4 (GpuDriven::GpuAffine3x4, UE FRenderTransform): the matrix's first three ROWS,
+// the fourth (0, 0, 0, 1) implicit; Rows[r].w is the translation's r. 48 bytes. Read ONLY through
+// GpuScene_LocalToWorld / GpuScene_PrevLocalToWorld / GpuScene_InstanceToPrimitive below.
+struct GpuAffine3x4
+{
+    vec4 Rows[3];
+};
+
+// One per primitive of the scene; stable index for its life. 208 bytes.
+struct GpuScenePrimitive
+{
+    GpuAffine3x4 LocalToWorld;  // offset 0
+    GpuAffine3x4 PrevLocalToWorld; // offset 48
+    vec4  LocalBoundsCenter;    // offset 96 — xyz cm, w = wind reach past the bounds (cm)
+    vec4  LocalBoundsExtent;    // offset 112 — xyz cm, w = 0
+    uint  FirstInstance;        // offset 128
+    uint  InstanceCount;        // offset 132
+    uint  FirstLodScreenSize;   // offset 136 — into LodScreenSizes[]
+    uint  LodCount;             // offset 140
+    int   LodBias;              // offset 144
+    int   ForcedLod;            // offset 148 — -1 = auto
+    uint  Flags;                // offset 152 — DESERT_GPU_PRIMITIVE_*
+    uint  Entity;               // offset 156
+    uint  BoneOffset;           // offset 160 — skinned: this frame's palette in ObjectBones
+    uint  PrevBoneOffset;       // offset 164 — skinned: last frame's palette
+    uint  SkinCacheAddressLo;   // offset 168 — skinned, skin cache on; 0 = skin in the vertex stage
+    uint  SkinCacheAddressHi;   // offset 172
+    uint  SkinCacheVertexCount; // offset 176
+    float WindSpeed;            // offset 180 — foliage wind (Graphic::InstanceWind): Hz; Wind.z 0 = does not sway
+    float WindSeconds;          // offset 184 — the wind clock this frame (InstanceWind::Seconds)
+    float WindPrevSeconds;      // offset 188 — ...at the previous gameplay step (InstanceWind::PrevSeconds)
+    vec4  Wind;                 // offset 192 — (dir.x, dir.z, Strength cm, Height cm); read through GpuScene_WindA
+};
+
+// One per instance (one for a non-instanced primitive, one per ISM instance). 64 bytes.
+struct GpuSceneInstance
+{
+    GpuAffine3x4 InstanceToPrimitive; // offset 0
+    uint  Primitive;           // offset 48
+    float CullDistanceStart;   // offset 52 — cm; 0/0 = no distance cull
+    float CullDistanceEnd;     // offset 56
+    uint  WorldBoundsRow;      // offset 60 — DESERT_GPU_INVALID_INDEX unless the primitive has WORLD_BOUNDS
+};
+
+// THE ONLY UNPACK of a packed transform (GpuDriven::UnpackAffine is its C++ twin): Rows are the matrix's rows, GLSL
+// mat4 takes columns, so column c = (Rows[0][c], Rows[1][c], Rows[2][c], c == 3 ? 1 : 0).
+mat4 GpuScene_UnpackAffine( const GpuAffine3x4 t )
+{
+    return mat4( vec4( t.Rows[0].x, t.Rows[1].x, t.Rows[2].x, 0.0 ), vec4( t.Rows[0].y, t.Rows[1].y, t.Rows[2].y, 0.0 ),
+                 vec4( t.Rows[0].z, t.Rows[1].z, t.Rows[2].z, 0.0 ), vec4( t.Rows[0].w, t.Rows[1].w, t.Rows[2].w, 1.0 ) );
+}
+mat4 GpuScene_LocalToWorld( const GpuScenePrimitive p )
+{
+    return GpuScene_UnpackAffine( p.LocalToWorld );
+}
+mat4 GpuScene_PrevLocalToWorld( const GpuScenePrimitive p )
+{
+    return GpuScene_UnpackAffine( p.PrevLocalToWorld );
+}
+mat4 GpuScene_InstanceToPrimitive( const GpuSceneInstance i )
+{
+    return GpuScene_UnpackAffine( i.InstanceToPrimitive );
+}
+// The primitive's foliage wind as Common/FoliageWind.glslh takes it (windA, windB; Graphic::PackInstanceWind's layout),
+// at this frame's clock or, @p previous, the previous step's (a view pass's velocity).
+vec4 GpuScene_WindA( const GpuScenePrimitive p )
+{
+    return p.Wind;
+}
+vec4 GpuScene_WindB( const GpuScenePrimitive p, const bool previous )
+{
+    return vec4( p.WindSpeed, previous ? p.WindPrevSeconds : p.WindSeconds, 0.0, 0.0 );
+}
+
+// A per-frame world box replacing the local bounds of one instance (skinned pose). 32 bytes.
+struct GpuSceneWorldBounds
+{
+    vec4 Min; // offset 0
+    vec4 Max; // offset 16
+};
+
+// Per (primitive, pass): slot of (lod, submesh) = FirstDrawSlot + lod * SubmeshCount + submesh. 16 bytes.
+struct GpuPrimitivePassDraws
+{
+    uint FirstDrawSlot; // offset 0
+    uint SubmeshCount;  // offset 4 — 0 = not drawn in this pass
+    uint LodCount;      // offset 8
+    uint Pad;           // offset 12
+};
+
+// Per cached draw of a pass. 16 bytes.
+struct GpuDrawSlot
+{
+    uint Bin;              // offset 0 — DESERT_GPU_INVALID_INDEX = the submesh does not draw in this pass
+    uint MaterialRow;      // offset 4 — row in Materials[]
+    uint SubmeshTransform; // offset 8 — row in SubmeshTransforms[] (Submesh::Transform, relative to the primitive)
+    uint Pad1;             // offset 12
+};
+
+// Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
+struct GpuDrawBin
+{
+    uint IndexCount;   // offset 0
+    uint FirstIndex;   // offset 4
+    int  VertexOffset; // offset 8
+    uint FirstVisible; // offset 12
+    uint Capacity;     // offset 16
+    uint Group;        // offset 20
+    uint Pad0;         // offset 24
+    uint Pad1;         // offset 28
+};
+
+// VkDrawIndexedIndirectCommand + its bin, 32-byte stride. Written by the cull / compact.
+struct GpuIndirectDraw
+{
+    uint IndexCount;    // offset 0
+    uint InstanceCount; // offset 4
+    uint FirstIndex;    // offset 8
+    int  VertexOffset;  // offset 12
+    uint FirstInstance; // offset 16 — the bin's FirstVisible
+    uint Bin;           // offset 20
+    uint Pad0;          // offset 24
+    uint Pad1;          // offset 28
+};
+
+// VisibleInstances[gl_InstanceIndex] in a binned draw. 8 bytes.
+struct GpuVisibleInstance
+{
+    uint Instance; // offset 0
+    uint DrawSlot; // offset 4
+};
+
+// Phase 1 rejected by the previous frame's HZB, re-tested by phase 2. 8 bytes.
+struct GpuOccludedInstance
+{
+    uint Instance; // offset 0
+    uint View;     // offset 4
+};
+
+// Per (view x pass) the cull serves. 352 bytes.
+struct GpuCullView
+{
+    mat4  ViewProjection;     // offset 0   — unjittered
+    mat4  PrevViewProjection; // offset 64
+    mat4  LodProjection;      // offset 128 — Geometry::LODView::Projection
+    vec4  FrustumPlanes[6];   // offset 192 — Core::Frustum planes, xyz normal / w distance, zero = open
+    vec4  LodOrigin;          // offset 288 — xyz = LODView::Origin
+    vec4  CullOrigin;         // offset 304 — xyz = ISM distance-cull origin, w = lens scale (DrawDistanceScale)
+    uvec4 HzbExtent;          // offset 320 — xy = mip-0 size, z = mip count (0 = no HZB)
+    uint  Pass;               // offset 336 — GpuDriven::MeshPass
+    uint  Flags;              // offset 340 — DESERT_GPU_CULL_VIEW_*
+    uint  VsmLevel;           // offset 344
+    uint  ViewIndex;          // offset 348 — the caller's view index
+};
+
+// THE SCENE'S PRIMITIVE TABLE (GpuDriven::GpuScene, one per scene, stable rows): a view-pass draw reads its row
+// through the push block's PrimitiveIndex (Common/MaterialTransport.glslh). Bound by name onto every view-pass
+// material by Graphic::SceneFrameBinding::ApplyTo. DShaderParser refuses a Properties row or texture run inside
+// the scene-read range by name, and Tests/Engine/VelocityTarget holds the whole tree to nothing else there.
+#ifdef DESERT_GPU_SCENE_PRIMITIVES
+layout( std430, binding = kGpuScenePrimitivesBinding ) readonly buffer GpuScenePrimitives
+{
+    GpuScenePrimitive Primitives[];
+}
+gpuScene;
+#endif
+// THE SCENE'S BONE PALETTES this frame: both frames' palettes of every skinned primitive, end to end; a row's
+// BoneOffset / PrevBoneOffset name its two slices, so every pass that draws the primitive skins it from the same
+// bytes.
+#ifdef DESERT_GPU_SCENE_BONES
+layout( std430, binding = kObjectBonesBinding ) readonly buffer ObjectBones
+{
+    mat4 Palettes[];
+}
+objectBones;
+#endif
+
+// THE BINNED DRAW'S TABLES (kGpuSceneInstancesBinding .. kGpuSceneSubmeshTransformsBinding): a mesh-pass
+// vertex stage resolves EVERYTHING per draw from its instance id — the row of the pass's visible list names the
+// instance (-> its primitive) and the cached draw slot (-> material row, submesh transform), so a draw pushes nothing.
+// THE ID IS A PER-INSTANCE VERTEX STREAM (decision 10-27, UE5's instance id stream): a_VisibleRow, 4 bytes at
+// VK_VERTEX_INPUT_RATE_INSTANCE (GpuDriven::kVisibleRowVertexBinding / kVisibleRowVertexLocation), written by the
+// cull's compaction (InstanceCulling) and bound by RenderMeshIndirectGroup. Never gl_InstanceIndex: whether it includes firstInstance differs
+// across drivers (MoltenVK), an instance-rate attribute does not. Transforms never ride a vertex stream.
+// UE: GetSceneDataIntermediates through the instance id stream (SceneData.ush). Needs DESERT_GPU_SCENE_PRIMITIVES.
+#ifdef DESERT_GPU_SCENE_DRAWS
+#ifndef DESERT_GPU_SCENE_PRIMITIVES
+#error "DESERT_GPU_SCENE_DRAWS reads the primitive table: define DESERT_GPU_SCENE_PRIMITIVES too"
+#endif
+layout( location = 9 ) in uint a_VisibleRow; // GpuDriven::kVisibleRowVertexLocation
+
+layout( std430, binding = kGpuSceneInstancesBinding ) readonly buffer GpuSceneInstances
+{
+    GpuSceneInstance Instances[];
+}
+gpuSceneInstances;
+#ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
+layout( std430, binding = kGpuSceneVisibleInstancesBinding ) readonly buffer GpuSceneVisibleInstances
+{
+    GpuVisibleInstance VisibleInstances[];
+}
+gpuSceneVisible;
+#endif
+layout( std430, binding = kGpuSceneDrawSlotsBinding ) readonly buffer GpuSceneDrawSlots
+{
+    GpuDrawSlot DrawSlots[];
+}
+gpuSceneDrawSlots;
+layout( std430, binding = kGpuSceneSubmeshTransformsBinding ) readonly buffer GpuSceneSubmeshTransforms
+{
+    mat4 SubmeshTransforms[];
+}
+gpuSceneSubmeshTransforms;
+
+// One mesh-pass draw instance, resolved: the rows it came from and both frames' local-to-world of its vertices
+// (Primitive.LocalToWorld x Instance.InstanceToPrimitive x the submesh's transform relative to the primitive; the
+// last two are the same in both frames, so a still primitive gives PrevWorld == World bit for bit).
+struct DesertMeshDraw
+{
+    uint Instance;
+    uint Primitive;
+    uint MaterialRow; // row in Materials[]; the fragment stage gets it as a flat varying
+    uint Flags;       // the primitive's DESERT_GPU_PRIMITIVE_*; the fragment stage gets it as a flat varying
+    mat4 World;
+    mat4 PrevWorld;
+};
+
+DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
+{
+    const GpuSceneInstance   instance  = gpuSceneInstances.Instances[visible.Instance];
+    const GpuDrawSlot        slot      = gpuSceneDrawSlots.DrawSlots[visible.DrawSlot];
+    const GpuScenePrimitive  primitive = gpuScene.Primitives[instance.Primitive];
+    const mat4 local =
+         GpuScene_InstanceToPrimitive( instance ) * gpuSceneSubmeshTransforms.SubmeshTransforms[slot.SubmeshTransform];
+    DesertMeshDraw draw;
+    draw.Instance    = visible.Instance;
+    draw.Primitive   = instance.Primitive;
+    draw.MaterialRow = slot.MaterialRow;
+    draw.Flags       = primitive.Flags;
+    draw.World       = GpuScene_LocalToWorld( primitive ) * local;
+    draw.PrevWorld   = GpuScene_PrevLocalToWorld( primitive ) * local;
+    return draw;
+}
+
+#ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
+DesertMeshDraw DesertResolveMeshDraw()
+{
+    return DesertResolveDrawOf( gpuSceneVisible.VisibleInstances[a_VisibleRow] );
+}
+#else
+// THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; kVgRaster*Binding): the
+// instance id names a row of the cluster cut's VisibleClusters (written per material group by "VirtualGeometry:
+// Raster Binning", Programs/VirtualGeometry/RasterBinning.shader), i.e. (instance, cluster); the draw slot is the
+// pass's lod-0 slot of the cluster's DAG submesh - the very slot the cut took the submesh transform from
+// (ClusterCut.shader) and the binning took the material group from. A draw instance is one cluster: vertex =
+// triangle x 3 + corner of it (Common/VirtualGeometry.glslh).
+#include <Common/VirtualGeometry.glslh>
+layout( std430, binding = kVgRasterClustersBinding ) readonly buffer VgRasterClusters
+{
+    VgCluster Clusters[];
+}
+vgRasterClusters;
+layout( std430, binding = kVgRasterDagsBinding ) readonly buffer VgRasterDags
+{
+    VgClusterDag Dags[];
+}
+vgRasterDags;
+layout( std430, binding = kVgRasterVisibleClustersBinding ) readonly buffer VgRasterVisibleClusters
+{
+    VgVisibleCluster VisibleClusters[];
+}
+vgRasterVisible;
+layout( std430, binding = kVgRasterPrimitiveDrawsBinding ) readonly buffer VgRasterPrimitiveDraws
+{
+    GpuPrimitivePassDraws PrimitiveDraws[];
+}
+vgRasterPrimitiveDraws;
+
+struct DesertVgDraw
+{
+    DesertMeshDraw Draw;
+    VgClusterDag   Dag;
+    VgCluster      Cluster;
+    uint           View; // the cut view the cluster was found for (a VSM cut: the clipmap level)
+};
+
+DesertVgDraw DesertResolveVgDraw()
+{
+    const VgVisibleCluster visible = vgRasterVisible.VisibleClusters[a_VisibleRow];
+    DesertVgDraw           vg;
+    vg.Cluster = vgRasterClusters.Clusters[visible.Cluster];
+    vg.Dag     = vgRasterDags.Dags[vg.Cluster.Dag];
+    vg.View    = visible.View;
+    const uint primitive = gpuSceneInstances.Instances[visible.Instance].Primitive;
+    GpuVisibleInstance row;
+    row.Instance = visible.Instance;
+    row.DrawSlot = vgRasterPrimitiveDraws.PrimitiveDraws[primitive].FirstDrawSlot + vg.Dag.Submesh;
+    vg.Draw      = DesertResolveDrawOf( row );
+    return vg;
+}
+#endif
+#endif
+
+#endif

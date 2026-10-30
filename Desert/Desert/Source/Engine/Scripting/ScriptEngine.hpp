@@ -9,8 +9,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
+
+namespace Desert::Reflection
+{
+    class Value;
+}
 
 namespace Desert::Core
 {
@@ -72,6 +79,12 @@ namespace Desert::Scripting
         // level sequence Event key's CallScript action fires (its function, with the key's name).
         void CallSlotFunction( uint32_t entity, uint32_t slot, const char* function, const std::string& argument );
 
+        // Calls a slot's Lua function @p function( @p arguments... ) if defined (no-op if not loaded / not
+        // defined). A Vec3 argument arrives as a Luau vector (v.x, v.y, v.z). Dispatched for a destructible's
+        // news (ScriptSystem: OnBreak / OnCollision / OnRemoved, the DestructibleData events' payloads).
+        void CallSlotFunctionWith( uint32_t entity, uint32_t slot, const char* function,
+                                   std::span<const Reflection::Value> arguments );
+
         // Calls a slot's @p callback (OnBeginOverlap / OnEndOverlap: UE ReceiveActorBeginOverlap) with the other
         // entity of the overlap, if defined. The other entity may already be destroyed (an End its removal
         // caused): the script gets a handle whose valid() is false.
@@ -103,6 +116,19 @@ namespace Desert::Scripting
         // reset arrow, or an edit back to the default, removes it — ECS::ScriptSlot::Properties keeps only what
         // differs) gets its declared default back, so the running script sees the value Details shows.
         void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides );
+
+        // One property the running slot declares and the value its script holds NOW (what it last wrote to
+        // `Properties.<name>`). Value is empty for a kind no scalar holds (Asset, Entity, Array) and for a value
+        // of another kind than the declaration (the script stored a table, a function, nil).
+        struct LiveProperty
+        {
+            std::string                Name;
+            PropertyType               Type = PropertyType::Number;
+            std::optional<ScriptValue> Value;
+        };
+        // Every property the running slot declares, in declaration order - the gameplay debugger's Script
+        // category. Empty when the slot runs no script.
+        [[nodiscard]] std::vector<LiveProperty> ReadLiveProperties( uint32_t entity, uint32_t slot ) const;
 
         // The other direction, for the slot's SaveGame properties only (`names`, ReadScriptSaveGameProperties):
         // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did

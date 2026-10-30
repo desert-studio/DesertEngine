@@ -1,0 +1,49 @@
+#ifndef DESERT_WORLD_PARAMETERS_GLSLH
+#define DESERT_WORLD_PARAMETERS_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+
+// THE WORLD'S PARAMETERS (UE's Material Parameter Collection uniform buffer): the scene's collection as the world
+// holds it this frame, one per (view x frame), written by its one writer (Graphic::BuildWorldParameterTable from
+// Core::WorldParameterInstance in SceneRenderer::BeginScene) and bound by name (SceneFrameBinding::ApplyTo).
+//
+// A surface never includes this by hand: it writes `WorldParameter( "Wetness" )`, and DShaderParser lowers each
+// read to DesertWorldParameter( <key> ) — the name's 32-bit FNV-1a (Serialization::WorldParameterKey) — and
+// includes this header into exactly the cells whose surface reads one. The table is open-addressed by that key, so
+// a material is compiled against NO particular collection: the scene chooses the collection, the material names
+// the value. Capacity is a power of two at least twice the parameter count; key 0 is an empty slot.
+//
+// Binding 35 is the scene-read range's eleventh slot (Core::kWorldParametersBinding, ShaderGraphBindings.hpp).
+struct WorldParameterSlot
+{
+    uvec4 Key; // x = the key, yzw = 0
+    vec4  Value;
+};
+
+layout( std430, binding = kWorldParametersBinding ) readonly buffer WorldParameters
+{
+    uvec4              Header; // x = capacity (a power of two), y = parameter count
+    WorldParameterSlot Slots[];
+}
+worldParameters;
+
+// The value of the parameter keyed @p key; vec4( 0 ) when the scene's collection has no such name (UE refuses that
+// at material compile, because its node names the collection; here the scene names it, so the pairing is a
+// property of the level, not of the material).
+vec4 DesertWorldParameter( uint key )
+{
+    const uint capacity = worldParameters.Header.x;
+    const uint mask     = capacity - 1u;
+    uint       slot     = key & mask;
+    for ( uint probe = 0u; probe < capacity; ++probe )
+    {
+        const uint stored = worldParameters.Slots[slot].Key.x;
+        if ( stored == key )
+            return worldParameters.Slots[slot].Value;
+        if ( stored == 0u )
+            break;
+        slot = ( slot + 1u ) & mask;
+    }
+    return vec4( 0.0 );
+}
+
+#endif

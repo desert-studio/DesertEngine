@@ -1,0 +1,13 @@
+# GI-SHADE-DARK (field): FIELD_Barn under SoftwareTraced GI - the trees' shadows on the field carry the sky's colour
+# through the cards' radiosity probes (UE LumenRadiosity port), never black. Opened as GRASS-SETTLE.scn opens it.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 3_field the field on SoftwareTraced GI: tree shadows carry the sky's colour, not black
+Когда run View "View mode: Lumen Scene (Lit)"
+Тогда-вид 3b_field_lumen_lit the field's lit cards: shaded sides not black

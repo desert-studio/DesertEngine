@@ -15,7 +15,7 @@
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -25,6 +25,8 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 // The reflection rules for glm types and for the .demat schema. Needed HERE because this file now
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
@@ -221,12 +223,12 @@ namespace Desert::Editor
                 const Assets::AssetHandle normal    = resolveTex( mat.Normal );
                 const Assets::AssetHandle opacity   = resolveTex( mat.Opacity );
 
-                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from u_ORMTexture
+                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from OrmTexture
                 // (.r / .g / .b). A collection names the three as separate images, so they are packed into one
                 // derived texture beside them — the importer's own packer, so the name, the GUID (kept by path)
                 // and the "unchanged inputs are not rewritten" rule are the ones a mesh import gets.
                 ImportedTextureSlot orm{
-                     .Slot = "u_ORMTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
+                     .Slot = "OrmTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
                 for ( const auto& [source, channel] :
                       { std::pair{ &mat.AO, "r" }, std::pair{ &mat.Roughness, "g" },
                         std::pair{ &mat.Metallic, "b" } } )
@@ -266,8 +268,31 @@ namespace Desert::Editor
                     data.SetParam( "RoughnessFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
                 if ( mat.Metallic )
                     data.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
-                if ( const float cutoff = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f ); cutoff > 0.0f )
-                    data.SetParam( "AlphaCutoff", glm::vec4( cutoff, 0.0f, 0.0f, 0.0f ) );
+                // A CUT-OUT CARD IS A MASKED MATERIAL (UE: BlendMode Masked), and Masked is the template's, not a
+                // parameter: the material states the masked template (the one shader declaring
+                // `Role StandardSurfaceMasked`) and its Opacity Mask Clip Value. The mask is the separate
+                // opacity map's R when the manifest names one, else the albedo's alpha (channel 3).
+                const float cutoff       = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
+                const bool  cutsOut      = cutoff > 0.0f;
+                bool        maskIsAlbedo = false;
+                if ( cutsOut )
+                {
+                    const auto masked =
+                         Assets::FindTemplateByRole( mgr, Common::Content::kStandardSurfaceMaskedRole );
+                    if ( const auto stated =
+                              masked ? Assets::SurfaceMaterialAsset::StateShader( data, mgr, masked.GetValue() )
+                                     : Common::MakeError( masked.GetError() );
+                         !stated )
+                    {
+                        LOG_ERROR( "[Collections] material '{}' cuts out but was not cooked: {}", key,
+                                   stated.GetError() );
+                        continue;
+                    }
+                    data.SetParam( "OpacityMaskClipValue", glm::vec4( cutoff, 0.0f, 0.0f, 0.0f ) );
+                    maskIsAlbedo = static_cast<uint64_t>( opacity ) == 0;
+                    if ( maskIsAlbedo )
+                        data.SetParam( "OpacityChannel", glm::vec4( 3.0f, 0.0f, 0.0f, 0.0f ) );
+                }
                 // The texture slots, by each imported asset's header GUID (MATL 3): a runtime handle is a fold
                 // of that GUID and cannot be turned back into it.
                 const auto stateTexture = [&]( const char* sampler, const Assets::AssetHandle& handle )
@@ -283,10 +308,11 @@ namespace Desert::Editor
                              "[Collections] texture {} for slot '{}' states no header GUID; the slot stays empty",
                              static_cast<uint64_t>( handle ), sampler );
                 };
-                stateTexture( "u_AlbedoTexture", albedo );
-                stateTexture( "u_NormalTexture", normal );
-                stateTexture( "u_ORMTexture", ormTexture );
-                stateTexture( "u_OpacityTexture", opacity );
+                stateTexture( "AlbedoTexture", albedo );
+                stateTexture( "NormalTexture", normal );
+                stateTexture( "OrmTexture", ormTexture );
+                if ( cutsOut )
+                    stateTexture( "OpacityTexture", maskIsAlbedo ? albedo : opacity );
                 data.Header = header;
                 data        = Assets::StampMaterialHeader( std::move( data ) );
                 auto text   = Assets::WriteMaterialJson( data );
@@ -656,7 +682,7 @@ namespace Desert::Editor
         // Rendered preview already on disk, and still a picture OF this mesh? Show it. The freshness half
         // is not decoration: asking only whether the file exists is what let a mesh edited after its
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
-        // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
+        // impoverished question — never get a new one (Editor/Core/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
              ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show )
         {

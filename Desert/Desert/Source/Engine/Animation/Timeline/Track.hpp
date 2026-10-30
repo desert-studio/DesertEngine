@@ -53,6 +53,11 @@ namespace Desert::Animation::Timeline
         /// UE's Subsequence track (UMovieSceneSubTrack): each section plays another `.dseq` by GUID. A
         /// master-binding track; its sections hold `SubsequenceSectionContent`.
         Subsequence = 9,
+        /// UE's Niagara System track (UMovieSceneNiagaraSystemTrack) with its life-cycle section
+        /// (UMovieSceneNiagaraSystemSpawnSection): on an Entity binding with a VFX component, each section
+        /// activates the effect at its start, sets the effect's age to the playhead's distance from that start
+        /// (UE SetDesiredAge), and deactivates it at its end. Its sections hold `VFXSectionContent`.
+        VFX = 10,
     };
 
     [[nodiscard]] const char* ToString( TrackKind kind );

@@ -13,7 +13,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../../Engine/PhysicsFixture.hpp"
 
@@ -52,9 +52,12 @@ namespace
         auto edit = Geometry::DynamicMeshFromRenderMesh( volume.Bake() );
         if ( !edit.IsSuccess() )
             return Common::MakeError<bool>( edit.GetError() );
-        auto& mesh = piece.AddComponent<ECS::StaticMeshComponent>();
-        return ECS::SetEditableMesh(
+        ECS::StaticMeshDesc mesh;
+        auto                set = ECS::SetEditableMesh(
              mesh, std::make_shared<const Geometry::DynamicMesh3>( std::move( edit.ExtractValue().Mesh ) ) );
+        if ( set.IsSuccess() )
+            ECS::SetStaticMesh( *piece.GetRegistry(), piece.GetHandle(), mesh );
+        return set;
     }
 
     // What Play builds from the entity's collider and body (PhysicsECSSystem's body creation), at the origin.

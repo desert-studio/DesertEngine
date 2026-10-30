@@ -103,7 +103,7 @@ namespace Desert::Editor::Core
             auto mesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
             if ( table )
             {
-                const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+                const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
                 auto        mapped =
                      Geometry::MapMaterialIds( *mesh,
                                                [&]( const int id )
@@ -207,7 +207,7 @@ namespace Desert::Editor::Core
 
         // A Trim drops every triangle of the cutter, so the operated entity's slots stay as they are.
         std::vector<Common::AssetHandle> table =
-             operated.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+             operated.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
         auto cutter = BakeInto( operated, other, bTrim ? nullptr : &table, name );
         if ( !cutter.IsSuccess() )
             return Common::MakeError<bool>( cutter.GetError() );
@@ -218,8 +218,8 @@ namespace Desert::Editor::Core
         OperandMeshPtr mesh = std::move( result.ExtractValue().Mesh );
 
         const auto&                tc = operated.Entity.GetComponent<ECS::TransformComponent>();
-        Commands::XformEntityState state{ operated.Id, mesh,         tc.Translation, tc.Rotation,
-                                          tc.Scale,    std::nullopt, std::nullopt };
+        Commands::XformEntityState state{ operated.Id, mesh,         tc.GetTranslation(), tc.GetRotation(),
+                                          tc.GetScale(),    std::nullopt, std::nullopt };
         if ( !bTrim )
             state.MaterialSlots = std::move( table );
         const std::string detail = bTrim ? fmt::format( "{} {}", ToString( args.Trimmed ), ToString( args.Side ) )
@@ -244,7 +244,7 @@ namespace Desert::Editor::Core
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 // The entity's own mesh, not the tool target: a lifted asset keeps drawing its asset.
                 changes.push_back(
-                     { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+                     { in.Id, in.Committed, itc.GetTranslation(), itc.GetRotation(), itc.GetScale(), std::nullopt, false } );
             }
         }
 
@@ -257,5 +257,20 @@ namespace Desert::Editor::Core
                                              ? std::vector<Common::UUID>{ operated.Id }
                                              : applied.GetValue() );
         return Common::MakeSuccess( true );
+    }
+    Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene,
+                                                                const char*            toolName )
+    {
+        auto inputs = SelectedInputs( scene, toolName );
+        if ( !inputs.IsSuccess() )
+            return Common::MakeError<SelectedMeshPair>( inputs.GetError() );
+        const std::array<Input, 2>& ab = inputs.GetValue();
+        if ( !ab[0].Mesh )
+            return Common::MakeFormattedError<SelectedMeshPair>( "{}: '{}' has no mesh", toolName, ab[0].Name );
+        auto b = BakeInto( ab[0], ab[1], nullptr, toolName );
+        if ( !b.IsSuccess() )
+            return Common::MakeError<SelectedMeshPair>( b.GetError() );
+        return Common::MakeSuccess( SelectedMeshPair{ ab[0].Id, ab[1].Id, ab[0].Name, ab[1].Name, ab[0].Mesh,
+                                                      b.ExtractValue(), ab[0].Committed, ab[1].Committed } );
     }
 } // namespace Desert::Editor::Core

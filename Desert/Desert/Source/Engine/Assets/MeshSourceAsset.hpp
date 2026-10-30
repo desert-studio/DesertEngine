@@ -23,6 +23,7 @@
 // from SRCE + settings under a DDC key, exactly as a texture's mips are built from its SRCE.
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/MeshDisplacementSettings.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 
 #include <cstddef>
@@ -38,7 +39,11 @@ namespace Desert::Assets
 {
     // The envelope's subsystem stamp for the IMPT and SRCE layouts below (UE custom version).
     inline constexpr uint32_t kMeshAssetSubsystemTag     = Common::Content::FourCC( "MSAS" );
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 1;
+    // 2 (DISPLACE): IMPT states the mesh's displacement mode and bake settings; Tools/SceneMigrator raises a
+    // version-1 asset (UpgradeMeshSourceAsset: mode None, default bake settings).
+    // 3 (VIRT-GEOM): IMPT states MeshImportSettings::VirtualGeometry; a version-1 or -2 asset is raised with it
+    // off.
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 3;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -66,8 +71,13 @@ namespace Desert::Assets
     // metalness in B; `RoughnessMetallic` = roughness in G and metalness in B with R carrying NO occlusion
     // (Falcor's metal-rough convention, as Amazon Lumberyard Bistro / NVIDIA ORCA ship it: R is 0 in all 201 of
     // its Specular maps, so read as occlusion it blacks out every surface's ambient light).
+    // `FromImage` (the default) = the image's own texels decide, per map, at import (ResolveFbxSpecularMap): a map
+    // whose R is 0 on every texel while G or B carry data is the metal-rough packing (`RoughnessMetallic`), any
+    // other map is FBX's specular colour (`Specular`). As UE's texture import reads the texels to tell a normal
+    // map (NormalMapIdentification), not the file name. The import logs the meaning it read for every map.
     enum class FbxSpecularMap : uint8_t
     {
+        FromImage,
         Specular,
         OcclusionRoughnessMetallic,
         RoughnessMetallic,
@@ -100,7 +110,15 @@ namespace Desert::Assets
         float            UniformScale = 1.0f; // applied on import, source units -> cm; finite and > 0
         MeshSourceUpAxis UpAxis       = MeshSourceUpAxis::FromFile;
         MeshLodPolicy    LodPolicy    = MeshLodPolicy::Generate;
-        bool             operator==( const MeshImportSettings& ) const = default;
+        // Not in the render-data key (SerializeMeshSettingsForKey): the base render data does not depend on it;
+        // the displacement buckets key on it themselves.
+        MeshDisplacementMode         Displacement = MeshDisplacementMode::None;
+        MeshDisplacementBakeSettings DisplacementBake;
+        // UE FMeshNaniteSettings::bEnabled: the cook builds the submeshes' cluster LOD DAG
+        // (Geometry/ClusterDag.hpp) into the "StaticMesh" record, and the discrete LOD chain is cut from that DAG.
+        // In the render-data key.
+        bool                         VirtualGeometry                               = false;
+        bool                         operator==( const MeshImportSettings& ) const = default;
     };
 
     // THE OPTIONS A USER SETS PER IMPORTED FILE (UE: UFbxImportUI + UFbxStaticMeshImportData, the FBX Import
@@ -120,7 +138,7 @@ namespace Desert::Assets
         // import (CheckSkeletonAssignment) - never a new .skeleton in its place.
         std::optional<Common::Content::AssetGuid> Skeleton;
         // How the file's FBX Specular map enters the material (ImportManager, before the template fill).
-        FbxSpecularMap SpecularMap = FbxSpecularMap::Specular;
+        FbxSpecularMap SpecularMap = FbxSpecularMap::FromImage;
         // What one length of the file is (ImportUnits::Resolve, before the geometry is built): read by the
         // importer, not copied into the meshes - the geometry it writes is already in centimetres.
         MeshFileUnit FileUnit                                        = MeshFileUnit::FromFile;
@@ -217,11 +235,17 @@ namespace Desert::Assets
     Common::ResultStr<MeshSourceAsset>        ReadMeshSourceAssetFile( const std::filesystem::path& file );
     Common::BoolResultStr                     WriteMeshSourceAssetFile( const std::filesystem::path& file,
                                                                         const MeshSourceAsset&       asset );
+    // SceneMigrator's step for an MSAS 1 or 2 asset (IMPT without displacement / without VirtualGeometry): the
+    // same asset at the current version with Displacement = None and default bake settings (from 1),
+    // VirtualGeometry off. nullopt = already current; an error = not a mesh asset or unreadable at either version.
+    Common::ResultStr<std::optional<std::vector<std::byte>>> UpgradeMeshSourceAsset( std::span<const std::byte> file );
 
     std::string_view                    MeshSourceUpAxisName( MeshSourceUpAxis axis );
     std::optional<MeshSourceUpAxis>     MeshSourceUpAxisFromName( std::string_view name );
     std::string_view                    MeshLodPolicyName( MeshLodPolicy policy );
     std::optional<MeshLodPolicy>        MeshLodPolicyFromName( std::string_view name );
+    std::string_view                    MeshDisplacementModeName( MeshDisplacementMode mode );
+    std::optional<MeshDisplacementMode> MeshDisplacementModeFromName( std::string_view name );
     std::string_view                    FbxSpecularMapName( FbxSpecularMap meaning );
     std::optional<FbxSpecularMap>       FbxSpecularMapFromName( std::string_view name );
     std::string_view                    MeshFileUnitName( MeshFileUnit unit );

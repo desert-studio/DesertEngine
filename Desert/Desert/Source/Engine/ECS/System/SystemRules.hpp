@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -81,52 +82,20 @@ namespace Desert::ECS::Rules
         return out;
     }
 
-    // ---------------------------------------------------------------------------------------------------
-    // Which of a mesh entity's draws carries the SHADOW CASTER
-    // ---------------------------------------------------------------------------------------------------
+    // How a mesh's sections become draws (UE: one mesh batch per section, each with its section's material, in
+    // every pass). ONE rule for every static draw: a static mesh entity (MeshECSSystem), an ISM and each
+    // fracture piece (FracturePieceDraw) split the same way.
     //
-    // One static-mesh entity can produce up to three kinds of draw: a whole-entity generic draw (a
-    // MaterialComponent naming a non-lit shader), one generic draw per custom-shader material slot, and
-    // the batched lit draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
-    // MeshRenderer::ShadowCascadePasses takes a Mesh* and a transform and has no submesh mask, because
-    // depth is material-independent. So the caster is a property of the ENTITY, not of a draw, and
-    // exactly one draw may carry it — a mesh with one custom slot and one lit slot would otherwise be
-    // rasterized into every cascade twice, self-shadowing along the seam and paying double.
-    enum class MeshShadowCaster
-    {
-        None,           // the entity does not cast (CastShadows off, or it produces no draw at all)
-        SurfaceDraw,    // the batched lit draw carries it — the only case before generic meshes cast
-        ShaderOverride, // whole-entity Shader Override: there is no lit draw to carry it
-        FirstSlotDraw,  // every submesh went to a custom slot material; the first slot draw carries it
-    };
-
-    // @p shaderOverride   the entity has a MaterialComponent naming a non-lit shader (whole-entity draw)
-    // @p slotDrawCount    number of per-slot custom-material draws emitted for this entity
-    // @p surfaceDrawEmitted   the batched lit draw was emitted (some submesh stayed on the lit path)
-    inline MeshShadowCaster RouteMeshShadowCaster( bool castShadows, bool shaderOverride, size_t slotDrawCount,
-                                                   bool surfaceDrawEmitted )
-    {
-        if ( !castShadows )
-            return MeshShadowCaster::None;
-        // The override draw REPLACES the entity's whole lit draw, so it is the only candidate.
-        if ( shaderOverride )
-            return MeshShadowCaster::ShaderOverride;
-        // Otherwise the lit draw wins whenever it exists: it is the pre-existing caster, and keeping it
-        // means this rule cannot change what an all-lit scene puts in the cascades.
-        if ( surfaceDrawEmitted )
-            return MeshShadowCaster::SurfaceDraw;
-        if ( slotDrawCount > 0 )
-            return MeshShadowCaster::FirstSlotDraw;
-        return MeshShadowCaster::None;
-    }
-
-    // Which submeshes of a mesh leave the batched lit draw for a slot-material draw (v3 per-slot shaders), and
-    // which single draw carries the caster. ONE rule for every static draw: a static mesh entity
-    // (MeshECSSystem) and each fracture piece (FracturePieceDraw) split the same way.
+    // Section si draws with slot Desert::SectionMaterialSlot( si, slotCount ). @p slotMaterialOf( slot ) -> the
+    // custom-shader material that slot draws with (a non-mesh-cell DataDrivenMaterial), or a null Material when
+    // the slot is a surface (mesh-cell) material drawn by the batched passes. Sections of one custom material
+    // merge into one slot draw; sections of one surface slot merge into one section draw, which every batched
+    // pass (lit, G-buffer, translucency, depth and shadow casters) shades with THAT slot. @p submeshCount is at
+    // most 64 (the masks' width); @p slotCount 0 draws nothing (there is no material to draw with).
     //
-    // @p slotMaterialOf( si ) -> the custom-shader material submesh si draws with (a non-mesh-cell
-    // DataDrivenMaterial), or a null Material when it stays on the batched lit path. Submeshes sharing one such
-    // material merge into one slot draw. @p submeshCount is at most 64 (the masks' width).
+    // Every draw casts its OWN submeshes when the entity casts: the shadow passes honour each draw's mask, so the
+    // entity's silhouette is the union of its draws, each section through its own caster route (masked or
+    // opaque) - and a hidden submesh casts nothing, as it shows nothing.
     template <class Material>
     struct MeshSlotDraw
     {
@@ -134,61 +103,63 @@ namespace Desert::ECS::Rules
         uint64_t VisibleMask = 0; // the submeshes this draw draws (hidden ones removed)
         bool     CastShadows = false;
     };
+    struct MeshSectionDraw
+    {
+        size_t   Slot        = 0; // the material slot every submesh of this draw shades with
+        uint64_t HiddenMask  = 0; // every submesh this draw does NOT draw (hidden, other slots, custom)
+        bool     CastShadows = false;
+    };
     template <class Material>
     struct MeshSlotSplit
     {
-        std::vector<MeshSlotDraw<Material>> SlotDraws; // emitted in this order
-        uint64_t SurfaceHidden      = 0;               // the lit draw's hidden mask (hidden | slot submeshes)
-        bool     SurfaceDrawEmitted = false;
-        bool     SurfaceCastShadows = false;
+        std::vector<MeshSlotDraw<Material>> SlotDraws;    // emitted first, in this order
+        std::vector<MeshSectionDraw>        SectionDraws; // then these, in first-section order
     };
     template <class Material, class SlotMaterialOf>
-    MeshSlotSplit<Material> SplitMeshSlotDraws( size_t submeshCount, uint64_t hiddenSubmeshes, bool castShadows,
-                                                SlotMaterialOf&& slotMaterialOf )
+    MeshSlotSplit<Material> SplitMeshSlotDraws( size_t submeshCount, size_t slotCount, uint64_t hiddenSubmeshes,
+                                                bool castShadows, SlotMaterialOf&& slotMaterialOf )
     {
-        MeshSlotSplit<Material>             split;
-        std::vector<MeshSlotDraw<Material>> grouped;
-        uint64_t                            customMask = 0;
+        MeshSlotSplit<Material> split;
+        if ( slotCount == 0 )
+            return split;
+        std::vector<uint64_t> sectionVisible; // parallel to split.SectionDraws while grouping
         for ( size_t si = 0; si < submeshCount && si < 64; ++si )
         {
-            const Material mat = slotMaterialOf( si );
-            if ( !mat )
+            const uint64_t bit = 1ull << si;
+            if ( ( hiddenSubmeshes & bit ) != 0 )
                 continue;
-            customMask |= ( 1ull << si );
+            const size_t   slot = Desert::SectionMaterialSlot( si, slotCount );
+            const Material mat  = slotMaterialOf( slot );
+            if ( mat )
+            {
+                bool merged = false;
+                for ( auto& d : split.SlotDraws )
+                    if ( d.Mat == mat )
+                    {
+                        d.VisibleMask |= bit;
+                        merged = true;
+                        break;
+                    }
+                if ( !merged )
+                    split.SlotDraws.push_back( { mat, bit, castShadows } );
+                continue;
+            }
             bool merged = false;
-            for ( auto& d : grouped )
-                if ( d.Mat == mat )
+            for ( size_t i = 0; i < split.SectionDraws.size(); ++i )
+                if ( split.SectionDraws[i].Slot == slot )
                 {
-                    d.VisibleMask |= ( 1ull << si );
+                    sectionVisible[i] |= bit;
                     merged = true;
                     break;
                 }
             if ( !merged )
-                grouped.push_back( { mat, 1ull << si, false } );
+            {
+                split.SectionDraws.push_back( { slot, 0, castShadows } );
+                sectionVisible.push_back( bit );
+            }
         }
-
-        // Decided BEFORE anything is emitted, because the caster belongs to the ENTITY: the shadow pass draws a
-        // mesh whole, so the lit draw and the slot draws are candidates for the same silhouette and only one of
-        // them may record it.
-        const uint64_t allMask   = submeshCount >= 64 ? ~0ull : ( ( 1ull << submeshCount ) - 1ull );
-        split.SurfaceHidden      = hiddenSubmeshes | customMask;
-        split.SurfaceDrawEmitted = submeshCount == 0 || ( ~split.SurfaceHidden & allMask ) != 0;
-        const auto shadowRoute   = RouteMeshShadowCaster( castShadows, /*shaderOverride*/ false, grouped.size(),
-                                                          split.SurfaceDrawEmitted );
-        split.SurfaceCastShadows = shadowRoute == MeshShadowCaster::SurfaceDraw;
-
-        bool slotCasterPlaced = false;
-        for ( auto& d : grouped )
-        {
-            d.VisibleMask &= ~hiddenSubmeshes;
-            if ( !d.VisibleMask )
-                continue;
-            // "First slot draw" means the first one actually EMITTED — a leading slot whose submeshes are all
-            // hidden emits nothing, and routing the caster to it would drop the entity's shadow, not move it.
-            d.CastShadows    = !slotCasterPlaced && shadowRoute == MeshShadowCaster::FirstSlotDraw;
-            slotCasterPlaced = slotCasterPlaced || d.CastShadows;
-            split.SlotDraws.push_back( d );
-        }
+        for ( size_t i = 0; i < split.SectionDraws.size(); ++i )
+            split.SectionDraws[i].HiddenMask = ~sectionVisible[i];
         return split;
     }
 
@@ -202,55 +173,87 @@ namespace Desert::ECS::Rules
     // could pick different ones and nothing said so. The rule below is the single answer, and because it
     // is a function of plain numbers, the test can hold it to all six cases including the tie-break.
 
-    // Below this length a Translation is not a direction at all — normalizing it yields NaN and the sun
-    // ends up pointing nowhere. Two different epsilons for this existed in the engine; this is the one.
-    inline constexpr float kSunDirectionEpsilon = 1e-4f;
+    // A DIRECTIONAL LIGHT'S DIRECTION IS ITS ROTATION, as in UE (ULightComponent::GetDirection =
+    // GetComponentTransform().GetUnitAxis( EAxis::X )). The light travels along the entity's forward axis,
+    // which in this engine is -Z for every entity (cameras, spot lights, projectiles); Translation is only
+    // where the editor draws the light's icon. A rotation is always a direction, so there is no degenerate
+    // sun any more: the old Translation-as-direction model had an epsilon, a "light emits nothing" report
+    // and a migration-era comment explaining why the rotation gizmo did nothing — all gone with it.
+    inline constexpr glm::vec3 kLightForwardAxis = glm::vec3( 0.0f, 0.0f, -1.0f );
 
-    inline bool IsSunDirectionValid( const glm::vec3& lightTranslation )
+    // The direction the light TRAVELS (sun -> scene), from the entity's WORLD rotation.
+    inline glm::vec3 DirectionalLightTravel( const glm::quat& worldRotation )
     {
-        return glm::length( lightTranslation ) > kSunDirectionEpsilon;
+        return glm::normalize( worldRotation * kLightForwardAxis );
     }
 
-    // THE DIRECTION A DIRECTIONAL LIGHT TRAVELS, or nothing at all when its Translation is not a
-    // direction — the LIGHTING half of the same question `IsSunDirectionValid` answers for the sky.
-    //
-    // It exists because the two halves disagreed. The comment on kSunDirectionEpsilon above says "two
-    // different epsilons for this existed in the engine; this is the one", and that consolidation
-    // reached the sky and stopped: `Engine/Core/Scene.cpp` went on open-coding
-    // `glm::length(rawDir) > 0.001f` when it collected directional lights for the renderer — TEN TIMES
-    // this epsilon. A sun whose Translation measured, say, 5e-4 was therefore VALID TO THE SKY and
-    // INVALID TO THE RENDERER at the same instant: the atmosphere took a sun direction from it and lit
-    // the dome, while the deferred composite received no directional light at all. Both sides were
-    // individually defensible and neither could see the other. Now there is one gate and the question
-    // cannot be answered twice.
-    //
-    // Returning an optional rather than a bool is the point: the caller that wants the direction and the
-    // caller that wants the verdict get the SAME answer, and a caller cannot normalize a vector this
-    // function has just called unusable.
-    inline std::optional<glm::vec3> DirectionalLightTravel( const glm::vec3& lightTranslation )
+    // THE ENGINE'S ONE NEGATION. The atmosphere and the IBL bake want the direction TOWARD the sun; every
+    // one of them goes through here. Two negations is how a sky ends up lit from below. The travel form is
+    // for lights that are not entities (the asset previews' fixed key light).
+    inline glm::vec3 AtmosphereSunDirection( const glm::vec3& travel )
     {
-        if ( !IsSunDirectionValid( lightTranslation ) )
-            return std::nullopt;
-        return glm::normalize( lightTranslation );
+        return -glm::normalize( travel );
     }
 
-    // THE ENGINE'S ONE NEGATION. TransformComponent::Translation on a directional light is the direction
-    // the light TRAVELS (sun -> scene); the atmosphere and the IBL bake both want the
-    // direction TOWARD the sun. Every one of them goes through here. Two negations is how a sky ends up
-    // lit from below — which is precisely the bug the viewport's light gizmo shipped with.
-    inline glm::vec3 AtmosphereSunDirection( const glm::vec3& lightTranslation )
+    inline glm::vec3 AtmosphereSunDirection( const glm::quat& worldRotation )
     {
-        return -glm::normalize( lightTranslation );
+        return AtmosphereSunDirection( DirectionalLightTravel( worldRotation ) );
     }
+
+    // The rotation whose forward axis is `travel` — the shortest arc from kLightForwardAxis, so roll stays
+    // zero for every heading except the exact opposite one (a light aimed along +Z), which turns about +Y.
+    // Roll does not change a directional light. This is the inverse of DirectionalLightTravel and the one
+    // way the clock, the editor's direction widget and the scene migrator turn a heading into a Rotation.
+    inline glm::quat RotationForTravel( const glm::vec3& travel )
+    {
+        const glm::vec3 to = glm::normalize( travel );
+        const float     d  = glm::dot( kLightForwardAxis, to );
+        if ( d < -0.999999f )
+            return glm::quat( 0.0f, glm::vec3( 0.0f, 1.0f, 0.0f ) ); // 180 deg about +Y
+        const glm::vec3 axis = glm::cross( kLightForwardAxis, to );
+        return glm::normalize( glm::quat( 1.0f + d, axis ) );
+    }
+
+    // A SUN'S PLACE AS AN ARTIST STATES IT: elevation above the horizon and compass azimuth, both in degrees
+    // (azimuth 0 = north = +Z, 90 = east = +X). The editor's direction widget and the control channel's
+    // `selection` Sun Elevation / Sun Azimuth go through these two, so a number typed and a number sent are the
+    // same sun. `towardSun` is AtmosphereSunDirection's (scene -> sun).
+    struct SunAngles
+    {
+        float AzimuthDeg   = 0.0f; // [0, 360)
+        float ElevationDeg = 0.0f; // [-90, 90]
+    };
+
+    inline SunAngles SunAnglesFromToward( const glm::vec3& towardSun )
+    {
+        const glm::vec3 d = glm::normalize( towardSun );
+        SunAngles       a;
+        a.ElevationDeg = glm::degrees( std::asin( glm::clamp( d.y, -1.0f, 1.0f ) ) );
+        a.AzimuthDeg   = glm::degrees( std::atan2( d.x, d.z ) );
+        if ( a.AzimuthDeg < 0.0f )
+            a.AzimuthDeg += 360.0f;
+        return a;
+    }
+
+    inline glm::vec3 TowardSunFromAngles( const SunAngles& a )
+    {
+        const float az = glm::radians( a.AzimuthDeg );
+        const float el = glm::radians( a.ElevationDeg );
+        return glm::vec3( std::cos( el ) * std::sin( az ), std::sin( el ), std::cos( el ) * std::cos( az ) );
+    }
+
+    // UE's Atmosphere Sun Light Index range: 0 is the sun, 1 the second atmosphere light (the moon). Both light
+    // the atmosphere, draw a disc and light the scene through the deferred pass; the time-of-day clock and the
+    // cascaded shadow maps belong to index 0.
+    inline constexpr int kAtmosphereLightCount = 2;
 
     struct SunCandidate
     {
         // Entity UUID. A plain integer rather than Common::UUID so the rule stays link-free: the tests that
         // exercise it deliberately do not link the engine, and UUID's constructors live in a .cpp.
-        uint64_t Id             = 0;
-        bool     Marked         = false; // DirectionalLightData::AtmosphereSunLight
-        int      Index          = 0;     // DirectionalLightData::AtmosphereSunLightIndex
-        bool     DirectionValid = false; // IsSunDirectionValid( Translation )
+        uint64_t Id     = 0;
+        bool     Marked = false; // DirectionalLightData::AtmosphereSunLight
+        int      Index  = 0;     // DirectionalLightData::AtmosphereSunLightIndex
     };
 
     // The selection AND everything worth complaining about, so the rule itself stays pure. Logging belongs
@@ -259,20 +262,20 @@ namespace Desert::ECS::Rules
     struct AtmosphereSunSelection
     {
         std::optional<size_t> Chosen;           // index into the candidate span
-        bool                  Fallback = false; // rule 5: nothing was marked, lowest id taken
-        std::vector<size_t>   Collisions;       // rule 3: further marked candidates at wantedIndex
-        std::vector<size_t>   WrongIndex;       // rule 4: marked, but at an index v1 does not render
+        bool                  Fallback = false; // rule 4: nothing was marked, lowest id taken
+        std::vector<size_t>   Collisions;       // rule 2: further marked candidates at wantedIndex
+        std::vector<size_t>   WrongIndex;       // rule 3: marked at an index outside [0, kAtmosphereLightCount)
     };
 
     // Rules, in order:
-    //  1. candidates whose direction is degenerate are ignored entirely;
-    //  2. prefer marked candidates at `wantedIndex`;
-    //  3. several of those -> lowest Id wins, the rest are reported as collisions;
-    //  4. marked at another index -> treated as unmarked and reported (the field is authorable, but the
-    //     engine renders exactly one directional light, so index != 0 is not a thing that can work);
-    //  5. nothing marked -> lowest-Id valid candidate, reported as a fallback, because the sky must not go
-    //     missing just because nobody ticked a box;
-    //  6. nothing valid -> no selection: the scene has NO sun, and every caller says so instead of lighting
+    //  1. prefer marked candidates at `wantedIndex`;
+    //  2. several of those -> lowest Id wins, the rest are reported as collisions;
+    //  3. marked at another index -> not this slot's light; reported only when that index is outside
+    //     [0, kAtmosphereLightCount), because a light marked at the OTHER slot is that slot's light;
+    //  4. nothing marked at index 0 -> lowest-Id candidate that is not marked at the other slot,
+    //     reported as a fallback, because the sky must not go missing just because nobody ticked a box.
+    //     Index 1 has no fallback: a second atmosphere light exists only when one is marked for it;
+    //  5. no candidates -> no selection: the scene has NO sun, and every caller says so instead of lighting
     //     the sky from a default direction nobody authored (ECS::PickAtmosphereSun, AtmosphereSunLight.hpp).
     inline AtmosphereSunSelection SelectAtmosphereSun( std::span<const SunCandidate> candidates, int wantedIndex )
     {
@@ -281,14 +284,13 @@ namespace Desert::ECS::Rules
         for ( size_t i = 0; i < candidates.size(); ++i )
         {
             const SunCandidate& c = candidates[i];
-            if ( !c.DirectionValid )
-                continue;
             if ( !c.Marked )
                 continue;
 
             if ( c.Index != wantedIndex )
             {
-                result.WrongIndex.push_back( i );
+                if ( c.Index < 0 || c.Index >= kAtmosphereLightCount )
+                    result.WrongIndex.push_back( i );
                 continue;
             }
 
@@ -310,12 +312,14 @@ namespace Desert::ECS::Rules
             }
         }
 
-        if ( result.Chosen )
+        if ( result.Chosen || wantedIndex != 0 )
             return result;
 
         for ( size_t i = 0; i < candidates.size(); ++i )
         {
-            if ( !candidates[i].DirectionValid )
+            // A light marked for the other slot is that slot's light, never this one's stand-in.
+            if ( candidates[i].Marked && candidates[i].Index != wantedIndex && candidates[i].Index >= 0 &&
+                 candidates[i].Index < kAtmosphereLightCount )
                 continue;
             if ( !result.Chosen || candidates[i].Id < candidates[*result.Chosen].Id )
                 result.Chosen = i;

@@ -48,6 +48,21 @@
 // The diffuse half is `kd * albedo / PI` and the PI is THE POINT OF THIS FILE. This is the only place
 // in the engine's direct lighting where it appears, so the two paths cannot drift by a factor again,
 // and the sun cannot drift from the point lights.
+// The specular lobe alone (UE FDirectLighting.Specular): the GGX term of EvaluateDirectLight below, which is its
+// diffuse half plus exactly this. A shading model's EvaluateSpecular reports it so MegaLights can denoise the
+// specular and the diffuse light as two signals (ShadingModels/ShadingModelContract.glslh).
+vec3 EvaluateDirectLightSpecular(vec3 L, vec3 radiance, vec3 view, vec3 N, vec3 F0, float roughness)
+{
+	float cosLi = max(dot(N, L), 0.0);
+	if (cosLi <= 0.0)
+		return vec3(0.0);
+	vec3  H     = normalize(view + L);
+	float cosLh = max(dot(N, H), 0.0);
+	float cosLo = max(dot(N, view), 0.0);
+	return DistributionGGX(cosLh, roughness) * VisibilitySmith(cosLi, cosLo, roughness) *
+	       fresnelSchlick(F0, max(dot(H, view), 0.0)) * radiance * cosLi;
+}
+
 vec3 EvaluateDirectLight(vec3 L, vec3 radiance, vec3 view, vec3 N, vec3 F0, float metalness,
                          float roughness, vec3 albedo)
 {

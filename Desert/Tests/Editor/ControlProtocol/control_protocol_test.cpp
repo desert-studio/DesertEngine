@@ -755,33 +755,33 @@ TEST( ControlPointerDrag, TheRequestCarriesFourNumbersStepsAndAnImageSubject )
          C::ParseRequest( R"({"id":3,"op":"drag","subject":"modeling","value":[1,2,3,4]})" ).IsSuccess() );
 }
 
-// Hover, press, N moves, release -- one event per frame, pixels converted to points, and the playback stays
-// pending for one extra frame so the release is drawn before the reply leaves.
-TEST( ControlPointerDrag, APlanHoversPressesMovesAndReleasesInImagePixels )
+// Hover, press, N moves, release -- one event per frame, image points offset by the image's corner, and the
+// playback stays pending for one extra frame so the release is drawn before the reply leaves.
+TEST( ControlPointerDrag, APlanHoversPressesMovesAndReleasesInImagePoints )
 {
     namespace C = Desert::Editor::Control;
     C::PointerInjection::Reset();
     const C::PointerTargetRect rect{ 100.0f, 50.0f, 400.0f, 300.0f, 7u, 10 };
-    const auto                 plan = C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 220.0f, 40.0f }, 4, 2.0f );
+    const auto                 plan = C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 220.0f, 40.0f }, 4 );
     ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
     const C::PointerDrag& drag = plan.GetValue();
     ASSERT_EQ( drag.FrameCount(), 7u );
     EXPECT_FALSE( drag.At( 0 ).Down );
-    EXPECT_FLOAT_EQ( drag.At( 0 ).X, 110.0f );
-    EXPECT_FLOAT_EQ( drag.At( 0 ).Y, 70.0f );
+    EXPECT_FLOAT_EQ( drag.At( 0 ).X, 120.0f );
+    EXPECT_FLOAT_EQ( drag.At( 0 ).Y, 90.0f );
     EXPECT_TRUE( drag.At( 1 ).Down );
-    EXPECT_FLOAT_EQ( drag.At( 1 ).X, 110.0f );
-    EXPECT_FLOAT_EQ( drag.At( 3 ).X, 160.0f );
+    EXPECT_FLOAT_EQ( drag.At( 1 ).X, 120.0f );
+    EXPECT_FLOAT_EQ( drag.At( 3 ).X, 220.0f );
     EXPECT_TRUE( drag.At( 5 ).Down );
-    EXPECT_FLOAT_EQ( drag.At( 5 ).X, 210.0f );
+    EXPECT_FLOAT_EQ( drag.At( 5 ).X, 320.0f );
     EXPECT_FALSE( drag.At( 6 ).Down );
-    EXPECT_FLOAT_EQ( drag.At( 6 ).X, 210.0f );
+    EXPECT_FLOAT_EQ( drag.At( 6 ).X, 320.0f );
     // One press event per drag: frame 1 is the only rising edge the layers are told about.
     for ( uint32_t frame = 0; frame < drag.FrameCount(); ++frame )
         EXPECT_EQ( drag.At( frame ).Press, frame == 1 ) << "frame " << frame;
 
-    EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 800.0f, 40.0f }, 4, 2.0f ).IsSuccess() );
-    EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 20.0f, 40.0f }, 0, 2.0f ).IsSuccess() );
+    EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 400.0f, 40.0f }, 4 ).IsSuccess() );
+    EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 20.0f, 40.0f }, 0 ).IsSuccess() );
 
     ASSERT_TRUE( C::PointerInjection::Arm( drag ).IsSuccess() );
     EXPECT_FALSE( C::PointerInjection::Arm( drag ).IsSuccess() );

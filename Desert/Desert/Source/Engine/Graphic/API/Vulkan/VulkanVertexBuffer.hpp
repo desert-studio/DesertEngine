@@ -11,6 +11,11 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    // @p buffer's device address through the device's address table (VulkanRayTracingFunctions.hpp): 0 on a
+    // device that has none, or for VK_NULL_HANDLE. The one reader behind every geometry buffer's
+    // GetDeviceAddress.
+    [[nodiscard]] uint64_t CurrentBufferAddress( VkBuffer buffer );
+
     class VulkanVertexBuffer : public VertexBuffer
     {
     public:
@@ -25,15 +30,22 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] virtual Common::BoolResultStr Invalidate() override;
         [[nodiscard]] virtual Common::BoolResultStr Release() override;
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() override;
+        [[nodiscard]] Common::BoolResultStr         RT_WriteRange( uint64_t offset, const void* data,
+                                                                   uint64_t size ) override;
+        [[nodiscard]] uint64_t GetDeviceAddress() const override;
 
         virtual unsigned int GetSize() const override
         {
             return m_Size;
         }
 
-        VkBuffer GetVulkanBuffer()
+        [[nodiscard]] VkBuffer GetVulkanBuffer() const
         {
             return m_VulkanBuffer;
+        }
+        [[nodiscard]] BufferUsage GetUsage() const
+        {
+            return m_Usage;
         }
 
         // What the last render graph that imported this buffer left it in (VulkanRendererAPI::ImportVertexBuffer),
@@ -59,5 +71,7 @@ namespace Desert::Graphic::API::Vulkan
         VkBuffer               m_VulkanBuffer = nullptr;
         VmaAllocation          m_MemoryAllocation;
         Common::Memory::Buffer m_StorageBuffer;
+        // The static upload released m_StorageBuffer (RT_Invalidate): the buffer cannot be uploaded again.
+        bool m_HostCopyReleased = false;
     };
 } // namespace Desert::Graphic::API::Vulkan

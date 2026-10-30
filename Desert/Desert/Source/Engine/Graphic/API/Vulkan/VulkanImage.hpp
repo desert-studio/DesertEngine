@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
 
+#include <Engine/Graphic/PixelPack.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <vulkan/vulkan.h>
@@ -159,14 +160,22 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Specification;
         }
+        [[nodiscard]] const Core::Formats::Image2DSpecification& GetSpecification() const
+        {
+            return m_Specification;
+        }
         NO_DISCARD Common::ResultStr<std::vector<uint8_t>> ReadPixelsRGBA8() override;
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackBytes() override;
 
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
         NO_DISCARD Common::BoolResultStr SetData( const Core::Formats::ImagePixelData& data ) override;
         NO_DISCARD Common::BoolResultStr RecordSetData( GpuBatch&                            batch,
                                                         const Core::Formats::ImagePixelData& data ) override;
+        NO_DISCARD Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> sources ) override;
+        NO_DISCARD Common::BoolResultStr TakeDeviceImageFrom( Image2D& replacement ) override;
+        NO_DISCARD Common::BoolResultStr StreamOutLevels( uint32_t droppedLevels ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }
@@ -188,7 +197,7 @@ namespace Desert::Graphic::API::Vulkan
             desc.Format  = m_Specification.Format;
             desc.Mips    = m_Resource.MipLevels;
             desc.Layers  = m_Resource.LayerCount;
-            desc.Dim     = RDG::TextureDim::Tex2D;
+            desc.Dim     = m_Specification.ArrayLayers > 0 ? RDG::TextureDim::Tex2DArray : RDG::TextureDim::Tex2D;
             desc.Samples = std::max( 1u, m_Specification.Samples );
             return desc;
         }
@@ -209,7 +218,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Which view and sampler a descriptor written from this image was written against: process-wide
         /// unique, minted whenever CreateResource or RecreateSampler replaces them. A cache keyed on the
         /// image (the editor's UI texture ids) compares it instead of trusting a recyclable VkImageView.
-        [[nodiscard]] uint64_t GetResourceGeneration() const noexcept
+        [[nodiscard]] uint64_t GetResourceGeneration() const noexcept override
         {
             return m_ResourceGeneration;
         }
@@ -220,6 +229,10 @@ namespace Desert::Graphic::API::Vulkan
         // Generate mips 1..N-1 from mip 0 via linear blits, leaving every mip in `finalLayout`.
         // Precondition: the whole image is in TRANSFER_DST_OPTIMAL and mip 0 holds the source pixels.
         void GenerateMips( VkCommandBuffer cmdBuffer, VkImageLayout finalLayout );
+        // The one image->host copy both readbacks submit. @p source: how ReadRGBA8 packs the bytes; nullopt = a
+        // raw copy (ReadBytes only). @p caller names the entry point in every refusal.
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>>
+                   BeginCopyToHost( std::optional<Graphic::PackedPixelSource> source, std::string_view caller );
 
     private:
         Core::Formats::Image2DSpecification m_Specification;
@@ -278,7 +291,7 @@ namespace Desert::Graphic::API::Vulkan
             desc.Format = m_Specification.Format;
             desc.Mips   = m_Resource.MipLevels;
             desc.Layers = m_Resource.LayerCount;
-            desc.Dim    = RDG::TextureDim::Cube;
+            desc.Dim    = m_Specification.CubeArray ? RDG::TextureDim::CubeArray : RDG::TextureDim::Cube;
             return desc;
         }
         void RecordLayouts( std::vector<VkImageLayout> layouts ) override

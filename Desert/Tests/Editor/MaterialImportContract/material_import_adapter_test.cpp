@@ -231,10 +231,10 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
         ASSERT_NE( s, nullptr ) << name << " was not bound";
         EXPECT_EQ( s->Parts.front().Source.filename().string(), image ) << name;
     };
-    expectSlot( "u_AlbedoTexture", "base.png" );
-    expectSlot( "u_OpacityTexture", "base.png" ); // the mask is the albedo's alpha, OpacityChannel 3
-    expectSlot( "u_NormalTexture", "nrm.png" );
-    expectSlot( "u_EmissiveTexture", "emi.png" );
+    expectSlot( "AlbedoTexture", "base.png" );
+    expectSlot( "OpacityTexture", "base.png" ); // the mask is the albedo's alpha, OpacityChannel 3
+    expectSlot( "NormalTexture", "nrm.png" );
+    expectSlot( "EmissiveTexture", "emi.png" );
 
     // TEX-SRGB: each slot carries the colour space its source key states -- colour keys sRGB, data Linear --
     // and that is what the importer writes into a newly created `.detex`.
@@ -245,18 +245,18 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
         ASSERT_NE( s, nullptr ) << name << " was not bound";
         EXPECT_EQ( s->ColorSpace, space ) << name;
     };
-    expectSpace( "u_AlbedoTexture", CS::SRGB );
-    expectSpace( "u_EmissiveTexture", CS::SRGB );
-    expectSpace( "u_NormalTexture", CS::Linear );
+    expectSpace( "AlbedoTexture", CS::SRGB );
+    expectSpace( "EmissiveTexture", CS::SRGB );
+    expectSpace( "NormalTexture", CS::Linear );
 
     // ORM: metallic-roughness (.gb) and occlusion (.r) are different images -> one packed image.
-    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    const ImportedTextureSlot* orm = Slot( fill, "OrmTexture" );
     ASSERT_NE( orm, nullptr );
     EXPECT_EQ( orm->ColorSpace, CS::Linear ) << "metallic/roughness/occlusion are data, never sRGB";
     ASSERT_EQ( orm->Parts.size(), 2u );
     EXPECT_TRUE( orm->NeedsPacking() );
     const fs::path packed = PackedTexturePath( *orm );
-    EXPECT_EQ( packed.filename().string(), "mr+occ_ORMTexture.detex" );
+    EXPECT_EQ( packed.filename().string(), "mr+occ_OrmTexture.detex" );
     const auto wrote = PackTextureChannels( *orm, packed );
     ASSERT_TRUE( wrote.IsSuccess() ) << wrote.GetError();
 
@@ -279,7 +279,7 @@ TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurf
                std::string::npos )
          << "SurfaceResolveORM no longer lerps the occlusion texel by its strength (glTF occlusionStrength)";
 
-    for ( const char* file : { "Surface/StandardSurface.shader", "Toon/Toon.shader" } )
+    for ( const char* file : { "Surface/StandardSurface.shader", "Toon/Toon.shader", "Toon/ToonMasked.shader" } )
     {
         const std::string text = RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) );
         ASSERT_FALSE( text.empty() ) << file;
@@ -287,12 +287,12 @@ TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurf
         EXPECT_NE( text.find( "Float       AOStrength (\"Ambient Occlusion\"" ), std::string::npos ) << file;
 
         size_t uses = 0;
-        for ( size_t at = text.find( "u_Material.AOStrength" ); at != std::string::npos;
-              at        = text.find( "u_Material.AOStrength", at + 1 ) )
+        for ( size_t at = text.find( "Material.AOStrength" ); at != std::string::npos;
+              at        = text.find( "Material.AOStrength", at + 1 ) )
             ++uses;
         EXPECT_EQ( uses, 1u ) << file << ": AOStrength must be read once, as SurfaceResolveORM's strength";
         EXPECT_NE( text.find( "SurfaceResolveORM( " ), std::string::npos ) << file;
-        EXPECT_NE( text.find( "( u_ORMTexture, uv ).rgb, u_Material.AOStrength," ), std::string::npos ) << file;
+        EXPECT_NE( text.find( "( OrmTexture, uv ).rgb, Material.AOStrength," ), std::string::npos ) << file;
         EXPECT_NE( text.find( "s.AmbientOcclusion  = orm.x;" ), std::string::npos )
              << file << ": the resolved occlusion must reach the surface unscaled";
     }
@@ -305,7 +305,7 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     Assimp::Importer   importer;
     const TemplateFill fill =
          FillFromTemplate( Read( file, importer ), Template( "Surface/StandardSurface.shader" ) );
-    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    const ImportedTextureSlot* orm = Slot( fill, "OrmTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_TRUE( orm->NeedsPacking() ) << "glTF's R of a metallic-roughness image is not occlusion";
     const fs::path packed = PackedTexturePath( *orm );
@@ -339,7 +339,7 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     Assimp::Importer   importer;
     const TemplateFill fill =
          FillFromTemplate( Read( file, importer ), Template( "Surface/StandardSurface.shader" ) );
-    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    const ImportedTextureSlot* orm = Slot( fill, "OrmTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_TRUE( orm->NeedsPacking() );
     const fs::path packed = PackedTexturePath( *orm );
@@ -362,8 +362,8 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     Assimp::Importer   again;
     const TemplateFill refill =
          FillFromTemplate( Read( file, again ), Template( "Surface/StandardSurface.shader" ) );
-    ASSERT_NE( Slot( refill, "u_ORMTexture" ), nullptr );
-    EXPECT_EQ( PackedTexturePath( *Slot( refill, "u_ORMTexture" ) ), packed ) << "same sources, same asset path";
+    ASSERT_NE( Slot( refill, "OrmTexture" ), nullptr );
+    EXPECT_EQ( PackedTexturePath( *Slot( refill, "OrmTexture" ) ), packed ) << "same sources, same asset path";
     const auto second = PackTextureChannels( *orm, packed );
     ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
     EXPECT_EQ( second.GetValue(), PackOutcome::Unchanged );
@@ -460,7 +460,7 @@ TEST( MaterialImportAdapter, EveryFbxSurfaceKeyReachesTheOrmTextureAndItsFactors
     EXPECT_NEAR( rough->Value.x, 0.35f, 1e-5f );
 
     // Three grey maps from three images -> one packed ORM: AO in R, roughness in G, metal in B (the glTF layout).
-    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    const ImportedTextureSlot* orm = Slot( fill, "OrmTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_EQ( orm->Parts.size(), 3u );
     std::map<std::string, std::string> channelOf;
@@ -564,7 +564,7 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureLeavesNoSourceWithoutAnAssetInTheC
     Assimp::Importer                        importer;
     const TemplateFill                      fill = FillFromTemplate( ReadResolving( file, importer, extracted ),
                                                                      Template( "Surface/StandardSurface.shader" ) );
-    ASSERT_NE( Slot( fill, "u_AlbedoTexture" ), nullptr );
+    ASSERT_NE( Slot( fill, "AlbedoTexture" ), nullptr );
     EXPECT_EQ( LooseImagesIn( file.parent_path() ), std::vector<std::string>{} )
          << "an embedded texture was written into the content as a bare image";
     EXPECT_TRUE( Desert::Assets::IsTextureSourceAssetFile( file.parent_path() / "helmet_0.detex" ) );
@@ -579,7 +579,7 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsImportedAsATextureAssetThatKeeps
     const TemplateFill                      fill = FillFromTemplate( ReadResolving( file, importer, extracted ),
                                                                      Template( "Surface/StandardSurface.shader" ) );
 
-    const ImportedTextureSlot* albedo = Slot( fill, "u_AlbedoTexture" );
+    const ImportedTextureSlot* albedo = Slot( fill, "AlbedoTexture" );
     ASSERT_NE( albedo, nullptr ) << "the embedded base colour did not reach its slot";
     ASSERT_FALSE( albedo->Parts.empty() );
     EXPECT_EQ( albedo->Parts.front().Source, derived );
@@ -597,8 +597,8 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsImportedAsATextureAssetThatKeeps
     Assimp::Importer   again;
     const TemplateFill refill =
          FillFromTemplate( ReadResolving( file, again, extracted ), Template( "Surface/StandardSurface.shader" ) );
-    ASSERT_NE( Slot( refill, "u_AlbedoTexture" ), nullptr );
-    EXPECT_EQ( Slot( refill, "u_AlbedoTexture" )->Parts.front().Source, derived );
+    ASSERT_NE( Slot( refill, "AlbedoTexture" ), nullptr );
+    EXPECT_EQ( Slot( refill, "AlbedoTexture" )->Parts.front().Source, derived );
     ASSERT_FALSE( extracted.empty() );
     EXPECT_EQ( extracted.front(), PackOutcome::Unchanged );
     EXPECT_EQ( fs::last_write_time( derived ), stamp ) << "an unchanged embedded texture was rewritten";
@@ -697,12 +697,12 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
              Template( "Surface/StandardSurface.shader" ) );
     };
     const TemplateFill onlyBase = read( false );
-    ASSERT_NE( Slot( onlyBase, "u_AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
-    EXPECT_EQ( Slot( onlyBase, "u_AlbedoTexture" )->Parts.front().Source.filename(), fs::path( "base.png" ) );
+    ASSERT_NE( Slot( onlyBase, "AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
+    EXPECT_EQ( Slot( onlyBase, "AlbedoTexture" )->Parts.front().Source.filename(), fs::path( "base.png" ) );
     const TemplateFill both = read( true );
-    ASSERT_NE( Slot( both, "u_AlbedoTexture" ), nullptr );
-    ASSERT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.size(), 1u );
-    EXPECT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.front().Source.filename(), fs::path( "diffuse.png" ) );
+    ASSERT_NE( Slot( both, "AlbedoTexture" ), nullptr );
+    ASSERT_EQ( Slot( both, "AlbedoTexture" )->Parts.size(), 1u );
+    EXPECT_EQ( Slot( both, "AlbedoTexture" )->Parts.front().Source.filename(), fs::path( "diffuse.png" ) );
 }
 
 // MAT1s: the glTF sampler of a texture (wrapS/wrapT/magFilter) rides on its key to the template's slot, and a
@@ -726,12 +726,12 @@ TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothi
 
     const std::vector<ImportTemplate> templates = { Template( "Surface/StandardSurface.shader" ) };
     const TemplateFill                fill      = FillFromTemplate( source, templates[0] );
-    const ImportedTextureSlot*        albedo    = Slot( fill, "u_AlbedoTexture" );
+    const ImportedTextureSlot*        albedo    = Slot( fill, "AlbedoTexture" );
     ASSERT_NE( albedo, nullptr );
     ASSERT_TRUE( albedo->Sampler.has_value() ) << "the sampler did not reach the slot";
     EXPECT_EQ( albedo->Sampler, std::optional<SamplerState>( expected ) );
 
-    const ImportedTextureSlot* normal = Slot( fill, "u_NormalTexture" );
+    const ImportedTextureSlot* normal = Slot( fill, "NormalTexture" );
     ASSERT_NE( normal, nullptr );
     EXPECT_FALSE( normal->Sampler.has_value() ) << "a texture with no glTF sampler states the default: nothing";
 }
@@ -755,12 +755,13 @@ namespace
 
 TEST( MaterialImportAdapter, AnFbxSpecularMapIsNamedUnreadUnderItsOwnMeaning )
 {
-    const SourceMaterial source =
-         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
+    auto routed = WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
+    ASSERT_TRUE( routed ) << routed.GetError();
+    const SourceMaterial source = routed.ExtractValue();
     ASSERT_TRUE( source.Has( kFbxSpecularMapKey ) ) << "the adapter dropped the FBX Specular map";
     const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_NE( std::ranges::find( fill.UnreadKeys, kFbxSpecularMapKey ), fill.UnreadKeys.end() );
-    EXPECT_EQ( Slot( fill, "u_ORMTexture" ), nullptr )
+    EXPECT_EQ( Slot( fill, "OrmTexture" ), nullptr )
          << "a specular-colour image is not occlusion/roughness/metal";
     EXPECT_NE( UnreadKeyHint( kFbxSpecularMapKey ).find( "FBX Specular Map" ), std::string_view::npos )
          << "the warning must name the setting that states the map's meaning";
@@ -769,12 +770,14 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapIsNamedUnreadUnderItsOwnMeaning )
 
 TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
 {
-    const SourceMaterial source =
+    auto routed =
          WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::OcclusionRoughnessMetallic );
+    ASSERT_TRUE( routed ) << routed.GetError();
+    const SourceMaterial source = routed.ExtractValue();
     EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
     const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();
-    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    const ImportedTextureSlot* orm = Slot( fill, "OrmTexture" );
     ASSERT_NE( orm, nullptr ) << "the packed map did not reach the ORM slot";
     ASSERT_EQ( orm->Parts.size(), 1u );
     EXPECT_EQ( orm->Parts[0].Source.filename().string(), "Bistro_Specular.png" );
@@ -787,12 +790,13 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
 // and the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
 TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusionAlone )
 {
-    const SourceMaterial source =
-         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::RoughnessMetallic );
+    auto routed = WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::RoughnessMetallic );
+    ASSERT_TRUE( routed ) << routed.GetError();
+    const SourceMaterial source = routed.ExtractValue();
     EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
     const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();
-    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    const ImportedTextureSlot* orm = Slot( fill, "OrmTexture" );
     ASSERT_NE( orm, nullptr ) << "the packed map did not reach the ORM slot";
     ASSERT_EQ( orm->Parts.size(), 1u );
     EXPECT_EQ( orm->Parts[0].Channels, "gb" ) << "R of this map is not occlusion";

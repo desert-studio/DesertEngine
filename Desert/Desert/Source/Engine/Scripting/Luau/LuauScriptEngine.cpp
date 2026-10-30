@@ -99,17 +99,19 @@ namespace Desert::Scripting
         m_Impl->Context = Core::WorldContext{ scene, assetManager, &m_Impl->Timers, &m_Impl->PlayerInput, this };
 
         Impl* host      = m_Impl.get();
-        m_Impl->Runtime = std::make_unique<LuauRuntime>( LuauLimits{},
-                                                         [host]( lua_State* L )
-                                                         {
-                                                             lua_pushlightuserdata( L, host );
-                                                             lua_setfield( L, LUA_REGISTRYINDEX, kHost );
-                                                             lua_newtable( L );
-                                                             host->WorldVars = lua_ref( L, -1 );
-                                                             lua_pop( L, 1 );
+        m_Impl->Runtime = std::make_unique<LuauRuntime>(
+             LuauLimits{},
+             [host]( lua_State* L )
+             {
+                 lua_pushlightuserdata( L, host );
+                 lua_setfield( L, LUA_REGISTRYINDEX, kHost );
+                 lua_newtable( L );
+                 host->WorldVars = lua_ref( L, -1 );
+                 lua_pop( L, 1 );
 
-                                                             RegisterHostNatives( L );
-                                                         } );
+                 RegisterHostNatives( L );
+             },
+             LuauDebugging::Attachable );
     }
 
     ScriptEngine::~ScriptEngine() = default;
@@ -210,6 +212,13 @@ namespace Desert::Scripting
     {
         const Reflection::Value arg = Reflection::Value::String( argument );
         if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, function, { &arg, 1 } ); !r.IsSuccess() )
+            LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
+    }
+
+    void ScriptEngine::CallSlotFunctionWith( uint32_t entity, uint32_t slot, const char* function,
+                                             std::span<const Reflection::Value> arguments )
+    {
+        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, function, arguments ); !r.IsSuccess() )
             LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
     }
 
@@ -375,6 +384,26 @@ namespace Desert::Scripting
             else
                 *held = std::move( read );
         }
+    }
+
+    std::vector<ScriptEngine::LiveProperty> ScriptEngine::ReadLiveProperties( uint32_t entity, uint32_t slot ) const
+    {
+        std::vector<LiveProperty> live;
+        const LuauSlot            source = m_Impl->SlotOf( entity, slot );
+        if ( source == 0 )
+            return live;
+        const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( source );
+        if ( declared == nullptr )
+            return live;
+        live.reserve( declared->size() );
+        for ( const ScriptPropertyDecl& decl : *declared )
+        {
+            LiveProperty property{ .Name = decl.Name, .Type = decl.Default.Type };
+            if ( ScriptValue read; m_Impl->Runtime->ReadProperty( source, decl.Name, decl.Default.Type, read ) )
+                property.Value = std::move( read );
+            live.push_back( std::move( property ) );
+        }
+        return live;
     }
 
     void ScriptEngine::ApplySaveGameProperties()

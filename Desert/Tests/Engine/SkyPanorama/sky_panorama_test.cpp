@@ -1,10 +1,10 @@
 // THE HDR SKY'S LOOKUP, AND WHERE ITS AUTHORED LOOK IS APPLIED.
 //
 // An HDR skybox becomes THREE images from ONE panorama: PanoramaToCubemap writes the radiance cube the
-// background is drawn from and the GGX prefilter convolves, and DiffuseIrradiance integrates the same
-// panorama into the cube every lit surface reads. Those cubes are the FILE as authored. The sky's look —
-// rotation, intensity, tint — is applied where they are SAMPLED (Common/SkyLook.glslh), so a slider drag
-// is a uniform write per frame and not a device-idling rebake per value.
+// background is drawn from and the GGX prefilter convolves, and SkyCaptureIrradiance sums the irradiance
+// cube every lit surface reads from a mip of that radiance cube. Those cubes are the FILE as authored. The sky's
+// look — rotation, intensity, tint — is applied where they are SAMPLED (Common/SkyLook.glslh), so a slider drag is
+// a uniform write per frame and not a device-idling rebake per value.
 //
 // Two properties of FILES AGREEING, which no frame can state:
 //   * every program that reads an environment cube applies the look — one that did not would show the
@@ -222,7 +222,7 @@ TEST( SkyPanoramaGain, ScalesEachChannelIndependently )
 // The census: the bake reads the panorama bare, and EVERY reader of the cubes applies the look
 // ---------------------------------------------------------------------------------------------------
 
-TEST( SkyPanoramaCensus, BothBakeProgramsReadThePanoramaBareThroughTheSharedText )
+TEST( SkyPanoramaCensus, TheBakeProgramReadsThePanoramaBareThroughTheSharedText )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the test's working directory";
@@ -235,8 +235,6 @@ TEST( SkyPanoramaCensus, BothBakeProgramsReadThePanoramaBareThroughTheSharedText
     const Program programs[] = {
          { "Editor/Resources/Shaders/Programs/Compute/PanoramaToCubemap.shader",
            "writes the radiance cube the background is drawn from and the prefilter convolves" },
-         { "Editor/Resources/Shaders/Programs/Compute/DiffuseIrradiance.shader",
-           "integrates the same panorama into the cube every lit surface reads" },
     };
 
     for ( const Program& program : programs )
@@ -274,18 +272,22 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     const std::set<std::string> registered = {
          "Programs/Deferred/DeferredLighting.shader", // the deferred composite's ambient
          "Mesh/Surface/Pass_Forward.glslh", // every surface template's forward cell (StandardSurface, graphs)
-         // a Translucent template's forward cell: the sky's reflection at the glass's grazing edge; its
+         // a Translucent template's forward cell: the environment's reflection at the glass's grazing edge
+         // (AmbientIBL's DesertSampleViewAmbient: the captures over the sky); its
          // instance gets the cube AND the look together from SceneFrameBinding::ApplyTo -> SceneEnvironmentBind
          // (MeshRenderer::RenderGlassManual)
          "Mesh/Surface/Pass_Forward_Translucent.glslh",
          "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders
          "Programs/Skybox/Skybox.shader",         // the backdrop
+         // the Forward path's ground: the same ambient as a forward mesh (AmbientIBL), the look from
+         // SceneFrameBinding::ApplyTo -> SceneEnvironmentBind (TerrainRenderer::PrepareFrame)
+         "Programs/Terrain/Terrain.shader",
     };
 
     // The names the engine binds environment cubes under: the IBL pair, the skybox pass's cube, and
     // the preview ball's. A `samplerCube` declared under any of them is a reader of the environment.
     static const std::regex kEnvCube(
-         R"(samplerCube\s+(u_EnvSpecularTex|u_EnvIrradianceTex|samplerCubeMap|u_CubeMap)\b)" );
+         R"(samplerCube\s+(EnvironmentSpecularTexture|EnvironmentIrradianceTexture|samplerCubeMap|CubeMapTexture)\b)" );
 
     const std::string     shaders = root + "Editor/Resources/Shaders/";
     std::set<std::string> found;
@@ -320,8 +322,8 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     // AmbientIBL is what `viaIbl` trusts, so it is held to the same rule: both fetches, both calls.
     const std::string ibl = CodeOnly( ReadFile( shaders + "Mesh/AmbientIBL.glslh" ) );
     ASSERT_FALSE( ibl.empty() );
-    EXPECT_NE( ibl.find( "texture(u_EnvIrradianceTex, SkyLookDirection(" ), std::string::npos );
-    EXPECT_NE( ibl.find( "textureLod(u_EnvSpecularTex, SkyLookDirection(" ), std::string::npos );
+    EXPECT_NE( ibl.find( "texture(EnvironmentIrradianceTexture, SkyLookDirection(" ), std::string::npos );
+    EXPECT_NE( ibl.find( "textureLod(EnvironmentSpecularTexture, SkyLookDirection(" ), std::string::npos );
     size_t gains = 0;
     for ( size_t at = ibl.find( "ApplySkyGain(" ); at != std::string::npos;
           at        = ibl.find( "ApplySkyGain(", at + 1 ) )

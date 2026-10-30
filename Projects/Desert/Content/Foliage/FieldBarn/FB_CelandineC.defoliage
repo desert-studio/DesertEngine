@@ -1,0 +1,90 @@
+{
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "3777508c46dfe9ff21b26d015709e9e4",
+        "Versions": {
+            "FOLT": 8
+        },
+        "Dependencies": ["572c83253eaf9fa832455df4781903a1", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6"]
+    },
+    "Kind": "Mesh",
+    "Prefab": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Density": 100.0,
+    "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ZOffset": {
+        "Min": -2.0,
+        "Max": 0.0
+    },
+    "AlignToNormal": true,
+    "RandomYaw": true,
+    "RandomPitchAngle": 6.0,
+    "GroundSlopeAngle": {
+        "Min": 0.0,
+        "Max": 40.0
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [
+        {
+            "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+            "Path": "Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+        },
+        {
+            "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+            "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+        }
+    ],
+    "MinimumLayerWeight": 0.5,
+    "CullDistance": {
+        "Min": 3500,
+        "Max": 5000
+    },
+    "Wind": {
+        "Strength": 35.0,
+        "Speed": 0.8,
+        "Height": 60.0
+    },
+    "IncludeInHLOD": true,
+    "Mesh": {
+        "Guid": "572c83253eaf9fa832455df4781903a1",
+        "Path": "assets:Environments/FieldBarn/Meshes/celandine_01/celandine_01_celandine_01_c.stmesh"
+    },
+    "Procedural": {
+        "CollisionRadius": 6.0,
+        "ShadeRadius": 30.0,
+        "NumSteps": 3,
+        "InitialSeedDensity": 0.3,
+        "AverageSpreadDistance": 35.0,
+        "SpreadVariance": 25.0,
+        "SeedsPerStep": 5,
+        "DistributionSeed": 7674,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": true,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 1.0,
+        "ProceduralScale": {
+            "Min": 1.6,
+            "Max": 2.5
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    }
+}

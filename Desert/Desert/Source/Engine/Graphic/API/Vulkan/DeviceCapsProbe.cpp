@@ -4,6 +4,7 @@
 
 #include <format>
 #include <optional>
+#include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -18,18 +19,29 @@ namespace Desert::Graphic::API::Vulkan
 
         // The feature struct goes first: an extension is only worth enabling when the device also reports
         // the feature bit behind it, and enable_extension_features_if_present asks exactly that.
+        // Two rows may share one extension (shaderFloat16 and shaderInt8: VK_KHR_shader_float16_int8);
+        // vk-bootstrap lists an extension once per call, and vkCreateDevice must not see it twice.
+        bool EnableExtensionOnce( vkb::PhysicalDevice& device, std::string_view extension )
+        {
+            for ( const std::string& enabled : device.get_extensions() )
+                if ( enabled == extension )
+                    return true;
+            return device.enable_extension_if_present( std::string( extension ).c_str() );
+        }
+
         template <typename Features>
         bool EnableExtensionFeatures( vkb::PhysicalDevice& device, const Features& wanted,
                                       const CapabilitySpec& spec )
         {
             if ( !device.enable_extension_features_if_present( wanted ) )
                 return false;
-            return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
+            return EnableExtensionOnce( device, spec.Extension );
         }
 
         // One capability on its planned route: asked and, when present, enabled. The feature bits chosen
-        // for DescriptorIndexing are the bindless subset VKF2 will use (runtime arrays, partially bound,
-        // variable count, non-uniform sampled-image indexing), not the whole extension.
+        // for DescriptorIndexing are the bindless table's subset (runtime arrays, partially bound, variable
+        // count, non-uniform sampled-image indexing, sampled-image update-after-bind, update-unused-while-
+        // pending: the table is written while earlier frames are still in flight), not the whole extension.
         bool ProbeAndEnable( vkb::PhysicalDevice& device, Capability capability, CapabilityRoute route )
         {
             const CapabilitySpec& spec = SpecOf( capability );
@@ -42,19 +54,31 @@ namespace Desert::Graphic::API::Vulkan
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::independentBlend );
                 case Capability::ImageCubeArray:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::imageCubeArray );
+                case Capability::DepthClamp:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::depthClamp );
+                case Capability::FragmentStoresAndAtomics:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::fragmentStoresAndAtomics );
                 case Capability::WideLines:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::wideLines );
                 case Capability::FillModeNonSolid:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::fillModeNonSolid );
+                case Capability::MultiDrawIndirect:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::multiDrawIndirect );
                 case Capability::SamplerAnisotropy:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::samplerAnisotropy );
                 case Capability::TextureCompressionBC:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::textureCompressionBC );
+                case Capability::StorageImageWriteWithoutFormat:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::shaderStorageImageWriteWithoutFormat );
 
                 case Capability::Swapchain:
                 case Capability::PortabilitySubset:
                 case Capability::MemoryBudget:
                 case Capability::DeferredHostOperations:
+                case Capability::ExternalMemoryWin32:
+                case Capability::ExternalSemaphoreWin32:
+                case Capability::ExternalMemoryFd:
+                case Capability::ExternalSemaphoreFd:
                     return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
 
                 case Capability::TimelineSemaphore:
@@ -77,18 +101,22 @@ namespace Desert::Graphic::API::Vulkan
                     {
                         VkPhysicalDeviceVulkan12Features f{
                              VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-                        f.runtimeDescriptorArray                    = VK_TRUE;
-                        f.descriptorBindingPartiallyBound           = VK_TRUE;
-                        f.descriptorBindingVariableDescriptorCount  = VK_TRUE;
-                        f.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+                        f.runtimeDescriptorArray                       = VK_TRUE;
+                        f.descriptorBindingPartiallyBound              = VK_TRUE;
+                        f.descriptorBindingVariableDescriptorCount     = VK_TRUE;
+                        f.shaderSampledImageArrayNonUniformIndexing    = VK_TRUE;
+                        f.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                        f.descriptorBindingUpdateUnusedWhilePending    = VK_TRUE;
                         return device.enable_extension_features_if_present( f );
                     }
                     VkPhysicalDeviceDescriptorIndexingFeatures f{
                          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-                    f.runtimeDescriptorArray                    = VK_TRUE;
-                    f.descriptorBindingPartiallyBound           = VK_TRUE;
-                    f.descriptorBindingVariableDescriptorCount  = VK_TRUE;
-                    f.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+                    f.runtimeDescriptorArray                       = VK_TRUE;
+                    f.descriptorBindingPartiallyBound              = VK_TRUE;
+                    f.descriptorBindingVariableDescriptorCount     = VK_TRUE;
+                    f.shaderSampledImageArrayNonUniformIndexing    = VK_TRUE;
+                    f.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                    f.descriptorBindingUpdateUnusedWhilePending    = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
                 case Capability::BufferDeviceAddress:
@@ -154,6 +182,98 @@ namespace Desert::Graphic::API::Vulkan
                     f.rayTracingPipeline = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
+                // The NN rows. Core routes go through the VkPhysicalDeviceVulkan1xFeatures structs, never the
+                // per-feature ones: both in one chain is VUID-VkDeviceCreateInfo-pNext-02829/02830/06532, and the
+                // engine and the vendor runtimes already chain VkPhysicalDeviceVulkan12/13Features.
+                case Capability::StorageBuffer16BitAccess:
+                {
+                    if ( core )
+                    {
+                        // Vulkan11Features exists from 1.2; a 1.1 device answers no here and is refused by
+                        // CheckRequired (kMinimumDeviceApiVersion) anyway.
+                        VkPhysicalDeviceVulkan11Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+                        f.storageBuffer16BitAccess = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDevice16BitStorageFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
+                    f.storageBuffer16BitAccess = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::ShaderFloat16:
+                case Capability::ShaderInt8:
+                {
+                    const bool float16 = capability == Capability::ShaderFloat16;
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        if ( float16 )
+                            f.shaderFloat16 = VK_TRUE;
+                        else
+                            f.shaderInt8 = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDeviceShaderFloat16Int8Features f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES };
+                    if ( float16 )
+                        f.shaderFloat16 = VK_TRUE;
+                    else
+                        f.shaderInt8 = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::StorageBuffer8BitAccess:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        f.storageBuffer8BitAccess = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDevice8BitStorageFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
+                    f.storageBuffer8BitAccess = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::SubgroupSizeControl:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan13Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+                        f.subgroupSizeControl  = VK_TRUE;
+                        f.computeFullSubgroups = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDeviceSubgroupSizeControlFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES };
+                    f.subgroupSizeControl  = VK_TRUE;
+                    f.computeFullSubgroups = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::VulkanMemoryModel:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        f.vulkanMemoryModel = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDeviceVulkanMemoryModelFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES };
+                    f.vulkanMemoryModel = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::CooperativeMatrix:
+                {
+                    VkPhysicalDeviceCooperativeMatrixFeaturesKHR f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR };
+                    f.cooperativeMatrix = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
                 case Capability::Count:
                     break;
             }
@@ -175,7 +295,138 @@ namespace Desert::Graphic::API::Vulkan
             return std::format( "{} {}", std::string( driver.driverName ), std::string( driver.driverInfo ) );
         }
 
-        ProbedDevice Probe( const vkb::PhysicalDevice& candidate )
+        // The bindless table's ceilings. The properties struct is core 1.2 and the extension's own on 1.1
+        // with one layout, so a device on either route answers through the same chain.
+        DescriptorIndexingLimits DescriptorIndexingLimitsOf( const vkb::PhysicalDevice& device )
+        {
+            VkPhysicalDeviceDescriptorIndexingProperties indexing{
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES };
+            VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &indexing };
+            vkGetPhysicalDeviceProperties2( device.physical_device, &properties );
+            DescriptorIndexingLimits limits;
+            limits.MaxPerStageUpdateAfterBindSampledImages =
+                 indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
+            limits.MaxSetUpdateAfterBindSampledImages  = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
+            limits.MaxPerStageUpdateAfterBindSamplers  = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
+            limits.MaxSetUpdateAfterBindSamplers       = indexing.maxDescriptorSetUpdateAfterBindSamplers;
+            limits.MaxPerStageUpdateAfterBindResources = indexing.maxPerStageUpdateAfterBindResources;
+            return limits;
+        }
+
+        PerStageDescriptorLimits PerStageDescriptorLimitsOf( const vkb::PhysicalDevice& device )
+        {
+            const VkPhysicalDeviceLimits& limits = device.properties.limits;
+            return PerStageDescriptorLimits{ .MaxSamplers       = limits.maxPerStageDescriptorSamplers,
+                                             .MaxSampledImages  = limits.maxPerStageDescriptorSampledImages,
+                                             .MaxUniformBuffers = limits.maxPerStageDescriptorUniformBuffers,
+                                             .MaxStorageBuffers = limits.maxPerStageDescriptorStorageBuffers,
+                                             .MaxStorageImages  = limits.maxPerStageDescriptorStorageImages,
+                                             .MaxResources      = limits.maxPerStageResources };
+        }
+
+        ::Desert::Engine::NeuralScalar ScalarOf( VkComponentTypeKHR type )
+        {
+            switch ( type )
+            {
+                case VK_COMPONENT_TYPE_FLOAT16_KHR:
+                    return ::Desert::Engine::NeuralScalar::Float16;
+                case VK_COMPONENT_TYPE_FLOAT32_KHR:
+                    return ::Desert::Engine::NeuralScalar::Float32;
+                case VK_COMPONENT_TYPE_FLOAT64_KHR:
+                    return ::Desert::Engine::NeuralScalar::Float64;
+                case VK_COMPONENT_TYPE_SINT8_KHR:
+                    return ::Desert::Engine::NeuralScalar::Sint8;
+                case VK_COMPONENT_TYPE_UINT8_KHR:
+                    return ::Desert::Engine::NeuralScalar::Uint8;
+                case VK_COMPONENT_TYPE_SINT32_KHR:
+                    return ::Desert::Engine::NeuralScalar::Sint32;
+                case VK_COMPONENT_TYPE_UINT32_KHR:
+                    return ::Desert::Engine::NeuralScalar::Uint32;
+                default:
+                    // bf16 (VK_KHR_shader_bfloat16) and the 16/64-bit integers: recorded as Other, never dropped.
+                    return ::Desert::Engine::NeuralScalar::Other;
+            }
+        }
+
+        // The NN layer's half of the probe, after every row is settled: the features from the rows, the limits
+        // and subgroup properties, and the cooperative-matrix shapes. Then the kernel path, once.
+        ::Desert::Engine::NeuralComputeCaps
+        NeuralComputeCapsOf( VkInstance instance, const vkb::PhysicalDevice& device, const DeviceCaps& caps )
+        {
+            ::Desert::Engine::NeuralComputeCaps neural;
+            neural.ShaderFloat16              = caps.Has( Capability::ShaderFloat16 );
+            neural.ShaderInt8                 = caps.Has( Capability::ShaderInt8 );
+            neural.StorageBuffer16BitAccess   = caps.Has( Capability::StorageBuffer16BitAccess );
+            neural.StorageBuffer8BitAccess    = caps.Has( Capability::StorageBuffer8BitAccess );
+            neural.SubgroupSizeControl        = caps.Has( Capability::SubgroupSizeControl );
+            neural.CooperativeMatrix          = caps.Has( Capability::CooperativeMatrix );
+            neural.VulkanMemoryModel          = caps.Has( Capability::VulkanMemoryModel );
+            neural.MaxPushConstantsSize       = device.properties.limits.maxPushConstantsSize;
+            neural.MaxComputeSharedMemorySize = device.properties.limits.maxComputeSharedMemorySize;
+
+            // Core 1.1 subgroup properties; the size range only where size control is enabled (the struct has
+            // one layout on the extension route and in core 1.3).
+            VkPhysicalDeviceSubgroupSizeControlProperties sizeControl{
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES };
+            VkPhysicalDeviceCooperativeMatrixPropertiesKHR coopmat{
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_KHR };
+            VkPhysicalDeviceSubgroupProperties subgroup{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
+            void**                             tail = &subgroup.pNext;
+            if ( neural.SubgroupSizeControl )
+            {
+                *tail = &sizeControl;
+                tail  = &sizeControl.pNext;
+            }
+            if ( neural.CooperativeMatrix )
+                *tail = &coopmat;
+            VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &subgroup };
+            vkGetPhysicalDeviceProperties2( device.physical_device, &properties );
+            neural.SubgroupSize = subgroup.subgroupSize;
+            if ( neural.SubgroupSizeControl )
+            {
+                neural.MinSubgroupSize = sizeControl.minSubgroupSize;
+                neural.MaxSubgroupSize = sizeControl.maxSubgroupSize;
+                neural.ComputeSubgroupSizeRequirable =
+                     ( sizeControl.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT ) != 0;
+            }
+
+            if ( neural.CooperativeMatrix )
+            {
+                neural.CooperativeMatrixInCompute =
+                     ( coopmat.cooperativeMatrixSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT ) != 0;
+                // An instance-level entry point of an enabled extension. One that does not resolve leaves the
+                // shape list empty, and SelectNeuralKernelPath names the missing shape instead of guessing one.
+                const auto listShapes = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
+                     vkGetInstanceProcAddr( instance, "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR" ) );
+                uint32_t count = 0;
+                if ( listShapes != nullptr && listShapes( device.physical_device, &count, nullptr ) == VK_SUCCESS )
+                {
+                    VkCooperativeMatrixPropertiesKHR blank{};
+                    blank.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+                    std::vector<VkCooperativeMatrixPropertiesKHR> shapes( count, blank );
+                    if ( listShapes( device.physical_device, &count, shapes.data() ) >= VK_SUCCESS )
+                    {
+                        shapes.resize( count );
+                        for ( const VkCooperativeMatrixPropertiesKHR& shape : shapes )
+                            neural.CooperativeMatrixShapes.push_back( ::Desert::Engine::CooperativeMatrixShape{
+                                 .M                      = shape.MSize,
+                                 .N                      = shape.NSize,
+                                 .K                      = shape.KSize,
+                                 .A                      = ScalarOf( shape.AType ),
+                                 .B                      = ScalarOf( shape.BType ),
+                                 .C                      = ScalarOf( shape.CType ),
+                                 .Result                 = ScalarOf( shape.ResultType ),
+                                 .SaturatingAccumulation = shape.saturatingAccumulation == VK_TRUE,
+                                 .SubgroupScope          = shape.scope == VK_SCOPE_SUBGROUP_KHR } );
+                    }
+                }
+            }
+            ::Desert::Engine::SelectNeuralKernelPath( neural );
+            return neural;
+        }
+
+        ProbedDevice Probe( VkInstance instance, const vkb::PhysicalDevice& candidate,
+                            const DeviceRestrictions& restrictions )
         {
             ProbedDevice probed;
             probed.Physical             = std::make_shared<vkb::PhysicalDevice>( candidate );
@@ -185,6 +436,10 @@ namespace Desert::Graphic::API::Vulkan
                  PlanRoutes( device.properties.deviceName, DriverOf( device ), device.properties.apiVersion,
                              [&device]( std::string_view extension )
                              { return device.is_extension_present( std::string( extension ).c_str() ); } );
+            // Before the loop, so a hidden row is neither asked for nor enabled: the device built from this
+            // object is the one a card without ray tracing would give.
+            if ( restrictions.HideRayTracing )
+                HideRayTracing( probed.Caps );
 
             // Table order: every dependency is settled before the row that needs it (static_assert in
             // DeviceCaps.cpp), and a row whose dependencies are absent is not even asked.
@@ -196,6 +451,10 @@ namespace Desert::Graphic::API::Vulkan
                               DependenciesPresent( probed.Caps, capability ) &&
                               ProbeAndEnable( device, capability, row.Route );
             }
+            if ( probed.Caps.Has( Capability::DescriptorIndexing ) )
+                probed.Caps.DescriptorIndexing = DescriptorIndexingLimitsOf( device );
+            probed.Caps.PerStage = PerStageDescriptorLimitsOf( device );
+            probed.Caps.Neural   = NeuralComputeCapsOf( instance, device, probed.Caps );
             return probed;
         }
 
@@ -217,7 +476,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance& instance )
+    Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance&      instance,
+                                                  const DeviceRestrictions& restrictions )
     {
         // vk-bootstrap lists and describes the devices; the judgement is DeviceCaps'. So the selector is
         // told to reject nothing: version 1.0 (CheckRequired names a too-old version itself), no present
@@ -239,7 +499,7 @@ namespace Desert::Graphic::API::Vulkan
         std::string                 refusals;
         for ( const vkb::PhysicalDevice& candidate : listed.value() )
         {
-            ProbedDevice probed = Probe( candidate );
+            ProbedDevice probed = Probe( instance.instance, candidate, restrictions );
             if ( const auto accepted = CheckRequired( probed.Caps ); !accepted )
             {
                 refusals += std::format( "\n  {}", accepted.GetError() );

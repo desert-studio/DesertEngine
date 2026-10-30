@@ -38,7 +38,7 @@ namespace Desert::Graphic
         /// inconsistent; they answer different questions, and the difference is worth stating because the
         /// next reader will otherwise "fix" one of them.
         ///
-        /// A 2D slot is a MATERIAL PARAMETER a person authored: `u_AlbedoTexture` empty means "the shader's
+        /// A 2D slot is a MATERIAL PARAMETER a person authored: `AlbedoTexture` empty means "the shader's
         /// own default for this slot", which only the shader schema knows, so М9 made clearing go through
         /// `Material::BindSchemaDefaultTexture` and made a raw null a loud refusal. There is no such
         /// authored default for a `samplerCube`: every cube binding in this engine is PER-FRAME SCENE

@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <string>
 
 namespace Desert::Editor::ThumbnailKey
@@ -70,7 +71,7 @@ namespace Desert::Editor::ThumbnailKey
         }
 
         const std::uint64_t id = static_cast<std::uint64_t>( Common::AssetHandle::FromKey( identity ) );
-        return readable + '_' + std::to_string( id ) + ".png";
+        return std::format( "{}_{}.png", readable, id );
     }
 
     // Bump whenever the thumbnail render path changes so all old thumbnails regenerate. v2: sky-IBL ambient
@@ -126,7 +127,7 @@ namespace Desert::Editor::ThumbnailKey
         // decision — which files have no picture — is exactly the kind of thing this header exists to
         // keep reachable by a test rather than only by launching the editor. ThumbnailCache keeps what
         // genuinely needs the device: decoding a PNG into an Image2D.
-        return ( Common::DDC::BucketDir( "Thumbnails" ) / ( "v" + std::to_string( CacheVersion() ) ) /
+        return ( Common::DDC::BucketDir( "Thumbnails" ) / std::format( "v{}", CacheVersion() ) /
                  FileName( assetPath ) )
              .string();
     }

@@ -1,0 +1,80 @@
+{
+    "Header": {
+        "Kind": "WeatherPreset",
+        "Guid": "164cc9eea0464867a8eb0449771d28e1",
+        "Versions": {
+            "WTHP": 1
+        },
+        "Dependencies": []
+    },
+    "Parameters": [
+        {
+            "Name": "RainIntensity",
+            "Value": [
+                0.2,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SnowIntensity",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "Wetness",
+            "Value": [
+                0.5,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "PuddleLevel",
+            "Value": [
+                0.1,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SnowCover",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "Lightning",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    ],
+    "CloudCoverage": 0.85,
+    "CloudTypes": [
+        {
+            "Type": "Clouds/Types/Cumulus_Congestus.decloudtype",
+            "Weight": 0.2
+        },
+        {
+            "Type": "Clouds/Types/Stratus.decloudtype",
+            "Weight": 1.0
+        }
+    ],
+    "CloudDensity": 1.4,
+    "FogDensity": 0.04,
+    "WindSpeed": 400.0
+}

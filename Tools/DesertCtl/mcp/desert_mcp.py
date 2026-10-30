@@ -197,7 +197,9 @@ TOOLS = [
             "the GLFW callbacks, so ImGui and the routed event tree see it exactly as a hand's input. "
             "kind: move | click | press | release | key | keydown | keyup | drop. key taps a key; keydown holds "
             "it until a keyup of the same key (what a played pawn needs to walk). x, y are points inside 'panel' "
-            "when one is named (its title as the View menu shows it), else inside the editor window."
+            "when one is named (its title as the View menu shows it), else inside the editor window. Points, "
+            "not capture_window pixels: divide a capture_window pixel by the reply's pixelsPerPoint (2 on "
+            "Retina); capture_viewport pixels already are points."
         ),
         "inputSchema": {
             "type": "object",
@@ -213,11 +215,25 @@ TOOLS = [
         },
     },
     {
+        "name": "nn_check",
+        "description": (
+            "Run the NN layer's fused MLP (forward + backward + weight gradient) on the GPU against its CPU "
+            "reference on a fixed seeded batch: machine.json's forced kernel path (palette group Neural, "
+            "'Neural: Kernel path Fp32|Fp16|CoopMatFp16|Auto'), or every path the device runs. Returns per path "
+            "max abs / rel error of outputs and weight gradients and the ReLU mask-flip count, or 'refused' with the reason (device cannot run it, or the kernel's "
+            "compile/reflect error). An error when a path the device claims is refused (compile, pipeline, "
+            "readback), when an unforced check ran no path, or when a path is out of tolerance (1e-5 fp32, "
+            "1e-2 fp16); a FORCED path the device lacks is the expected answer: ok, listed 'refused'."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "get_state",
         "description": (
             "The editor's state as JSON. Sections: scene, selection, documents (open in most-recently-"
             "used order, plus recently closed), panels, views (live count, bytes held, pending bytes, device-local budget and usage), log "
-            "(counts and tail), quiescence. Omit sections for all of them."
+            "(counts and tail), device (GPU name and the NN layer's kernel path, features and limits), "
+            "quiescence. Omit sections for all of them."
         ),
         "inputSchema": {
             "type": "object",
@@ -257,6 +273,8 @@ TOOLS = [
 def dispatch(channel: Channel, name: str, arguments: dict) -> dict:
     if name == "list_commands":
         return channel.call("commands", wait=120)
+    if name == "nn_check":
+        return channel.call("nn-check", wait=120)
     if name == "run_command":
         group = arguments.get("group", "")
         label = arguments.get("label", "")

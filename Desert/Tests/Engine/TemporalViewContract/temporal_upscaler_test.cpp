@@ -17,6 +17,9 @@ namespace
     using namespace Desert::Graphic;
     using namespace Desert::Graphic::RDG;
     using ::Common::Scalability::ScaleMode;
+
+    // The resolved quality HistoryDescs reads its rows from; TAA / TAAU read none.
+    const ::Common::Scalability::ResolvedQuality kResolvedQuality{};
     using Desert::Core::Formats::ImageFormat;
 
     class FlatMemory final : public IMemoryRequirementsProvider
@@ -75,7 +78,7 @@ namespace
         Frame( const ITemporalUpscaler& upscaler, const ResolutionSplit& split )
         {
             RegisterSystemTextures( graph, black, white, blackCube );
-            const HistoryTextureDesc desc = upscaler.HistoryDescs( split ).at( 0 );
+            const HistoryTextureDesc desc = upscaler.HistoryDescs( split, kResolvedQuality ).at( 0 );
             // As a real frame hands it over: last frame's TemporalAA node wrote it as storage, so this frame's
             // read needs a barrier — and the barrier is what AccessOf sees.
             previous          = ExternalTexture( desc.Desc, Access::StorageWrite );
@@ -112,7 +115,7 @@ namespace
             uint32_t            mask = MemoryAccess_None;
             if ( pass )
                 for ( const Barrier& barrier : pass->Barriers )
-                    if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                    if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                         mask |= barrier.After.Memory;
             return static_cast<MemoryAccessFlags>( mask );
         }
@@ -130,7 +133,6 @@ namespace
     {
         const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
         const auto resolved = ResolveViewResolution( ViewExtent{ 1920, 1080 }, 50, std::nullopt, TemporalPath(),
-                                                     ::Common::Scalability::Upscaler::TAAU,
                                                      [&]( TemporalMethod ) { return taau.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
@@ -148,7 +150,6 @@ namespace
     {
         const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
         const auto resolved = ResolveViewResolution( ViewExtent{ 1000, 1000 }, 100, 50, TemporalPath(),
-                                                     ::Common::Scalability::Upscaler::None,
                                                      [&]( TemporalMethod ) { return taau.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 500, 500 } ) );
@@ -163,7 +164,6 @@ namespace
     {
         const auto taa      = CreateTemporalUpscaler( TemporalMethod::TAA );
         const auto resolved = ResolveViewResolution( ViewExtent{ 1000, 1000 }, 50, 100, TemporalPath(),
-                                                     ::Common::Scalability::Upscaler::TAAU,
                                                      [&]( TemporalMethod ) { return taa.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 1000, 1000 } ) );
@@ -180,7 +180,7 @@ namespace
              .Samples     = 1,
              .PostProcess = ::Common::Scalability::AntiAliasingMethod::FXAA };
         const auto resolved =
-             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, fxaa, ::Common::Scalability::Upscaler::None,
+             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, fxaa,
                                     []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Mode, ScaleMode::Upscale );
@@ -222,9 +222,9 @@ TEST( TemporalUpscaler, HistoryIsOneRgba16fTextureAtTheResolveExtent )
 {
     const TemporalAA taa( TemporalMethod::TAA );
     const TemporalAA taau( TemporalMethod::TAAU );
-    const auto       native = taa.HistoryDescs( kNative );
-    const auto       super  = taa.HistoryDescs( kSuper );
-    const auto       up     = taau.HistoryDescs( kUpscale );
+    const auto       native = taa.HistoryDescs( kNative, kResolvedQuality );
+    const auto       super  = taa.HistoryDescs( kSuper, kResolvedQuality );
+    const auto       up     = taau.HistoryDescs( kUpscale, kResolvedQuality );
     ASSERT_EQ( native.size(), 1u );
     ASSERT_EQ( super.size(), 1u );
     ASSERT_EQ( up.size(), 1u );
@@ -374,7 +374,7 @@ TEST( SpatialUpscale, TheNodesReadTheResolvedColourAndWriteTheOutputExtent )
         uint32_t mask = MemoryAccess_None;
         if ( const CompiledPass* pass = result.FindPass( passName ) )
             for ( const Barrier& barrier : pass->Barriers )
-                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                     mask |= barrier.After.Memory;
         return mask;
     };

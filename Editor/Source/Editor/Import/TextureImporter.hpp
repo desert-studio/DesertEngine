@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
 #include <array>
@@ -11,6 +13,8 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
+
+#include <glm/glm.hpp>
 
 namespace Desert::Editor
 {
@@ -50,6 +54,13 @@ namespace Desert::Editor
     class TextureImporter
     {
     public:
+        // @p role picks the encode effort (Project::TextureEncodingSettings): the editor's DDC misses build fast
+        // and take a final entry when one exists; TextureCook and the packager build final (Assets::PlanTextureEncode).
+        explicit TextureImporter( ::Desert::Assets::TextureEncodeRole role = ::Desert::Assets::TextureEncodeRole::Editor )
+            : m_Role( role )
+        {
+        }
+
         Common::UUID Import( const std::filesystem::path& path );
 
         // `Import`, plus what the call did. Fresh == the DDC already holds the asset's key (source bytes +
@@ -70,11 +81,35 @@ namespace Desert::Editor
         // The texture asset a source image is imported into (`<stem>.detex` beside it); an asset path is its own.
         static std::filesystem::path AssetPathFor( const std::filesystem::path& source );
 
+        // THE ONE READ OF THE PROJECT'S TEXTURE ENCODING (Config/Engine.json, Texture Encoding; UE
+        // UTextureEncodingProjectSettings): registers Project::CurrentRendererSettings().TextureEncoding as the
+        // engine's encoding source (Assets::SetTextureEncodingSource), read at every plan so a Project Settings
+        // change applies to the next encode. The editor at startup, TextureCook and PackageGame call it; none
+        // registers its own copy.
+        static void UseProjectTextureEncoding();
+
         // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
         // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
         static Common::ResultStr<std::string> BuildPlatformData( const std::filesystem::path& asset );
 
+        // THE ASSET'S PLATFORM DATA ON THE CPU, AS THE GPU SAMPLES IT: every level of the cooked chain (the DDC
+        // entry; a miss cooks it) decoded by DecodeCookedTextureLevel - linear RGBA, the view's channel rules, BC
+        // blocks decompressed. The CPU twins of a GPU texture read use it - the displaced mesh builder samples a
+        // height map with it (Assets::SetDisplacedMeshBuilder), so collision and the Baked surface match the
+        // runtime displacement texel for texel. A level that does not decode is an error naming asset and level.
+        struct PlatformMip
+        {
+            uint32_t               Width  = 0;
+            uint32_t               Height = 0;
+            std::vector<glm::vec4> Texels; // row-major, Width x Height
+        };
+        // @p maxEdge > 0 decodes only the levels no wider and no taller than it (a reader that needs one small
+        // level does not pay for decoding the top of the chain).
+        static Common::ResultStr<std::vector<PlatformMip>> DecodePlatformMips( const std::filesystem::path& asset,
+                                                                               uint32_t maxEdge = 0 );
+
     private:
+        ::Desert::Assets::TextureEncodeRole           m_Role;
         std::unordered_map<std::string, Common::UUID> m_Cache;
     };
 } // namespace Desert::Editor

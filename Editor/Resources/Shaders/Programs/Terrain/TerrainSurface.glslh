@@ -1,10 +1,9 @@
 // The terrain's fragment surface, shared by the two Terrain programs that shade it (Terrain = forward,
-// TerrainGBuffer = deferred): ONE statement of what the ground IS at a pixel — normal and albedo — before
-// any light. The forward program lights it itself; the G-buffer program hands it to the deferred
+// TerrainGBuffer = deferred): ONE statement of what the ground IS at a pixel — normal, albedo, roughness and
+// occlusion — before any light. The forward program lights it itself; the G-buffer program hands it to the deferred
 // composite, which is what lights (and shadows) every other opaque surface.
-        // The ground is the landscape's painted layer infos and nothing built in (UE's landscape): where no
-        // layer is painted the root's FIRST layer shows, as UE's first layer does, and a root that names no
-        // layer is white ground under the material's Tint. Lit with the analytic normal from the vertex stage.
+        // What the ground IS (layers, inputs, blends) is Common/LandscapeSurface.glslh, the statement the landscape's
+        // ray tracing hit group shades with too; this file feeds it the raster's inputs.
 
         In(0) vec3 v_WorldPos;
         In(1) vec3 v_Normal;
@@ -16,12 +15,15 @@
         {
             mat4 View;
             mat4 Projection;
-            vec4 SunDir;     // xyz = normalized light direction (scene directional light)
-            vec4 SunColor;   // rgb = color, a = intensity
             // TAA1: the view's UNJITTERED matrices of this frame and the previous one (Graphic::ViewFrame
             // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
             mat4 ViewProjection;
             mat4 PrevViewProjection;
+            // The JITTERED one, which the scene depth was rasterised with: the contact shadows' march
+            // (Common/ContactShadow.glslh, the forward program's point and spot lights).
+            mat4 JitteredViewProjection;
+            mat4 InvJitteredViewProjection; // its inverse: the march's world positions (CONTACT_SHADOW_INV_VP)
+            vec4 Exposure;   // x = ViewFrame::PreExposure (the forward program's scene-colour write), yzw unused
         }
         u;
 
@@ -32,68 +34,154 @@
         // frames' matrices, evaluated per pixel (exact for the point, no varying pair needed). The LOD geomorph
         // is chosen on the CPU per tile and its sub-sample drift between two frames is not carried (UE's
         // landscape writes no morph motion either); the TAA neighbourhood clamp bounds it.
-        #include <Common/ObjectMotion.glslh>
-        vec2 TerrainVelocity()
+        #include <Common/Velocity.glslh>
+        vec4 TerrainVelocity()
         {
             vec4 world = vec4( v_WorldPos, 1.0 );
-            return DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+            return DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world, 0.0 );
         }
 
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
         // m_PushConstants is already declared here: the generated Materials[] transport injects
         // MaterialTransport.glslh at the top of the fragment stage, and its include guard makes this
         // stage's declaration one with the other stages' explicit includes.
-        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+        #define CurrentTerrain Terrains[m_PushConstants.MaterialIndex]
 
         // Data-driven material params (binding 1) are generated from the Properties block above and read
-        // through `u_Material`; nothing is declared here.
+        // through `Material`; nothing is declared here.
 
         // The tile's painted weight layers, one per RGBA8 channel, four to a page and the pages stacked along
         // the image's height (LandscapeECSSystem's copy of the tile's LandscapeWeightLayer weights, one texel
         // per sample, no neighbour ring; Params2.z pages). Read only when the row says the tile has layers
         // (Params2.y > 0); otherwise the binding holds the backend's white fallback.
-        Uniform(10) sampler2D u_Weightmap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
+        Uniform(10) texture2D WeightmapTexture;
+        Uniform(12) sampler WeightmapTextureSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
-        #include <Common/LandscapeWeights.glslh>
+        #include <Common/LandscapeSurface.glslh>
+        #include <Common/LandscapeGrassCover.glslh>
 
-        struct TerrainSurface
+        // THE LANDSCAPE MATERIAL'S LAYER INPUTS (UE: LandscapeLayerBlend's per-layer inputs). Up to eight inputs,
+        // each matched to the tile channels painted with its layer info's LayerName (TerrainInstance.LayerInput,
+        // resolved on the CPU by TerrainLayerInputs) - order-independent. Each input is a PBR set: albedo (sRGB),
+        // normal (OpenGL convention, tangent space), ARM (R occlusion, G roughness, B metallic, glTF order) and
+        // height (0..1, for the height blend), each map kind one 2D texture array with a slice per input that has
+        // that map (TerrainInstance.InputSlices; -1 = none). Four arrays whatever the input count - the lift
+        // from the three inputs sixteen sampled images allowed. Each a separate texture read through its own
+        // sampler state `<name>Sampler`, as every bound texture property (VulkanMaterialBackend::ApplyTexture2D).
+        // The four arrays sit on the slots below the scene-read range (Core::kSceneReadBindingFirst) that neither
+        // program including this header spends: Terrain.shader holds 0/1/4-12/14/16-22 (its lit-pass blocks and
+        // environment), TerrainGBuffer.shader a subset; 46 and up is the shader-graph window
+        // (Core::kGraphOwnedBindingFirst), which no shipped program may enter. Their sampler states are bound by
+        // name (`<texture>Sampler`, VulkanMaterialBackend::ApplyTexture2D), so they take no number here: the shared
+        // sampler rule numbers them after the program's last binding (Core::kAutoSamplerBinding).
+        Uniform(2) texture2DArray LayerAlbedoTexture;
+        Uniform(3) texture2DArray LayerNormalTexture;
+        Uniform(13) texture2DArray LayerArmTexture;
+        Uniform(15) texture2DArray LayerHeightTexture;
+        Uniform sampler LayerAlbedoTextureSampler;
+        Uniform sampler LayerNormalTextureSampler;
+        Uniform sampler LayerArmTextureSampler;
+        Uniform sampler LayerHeightTextureSampler;
+        #define LayerAlbedoTexture sampler2DArray(LayerAlbedoTexture, LayerAlbedoTextureSampler)
+        #define LayerNormalTexture sampler2DArray(LayerNormalTexture, LayerNormalTextureSampler)
+        #define LayerArmTexture sampler2DArray(LayerArmTexture, LayerArmTextureSampler)
+        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightTextureSampler)
+
+        // The raster's layer map fetch (LandscapeSurface.glslh): slice @p slice of map kind @p kind's bound array, at
+        // the fragment's implicit level (its screen derivatives are the footprint, so @p uvPerCm is not needed).
+        vec4 LandscapeLayerMapSample( int k, int kind, float slice, vec2 uv, float uvPerCm )
         {
-            vec3 N;
-            vec3 Albedo; // untinted: the forward program tints its lit result, the G-buffer its albedo
-        };
+            if ( kind == 0 )
+                return texture( LayerAlbedoTexture, vec3( uv, slice ) );
+            if ( kind == 1 )
+                return texture( LayerNormalTexture, vec3( uv, slice ) );
+            if ( kind == 2 )
+                return texture( LayerArmTexture, vec3( uv, slice ) );
+            return texture( LayerHeightTexture, vec3( uv, slice ) );
+        }
 
+        // The landscape material's values the ground reads, from this draw's material row (the hit group's row
+        // carries the same values: TerrainRenderer::GetFrameMaterials).
+        LandscapeMaterial TerrainMaterial()
+        {
+            LandscapeMaterial m;
+            m.Tiling = vec4( Material.FarTilingDistance, Material.FarTilingScale, Material.MacroVariationSize,
+                             Material.MacroVariationStrength );
+            m.Detail = vec4( Material.DetailNormalScale, Material.DetailNormalStrength, Material.MacroHueSize,
+                             Material.MacroHueStrength );
+            m.LayerTint[0]   = Material.Layer0Tint;
+            m.LayerTint[1]   = Material.Layer1Tint;
+            m.LayerTint[2]   = Material.Layer2Tint;
+            m.LayerTint[3]   = Material.Layer3Tint;
+            m.LayerTint[4]   = Material.Layer4Tint;
+            m.LayerTint[5]   = Material.Layer5Tint;
+            m.LayerTint[6]   = Material.Layer6Tint;
+            m.LayerTint[7]   = Material.Layer7Tint;
+            m.LayerParams[0] = vec4( Material.Layer0TileSize, float( Material.Layer0Blend ), Material.Layer0NormalStrength, 0.0 );
+            m.LayerParams[1] = vec4( Material.Layer1TileSize, float( Material.Layer1Blend ), Material.Layer1NormalStrength, 0.0 );
+            m.LayerParams[2] = vec4( Material.Layer2TileSize, float( Material.Layer2Blend ), Material.Layer2NormalStrength, 0.0 );
+            m.LayerParams[3] = vec4( Material.Layer3TileSize, float( Material.Layer3Blend ), Material.Layer3NormalStrength, 0.0 );
+            m.LayerParams[4] = vec4( Material.Layer4TileSize, float( Material.Layer4Blend ), Material.Layer4NormalStrength, 0.0 );
+            m.LayerParams[5] = vec4( Material.Layer5TileSize, float( Material.Layer5Blend ), Material.Layer5NormalStrength, 0.0 );
+            m.LayerParams[6] = vec4( Material.Layer6TileSize, float( Material.Layer6Blend ), Material.Layer6NormalStrength, 0.0 );
+            m.LayerParams[7] = vec4( Material.Layer7TileSize, float( Material.Layer7Blend ), Material.Layer7NormalStrength, 0.0 );
+            return m;
+        }
+
+        // The ground at this fragment. The weightmap pages are sampled here, at the fragment's sample coordinate
+        // (the texel centre of sample i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh
+        // interpolates them); UE's Landscape Visibility Mask discards a hole (the shadow casters,
+        // TerrainShadow.shader, discard on the same test).
+        TerrainSurface EvaluateTerrainSurfaceHere( out vec4 w0, out vec4 w1, out float dist )
+        {
+            w0 = vec4( 0.0 );
+            w1 = vec4( 0.0 );
+            if ( LandscapeTileHasLayers( CurrentTerrain ) )
+            {
+                vec2  g     = LandscapeTileSampleCoord( CurrentTerrain, v_WorldPos );
+                vec2  size  = vec2( textureSize( WeightmapTexture, 0 ) );
+                float pages = LandscapeTilePages( CurrentTerrain );
+                w0          = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
+                if ( pages > 1.5 )
+                    w1 = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 1.0, size, pages ) );
+                if ( LandscapeTileIsHole( CurrentTerrain, w0, w1 ) )
+                    discard;
+            }
+            // Distance to the camera for the far tiling: the view-space length, from the matrix the frame has.
+            dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            return EvaluateLandscapeSurface( CurrentTerrain, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
+        }
         TerrainSurface EvaluateTerrainSurface()
         {
-            vec3 N      = normalize( v_Normal );
-            vec3 albedo = u_T.GroundColor.a > 0.5 ? u_T.GroundColor.rgb : vec3( 1.0 );
+            vec4  w0, w1;
+            float dist;
+            return EvaluateTerrainSurfaceHere( w0, w1, dist );
+        }
 
-            // Painted layers over the ground. g = this pixel's sample coordinate within the tile (the
-            // same global-sample frame the vertex stage places the tile by), and the texel centre of sample
-            // i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh interpolates them.
-            if ( u_T.Params2.y > 0.5 )
-            {
-                vec2  g     = ( v_WorldPos.xz - u_T.LandscapeFrame.xz ) / u_T.LandscapeFrame.w - u_T.LandscapeTile.xy;
-                vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
-                float pages = u_T.Params2.z;
-                vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
-                vec4  w1    = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) )
-                                          : vec4( 0.0 );
-                // UE's Landscape Visibility Mask: the tile's visibility layer punches a hole (the shadow
-                // caster, TerrainShadow.shader, discards on the same test).
-                if ( LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) ) )
-                    discard;
-                albedo = LandscapeWeightBlend(
-                     w0, w1, u_T.LayerColors[0], u_T.LayerColors[1], u_T.LayerColors[2], u_T.LayerColors[3],
-                     u_T.LayerColors[4], u_T.LayerColors[5], u_T.LayerColors[6], u_T.LayerColors[7],
-                     u_T.LayerAlphaBlend[0], u_T.LayerAlphaBlend[1], albedo );
-            }
-
-            TerrainSurface s;
-            s.N      = N;
-            s.Albedo = albedo;
+        // GRASS-FIELD: the ground with the grass field's far cover over it (Common/LandscapeGrassCover.glslh) - the
+        // blades the generator thinned out by this distance, carried on by the ground. @p tint is the landscape
+        // material's Tint: it colours the ground beneath, not the blades. Returns the surface with the tinted
+        // albedo; @p transmission is the pixel's TwoSidedFoliage SubsurfaceColor, @p cover the cover's share,
+        // @p opacity the blades' subsurface Opacity (UE's pin, the payload's CustomData.a).
+        TerrainSurface EvaluateTerrainSurfaceCovered( vec3 tint, out vec3 transmission, out float cover,
+                                                      out float opacity )
+        {
+            vec4           w0, w1;
+            float          dist;
+            TerrainSurface s = EvaluateTerrainSurfaceHere( w0, w1, dist );
+            s.Albedo *= tint;
+            // Towards the eye, in world space: the view-space position turned back by the view's rotation.
+            vec3 V = normalize( transpose( mat3( u.View ) ) * -( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            const LandscapeGrassCover c = LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist );
+            opacity                     = c.Opacity;
+            cover = LandscapeApplyGrassCover( c, V, normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO,
+                                              transmission );
             return s;
         }

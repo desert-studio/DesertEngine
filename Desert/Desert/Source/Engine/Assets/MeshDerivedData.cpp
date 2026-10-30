@@ -4,9 +4,11 @@
 // string keys over the MeshDescription id + FMeshBuildSettings per LOD + platform; the build step is a
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -28,6 +30,7 @@ namespace Desert::Assets
 
         std::mutex              s_BuilderMutex;
         MeshPlatformDataBuilder s_Builder;
+        MeshSourceBuilder       s_SourceBuilder;
 
     } // namespace
 
@@ -37,6 +40,15 @@ namespace Desert::Assets
         PutU32( out, std::bit_cast<uint32_t>( settings.Import.UniformScale ) );
         PutU32( out, static_cast<uint32_t>( settings.Import.UpAxis ) );
         PutU32( out, static_cast<uint32_t>( settings.Import.LodPolicy ) );
+        PutU32( out, settings.Import.VirtualGeometry ? 1u : 0u );
+        if ( settings.Import.VirtualGeometry )
+        {
+            // The DAG's cook options (UE FMeshNaniteSettings in the Nanite DDC key). A mesh without the flag does
+            // not build a DAG, so its key does not move when these change.
+            const Geometry::ClusterDagSettings dag;
+            PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
+            PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
+        }
         PutU32( out, settings.BuilderVersion );
         return out;
     }
@@ -53,10 +65,28 @@ namespace Desert::Assets
         return MeshDerivedDataKey( MeshSourceHash( asset.Source ), MeshBuildSettings{ asset.Import.Settings } );
     }
 
+    uint64_t SkinnedMeshRenderDataKey( const std::string_view meshBinaryBytes )
+    {
+        std::string geometry( meshBinaryBytes );
+        constexpr std::size_t kModeAt = offsetof( Common::Content::MeshBinaryFileHeader, DisplacementMode );
+        if ( geometry.size() > kModeAt )
+            geometry[kModeAt] = '\0';
+        // The settings image tells this key from every static one hashed under the same deriver.
+        constexpr std::string_view kImage = "SkinnedMeshBinary";
+        return Common::DDC::MakeKey( kMeshDeriver, Common::Utils::PakContentHash( geometry.data(), geometry.size() ),
+                                     kImage.data(), kImage.size() );
+    }
+
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder )
     {
         const std::lock_guard<std::mutex> lock( s_BuilderMutex );
         s_Builder = std::move( builder );
+    }
+
+    void SetMeshSourceBuilder( MeshSourceBuilder builder )
+    {
+        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+        s_SourceBuilder = std::move( builder );
     }
 
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset )
@@ -82,7 +112,8 @@ namespace Desert::Assets
         if ( !builder )
         {
             if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
-                return Common::MakeSuccess( MeshPlatformDataBytes{ std::move( *hit ), key } );
+                return Common::MakeSuccess(
+                     MeshPlatformDataBytes{ std::move( *hit ), key, source.GetValue().Import.Settings } );
             return Common::MakeFormattedError<MeshPlatformDataBytes>(
                  "mesh asset '{}' has no render data under DDC key {:016x} ({}), and this build cannot derive "
                  "it: the package was cooked without it",
@@ -95,7 +126,8 @@ namespace Desert::Assets
         if ( !derived.IsSuccess() )
             return Common::MakeFormattedError<MeshPlatformDataBytes>( "mesh asset '{}': render data: {}",
                                                                       asset.string(), derived.GetError() );
-        return Common::MakeSuccess( MeshPlatformDataBytes{ derived.ExtractValue(), key } );
+        return Common::MakeSuccess(
+             MeshPlatformDataBytes{ derived.ExtractValue(), key, source.GetValue().Import.Settings } );
     }
 
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file )
@@ -110,8 +142,11 @@ namespace Desert::Assets
 
     uint64_t MeshSourceDerivedDataKey( const uint64_t sourceFileHash )
     {
-        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, &kMeshSourceBuilderVersion,
-                                     sizeof( kMeshSourceBuilderVersion ) );
+        // The entry's format is part of its key, as UE's DDC keys carry the deriver's version GUID: an entry
+        // written at an older MSAS layout (or by an older importer) is unreachable, so a lookup is a MISS and
+        // the source is re-imported - a stale entry is out of date, never "corrupt".
+        const uint32_t format[] = { kMeshSourceBuilderVersion, kMeshAssetSubsystemVersion };
+        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, format, sizeof( format ) );
     }
 
     bool IsEditedImportedMesh( const std::filesystem::path& assetPath )
@@ -147,12 +182,29 @@ namespace Desert::Assets
         const uint64_t key = MeshSourceDerivedDataKey( hash.GetValue() );
         auto           hit = Common::DDC::Get( kMeshSourceDeriver, key );
         if ( !hit.has_value() )
-            return Common::MakeFormattedError<MeshSourceAsset>(
-                 "'{}' has no imported source under DDC key {:016x} ({}) for '{}': re-import it (Assets > "
-                 "Rebuild Cooked Assets) - a stale file beside the source, if one exists, is never read in "
-                 "its place",
-                 assetPath.string(), key, Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string(),
-                 companion->string() );
+        {
+            MeshSourceBuilder builder;
+            {
+                const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+                builder = s_SourceBuilder;
+            }
+            if ( !builder )
+                return Common::MakeFormattedError<MeshSourceAsset>(
+                     "'{}' has no imported source under DDC key {:016x} ({}) for '{}', and this build cannot "
+                     "derive it - a stale file beside the source, if one exists, is never read in its place",
+                     assetPath.string(), key,
+                     Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string(), companion->string() );
+            if ( auto built = builder( *companion ); !built )
+                return Common::MakeFormattedError<MeshSourceAsset>(
+                     "'{}' has no imported source under DDC key {:016x} and its rebuild from '{}' failed: {}",
+                     assetPath.string(), key, companion->string(), built.GetError() );
+            hit = Common::DDC::Get( kMeshSourceDeriver, key );
+            if ( !hit.has_value() )
+                return Common::MakeFormattedError<MeshSourceAsset>(
+                     "'{}': the rebuild from '{}' succeeded but DDC key {:016x} ({}) is still missing",
+                     assetPath.string(), companion->string(), key,
+                     Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string() );
+        }
         auto decoded = DecodeMeshSourceAsset( std::as_bytes( std::span<const char>( hit->data(), hit->size() ) ) );
         if ( !decoded.IsSuccess() )
             return Common::MakeFormattedError<MeshSourceAsset>( "'{}': cached imported source is corrupt: {}",

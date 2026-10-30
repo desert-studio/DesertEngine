@@ -42,6 +42,8 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Assets/WorldParametersAsset.hpp>
+#include <Engine/Assets/WeatherPresetAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
@@ -97,11 +99,29 @@ namespace Desert::Core::Serialize
 
         std::string ServicePathForKey( const std::string& key )
         {
-            // PathForStableKey hands an untagged string back verbatim, so a key from outside the root
-            // table behaves exactly as the old bare path did instead of silently becoming something
-            // else. Nothing in this repository has one; a file hand-edited to hold one still works
-            // where it worked before.
+            // PathForStableKey reads a content key, a synthetic scheme:// key or an absolute path, and
+            // refuses a bare relative string by name (answering empty: the slot names nothing).
             return key.empty() ? std::string() : Common::AssetHandle::PathForStableKey( key ).generic_string();
+        }
+
+        // A STORED CONTENT REFERENCE EXPANDED TO THE FILE IT NAMES. The one spelling is the root-tagged key
+        // ("assets:Materials/M.demat", Common::AssetHandle::StableKeyForPath; UE's /Game/... package path),
+        // expanded by its exact inverse; an absolute path names a file genuinely outside the project and is
+        // taken as given. The bare root-relative spelling ("Materials/M.demat") that used to be joined to
+        // ASSETS_PATH here is GONE: the corpus was restated in the key form (PATH1), and a bare string is
+        // refused, naming it, rather than resolved against a root the reader guesses.
+        std::filesystem::path FileForStoredReference( const std::string& stored, const std::string& type )
+        {
+            if ( Common::AssetHandle::IsProjectRelativeKey( stored ) )
+                return Common::AssetHandle::PathForStableKey( stored );
+            const std::filesystem::path named( stored );
+            if ( named.is_absolute() )
+                return named.lexically_normal();
+            LOG_ERROR( "[Scene] '{0}' reference '{1}' is neither a content key (\"{2}:<path>\") nor an absolute "
+                       "path, so it names no file: the slot loads unset. Re-point the slot, or restate the "
+                       "reference as \"{2}:{1}\" if it is relative to the assets root.",
+                       type, stored, Common::AssetHandle::AssetsTag() );
+            return {};
         }
 
         // `ToGeneric`/`FromGeneric` STOOD HERE and are gone: they are `WriteBlock`/`ReadBlock` in
@@ -207,7 +227,7 @@ namespace Desert::Core::Serialize
             return s;
         }
 
-        // A component whose ENTIRE state is one bool (VisibilityComponent::Visible). It gets its own maker
+        // A component whose ENTIRE state is one bool (VisibilityComponent: IsVisible / ECS::SetVisible). It gets its own maker
         // rather than reusing MakeMarker above, because MakeMarker WOULD COMPILE AND WOULD BE WRONG: it
         // writes an empty object and re-adds the component on load, so the value comes back at the
         // struct's default. `Visible = false` would round-trip to `true` — the presence would survive and
@@ -217,23 +237,26 @@ namespace Desert::Core::Serialize
         // A record that carries the component but not its field is REPORTED and left at the default: an
         // entity is drawn either way, so a silent choice here is a scene that renders differently from
         // the file it claims to be.
+        // The value is read through `get` and written through `set`, the component's one writer (ECS::SetVisible),
+        // so a loaded flag reaches the render-state dirty set like any other write.
         template <class TComponent>
-        ComponentSerializer MakeFlag( std::string key, std::string field, bool TComponent::*member )
+        ComponentSerializer MakeFlag( std::string key, std::string field, bool ( TComponent::*get )() const,
+                                      bool ( *set )( entt::registry&, entt::entity, bool ) )
         {
             ComponentSerializer s;
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
-            s.Serialize = [field, member]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            s.Serialize = [field, get]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 Common::Json::Object object;
-                object[field] = Common::Json::Value( e.GetComponent<TComponent>().*member );
+                object[field] = Common::Json::Value( ( e.GetComponent<TComponent>().*get )() );
                 return { object };
             };
-            s.Deserialize = [field, member]( ECS::Entity e, const Common::Json::Node&           g,
-                                             const Assets::AssetManager&, Common::Json::Issues& issues )
+            s.Deserialize = [field, get, set]( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                                          Common::Json::Issues& issues )
             {
-                auto& comp =
-                     e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
+                if ( !e.HasComponent<TComponent>() )
+                    e.AddComponent<TComponent>();
 
                 if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
                     return;
@@ -244,7 +267,9 @@ namespace Desert::Core::Serialize
                          { g.Where().Key( field ).ToString(), "bool", "nothing (the member is absent)" } );
                     return;
                 }
-                value->ReadValue( comp.*member, issues );
+                bool flag = ( e.GetComponent<TComponent>().*get )();
+                value->ReadValue( flag, issues );
+                set( *e.GetRegistry(), e.GetHandle(), flag );
             };
             return s;
         }
@@ -435,8 +460,9 @@ namespace Desert::Core::Serialize
                               comp.TileX, comp.TileZ );
                     return;
                 }
-                auto loaded = World::Landscape::ReadLandscapeTileFile(
-                     Common::Constants::Path::FullPath( comp.HeightFile ) );
+                // HeightFile is a content key ("assets:..."): resolved through the mounted assets root, so the
+                // same record reads in the editor and in a package (SceneSerializer's WriteLandscapeTiles).
+                auto loaded = World::Landscape::ReadLandscapeTileByKey( comp.HeightFile );
                 if ( !loaded )
                 {
                     LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,
@@ -778,26 +804,11 @@ namespace Desert::Core::Serialize
             }
             if ( type == "MaterialAsset" )
             {
-                // BOTH FORMS ARE ACCEPTED, on the terms the cloud branches below state: a file written
-                // by ToPath above (or by the v7 -> v8 migration) carries a path relative to the assets
-                // root, because a material ships with the project; a material an artist points at
-                // outside the project carries an absolute one. Joining the relative form to the root
-                // HERE means it happens exactly once.
-                //
-                // THE JOIN IS THE EXPANSION OF A REFERENCE AND NOT A LOOKUP FIX — it used to be both,
-                // and that half is now retired. `FindByPath` compared filepaths VERBATIM while
-                // `CreateAsset` deduplicated on the spelling-independent stable key, so a scene naming a
-                // preloaded material by any other spelling missed and went the create-and-register way
-                // round; this join was one of three hand-written detours around that. The registry
-                // answers both questions the same way now (Desert/Tests/Engine/AssetPathIdentity). What
-                // the join still does, and must: an identity is derived RELATIVE TO THE CONTENT ROOTS, so
-                // a bare `Materials/M.demat` would otherwise be resolved against the process's working
-                // directory, land under no root, and be a different asset from the same file under the
-                // assets root. Deleting it would break the reference this branch exists to read.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                // The stored reference is the content key (or an absolute path outside the project), expanded
+                // ONCE, here, by FileForStoredReference; the bare assets-relative spelling is refused (PATH1).
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 // FIND, ELSE CREATE, THEN REGISTER — and the "then" is outside both branches on purpose.
                 // Registering only what this parse CREATED is the defect this shape retires; see
@@ -844,11 +855,9 @@ namespace Desert::Core::Serialize
             // deletion rather than an oversight.
             if ( type == "CloudModellingVolumeAsset" )
             {
-                // Both forms accepted, for the reason the cloud type's branch gives above.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::CloudModellingVolumeAsset>( full );
                 if ( !a )
@@ -873,11 +882,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "ControlRigAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
@@ -907,11 +914,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "RetargetAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
@@ -943,10 +948,9 @@ namespace Desert::Core::Serialize
             {
                 // The locator half of a procedural volume's type list {Guid, Path}: ResolveGuidRef reaches it
                 // only when the GUID's registry row did not, and checks the file found here IS that type.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::FoliageTypeAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FoliageTypeAsset>( full, /*loadAfterCreate=*/false );
@@ -958,10 +962,9 @@ namespace Desert::Core::Serialize
                 // cloud body's reason above: FractureService reads the `.dfrac` when Play asks for it, and the
                 // asset's constructor adopts the handle its envelope GUID names, so the service's registry row
                 // and this handle are one identity.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::FractureAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
@@ -972,13 +975,37 @@ namespace Desert::Core::Serialize
                 // A water body's wave set (WaterBodyData::WaterWaves). Announced, not read, as the fracture
                 // above: WaterWavesService reads the `.dwaves` when Play gathers the bodies, and the asset's
                 // constructor adopts the handle its header GUID names.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::WaterWavesAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "WorldParametersAsset" )
+            {
+                // The scene's world parameter collection (SceneSettings::WorldParameters). Announced, not read, as
+                // the fracture above: WorldParametersService reads the `.dworldparams` when the world's instance
+                // adopts it, and the asset's constructor adopts the handle its header GUID names.
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                auto a = mgr.FindByPath<Assets::WorldParametersAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WorldParametersAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "WeatherPresetAsset" )
+            {
+                // A weather zone's preset (ECS::WeatherZoneData::Preset). Announced, not read, as the collection
+                // above: WeatherPresetService reads the `.dweatherpreset` when the world's weather first needs it.
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                auto a = mgr.FindByPath<Assets::WeatherPresetAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WeatherPresetAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PhysicsAsset" )
@@ -986,10 +1013,9 @@ namespace Desert::Core::Serialize
                 // A ragdoll's physics asset (RagdollData::PhysicsAsset). Announced, not read, as the fracture
                 // above: PhysicsAssetService reads the `.dephysasset` when Play asks for it, and the asset's
                 // constructor adopts the handle its envelope GUID names.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::PhysicsAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::PhysicsAsset>( full, /*loadAfterCreate=*/false );
@@ -1000,10 +1026,10 @@ namespace Desert::Core::Serialize
                 // The locator half of the Audio Source's {Guid, Path}: the `.desound` the path names states
                 // the GUID, and ResolveGuidRef checks it is the one the scene states. Nothing is loaded: the
                 // audio file is streamed when a voice starts.
-                const std::filesystem::path named( path );
-                const auto                  sound = Assets::SoundAsset::ReadFile(
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                const auto sound = Assets::SoundAsset::ReadFile( full );
                 if ( !sound )
                 {
                     LOG_ERROR( "[Audio] {}", sound.GetError() );
@@ -1016,10 +1042,9 @@ namespace Desert::Core::Serialize
                 // A VFX component's `.dfx` system. Announced, not read, as the wave set above: VFXSystemService
                 // requests the read from the registry row on the first tick that asks for it, and the asset's
                 // constructor adopts the handle its header GUID names, so the row and this shell agree.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
@@ -1029,19 +1054,16 @@ namespace Desert::Core::Serialize
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
                 // the GUID's registry row did not, and checks the file found here IS that prefab.
-                const std::filesystem::path named( path );
-                return LoadScenePrefab(
-                     m, named.is_absolute()
-                             ? named
-                             : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                return LoadScenePrefab( m, full );
             }
             if ( type == "AnimGraphAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
@@ -1070,11 +1092,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "UIThemeAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::UIThemeAsset>( full );
                 if ( !a )
@@ -1216,14 +1236,8 @@ namespace Desert::Core::Serialize
                 if ( key.empty() )
                     return 0;
                 // Loaded through the locator half above (FromPath's PrefabAsset branch), which owns the one
-                // mutable view of the manager: FromPath resolves a relative locator against the assets root,
-                // so the row's path is handed over relative to that root and round-trips to itself.
-                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
-                const std::filesystem::path relative =
-                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
-                if ( relative.empty() )
-                    return 0;
-                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+                // mutable view of the manager: the row's key IS the stored spelling, handed over as is.
+                return fromPath( key, type ) == guid ? guid : 0;
             }
             if ( type == "FoliageTypeAsset" )
             {
@@ -1234,12 +1248,18 @@ namespace Desert::Core::Serialize
                 const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
                 if ( key.empty() )
                     return 0;
-                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
-                const std::filesystem::path relative =
-                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
-                if ( relative.empty() )
+                return fromPath( key, type ) == guid ? guid : 0;
+            }
+            if ( type == "WaterWavesAsset" )
+            {
+                // BY GUID through the content registry, as the foliage type: a wave set's handle IS HandleForGuid
+                // of its header GUID, so the row under that handle is the `.dwaves` wherever it has since moved.
+                if ( mgr.FindByHandle<Assets::WaterWavesAsset>( handle ) )
+                    return guid;
+                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
+                if ( key.empty() )
                     return 0;
-                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+                return fromPath( key, type ) == guid ? guid : 0;
             }
             if ( type == "SoundAsset" )
             {
@@ -1319,7 +1339,7 @@ namespace Desert::Core::Serialize
             const std::string text = ( guids && slot < guids->size() ) ? ( *guids )[slot] : std::string();
             const std::string path = ( paths && slot < paths->size() ) ? ( *paths )[slot] : std::string();
             return ResolveGuidRef( resolver, text, path, "MaterialAsset",
-                                   "material slot " + std::to_string( slot ) );
+                                   std::format( "material slot {}", slot ) );
         }
 
         uint64_t ResolveMeshRef( const Reflection::AssetResolver& resolver, const std::optional<std::string>& guid,
@@ -1387,7 +1407,8 @@ namespace Desert::Core::Serialize
         // ---- Static Mesh (asset-bearing: handle <-> path) ----
         {
             ComponentSerializer s;
-            s.Key = "StaticMesh";
+            s.Key             = "StaticMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::StaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::StaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1395,62 +1416,61 @@ namespace Desert::Core::Serialize
                 const auto&                    smc = entity.GetComponent<ECS::StaticMeshComponent>();
                 Assets::StaticMeshComponentSer meshSer;
 
-                // Asset refs go through the single shared resolver (same code path as the reflected
-                // components), instead of duplicating FindByHandle/FindByPath here.
-                auto resolver = MakeAssetResolver( assetManager );
-                if ( smc.MeshHandle )
+                // MeshHandle and MaterialSlots are the component's REFLECTED fields and are written by reflection,
+                // {Guid, Path} each (UE's UPROPERTY StaticMesh / OverrideMaterials); the mirror carries the rest.
+                const auto* type = Reflection::ReflectionRegistry::Get().Find( "StaticMeshComponent" );
+                if ( type == nullptr )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "StaticMeshAsset" );
-                         !p.empty() )
-                        meshSer.MeshPath = p;
-                    meshSer.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( smc.MeshHandle ), "StaticMeshAsset" );
+                    LOG_ERROR( "[ComponentRegistry] StaticMeshComponent is not reflected - its mesh and materials "
+                               "cannot be saved" );
+                    return { Common::Json::Object{} };
                 }
-
-                if ( !smc.MaterialSlots.empty() )
-                {
-                    meshSer.MaterialPaths = std::vector<std::string>{};
-                    meshSer.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : smc.MaterialSlots )
-                    {
-                        meshSer.MaterialPaths->push_back(
-                             resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                        meshSer.MaterialGuids->push_back(
-                             resolver.ToGuid( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                    }
-                }
-                meshSer.Primitive = smc.Primitive;
+                auto                 resolver = MakeAssetResolver( assetManager );
+                Common::Json::Object out      = Reflection::SerializeReflected( *type, &smc, &resolver );
+                meshSer.Primitive = smc.GetPrimitive();
 
                 // Rendering controls: write only non-default values (absent = default on load).
-                if ( smc.OutlineDraw )
-                    meshSer.OutlineDraw = smc.OutlineDraw;
-                if ( smc.ForcedLOD >= 0 )
-                    meshSer.ForcedLOD = smc.ForcedLOD;
-                if ( smc.LODBias != 0 )
-                    meshSer.LODBias = smc.LODBias;
-                if ( !smc.CastShadows )
-                    meshSer.CastShadows = smc.CastShadows;
-                if ( !smc.ReceiveShadows )
-                    meshSer.ReceiveShadows = smc.ReceiveShadows;
-                if ( !smc.CastContactShadow )
-                    meshSer.CastContactShadow = smc.CastContactShadow;
-                if ( smc.TranslucencySortPriority != 0 )
-                    meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
-                if ( smc.MaxDrawDistance > 0.0f )
-                    meshSer.MaxDrawDistance = smc.MaxDrawDistance;
-                if ( smc.HiddenSubmeshes != 0 )
-                    meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
+                if ( smc.GetOutlineDraw() )
+                    meshSer.OutlineDraw = smc.GetOutlineDraw();
+                if ( smc.GetForcedLOD() >= 0 )
+                    meshSer.ForcedLOD = smc.GetForcedLOD();
+                if ( smc.GetLODBias() != 0 )
+                    meshSer.LODBias = smc.GetLODBias();
+                if ( !smc.GetCastShadows() )
+                    meshSer.CastShadows = smc.GetCastShadows();
+                if ( !smc.GetReceiveShadows() )
+                    meshSer.ReceiveShadows = smc.GetReceiveShadows();
+                if ( !smc.GetCastContactShadow() )
+                    meshSer.CastContactShadow = smc.GetCastContactShadow();
+                if ( smc.GetTranslucencySortPriority() != 0 )
+                    meshSer.TranslucencySortPriority = smc.GetTranslucencySortPriority();
+                if ( smc.GetMaxDrawDistance() > 0.0f )
+                    meshSer.MaxDrawDistance = smc.GetMaxDrawDistance();
+                if ( smc.GetHiddenSubmeshes() != 0 )
+                    meshSer.HiddenSubmeshes = smc.GetHiddenSubmeshes();
 
                 // The SOURCE is saved, never the render mesh derived from it (see EditableMesh.hpp).
-                if ( smc.EditableMesh )
-                    meshSer.EditMesh = Geometry::ToSerialized( *smc.EditableMesh );
+                if ( smc.GetEditableMesh() )
+                    meshSer.EditMesh = Geometry::ToSerialized( *smc.GetEditableMesh() );
 
-                return Common::Json::FromStruct( meshSer );
+                const Common::Json::Value rest = Common::Json::FromStruct( meshSer );
+                if ( const auto* fields = std::get_if<Common::Json::Object>( &rest.variant() ) )
+                    for ( const auto& [name, value] : *fields )
+                        if ( name != "MeshHandle" && name != "MaterialSlots" ) // reflection's keys, above
+                            out[name] = value;
+                return Common::Json::Value( std::move( out ) );
             };
 
             s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
                                 const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
+                const auto* type = Reflection::ReflectionRegistry::Get().Find( "StaticMeshComponent" );
+                if ( type == nullptr )
+                {
+                    LOG_ERROR( "[ComponentRegistry] StaticMeshComponent is not reflected - its block cannot be "
+                               "read" );
+                    return;
+                }
                 auto parsed = ReadBlock<Assets::StaticMeshComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
@@ -1458,36 +1478,22 @@ namespace Desert::Core::Serialize
 
                 auto& smc      = entity.AddComponent<ECS::StaticMeshComponent>();
                 auto  resolver = MakeAssetResolver( assetManager );
+                // MeshHandle / MaterialSlots: the reflected fields, read by reflection ({Guid, Path} each).
+                Reflection::DeserializeReflected( *type, &smc, g, issues, &resolver );
+                // The rest of the value is built on a copy and stated once through the writer below.
+                ECS::StaticMeshDesc desc = smc.GetDesc();
+                desc.Primitive           = meshData.Primitive;
 
-                const uint64_t meshHandle =
-                     ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "StaticMeshAsset" );
-                if ( meshHandle != 0 )
-                    smc.MeshHandle = Common::UUID( meshHandle );
-
-                const size_t slotCount = meshData.MaterialGuids
-                                              ? meshData.MaterialGuids->size()
-                                              : ( meshData.MaterialPaths ? meshData.MaterialPaths->size() : 0 );
-                if ( slotCount > 0 )
-                {
-                    smc.MaterialSlots.clear();
-                    for ( size_t i = 0; i < slotCount; ++i )
-                    {
-                        smc.MaterialSlots.push_back( Common::UUID(
-                             ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
-                    }
-                }
-                smc.Primitive = meshData.Primitive;
-
-                smc.OutlineDraw     = meshData.OutlineDraw.value_or( smc.OutlineDraw );
-                smc.ForcedLOD       = meshData.ForcedLOD.value_or( smc.ForcedLOD );
-                smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
-                smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
-                smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
-                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.CastContactShadow );
-                smc.TranslucencySortPriority =
-                     meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
-                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
-                smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
+                desc.OutlineDraw       = meshData.OutlineDraw.value_or( desc.OutlineDraw );
+                desc.ForcedLOD         = meshData.ForcedLOD.value_or( desc.ForcedLOD );
+                desc.LODBias           = meshData.LODBias.value_or( desc.LODBias );
+                desc.CastShadows       = meshData.CastShadows.value_or( desc.CastShadows );
+                desc.ReceiveShadows    = meshData.ReceiveShadows.value_or( desc.ReceiveShadows );
+                desc.CastContactShadow = meshData.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.TranslucencySortPriority =
+                     meshData.TranslucencySortPriority.value_or( desc.TranslucencySortPriority );
+                desc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( desc.MaxDrawDistance );
+                desc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( desc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )
                 {
@@ -1504,7 +1510,7 @@ namespace Desert::Core::Serialize
                                    tag, loaded.GetError() );
                     }
                     else if ( auto set = ECS::SetEditableMesh(
-                                   smc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
+                                   desc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
                               !set.IsSuccess() )
                     {
                         LOG_ERROR(
@@ -1512,6 +1518,7 @@ namespace Desert::Core::Serialize
                              tag, set.GetError() );
                     }
                 }
+                ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1521,6 +1528,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "InstancedStaticMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::InstancedStaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::InstancedStaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1529,20 +1537,20 @@ namespace Desert::Core::Serialize
                 Assets::InstancedStaticMeshComponentSer ser;
 
                 auto resolver = MakeAssetResolver( assetManager );
-                if ( ism.MeshHandle )
+                if ( ism.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
+                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                          !p.empty() )
                         ser.MeshPath = p;
                     ser.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
+                         MeshGuidText( resolver, static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                 }
 
-                if ( !ism.MaterialSlots.empty() )
+                if ( !ism.GetMaterialSlots().empty() )
                 {
                     ser.MaterialPaths = std::vector<std::string>{};
                     ser.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : ism.MaterialSlots )
+                    for ( auto handle : ism.GetMaterialSlots() )
                     {
                         ser.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
@@ -1550,18 +1558,18 @@ namespace Desert::Core::Serialize
                              resolver.ToGuid( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
                     }
                 }
-                ser.Primitive = ism.Primitive;
-                if ( !ism.CastShadows )
-                    ser.CastShadows = ism.CastShadows;
-                if ( !ism.CastContactShadow )
-                    ser.CastContactShadow = ism.CastContactShadow;
-                if ( ism.MaxDrawDistance > 0.0f )
-                    ser.MaxDrawDistance = ism.MaxDrawDistance;
-                if ( !ism.InstanceTransforms.empty() )
+                ser.Primitive = ism.GetPrimitive();
+                if ( !ism.GetCastShadows() )
+                    ser.CastShadows = ism.GetCastShadows();
+                if ( !ism.GetCastContactShadow() )
+                    ser.CastContactShadow = ism.GetCastContactShadow();
+                if ( ism.GetMaxDrawDistance() > 0.0f )
+                    ser.MaxDrawDistance = ism.GetMaxDrawDistance();
+                if ( !ism.GetInstanceTransforms().empty() )
                 {
                     std::vector<std::array<float, 16>> flat;
-                    flat.reserve( ism.InstanceTransforms.size() );
-                    for ( const auto& m : ism.InstanceTransforms )
+                    flat.reserve( ism.GetInstanceTransforms().size() );
+                    for ( const auto& m : ism.GetInstanceTransforms() )
                     {
                         std::array<float, 16> a{};
                         std::memcpy( a.data(), &m[0][0], sizeof( float ) * 16 );
@@ -1581,14 +1589,14 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& ism      = entity.AddComponent<ECS::InstancedStaticMeshComponent>();
-                auto  resolver = MakeAssetResolver( assetManager );
+                ECS::InstancedStaticMeshDesc desc;
+                auto                         resolver = MakeAssetResolver( assetManager );
 
                 const uint64_t meshHandle =
                      ResolveMeshRef( resolver, data.MeshGuid, data.MeshPath, "StaticMeshAsset" );
                 if ( meshHandle != 0 )
                 {
-                    ism.MeshHandle = Common::UUID( meshHandle );
+                    desc.MeshHandle = Common::UUID( meshHandle );
                 }
 
                 size_t slotCount = 0;
@@ -1602,28 +1610,28 @@ namespace Desert::Core::Serialize
                 }
                 if ( slotCount > 0 )
                 {
-                    ism.MaterialSlots.clear();
+                    desc.MaterialSlots.reserve( slotCount );
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        ism.MaterialSlots.emplace_back(
+                        desc.MaterialSlots.emplace_back(
                              ResolveSlotRef( resolver, data.MaterialGuids, data.MaterialPaths, i ) );
                     }
                 }
-                ism.Primitive   = data.Primitive;
-                ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
-                ism.CastContactShadow = data.CastContactShadow.value_or( ism.CastContactShadow );
-                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
+                desc.Primitive         = data.Primitive;
+                desc.CastShadows       = data.CastShadows.value_or( desc.CastShadows );
+                desc.CastContactShadow = data.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.MaxDrawDistance   = data.MaxDrawDistance.value_or( desc.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {
-                    ism.InstanceTransforms.clear();
-                    ism.InstanceTransforms.reserve( data.InstanceTransforms->size() );
+                    desc.InstanceTransforms.reserve( data.InstanceTransforms->size() );
                     for ( const auto& a : *data.InstanceTransforms )
                     {
                         glm::mat4 m( 1.0f );
                         std::memcpy( &m[0][0], a.data(), sizeof( float ) * 16 );
-                        ism.InstanceTransforms.push_back( m );
+                        desc.InstanceTransforms.push_back( m );
                     }
                 }
+                ECS::SetInstancedStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1633,39 +1641,40 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "Material";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::MaterialComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::MaterialComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto&                  mc = entity.GetComponent<ECS::MaterialComponent>();
                 Assets::MaterialComponentSer ser;
-                if ( !mc.ShaderName.empty() )
+                if ( !mc.GetShaderName().empty() )
                 {
                     // BY GUID (SCNE 31): the runtime binds by name, the file names the shader's identity.
                     const std::string context = EntityContext( entity );
-                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName,
+                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.GetShaderName(),
                                                                  { "shader", "Material.Shader", context } ) )
                         ser.Shader = ref.ExtractValue();
                     else
                         LOG_ERROR( "[Scene] {} - the shader slot is written EMPTY", ref.GetError() );
                 }
 
-                if ( !mc.Params.empty() )
+                if ( !mc.GetParams().empty() )
                 {
                     std::vector<Assets::MaterialParamSer> ps;
-                    for ( const auto& p : mc.Params )
+                    for ( const auto& p : mc.GetParams() )
                         ps.push_back( { p.Name, p.Value } );
                     ser.Params = std::move( ps );
                 }
 
-                if ( !mc.Textures.empty() )
+                if ( !mc.GetTextures().empty() )
                 {
                     // The handle alone (DC §4.2). This used to write the resolved path AND the handle into
                     // every entry; see MaterialTextureSer for why that pairing is worse than either half.
                     const auto                              resolver = MakeAssetResolver( assetManager );
                     std::vector<Assets::MaterialTextureSer> ts;
-                    ts.reserve( mc.Textures.size() );
-                    for ( const auto& t : mc.Textures )
+                    ts.reserve( mc.GetTextures().size() );
+                    for ( const auto& t : mc.GetTextures() )
                         ts.push_back( { t.Name, resolver.ToGuid( t.TextureHandle, "TextureAsset" ),
                                         resolver.ToPath( t.TextureHandle, "TextureAsset" ) } );
                     ser.Textures = std::move( ts );
@@ -1682,7 +1691,8 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& mc = entity.AddComponent<ECS::MaterialComponent>();
+                // Built as a value and written once, through ECS::SetMaterial (the component's one writer).
+                ECS::MaterialDesc mc;
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
@@ -1715,8 +1725,8 @@ namespace Desert::Core::Serialize
                          "[Scene] {}: Material.Params/Textures with no Shader - parameters belong to a Shader "
                          "Override, a lit mesh's values are its material slots'; the values are not loaded",
                          EntityContext( entity ) );
-                    if ( !data.Shader.has_value() )
-                        entity.RemoveComponent<ECS::MaterialComponent>();
+                    if ( data.Shader.has_value() )
+                        ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), mc );
                     return;
                 }
 
@@ -1740,6 +1750,7 @@ namespace Desert::Core::Serialize
                                                                          "material texture '" + t.Name + "'" ) } );
                     }
                 }
+                ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), mc );
             };
 
             Register( std::move( s ) );
@@ -1749,6 +1760,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "SkinnedMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::SkinnedMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::SkinnedMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1757,20 +1769,20 @@ namespace Desert::Core::Serialize
                 Assets::SkinnedMeshComponentSer meshSer;
 
                 auto resolver = MakeAssetResolver( assetManager );
-                if ( smc.MeshHandle )
+                if ( smc.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
+                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                          !p.empty() )
                         meshSer.MeshPath = p;
                     meshSer.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
+                         MeshGuidText( resolver, static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                 }
 
-                if ( !smc.MaterialSlots.empty() )
+                if ( !smc.GetMaterialSlots().empty() )
                 {
                     meshSer.MaterialPaths = std::vector<std::string>{};
                     meshSer.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : smc.MaterialSlots )
+                    for ( auto handle : smc.GetMaterialSlots() )
                     {
                         meshSer.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
@@ -1781,8 +1793,8 @@ namespace Desert::Core::Serialize
 
                 // Rendering controls: write only non-default values (absent = default on load), exactly
                 // like the static mesh above.
-                if ( !smc.CastShadows )
-                    meshSer.CastShadows = smc.CastShadows;
+                if ( !smc.GetCastShadows() )
+                    meshSer.CastShadows = smc.GetCastShadows();
 
                 return Common::Json::FromStruct( meshSer );
             };
@@ -1795,28 +1807,29 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& meshData = parsed.value();
 
-                auto& smc      = entity.AddComponent<ECS::SkinnedMeshComponent>();
-                auto  resolver = MakeAssetResolver( assetManager );
+                ECS::SkinnedMeshDesc desc;
+                auto                 resolver = MakeAssetResolver( assetManager );
 
                 const uint64_t meshHandle =
                      ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "SkinnedMeshAsset" );
                 if ( meshHandle != 0 )
-                    smc.MeshHandle = Common::UUID( meshHandle );
+                    desc.MeshHandle = Common::UUID( meshHandle );
 
                 const size_t slotCount = meshData.MaterialGuids
                                               ? meshData.MaterialGuids->size()
                                               : ( meshData.MaterialPaths ? meshData.MaterialPaths->size() : 0 );
                 if ( slotCount > 0 )
                 {
-                    smc.MaterialSlots.clear();
+                    desc.MaterialSlots.reserve( slotCount );
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        smc.MaterialSlots.push_back( Common::UUID(
+                        desc.MaterialSlots.push_back( Common::UUID(
                              ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
                     }
                 }
 
-                smc.CastShadows = meshData.CastShadows.value_or( smc.CastShadows );
+                desc.CastShadows = meshData.CastShadows.value_or( desc.CastShadows );
+                ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1827,6 +1840,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "UIAnim";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::UIAnimComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
@@ -1895,6 +1909,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "Text";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::TextComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::TextComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
@@ -1935,6 +1950,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "Animation";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::AnimationComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
@@ -1945,6 +1961,7 @@ namespace Desert::Core::Serialize
                 ser.Loop          = ac.Loop;
                 ser.PlaybackSpeed = ac.PlaybackSpeed;
                 ser.UpdateAnimationInEditor = ac.UpdateAnimationInEditor;
+                ser.RootMotion              = ac.RootMotion;
 
                 // THE HANDLE, NOT THE GRAPH. `Animation::Graph::Serialize(*ac.Graph)` stood here and put
                 // the whole state machine inside the entity; the file is the graph's identity now and the
@@ -1988,6 +2005,7 @@ namespace Desert::Core::Serialize
                 ac.Loop        = d.Loop;
                 ac.PlaybackSpeed = d.PlaybackSpeed;
                 ac.UpdateAnimationInEditor = d.UpdateAnimationInEditor;
+                ac.RootMotion              = d.RootMotion;
 
                 // ONLY THE HANDLE IS SET HERE. The graph OBJECT is AnimationECSSystem's to hand over
                 // (SyncAnimGraph), from the asset, so that every entity naming one file ends up pointing
@@ -2130,7 +2148,8 @@ namespace Desert::Core::Serialize
         // says so — the entity simply reappears. It was the lock's defect, already live for visibility,
         // in the same panel and one row up. No version bump: an added key is what ForeignKeys is for.
         Register(
-             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::Visible ) );
+             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::IsVisible,
+                                                &ECS::SetVisible ) );
 
         // ---- Level sequence actor: the `.dseq` it plays + playback settings + binding overrides (I11) ----
         // {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides[{Binding, Entity}]}: the Foliage shape
@@ -2149,10 +2168,7 @@ namespace Desert::Core::Serialize
                 {
                     out.Set( "SequenceGuid", Common::Content::AssetGuidToText( sequence->Guid() ) );
                     out.Set( "SequencePath",
-                             sequence->GetMetadata()
-                                  .Filepath.lexically_normal()
-                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
-                                  .generic_string() );
+                             Common::AssetHandle::StableKeyForPath( sequence->GetMetadata().Filepath ) );
                 }
                 else if ( static_cast<uint64_t>( actor.Sequence ) != 0 )
                 {
@@ -2185,6 +2201,12 @@ namespace Desert::Core::Serialize
                 std::string path;
                 g.ReadInto( "SequenceGuid", guidText, issues );
                 g.ReadInto( "SequencePath", path, issues );
+                // The path is the reader's label; the GUID is the identity. A label in the bare form is refused
+                // by name (PATH1) — the actor still binds by GUID.
+                if ( !path.empty() && !Common::AssetHandle::IsProjectRelativeKey( path ) &&
+                     !std::filesystem::path( path ).is_absolute() )
+                    issues.push_back( Common::Json::Issue{ "LevelSequence.SequencePath",
+                                                           "a content key (\"assets:<path>\")", path } );
 
                 auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
                 g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
@@ -2286,10 +2308,7 @@ namespace Desert::Core::Serialize
                 {
                     out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( type->Guid() ) );
                     out.Set( "FoliageTypePath",
-                             type->GetMetadata()
-                                  .Filepath.lexically_normal()
-                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
-                                  .generic_string() );
+                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
                 }
                 else if ( foliage.FoliageType )
                 {
@@ -2310,6 +2329,11 @@ namespace Desert::Core::Serialize
                 std::string path;
                 g.ReadInto( "FoliageTypeGuid", guidText, issues );
                 g.ReadInto( "FoliageTypePath", path, issues );
+                // As SequencePath above: a label, refused by name in the bare form; the GUID binds.
+                if ( !path.empty() && !Common::AssetHandle::IsProjectRelativeKey( path ) &&
+                     !std::filesystem::path( path ).is_absolute() )
+                    issues.push_back( Common::Json::Issue{ "Foliage.FoliageTypePath",
+                                                           "a content key (\"assets:<path>\")", path } );
 
                 auto& foliage = entity.AddComponent<ECS::FoliageComponent>();
                 if ( guidText.empty() && path.empty() )

@@ -1,0 +1,90 @@
+{
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "9abeae0510ad363e7a1ad273f51f54bf",
+        "Versions": {
+            "FOLT": 8
+        },
+        "Dependencies": ["9cf602bde6105b5a37e2cafe2972b5a7", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6"]
+    },
+    "Kind": "Mesh",
+    "Prefab": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Density": 100.0,
+    "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ZOffset": {
+        "Min": -2.0,
+        "Max": 0.0
+    },
+    "AlignToNormal": true,
+    "RandomYaw": true,
+    "RandomPitchAngle": 6.0,
+    "GroundSlopeAngle": {
+        "Min": 0.0,
+        "Max": 40.0
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [
+        {
+            "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+            "Path": "Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+        },
+        {
+            "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+            "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+        }
+    ],
+    "MinimumLayerWeight": 0.5,
+    "CullDistance": {
+        "Min": 6000,
+        "Max": 9000
+    },
+    "Wind": {
+        "Strength": 35.0,
+        "Speed": 0.8,
+        "Height": 60.0
+    },
+    "IncludeInHLOD": true,
+    "Mesh": {
+        "Guid": "9cf602bde6105b5a37e2cafe2972b5a7",
+        "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_b.stmesh"
+    },
+    "Procedural": {
+        "CollisionRadius": 10.0,
+        "ShadeRadius": 30.0,
+        "NumSteps": 3,
+        "InitialSeedDensity": 12.0,
+        "AverageSpreadDistance": 50.0,
+        "SpreadVariance": 40.0,
+        "SeedsPerStep": 3,
+        "DistributionSeed": 3099,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": true,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 3.0,
+        "ProceduralScale": {
+            "Min": 2.0,
+            "Max": 3.0
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    }
+}

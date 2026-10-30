@@ -90,6 +90,26 @@ vec3 GerstnerWaveNormalTerm( vec2 plane, vec2 direction, float wavelength, float
                  s * direction.y );
 }
 
+// One wave's term of the Jacobian of the horizontal displacement, d(sideways)/d(plane): (dXdx, dZdz, dXdz). The
+// sideways offset is -Q sin(phase) D, so its derivative along the plane is -Q k cos(phase) D D^T, and Q k is the
+// wave's Steepness. The summed terms make the determinant J = (1 + dXdx)(1 + dZdz) - dXdz^2 (GerstnerJacobian):
+// the area a patch of still water keeps on the moving surface. J < 1 compresses it, J <= 0 folds it over - the
+// crest breaking (Tessendorf, "Simulating Ocean Water" 2001, sec. 4.4: the foam criterion of FFT/Gerstner oceans).
+vec3 GerstnerWaveJacobianTerm( vec2 plane, vec2 direction, float wavelength, float amplitude, float steepness,
+                               float time )
+{
+    float c = -steepness * cos( GerstnerPhase( plane, direction, wavelength, time ) );
+    if ( amplitude <= 0.0f )
+        c = 0.0f;
+    return vec3( c * direction.x * direction.x, c * direction.y * direction.y, c * direction.x * direction.y );
+}
+
+// The determinant of the surface's horizontal map from the summed Jacobian terms.
+float GerstnerJacobian( vec3 summed )
+{
+    return ( 1.0f + summed.x ) * ( 1.0f + summed.y ) - summed.z * summed.z;
+}
+
 // The normal from the summed terms: (Sx, 1 - Sy, Sz), normalised (UE FinalizeNormal / GetSafeNormal).
 vec3 GerstnerFinalizeNormal( vec3 summed )
 {

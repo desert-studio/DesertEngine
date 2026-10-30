@@ -428,13 +428,26 @@ namespace Desert::Graphic::RDG
     void Builder::Compiler::FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
                                      std::vector<RdgSubUse>& uses, std::string& error ) const
     {
-        const ResourceRecord& record   = m_Resources[use.Resource];
-        const AccessState     state    = GetAccessState( use.Usage );
-        bool                  consumes = true;
+        const ResourceRecord& record = m_Resources[use.Resource];
+        // A texture an earlier graph created and extracted takes only the accesses it was created for (its usage
+        // flags): any other faults the pass here, before a command the image cannot take is recorded.
+        if ( record.ExternalTex != nullptr && record.ExternalTex->CreatedAccessMask != 0 &&
+             ( record.ExternalTex->CreatedAccessMask & ( 1u << static_cast<uint32_t>( use.Usage ) ) ) == 0 )
+        {
+            error = fmt::format( "graph '{}' pass '{}' declares texture '{}' as {}, an access the graph that "
+                                 "created it did not extract it for (Builder::Extract @p later)",
+                                 m_Name, pass.Name, record.Name, GetAccessName( use.Usage ) );
+            return;
+        }
+        AccessState state    = GetAccessState( use.Usage );
+        bool        consumes = true;
         if ( use.Attachment >= 0 )
         {
-            const LoadAction load = pass.Attachments[static_cast<size_t>( use.Attachment )].Load.Action;
-            consumes              = load == LoadAction::Load;
+            const AttachmentRecord& attachment = pass.Attachments[static_cast<size_t>( use.Attachment )];
+            consumes                           = attachment.Load.Action == LoadAction::Load;
+            // The render pass's store op writes the attachment, a read-only depth one too (AttachmentAccessState):
+            // the barrier after this pass must make that write available.
+            state = AttachmentAccessState( use.Usage, attachment.IsDepth );
         }
         for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount; ++layer )
         {
@@ -465,7 +478,13 @@ namespace Desert::Graphic::RDG
                 // pool) is one use. An attachment is one slot of the render pass and is never stated twice.
                 if ( use.Attachment < 0 && existing.FirstAccess == use.Usage && existing.State == state )
                     continue;
-                if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || existing.State.Layout != state.Layout )
+                // Two READS are one read state, except an image's in two layouts. A buffer has no layout (UE: one
+                // ERHIAccess such as SRVGraphics | IndirectArgs), so a storage read and an indirect-argument read
+                // of one buffer in one pass are one use, as the barrier phase already merges them
+                // (CollectPassBarriers); the Layout an AccessState carries for a buffer access is not one.
+                const bool layoutsDiffer =
+                     record.Kind == ResourceKind::Texture && existing.State.Layout != state.Layout;
+                if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || layoutsDiffer )
                 {
                     error = fmt::format( "graph '{}' pass '{}' declares {} as both {} and {}; one pass may hold a "
                                          "subresource in one state only",
@@ -495,26 +514,6 @@ namespace Desert::Graphic::RDG
                 FoldUse( m_Passes[p], use, slot, uses, conflict );
                 if ( !conflict.empty() )
                     break;
-            }
-            // A read-only attachment (the only one is a DepthRead depth) is still stored by its render pass: the
-            // pass's state on it carries the storeOp's write, so the barrier after the pass waits on it. Folded
-            // last, after every declaration of the subresource (a DepthRead + SampledGraphics pair) has merged.
-            for ( const ResourceUse& use : m_Passes[p].Uses )
-            {
-                if ( !conflict.empty() || use.Attachment < 0 || IsWriteAccess( use.Usage ) )
-                    continue;
-                const ResourceRecord& record = m_Resources[use.Resource];
-                for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount;
-                      ++layer )
-                {
-                    for ( uint32_t mip = use.Range.BaseMip; mip < use.Range.BaseMip + use.Range.MipCount; ++mip )
-                    {
-                        const int32_t at =
-                             slot[m_SubBase[use.Resource] + record.Texture.SubresourceIndex( mip, layer )];
-                        RdgSubUse& folded = uses[static_cast<size_t>( at )];
-                        folded.State      = ReadOnlyAttachmentStoreState( folded.State );
-                    }
-                }
             }
             for ( const RdgSubUse& use : uses )
                 slot[use.Sub] = -1;
@@ -1008,7 +1007,7 @@ namespace Desert::Graphic::RDG
         {
             const ResourceRecord& record = m_Resources[usage.Resource];
             if ( record.IsExtracted() )
-                usage.AccessMask |= 1u << static_cast<uint32_t>( record.FinalAccess );
+                usage.AccessMask |= ( 1u << static_cast<uint32_t>( record.FinalAccess ) ) | record.LaterAccessMask;
         }
     }
 
@@ -1293,6 +1292,9 @@ namespace Desert::Graphic::RDG
         compiled.Pass        = p;
         compiled.Name        = pass.Name;
         compiled.Flags       = pass.Flags;
+        compiled.AreaWidth   = pass.AreaWidth;
+        compiled.AreaHeight  = pass.AreaHeight;
+        compiled.External    = pass.External;
         compiled.OnPipe      = m_PipeAt[position];
         compiled.WaitSyncs   = m_WaitAt[position];
         compiled.SignalSyncs = m_SignalAt[position];
@@ -1622,16 +1624,33 @@ namespace Desert::Graphic::RDG
         }
         if ( !prologue.SignalSyncs.empty() )
             m_Result.Segments.push_back( std::move( prologue ) );
+        // RDG-EXTERNAL: Wait points of ExternalQueue passes the next segment of each pipe has to wait.
+        std::array<std::vector<ExternalTimelinePoint>, kPipeCount> pendingExternalWaits;
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
             const CompiledPass& pass = m_Result.Passes[position];
-            const bool          split =
-                 position == 0 || pass.OnPipe != m_Result.Passes[position - 1].OnPipe ||
+            // RDG-EXTERNAL: a segment ends with an ExternalQueue pass (it signals the pass's Signal point), and
+            // the FIRST segment of EACH pipe begun after it waits the pass's Wait point - an async run forked
+            // after the pass may read what the other API wrote, and the fork's binary semaphore is signalled
+            // before that work ran. A timeline wait consumes nothing, so both pipes wait the same value.
+            const bool afterExternal = position > 0 && m_Result.Passes[position - 1].External.has_value();
+            const bool split =
+                 position == 0 || afterExternal || pass.OnPipe != m_Result.Passes[position - 1].OnPipe ||
                  ( pass.OnPipe == Pipe::Graphics &&
                    ( !pass.WaitSyncs.empty() || !m_Result.Passes[position - 1].SignalSyncs.empty() ) );
             if ( split )
+            {
                 m_Result.Segments.push_back( { pass.OnPipe, position, position, {}, {} } );
+                auto& pending                         = pendingExternalWaits[static_cast<uint32_t>( pass.OnPipe )];
+                m_Result.Segments.back().WaitExternal = std::exchange( pending, {} );
+            }
             PipeSegment& segment = m_Result.Segments.back();
+            if ( pass.External.has_value() )
+            {
+                segment.SignalExternal = pass.External->Signal;
+                for ( auto& pending : pendingExternalWaits )
+                    pending.push_back( pass.External->Wait );
+            }
             segment.LastPosition = position;
             segment.WaitSyncs.insert( segment.WaitSyncs.end(), pass.WaitSyncs.begin(), pass.WaitSyncs.end() );
             segment.SignalSyncs.insert( segment.SignalSyncs.end(), pass.SignalSyncs.begin(),

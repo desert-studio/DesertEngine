@@ -8,9 +8,12 @@
 // drawing — belongs to later cards (VFX-04..08); this file states what an author made and nothing else.
 
 #include <Engine/Animation/KeyInterpolation.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Engine/ECS/VFXUserOverride.hpp>
+#include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -34,6 +37,18 @@ namespace Desert::Assets::Serialization
      *
      *   1 - VFX-02: system (Category, Tags, Duration, Loop, Seed, Bounds, UserParams, LocalModules, Emitters),
      *       emitters with lifecycle, the three-group module stack and renderer rows.
+     *   2 - VFX-09: a renderer row states its Material, a Ribbon row its Ribbon settings, a Mesh row its Mesh;
+     *       the header's Dependencies are those rows' assets.
+     *   3 - VFX-11: the system names its EffectType (a `.dfxtype` stem; older files get `Default`).
+     *   4 - VFX-PORT-1 (int/vfx VFX-MODULE-ASSET): a stack row names its module as {Guid, Path} of a `.dfxmod`
+     *       (the engine's module library or the project's own), the module GUIDs join the header's Dependencies,
+     *       and LocalModules is gone (a system-local module is a project `.dfxmod`). Raised by
+     *       Tools/SceneMigrator (MigrateVFXSystem): engine:<Name> becomes the GUID of
+     *       <Name>.dfxmod in the engine module library.
+     *   5 - VFX-PORT-2 (int/vfx de1d65125): Bounds moved from the system into every emitter
+     *       (VFXEmitterData::Bounds, UE UNiagaraEmitter::FixedBounds); each emitter is culled by its own box in
+     *       every view and every shadow view. Raised by Tools/SceneMigrator (MigrateVFXSystem): the system's
+     *       box is copied into each emitter.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -48,17 +63,18 @@ namespace Desert::Assets::Serialization
         return versions;
     }
 
-    /// The spellings a stack row uses: a module reference is "engine:<Name>" or "local:<Id>", a binding is
-    /// "User.<param>" or "Particles.<attribute>". The reader validates them and the stack compiler (VFX-04)
-    /// resolves them, so both read these.
-    inline constexpr std::string_view kVFXEnginePrefix    = "engine:";
-    inline constexpr std::string_view kVFXLocalPrefix     = "local:";
+    /// The spellings a stack row's binding uses: "User.<param>" or "Particles.<attribute>". The reader validates
+    /// them and the stack compiler (VFX-04) resolves them, so both read these.
     inline constexpr std::string_view kVFXUserPrefix      = "User.";
     inline constexpr std::string_view kVFXParticlesPrefix = "Particles.";
     /// "DataChannel.<channel>" names a scene data channel (a `.dfxch` by file stem),
-    /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, engine:SpawnFromChannel;
+    /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, the SpawnFromChannel module;
     /// VFX/VFXDataChannel.hpp).
     inline constexpr std::string_view kVFXDataChannelPrefix = "DataChannel.";
+    /// "PointSet.<name>" names a point set of the PLACEMENT (VFXComponentData::PointSets, painted in VFX Paint
+    /// mode - VFX-15; UE UNiagaraDataInterfaceArrayPosition on a User parameter the component overrides): a Vec3
+    /// input bound to it reads one of the set's points, chosen by weight, per particle (engine:ShapePointSet).
+    inline constexpr std::string_view kVFXPointSetPrefix = "PointSet.";
 
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.
@@ -126,11 +142,12 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXModuleInput& ) const = default;
     };
 
-    /// One module in a stack group. Module is "engine:<Name>" (the engine module library) or "local:<Id>"
-    /// (a LocalModules row of this system — UE's Scratch Pad, a module that lives inside the system).
+    /// One module in a stack group: the `.dfxmod` it runs, by its header GUID (UE: the module script a
+    /// FNiagaraModuleScript node names), with the path it had when the row was written - relative to the content
+    /// root the module was found under (the engine mount or the project's assets) - for the reader and messages.
     struct VFXModuleUse
     {
-        std::string                 Module;
+        Assets::AssetGuidRef        Module;
         bool                        Enabled = true;
         std::vector<VFXModuleInput> Inputs;
 
@@ -140,6 +157,9 @@ namespace Desert::Assets::Serialization
     /// The stack, in execution order inside each group (the array index IS the order).
     struct VFXEmitterStack
     {
+        /// UE's Emitter Spawn group: runs once when the emitter instance starts. A file written before the group
+        /// existed states no key and reads as the empty group it was.
+        std::vector<VFXModuleUse> EmitterSpawn;
         std::vector<VFXModuleUse> EmitterUpdate;
         std::vector<VFXModuleUse> ParticleSpawn;
         std::vector<VFXModuleUse> ParticleUpdate;
@@ -177,15 +197,129 @@ namespace Desert::Assets::Serialization
         Sprite,
         Ribbon,
         Mesh,
+        Light, ///< draws nothing: casts a local light from the emitter's particles (VFX-LIGHT)
     };
 
+    /// How a ribbon lays its U coordinate along its length (UE ENiagaraRibbonUVDistributionMode).
+    enum class VFXRibbonUVMode
+    {
+        Stretch,        ///< U runs 0..1 over the whole ribbon (UE ScaledUniformly)
+        TileByDistance, ///< U repeats every UVTileDistance centimetres of length (UE TiledOverRibbonLength)
+    };
+
+    /// A Ribbon row's settings (UE UNiagaraRibbonRendererProperties): the emitter's particles joined into strips,
+    /// one strip per ribbon id, its particles linked in age order (oldest at the tail).
+    struct VFXRibbonRendererData
+    {
+        /// "Particles.<attribute>" naming the integer attribute that splits the particles into ribbons (UE
+        /// RibbonIdBinding); empty = the whole emitter is one ribbon.
+        std::string     RibbonIdBinding;
+        float           Width  = 10.0f; ///< centimetres, > 0 (UE RibbonWidth)
+        VFXRibbonUVMode UVMode = VFXRibbonUVMode::Stretch;
+        float UVTileDistance   = 100.0f; ///< centimetres per U repeat, > 0; read when UVMode == TileByDistance
+
+        [[nodiscard]] bool operator==( const VFXRibbonRendererData& ) const = default;
+    };
+
+    /// A Mesh row's settings (UE UNiagaraMeshRendererProperties): every particle draws this static mesh.
+    struct VFXMeshRendererData
+    {
+        AssetGuidRef Mesh;
+        glm::vec3    Scale = glm::vec3( 1.0f ); ///< per-axis, > 0, on top of the particle's own scale
+
+        [[nodiscard]] bool operator==( const VFXMeshRendererData& ) const = default;
+    };
+
+    /// How a sprite's quad is turned (UE ENiagaraSpriteAlignment).
+    enum class VFXSpriteAlignment
+    {
+        Unaligned,       ///< faces the camera, turned by the particle's SpriteRotation (UE Unaligned)
+        VelocityAligned, ///< its height runs along the particle's Velocity, its width across it, still facing the
+                         ///< camera as far as that allows (UE VelocityAligned): sparks, streaks, rain
+    };
+
+    /// A Sprite row's settings (UE UNiagaraSpriteRendererProperties). Absent on a Sprite row = UE's defaults
+    /// (Unaligned), as an absent Material is the engine's sprite material.
+    struct VFXSpriteRendererData
+    {
+        VFXSpriteAlignment Alignment = VFXSpriteAlignment::Unaligned;
+
+        [[nodiscard]] bool operator==( const VFXSpriteRendererData& ) const = default;
+    };
+
+    /// The most lights one Light row casts per emitter (its MaxLights is 1 .. this).
+    inline constexpr uint32_t kVFXLightMaxPerEmitter = 64u;
+
+    /// A Light row's settings (UE UNiagaraLightRendererProperties): up to MaxLights of the emitter's alive
+    /// particles each cast a point light into the scene's local-light path (the light grid, the deferred
+    /// composite, the forward passes) - no light pass of its own. Per light: position = the particle's world
+    /// position, radius = the larger SpriteSize axis x RadiusScale (UE RadiusScale over Particles.LightRadius),
+    /// colour = the particle's Color rgb (x its alpha when AlphaScalesBrightness, UE bAlphaScalesBrightness) +
+    /// ColorAdd (UE ColorAdd), brightness = Intensity. The lit particles are spread evenly over the alive list.
+    struct VFXLightRendererData
+    {
+        float     RadiusScale = 1.0f;              ///< > 0, on the particle's larger SpriteSize axis (cm)
+        glm::vec3 ColorAdd    = glm::vec3( 0.0f ); ///< added to every light's colour, >= 0
+        /// Each light's brightness: candelas under inverse-square falloff (UE bUseInverseSquaredFalloff, the
+        /// default), else the renderer's unitless multiplier with exponent falloff. >= 0.
+        float    Intensity                = 20.0f;
+        bool     UseInverseSquaredFalloff = true;
+        bool     AlphaScalesBrightness    = true;
+        uint32_t MaxLights                = 8u; ///< 1 .. kVFXLightMaxPerEmitter
+
+        [[nodiscard]] bool operator==( const VFXLightRendererData& ) const = default;
+    };
+
+    /**
+     * @brief One renderer of an emitter (UE UNiagaraRendererProperties): the emitter's particles drawn once per
+     *        enabled row.
+     *
+     * Material: Sprite/Ribbon - the material the quads/strips draw with, absent = the engine's particle
+     * material (UE's DefaultSpriteMaterial / DefaultRibbonMaterial); Mesh - an override of the mesh's own
+     * materials, absent = the mesh's. Ribbon is stated exactly when Kind == Ribbon, Mesh exactly when Kind ==
+     * Mesh. Every Material and Mesh GUID is one of the header's Dependencies.
+     */
     struct VFXRendererData
     {
-        VFXRendererKind Kind    = VFXRendererKind::Sprite;
-        bool            Enabled = true;
+        VFXRendererKind                      Kind    = VFXRendererKind::Sprite;
+        bool                                 Enabled = true;
+        std::optional<AssetGuidRef>          Material{};
+        std::optional<VFXSpriteRendererData> Sprite{}; ///< stated only when Kind == Sprite; absent = UE defaults
+        std::optional<VFXRibbonRendererData> Ribbon{};
+        std::optional<VFXMeshRendererData>   Mesh{};
+        std::optional<VFXLightRendererData> Light{}; ///< stated exactly when Kind == Light (which has no Material)
 
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };
+
+    /**
+     * @brief An emitter's FIXED bounds, centimetres, around its placement (UE UNiagaraEmitter::FixedBounds under
+     * ENiagaraEmitterCalculateBoundMode::Fixed).
+     *
+     * Every emitter of this engine simulates on the GPU and nothing of its particles comes back to the CPU: the box
+     * is all the renderer knows of where they are. It culls the emitter's draws against every view (sprite and
+     * ribbon rows, Mesh rows in the geometry passes) and every shadow view (Mesh rows in the cascades), and decides
+     * whether the view's emitters sample the shadow maps (ParticleRenderer). The box is stated in the system's
+     * PLACEMENT FRAME (the entity's local space) and goes to the world through the entity's FULL transform -
+     * translation, rotation and scale (VFXBoundsAt; UE: FixedBounds are component-space and the component's
+     * LocalToWorld places them). One rule for both spaces, because the simulation places both through the same
+     * transform (ParticleSimPush::LocalToWorld): a Local emitter's particles live in the placement frame and are
+     * drawn through it; a World emitter's newborns are placed through it and then stay where they were born, so its
+     * box (as in UE) must also hold the trail a moving placement leaves inside it. A particle outside its box is
+     * culled with it: the box must hold them all.
+     */
+    struct VFXBounds
+    {
+        glm::vec3 Min = glm::vec3( -100.0f );
+        glm::vec3 Max = glm::vec3( 100.0f );
+
+        [[nodiscard]] bool operator==( const VFXBounds& ) const = default;
+    };
+
+    /// The world box (cm) of @p bounds through the entity's full transform @p localToWorld (VFXBounds: its 8
+    /// corners transformed, Arvo). THE rule the renderer's culling, the effects world's scalability box, the
+    /// debugger's "Draw bounds" and the editor preview's framing share.
+    [[nodiscard]] Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::mat4& localToWorld );
 
     struct VFXEmitterData
     {
@@ -193,6 +327,7 @@ namespace Desert::Assets::Serialization
         bool                         Enabled  = true;
         VFXSimulationSpace           Space    = VFXSimulationSpace::World;
         uint32_t                     Capacity = 1024; ///< the emitter's slice of the GPU pool, particles
+        VFXBounds                    Bounds;          ///< fixed, around the placement (VFXBounds), VFXS 5
         VFXEmitterLifecycle          Lifecycle;
         VFXEmitterStack              Stack;
         std::vector<VFXRendererData> Renderers;
@@ -210,25 +345,11 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXUserParam& ) const = default;
     };
 
-    /// A module that lives inside the system (UE Scratch Pad): its DSL fragment in the Particle domain.
-    struct VFXLocalModule
-    {
-        std::string Id;
-        std::string DisplayName;
-        std::string Source;
 
-        [[nodiscard]] bool operator==( const VFXLocalModule& ) const = default;
-    };
-
-    /// The fixed bounds of the whole system in its local space, centimetres (GPU emitters need fixed bounds).
-    struct VFXBounds
-    {
-        glm::vec3 Min = glm::vec3( -100.0f );
-        glm::vec3 Max = glm::vec3( 100.0f );
-
-        [[nodiscard]] bool operator==( const VFXBounds& ) const = default;
-    };
-
+    /// What User.<row.Name> is for a placement with @p overrides: its override when it has one, else the row's
+    /// Default. The one rule both the CPU spawn plan and the GPU parameter rows read.
+    [[nodiscard]] glm::vec4 UserParamValue( const VFXUserParam&                 row,
+                                            const std::vector<ECS::VFXUserOverride>& overrides );
     /// One row of the PROJECT's category register (`<project>/Config/VFXCategories.json`). Categories are
     /// project data, edited without a rebuild; the engine knows only "a category is an id in that register".
     struct VFXCategory
@@ -264,20 +385,30 @@ namespace Desert::Assets::Serialization
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         std::string                 Category;
+        // VFXS 3: the stem of the system's effect type (Serialization/VFXEffectType.hpp; UE
+        // UNiagaraSystem::EffectType), resolved in the project's VFX folder. Optional only so a VFXS 2 body reads
+        // for the migrator; ValidateVFXSystemData requires it.
+        std::optional<std::string>  EffectType;
         std::vector<std::string>    Tags;
         float                       Duration = 1.0f; ///< seconds of one system loop, >= 0; > 0 when Loop
         bool                        Loop     = true;
         uint32_t                    Seed     = 0;
-        VFXBounds                   Bounds;
         std::vector<VFXUserParam>   UserParams;
-        std::vector<VFXLocalModule> LocalModules;
         std::vector<VFXEmitterData> Emitters;
 
         [[nodiscard]] bool operator==( const VFXSystemData& ) const = default;
     };
 
+    /// The union of the ENABLED emitters' Bounds, in the system's placement frame (UE: a system's bounds are its
+    /// emitters' when it states none of its own); nullopt when no emitter is enabled. What the effects world's
+    /// scalability candidate and the editor's preview framing read - never a box of its own in the file.
+    [[nodiscard]] std::optional<VFXBounds> VFXSystemExtent( const VFXSystemData& data );
+
     /// Rejects what no later stage could honour, naming the emitter, group, module and input.
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data );
+
+    /// What the header's Dependencies state: the GUID of every module a stack row names, each once, sorted.
+    [[nodiscard]] std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data );
 
     /// Parses a `.dfx`. A file without a header, of another version or kind, that states any Dependencies
     /// (a v1 system references no other asset), or that fails validation is an error naming why.

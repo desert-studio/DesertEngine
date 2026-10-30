@@ -14,7 +14,7 @@
 #include "Editor/Panels/Build/ContentChunksPanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
-#include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
+#include "Editor/Panels/Debug/ParticleDebuggerPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/History/HistoryPanel.hpp"
@@ -50,7 +50,7 @@ namespace Desert::Editor
         EditorPanelHandles handles;
         panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::ScenePropertiesPanel>( workspace.ActiveScene(), assetManager, animationLibrary.get() );
-        panels.Add<Editor::ShaderLibraryPanel>();
+        panels.Add<Editor::ParticleDebuggerPanel>( workspace.ActiveScene() );
         {
             auto primaryViewport =
                  std::make_unique<Editor::ViewportPanel>( workspace.ActiveScene(), assetManager.get() );
@@ -65,7 +65,7 @@ namespace Desert::Editor
             handles.FileExplorer = fileExplorer.get();
             panels.Adopt( std::move( fileExplorer ) );
         }
-        panels.Add<Editor::ModelingPanel>( workspace.ActiveScene() );
+        panels.Add<Editor::ModelingPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::LandscapePanel>( workspace.ActiveScene() );
         panels.Add<Editor::FracturePanel>( workspace.ActiveScene() );
         panels.Add<Editor::WorldSettingsPanel>( workspace.ActiveScene(), assetManager );

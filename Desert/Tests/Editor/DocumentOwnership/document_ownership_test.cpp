@@ -31,7 +31,7 @@
 #include <Editor/Core/DocumentWell.hpp>
 #include <Editor/Core/OpenDocuments.hpp>
 #include <Editor/Core/PanelRegistry.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <Engine/Graphic/ViewResources.hpp>
 

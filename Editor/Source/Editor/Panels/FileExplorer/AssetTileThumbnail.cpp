@@ -10,7 +10,7 @@
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
 #include <Editor/Panels/FileExplorer/FileTypeInfo.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
@@ -161,7 +161,7 @@ namespace Desert::Editor
         // Cache PNG path: <versioned thumbnail dir>/<sanitized source path>.png (persists across restarts).
         const std::string& pngPath = m_Pool.ThumbnailPngFor( entry->AssetPath );
 
-        // Through Editor/Widgets/ThumbnailFreshness.hpp, the same rule ThumbnailService::ShouldQueue applies:
+        // Through Editor/Core/ThumbnailFreshness.hpp, the same rule ThumbnailService::ShouldQueue applies:
         // Judge says whether a capture is owed, Choose says what to draw meanwhile. The PNG is drawn FIRST,
         // before the material is resolved or loaded — a card whose picture is on disk never waits for the
         // asset, and an outdated picture stays on screen until its replacement lands (ThumbnailCache::Get

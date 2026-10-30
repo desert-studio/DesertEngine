@@ -3,8 +3,11 @@
         "Kind": "Prefab",
         "Guid": "37d52634d940d6c1be0f623515668528",
         "Versions": {
-            "SCNE": 54,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 71,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": []
     },
@@ -44,7 +47,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "Circle": false,
                 "RingWidth": 0.0,
@@ -68,7 +74,7 @@
         {
             "id": 7202,
             "parent": 7201,
-            "PrefabPath": "Resources/Assets/Prefabs/UI_CardStripe.deprefab"
+            "PrefabPath": "assets:Prefabs/UI_CardStripe.deprefab"
         }
     ],
     "Root": 7201

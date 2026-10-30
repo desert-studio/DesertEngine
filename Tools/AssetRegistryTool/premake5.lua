@@ -17,25 +17,15 @@ project "AssetRegistryTool"
 
     files {
         "Source/**.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source", -- Engine/Project/StartupLayout.hpp (Common-only)
     }
+    includedirs(DesertModuleLibs.IncludeDirs())
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
-        externalincludedirs { path }
-    end
-
-    -- CommonSpecific carries reflect-cpp, which Common/Project/ProjectFormat.hpp includes directly
-    -- (<rflcpp/rfl/ExtraFields.hpp>) — reading a .deproj is what this tool starts from.
-    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 

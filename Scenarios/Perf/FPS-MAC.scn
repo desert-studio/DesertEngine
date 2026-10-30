@@ -1,0 +1,21 @@
+# FPS-MAC: the Mac frame rate, measured in a RELEASE editor and fixed at the root (owner 10-29: "что по фпс? Почему так
+# мало?"). Each pass: Release profile -> the most expensive CPU zone -> the algorithm fixed -> the same profile again.
+# The profile half runs headless, outside the scenario runner (no .scn keyword starts a profile capture; the runner
+# plays the Debug editor). The SAME command runs on the base build and on the fixed build (build/Bin/Release/Editor):
+#   Editor --project Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+#          --camera 0,170,2500 --look <dir of 1_eye> --shot <dir>/eye.png --shot-frames 300 --gpu-profile   (1_eye)
+#          --camera 0,600,2500 --look <dir of 2_high> ...                                                   (2_high)
+#   and Water_Ocean (../BistroFoliageProj/Desert.deproj --scene Content/Scenes/Water_Ocean.desce).
+# [perf] PASS when, read from the two editor.log "[Profiler]" dumps of each view:
+#   - fps (1000 / CPU frame ms) is higher after the fix on 1_eye and 2_high, and not lower on Water_Ocean;
+#   - the ten most expensive CPU zones are listed before/after, GPU from the passes' own rows (not frame deltas);
+#   - the after-frame of each view pixel-diffs < 0.5 % against the before-frame (scripts/Dev/frames_compare.py).
+# The interactive half below shows the same two views in the editor, which must look as they did before the fix.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Тогда-вид 1_eye FIELD_Barn at 1.7 m: the field, the barn and the sky look as before the fix (no missing shadows, no stale reflections)
+Когда --subject viewport set Camera.Position 0,600,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.12,-1
+Тогда-вид 2_high FIELD_Barn at 6 m: the same field from above, shadows of the barn and trees present as before the fix

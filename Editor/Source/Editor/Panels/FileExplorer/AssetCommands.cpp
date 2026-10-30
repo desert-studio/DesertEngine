@@ -1,7 +1,9 @@
 #include "AssetCommands.hpp"
 
 #include <Editor/Core/ActorDropPlacement.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ContentCreateCommands.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/SkeletonAssignPalette.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
@@ -9,6 +11,7 @@
 #include <Editor/Panels/FileExplorer/FileExplorerPanel.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 #include <Editor/Panels/WorldPartition/WorldPartitionPanel.hpp>
+#include <array>
 #include <Editor/Widgets/ThumbnailEdit.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -56,6 +59,33 @@ namespace Desert::Editor
                                                                 "Partition window does not exist" );
                                   return WorldPartition()->ConvertSceneToWorldPartition();
                               } } );
+        // UE's Build > Build HLODs: builds every cell's HLOD of the saved world and writes them beside it.
+        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kBuildHLODsLabel ), [this]
+                              {
+                                  if ( WorldPartition() == nullptr )
+                                      return Common::MakeError( "Build HLODs: the World Partition window does "
+                                                                "not exist" );
+                                  return WorldPartition()->BuildHLODs();
+                              } } );
+
+        // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /
+        // "Load All" in the World Partition editor), offered unconditionally for the same reason as Convert.
+        const std::array<std::pair<const char*, int>, 3> regionEntries{ {
+             { "World Partition: Load Region (map selection)", 0 },
+             { "World Partition: Unload All", 1 },
+             { "World Partition: Load All", 2 },
+        } };
+        for ( const auto& [label, which] : regionEntries )
+            commands.push_back( { "Scene", std::string( label ), [this, which = which]
+                                  {
+                                      if ( WorldPartition() == nullptr )
+                                          return Common::MakeError( "load region: the World Partition window "
+                                                                    "does not exist" );
+                                      if ( which == 0 )
+                                          return WorldPartition()->LoadSelectedRegion();
+                                      return WorldPartition()->LoadRegion(
+                                           WorldPartitionPanel::RegionRequest{ {}, which == 2 } );
+                                  } } );
 
         // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
         // same dialog F2 opens.
@@ -65,6 +95,34 @@ namespace Desert::Editor
                                       return Common::MakeError( "rename: the Assets window does not exist" );
                                   return Explorer()->RenameSelected();
                               } } );
+        // REPLACE THE SELECTED ENTITIES WITH THE SELECTED PREFAB — UE's "Replace Selected Actors with", whose
+        // subject is likewise the level selection and whose asset is the Content Browser's. Offered whatever
+        // is selected, so the refusal names what is missing instead of the entry silently not being there.
+        // The second form keeps each entity's own mesh on its instance (SceneCommands.hpp, ReplaceMeshSource).
+        for ( const auto& entry :
+              { std::pair{ "Replace selected entities with the selected prefab",
+                           Commands::ReplaceMeshSource::Prefab },
+                std::pair{ "Replace selected entities with the selected prefab, keeping each entity's mesh",
+                           Commands::ReplaceMeshSource::KeepEntityMesh } } )
+        {
+            const Commands::ReplaceMeshSource source = entry.second;
+            commands.push_back(
+                 { "Entity", entry.first, [this, source]
+                   {
+                       const std::vector<std::string> assets =
+                            Explorer() != nullptr ? Explorer()->SelectionPaths() : std::vector<std::string>{};
+                       if ( assets.size() != 1 )
+                           return Common::MakeFormattedError<bool>(
+                                "Replace with Prefab: select ONE .deprefab in the Assets window "
+                                "('Select asset <path>'); {} asset(s) are selected",
+                                assets.size() );
+                       const auto replaced = Commands::ReplaceWithPrefab(
+                            ::Desert::Editor::Core::SelectionManager::GetSelection(), assets.front(), source );
+                       if ( !replaced.IsSuccess() )
+                           return Common::MakeError<bool>( replaced.GetError() );
+                       return Common::MakeSuccess( true );
+                   } } );
+        }
         // ASSIGN SKELETON (UE's Assign Skeleton on a mesh / clip): the selected .skmesh / .anim against each
         // registered .skeleton, through the Details slot's CheckSkeletonAssignment path — a refusal lists the
         // missing and mis-parented bones and writes nothing. A clip's reference lives in its .anim, so an
@@ -134,27 +192,71 @@ namespace Desert::Editor
                        if ( Explorer() == nullptr )
                            return Common::MakeError( "New VFX Data Channel: the Assets window does not exist" );
                        return Explorer()->CreateNewVFXDataChannel();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError( "New VFX Module: the Assets window does not exist" );
+                       return Explorer()->CreateNewVFXModule();
                    } ) )
             commands.push_back( std::move( command ) );
+        // One entry per engine VFX system template — the template list is the folder's, so a new template file
+        // is a new entry with no code.
+        for ( const std::filesystem::path& templateFile : NewAssetMenu::VFXSystemTemplates() )
+            commands.push_back(
+                 { "Assets", std::format( "{}: {}", kNewVFXSystemFromTemplateLabel, templateFile.stem().string() ),
+                   [this, templateFile]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError(
+                                "New VFX System from Template: the Assets window does not exist" );
+                       return Explorer()->CreateVFXSystemFromTemplate( templateFile );
+                   } } );
     }
 
     void AssetCommands::AppendImportCommands( std::vector<PaletteCommand>& commands )
     {
         const std::vector<std::filesystem::path>& assetFiles = m_Files->Files();
-        // THE MESH DROP WITHOUT A MOUSE: one entry per model source, running the viewport's own drop body at
-        // the surface the active view's centre looks at. The control channel had "Place a cube" and nothing
-        // that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
+        // THE MESH (AND PREFAB) DROP WITHOUT A MOUSE: one entry per model source or prefab, running the viewport's
+        // own drop body at the surface the active view's centre looks at. The control channel had "Place a cube"
+        // and nothing that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
         for ( const std::filesystem::path& file : assetFiles )
         {
             std::string ext = file.extension().string();
             std::transform( ext.begin(), ext.end(), ext.begin(),
                             []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-            if ( ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" && ext != ".blend" )
+            const bool isPrefab = ext == Common::Constants::Extensions::PREFAB_EXTENSION;
+            if ( !isPrefab && ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" &&
+                 ext != ".blend" )
                 continue;
             const std::string path = file.generic_string();
             const std::string label =
                  std::format( "Drop into the viewport: {}",
                               file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string() );
+            // A PREFAB DROPS THROUGH THE VIEWPORT'S OWN PREFAB DROP (the mouse's PrefabFile payload body): its
+            // root lands on the surface the view centre meets, and that placement is the instance's root
+            // transform.
+            if ( isPrefab )
+            {
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Assets", label, [this, path]
+                       {
+                           ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
+                           if ( camera == nullptr || !MainScene() )
+                               return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                           const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
+                           ::Desert::Core::RaycastHit hit;
+                           const bool                 met     = MainScene()->Raycast( ray, hit );
+                           const auto                 dropped = ViewportPanel::DropPrefabIntoActiveViewport(
+                                path, met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt );
+                           if ( !dropped )
+                               return Common::MakeError<bool>( dropped.GetError() );
+                           return PaletteCommandDone();
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+                continue;
+            }
             // The same clang-tidy 18 finding as the folder entries below: the closure's implicit copy of
             // `path`, which std::function needs.
             // NOLINTBEGIN(bugprone-exception-escape)
@@ -203,6 +305,16 @@ namespace Desert::Editor
         for ( const bool on : { true, false } )
             commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets",
+                                  std::format( "Import Options: Virtual Geometry {}", on ? "on" : "off" ),
+                                  [on] { return ImportOptions::SetShownVirtualGeometry( on ); } } );
+        for ( const auto mode : { Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
+                                  Assets::MeshDisplacementMode::Baked } )
+            commands.push_back(
+                 { "Assets",
+                   std::format( "Import Options: Displacement {}", Assets::MeshDisplacementModeName( mode ) ),
+                   [mode] { return ImportOptions::SetShownDisplacement( mode ); } } );
         // UE's Content Browser > Asset Actions > Reimport (and the Import Settings fields Reimport imports with):
         // over the assets SELECTED IN THE CONTENT BROWSER, the RMB item's and the Import Settings button's own
         // ImportOptions bodies. Without a selected asset each is unavailable and says why; an asset with no import
@@ -245,13 +357,15 @@ namespace Desert::Editor
         {
             for ( const std::string& folder : Explorer()->ContentFolders() )
                 commands.push_back( { std::string( Editor::kContentBrowserContext ),
-                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel, folder ),
+                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel,
+                                                                       Explorer()->ContentLabelPath( folder ) ),
                                       std::bind_front( &FileExplorerPanel::GoToFolder,
                                                        std::to_address( Explorer() ), folder ) } );
             for ( const std::string& file : Explorer()->ContentFiles() )
                 commands.push_back(
                      { std::string( Editor::kContentBrowserContext ),
-                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
+                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel,
+                                                        Explorer()->ContentLabelPath( file ) ),
                        std::bind_front( &FileExplorerPanel::SyncToAsset, std::to_address( Explorer() ), file ) } );
         }
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
@@ -271,6 +385,16 @@ namespace Desert::Editor
                        return overSelectedAssets( [axis]( const std::filesystem::path& asset )
                                                   { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
                    } } );
+        // UE's Asset Actions > Nanite > Enable / Disable over the selected static meshes: the asset's own flag,
+        // its clusters cooked (or dropped) and every entity that draws it rebuilt now (SetStoredVirtualGeometry).
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Static Mesh: Virtual Geometry {}", on ? "on" : "off" ),
+                                  [overSelectedAssets, on]
+                                  {
+                                      return overSelectedAssets(
+                                           [on]( const std::filesystem::path& asset )
+                                           { return ImportOptions::SetStoredVirtualGeometry( asset, on ); } );
+                                  } } );
     }
 
     void AssetCommands::AppendFolderCommands( std::vector<PaletteCommand>& commands )

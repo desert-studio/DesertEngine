@@ -7,7 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
-#include <Engine/Graphic/Materials/PostProcessing/MaterialJFAComposite.hpp>
+#include <Engine/Graphic/Materials/PostProcessing/MaterialJFAFinal.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -21,12 +21,40 @@ namespace Desert::Graphic::System
     // "PostFX: JumpFlood*", and the graph opens the render pass on the image the node declares):
     //   Init   : silhouette mask        -> seed[0]
     //   Step xN: seed[i%2]              -> seed[(i+1)%2]   (ping-pong, halving step length)
-    //   Final  : seed[N%2] + scene color -> output (outlined scene)
+    //   Final  : seed[N%2] + post input -> output (outlined scene; the post input is the temporal resolve's
+    //            output with the overlays, or the scene colour without a temporal method)
     // The two seeds are transients of that graph (Builder::CreateTexture with GetSeedDesc); the renderer keeps
     // no image for them. Only the output is a member: the tonemap reads it (TonemapRenderer::Inputs::Source).
     //
-    // The output framebuffer is what the tonemap stage consumes. When the outline is disabled the
+    // The output framebuffer is what the tonemap stage consumes (SceneRenderer hands AddFrameJumpFlood's
+    // result to AddFrameTonemap). When the outline is disabled the
     // Final pass simply passes the scene color through (see JFA_Final.glsl.frag).
+    // The Init shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct JumpFloodOutlineInitShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, StencilTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( StencilTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
+    // The Step shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct JumpFloodOutlineStepShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SeedMapTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( SeedMapTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
+    // The Final shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct JumpFloodOutlineFinalShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, JumpFloodTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( JumpFloodTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( SceneColorTexture ), RDG::Erase( LinearClampSampler ) };
+    };
+
     class JumpFloodOutlineRenderer final : public RenderSystem
     {
     public:
@@ -63,15 +91,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::optional<RDG::TextureDesc> GetSeedDesc() const;
 
         [[nodiscard]] std::shared_ptr<Image2D> GetMaskImage() const;
-        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
-        // What the tonemap consumes: the outlined scene (or the scene passed through).
-        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
-        {
-            return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage() : nullptr;
-        }
-
         // Each records one fullscreen triangle inside the render pass the frame graph opens on its target:
-        // Init on seed[0], Step on the seed GetStepSource does not name, Final on GetOutputImage().
+        // Init on seed[0], Step on the seed GetStepSource does not name, Final on the frame's output transient.
         // Every Declare* adds block 0 to the node's setup; its Record* draws from that block only.
         // Init: the silhouette @p mask -> seed[0].
         void DeclareInitBindings( RDG::PassBuilder& pass, RDG::TextureRef mask ) const;
@@ -86,9 +107,6 @@ namespace Desert::Graphic::System
         void FillFinalMaterial();
         void DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed, RDG::TextureRef scene ) const;
         [[nodiscard]] Common::BoolResultStr RecordFinal( const RDG::PassContext& context );
-
-        // Resizes the output (the only image the renderer keeps); the seeds follow the scene size per frame.
-        void OnResize( uint32_t width, uint32_t height );
 
         // The silhouette mask is produced by MeshRenderer; wired once after both systems init.
         void SetMaskFramebuffer( const std::weak_ptr<Framebuffer>& maskFramebuffer )
@@ -126,13 +144,14 @@ namespace Desert::Graphic::System
         static uint32_t ComputeStepCount( uint32_t width, uint32_t height );
 
     private:
-        // The final output is m_Framebuffer (RenderSystem base); the ping-pong seeds are graph transients.
+        // No image of its own (GetSystemFramebuffer is null): the ping-pong seeds and the output are graph
+        // transients of the frames that outline something.
         std::shared_ptr<GraphicsPipeline> m_InitPipeline;
         std::shared_ptr<GraphicsPipeline> m_StepPipeline;
         std::shared_ptr<GraphicsPipeline> m_FinalPipeline;
 
         // The composite's uniform block (outline colour, width, smoothness); every texture is a graph binding.
-        std::unique_ptr<MaterialJFAComposite> m_MaterialComposite;
+        std::unique_ptr<MaterialJFAFinal> m_MaterialFinal;
         mutable ShaderBindingLayoutCache      m_InitLayout; // the three shaders' layouts, kept between frames
         mutable ShaderBindingLayoutCache      m_StepLayout;
         mutable ShaderBindingLayoutCache      m_FinalLayout;

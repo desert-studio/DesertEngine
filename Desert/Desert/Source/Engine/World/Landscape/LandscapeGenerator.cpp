@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <format>
 #include <string>
 
 namespace Desert::World::Landscape
@@ -99,27 +100,25 @@ namespace Desert::World::Landscape
             return Common::MakeError( "new landscape: " + rootValid.GetError() );
         for ( const auto& [name, count] : { std::pair{ "X", s.TilesX }, std::pair{ "Z", s.TilesZ } } )
             if ( ClampLandscapeTileCount( count, s.QuadsPerTile ) != count )
-                return Common::MakeError(
-                     std::string( "new landscape: " ) + std::to_string( count ) + " tiles along " + name +
-                     " outside 1.." +
-                     std::to_string( ClampLandscapeTileCount( kLandscapeMaxTilesPerSide, s.QuadsPerTile ) ) +
-                     " for " + std::to_string( s.QuadsPerTile ) + " quads a tile" );
+                return Common::MakeError( std::format(
+                     "new landscape: {} tiles along {} outside 1..{} for {} quads a tile", count, name,
+                     ClampLandscapeTileCount( kLandscapeMaxTilesPerSide, s.QuadsPerTile ), s.QuadsPerTile ) );
         if ( !std::isfinite( s.LocationCm.x ) || !std::isfinite( s.LocationCm.y ) ||
              !std::isfinite( s.LocationCm.z ) )
             return Common::MakeError( "new landscape: the location is not finite" );
         if ( s.Fill == LandscapeGenerateFill::Noise )
         {
             if ( !std::isfinite( s.NoiseHeightCm ) || s.NoiseHeightCm < 0.0f )
-                return Common::MakeError( "new landscape: noise height " + std::to_string( s.NoiseHeightCm ) +
-                                          " cm is negative or not finite" );
+                return Common::MakeError( std::format(
+                     "new landscape: noise height {:f} cm is negative or not finite", s.NoiseHeightCm ) );
             auto noise = ValidateLandscapeNoise( { LandscapeNoiseMode::Both, s.NoiseScale } );
             if ( !noise.IsSuccess() )
                 return Common::MakeError( "new landscape: " + noise.GetError() );
         }
         if ( s.Erosion || s.HydroErosion )
             if ( !( s.ErosionStrength >= 0.0f && s.ErosionStrength <= 1.0f ) )
-                return Common::MakeError( "new landscape: erosion strength " +
-                                          std::to_string( s.ErosionStrength ) + " outside 0..1" );
+                return Common::MakeError(
+                     std::format( "new landscape: erosion strength {:f} outside 0..1", s.ErosionStrength ) );
         if ( s.Erosion )
         {
             auto erosion = ValidateLandscapeErosion( s.ErosionSettings );
@@ -308,9 +307,9 @@ namespace Desert::World::Landscape
     Common::BoolResultStr LandscapeGenerateJob::Start( const LandscapeGenerateSettings& settings )
     {
         if ( Running() )
-            return Common::MakeError( "new landscape: generation in progress (" +
-                                      std::to_string( static_cast<int>( Fraction() * 100.0f ) ) +
-                                      " %); wait for it or cancel it" );
+            return Common::MakeError(
+                 std::format( "new landscape: generation in progress ({} %); wait for it or cancel it",
+                              static_cast<int>( Fraction() * 100.0f ) ) );
         auto valid = ValidateLandscapeGenerate( settings );
         if ( !valid.IsSuccess() )
             return valid;

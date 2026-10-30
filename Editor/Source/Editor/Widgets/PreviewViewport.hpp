@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -136,7 +137,10 @@ namespace Desert::Editor
             // already on two fields below: a studio ball under a neutral dome is lit and graded as a studio
             // subject, and a sky is not. ShowCloudMaterial writes the outdoor grade for the same reason it
             // writes the outdoor sun, and a person who is matching a particular level edits this row.
-            float Exposure = 1.0f;
+            //
+            // IN EV100 since v57 (PostProcessSettings::ManualExposureEV100, UE Manual metering): the former
+            // multiplier 1.0 at the default key 0.18 is EV100 0.526, the clouds' 0.26 is EV100 2.47.
+            float ExposureEV100 = 0.5260688f;
 
             // ── The key light, which is ALSO the sun in the sky ────────────────────────────────────────
             //
@@ -220,8 +224,8 @@ namespace Desert::Editor
             // pane will bake at; what it is not is a promise that the bake will use it.
             int32_t CloudVolumeResolution = 128;
 
-            // Direction the light TRAVELS (sun -> scene), which is what TransformComponent::Translation on
-            // a directional light means. Derived, never stored: two copies of one direction is how a sky
+            // Unit direction the light TRAVELS (sun -> scene); the preview light's Rotation is aimed along it
+            // (ECS::AimDirectionalLight). Derived, never stored: two copies of one direction is how a sky
             // ends up lit from below.
             [[nodiscard]] glm::vec3 LightTravel() const;
 
@@ -325,6 +329,26 @@ namespace Desert::Editor
         // @p material is the handle the layer resolves its values from every frame (the document's working
         // copy, so an edit shows without an Apply).
         void SetVolumeMaterial( const Assets::AssetHandle& material );
+
+        // A `.dfx` system played by one VFXComponent in the preview scene, on the floor, realtime (an effect moves
+        // every frame, so the change-gated render would freeze it), framed by @p bounds - the union of its
+        // emitters' fixed Bounds (Serialization::VFXSystemExtent; placement frame, cm; UE: the Niagara editor
+        // viewport frames the system's fixed bounds). Zero clears like Clear().
+        void SetVFXSystem( const Assets::AssetHandle& system, const Assets::Serialization::VFXBounds& bounds );
+        // UE Reset Simulation: every emitter of the previewed system starts over (VFXComponent::RequestRestart)
+        // and the preview's effects clock goes back to zero, so a desired age (SetVFXDesiredAge) is replayed from
+        // there.
+        void RestartVFX();
+        /// The VFX System editor's transport: the preview's effects clock in DesiredAge mode at @p age seconds
+        /// (each scene update seeks to it; a pause is the same age twice), or nullopt for the scene's own delta.
+        void SetVFXDesiredAge( std::optional<double> age );
+        /// The age the preview's effects clock has reached (whole fixed steps; behind a desired age while a long
+        /// seek is spread over several updates) and the length of one fixed step.
+        [[nodiscard]] double GetVFXAge() const;
+        [[nodiscard]] double GetVFXStepSeconds() const;
+        /// Plays @p working (the VFX System editor's unsaved copy) instead of the asset SetVFXSystem named; null
+        /// returns to the asset. A new pointer starts every emitter over (VFXWorld keys instances by it).
+        void SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working );
 
         void Clear();
 
@@ -500,6 +524,7 @@ namespace Desert::Editor
         // modelling volume of 8 MiB and a sky-occlusion volume of 2 MiB per renderer, which no material
         // preview should pay for by existing.
         ECS::Entity m_CloudLayer;
+        ECS::Entity m_Effect; // SetVFXSystem's VFXComponent, created on first use
 
         Fill                m_Fill       = Fill::Empty;
         bool                m_Inited     = false;

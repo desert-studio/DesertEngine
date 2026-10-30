@@ -5,9 +5,11 @@
 
 #include <Editor/Core/Control/ControlPipeline.hpp>
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor::Control
@@ -69,6 +71,54 @@ namespace Desert::Editor::Control
         bool        Relevant   = true;
     };
 
+    // One GPU-driven mesh pass's last finished frame (Graphic::DrawCounter::LastFrameMeshPass): how its draws were
+    // issued - per-submesh CPU draws against the culled bins' indirect calls. Every view's draws of the pass
+    // summed.
+    struct MeshPassDrawSnapshot
+    {
+        std::string Name; ///< GpuDriven::MeshPass: depthPrepass, gbuffer, forward, shadowCascade, virtualShadow
+        uint32_t    CpuDraws      = 0;
+        uint32_t    IndirectCalls = 0;
+        uint32_t    BinsIssued    = 0;
+        // The pass's cached draw commands (GpuDriven::DrawCommandCache::Pass): the bins and draw slots it holds,
+        // and per BinFallback reason the submeshes drawn in the pass that stay on the CPU path (name -> count,
+        // only reasons with a non-zero count).
+        uint32_t                                      CachedBins  = 0;
+        uint32_t                                      CachedSlots = 0;
+        std::vector<std::pair<std::string, uint32_t>> CpuFallbacks;
+    };
+
+    // One view the GPU-culled draw bins served (SceneRenderer::GetDrawBinPhaseCounts, read back a few frames
+    // late): the instances drawn in occlusion phase 1 (last frame's HZB) and phase 2 (this frame's HZB).
+    struct DrawBinViewSnapshot
+    {
+        std::string Name; ///< gbuffer / forward (the main view), shadowCascade<c>
+        uint32_t    Phase1 = 0;
+        uint32_t    Phase2 = 0;
+    };
+
+    // The main view's virtual-geometry cluster cut (SceneRenderer::GetVirtualGeometryCounts, read back a few
+    // frames late): the VG instances made cut candidates, the clusters drawn, what the cut could not do (Overflow:
+    // full stacks + clusters past capacity + candidates without a draw slot) and the clusters last frame's HZB
+    // hid.
+    struct VirtualGeometrySnapshot
+    {
+        uint32_t Instances           = 0;
+        uint32_t ClustersVisible     = 0;
+        uint32_t ClustersDrawn       = 0; // the main view's rasters drew (main + post phase)
+        uint32_t ShadowClustersDrawn = 0; // every shadow cascade's raster drew
+        // Per virtual shadow map clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew
+        // into it.
+        std::vector<uint32_t> VsmClustersDrawn;
+        uint32_t              VsmRefusedGroups =
+             0; // VSM groups whose template declares a VG twin that has no pipeline (must be 0)
+        uint32_t VsmFallbackSubmeshes =
+             0; // VG submeshes in a VSM group whose template has no VG twin (walked, no error)
+        uint32_t Overflow          = 0;
+        uint32_t OccludedClusters  = 0;
+        uint32_t BinnedVgInstances = 0; // VG instances the bins of a cut view still drew (must be 0)
+    };
+
     struct EntitySnapshot
     {
         std::string Tag;
@@ -92,14 +142,158 @@ namespace Desert::Editor::Control
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 
+    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as
+    /// plain values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]"
+    /// log line, not from a log tail that may have scrolled past it.
+    struct DeviceSnapshot
+    {
+        std::string Name;
+
+        std::string NnPath;   ///< NeuralKernelPathName: "coopmat_fp16" | "fp16" | "fp32"
+        std::string NnTile;   ///< the coopmat tile the path uses; empty off coopmat_fp16
+        std::string NnReason; ///< why a faster path was not taken; empty when the fastest one was
+
+        bool NnShaderFloat16               = false;
+        bool NnShaderInt8                  = false;
+        bool NnStorageBuffer16BitAccess    = false;
+        bool NnStorageBuffer8BitAccess     = false;
+        bool NnSubgroupSizeControl         = false;
+        bool NnCooperativeMatrix           = false;
+        bool NnCooperativeMatrixCompute    = false;
+        bool NnVulkanMemoryModel           = false;
+        bool NnComputeRequiredSubgroupSize = false;
+
+        uint32_t NnSubgroupSize               = 0;
+        uint32_t NnMinSubgroupSize            = 0;
+        uint32_t NnMaxSubgroupSize            = 0;
+        uint32_t NnMaxPushConstantsSize       = 0;
+        uint32_t NnMaxComputeSharedMemorySize = 0;
+
+        std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
+
+        /// PathTracing.Denoiser OIDN (Graphic::Denoise::OidnDenoiser::Status): the device OIDN filters on and why,
+        /// the last refusal, and the last successful run - so a scenario reads "which GPU, and why" (or the
+        /// refusal) and the enqueue time from the state, not from the log.
+        bool        OidnCreated = false; ///< an OIDN device was made in this process
+        std::string OidnDevice; ///< "CUDA: <name>" | "HIP: <name>" | "SYCL: <name>" | "Metal: <name>" (a GPU only)
+        std::string OidnReason;          ///< why that device
+        std::string OidnError;           ///< the last refusal; empty when none since the last run
+        uint64_t    OidnRuns             = 0;
+        uint32_t    OidnLastPaths        = 0; ///< paths per pixel of the image the last run filtered
+        uint32_t    OidnLastWidth        = 0;
+        uint32_t    OidnLastHeight       = 0;
+        double      OidnLastMilliseconds = 0.0; ///< host time of the last enqueue (GPU work not waited)
+
+        // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
+        // card without RT (or with it hidden by machine.json) reads the fallback from one source.
+        /// bufferDeviceAddress row (DeviceCapabilities::SupportsBufferDeviceAddress): independent of `Rt`; the GI
+        /// emissive light list needs only this.
+        bool                     BufferDeviceAddress = false;
+        std::string              Rt;      ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
+        std::vector<std::string> RtModes; ///< Catalog RayTracingModes, kRayTracingModeNames, best first
+        /// Graphic::PathTracingRefusal: empty when the device can path-trace, else why a PathTraced request is
+        /// refused.
+        std::string PathTracingRefusal;
+        bool        PathTracingActive = false; ///< the main viewport path-traces this frame (Graphic::PathTraced)
+        /// The main viewport's SceneRenderer::GetRenderMethods(), one Graphic::FormatRenderMethods row per axis
+        /// ("GI: HardwareTraced -> ScreenSpace (the device offers no ray query)"), plus the effective method
+        /// names. Empty / "" when no main viewport renders.
+        std::vector<std::string> MethodRows;
+        std::string              GIMethod;
+        std::string              ReflectionsMethod;
+        std::string              ShadowsMethod;
+        /// GI-ALL-LIGHTS step 5: the main viewport's SceneRenderer::GetEmissiveLightCounters() - how its emissive
+        /// light list followed the scene (full rebuilds vs in-place moves of the scene gather, the CPU list and the
+        /// GPU static part; Move frames whose graph did not execute). All 0 when no main viewport renders.
+        uint64_t EmissiveGatherFullRebuilds = 0;
+        uint64_t EmissiveGatherMoves        = 0;
+        uint64_t EmissiveListFullRebuilds   = 0;
+        uint64_t EmissiveListMoves          = 0;
+        uint64_t EmissiveGpuFullRebuilds    = 0;
+        uint64_t EmissiveGpuMoves           = 0;
+        uint64_t EmissiveGpuMovesRetried    = 0;
+        /// How the view's TLAS followed the scene: frames it was built, frames it was updated in place, rows the
+        /// updates patched with other bytes (RayTracingSceneRenderer). All 0 when no main viewport traces rays.
+        uint64_t TlasFullBuilds = 0;
+        uint64_t TlasUpdates    = 0;
+        uint64_t TlasMovedRows  = 0;
+
+        /// The last nn-check's verdict per path it was asked for, in its order: (path, "pass" | "fail: <errors>" |
+        /// "refused: <reason>"). Empty until the first nn-check completes. Every asked path has an entry, so a
+        /// path that is silently missing from a check is visible as missing here.
+        std::vector<std::pair<std::string, std::string>> NnLastCheck;
+    };
+
+    /// THE NEURAL RADIANCE CACHE OF THE MAIN VIEW (PathTracing.RadianceCache Nrc; Engine::Neural::NrcStats as
+    /// plain values, read back from the GPU a few frames late). A scenario judges the cache's training by
+    /// TrainLoss falling below FirstTrainLoss. Active false: no Nrc frame ran since the last reset (or never).
+    struct NrcSnapshot
+    {
+        bool               Active = false;
+        std::string        KernelPath;          ///< NeuralKernelPathName of the path the MLP runs
+        uint64_t           TrainingSteps   = 0; ///< Adam steps since the last reset
+        uint32_t           TrainingSamples = 0; ///< training samples of the last read-back frame
+        uint32_t           TrainingPaths   = 0;
+        uint32_t           SelfQueries     = 0;
+        uint32_t           RenderQueries   = 0; ///< paths of the image that asked to end in the cache (demand)
+        uint32_t           QueryCapacity   = 0; ///< render queries per path segment (live-sized)
+        uint64_t           QueryMemoryBytes = 0; ///< Queries buffer + one inference chunk's input and output
+        float              TrainLoss       = 0; ///< mean relative L2 of the last read-back frame's steps
+        float              FirstTrainLoss  = 0; ///< the first read-back after the last reset
+        std::vector<float> LossHistory;         ///< the last read-backs, oldest first
+        std::string        Error;               ///< the cache's last refusal, empty when none
+        std::string        Requested = "Off";   ///< PathTracing.RadianceCache as set (kPathTracingRadianceCacheNames)
+        std::string        Status    = "Off";   ///< what the paths ran: Off when the cache was not asked or refused
+        std::string        Reason;              ///< why the cache that was asked is Off (its standing refusal)
+        std::string        RetryOn; ///< what the held refusal waits for (PathTracer RadianceCacheStatus::RetryOn)
+        uint32_t           Rebuilds = 0; ///< running caches rebuilt on a changed kernel path / own program recompile
+        /// (program, ShaderService::ProgramGeneration) the running cache was built under - a held refusal: refused
+        /// under (PathTracer RadianceCacheStatus::ProgramGenerations); Rebuilds moves when one of these does.
+        std::vector<std::pair<std::string, uint64_t>> ProgramGenerations;
+    };
+
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
+    /// One point/spot light of the primary view's virtual shadow map, as last read back
+    /// (Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp VsmLocalLightStats).
+    struct VsmLocalLightSnapshot
+    {
+        uint32_t Source    = 0; ///< LocalLightShadowSettings::SourceId (entity + 1)
+        uint32_t Views     = 0; ///< 1 spot, 6 point
+        uint32_t Requested = 0; ///< pages a pixel asked for
+        uint32_t Rendered  = 0; ///< of them, cleared and drawn that frame
+        uint32_t Cached    = 0; ///< of them, kept from an earlier frame
+        uint32_t Coarse    = 0; ///< of them, asked for by "VSM: Mark Coarse" (the coarse mip, every frame)
+        uint32_t Receivers = 0; ///< of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
+    };
+
+    /// One light whose Shadow Method is not Auto, as the primary view resolved it this frame
+    /// (Graphic::StochasticLightMethod): requested Common::Scalability::kLightShadowMethodNames, effective
+    /// kStochasticVisibilityNames.
+    struct ShadowLightMethodSnapshot
+    {
+        uint32_t    Source = 0; ///< LocalLightShadowSettings::SourceId (entity + 1)
+        std::string Requested;
+        std::string Effective;
+    };
+
+    /// The primary view's last forward depth prepass (Graphic/Systems/Scene/Mesh/MeshRenderer.hpp
+    /// ForwardPrepassStats): all zero on a frame that drew its meshes into the G-buffer.
+    struct ForwardPrepassSnapshot
+    {
+        uint32_t Draws            = 0;     ///< commands of "Forward: Depth Prepass"
+        uint32_t Cells            = 0;     ///< (material x path) cell draws the base pass was admitted
+        uint32_t GpuSections      = 0;     ///< GPU-instanced sections (landscape grass) the base pass was admitted
+        bool     DepthWriteInBase = false; ///< a base-pass draw wrote depth (only the Wireframe view's twins may)
+    };
+
     struct EditorSnapshot
     {
         std::string SceneName;
         bool        SceneHasUnsavedChanges = false;
         bool        InPlayMode             = false;
+        uint64_t    SceneRenderDirty       = 0; ///< Core::Scene::GetRenderStateDirtyCount: entities dirtied last frame
 
         std::vector<EntitySnapshot> Selection; ///< last element is the primary selection
 
@@ -119,6 +313,37 @@ namespace Desert::Editor::Control
         // ISM instances the main view's last geometry pass drew, after the frustum and the foliage cull
         // distance (FO-5): what a CullDistance edit is measured by.
         uint32_t IsmInstancesDrawn = 0;
+        // The last completed frame's GeometryPool counters (Graphic/GeometryPool.hpp GeometryPoolStats): Binds,
+        // the shared (binned) geometry binds, equal to the binned passes' pipeline switches; MeshBinds, the
+        // per-mesh binds, counted apart.
+        uint32_t GeometryPoolBinds     = 0;
+        uint32_t GeometryPoolMeshBinds = 0;
+        // The primary view's virtual shadow map local lights (Shadows VirtualMaps), one per light it drew.
+        std::vector<VsmLocalLightSnapshot> VsmLocalLights;
+        // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
+        ForwardPrepassSnapshot ForwardPrepass;
+        // The primary view's Shadows method this frame (Graphic::RenderMethods: requested, effective) and, under
+        // Stochastic, MegaLights' visibility source (Common::Scalability::kStochasticVisibilityNames).
+        std::string ShadowsRequested;
+        std::string ShadowsEffective;
+        std::string ShadowsVisibility;
+        // Under Stochastic: the lights with their own Shadow Method, and the local lights' SMRT samples per ray
+        // (Scalability Shadows.VirtualSMRTSamplesPerRayLocal, VsmLocalVisibilityRay).
+        std::vector<ShadowLightMethodSnapshot> ShadowsLights;
+        uint32_t                               ShadowsSmrtSamplesLocal = 0;
+        // Per GPU-driven mesh pass, in GpuDriven::MeshPass order.
+        std::vector<MeshPassDrawSnapshot> MeshPasses;
+        // Per view the draw bins served this frame, in cull order (main view first).
+        std::vector<DrawBinViewSnapshot> DrawBinViews;
+        VirtualGeometrySnapshot          VirtualGeometry;
+        // The scene-owned GI pools (UE: FScene's FDistanceFieldSceneData and FLumenSceneData), over every live
+        // Core::Scene: Scenes, the live scenes; DistanceFieldPools, those whose mesh distance-field brick atlas is
+        // resident (DistanceFieldSceneData::GetBrickAtlas); SurfaceCaches, those whose surface cache atlases are
+        // (Scene::GetSurfaceCache, IsConfigured). One world seen by several viewports or played in PIE is one
+        // scene: one of each, however many views read it.
+        uint32_t Scenes             = 0;
+        uint32_t DistanceFieldPools = 0;
+        uint32_t SurfaceCaches      = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -127,6 +352,10 @@ namespace Desert::Editor::Control
 
         AuthoringSnapshot Authoring;
 
+        DeviceSnapshot Device;
+
+        NrcSnapshot Nrc;
+
         EditorQuiescence Quiescence;
     };
 
@@ -134,19 +363,13 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "log", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "vsm", "render", "log", "device",
+         "nrc", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
     {
-        std::string list;
-        for ( const char* section : kStateSections )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += section;
-        }
-        return list;
+        return TextTemplates::JoinList( kStateSections, ", " );
     }
 
     /// Refuse a section nobody serves, naming the ones served. A section quietly missing from the answer
@@ -217,6 +440,7 @@ namespace Desert::Editor::Control
             scene["name"]     = Str( snapshot.SceneName );
             scene["modified"] = Common::Json::Value( snapshot.SceneHasUnsavedChanges );
             scene["playing"]  = Common::Json::Value( snapshot.InPlayMode );
+            scene["renderDirty"] = Num( static_cast<double>( snapshot.SceneRenderDirty ) );
             root["scene"]     = Common::Json::Value( scene );
         }
 
@@ -310,7 +534,101 @@ namespace Desert::Editor::Control
             views["budgetBytes"]  = Num( static_cast<double>( snapshot.BudgetBytes ) );
             views["usageBytes"]   = Num( static_cast<double>( snapshot.UsageBytes ) );
             views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
+            views["geometryPoolBinds"]     = Num( snapshot.GeometryPoolBinds );
+            views["geometryPoolMeshBinds"] = Num( snapshot.GeometryPoolMeshBinds );
+            Common::Json::Object meshPasses;
+            for ( const MeshPassDrawSnapshot& pass : snapshot.MeshPasses )
+            {
+                Common::Json::Object item;
+                item["cpuDraws"]      = Num( pass.CpuDraws );
+                item["indirectCalls"] = Num( pass.IndirectCalls );
+                item["binsIssued"]    = Num( pass.BinsIssued );
+                item["cachedBins"]    = Num( pass.CachedBins );
+                item["cachedSlots"]   = Num( pass.CachedSlots );
+                Common::Json::Object fallbacks;
+                for ( const auto& [reason, count] : pass.CpuFallbacks )
+                    fallbacks.insert( reason, Num( count ) );
+                item["cpuFallbacks"]  = Common::Json::Value( fallbacks );
+                meshPasses[pass.Name] = Common::Json::Value( item );
+            }
+            views["meshPasses"] = Common::Json::Value( meshPasses );
+            Common::Json::Object drawBinViews;
+            for ( const DrawBinViewSnapshot& view : snapshot.DrawBinViews )
+            {
+                Common::Json::Object item;
+                item["phase1"]          = Num( view.Phase1 );
+                item["phase2"]          = Num( view.Phase2 );
+                drawBinViews[view.Name] = Common::Json::Value( item );
+            }
+            views["drawBinViews"] = Common::Json::Value( drawBinViews );
+            Common::Json::Object virtualGeometry;
+            virtualGeometry["instances"]           = Num( snapshot.VirtualGeometry.Instances );
+            virtualGeometry["clustersVisible"]     = Num( snapshot.VirtualGeometry.ClustersVisible );
+            virtualGeometry["clustersDrawn"]       = Num( snapshot.VirtualGeometry.ClustersDrawn );
+            virtualGeometry["shadowClustersDrawn"] = Num( snapshot.VirtualGeometry.ShadowClustersDrawn );
+            Common::Json::Value::Array vsmClustersDrawn;
+            for ( const uint32_t drawn : snapshot.VirtualGeometry.VsmClustersDrawn )
+                vsmClustersDrawn.push_back( Num( drawn ) );
+            virtualGeometry["vsmClustersDrawn"]     = Common::Json::Value( vsmClustersDrawn );
+            virtualGeometry["vsmRefusedGroups"]     = Num( snapshot.VirtualGeometry.VsmRefusedGroups );
+            virtualGeometry["vsmFallbackSubmeshes"] = Num( snapshot.VirtualGeometry.VsmFallbackSubmeshes );
+            virtualGeometry["overflow"]             = Num( snapshot.VirtualGeometry.Overflow );
+            virtualGeometry["occludedClusters"]     = Num( snapshot.VirtualGeometry.OccludedClusters );
+            virtualGeometry["binnedVgInstances"]    = Num( snapshot.VirtualGeometry.BinnedVgInstances );
+            views["virtualGeometry"]                = Common::Json::Value( virtualGeometry );
+            views["scenes"]                = Num( snapshot.Scenes );
+            views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );
+            views["surfaceCaches"]         = Num( snapshot.SurfaceCaches );
             root["views"]         = Common::Json::Value( views );
+        }
+
+        if ( Wanted( sections, "vsm" ) )
+        {
+            Common::Json::Value::Array lights;
+            for ( const VsmLocalLightSnapshot& light : snapshot.VsmLocalLights )
+            {
+                Common::Json::Object entry;
+                entry["source"]    = Num( light.Source );
+                entry["views"]     = Num( light.Views );
+                entry["requested"] = Num( light.Requested );
+                entry["rendered"]  = Num( light.Rendered );
+                entry["cached"]    = Num( light.Cached );
+                entry["coarse"]    = Num( light.Coarse );
+                entry["receivers"] = Num( light.Receivers );
+                lights.push_back( Common::Json::Value( entry ) );
+            }
+            Common::Json::Object vsm;
+            vsm["localLights"] = Common::Json::Value( lights );
+            root["vsm"]        = Common::Json::Value( vsm );
+        }
+
+        if ( Wanted( sections, "render" ) )
+        {
+            const ForwardPrepassSnapshot& prepass = snapshot.ForwardPrepass;
+            Common::Json::Object          forwardPrepass;
+            forwardPrepass["draws"]            = Num( prepass.Draws );
+            forwardPrepass["cells"]            = Num( prepass.Cells );
+            forwardPrepass["gpuSections"]      = Num( prepass.GpuSections );
+            forwardPrepass["depthWriteInBase"] = Common::Json::Value( prepass.DepthWriteInBase );
+            Common::Json::Object render;
+            render["forwardPrepass"] = Common::Json::Value( forwardPrepass );
+            Common::Json::Object shadows;
+            shadows["requested"]  = Common::Json::Value( snapshot.ShadowsRequested );
+            shadows["method"]     = Common::Json::Value( snapshot.ShadowsEffective );
+            shadows["visibility"] = Common::Json::Value( snapshot.ShadowsVisibility );
+            shadows["smrtSamplesLocal"] = Num( snapshot.ShadowsSmrtSamplesLocal );
+            Common::Json::Value::Array shadowLights;
+            for ( const ShadowLightMethodSnapshot& light : snapshot.ShadowsLights )
+            {
+                Common::Json::Object entry;
+                entry["source"]    = Num( light.Source );
+                entry["requested"] = Common::Json::Value( light.Requested );
+                entry["effective"] = Common::Json::Value( light.Effective );
+                shadowLights.push_back( Common::Json::Value( entry ) );
+            }
+            shadows["lights"] = Common::Json::Value( shadowLights );
+            render["shadows"]     = Common::Json::Value( shadows );
+            root["render"]           = Common::Json::Value( render );
         }
 
         if ( Wanted( sections, "log" ) )
@@ -325,6 +643,129 @@ namespace Desert::Editor::Control
             log["error"]   = Num( static_cast<double>( snapshot.LogErrorCount ) );
             log["tail"]    = Common::Json::Value( tail );
             root["log"]    = Common::Json::Value( log );
+        }
+
+        if ( Wanted( sections, "device" ) )
+        {
+            const DeviceSnapshot&      device = snapshot.Device;
+            Common::Json::Value::Array shapes;
+            for ( const std::string& shape : device.NnCooperativeMatrixShapes )
+                shapes.push_back( Str( shape ) );
+
+            Common::Json::Object nn;
+            nn["path"]                        = Str( device.NnPath );
+            nn["tile"]                        = Str( device.NnTile );
+            nn["reason"]                      = Str( device.NnReason );
+            nn["shaderFloat16"]               = Common::Json::Value( device.NnShaderFloat16 );
+            nn["shaderInt8"]                  = Common::Json::Value( device.NnShaderInt8 );
+            nn["storageBuffer16BitAccess"]    = Common::Json::Value( device.NnStorageBuffer16BitAccess );
+            nn["storageBuffer8BitAccess"]     = Common::Json::Value( device.NnStorageBuffer8BitAccess );
+            nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
+            nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
+            nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
+            nn["vulkanMemoryModel"]           = Common::Json::Value( device.NnVulkanMemoryModel );
+            nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
+            nn["subgroupSize"]                = Num( device.NnSubgroupSize );
+            nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );
+            nn["maxSubgroupSize"]             = Num( device.NnMaxSubgroupSize );
+            nn["maxPushConstantsSize"]        = Num( device.NnMaxPushConstantsSize );
+            nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
+            nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
+            Common::Json::Value::Array lastCheck;
+            for ( const auto& [path, verdict] : device.NnLastCheck )
+            {
+                Common::Json::Object entry;
+                entry["path"]    = Str( path );
+                entry["verdict"] = Str( verdict );
+                lastCheck.push_back( Common::Json::Value( entry ) );
+            }
+            nn["lastCheck"] = Common::Json::Value( lastCheck );
+
+            Common::Json::Object oidn;
+            oidn["created"] = Common::Json::Value( device.OidnCreated );
+            oidn["device"] = Str( device.OidnDevice );
+            oidn["reason"] = Str( device.OidnReason );
+            oidn["error"] = Str( device.OidnError );
+            oidn["runs"] = Num( static_cast<double>( device.OidnRuns ) );
+            oidn["lastPaths"] = Num( device.OidnLastPaths );
+            oidn["lastWidth"] = Num( device.OidnLastWidth );
+            oidn["lastHeight"] = Num( device.OidnLastHeight );
+            oidn["lastFilterMs"] = Num( device.OidnLastMilliseconds );
+
+            Common::Json::Value::Array modes;
+            for ( const std::string& mode : device.RtModes )
+                modes.push_back( Str( mode ) );
+            Common::Json::Value::Array rows;
+            for ( const std::string& row : device.MethodRows )
+                rows.push_back( Str( row ) );
+
+            Common::Json::Object pathTracing;
+            pathTracing["available"] = Common::Json::Value( device.PathTracingRefusal.empty() );
+            pathTracing["reason"]    = Str( device.PathTracingRefusal );
+            pathTracing["active"]    = Common::Json::Value( device.PathTracingActive );
+
+            Common::Json::Object methods;
+            methods["gi"]          = Str( device.GIMethod );
+            methods["reflections"] = Str( device.ReflectionsMethod );
+            methods["shadows"]     = Str( device.ShadowsMethod );
+            methods["rows"]        = Common::Json::Value( rows );
+
+            Common::Json::Object section;
+            section["name"]        = Str( device.Name );
+            section["nn"]          = Common::Json::Value( nn );
+            section["bufferDeviceAddress"] = Common::Json::Value( device.BufferDeviceAddress );
+            section["rt"]          = Str( device.Rt );
+            section["rtModes"]     = Common::Json::Value( modes );
+            section["pathTracing"] = Common::Json::Value( pathTracing );
+            section["methods"]     = Common::Json::Value( methods );
+            Common::Json::Object emissive;
+            const auto count = []( const uint64_t value ) { return Num( static_cast<double>( value ) ); };
+            emissive["gatherFullRebuilds"]       = count( device.EmissiveGatherFullRebuilds );
+            emissive["gatherMoves"]              = count( device.EmissiveGatherMoves );
+            emissive["emissiveListFullRebuilds"] = count( device.EmissiveListFullRebuilds );
+            emissive["emissiveListMoves"]        = count( device.EmissiveListMoves );
+            emissive["gpuFullRebuilds"]          = count( device.EmissiveGpuFullRebuilds );
+            emissive["gpuMoves"]                 = count( device.EmissiveGpuMoves );
+            emissive["gpuMovesRetried"]          = count( device.EmissiveGpuMovesRetried );
+            section["emissiveLights"] = Common::Json::Value( emissive );
+            section["tlasFullBuilds"] = count( device.TlasFullBuilds );
+            section["tlasUpdates"]    = count( device.TlasUpdates );
+            section["tlasMovedRows"]  = count( device.TlasMovedRows );
+            section["oidn"]        = Common::Json::Value( oidn );
+            root["device"]  = Common::Json::Value( section );
+        }
+
+        if ( Wanted( sections, "nrc" ) )
+        {
+            const NrcSnapshot&         nrc = snapshot.Nrc;
+            Common::Json::Value::Array history;
+            for ( const float loss : nrc.LossHistory )
+                history.push_back( Num( loss ) );
+
+            Common::Json::Object section;
+            section["requested"]       = Str( nrc.Requested );
+            section["status"]          = Str( nrc.Status );
+            section["reason"]          = Str( nrc.Reason );
+            section["retryOn"]         = Str( nrc.RetryOn );
+            section["rebuilds"]        = Num( static_cast<double>( nrc.Rebuilds ) );
+            Common::Json::Object generations;
+            for ( const auto& [program, generation] : nrc.ProgramGenerations )
+                generations[program] = Num( static_cast<double>( generation ) );
+            section["programGenerations"] = Common::Json::Value( generations );
+            section["active"]          = Common::Json::Value( nrc.Active );
+            section["kernelPath"]      = Str( nrc.KernelPath );
+            section["trainingSteps"]   = Num( static_cast<double>( nrc.TrainingSteps ) );
+            section["trainingSamples"] = Num( nrc.TrainingSamples );
+            section["trainingPaths"]   = Num( nrc.TrainingPaths );
+            section["selfQueries"]     = Num( nrc.SelfQueries );
+            section["renderQueries"]   = Num( nrc.RenderQueries );
+            section["queryCapacity"]   = Num( nrc.QueryCapacity );
+            section["queryMemoryMB"]   = Num( static_cast<double>( nrc.QueryMemoryBytes ) / ( 1024.0 * 1024.0 ) );
+            section["trainLoss"]       = Num( nrc.TrainLoss );
+            section["firstTrainLoss"]  = Num( nrc.FirstTrainLoss );
+            section["lossHistory"]     = Common::Json::Value( history );
+            section["error"]           = Str( nrc.Error );
+            root["nrc"]                = Common::Json::Value( section );
         }
 
         if ( Wanted( sections, "quiescence" ) )

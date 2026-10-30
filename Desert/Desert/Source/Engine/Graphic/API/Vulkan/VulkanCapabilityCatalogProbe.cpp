@@ -1,4 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
+
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -14,6 +17,14 @@ namespace Desert::Graphic::API::Vulkan
         probe.Caps        = caps;
         probe.Portability = caps.Has( Capability::PortabilitySubset );
 
+        // FSR is linked (not a runtime that loads or not): the device and the build decide, by name.
+        if ( const Common::BoolResultStr fsr = FsrDeviceSupport( caps, kFsrBuilt ); fsr )
+            probe.FsrAvailable = true;
+        else
+        {
+            LOG_INFO( "[CapabilityCatalog] {}", fsr.GetError() );
+        }
+
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties( physicalDevice, &properties );
         probe.VendorId                    = properties.vendorID;
@@ -22,6 +33,9 @@ namespace Desert::Graphic::API::Vulkan
         probe.DepthSampleCounts           = properties.limits.framebufferDepthSampleCounts;
         probe.MaxSamplerAnisotropy        = properties.limits.maxSamplerAnisotropy;
         probe.MaxImageDimension2D         = properties.limits.maxImageDimension2D;
+        probe.MaxRenderArea               = std::min(
+             { properties.limits.maxFramebufferWidth, properties.limits.maxFramebufferHeight,
+                             properties.limits.maxViewportDimensions[0], properties.limits.maxViewportDimensions[1] } );
         probe.TimestampComputeAndGraphics = properties.limits.timestampComputeAndGraphics == VK_TRUE;
 
         // The largest device-local heap, as DeviceCapabilities::VideoMemory counts it.
@@ -58,6 +72,37 @@ namespace Desert::Graphic::API::Vulkan
                 probe.SeparateComputeFamily = true;
         }
 
+        // Whether the driver EXPORTS the two handle types OIDN imports (CapabilityCatalog::Sharing): a storage
+        // buffer the path tracer writes and copies, and a timeline semaphore. Core 1.1 queries.
+        const auto bufferExportable = [physicalDevice]( VkExternalMemoryHandleTypeFlagBits handleType )
+        {
+            VkPhysicalDeviceExternalBufferInfo info{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO };
+            info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            info.handleType = handleType;
+            VkExternalBufferProperties properties{ VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES };
+            vkGetPhysicalDeviceExternalBufferProperties( physicalDevice, &info, &properties );
+            return ( properties.externalMemoryProperties.externalMemoryFeatures &
+                     VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT ) != 0;
+        };
+        const auto timelineExportable = [physicalDevice]( VkExternalSemaphoreHandleTypeFlagBits handleType )
+        {
+            VkSemaphoreTypeCreateInfo timeline{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+            timeline.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+            VkPhysicalDeviceExternalSemaphoreInfo info{
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO };
+            info.pNext      = &timeline;
+            info.handleType = handleType;
+            VkExternalSemaphoreProperties properties{ VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES };
+            vkGetPhysicalDeviceExternalSemaphoreProperties( physicalDevice, &info, &properties );
+            return ( properties.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT ) != 0;
+        };
+        probe.ExternalBufferExportWin32 = bufferExportable( VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT );
+        probe.ExternalBufferExportFd    = bufferExportable( VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT );
+        probe.ExternalTimelineExportWin32 =
+             timelineExportable( VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT );
+        probe.ExternalTimelineExportFd = timelineExportable( VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT );
+
         // No third-party upscaler SDK is integrated, so none of their runtimes can have reported this device:
         // the flags keep their false default and the catalog never offers them.
 
@@ -93,6 +138,10 @@ namespace Desert::Graphic::API::Vulkan
                     probe.PresentModes.clear();
             }
         }
+        // What a vendor runtime offers (DlssAvailable...): its own answer, given once the device's requirements
+        // were enabled or refused.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( probe );
         return probe;
     }
 } // namespace Desert::Graphic::API::Vulkan

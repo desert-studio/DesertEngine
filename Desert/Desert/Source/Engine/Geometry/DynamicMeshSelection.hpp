@@ -11,11 +11,15 @@
 // GeometrySelectionUtil.
 
 #include "Engine/Geometry/ElementSelection.hpp"
-// The complete types, not forward declarations: this adapter is the editor's door to the two MeshCore types a
-// selection is made of (MeshElementSelection holds the mesh and owns the topology), and the MeshCore include
-// gate (scripts/CI/MeshCoreIncludes.sh) lets only the Geometry adapters include MeshCore/ from outside it.
+// The complete types, not forward declarations: this adapter is the editor's door to the MeshCore types its
+// modeling tools work on - the mesh and topology a selection is made of (MeshElementSelection holds the mesh and
+// owns the topology), the attribute set the material / UV / tangent tools read and write per element, and the
+// AABB tree the brush tools (Paint Groups) ray-pick through. The MeshCore include gate
+// (scripts/CI/MeshCoreIncludes.sh) lets only the Geometry adapters include MeshCore/ from outside it.
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -32,7 +36,15 @@ namespace Desert::Geometry
     };
     [[nodiscard]] const char* ToString( TopologyLevel level );
 
-    // @p topology is GroupTopology( &mesh, true ): MeshElementSelection keeps the two together. The hit's Id is
+    // The polygroup topology every Modeling Mode pick and operation runs on (UE UEditMeshPolygonsTool's
+    // Topology): a group edge is also cut where its boundary turns sharper than
+    // PolyEditExtraCornerAngleDegrees, so a plane's one-group border is four edges, not one loop. UE's
+    // UPolyEditTopologyProperties default: bAddExtraCorners on, ExtraCornerAngleThresholdDegrees 135. The
+    // selection and every operation that maps its mesh IDs back to group edges must build the SAME topology.
+    inline constexpr double     PolyEditExtraCornerAngleDegrees = 135.0;
+    [[nodiscard]] GroupTopology PolyEditTopology( const DynamicMesh3& mesh );
+
+    // @p topology is PolyEditTopology( mesh ): MeshElementSelection keeps the two together. The hit's Id is
     // a mesh ID in every mode and level (a group edge's picked SEGMENT, a corner's vertex); HitElements turns it
     // into what a click selects.
     [[nodiscard]] ElementHit PickElement( const DynamicMesh3& mesh, const GroupTopology& topology,
@@ -51,4 +63,9 @@ namespace Desert::Geometry
                                                     const ElementSelection& selection );
     [[nodiscard]] ElementSelection InvertSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                                     const ElementSelection& selection );
+
+    // Every live triangle ID of @p mesh, in iteration order: the "whole mesh" region a mesh-wide operation
+    // (UV unwrap/reset, XForm merge/duplicate) runs on. One definition; the per-file copies in
+    // DynamicMeshUVOperations.cpp and DynamicMeshXformOperations.cpp collided in one unity blob (C2084).
+    [[nodiscard]] std::vector<int> AllTriangleIds( const DynamicMesh3& mesh );
 } // namespace Desert::Geometry

@@ -4,8 +4,8 @@
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
@@ -323,7 +323,7 @@ namespace Desert::Core
 
         bool SameTransform( const ECS::TransformComponent& a, const ECS::TransformComponent& b )
         {
-            return a.Translation == b.Translation && a.Rotation == b.Rotation && a.Scale == b.Scale;
+            return a.GetLocal() == b.GetLocal();
         }
 
         bool ReadVec3( const Json::Node& node, glm::vec3& out )
@@ -516,9 +516,9 @@ namespace Desert::Core
         {
             const auto& transform = registry.get<ECS::TransformComponent>( pawn );
             document.Set( "Pawn", Json::ObjectBuilder{}
-                                       .Set( "Translation", transform.Translation )
-                                       .Set( "Rotation", transform.Rotation )
-                                       .Set( "Scale", transform.Scale )
+                                       .Set( "Translation", transform.GetTranslation() )
+                                       .Set( "Rotation", transform.GetRotation() )
+                                       .Set( "Scale", transform.GetScale() )
                                        .Set( "Components", CaptureBlocks( registry, pawn, schema.Types ) )
                                        .Set( "Scripts", CaptureScripts( registry, pawn, schema.Scripts ) )
                                        .Build() );
@@ -590,17 +590,15 @@ namespace Desert::Core
             {
                 auto&                         transform   = registry.get<ECS::TransformComponent>( pawn );
                 const ECS::TransformComponent before      = transform;
-                glm::vec3                     translation = transform.Translation, rotation = transform.Rotation,
-                          scale = transform.Scale;
+                glm::vec3                     translation = transform.GetTranslation(), rotation = transform.GetRotation(),
+                          scale = transform.GetScale();
                 const auto t    = pawnRecord->Find( "Translation" );
                 const auto r    = pawnRecord->Find( "Rotation" );
                 const auto s    = pawnRecord->Find( "Scale" );
                 if ( t && r && s && ReadVec3( *t, translation ) && ReadVec3( *r, rotation ) &&
                      ReadVec3( *s, scale ) )
                 {
-                    transform.Translation = translation;
-                    transform.Rotation    = rotation;
-                    transform.Scale       = scale;
+                    ECS::SetLocalTransform( registry, pawn, ECS::LocalTransform{ translation, rotation, scale } );
                     report.PawnRestored   = true;
                 }
                 else

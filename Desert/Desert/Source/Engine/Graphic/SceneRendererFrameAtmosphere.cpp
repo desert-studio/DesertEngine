@@ -1,8 +1,10 @@
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -66,37 +68,63 @@ namespace Desert::Graphic
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
         // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
         particles->AddSortPasses( graph );
+        // VFX-09: Mesh renderer rows as GPU instances of the mesh renderer (lit by the GBuffer, cast into the
+        // cascades) - submitted here, before the cascades and the base pass build their draws.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            particles->AddMeshInstances( graph, *meshes );
     }
 
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )
     {
+        // ASYNC COMPUTE (UE Niagara GPU simulation on the async pipe): every node reads and writes the particle pool and
+        // the emitters' host-written step tables only; the first graphics reader is the particle draw (translucency)
+        // or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run async as well, so the run
+        // is not joined by its own next node. Fork: the pool imports' first touch; join: that first reader.
+        const RDG::PassFlags kSimulationFlags = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         System::ParticleRenderer* particles = &renderer;
         const uint32_t            steps     = particles->SimulationStepCount();
         graph.AddPass(
-             "Particles: Compact 0", RDG::PassFlags::Compute,
+             "Particles: Compact 0", kSimulationFlags,
              [particles]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0 ); },
              [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return particles->Compact( context, 0 ); } );
         for ( uint32_t step = 0; step < steps; ++step )
         {
             graph.AddPass(
-                 std::format( "Particles: Dispatch Args {}", step ), RDG::PassFlags::Compute,
+                 std::format( "Particles: Dispatch Args {}", step ), kSimulationFlags,
                  [particles, step]( RDG::PassBuilder& pass )
                  { particles->DeclareDispatchArgsBindings( pass, step ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->BuildDispatchArgs( context, step ); } );
             graph.AddPass(
-                 std::format( "Particles: Spawn+Update {}", step ), RDG::PassFlags::Compute,
+                 std::format( "Particles: Spawn+Update {}", step ), kSimulationFlags,
                  [particles, step]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass, step ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Simulate( context, step ); } );
             graph.AddPass(
-                 std::format( "Particles: Compact {}", step + 1 ), RDG::PassFlags::Compute,
+                 std::format( "Particles: Compact {}", step + 1 ), kSimulationFlags,
                  [particles, step]( RDG::PassBuilder& pass )
                  { particles->DeclareCompactBindings( pass, step + 1 ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Compact( context, step + 1 ); } );
         }
+        // VFX-16 (UE Niagara Debugger, dev only): the GPU counts and one attribute page, after the last compact (the
+        // graph orders it from the buffers), only while an editor debugger asks.
+        if ( particles->DebugReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Debug Readback", kSimulationFlags,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->DebugReadback( context ); } );
+        // VFX-LIGHT (UE Niagara Light Renderer): the Light rows' particles, after the last compact, for the
+        // scene's particle point lights FramesInFlight frames later (ParticleWorldGpu::ReadLightReadbacks).
+        if ( particles->LightReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Light Readback", kSimulationFlags,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareLightReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->LightReadback( context ); } );
     }
 
     void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )
@@ -109,11 +137,48 @@ namespace Desert::Graphic
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds == nullptr )
             return;
-        clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() ) );
-        // Its readers take this graph ref through SceneViewInputsOf (CloudShadowMapOrWhite): one registration
-        // per engine image.
-        if ( clouds->HasShadowMap() )
-            textures.Transients.CloudShadowMap = textures.Import( clouds->GetShadowMap(), "Clouds.ShadowMap" );
+        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareShadowMapNodes( graph );
+        // ASYNC COMPUTE (UE r.VolumetricCloud.ShadowMap on the async pipe): every input is the cloud field (host
+        // payloads, the uploads just below) and its first reader is a lit pass after the shadow depths, the light
+        // grids and the G-buffer, so the march overlaps them. Fork: after the input uploads; join: the first lit
+        // reader of Clouds.ShadowMap.
+        for ( ComputeNodeDeclaration& node : nodes )
+            node.AsyncCompute = true;
+        clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
+        clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
+        // A transient of this graph; its readers take the ref through SceneViewInputsOf (CloudShadowMapOrWhite).
+        textures.Transients.CloudShadowMap = clouds->GetShadowMap();
+    }
+
+    void SceneRenderer::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // A path-traced frame draws no screen clouds, but the layer's sky-occlusion volume is an input of the sky
+        // capture that marches the clouds into the environment the paths read (PathTracerSky "Prepare"): without
+        // it the capture waits on an undecided volume and the path-traced sky has no clouds.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        if ( clouds == nullptr )
+            return;
+        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareSkyOcclusionNodes();
+        clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
+        clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
+    }
+
+    void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        if ( sky == nullptr )
+            return;
+        // The cloud inputs the environment bake made this update (OnUpdate, before this graph) reach their images
+        // here, ahead of the capture that marches them.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        if ( auto* clouds =
+                  UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] ) )
+            clouds->AddInputUploads( graph, textures );
+        sky->SettleAtmosphereCachedLutNodes(
+             AddComputeNodes( graph, textures, sky->DeclareAtmosphereCachedLutNodes() ) );
+        sky->AddSkyCapturePasses( graph, textures );
     }
 
     void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
@@ -124,12 +189,96 @@ namespace Desert::Graphic
             sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
     }
 
+    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
+                                               const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
+        if ( volume == nullptr )
+            return;
+
+        // The sun exactly as the surfaces receive it: DirLights[0] after the atmosphere's transmittance
+        // (BeginScene), times its VolumetricScatteringIntensity, shadowed by the same cascades.
+        System::VolumetricFogSunInput sun;
+        if ( const auto& lights = m_DirectionLights.DirectionLights; !lights.empty() )
+        {
+            sun.Present   = true;
+            sun.TowardSun = glm::normalize( -glm::vec3( lights[0].Direction ) );
+            sun.Radiance  = glm::vec3( lights[0].ColorIntensity ) * lights[0].ColorIntensity.w *
+                           glm::max( m_SunVolumetricScatteringIntensity, 0.0f );
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // The sun is directional-shadow slot 0, published by the mesh renderer exactly as every receiver packs it.
+        if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+             mesh != nullptr && mesh->AreShadowsEnabled() )
+        {
+            // The sun is directional slot 0 (DirLights[0]); its cascades as this frame publishes them, the same
+            // value the opaque receivers pack (MeshRenderer::DirectionalShadows).
+            const SceneResources::DirectionalShadowView view = mesh->DirectionalShadows()[0];
+            if ( view.CastShadows && view.CascadeVP != nullptr && view.FirstLayer == 0 )
+            {
+                sun.CascadeCount = std::min<uint32_t>( view.Count, 4u );
+                for ( uint32_t c = 0; c < sun.CascadeCount; ++c )
+                    sun.CascadeViewProj[c] = view.CascadeVP[c];
+                sun.CascadeWorldPerTexel = view.CascadeWorldPerTexel;
+                sun.CascadeDepthRange    = view.CascadeDepthRange;
+            }
+        }
+        // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
+        // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
+        AddComputeNodes( graph, textures,
+                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual() ) );
+    }
+
+    void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        AddFrameSceneDepthResolve( graph, textures );
+        AddFrameSkyAtmosphereLuts( graph, textures );
+        AddFrameVolumetricFog( graph, textures, frame );
+        AddFrameAtmosphericFog( graph, textures );
+    }
+
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
-        if ( fog != nullptr )
-            AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients ) );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
+        const System::VolumetricFogFrameResult volumeResult =
+             volume != nullptr ? volume->GetFrameResult() : System::VolumetricFogFrameResult{};
+        if ( fog == nullptr )
+            return;
+        // The evaluation of the OPAQUE depth, then its apply over the scene target - the opaque composite only.
+        AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients, volumeResult ) );
+        // No fog image this frame (neither fog nor aerial perspective): no apply node at all. A G-buffer view
+        // (IsGBufferView) shows the stored surface value: the inputs below still publish, the apply does not run.
+        if ( textures.Transients.HeightFog.IsValid() && !IsGBufferView( m_DebugView.DeferredDebug ) )
+            AddSystemRaster( graph, textures, fog->ApplyPass() );
+
+        // What every translucent surface after this point fogs itself with, at its own depth
+        // (Common/ViewFog.glslh, bound by name through SceneViewInputs): DeclareFrameNodes published the parameter
+        // block (always - gates 0 without fog); here the three images it reads, each the engine's fallback when
+        // absent (the block's gates say it is not sampled), so a translucent cell never has an unbound slot.
+        const AtmosphereEnv&         atmosphere = GetAtmosphere();
+        const std::shared_ptr<Image> fallback3D =
+             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        FrameTransients& t = textures.Transients;
+        if ( atmosphere.AerialPerspectiveVolume )
+            t.FogAerialPerspective = textures.Import( std::shared_ptr<Image>( atmosphere.AerialPerspectiveVolume ),
+                                                      "Sky.AerialPerspectiveLut" );
+        else
+            t.FogAerialPerspective = textures.Import( fallback3D, "HeightFog.AerialPerspectiveFallback" );
+        if ( atmosphere.DistantSkyLight )
+            t.FogDistantSkyLight =
+                 textures.Import( std::shared_ptr<Image>( atmosphere.DistantSkyLight ), "Sky.DistantLight" );
+        else
+            t.FogDistantSkyLight = textures.Import(
+                 FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ),
+                 "HeightFog.DistantSkyLightFallback" );
+        if ( volumeResult.Integrated != nullptr )
+            t.FogVolume = textures.Import( volumeResult.Integrated, "VolumetricFog.Integrated" );
+        else
+            t.FogVolume = textures.Import( fallback3D, "HeightFog.VolumetricFogFallback" );
     }
 
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
@@ -139,18 +288,20 @@ namespace Desert::Graphic
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds == nullptr )
             return;
-        clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes( graph, frame ) ) );
-        // The composite (a translucency pass, added after this by AddFrameTranslucency) samples the pair by graph
-        // ref.
+        VolumetricCloudHistory&             history = m_ViewState.Clouds();
+        std::vector<ComputeNodeDeclaration> nodes   = clouds->DeclareFrameNodes( graph, frame, history );
+        clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
+        // The resolve is the last node: its AddPass index is the writer whose loss the view's EndFrame checks.
+        const uint32_t resolvePass = graph.GetPassCount() + static_cast<uint32_t>( nodes.size() ) - 1u;
+        const bool     hasNodes    = !nodes.empty();
+        const bool     accepted    = AddComputeNodes( graph, textures, std::move( nodes ) );
+        clouds->SettleFrameNodes( accepted );
+        // The composite (a translucency pass, added after this by AddFrameTranslucency) samples this frame's pair
+        // by graph ref: transients the view extracts as its history (SceneViewState::Clouds).
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
-        textures.Transients.CloudScatter =
-             textures.Import( result.Scatter, std::format( "Clouds.History{}", result.Slot ) );
-        textures.Transients.CloudGuide =
-             textures.Import( result.Guide, std::format( "Clouds.HistoryGuide{}", result.Slot ) );
-        // The pair is next frame's history: if a fault removes the resolve that writes it, the history restarts.
-        for ( const RDG::TextureRef history :
-              { textures.Transients.CloudScatter, textures.Transients.CloudGuide } )
-            if ( history.IsValid() )
-                textures.MarkHistory( history, [clouds]() { clouds->OnTemporalHistoryReset(); } );
+        if ( accepted && hasNodes && result.Scatter.IsValid() )
+            history.SetWriterPass( resolvePass );
+        textures.Transients.CloudScatter = result.Scatter;
+        textures.Transients.CloudGuide   = result.Guide;
     }
 } // namespace Desert::Graphic

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <numbers>
 #include <vector>
 
 namespace Desert::Geometry
@@ -283,6 +285,15 @@ namespace Desert::Geometry
         return "?";
     }
 
+    GroupTopology PolyEditTopology( const DynamicMesh3& mesh )
+    {
+        // UEditMeshPolygonsTool::Setup's hook: IsEdgeAngleSharp at cos(threshold).
+        const double dotThreshold = std::cos( PolyEditExtraCornerAngleDegrees * std::numbers::pi / 180.0 );
+        return GroupTopology(
+             &mesh, [dotThreshold]( const GroupTopology& topology, int32_t vertex, const Index2i& edges )
+             { return GroupTopology::IsEdgeAngleSharp( *topology.GetMesh(), vertex, edges, dotThreshold ); } );
+    }
+
     ElementHit PickElement( const DynamicMesh3& mesh, const GroupTopology& topology, ElementMode mode,
                             const PickView& view, TopologyLevel level )
     {
@@ -367,5 +378,14 @@ namespace Desert::Geometry
     PruneReport ElementSelection::Prune( const DynamicMesh3& mesh )
     {
         return PruneIn( DynamicMeshElements( mesh ) );
+    }
+
+    std::vector<int> AllTriangleIds( const DynamicMesh3& mesh )
+    {
+        std::vector<int> out;
+        out.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
+        for ( const int tid : mesh.TriangleIndicesItr() )
+            out.push_back( tid );
+        return out;
     }
 } // namespace Desert::Geometry

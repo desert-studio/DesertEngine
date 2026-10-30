@@ -24,20 +24,13 @@ project "DesertUI"
         "Source/UI/**.hpp",
     }
 
-    includedirs {
-        "Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
-    }
+    includedirs { "Source/" }
+
+    includedirs(DesertModuleLibs.ClosureIncludeDirs("DesertUI"))
 
     links { "Render2DCore", "Common" }
 
     for name, path in pairs(deps.Common.IncludeDir) do
-        externalincludedirs { path }
-    end
-
-    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 

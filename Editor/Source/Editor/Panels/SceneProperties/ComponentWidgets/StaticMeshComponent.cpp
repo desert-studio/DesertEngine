@@ -11,7 +11,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -25,7 +25,10 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <format>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 
 namespace Desert::Editor
 {
@@ -50,13 +53,15 @@ namespace Desert::Editor
         Utils::ImGuiUtilities::BeginPropertyRow( "Mesh Type" );
 
         const char* meshTypes[] = { "Asset", "Primitive" };
-        int currentType = staticMesh.Primitive.has_value() ? 1 : 0;
+        int currentType = staticMesh.GetPrimitive().has_value() ? 1 : 0;
         if ( ImGui::Combo( "##MeshType", &currentType, meshTypes, IM_ARRAYSIZE( meshTypes ) ) )
         {
+            ECS::StaticMeshDesc desc = staticMesh.GetDesc();
             if ( currentType == 0 )
-                staticMesh.Primitive.reset();
+                desc.Primitive.reset();
             else
-                staticMesh.Primitive = Geometry::PrimitiveType::Cube;
+                desc.Primitive = Geometry::PrimitiveType::Cube;
+            ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
         }
 
         Utils::ImGuiUtilities::EndPropertyRow();
@@ -66,60 +71,20 @@ namespace Desert::Editor
         constexpr float kThumb   = 64.0f;
         const float     assetRow = std::max( kThumb, ImGui::GetFrameHeight() ) + ImGui::GetStyle().ItemSpacing.y;
 
-        if ( !staticMesh.Primitive.has_value() )
+        if ( !staticMesh.GetPrimitive().has_value() )
         {
-            Utils::ImGuiUtilities::BeginPropertyRow( "Asset", nullptr, assetRow );
+            Utils::ImGuiUtilities::BeginPropertyRow( "Preview", nullptr, assetRow );
             DrawMeshThumbnail( staticMesh, kThumb );
-
-            std::string currentSelectionName = "Select Mesh";
-            bool        emptySlot            = true;
-            if ( staticMesh.MeshHandle )
-            {
-                auto meshAsset = m_AssetManager->FindByHandle<Assets::MeshAsset>( staticMesh.MeshHandle );
-                if ( meshAsset )
-                {
-                    currentSelectionName = Common::Utils::FileSystem::GetFileName( meshAsset->GetMetadata().Filepath );
-                    emptySlot = false;
-                }
-            }
-
-            // A sunk asset slot, not a raised button: this row HOLDS a value (UE draws it the same way).
-            const bool clicked =
-                 Utils::ImGuiUtilities::AssetSlot( "MeshSlot", currentSelectionName.c_str(), emptySlot );
-            if ( TakeDetailsPickerRequest( "Static mesh" ) || clicked )
-            {
-                ImGui::OpenPopup( "mesh_selector" );
-            }
-            DrawAssetFieldOpen( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
-            DrawAssetFieldButtons( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
-
-            if ( ImGui::BeginPopup( "mesh_selector" ) )
-            {
-                const auto             meshAssets = Assets::ContentRegistry::MeshRows( false );
-                static ImGuiTextFilter meshFilter;
-                meshFilter.Draw( "##Search", 200 );
-                ImGui::Separator();
-                // Fixed height that scrolls: a popup as tall as the project's mesh count outgrows the editor
-                // window and, with multi-viewports, becomes a separate OS window away from this slot.
-                constexpr float kPickerRows = 14.0f;
-                ImGui::BeginChild( "##meshes", ImVec2( ImGui::GetFontSize() * 20.0f,
-                                                       ImGui::GetTextLineHeightWithSpacing() * kPickerRows ) );
-
-                for ( const auto& row : meshAssets )
-                {
-                    const std::string meshName = ::Desert::Editor::PickerDisplayName( row );
-                    if ( meshFilter.PassFilter( meshName.c_str() ) )
-                    {
-                        if ( ImGui::Selectable( meshName.c_str(), staticMesh.MeshHandle == row.Handle ) )
-                        {
-                            SetMeshAsset( staticMesh, row.Handle );
-                        }
-                    }
-                }
-                ImGui::EndChild();
-                ImGui::EndPopup();
-            }
             Utils::ImGuiUtilities::EndPropertyRow();
+
+            // THE MESH ROW IS THE REFLECTED FIELD (UE: UStaticMeshComponent::StaticMesh drawn by the generic
+            // Details), so a pick here, a DesertCtl `set` and an undo all write the same member and re-state
+            // what depends on it through the same PostEditStaticMesh.
+            const ECS::StaticMeshDesc before = staticMesh.GetDesc();
+            if ( PropertyEditorBuilder::Draw( &staticMesh, "StaticMeshComponent", m_AssetManager,
+                                              m_Ctx ? m_Ctx->UIHelper : nullptr,
+                                              m_Ctx ? m_Ctx->FieldFilter : nullptr ) )
+                ECS::PostEditStaticMesh( *entity.GetRegistry(), entity.GetHandle(), before );
         }
         else
         {
@@ -134,12 +99,14 @@ namespace Desert::Editor
             for ( size_t i = 0; i < Geometry::kAuthorablePrimitives.size(); ++i )
             {
                 shapes[i] = Geometry::PrimitiveTypeName( Geometry::kAuthorablePrimitives[i] );
-                if ( Geometry::kAuthorablePrimitives[i] == staticMesh.Primitive.value() )
+                if ( Geometry::kAuthorablePrimitives[i] == staticMesh.GetPrimitive().value() )
                     currentShape = static_cast<int>( i );
             }
             if ( ImGui::Combo( "##Shape", &currentShape, shapes.data(), static_cast<int>( shapes.size() ) ) )
             {
-                staticMesh.Primitive = Geometry::kAuthorablePrimitives[static_cast<size_t>( currentShape )];
+                ECS::StaticMeshDesc desc = staticMesh.GetDesc();
+                desc.Primitive           = Geometry::kAuthorablePrimitives[static_cast<size_t>( currentShape )];
+                ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
                 // MeshECSSystem will handle the dynamic mesh generation/update
             }
 
@@ -196,9 +163,9 @@ namespace Desert::Editor
         bool                              materialPicture = false;
         if ( m_AssetManager )
         {
-            if ( staticMesh.MeshHandle )
+            if ( staticMesh.GetMeshHandle() )
             {
-                if ( auto mesh = m_AssetManager->FindByHandle<Assets::MeshAsset>( staticMesh.MeshHandle ) )
+                if ( auto mesh = m_AssetManager->FindByHandle<Assets::MeshAsset>( staticMesh.GetMeshHandle() ) )
                 {
                     source = mesh->GetMetadata().Filepath.generic_string();
                     // NO material override, and that is a decision rather than an omission. The cache is
@@ -207,13 +174,13 @@ namespace Desert::Editor
                     // entities that share one mesh in a fight over one file, and the second one selected
                     // would be shown the first one's paint with nothing able to tell them apart. The
                     // per-asset picture is what Details shows, as UE's does (THM-FIXF: no live view here).
-                    png = ThumbnailService::Get().RequestMesh( staticMesh.MeshHandle, source );
+                    png = ThumbnailService::Get().RequestMesh( staticMesh.GetMeshHandle(), source );
                 }
             }
-            if ( png.empty() && !staticMesh.MaterialSlots.empty() && staticMesh.MaterialSlots.front() )
+            if ( png.empty() && !staticMesh.GetMaterialSlots().empty() && staticMesh.GetMaterialSlots().front() )
             {
                 if ( auto mat = m_AssetManager->FindByHandle<Assets::SurfaceMaterialAsset>(
-                          staticMesh.MaterialSlots.front() ) )
+                          staticMesh.GetMaterialSlots().front() ) )
                 {
                     source = mat->GetMetadata().Filepath.generic_string();
                     // WHICH PICTURE, from the one place that decides — this file used to hold its own
@@ -276,7 +243,7 @@ namespace Desert::Editor
     void StaticMeshComponentWidget::RenderRigging( ECS::Entity& entity, ECS::StaticMeshComponent& staticMesh )
     {
         // Rigging needs asset-backed CPU geometry (primitives/procedural have no StaticMeshAsset vertices).
-        if ( staticMesh.Primitive.has_value() || !staticMesh.MeshHandle )
+        if ( staticMesh.GetPrimitive().has_value() || !staticMesh.GetMeshHandle() )
             return;
         if ( !entity.HasComponent<ECS::UUIDComponent>() )
             return;
@@ -285,7 +252,7 @@ namespace Desert::Editor
 
         // Seed / default placement = the mesh's local AABB centre.
         glm::vec3 center( 0.0f );
-        if ( auto asset = m_AssetManager->FindByHandle<Assets::StaticMeshAsset>( staticMesh.MeshHandle ) )
+        if ( auto asset = m_AssetManager->FindByHandle<Assets::StaticMeshAsset>( staticMesh.GetMeshHandle() ) )
         {
             const auto& verts = asset->GetVertices();
             if ( !verts.empty() )
@@ -336,9 +303,8 @@ namespace Desert::Editor
         for ( int i = 0; i < static_cast<int>( bones.size() ); ++i )
         {
             ImGui::PushID( i );
-            std::string label = std::string( ICON_MDI_BONE "  " ) + bones[i].Name;
-            if ( bones[i].Parent < 0 )
-                label += "   (root)";
+            const std::string label =
+                 std::format( ICON_MDI_BONE "  {}{}", bones[i].Name, bones[i].Parent < 0 ? "   (root)" : "" );
             if ( ImGui::Selectable( label.c_str(), i == sel ) )
                 RigBuilder::SelectBone( i );
             ImGui::PopID();
@@ -373,25 +339,43 @@ namespace Desert::Editor
         ImGui::Unindent( 6.0f );
     }
 
-    void StaticMeshComponentWidget::SetMeshAsset( ECS::StaticMeshComponent& staticMesh, const Assets::AssetHandle& handle )
-    {
-        staticMesh.MeshHandle = handle;
-        staticMesh.Primitive.reset();
-        // Load default materials from asset...
-    }
-
     std::string StaticMeshComponentWidget::GetPrimitiveName( const ECS::StaticMeshComponent& staticMesh ) const
     {
         // Was a three-case switch with a `default: return "Primitive"`, so a cylinder, a capsule and a
         // pyramid all read as "Primitive" in the one place that names the mesh being drawn.
-        if ( !staticMesh.Primitive )
+        if ( !staticMesh.GetPrimitive() )
             return "None";
-        return Geometry::PrimitiveTypeName( *staticMesh.Primitive );
+        return Geometry::PrimitiveTypeName( *staticMesh.GetPrimitive() );
     }
 
-    DESERT_REGISTER_CUSTOM_COMPONENT( ECS::StaticMeshComponent, "3D Model", false,
-                                      ( []( ECS::Entity& e, ::Desert::Core::Scene* s,
-                                            const ComponentEditContext& ctx )
-                                        { StaticMeshComponentWidget( ctx.AssetMgr(), &ctx ).Render( e, s ); } ) )
+    namespace
+    {
+        // A custom Details layout (Mesh Type, the Materials list - UE customizes both) over a REFLECTED
+        // component: DataPtr and ReflectedTypeName let the header summary, the search filter and DesertCtl
+        // `set` reach StaticMesh.MeshHandle / StaticMesh.MaterialSlots[i], and EditData re-states what an edit
+        // there changes (PostEditStaticMesh), exactly as a pick in the panel does.
+        ComponentEditorEntry MakeStaticMeshEntry()
+        {
+            using C = ECS::StaticMeshComponent;
+            ComponentEditorEntry e = MakeCustomComponentEntry<C>(
+                 "3D Model",
+                 []( ECS::Entity& en, ::Desert::Core::Scene* s, const ComponentEditContext& ctx )
+                 { StaticMeshComponentWidget( ctx.AssetMgr(), &ctx ).Render( en, s ); },
+                 false );
+            e.ReflectedTypeName = "StaticMeshComponent";
+            e.DataPtr           = []( ECS::Entity& en ) -> void* { return &en.GetComponent<C>(); };
+            e.EditData          = []( ECS::Entity& en, const std::function<void( void* )>& edit )
+            {
+                // The edit lands on a COPY and reaches the entity through the writer (ApplyStaticMeshEdit ->
+                // SetStaticMesh); a reflected write never touches the component in its EnTT storage.
+                C edited = en.GetComponent<C>();
+                edit( &edited );
+                ECS::ApplyStaticMeshEdit( *en.GetRegistry(), en.GetHandle(), edited.GetDesc() );
+            };
+            return e;
+        }
+
+        [[maybe_unused]] const int s_StaticMeshEntry = ComponentWidgetRegistry::Get().Register( MakeStaticMeshEntry() );
+    } // namespace
 
 } // namespace Desert::Editor

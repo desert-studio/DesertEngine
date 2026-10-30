@@ -8,12 +8,15 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <Common/Core/Profiler.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <thread>
+#include <utility>
 
 namespace Desert::Engine
 {
@@ -44,7 +47,12 @@ namespace Desert::Engine
         // 2. Partially initialize EngineContext
         EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
 
-        // 3. Create Device
+        // 3. The machine's store, then the device: the device is created from what machine.json withholds
+        // (HideRayTracing), so the store cannot wait for QualityBoot, which runs after the device exists.
+        if ( !appInfo.MachineSettingsFile.empty() )
+            ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
+
+        // 3b. Create Device
         // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
         // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
         // and the process ends with that message and a failing exit code. Not std::exit: worker threads
@@ -184,7 +192,9 @@ namespace Desert::Engine
             DESERT_PROFILE_FRAME( "Frame" );
 
             float    time     = (float)glfwGetTime();
-            const float timestep = m_FixedDeltaTime.has_value() ? *m_FixedDeltaTime : time - m_LastFrameTime;
+            const float held     = std::exchange( m_ExcludedSeconds, 0.0f );
+            const float timestep = m_FixedDeltaTime.has_value() ? *m_FixedDeltaTime
+                                                                : std::max( 0.0f, time - m_LastFrameTime - held );
             m_LastFrameTime   = time;
 
             m_EngineStats.Update();
@@ -272,6 +282,7 @@ namespace Desert::Engine
             // Textures whose cook finished on a worker get their GPU image here, within the per-frame upload
             // budget (TextureUploadSettings), before any command buffer of this frame is open.
             Runtime::ResourceRegistry::GetTextureService()->PumpUploads();
+            Runtime::ResourceRegistry::GetTextureService()->UpdateStreaming();
 
             // 3. Start recording commands for this frame
             const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();

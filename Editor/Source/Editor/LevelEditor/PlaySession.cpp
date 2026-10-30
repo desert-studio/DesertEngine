@@ -1,6 +1,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/PlayKeptChanges.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/ShotOptions.hpp"
 #include "Editor/Core/ThemeManager.hpp"
@@ -20,6 +21,9 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/ECS/System/DestructionFields.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <ImGui/imgui.h>
 
 #include <algorithm>
@@ -81,6 +85,17 @@ namespace Desert::Editor
 
     void PlaySession::Play( bool fromHere, const std::string& playerStartTag )
     {
+        Start( fromHere ? StartKind::PlayFromHere : StartKind::Play, playerStartTag );
+    }
+
+    void PlaySession::Simulate()
+    {
+        Start( StartKind::Simulate, {} );
+    }
+
+    void PlaySession::Start( const StartKind kind, const std::string& playerStartTag )
+    {
+        const bool fromHere = kind == StartKind::PlayFromHere;
         using SceneState  = ::Desert::Core::Scene::SceneState;
         const auto& scene = m_Workspace.ActiveScene();
         if ( scene->GetState() != SceneState::Edit )
@@ -90,6 +105,7 @@ namespace Desert::Editor
         Desert::Core::SceneLoadPhases       phases( "Play start" );
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_PlayWorld.Begin( serializer.SerializeToJson() );
+        PlayKeptChanges::Clear(); // a new session keeps nothing an earlier one left unapplied
         phases.Lap( "write the Play snapshot", scene->GetAllEntities().size() );
         // The edit world's packages (which entities differ from their files, which records an editor region
         // left on disk) go with the snapshot: the restore at Stop is a load, and a load forgets them.
@@ -124,6 +140,7 @@ namespace Desert::Editor
         // streamer, which may unload the cell the PlayerStart stands in.
         Desert::Core::PlayRequest request;
         request.PlayerStartTag = playerStartTag;
+        request.Simulate       = kind == StartKind::Simulate;
         if ( fromHere && scene->GetActiveCamera() )
         {
             // Stand where the editor camera is, facing where it faces - yaw only.
@@ -144,7 +161,7 @@ namespace Desert::Editor
         phases.Lap( "spawn the player's pawn", scene->GetAllEntities().size() );
         auto streamer = Desert::Core::WorldStreamer::Begin(
              *scene, *m_Assets, completedFromDisk ? playedWorld : m_PlayWorld.AuthoredSnapshot(),
-             InstrumentStreamingSources() );
+             scene->Packages()->BaselinePath().value_or( std::filesystem::path() ), InstrumentStreamingSources() );
         phases.Lap( "begin the world streamer", scene->GetAllEntities().size() );
         phases.LogSummary();
         if ( !streamer )
@@ -174,6 +191,8 @@ namespace Desert::Editor
         // An undo stack recorded against the authored scene must not fire into Play or the restored state.
         CommandHistory::Get().Clear();
         m_State = State::Play;
+        if ( request.Simulate )
+            LOG_INFO( "[Play] Simulate In Editor: the world runs with no player; Stop restores the level" );
     }
 
     void PlaySession::Stop()
@@ -235,6 +254,9 @@ namespace Desert::Editor
         phases.LogSummary();
 
         scene->SetState( SceneState::Edit );
+        // What Play asked to keep (Capture current sky) lands on the restored world, undoable, now that it is
+        // the edit world again.
+        PlayKeptChanges::ApplyTo( *scene );
         // The session ends with the world: without this the editor kept reporting Play (MCP state "playing")
         // after every Stop — only a closed scene view used to end it (EndIfBoundTo).
         m_State = State::Paused;
@@ -310,8 +332,8 @@ namespace Desert::Editor
         // Play first: the spawned pawn is the source the streamer begins around (PawnIsAStreamingSource).
         if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, {} ); !began )
             return stayInPlay( std::format( "Play refused for '{}': {}", path, began.GetError() ) );
-        auto streamer =
-             Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, InstrumentStreamingSources() );
+        auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, std::filesystem::path( path ),
+                                                            InstrumentStreamingSources() );
         if ( !streamer )
             return stayInPlay(
                  std::format( "Travel to '{}' could not stream the world: {}", path, streamer.GetError() ) );
@@ -395,6 +417,12 @@ namespace Desert::Editor
                 return PaletteCommandOutcome( state == SceneState::Edit && scene->GetState() != SceneState::Edit,
                                               "the scene is not playing; either it was already playing or "
                                               "Play refused (the log says why)." );
+            case Command::Simulate:
+                if ( state == SceneState::Edit )
+                    Simulate();
+                return PaletteCommandOutcome( state == SceneState::Edit && scene->GetState() != SceneState::Edit,
+                                              "the scene is not simulating; either it was already playing or "
+                                              "Simulate refused (the log says why)." );
             case Command::Pause:
                 if ( state == SceneState::Play )
                     scene->SetState( SceneState::Paused );
@@ -466,6 +494,8 @@ namespace Desert::Editor
                 run( Command::Play );
             if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
                 run( Command::PlayFromHere );
+            if ( ImGui::MenuItem( ICON_MDI_COGS " Simulate", nullptr, false ) )
+                run( Command::Simulate );
             ImGui::EndPopup();
         }
 
@@ -525,6 +555,39 @@ namespace Desert::Editor
                        return PaletteCommandOutcome( editing && scene->GetState() != SceneState::Edit,
                                                      "the scene is not playing; either it was already playing "
                                                      "or Play refused (the log says why)." );
+                   } } );
+        }
+        // Fire one TAGGED field placed in the scene, now (UE: the event that calls ApplyPhysicsField on a Field
+        // System Actor). The control channel's way to break something at a chosen step of a scenario instead of
+        // racing a script timer against the shots; the same firing path as Destruction.applyField.
+        for ( const auto entity : registry.view<ECS::TagComponent>() )
+        {
+            if ( registry.try_get<ECS::RadialImpulseFieldComponent>( entity ) == nullptr &&
+                 registry.try_get<ECS::StrainFieldComponent>( entity ) == nullptr &&
+                 registry.try_get<ECS::KillFieldComponent>( entity ) == nullptr &&
+                 registry.try_get<ECS::AnchorFieldComponent>( entity ) == nullptr )
+                continue;
+            const std::string tag = registry.get<ECS::TagComponent>( entity ).Tag;
+            if ( tag.empty() )
+                continue;
+            commands.push_back(
+                 { "Action", std::format( "Fire Field '{}'", tag ), [this, entity]
+                   {
+                       const auto& scene = m_Workspace.ActiveScene();
+                       auto&       reg   = scene->GetRegistry();
+                       if ( !reg.valid( entity ) )
+                           return PaletteCommandOutcome( false, "that field no longer exists." );
+                       const auto*                    physics = scene->FindSystem<ECS::PhysicsECSSystem>();
+                       Destruction::DestructionWorld* world =
+                            physics != nullptr ? physics->GetDestructionWorld() : nullptr;
+                       if ( world == nullptr )
+                           return PaletteCommandOutcome(
+                                false, "fields fire in Play or Simulate: the scene has no destruction world." );
+                       const auto fired = ECS::FireDestructionField( reg, entity, *world );
+                       if ( !fired )
+                           return PaletteCommandOutcome( false, fired.GetError() );
+                       LOG_INFO( "[Play] Fire Field: acted on {} bodies/pieces", fired.GetValue() );
+                       return PaletteCommandOutcome( true, "" );
                    } } );
         }
     }

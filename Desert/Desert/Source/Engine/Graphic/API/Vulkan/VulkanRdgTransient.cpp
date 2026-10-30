@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
+#include <format>
 
 #include <algorithm>
 
@@ -15,35 +16,82 @@ namespace Desert::Graphic::API::Vulkan
         for ( Slot& slot : m_Slots )
         {
             for ( GraphHeaps& graph : slot.Graphs )
-                Destroy( graph );
-            DestroyRetired( m_Device.Allocator, slot );
+                Release( slot, graph );
+            slot.Graphs.clear();
+            DestroyRetired( slot );
+            for ( const Heap& retired : slot.RetiredHeaps )
+                vmaFreeMemory( m_Device.Allocator, retired.Memory );
+            slot.RetiredHeaps.clear();
+            FreePool( slot );
         }
+        for ( const SharedHeap& shared : m_Shared )
+        {
+            if ( shared.Held.Memory != nullptr )
+                vmaFreeMemory( m_Device.Allocator, shared.Held.Memory );
+        }
+        m_Shared.clear();
     }
 
-    void VulkanRdgTransientAllocator::DestroyRetired( VmaAllocator allocator, Slot& slot )
+    void VulkanRdgTransientAllocator::DestroyRetired( Slot& slot )
     {
-        // Resources first: nothing may stay bound to memory that is freed.
         slot.RetiredTextures.clear();
         slot.RetiredBuffers.clear();
-        for ( VmaAllocation memory : slot.RetiredHeaps )
-            vmaFreeMemory( allocator, memory );
-        slot.RetiredHeaps.clear();
     }
 
-    void VulkanRdgTransientAllocator::Destroy( GraphHeaps& graph ) const
+    void VulkanRdgTransientAllocator::FreePool( Slot& slot ) const
     {
-        graph.Textures.clear();
-        graph.Buffers.clear();
-        for ( const Heap& heap : graph.Heaps )
+        // Resources first (DestroyRetired): nothing may stay bound to memory that is freed.
+        for ( const PooledHeap& pooled : slot.Pool )
+            vmaFreeMemory( m_Device.Allocator, pooled.Pooled.Memory );
+        slot.Pool.clear(); // closes the rows with the memory
+    }
+
+    void VulkanRdgTransientAllocator::Release( Slot& slot, GraphHeaps& graph )
+    {
+        if ( graph.Shared )
         {
-            if ( heap.Memory != nullptr )
-                vmaFreeMemory( m_Device.Allocator, heap.Memory );
+            // The bytes are the slot's: only what this graph placed in them goes.
+            for ( uint32_t heap = 0; heap < graph.SharedIndex.size(); ++heap )
+                RetirePlaced( slot, graph, heap );
+            graph.SharedIndex.clear();
+            return;
         }
+        for ( uint32_t heap = 0; heap < graph.Heaps.size(); ++heap )
+            Retire( slot, graph, heap );
         graph.Heaps.clear();
     }
 
-    void VulkanRdgTransientAllocator::Retire( Slot& slot, GraphHeaps& graph, uint32_t heap )
+    void VulkanRdgTransientAllocator::RetireShared( uint32_t index )
     {
+        // Every slot's graphs placed resources in it; the current slot's next BeginFrameSlot destroys them all
+        // (the frames of the other slots that recorded them are earlier, and complete by then).
+        Slot& current = m_Slots[m_Slot];
+        for ( Slot& slot : m_Slots )
+        {
+            for ( GraphHeaps& graph : slot.Graphs )
+            {
+                if ( !graph.Shared )
+                    continue;
+                for ( uint32_t heap = 0; heap < graph.SharedIndex.size(); ++heap )
+                {
+                    if ( graph.SharedIndex[heap] == index )
+                        RetirePlaced( current, graph, heap );
+                }
+            }
+        }
+        SharedHeap& shared = m_Shared[index];
+        if ( shared.Held.Memory != nullptr )
+            current.RetiredHeaps.push_back( std::move( shared.Held ) );
+        shared.Held.Memory          = nullptr;
+        shared.Held.Ledger          = ResourceOwnership{};
+        shared.Held.OversizedFrames = 0;
+        shared.OversizedFrames      = 0;
+    }
+
+    void VulkanRdgTransientAllocator::RetirePlaced( Slot& slot, GraphHeaps& graph, uint32_t heap )
+    {
+        // The resources bound to the heap live until the slot's next BeginFrameSlot (a recorded command or a
+        // graph's physical reference may still name them).
         for ( PlacedTexture& placed : graph.Textures )
         {
             if ( placed.Heap == heap )
@@ -56,9 +104,40 @@ namespace Desert::Graphic::API::Vulkan
         }
         std::erase_if( graph.Textures, [&]( const PlacedTexture& placed ) { return placed.Heap == heap; } );
         std::erase_if( graph.Buffers, [&]( const PlacedBuffer& placed ) { return placed.Heap == heap; } );
+    }
+
+    void VulkanRdgTransientAllocator::Retire( Slot& slot, GraphHeaps& graph, uint32_t heap )
+    {
+        // The heap's bytes go to the pool at once (RetirePlaced keeps its resources to the next BeginFrameSlot).
+        RetirePlaced( slot, graph, heap );
         if ( graph.Heaps[heap].Memory != nullptr )
-            slot.RetiredHeaps.push_back( graph.Heaps[heap].Memory );
+        {
+            slot.Pool.push_back( PooledHeap{
+                 .Pooled = std::move( graph.Heaps[heap] ), .IdleFrames = 0, .GivenUpThisFrame = true } );
+            slot.Pool.back().Pooled.OversizedFrames = 0;
+        }
         graph.Heaps[heap].Memory = nullptr;
+        graph.Heaps[heap].Ledger = ResourceOwnership{};
+    }
+
+    bool VulkanRdgTransientAllocator::TakePooled( Slot& slot, const RDG::TransientHeapDesc& want, Heap& out )
+    {
+        auto best = slot.Pool.end();
+        for ( auto it = slot.Pool.begin(); it != slot.Pool.end(); ++it )
+        {
+            const RDG::TransientHeapDesc& have = it->Pooled.Desc;
+            const bool                    fits = !it->GivenUpThisFrame && have.Class == want.Class &&
+                              ( want.MemoryTypeBits & ( 1u << it->Pooled.MemoryType ) ) != 0 &&
+                              have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes &&
+                              have.Alignment >= want.Alignment;
+            if ( fits && ( best == slot.Pool.end() || have.Bytes < best->Pooled.Desc.Bytes ) )
+                best = it;
+        }
+        if ( best == slot.Pool.end() )
+            return false;
+        out = std::move( best->Pooled );
+        slot.Pool.erase( best );
+        return true;
     }
 
     void VulkanRdgTransientAllocator::BeginFrameSlot( uint32_t slot )
@@ -68,14 +147,38 @@ namespace Desert::Graphic::API::Vulkan
         m_Current     = -1;
         Slot& current = m_Slots[m_Slot];
         // The caller waited for this slot's previous submission: what it retired is unused now.
-        DestroyRetired( m_Device.Allocator, current );
-        // A graph this slot's previous frame did not record has nothing in flight: its heaps go now.
+        DestroyRetired( current );
+        for ( const Heap& retired : current.RetiredHeaps )
+            vmaFreeMemory( m_Device.Allocator, retired.Memory ); // closes its row with it
+        current.RetiredHeaps.clear();
+        // A shared heap the previous frame's graphs wanted at most half of (or not at all) for
+        // kGarbageCollectLatency frames is given up (the next want allocates one of its size).
+        for ( uint32_t index = 0; index < m_Shared.size(); ++index )
+        {
+            SharedHeap& shared = m_Shared[index];
+            if ( shared.Held.Memory == nullptr )
+                continue;
+            const bool oversized   = shared.WantThisFrame <= shared.Held.Desc.Bytes / 2;
+            shared.OversizedFrames = oversized ? shared.OversizedFrames + 1 : 0;
+            if ( shared.OversizedFrames > kGarbageCollectLatency )
+                RetireShared( index );
+            shared.WantThisFrame = 0;
+        }
+        // A pooled heap no graph took for kGarbageCollectLatency frames of this slot goes back to the driver.
+        for ( PooledHeap& pooled : current.Pool )
+        {
+            if ( ++pooled.IdleFrames > kGarbageCollectLatency )
+                vmaFreeMemory( m_Device.Allocator, pooled.Pooled.Memory );
+        }
+        std::erase_if( current.Pool,
+                       []( const PooledHeap& pooled ) { return pooled.IdleFrames > kGarbageCollectLatency; } );
+        // A graph this slot's previous frame did not record has nothing in flight: its heaps go to the pool.
         std::erase_if( current.Graphs,
                        [&]( GraphHeaps& graph )
                        {
                            if ( graph.UsedThisFrame )
                                return false;
-                           Destroy( graph );
+                           Release( current, graph );
                            return true;
                        } );
         for ( GraphHeaps& graph : current.Graphs )
@@ -89,10 +192,13 @@ namespace Desert::Graphic::API::Vulkan
                 placed.UsedThisFrame = false;
             graph.UsedThisFrame = false;
         }
+        // Every heap in the pool now was last used by this slot's previous frame, which has completed.
+        for ( PooledHeap& pooled : current.Pool )
+            pooled.GivenUpThisFrame = false;
     }
 
-    Common::ResultStr<VulkanRdgTransientAllocator::Heap>
-    VulkanRdgTransientAllocator::AllocateHeap( const RDG::TransientHeapDesc& desc ) const
+    Common::BoolResultStr VulkanRdgTransientAllocator::AllocateHeap( const RDG::TransientHeapDesc& desc,
+                                                                     Heap&                         out ) const
     {
         // One vkAllocateMemory per heap (dedicated): the heap is the unit the plan's offsets are relative to.
         VkMemoryRequirements requirements{};
@@ -107,32 +213,59 @@ namespace Desert::Graphic::API::Vulkan
         const VkResult    result =
              vmaAllocateMemory( m_Device.Allocator, &requirements, &create, &heap.Memory, &info );
         if ( result != VK_SUCCESS )
-            return Common::MakeFormattedError<Heap>( "transient heap of {} bytes (memory types {:#x}): "
+            return Common::MakeFormattedError<bool>( "transient heap of {} bytes (memory types {:#x}): "
                                                      "vmaAllocateMemory failed ({})",
                                                      desc.Bytes, desc.MemoryTypeBits, static_cast<int>( result ) );
         heap.Desc       = desc;
         heap.MemoryType = info.memoryType;
-        return Common::MakeSuccess( heap );
+        // Graph execution runs outside every attribution scope, and the heap serves every view's graph: the
+        // device owns it.
+        heap.Ledger =
+             ResourceOwnership::Take( ResourceKind::TransientHeap, static_cast<std::size_t>( info.size ) );
+        heap.Ledger.Claim( ResourceOwner::Device );
+        out = std::move( heap );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr
     VulkanRdgTransientAllocator::ReserveHeaps( std::string_view                        graph,
                                                std::span<const RDG::TransientHeapDesc> heaps )
     {
+        const Common::ResultStr<bool> reserved = ReserveGraphHeaps( graph, heaps, false );
+        if ( !reserved )
+            return Common::MakeFormattedError( "{}", reserved.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool>
+    VulkanRdgTransientAllocator::ReserveGraphHeaps( std::string_view                        graph,
+                                                    std::span<const RDG::TransientHeapDesc> heaps, bool share )
+    {
         if ( !m_Begun )
-            return Common::MakeFormattedError( "graph '{}': BeginFrameSlot was never called", graph );
+            return Common::MakeFormattedError<bool>( "graph '{}': BeginFrameSlot was never called", graph );
         if ( m_Current >= 0 )
-            return Common::MakeFormattedError( "graph '{}': graph '{}' did not end (EndGraph)", graph,
-                                               m_Slots[m_Slot].Graphs[m_Current].Graph );
+            return Common::MakeFormattedError<bool>( "graph '{}': graph '{}' did not end (EndGraph)", graph,
+                                                     m_Slots[m_Slot].Graphs[m_Current].Graph );
         Slot&        slot  = m_Slots[m_Slot];
-        const auto   found = std::find_if( slot.Graphs.begin(), slot.Graphs.end(), [&]( const GraphHeaps& entry )
-                                           { return entry.Graph == graph && !entry.UsedThisFrame; } );
+        const auto   found =
+             std::find_if( slot.Graphs.begin(), slot.Graphs.end(), [&]( const GraphHeaps& entry )
+                           { return entry.Graph == graph && !entry.UsedThisFrame && entry.Shared == share; } );
         const size_t index = static_cast<size_t>( found - slot.Graphs.begin() );
         if ( found == slot.Graphs.end() )
             slot.Graphs.push_back(
                  GraphHeaps{ .Graph = std::string( graph ), .Heaps = {}, .Textures = {}, .Buffers = {} } );
         GraphHeaps& entry   = slot.Graphs[index];
         entry.UsedThisFrame = true;
+        entry.Shared        = share;
+        if ( share )
+        {
+            const bool barrier = m_SharedUsed;
+            if ( auto reserved = ReserveShared( slot, entry, heaps ); !reserved )
+                return Common::MakeFormattedError<bool>( "{}", reserved.GetError() );
+            m_SharedUsed = true;
+            m_Current    = static_cast<int32_t>( index );
+            return Common::MakeSuccess( barrier );
+        }
 
         // Heaps the plan no longer has are retired with everything placed in them.
         for ( auto extra = static_cast<uint32_t>( heaps.size() ); extra < entry.Heaps.size(); ++extra )
@@ -142,29 +275,110 @@ namespace Desert::Graphic::API::Vulkan
         {
             const RDG::TransientHeapDesc& want = heaps[i];
             if ( want.Bytes == 0 )
-                return Common::MakeFormattedError( "graph '{}': transient heap {} is empty", graph, i );
+                return Common::MakeFormattedError<bool>( "graph '{}': transient heap {} is empty", graph, i );
             if ( i < entry.Heaps.size() )
             {
                 const Heap& have = entry.Heaps[i];
                 const bool  fits = have.Memory != nullptr && have.Desc.Class == want.Class &&
                                   ( want.MemoryTypeBits & ( 1u << have.MemoryType ) ) != 0 &&
                                   have.Desc.Bytes >= want.Bytes && have.Desc.Alignment >= want.Alignment;
-                if ( fits )
+                // A heap the plan keeps wanting at most half of (the view shrank, a feature went off) is
+                // traded for one of the plan's size after kGarbageCollectLatency frames: heaps never only grow.
+                Heap& kept = entry.Heaps[i];
+                if ( fits && want.Bytes > kept.Desc.Bytes / 2 )
+                    kept.OversizedFrames = 0;
+                if ( fits &&
+                     ( want.Bytes > kept.Desc.Bytes / 2 || ++kept.OversizedFrames <= kGarbageCollectLatency ) )
                     continue;
-                // Grown (or of another class / type): the old heap may still be read by nothing in flight on
-                // this slot, but it is retired, not freed, so no bound resource outlives its memory.
+                // Grown, oversized (or of another class / type): the heap goes to the slot's pool; the resources
+                // bound to it are destroyed at the slot's next BeginFrameSlot, so none outlives its memory.
                 Retire( slot, entry, i );
             }
-            const Common::ResultStr<Heap> allocated = AllocateHeap( want );
-            if ( !allocated )
-                return Common::MakeFormattedError( "graph '{}': {}", graph, allocated.GetError() );
+            Heap allocated;
+            if ( !TakePooled( slot, want, allocated ) )
+            {
+                if ( const Common::BoolResultStr made = AllocateHeap( want, allocated ); !made )
+                    return Common::MakeFormattedError<bool>( "graph '{}': {}", graph, made.GetError() );
+            }
+            // Named for the graph that holds it (allocated or taken from the pool): the census's detailed map
+            // (VulkanAllocator, BISTRO-MEM-2 p4) sums the heaps by the graph that wants them.
+            vmaSetAllocationName( m_Device.Allocator, allocated.Memory,
+                                  std::format( "RDG heap {}", graph ).c_str() );
             if ( i < entry.Heaps.size() )
-                entry.Heaps[i] = allocated.GetValue();
+                entry.Heaps[i] = std::move( allocated );
             else
-                entry.Heaps.push_back( allocated.GetValue() );
+                entry.Heaps.push_back( std::move( allocated ) );
         }
         m_Current = static_cast<int32_t>( index );
-        return Common::MakeSuccess( true );
+        return Common::MakeSuccess( false );
+    }
+
+    Common::BoolResultStr
+    VulkanRdgTransientAllocator::ReserveShared( Slot& slot, GraphHeaps& entry,
+                                                std::span<const RDG::TransientHeapDesc> heaps )
+    {
+        // The plan has fewer heaps than last time: what was placed in the others goes.
+        for ( auto extra = static_cast<uint32_t>( heaps.size() ); extra < entry.SharedIndex.size(); ++extra )
+            RetirePlaced( slot, entry, extra );
+        entry.SharedIndex.resize( std::min( entry.SharedIndex.size(), heaps.size() ) );
+        for ( uint32_t i = 0; i < heaps.size(); ++i )
+        {
+            const RDG::TransientHeapDesc& want = heaps[i];
+            if ( want.Bytes == 0 )
+                return Common::MakeFormattedError( "graph '{}': transient heap {} is empty", entry.Graph, i );
+            // The key: the n-th heap of this class and memory types in the plan.
+            uint32_t ordinal = 0;
+            for ( uint32_t earlier = 0; earlier < i; ++earlier )
+            {
+                if ( heaps[earlier].Class == want.Class && heaps[earlier].MemoryTypeBits == want.MemoryTypeBits )
+                    ++ordinal;
+            }
+            auto found = std::find_if( m_Shared.begin(), m_Shared.end(),
+                                       [&]( const SharedHeap& shared )
+                                       {
+                                           return shared.Class == want.Class &&
+                                                  shared.MemoryTypeBits == want.MemoryTypeBits &&
+                                                  shared.Ordinal == ordinal;
+                                       } );
+            if ( found == m_Shared.end() )
+            {
+                m_Shared.push_back( SharedHeap{ .Class           = want.Class,
+                                                .MemoryTypeBits  = want.MemoryTypeBits,
+                                                .Ordinal         = ordinal,
+                                                .Held            = {},
+                                                .WantThisFrame   = 0,
+                                                .OversizedFrames = 0 } );
+                found = m_Shared.end() - 1;
+            }
+            const auto  shared = static_cast<uint32_t>( found - m_Shared.begin() );
+            SharedHeap& held   = m_Shared[shared];
+            held.WantThisFrame = std::max( held.WantThisFrame, want.Bytes );
+            // The plan's heap i moved to another shared heap: what this graph placed for heap i is in other bytes.
+            if ( i < entry.SharedIndex.size() && entry.SharedIndex[i] != shared )
+                RetirePlaced( slot, entry, i );
+            const bool fits = held.Held.Memory != nullptr && held.Held.Desc.Bytes >= want.Bytes &&
+                              held.Held.Desc.Alignment >= want.Alignment &&
+                              ( want.MemoryTypeBits & ( 1u << held.Held.MemoryType ) ) != 0;
+            if ( !fits )
+            {
+                // Grown: every graph's resources in the old bytes go with them (RetireShared).
+                if ( held.Held.Memory != nullptr )
+                    RetireShared( shared );
+                RDG::TransientHeapDesc desc = want;
+                desc.Bytes                  = held.WantThisFrame; // the largest this frame's graphs asked for
+                Heap allocated;
+                if ( const Common::BoolResultStr made = AllocateHeap( desc, allocated ); !made )
+                    return Common::MakeFormattedError( "graph '{}': {}", entry.Graph, made.GetError() );
+                // The census's detailed map (VulkanAllocator, BISTRO-MEM-2 p4) sums the heaps by this name.
+                vmaSetAllocationName( m_Device.Allocator, allocated.Memory, "RDG heap shared" );
+                held.Held = std::move( allocated );
+            }
+            if ( i < entry.SharedIndex.size() )
+                entry.SharedIndex[i] = shared;
+            else
+                entry.SharedIndex.push_back( shared );
+        }
+        return BOOLSUCCESS;
     }
 
     Common::ResultStr<const VulkanRdgTransientAllocator::Heap*>
@@ -174,11 +388,14 @@ namespace Desert::Graphic::API::Vulkan
         using Out = const Heap*;
         if ( m_Current < 0 )
             return Common::MakeFormattedError<Out>( "'{}': placed outside ReserveHeaps .. EndGraph", name );
-        const GraphHeaps& graph = m_Slots[m_Slot].Graphs[m_Current];
-        if ( allocation.Heap >= graph.Heaps.size() )
+        const Slot&       slot  = m_Slots[m_Slot];
+        const GraphHeaps& graph = slot.Graphs[m_Current];
+        const size_t      count = graph.Shared ? graph.SharedIndex.size() : graph.Heaps.size();
+        if ( allocation.Heap >= count )
             return Common::MakeFormattedError<Out>( "'{}': heap {} of {} in graph '{}'", name, allocation.Heap,
-                                                    graph.Heaps.size(), graph.Graph );
-        const Heap& heap = graph.Heaps[allocation.Heap];
+                                                    count, graph.Graph );
+        const Heap& heap =
+             graph.Shared ? m_Shared[graph.SharedIndex[allocation.Heap]].Held : graph.Heaps[allocation.Heap];
         if ( heap.Desc.Class != allocation.Class || allocation.Class != memoryClass )
             return Common::MakeFormattedError<Out>( "'{}': its memory class differs from heap {}'s", name,
                                                     allocation.Heap );
@@ -266,14 +483,24 @@ namespace Desert::Graphic::API::Vulkan
                     ++stats.HeapCount;
                 }
             }
-            // A retired heap is still reserved until its slot is re-begun.
-            for ( VmaAllocation memory : slot.RetiredHeaps )
+            for ( const Heap& retired : slot.RetiredHeaps )
             {
-                VmaAllocationInfo info{};
-                vmaGetAllocationInfo( m_Device.Allocator, memory, &info );
-                stats.ReservedBytes += info.size;
+                stats.ReservedBytes += retired.Desc.Bytes;
                 ++stats.HeapCount;
             }
+            // A pooled heap is reserved until the pool frees it.
+            for ( const PooledHeap& pooled : slot.Pool )
+            {
+                stats.ReservedBytes += pooled.Pooled.Desc.Bytes;
+                ++stats.HeapCount;
+            }
+        }
+        for ( const SharedHeap& shared : m_Shared )
+        {
+            if ( shared.Held.Memory == nullptr )
+                continue;
+            stats.ReservedBytes += shared.Held.Desc.Bytes;
+            ++stats.HeapCount;
         }
         for ( const GraphHeaps& graph : m_Slots[m_Slot].Graphs )
         {

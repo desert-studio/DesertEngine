@@ -5,7 +5,8 @@ local baseDir = "%{_MAIN_SCRIPT_DIR}/ThirdParty"
 -- Returns a table { include = <dir>, lib = <dir> } or nil.
 --   Windows: LunarG SDK layout  <sdk>/Include, <sdk>/Lib
 --   macOS:   LunarG SDK layout  $VULKAN_SDK/include, $VULKAN_SDK/lib
---            or Homebrew (vulkan-headers + vulkan-loader + molten-vk + shaderc + spirv-cross)
+--            or Homebrew (vulkan-headers + vulkan-loader + molten-vk + shaderc)
+--   SPIRV-Cross is never the SDK's: the vendored ThirdParty/SPIRV-Cross (BuildScripts/ThirdParty/SPIRVCross.lua).
 --   Linux:   /usr/local/vulkan fallback
 -- ============================================================================
 local function findVulkanSDK()
@@ -83,10 +84,10 @@ local vulkan = findVulkanSDK()
 if not vulkan then
     error( "Vulkan SDK not found.\n" ..
            "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n" ..
-           "           shaderc + spirv-cross), or install the LunarG SDK into ~/VulkanSDK.\n" ..
+           "           shaderc), or install the LunarG SDK into ~/VulkanSDK.\n" ..
            "  Windows: run scripts\\Windows\\Setup.bat, which installs the pinned LunarG SDK and sets\n" ..
            "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n" ..
-           "           and spirv-cross-*.lib out of the SDK's Lib directory." )
+           "           out of the SDK's Lib directory (SPIRV-Cross is vendored)." )
 end
 
 -- Shader-toolchain + Vulkan libraries the engine links against.
@@ -108,8 +109,8 @@ local function getVulkanLibs(config)
         table.insert(libs, vulkan.lib .. "/shaderc_combined" .. suffix .. ".lib")
         table.insert(libs, vulkan.lib .. "/shaderc_util" .. suffix .. ".lib")
 
-        table.insert(libs, vulkan.lib .. "/spirv-cross-core" .. suffix .. ".lib")
-        table.insert(libs, vulkan.lib .. "/spirv-cross-glsl" .. suffix .. ".lib")
+        -- spirv-cross is NOT the SDK's: the vendored project (BuildScripts/ThirdParty/SPIRVCross.lua), linked by name
+        -- in Libraries below — the 1.3.296 SDK parser has no SPV_KHR_cooperative_matrix.
 
         -- shaderc_shared.lib is deliberately NOT here either: it is the IMPORT library of
         -- shaderc_shared.dll, and a static library (Desert) that merges it can hand the linker an
@@ -126,8 +127,6 @@ local function getVulkanLibs(config)
         -- No debug-suffixed binaries on unix-likes: same set in both configs.
         table.insert(libs, "vulkan")
         table.insert(libs, "shaderc_combined")   -- shaderc + glslang + SPIRV-Tools in one archive
-        table.insert(libs, "spirv-cross-glsl")
-        table.insert(libs, "spirv-cross-core")
     end
 
     return libs
@@ -166,6 +165,113 @@ end
 -- MSVC, both of which ccache hashes: five premake runs over the same tree gave five orders and therefore
 -- five cache keys for every engine object. Integer keys (a list such as getVulkanLibs' result) come first
 -- in their own order, then names in byte order, so the generated project files are identical run to run.
+-- NVIDIA STREAMLINE (DLSS Super Resolution), Windows only. The headers and licence are committed under
+-- ThirdParty/Streamline; the runtime binaries are DOWNLOADED, never committed (owner 2026-10-15):
+-- ThirdParty/Streamline/manifest.json pins the release and every file's SHA-256, and
+-- scripts/Windows/FetchVendorBinaries.py (run by Setup.bat) fetches them into DesertStreamlineRuntimeDir. The engine
+-- compiles against the headers (Desert/Desert/premake5.lua) and LOADS sl.interposer.dll at run time from the
+-- executable's directory (Graphic/API/Vulkan/Streamline/StreamlineRuntime): nothing links it, so a machine without
+-- it starts and reports DLSS unavailable by name. The manifest's Files ARE the list of files that run, plus NVIDIA's
+-- redistribution licence the DLSS runtime requires shipped with it: this copies them next to every executable that
+-- renders, and the game packager ships the same list beside the packaged game
+-- (Editor/Source/Editor/Packaging/GamePackager.cpp), so the two can never disagree.
+DesertStreamlineManifest = "ThirdParty/Streamline/manifest.json"
+DesertStreamlineRuntimeDir = "ThirdParty/Streamline/bin/x64"
+
+-- The runtime file names, in manifest order (premake must generate before the fetch has run, so the list comes from
+-- the committed manifest, never from the directory).
+function DesertStreamlineRuntimeFiles()
+    local manifestPath = path.join(_MAIN_SCRIPT_DIR, DesertStreamlineManifest)
+    local text = io.readfile(manifestPath)
+    if text == nil then
+        error(DesertStreamlineManifest .. " is missing: it pins the DLSS runtime the build copies")
+    end
+    local manifest, decodeError = json.decode(text)
+    if manifest == nil then
+        error(DesertStreamlineManifest .. ": " .. tostring(decodeError))
+    end
+    local names = {}
+    for _, entry in ipairs(manifest.Files) do
+        table.insert(names, path.getname(entry.Archive))
+    end
+    return names
+end
+
+-- Called inside an executable's project: copies the Streamline runtime into its target directory after the link
+-- (Windows only). A file not fetched yet is not copied and the build says which one and how to fetch it: the
+-- executable still runs and reports DLSS unavailable, which is the state of a machine without the files.
+function DesertCopyStreamlineRuntime()
+    filter "system:windows"
+        for _, name in ipairs(DesertStreamlineRuntimeFiles()) do
+            -- Backslashes: cmd's `if exist` is the one reader here that does not take forward slashes reliably.
+            local source = path.translate(path.join(_MAIN_SCRIPT_DIR, DesertStreamlineRuntimeDir, name), "\\")
+            -- Two plain `if` lines, no ( ) block: a parenthesis in the checkout path would close a block early.
+            postbuildcommands {
+                'if exist "' .. source .. '" {COPYFILE} "' .. source .. '" "%{cfg.targetdir}"',
+                'if not exist "' .. source .. '" echo ' .. DesertStreamlineRuntimeDir .. '/' .. name ..
+                    ' is not fetched, DLSS will be unavailable: run python scripts/Windows/FetchVendorBinaries.py',
+            }
+        end
+    filter {}
+end
+
+-- INTEL OPEN IMAGE DENOISE 2.x (the path tracer's PathTracing.Denoiser OIDN), Windows x64 and macOS arm64. The
+-- headers and the Apache-2.0 licence are committed under ThirdParty/OIDN; the runtime libraries are DOWNLOADED from
+-- Intel's release, never committed: ThirdParty/OIDN/manifest.<platform>.json pins the archive and every file's
+-- SHA-256 and scripts/Windows/FetchVendorBinaries.py (Setup.bat, scripts/MacOS/Setup.sh) fetches them. The engine
+-- compiles against the headers and LOADS the library at run time (Engine/Graphic/Denoise/OidnDenoiser.cpp): Windows
+-- OpenImageDenoise.dll beside the executable, macOS lib/libOpenImageDenoise.2.dylib under it (the dylibs find each
+-- other through their own @loader_path/../lib rpath, which is their own directory only when it is named lib). OIDN
+-- loads its device modules (CPU, CUDA, HIP, SYCL, Metal) from its own directory. Like UE's OpenImageDenoise plugin
+-- it is an editor / movie-render tool: copied beside the editor and the runtime (whose dev build renders movies),
+-- not shipped by the game packager.
+DesertOidnManifests = {
+    windows = { manifest = "ThirdParty/OIDN/manifest.windows.json", dir = "ThirdParty/OIDN/bin/x64" },
+    macosx  = { manifest = "ThirdParty/OIDN/manifest.macos.json", dir = "ThirdParty/OIDN/bin/macos-arm64/lib" },
+}
+
+local function DesertManifestFileNames(manifestRelative)
+    local text = io.readfile(path.join(_MAIN_SCRIPT_DIR, manifestRelative))
+    if text == nil then
+        error(manifestRelative .. " is missing: it pins the runtime the build copies")
+    end
+    local manifest, decodeError = json.decode(text)
+    if manifest == nil then
+        error(manifestRelative .. ": " .. tostring(decodeError))
+    end
+    local names = {}
+    for _, entry in ipairs(manifest.Files) do
+        table.insert(names, path.getname(entry.Archive))
+    end
+    return names
+end
+
+-- Called inside an executable's project: copies the OIDN runtime beside its target after the link. A file not
+-- fetched yet is not copied and the build names it: the executable runs and PathTracing.Denoiser OIDN reports the
+-- library missing by name.
+function DesertCopyOidnRuntime()
+    filter "system:windows"
+        for _, name in ipairs(DesertManifestFileNames(DesertOidnManifests.windows.manifest)) do
+            local source = path.translate(path.join(_MAIN_SCRIPT_DIR, DesertOidnManifests.windows.dir, name), "\\")
+            postbuildcommands {
+                'if exist "' .. source .. '" {COPYFILE} "' .. source .. '" "%{cfg.targetdir}"',
+                'if not exist "' .. source .. '" echo ' .. DesertOidnManifests.windows.dir .. '/' .. name ..
+                    ' is not fetched, PathTracing.Denoiser OIDN will be unavailable: run python scripts/Windows/FetchVendorBinaries.py',
+            }
+        end
+    filter "system:macosx"
+        postbuildcommands { 'mkdir -p "%{cfg.targetdir}/lib"' }
+        for _, name in ipairs(DesertManifestFileNames(DesertOidnManifests.macosx.manifest)) do
+            local source = path.join(_MAIN_SCRIPT_DIR, DesertOidnManifests.macosx.dir, name)
+            postbuildcommands {
+                'if [ -f "' .. source .. '" ]; then cp -f "' .. source .. '" "%{cfg.targetdir}/lib/"; else echo ' ..
+                    DesertOidnManifests.macosx.dir .. '/' .. name ..
+                    ' is not fetched, PathTracing.Denoiser OIDN will be unavailable: run python3 scripts/Windows/FetchVendorBinaries.py; fi',
+            }
+        end
+    filter {}
+end
+
 function DesertSortedPairs(t)
     local keys = {}
     for key in pairs(t) do
@@ -201,6 +307,11 @@ Dependencies = {
             glm = baseDir .. "/glm",
             GLFW = baseDir .. "/GLFW/include",
             optick = baseDir .. "/optick/src",
+            -- <rflcpp/rfl/...>: Common's PUBLIC headers include it (Common/Json/Json.hpp, Project/ProjectFormat.hpp), so
+            -- every project that sees Common's headers needs it -- which is what this table is. It used to sit in
+            -- CommonSpecific (plus copies in DesertSpecific/TestSpecific), and every tool that reached Json.hpp without
+            -- naming that second table failed with C1083 (DShaderTool, CloudVolumeBaker: run 40926375233).
+            reflect_cpp = baseDir .. "/reflect-cpp/include",
         },
         Defines = {
             -- Optick: keep these identical to BuildScripts/ThirdParty/Optick.lua so optick.h compiles the
@@ -212,9 +323,6 @@ Dependencies = {
     },
 
     CommonSpecific = {
-        IncludeDir = {
-            reflect_cpp = baseDir .. "/reflect-cpp/include",
-        },
         Libraries = {
             reflect_cpp = getReflectCppLib("Debug"),
         },
@@ -228,23 +336,30 @@ Dependencies = {
             stb = baseDir .. "/stb/include",
             vkallocator = baseDir .. "/VulkanAllocator",
             entt = baseDir .. "/entt/include",
-            reflect_cpp = baseDir .. "/reflect-cpp/include",
             meshoptimizer = baseDir .. "/meshoptimizer/src",
             -- <opensubdiv/far/...>: the CPU refiner the Subdivide port runs on (BuildScripts/ThirdParty/OpenSubdiv.lua).
             opensubdiv = baseDir .. "/OpenSubdiv",
+            -- <embree4/rtcore.h>: the distance-field builder (BuildScripts/ThirdParty/Embree.lua); its configured
+            -- rtcore_config.h lives beside the build script, not in the submodule.
+            embree = baseDir .. "/embree/include",
+            embree_config = baseDir .. "/../BuildScripts/ThirdParty/EmbreeConfig/include/embree4",
             jolt = baseDir .. "/JoltPhysics",
             lua = baseDir .. "/lua",
             Vulkan = vulkan and vulkan.include or nil,
             shaderc = vulkan and (vulkan.include .. "/shaderc") or nil,
-            spirv_cross = vulkan and (vulkan.include .. "/spirv_cross") or nil,
+            -- The vendored SPIRV-Cross (BuildScripts/ThirdParty/SPIRVCross.lua), included FLAT (<spirv_glsl.hpp>): the
+            -- SDK's include dir carries its own older spirv_cross/ and comes first, so <spirv_cross/...> would pick it.
+            spirv_cross = baseDir .. "/SPIRV-Cross",
         },
         Libraries = {
             Debug = {
                 reflect_cpp = getReflectCppLib("Debug"),
+                spirv_cross = "SPIRVCross",
                 getVulkanLibs("Debug")
             },
             Release = {
                 reflect_cpp = getReflectCppLib("Release"),
+                spirv_cross = "SPIRVCross",
                 getVulkanLibs("Release")
             }
         },
@@ -255,7 +370,6 @@ Dependencies = {
     TestSpecific = {
         IncludeDir = {
             gtest = getGTestIncludeDir(),
-            reflect_cpp = baseDir .. "/reflect-cpp/include",
             -- Shader headers compiled as C++ (LandscapeHeight.glslh via LandscapeData.cpp, and the rest of
             -- Shaders/Common). Every suite gets it because the partitioner reaches LandscapeData.cpp, and a
             -- per-suite line was forgotten four times in one day (2026-09-24).

@@ -17,6 +17,7 @@
 #include <fstream>
 #include <mutex>
 #include <span>
+#include <bit>
 #include <utility>
 
 namespace Desert::Assets
@@ -25,7 +26,9 @@ namespace Desert::Assets
 
     namespace
     {
-        constexpr uint32_t kImportInfoVersion = 2; // 1 = without ColorSpace (UpgradeTextureSourceAsset only)
+        // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds, 3 = without ColorDilationMask
+        // (UpgradeTextureSourceAsset only)
+        constexpr uint32_t kImportInfoVersion = 4;
 
         void PutU32( std::vector<std::byte>& out, const uint32_t v )
         {
@@ -44,7 +47,7 @@ namespace Desert::Assets
                 out.push_back( static_cast<std::byte>( c ) );
         }
 
-        struct Reader
+        struct TextureSourceReader
         {
             std::span<const std::byte> Bytes;
             size_t                     At = 0;
@@ -87,6 +90,12 @@ namespace Desert::Assets
             PutU64( out, info.SourceHash );
             PutString( out, Core::Formats::TextureIntentName( info.Settings.Intent ) );
             PutString( out, Core::Formats::TextureColorSpaceName( info.Settings.ColorSpace ) );
+            for ( const float threshold : info.Settings.AlphaCoverageThresholds )
+                PutU32( out, std::bit_cast<uint32_t>( threshold ) );
+            PutU64( out, info.Settings.ColorDilationMask.Texture.Hi );
+            PutU64( out, info.Settings.ColorDilationMask.Texture.Lo );
+            PutU32( out, info.Settings.ColorDilationMask.Channel );
+            PutU32( out, std::bit_cast<uint32_t>( info.Settings.ColorDilationMask.Threshold ) );
             return out;
         }
 
@@ -95,7 +104,7 @@ namespace Desert::Assets
         Common::ResultStr<TextureImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                                const uint32_t expected = kImportInfoVersion )
         {
-            Reader            r{ bytes };
+            TextureSourceReader r{ bytes };
             TextureImportInfo info;
             const auto        version = static_cast<uint32_t>( r.Get( 4 ) );
             if ( r.Ok && version != expected )
@@ -105,6 +114,29 @@ namespace Desert::Assets
             info.SourceHash              = r.Get( 8 );
             const std::string intentName = r.String();
             const std::string spaceName  = expected >= 2 ? r.String() : std::string( "sRGB" );
+            if ( expected >= 3 )
+            {
+                for ( float& threshold : info.Settings.AlphaCoverageThresholds )
+                    threshold = std::bit_cast<float>( static_cast<uint32_t>( r.Get( 4 ) ) );
+                for ( const float threshold : info.Settings.AlphaCoverageThresholds )
+                    if ( !( threshold >= 0.0f && threshold <= 1.0f ) )
+                        return Common::MakeFormattedError<TextureImportInfo>(
+                             "texture ImportInfo has alpha coverage threshold {}; a threshold is in [0, 1]",
+                             threshold );
+            }
+            if ( expected >= 4 )
+            {
+                TextureDilationMask& mask = info.Settings.ColorDilationMask;
+                mask.Texture.Hi           = r.Get( 8 );
+                mask.Texture.Lo           = r.Get( 8 );
+                mask.Channel              = static_cast<uint32_t>( r.Get( 4 ) );
+                mask.Threshold            = std::bit_cast<float>( static_cast<uint32_t>( r.Get( 4 ) ) );
+                if ( r.Ok && ( mask.Channel > 3 || !( mask.Threshold >= 0.0f && mask.Threshold <= 1.0f ) ) )
+                    return Common::MakeFormattedError<TextureImportInfo>(
+                         "texture ImportInfo has dilation mask channel {} threshold {}; a channel is 0..3 and a "
+                         "threshold is in [0, 1]",
+                         mask.Channel, mask.Threshold );
+            }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<TextureImportInfo>(
                      "texture ImportInfo is truncated or has trailing bytes" );
@@ -135,7 +167,7 @@ namespace Desert::Assets
 
         Common::BoolResultStr DecodeCookedKey( std::span<const std::byte> bytes, TextureAssetKey& key )
         {
-            Reader     r{ bytes };
+            TextureSourceReader r{ bytes };
             const auto version = static_cast<uint32_t>( r.Get( 4 ) );
             if ( r.Ok && version != kCookedKeyVersion )
                 return Common::MakeFormattedError<bool>(
@@ -339,7 +371,87 @@ namespace Desert::Assets
         PutU32( out, static_cast<uint32_t>( settings.Import.Intent ) );
         PutU32( out, settings.EncoderVersion );
         PutU32( out, static_cast<uint32_t>( settings.Import.ColorSpace ) );
+        for ( const float threshold : settings.Import.AlphaCoverageThresholds )
+            PutU32( out, std::bit_cast<uint32_t>( threshold ) );
+        // The mask is another asset, keyed by identity (UE keys CompositeTexture by its source id). Appended only
+        // when set, as UE appends its optional settings: a texture without one keeps the key (and DDC entry) it had.
+        if ( const TextureDilationMask& mask = settings.Import.ColorDilationMask; mask.Enabled() )
+        {
+            PutU32( out, Common::Content::FourCC( "DILM" ) );
+            PutU64( out, mask.Texture.Hi );
+            PutU64( out, mask.Texture.Lo );
+            PutU32( out, mask.Channel );
+            PutU32( out, std::bit_cast<uint32_t>( mask.Threshold ) );
+            // The block gate grades a masked colour only where the mask shows it (GRASS-ASSET p7); a revision of
+            // that rule re-derives masked textures alone, the way EncoderVersion re-derives all of them.
+            PutU32( out, kTextureMaskedGateVersion );
+        }
+        if ( settings.Bc7Effort != 1.0f )
+        {
+            PutU32( out, Common::Content::FourCC( "ENCE" ) );
+            PutU32( out, std::bit_cast<uint32_t>( settings.Bc7Effort ) );
+        }
         return out;
+    }
+
+    namespace
+    {
+        std::mutex            s_EncodingMutex;
+        TextureEncodingSource s_EncodingSource;
+
+        Project::TextureEncodingSettings CurrentTextureEncoding()
+        {
+            TextureEncodingSource source;
+            {
+                const std::lock_guard<std::mutex> lock( s_EncodingMutex );
+                source = s_EncodingSource;
+            }
+            return source ? source() : Project::TextureEncodingSettings{};
+        }
+
+        // The keys of one plan for one editor asset's import record.
+        void KeyEditorAsset( TextureAssetKey& key, const TextureImportSettings& settings, const TextureEncodeRole role )
+        {
+            const TextureEncodePlan plan = PlanTextureEncode( role );
+            key.DerivedDataKey = TextureDerivedDataKey(
+                 key.SourceHash, TextureBuildSettings{ settings, kTextureBlockEncoderVersion, plan.BuildEffort } );
+            key.FetchFirstKey =
+                 plan.FetchFirstEffort && *plan.FetchFirstEffort != plan.BuildEffort
+                      ? TextureDerivedDataKey( key.SourceHash, TextureBuildSettings{ settings, kTextureBlockEncoderVersion,
+                                                                                     *plan.FetchFirstEffort } )
+                      : 0;
+        }
+    } // namespace
+
+    void SetTextureEncodingSource( TextureEncodingSource source )
+    {
+        const std::lock_guard<std::mutex> lock( s_EncodingMutex );
+        s_EncodingSource = std::move( source );
+    }
+
+    TextureEncodePlan PlanTextureEncode( const TextureEncodeRole role )
+    {
+        const Project::TextureEncodingSettings settings = CurrentTextureEncoding();
+        const Project::TextureEncodeSpeed      speed =
+             role == TextureEncodeRole::Cook ? settings.CookUses : settings.EditorUses;
+        switch ( speed )
+        {
+            case Project::TextureEncodeSpeed::Final:
+                return { settings.FinalEffort, std::nullopt };
+            case Project::TextureEncodeSpeed::FinalIfAvailable:
+                return { settings.FastEffort, settings.FinalEffort };
+            case Project::TextureEncodeSpeed::Fast:
+                break;
+        }
+        return { settings.FastEffort, std::nullopt };
+    }
+
+    std::optional<std::string> FetchTexturePlatformData( const TextureAssetKey& key )
+    {
+        if ( key.FetchFirstKey != 0 )
+            if ( auto hit = Common::DDC::Get( kTextureDeriver, key.FetchFirstKey ); hit.has_value() )
+                return hit;
+        return Common::DDC::Get( kTextureDeriver, key.DerivedDataKey );
     }
 
     uint64_t TextureDerivedDataKey( const uint64_t sourceHash, const TextureBuildSettings& settings,
@@ -349,7 +461,8 @@ namespace Desert::Assets
         return Common::DDC::MakeKey( deriver, sourceHash, image.data(), image.size() );
     }
 
-    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset )
+    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset,
+                                                            const TextureEncodeRole      role )
     {
         // THE PREFIX, NOT THE FILE: an editor `.detex` is mostly its SRCE section (megabytes of png), and the
         // key needs the header, the TOC and the ~100-byte IMPT that precedes the source (or, cooked, PAYL).
@@ -401,8 +514,7 @@ namespace Desert::Assets
                 return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), info.GetError() );
             key.SourceFile     = info.GetValue().SourceFile;
             key.SourceHash     = info.GetValue().SourceHash;
-            key.DerivedDataKey = TextureDerivedDataKey(
-                 key.SourceHash, TextureBuildSettings{ info.GetValue().Settings, kTextureBlockEncoderVersion } );
+            KeyEditorAsset( key, info.GetValue().Settings, role );
         }
         else if ( auto decoded = DecodeCookedKey( bytes, key ); !decoded.IsSuccess() )
         {
@@ -421,8 +533,12 @@ namespace Desert::Assets
         TextureAssetKey key;
         key.SourceFile     = asset.Import.SourceFile;
         key.SourceHash     = asset.Import.SourceHash;
-        key.DerivedDataKey = TextureDerivedDataKey(
-             asset.Import.SourceHash, TextureBuildSettings{ asset.Import.Settings, kTextureBlockEncoderVersion } );
+        // The package names ONE key: the cook role's final entry when the cook put one there (FinalIfAvailable),
+        // else the entry its plan builds -- the one the packager's TextureImporter (Cook role) just stored.
+        KeyEditorAsset( key, asset.Import.Settings, TextureEncodeRole::Cook );
+        if ( key.FetchFirstKey != 0 && Common::DDC::Get( kTextureDeriver, key.FetchFirstKey ).has_value() )
+            key.DerivedDataKey = key.FetchFirstKey;
+        key.FetchFirstKey = 0;
 
         CC::AssetEnvelope envelope;
         envelope.Asset.Kind       = asset.Kind;
@@ -454,7 +570,7 @@ namespace Desert::Assets
         const auto key = ReadTextureAssetKey( asset );
         if ( !key.IsSuccess() )
             return Common::MakeError<std::string>( key.GetError() );
-        if ( auto hit = Common::DDC::Get( kTextureDeriver, key.GetValue().DerivedDataKey ); hit.has_value() )
+        if ( auto hit = FetchTexturePlatformData( key.GetValue() ); hit.has_value() )
             return Common::MakeSuccess( std::move( *hit ) );
 
         TexturePlatformDataBuilder builder;
@@ -497,8 +613,22 @@ namespace Desert::Assets
             return Common::MakeSuccess( Out{} );
         if ( IsLegacyTextureIntentSidecar( file ) )
             return Common::MakeError<Out>( std::string( kLegacyTextureIntentSidecarRefusal ) );
+        // Version 3 (no ColorDilationMask) first, then 2 (no AlphaCoverageThresholds either), then 1 (no ColorSpace).
+        uint32_t                   from     = 3;
+        const CC::SubsystemVersion v3[]     = { { kTextureAssetSubsystemTag, 3 } };
+        const CC::SubsystemVersion v2[]     = { { kTextureAssetSubsystemTag, 2 } };
         const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
-        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
+        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v3 } );
+        if ( !envelope.IsSuccess() )
+        {
+            from     = 2;
+            envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v2 } );
+        }
+        if ( !envelope.IsSuccess() )
+        {
+            from     = 1;
+            envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
+        }
         if ( !envelope.IsSuccess() )
             return Common::MakeError<Out>( envelope.GetError() );
         const CC::AssetEnvelope& e = envelope.GetValue();
@@ -508,7 +638,8 @@ namespace Desert::Assets
         TextureSourceAsset asset;
         asset.Kind      = e.Asset.Kind;
         asset.Guid      = e.Asset.Guid;
-        bool haveImport = false, haveSource = false;
+        bool     haveImport = false, haveSource = false;
+        uint32_t importVersion = 0;
         for ( const CC::EnvelopeSectionData& s : e.Sections )
         {
             if ( s.Tag == CC::EnvelopeSection::Meta )
@@ -520,11 +651,19 @@ namespace Desert::Assets
             }
             else if ( s.Tag == CC::EnvelopeSection::ImportInfo )
             {
-                auto info = DecodeImportInfo( s.Bytes, 1 );
+                // The IMPT section states its own layout version; an envelope raised earlier may carry an
+                // older IMPT (WP_Protocol_HLOD: envelope 3, IMPT 2), so the section is read at the version it states.
+                const uint32_t stated = TextureSourceReader{ s.Bytes }.Get( 4 );
+                if ( stated == 0 || stated > kImportInfoVersion )
+                    return Common::MakeFormattedError<Out>( "texture ImportInfo version {} is not one this build "
+                                                            "can raise (1..{})",
+                                                            stated, kImportInfoVersion );
+                auto info = DecodeImportInfo( s.Bytes, stated );
                 if ( !info.IsSuccess() )
                     return Common::MakeError<Out>( info.GetError() );
-                asset.Import = info.GetValue();
-                haveImport   = true;
+                asset.Import  = info.GetValue();
+                haveImport    = true;
+                importVersion = stated;
             }
             else if ( s.Tag == CC::EnvelopeSection::Source )
             {
@@ -533,8 +672,10 @@ namespace Desert::Assets
             }
         }
         if ( !haveImport || !haveSource )
-            return Common::MakeError<Out>( "a version-1 texture asset without IMPT or SRCE cannot be raised" );
-        asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
+            return Common::MakeFormattedError<Out>(
+                 "a version-{} texture asset without IMPT or SRCE cannot be raised", from );
+        if ( importVersion == 1 )
+            asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
         auto encoded                     = EncodeTextureSourceAsset( asset );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );
@@ -551,6 +692,47 @@ namespace Desert::Assets
         if ( asset.Import.Settings.ColorSpace == space )
             return Common::MakeSuccess( false );
         asset.Import.Settings.ColorSpace = space;
+        if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
+            return Common::MakeError<bool>( written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool> SetTextureAlphaCoverage( const std::filesystem::path& path,
+                                                     const std::array<float, 4>&  thresholds )
+    {
+        for ( const float threshold : thresholds )
+            if ( !( threshold >= 0.0f && threshold <= 1.0f ) )
+                return Common::MakeFormattedError<bool>(
+                     "'{}': alpha coverage threshold {} is outside [0, 1]", path.generic_string(), threshold );
+        auto read = ReadTextureSourceAssetFile( path );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<bool>( read.GetError() );
+        TextureSourceAsset asset = read.ExtractValue();
+        if ( asset.Import.Settings.AlphaCoverageThresholds == thresholds )
+            return Common::MakeSuccess( false );
+        asset.Import.Settings.AlphaCoverageThresholds = thresholds;
+        if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
+            return Common::MakeError<bool>( written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool> SetTextureColorDilationMask( const std::filesystem::path& path,
+                                                         const TextureDilationMask&   mask )
+    {
+        if ( mask.Channel > 3 || !( mask.Threshold >= 0.0f && mask.Threshold <= 1.0f ) )
+            return Common::MakeFormattedError<bool>( "'{}': dilation mask channel {} threshold {} (channel 0..3, "
+                                                     "threshold in [0, 1])",
+                                                     path.generic_string(), mask.Channel, mask.Threshold );
+        auto read = ReadTextureSourceAssetFile( path );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<bool>( read.GetError() );
+        TextureSourceAsset asset = read.ExtractValue();
+        if ( asset.Guid == mask.Texture )
+            return Common::MakeFormattedError<bool>( "'{}': a texture cannot be its own dilation mask",
+                                                     path.generic_string() );
+        if ( asset.Import.Settings.ColorDilationMask == mask )
+            return Common::MakeSuccess( false );
+        asset.Import.Settings.ColorDilationMask = mask;
         if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
             return Common::MakeError<bool>( written.GetError() );
         return Common::MakeSuccess( true );

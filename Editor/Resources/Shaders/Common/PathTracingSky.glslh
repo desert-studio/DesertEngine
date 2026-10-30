@@ -1,0 +1,165 @@
+#ifndef DESERT_PATH_TRACING_SKY_GLSLH
+#define DESERT_PATH_TRACING_SKY_GLSLH
+
+// THE SKY AS A LIGHT OF THE PATH TRACER, importance-sampled. Ported from UE 5.8
+// Engine/Shaders/Private/RayTracing/RayTracingSkyLightCommon.ush:20-112 (SkyLight_Estimate, SkyLight_EvalLight,
+// SkyLight_SampleLight) and MonteCarlo.ush:159-210 (EquiAreaSphericalMapping, InverseEquiAreaSphericalMapping),
+// adapted: Y-up world (the mapping's pole axis is world Y: .xzy instead of UE's .zxy for Z-up), the pdf pyramid is
+// one storage buffer of levels (PathTracingSkyPdfLevelOffset) instead of a mip chain, and the radiance is read with
+// imageLoad - the SAME texel the pyramid weighed, so the sampled and the evaluated density agree exactly (UE
+// evaluates bilinear against a piecewise-constant pdf).
+//
+// Programs/PathTracing/PathTracerSky.shader builds both each frame the view path-traces: "Prepare" writes the
+// environment (the scene's radiance cube, mip 0, through the sky look) into an equal-area square of side S and the
+// level-0 weight max(r, g, b) per texel; "Reduce" averages 2x2 into each next level, up to the 1x1 mean.
+//
+// The includer declares, before including this file: PATH_TRACING_SKY_RADIANCE (readonly rgba32f image2D, rgb =
+// radiance, a = the texel's weight) and the float array PATH_TRACING_SKY_PDF (the level pyramid), and passes the
+// side S (a power of two) and the level count log2(S) + 1.
+
+#include <Mesh/BRDF.glslh> // PI
+
+// UE MonteCarlo.ush EquiAreaSphericalMapping (Clarberg 2008): unit square -> unit sphere, pole along +Z.
+vec3 PathTracingEquiAreaSphericalMapping( vec2 uv )
+{
+    uv              = 2.0 * uv - 1.0;
+    const float d   = 1.0 - ( abs( uv.x ) + abs( uv.y ) );
+    const float r   = 1.0 - abs( d );
+    const float phi = r == 0.0 ? 0.0 : ( PI / 4.0 ) * ( ( abs( uv.y ) - abs( uv.x ) ) / r + 1.0 );
+    const float f   = r * sqrt( 2.0 - r * r );
+    return vec3( f * sign( uv.x ) * abs( cos( phi ) ), f * sign( uv.y ) * abs( sin( phi ) ),
+                 sign( d ) * ( 1.0 - r * r ) );
+}
+
+// UE MonteCarlo.ush InverseEquiAreaSphericalMapping: unit sphere (pole +Z) -> unit square.
+vec2 PathTracingInverseEquiAreaSphericalMapping( vec3 direction )
+{
+    direction        = normalize( direction );
+    const vec3  a    = abs( direction );
+    const float r    = sqrt( 1.0 - a.z );
+    const float eps  = 5.42101086243e-20; // 2^-64: avoids 0/0 without changing the rest of the mapping
+    const float x    = min( a.x, a.y ) / ( max( a.x, a.y ) + eps );
+    // 6th degree minimax approximation of atan(x) * 2 / pi, x in [0, 1].
+    float phi = 0.419038818029165735901852432784e-1 + -0.251390972343483509333252996350e-1 * x;
+    phi       = 0.881770664775316294736387951347e-1 + phi * x;
+    phi       = -0.247333733281268944196501420480 + phi * x;
+    phi       = 0.61572017898280213493197203466e-2 + phi * x;
+    phi       = 0.636226545274016134946890922156 + phi * x;
+    phi       = 0.406758566246788489601959989e-5 + phi * x;
+    phi       = a.x < a.y ? 1.0 - phi : phi;
+    vec2 uv   = vec2( r - phi * r, phi * r );
+    uv        = direction.z < 0.0 ? 1.0 - uv.yx : uv;
+    uv        = vec2( direction.x < 0.0 ? -uv.x : uv.x, direction.y < 0.0 ? -uv.y : uv.y );
+    return uv * 0.5 + 0.5;
+}
+
+// World (Y up) <-> the mapping's frame (pole +Z): a swap of Y and Z, its own inverse.
+vec3 PathTracingSkyDirectionOfUV( vec2 uv )
+{
+    return PathTracingEquiAreaSphericalMapping( uv ).xzy;
+}
+
+vec2 PathTracingSkyUVOfDirection( vec3 direction )
+{
+    return PathTracingInverseEquiAreaSphericalMapping( direction.xzy );
+}
+
+// The first entry of pyramid level @p level (level 0 = side x side texels, each next level half the side).
+uint PathTracingSkyPdfLevelOffset( uint side, uint level )
+{
+    uint offset = 0u;
+    for ( uint l = 0u; l < level; ++l )
+        offset += ( side >> l ) * ( side >> l );
+    return offset;
+}
+
+#if defined( PATH_TRACING_SKY_RADIANCE ) && defined( PATH_TRACING_SKY_PDF )
+
+float PathTracingSkyPdfAt( uint side, uint level, ivec2 texel )
+{
+    const uint s = side >> level;
+    return PATH_TRACING_SKY_PDF[PathTracingSkyPdfLevelOffset( side, level ) + uint( texel.y ) * s + uint( texel.x )];
+}
+
+// The mean weight (the 1x1 level): UE SkyLight_Estimate / (4 pi).
+float PathTracingSkyMean( uint side, uint levels )
+{
+    return PathTracingSkyPdfAt( side, levels - 1u, ivec2( 0 ) );
+}
+
+// UE SkyLight_Estimate: the sky's share in the light selection, 4 pi * the mean weight.
+float PathTracingSkyEstimate( uint side, uint levels )
+{
+    return 4.0 * PI * PathTracingSkyMean( side, levels );
+}
+
+// UE SkyLight_EvalLight: radiance (rgb) and the solid-angle pdf (w) of the sky sampler in @p direction.
+vec4 PathTracingSkyEval( vec3 direction, uint side, uint levels )
+{
+    const ivec2 texel  = clamp( ivec2( PathTracingSkyUVOfDirection( direction ) * float( side ) ), ivec2( 0 ),
+                                ivec2( int( side ) - 1 ) );
+    const vec4  stored = imageLoad( PATH_TRACING_SKY_RADIANCE, texel );
+    const float mean   = PathTracingSkyMean( side, levels );
+    return vec4( stored.rgb, stored.a > 0.0 && mean > 0.0 ? stored.a / ( 4.0 * PI * mean ) : 0.0 );
+}
+
+struct PathTracingSkySample
+{
+    vec3  Direction;
+    vec3  Radiance;
+    float Pdf; // solid angle
+};
+
+// UE SkyLight_SampleLight (USE_HIERARCHICAL_IMPORTANCE_SAMPLING): descend the pyramid from the 2x2 level, choosing
+// a child by its weight and rescaling the random numbers, then a uniform point in the chosen texel.
+PathTracingSkySample PathTracingSkySampleLight( vec2 u, uint side, uint levels )
+{
+    ivec2 texel = ivec2( 0 );
+    for ( int level = int( levels ) - 2; level >= 0; --level )
+    {
+        texel *= 2;
+        const float p00 = PathTracingSkyPdfAt( side, uint( level ), texel + ivec2( 0, 0 ) );
+        const float p10 = PathTracingSkyPdfAt( side, uint( level ), texel + ivec2( 1, 0 ) );
+        const float p01 = PathTracingSkyPdfAt( side, uint( level ), texel + ivec2( 0, 1 ) );
+        const float p11 = PathTracingSkyPdfAt( side, uint( level ), texel + ivec2( 1, 1 ) );
+        const float left  = p00 + p01;
+        const float right = p10 + p11;
+        const float probX = left / ( left + right );
+        if ( u.x < probX )
+        {
+            u.x /= probX;
+            const float probY = p00 / left;
+            if ( u.y < probY )
+                u.y /= probY;
+            else
+            {
+                texel.y++;
+                u.y = ( u.y - probY ) / ( 1.0 - probY );
+            }
+        }
+        else
+        {
+            texel.x++;
+            u.x               = ( u.x - probX ) / ( 1.0 - probX );
+            const float probY = p10 / right;
+            if ( u.y < probY )
+                u.y /= probY;
+            else
+            {
+                texel.y++;
+                u.y = ( u.y - probY ) / ( 1.0 - probY );
+            }
+        }
+    }
+    const vec4           stored = imageLoad( PATH_TRACING_SKY_RADIANCE, texel );
+    PathTracingSkySample s;
+    s.Radiance  = stored.rgb;
+    s.Pdf       = stored.a / ( 4.0 * PI * PathTracingSkyMean( side, levels ) );
+    s.Direction = PathTracingSkyDirectionOfUV( ( vec2( texel ) + clamp( u, vec2( 0.0 ), vec2( 1.0 ) ) ) /
+                                               float( side ) );
+    return s;
+}
+
+#endif
+
+#endif // DESERT_PATH_TRACING_SKY_GLSLH

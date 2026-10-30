@@ -262,14 +262,14 @@ vec3 CloudAuthoredAtlasUvw( vec3 uvw, float slabBaseW, int slabCount )
 // eight copies to disagree.
 layout( std430, binding = CLOUD_AUTHORED_BUFFER_BINDING ) readonly buffer CloudAuthoredBuffer
 {
-    int                   u_CloudAuthoredCount;
-    int                   u_CloudAuthoredSlabCount;
-    CloudAuthoredInstance u_CloudAuthoredInstances[CLOUD_AUTHORED_SLOTS];
+    int                   CloudAuthoredCount;
+    int                   CloudAuthoredSlabCount;
+    CloudAuthoredInstance CloudAuthoredInstances[CLOUD_AUTHORED_SLOTS];
 };
 
-#define CLOUD_AUTHORED_COUNT         u_CloudAuthoredCount
-#define CLOUD_AUTHORED_SLAB_COUNT    u_CloudAuthoredSlabCount
-#define CLOUD_AUTHORED_INSTANCE( i ) u_CloudAuthoredInstances[i]
+#define CLOUD_AUTHORED_COUNT         CloudAuthoredCount
+#define CLOUD_AUTHORED_SLAB_COUNT    CloudAuthoredSlabCount
+#define CLOUD_AUTHORED_INSTANCE( i ) CloudAuthoredInstances[i]
 #endif // CLOUD_AUTHORED_BUFFER_BINDING
 
 #endif // CLOUD_AUTHORED_GLSLH

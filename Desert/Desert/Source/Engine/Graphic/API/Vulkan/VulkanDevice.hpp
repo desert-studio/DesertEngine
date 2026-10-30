@@ -4,7 +4,11 @@
 
 #include <Engine/Core/Device.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRayTracingFunctions.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanResourceSharing.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp> // VulkanPresentationDispatch
 
 #include <vulkan/vulkan.h>
 
@@ -77,6 +81,16 @@ namespace Desert::Graphic::API::Vulkan
             return m_ResolvedQueueFamilies.Transfer;
         }
 
+        /// The sharing every buffer and image the engine creates is made with (VulkanResourceSharing.hpp):
+        /// CONCURRENT across the distinct graphics / compute / transfer families, EXCLUSIVE when there is one.
+        /// Settled with the families; the reference is stable for the device's life (create infos point into it).
+        [[nodiscard]] const VulkanResourceSharing& GetResourceSharing() const
+        {
+            DESERT_VERIFY( m_QueueFamiliesResolved,
+                           "resource sharing read before VulkanPhysicalDevice::Create() settled the families" );
+            return m_ResourceSharing;
+        }
+
         VkFormat GetDepthFormat() const
         {
             return m_DepthFormat;
@@ -86,6 +100,18 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Capabilities;
         }
+
+        // The surface half of the catalog (display outputs, present modes beyond FIFO). The device is chosen
+        // before any window surface exists, so the constructor's catalog lists FIFO alone; the first swapchain
+        // calls this with its surface and the catalog is rebuilt from both halves, once.
+        void ProbeSurface( VkSurfaceKHR surface );
+        // Once a frame, on the main thread before the views begin (VulkanRendererAPI::BeginFrame): a vendor
+        // runtime that refused a method after the catalog offered it (Streamline at device creation, or an
+        // evaluation that faulted) changes what the device offers, so the catalog is rebuilt and published
+        // (QualityState::ReplaceCatalog) - Resolve then lowers the method as refused, in the one place every
+        // fallback is decided, logged and shown. Asks only the runtimes (IVulkanDeviceExtension::
+        // AmendCatalogProbe) unless their answer changed.
+        void RefreshRuntimeOffers();
 
         [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
         {
@@ -110,10 +136,28 @@ namespace Desert::Graphic::API::Vulkan
         QueueFamilyIndices                   m_QueueFamilyIndices;
         ResolvedQueueFamilies                m_ResolvedQueueFamilies;
         bool                                 m_QueueFamiliesResolved = false;
+        VulkanResourceSharing                m_ResourceSharing;
 
         VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 
         Engine::DeviceCapabilities m_Capabilities;
+        bool                       m_SurfaceProbed = false;
+        VkSurfaceKHR               m_ProbedSurface = VK_NULL_HANDLE; // the surface the catalog was completed with
+        // What the vendor runtimes answered when the catalog was last built (RefreshRuntimeOffers).
+        struct RuntimeOffers
+        {
+            bool Dlss                         = false;
+            bool DlssRayReconstruction        = false;
+            bool DlssRefused                  = false;
+            bool DlssRayReconstructionRefused = false;
+            bool Xess                         = false;
+            bool MetalFx                      = false;
+
+            bool operator==( const RuntimeOffers& ) const = default;
+        };
+        RuntimeOffers m_RuntimeOffers;
+        // The runtimes' answer alone: a CatalogProbe amended by IVulkanDeviceExtension::AmendCatalogProbe only.
+        [[nodiscard]] static RuntimeOffers AskRuntimeOffers();
 
         std::shared_ptr<vkb::PhysicalDevice> m_Bootstrap;
         DeviceCaps                           m_DeviceCaps;
@@ -136,13 +180,18 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] Engine::DeviceMemoryReport        QueryMemory() const override;
         [[nodiscard]] virtual std::string               GetName() const override;
         [[nodiscard]] Common::BoolResultStr             PersistPipelineCache() override;
-        [[nodiscard]] bool IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
-                                              Engine::FormatUsage                  usage ) const override;
 
         const auto& GetPhysicalDevice() const
         {
             return m_PhysicalDevice;
         }
+        /// The present / acquire / swapchain / wait-idle entry points of this device: the loader's, or a
+        /// platform runtime's proxies (Streamline manual hooking). Every such call of the engine goes through it.
+        [[nodiscard]] const VulkanPresentationDispatch& GetPresentationDispatch() const
+        {
+            return m_Presentation;
+        }
+
         VkDevice GetVulkanLogicalDevice() const
         {
             return m_LogicalDevice;
@@ -152,6 +201,13 @@ namespace Desert::Graphic::API::Vulkan
         // app runs (PersistPipelineCache) and on Destroy — so the driver reuses previously-built pipeline binaries
         // across runs instead of rebuilding every graphics/compute pipeline from scratch each startup. Passed to
         // every vkCreate*Pipelines call (graphics + compute).
+        // Filled iff DeviceCaps has AccelerationStructure (VulkanRayTracingFunctions.hpp); Complete() is the
+        // check.
+        [[nodiscard]] const RayTracingDeviceFunctions& GetRayTracingFunctions() const
+        {
+            return m_RayTracingFunctions;
+        }
+
         VkPipelineCache GetPipelineCache() const
         {
             return m_PipelineCache;
@@ -188,6 +244,13 @@ namespace Desert::Graphic::API::Vulkan
 
         /// This device's one sampler cache — every VkSampler of the engine comes from it (VulkanSamplerCache).
         [[nodiscard]] VulkanSamplerCache& GetSamplerCache();
+        /// This device's bindless texture table: made on first use (its samplers and missing texture need the
+        /// published device), released after the content and before the samplers.
+        [[nodiscard]] VulkanBindlessTextureTable& GetBindlessTextureTable();
+        [[nodiscard]] VulkanBindlessTextureTable* TryGetBindlessTextureTable() const
+        {
+            return m_Bindless.get();
+        }
 
     private:
         // Create the device-wide VkPipelineCache, seeding it from the on-disk cache if present. The driver
@@ -200,6 +263,7 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<VulkanPhysicalDevice> m_PhysicalDevice;
         VkDevice                              m_LogicalDevice;
         VkPipelineCache                       m_PipelineCache = VK_NULL_HANDLE;
+        RayTracingDeviceFunctions             m_RayTracingFunctions;
         PipelineCacheFile::DeviceIdentity     m_PipelineIdentity;
         std::filesystem::path                 m_PipelineCacheFile; // empty = not persisted (reason logged)
         uint64_t                              m_PersistedPipelineHash  = 0; // of the entry on disk, 0 = none
@@ -208,6 +272,10 @@ namespace Desert::Graphic::API::Vulkan
         std::string                           m_DeviceName;
         // Made with the device in CreateDevice, released in Destroy before vkDestroyDevice.
         std::unique_ptr<VulkanSamplerCache> m_Samplers;
+        std::unique_ptr<VulkanBindlessTextureTable> m_Bindless;
+        // Set after the extensions' OnDeviceCreated (AmendPresentationDispatch), back to the loader's before
+        // their OnDeviceDestroying: a runtime's proxies live exactly as long as the runtime does.
+        VulkanPresentationDispatch m_Presentation;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining
         // `VkPhysicalDeviceMemoryBudgetPropertiesEXT` into a properties query whose extension the device

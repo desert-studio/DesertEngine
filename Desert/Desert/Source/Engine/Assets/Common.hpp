@@ -126,6 +126,28 @@ namespace Desert::Assets
         // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
         // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
         VFXDataChannel,
+        // A LANDSCAPE GRASS TYPE (`.degrasstype`): UE's ULandscapeGrassType — the varieties (mesh, density,
+        // scale, cull distances) a layer info grows. The instances are never stored: the GPU generates them
+        // around the camera every frame — see Engine/Assets/LandscapeGrassTypeAsset.hpp and
+        // Graphic/Systems/Scene/Grass/GrassRenderer.hpp.
+        LandscapeGrassType,
+        // A WORLD PARAMETER COLLECTION (`.dworldparams`): UE's UMaterialParameterCollection — named world values
+        // every material can read and gameplay can set. See Engine/Assets/WorldParametersAsset.hpp.
+        WorldParameters,
+        // A WEATHER PRESET (`.dweatherpreset`): one weather as data, named by weather zones and SetWeather.
+        // See Engine/Assets/WeatherPresetAsset.hpp.
+        WeatherPreset,
+        // A VFX EFFECT TYPE (`.dfxtype`): UE's UNiagaraEffectType - the per-Effects-level scalability (MaxDistance,
+        // SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
+        // Engine/Assets/VFXEffectTypeAsset.hpp.
+        VFXEffectType,
+        // A SUBSURFACE PROFILE (`.dsssprofile`): UE USubsurfaceProfile - the Burley parameters a material of the
+        // SubsurfaceProfile shading model names. See Engine/Assets/SubsurfaceProfileAsset.hpp.
+        SubsurfaceProfile,
+        // A VFX MODULE (`.dfxmod`): UE's UNiagaraScript of Usage Module - one stack module (its inputs, the
+        // attributes it touches, its GLSL, the stages it may run in) that a system's stack names by GUID. See
+        // Engine/Assets/VFXModuleAsset.hpp.
+        VFXModule,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -154,6 +176,10 @@ namespace Desert::Assets
         switch ( type )
         {
             case AssetTypeID::StringTable:
+            // AN EFFECT TYPE IS PROJECT-SCOPED for the string table's reason: a `.dfx` names it by its file STEM
+            // (VFXSystemData::EffectType), not by `AssetHandle`, so the reachability walk cannot see it - and a
+            // swept-out type would leave every VFXWorld reading a copy hot reload no longer reaches.
+            case AssetTypeID::VFXEffectType:
                 return true;
             case AssetTypeID::Unknown:
             case AssetTypeID::Mesh:
@@ -209,6 +235,9 @@ namespace Desert::Assets
             // A LAYER INFO IS SCENE-SCOPED for the retarget's reason: `LandscapeComponent::Layers` holds
             // `AssetHandle`s the reachability walk sees (SceneAssetRoots).
             case AssetTypeID::LandscapeLayerInfo:
+            // A GRASS TYPE IS SCENE-SCOPED for the layer info's reason: it is reached through the layer info
+            // that names it, and a layer info is itself scene-scoped.
+            case AssetTypeID::LandscapeGrassType:
             // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
             // is an `AssetHandle` held by a live entity.
             case AssetTypeID::LevelSequence:
@@ -238,6 +267,17 @@ namespace Desert::Assets
             // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
             // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
             case AssetTypeID::VFXDataChannel:
+            // A WORLD PARAMETER COLLECTION IS SCENE-SCOPED for the retarget's reason: the scene's settings name it
+            // by `AssetHandle` (SceneSettings::WorldParameters), and a collection no scene names has no world.
+            case AssetTypeID::WorldParameters:
+            // A WEATHER PRESET IS SCENE-SCOPED likewise: weather zones name it by `AssetHandle`.
+            case AssetTypeID::WeatherPreset:
+            // A SUBSURFACE PROFILE is held by the renderer's registry for as long as a material names it.
+            case AssetTypeID::SubsurfaceProfile:
+            // A VFX MODULE IS SCENE-SCOPED for the shader graph's reason: no component holds its handle, the stack
+            // compiler reads the file through the registry row of its GUID (VFX::RegistryModuleResolver), and a
+            // module asset object exists only while an editor document holds one.
+            case AssetTypeID::VFXModule:
             case AssetTypeID::Count:
                 return false;
         }
@@ -302,6 +342,8 @@ namespace Desert::Assets
                 return "FoliageType";
             case AssetTypeID::LandscapeLayerInfo:
                 return "LandscapeLayerInfo";
+            case AssetTypeID::LandscapeGrassType:
+                return "LandscapeGrassType";
             case AssetTypeID::LevelSequence:
                 return "LevelSequence";
             case AssetTypeID::VFXSystem:
@@ -320,6 +362,16 @@ namespace Desert::Assets
                 return "Sound";
             case AssetTypeID::VFXDataChannel:
                 return "VFXDataChannel";
+            case AssetTypeID::WorldParameters:
+                return "WorldParameters";
+            case AssetTypeID::WeatherPreset:
+                return "WeatherPreset";
+            case AssetTypeID::VFXEffectType:
+                return "VFXEffectType";
+            case AssetTypeID::SubsurfaceProfile:
+                return "SubsurfaceProfile";
+            case AssetTypeID::VFXModule:
+                return "VFXModule";
             case AssetTypeID::Count:
                 return "Count";
         }
