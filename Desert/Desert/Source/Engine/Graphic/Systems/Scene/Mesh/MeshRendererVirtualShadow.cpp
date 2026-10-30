@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <tuple>
 #include <utility>
 
 namespace
@@ -281,14 +282,11 @@ namespace Desert::Graphic::System
             const Common::Math::AABB local = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
             if ( ism.Wind.Sways() )
             {
-                // The kept instances' boxes now (one not kept casts nothing; last frame's box, added below, covers
-                // the pages one leaving the cull distance was drawn in).
-                if ( kept.Count == 0 )
-                    continue;
-                VsmInvalidationBox box = GatheredBox( gathered.Instances[kept.First].WorldBounds );
-                for ( uint32_t k = kept.First + 1; k < kept.First + kept.Count; ++k )
-                    Grow( box, GatheredBox( gathered.Instances[k].WorldBounds ) );
-                moving.push_back( box );
+                // Each kept instance's box now, the reach of its sway (UE: an instance's own invalidation, never
+                // one box for its whole field); one not kept casts nothing, and last frame's boxes (added below)
+                // cover the pages one leaving the cull distance was drawn in. Only their merged layer is redrawn.
+                for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+                    moving.push_back( GatheredBox( gathered.Instances[k].WorldBounds ) );
                 continue;
             }
             // Keyed by its snapshot, as the cascades' cache is (m_VsmKeySnapshots keeps the address unique).
@@ -371,8 +369,19 @@ namespace Desert::Graphic::System
                 ++now;
             }
         }
-        result.Boxes.insert( result.Boxes.end(), m_VsmMovingBoxes.begin(), m_VsmMovingBoxes.end() );
-        result.Boxes.insert( result.Boxes.end(), moving.begin(), moving.end() );
+        // The movers' boxes now, and last frame's that are not among them (a still-standing swaying instance's
+        // reach box is the same every frame: one box covers both).
+        const auto boxLess = []( const VsmInvalidationBox& a, const VsmInvalidationBox& b )
+        {
+            return std::tie( a.Min.x, a.Min.y, a.Min.z, a.Max.x, a.Max.y, a.Max.z ) <
+                   std::tie( b.Min.x, b.Min.y, b.Min.z, b.Max.x, b.Max.y, b.Max.z );
+        };
+        std::vector<VsmInvalidationBox> nowSorted = moving;
+        std::sort( nowSorted.begin(), nowSorted.end(), boxLess );
+        result.MovableBoxes = moving;
+        for ( const VsmInvalidationBox& old : m_VsmMovingBoxes )
+            if ( !std::binary_search( nowSorted.begin(), nowSorted.end(), old, boxLess ) )
+                result.MovableBoxes.push_back( old );
 
         m_VsmStillCasters = std::move( still );
         m_VsmMovingBoxes  = std::move( moving );
@@ -647,14 +656,17 @@ namespace Desert::Graphic::System
         {
             for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
             {
-                const uint32_t view = kVsmViewBase + level;
-                // No caster bias: the virtual shadow map offsets its receivers along their normals instead
-                // (kVsmNormalBiasTexels, "VSM: Project"), so the casters draw with the level's own matrix.
-                m_CascadeCasterVP[view]   = frame.LevelViewProjection[level];
-                m_CascadeCasterBias[view] = CascadeCasterBias{};
-                if ( !EnsureShadowViewMaterials( view ) )
-                    return Common::MakeError(
-                         std::format( "virtual shadow map level {} has no caster materials", level ) );
+                // The level's still casters' view and its movers' (materials of their own, one frame).
+                for ( const uint32_t view : { kVsmViewBase + level, kVsmMovableViewBase + level } )
+                {
+                    // No caster bias: the virtual shadow map offsets its receivers along their normals instead
+                    // (kVsmNormalBiasTexels, "VSM: Project"), so the casters draw with the level's own matrix.
+                    m_CascadeCasterVP[view]   = frame.LevelViewProjection[level];
+                    m_CascadeCasterBias[view] = CascadeCasterBias{};
+                    if ( !EnsureShadowViewMaterials( view ) )
+                        return Common::MakeError(
+                             std::format( "virtual shadow map level {} has no caster materials", level ) );
+                }
             }
 
             // The clusters of every level (SetVirtualShadowGeometry): one carrier per group with a twin. The level
@@ -716,11 +728,20 @@ namespace Desert::Graphic::System
                                          m_VsmCarriedTwins.end() );
             }
 
+            // Each level's still casters (both layers of the pages whose static layer is redrawn), then its movers
+            // (the merged layer of every drawn page, over the static layer "VSM: Clear Pages" copied there).
             for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
             {
+                if ( auto added = AddVirtualShadowRasterNode( graph, frame, map, level, kVsmViewBase + level,
+                                                              ShadowCasterLayer::Static, kVsmVirtualResolution,
+                                                              std::format( "VSM: Raster L{}", level ),
+                                                              m_VsmDraws[level], m_VsmCasters[level] );
+                     !added.IsSuccess() )
+                    return added;
                 if ( auto added = AddVirtualShadowRasterNode(
-                          graph, frame, map, level, kVsmViewBase + level, kVsmVirtualResolution,
-                          std::format( "VSM: Raster L{}", level ), m_VsmDraws[level], m_VsmCasters[level] );
+                          graph, frame, map, level, kVsmMovableViewBase + level, ShadowCasterLayer::Movable,
+                          kVsmVirtualResolution, std::format( "VSM: Raster Movable L{}", level ),
+                          m_VsmMovableDraws[level], m_VsmMovableCasters[level] );
                      !added.IsSuccess() )
                     return added;
             }
@@ -781,7 +802,8 @@ namespace Desert::Graphic::System
                      raster.View, raster.Mip ) );
             VsmLocalRasterDraws& entry = *m_VsmLocalDraws[k];
             if ( auto added = AddVirtualShadowRasterNode(
-                      graph, frame, map, raster.Level, view, raster.ResolutionPages * kVsmPageSize,
+                      graph, frame, map, raster.Level, view, ShadowCasterLayer::All,
+                      raster.ResolutionPages * kVsmPageSize,
                       std::format( "VSM: Raster Local {} V{} M{}", raster.Light, raster.View, raster.Mip ),
                       entry.Draws, entry.Casters );
                  !added.IsSuccess() )
@@ -790,16 +812,14 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode( RDG::Builder&                   graph,
-                                                                    const VirtualShadowMapFrame&    frame,
-                                                                    const VirtualShadowMapRenderer& map,
-                                                                    const uint32_t level, const uint32_t view,
-                                                                    const uint32_t resolution, std::string name,
-                                                                    MeshDrawList&                draws,
-                                                                    std::vector<VsmCasterEntry>& casters )
+    Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode(
+         RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
+         const uint32_t level, const uint32_t view, const ShadowCasterLayer layer, const uint32_t resolution,
+         std::string name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
     {
         draws.Clear();
-        BuildShadowCascadeDraws( view, draws, ShadowCasterLayer::All );
+        BuildShadowCascadeDraws( view, draws, layer );
+        const bool movable = layer == ShadowCasterLayer::Movable;
         if ( draws.GetError() )
             return Common::MakeError(
                  std::format( "virtual shadow map level {}: {}", level, *draws.GetError() ) );
@@ -846,10 +866,11 @@ namespace Desert::Graphic::System
         }
         casters.clear();
         std::vector<VirtualShadowCasterDraw> casterDraws;
+        // The non-mesh casters (the terrain) stand still: the static layer's node draws them.
         for ( const auto& weak : m_ShadowCasters )
         {
             const auto caster = weak.lock();
-            if ( !caster )
+            if ( movable || !caster )
                 continue;
             casterDraws.clear();
             caster->AppendVirtualShadowDraws( casterDraws );
@@ -875,7 +896,8 @@ namespace Desert::Graphic::System
         if ( cull.Instances.empty() )
             return BOOLSUCCESS;
 
-        const auto culled = map.AddCasterCulling( graph, frame, level, cull );
+        const auto culled = map.AddCasterCulling(
+             graph, frame, level, movable ? VsmCasterLayer::Movable : VsmCasterLayer::Static, cull );
         if ( !culled )
             return Common::MakeError( culled.GetError() );
         const RDG::BufferRef arguments = culled.GetValue().Arguments;
@@ -885,8 +907,10 @@ namespace Desert::Graphic::System
         // The pass parameters of every block the level's node declares (the mesh cells' and the non-mesh
         // casters'): every VirtualShadowDepth program includes Common/VirtualShadowRaster.glslh; the instanced
         // cells also fetch through the level's instance remap (Vertex_Instanced.glslh).
+        const RDG::BufferRef rasterLevel = movable ? frame.RasterLevelMovable[level] : frame.RasterLevel[level];
         const VirtualShadowBlockParameters parameters =
-             [&frame, level, remap]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+             [&frame, rasterLevel, remap]( RDG::BindingBlockBuilder&       block,
+                                           const RDG::ShaderBindingLayout& layout )
         {
             block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
                            RDG::Access::StorageRead )
@@ -894,7 +918,7 @@ namespace Desert::Graphic::System
                            RDG::Access::StorageRead )
                  .Storage( MeshVirtualShadowShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
                            RDG::Access::StorageWrite )
-                 .Storage( MeshVirtualShadowShaderParameters::VsmRasterLevel, frame.RasterLevel[level],
+                 .Storage( MeshVirtualShadowShaderParameters::VsmRasterLevel, rasterLevel,
                            RDG::Access::StorageRead );
             if ( remap.IsValid() &&
                  std::any_of( layout.Slots.begin(), layout.Slots.end(),

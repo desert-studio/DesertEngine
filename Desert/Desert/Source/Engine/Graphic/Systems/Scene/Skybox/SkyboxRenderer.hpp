@@ -22,6 +22,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -234,9 +235,22 @@ namespace Desert::Graphic::System
                                                m_Sky.RebakeSunAngleThreshold, true, true, false, 0, 0, 0, 0 );
         }
 
-        // The sky draw, the first pass of SceneRenderer::AddFrameBasePass: it CLEARS the scene target (colour and
-        // depth) and the geometry after it loads. Empty (no TargetFramebuffer) without a target.
+        // How the sky's fullscreen triangle meets the scene depth.
+        enum class SkyDepth : uint8_t
+        {
+            // Every texel, depth test off: the forward path's first base-pass node (it CLEARS the scene target and
+            // the geometry after it draws over the sky).
+            Fill,
+            // Only where the scene depth is the far plane (CloserOrEqual at depth 0, no write): the deferred path,
+            // after the G-buffer depth reached the scene target (UE: the sky after the base pass), so a texel
+            // geometry covers is never shaded by the sky.
+            BehindScene,
+        };
+        // The sky draw on the scene target: SkyDepth::Fill (the forward base pass's first node) and
+        // SkyDepth::BehindScene (the deferred sky after the G-buffer depth). Empty (no TargetFramebuffer) without
+        // a target.
         [[nodiscard]] SystemRasterPass SkyPass();
+        [[nodiscard]] SystemRasterPass SkyBehindScenePass();
 
         // The evaluated per-frame sky, for renderers that must agree with it (the atmospheric fog).
         // Valid == false when no enabled atmosphere is driving this frame.
@@ -249,7 +263,8 @@ namespace Desert::Graphic::System
         // The SkyboxPass's setup: picks the draw (procedural sky or the skybox material), feeds its material
         // and declares its one binding block (block 0) - the procedural sky's LUTs are block entries. Records
         // the choice in m_SkyDraw; Render records exactly that.
-        void DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs );
+        [[nodiscard]] SystemRasterPass SkyPassOf( SkyDepth depth );
+        void DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs, SkyDepth depth );
         [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context ) const;
 
         // Everything the two LUT passes read. When any of it moves, both LUTs are re-dispatched; while
@@ -319,11 +334,14 @@ namespace Desert::Graphic::System
         SkyLook                           m_SkyboxLook{};
         bool                              m_BackdropVisible = true;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
+        // m_Pipeline's state for SkyDepth::BehindScene (CloserOrEqual, no depth write); built with it.
+        std::shared_ptr<GraphicsPipeline> m_BehindPipeline;
         std::shared_ptr<Shader>           m_Shader;
         ShaderBindingLayoutCache          m_SkyLayout; // the Sky pass block, keyed on m_Pipeline's shader
 
         // Procedural sky (engine-generated atmosphere) — alternative to the HDR cubemap, same Sky pass.
         std::shared_ptr<GraphicsPipeline>      m_ProceduralPipeline;
+        std::shared_ptr<GraphicsPipeline> m_ProceduralBehindPipeline; // SkyDepth::BehindScene's, built with it
         std::shared_ptr<Shader>                m_ProceduralShader;
         std::shared_ptr<MaterialProceduralSky> m_ProceduralMaterial;
         ShaderBindingLayoutCache               m_ProceduralLayout; // keyed on m_ProceduralPipeline's shader

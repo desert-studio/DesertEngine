@@ -911,6 +911,11 @@ namespace Desert::Graphic::System
         // The visible translucent sections of the static queue (RenderGlassManual's cells, TranslucentDrawFor) and
         // their front layer cells (FrontLayerShaderFor) whose compiled program samples @p textureName.
         [[nodiscard]] bool QueuedStaticTranslucentSamples( std::string_view textureName ) const;
+        // A translucent section of the static queue in the camera's frustum: what "Deferred: Glass" can draw this
+        // frame (DeclareGlassBindings walks the same queue through the same tests and draws a subset of these).
+        // SceneRenderer's scene-copy decision (UE: the scene colour copy only for a view with a refractive
+        // primitive): false, the glass node has nothing to draw and the frame needs no copy for it.
+        [[nodiscard]] bool TranslucentSectionsVisible() const;
         // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
         // @p blendedOnly).
         [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;
@@ -974,7 +979,11 @@ namespace Desert::Graphic::System
         // and a cube face alike.
         static constexpr uint32_t           kCascadeMovableViewBase = kCascadeViews;
         static constexpr uint32_t           kVsmViewBase            = kCascadeMovableViewBase + kCascadeViews;
-        static constexpr uint32_t kRainOcclusionView      = kVsmViewBase + kVsmClipmapLevelCount;
+        // Each sun level's movers ("VSM: Raster Movable L<l>", ShadowCasterLayer::Movable) draw from a view of
+        // their own, in the same frame as the level's still casters: materials of their own, as a cascade's
+        // movable layer.
+        static constexpr uint32_t kVsmMovableViewBase     = kVsmViewBase + kVsmClipmapLevelCount;
+        static constexpr uint32_t kRainOcclusionView      = kVsmMovableViewBase + kVsmClipmapLevelCount;
         static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
         static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
         // A virtual shadow map view: a clipmap level of the sun (the fixed range), or a local view this frame's
@@ -994,7 +1003,8 @@ namespace Desert::Graphic::System
         // compiling when the pages were drawn, so the cached pages lack it and every one is dropped.
         struct VirtualShadowInvalidation
         {
-            std::vector<VsmInvalidationBox> Boxes;
+            std::vector<VsmInvalidationBox> Boxes;        // the still casters that changed: both layers
+            std::vector<VsmInvalidationBox> MovableBoxes; // every mover instance, now and last frame: merged layer
             bool                            StaticCastersChanged = false;
         };
         [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
@@ -1954,6 +1964,8 @@ namespace Desert::Graphic::System
         // Each level's casters, built by its node's setup and recorded by its exec; the non-mesh casters its setup
         // declared, each with the index of its first block (after the list's).
         std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
+        // Each level's movers ("VSM: Raster Movable L<l>"): no non-mesh caster, so its caster list stays empty.
+        std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmMovableDraws;
         // This frame's VG-only issue of every level (SetVirtualShadowGeometry), consumed by
         // AddVirtualShadowRasterPasses into m_VsmGeometryDraws ("VSM: Raster VirtualGeometry"); while set, the
         // levels' CPU walk leaves out the submeshes whose clusters it draws (CpuWalkHidden).
@@ -1985,6 +1997,7 @@ namespace Desert::Graphic::System
             uint32_t                     FirstRecord = 0;
         };
         std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmCasters;
+        std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmMovableCasters;
         // The local lights' drawn mips (VirtualShadowMapFrame::LocalRasters), one entry each, in the frame's order:
         // its casters and non-mesh casters as a sun level's. Grows and is never shrunk, so a node's lambdas hold a
         // stable entry.
@@ -1994,15 +2007,14 @@ namespace Desert::Graphic::System
             std::vector<VsmCasterEntry>      Casters;
         };
         std::vector<std::unique_ptr<VsmLocalRasterDraws>> m_VsmLocalDraws;
-        // One raster node of the virtual shadow map: the casters of shadow view @p view culled against level
-        // @p level's drawn pages, over a @p resolution texel square.
-        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode( RDG::Builder&                   graph,
-                                                                        const VirtualShadowMapFrame&    frame,
-                                                                        const VirtualShadowMapRenderer& map,
-                                                                        uint32_t level, uint32_t view,
-                                                                        uint32_t resolution, std::string name,
-                                                                        MeshRendererDetail::MeshDrawList& draws,
-                                                                        std::vector<VsmCasterEntry>&      casters );
+        // One raster node of the virtual shadow map: the casters of shadow view @p view in @p layer culled against
+        // level @p level's drawn pages, over a @p resolution texel square. All (a local view) and Static (a sun
+        // level's still casters, with the non-mesh casters) write both pool layers of the pages whose static layer
+        // is redrawn; Movable (a sun level's movers) the merged layer of every drawn page.
+        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode(
+             RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
+             uint32_t level, uint32_t view, ShadowCasterLayer layer, uint32_t resolution, std::string name,
+             MeshRendererDetail::MeshDrawList& draws, std::vector<VsmCasterEntry>& casters );
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
         // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one

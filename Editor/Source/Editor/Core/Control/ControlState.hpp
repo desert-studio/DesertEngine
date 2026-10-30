@@ -320,6 +320,13 @@ namespace Desert::Editor::Control
         uint32_t GeometryPoolMeshBinds = 0;
         // The primary view's virtual shadow map local lights (Shadows VirtualMaps), one per light it drew.
         std::vector<VsmLocalLightSnapshot> VsmLocalLights;
+        // The primary view's virtual shadow map pages of its newest read-back frame (VsmPageStats): drawn, of them
+        // with the static layer redrawn, of them with only the movers drawn over the copied static layer, and the
+        // requests the pool could not hold.
+        uint32_t VsmPagesDrawn          = 0;
+        uint32_t VsmPagesStaticRedrawn  = 0;
+        uint32_t VsmPagesMovableRedrawn = 0;
+        uint32_t VsmPagesOverflow       = 0;
         // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
         ForwardPrepassSnapshot ForwardPrepass;
         // The primary view's Shadows method this frame (Graphic::RenderMethods: requested, effective) and, under
@@ -599,6 +606,12 @@ namespace Desert::Editor::Control
             }
             Common::Json::Object vsm;
             vsm["localLights"] = Common::Json::Value( lights );
+            Common::Json::Object pages;
+            pages["drawn"]          = Num( snapshot.VsmPagesDrawn );
+            pages["staticRedrawn"]  = Num( snapshot.VsmPagesStaticRedrawn );
+            pages["movableRedrawn"] = Num( snapshot.VsmPagesMovableRedrawn );
+            pages["overflow"]       = Num( snapshot.VsmPagesOverflow );
+            vsm["pages"]            = Common::Json::Value( pages );
             root["vsm"]        = Common::Json::Value( vsm );
         }
 

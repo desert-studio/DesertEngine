@@ -1,0 +1,20 @@
+# GPU-COST-VSM: the virtual shadow map's static / movable layer split under wind (UE r.Shadow.Virtual.Cache.StaticSeparate,
+# VirtualShadowMap.hpp "the static and the movable layer"). FPS-FIELD-BARN's project, camera and wind (scenario B): the
+# swaying trees redraw only the merged layer of the pages under their own instance boxes, the barn, the ground and the
+# still casters keep their cached static layer. Played by the lead on the int/fps Editor (before, fc979990b) and the
+# task/GPU-COST Editor (after), default machine settings (no machine.json overrides).
+# [log] PASS when `state vsm` after the 120 wind frames reports pages.staticRedrawn ~ 0 (only pages scrolling in or a
+# still caster changing; the movers' pages land in pages.movableRedrawn) and the [Profiler] table's "VSM: Raster L*"
+# rows (the still casters) sum well below int/fps's, with "VSM: Raster Movable L*" carrying the trees.
+# [frame] PASS when 1_wind is byte-near the int/fps shot of the same run (mean |diff| <= 2/255) and the foliage
+# shadows still move between two shots.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 1500
+Дано run Action Simulate
+Когда frames 120
+Когда profile-dump
+Когда state vsm
+Тогда-вид 1_wind FIELD_Barn at 1.7 m under the scene's wind: field, barn and trees drawn with their shadows, crowns bent along the wind, nothing black or missing; state vsm pages.staticRedrawn ~ 0 with pages.movableRedrawn > 0; [Profiler] table with "VSM: Raster L*" and "VSM: Raster Movable L*" rows follows in editor.log

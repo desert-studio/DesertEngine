@@ -69,11 +69,14 @@ Shader "Skybox"
 
         void main()
         {
-            // z = 1.0 is the NEAR plane under reversed-Z (Core/Projection.hpp). It is not a depth
-            // decision here at all -- the Skybox pass runs with depth test AND depth write off
-            // (SkyboxRenderer.cpp) -- it is the clip-space point WorldViewRay unprojects.
+            // z = 1.0 is the NEAR plane under reversed-Z (Core/Projection.hpp). It is not the depth
+            // the sky is rasterised at (gl_Position below) -- it is the clip-space point WorldViewRay
+            // unprojects.
             vec4 position = vec4(FullscreenTriangleNdc(), 1.0, 1.0);
-        	gl_Position = position;
+            // Rasterised on the FAR plane (depth 0 under reversed-Z): the deferred path's sky after the G-buffer
+            // tests CloserOrEqual against the scene depth and shades only the uncovered texels; the ray below is
+            // still unprojected from the near-plane point.
+        	gl_Position = vec4(position.xy, 0.0, 1.0);
 
             // WAS `inverse(Projection * View) * position`, read as .xyz with no perspective divide.
             // That carries the camera's TRANSLATION and adds cameraPos/near to every ray: with a 10 cm

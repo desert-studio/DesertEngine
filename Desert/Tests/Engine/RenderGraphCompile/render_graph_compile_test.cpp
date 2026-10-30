@@ -2439,6 +2439,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "TerrainGBuffer",
          "Deferred: DepthResolve",
          "Deferred: DepthExpand",
+         // GPU-PREPASS: the deferred sky behind the G-buffer's depth, once it reached the scene target.
+         "system[sky->SkyBehindScenePass()]",
          "Deferred: SSAO",
          // SSR2: the view's HZB the trace marches, built before it.
          "temporal[hzb]",

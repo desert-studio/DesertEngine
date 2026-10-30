@@ -237,8 +237,10 @@ namespace Desert::Graphic::System
          *        atmosphere LUT — only on the field, the sun and the camera position, so nothing forces
          *        it later and the one thing that forces it earlier is its consumer.
          *
-         * Costs exactly nothing when the layer is absent, disabled, not casting or at zero strength: the
-         * image is not even allocated until all four are true.
+         * Costs exactly nothing when the layer is absent or disabled: the image is not even allocated
+         * until both are true. It runs when the layer casts nothing on the ground as well, because the
+         * cloud march reads it as the far half of the clouds' own shadow ray (GPU-CLOUD-MARCH); whether
+         * the ground reads it is GetShadowStrength().
          */
         std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
         // HasShadowMap() becomes true only when the graph accepted the shadow-map node DeclareShadowMapNodes
@@ -579,6 +581,9 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;
+        // Graphic::CloudSelfShadowParams: this frame's shadow-map projection as the march reads it for the
+        // far half of the clouds' own shadow ray (GPU-CLOUD-MARCH). The march's alone.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_SelfShadowParamsBuffer;
 
         // THE CLOUD SHADOW MAP and the parameter copy its dispatch reads.
         //

@@ -132,12 +132,15 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr RDG::Access kW   = RDG::Access::StorageWrite;
         constexpr RDG::Access kS   = RDG::Access::SampledCompute;
         const auto            all  = RDG::SubresourceRange::All();
+        // ASYNC COMPUTE (with the radiance cache it reads): both nodes read the G-buffer and the cache and write
+        // their imports only; the graph joins them at the first graphics reader of the gathered lighting.
+        const RDG::PassFlags  kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const glm::uvec2      half = ( inputs.Extent + 1u ) / 2u;
         {
             ComputePipeline* const pipeline = m_Pipelines[Gather].get();
             const glm::uvec2       groups( ( half.x + 7u ) / 8u, ( half.y + 7u ) / 8u );
             graph.AddPass(
-                 "IrradianceField: Gather", RDG::PassFlags::Compute,
+                 "IrradianceField: Gather", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[Gather].Get( m_Shaders[Gather] ),
@@ -178,7 +181,7 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[Upsample].get();
             const glm::uvec2       groups( ( inputs.Extent.x + 7u ) / 8u, ( inputs.Extent.y + 7u ) / 8u );
             graph.AddPass(
-                 "IrradianceField: Upsample", RDG::PassFlags::Compute,
+                 "IrradianceField: Upsample", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[Upsample].Get( m_Shaders[Upsample] ),

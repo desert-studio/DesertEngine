@@ -57,6 +57,12 @@ namespace Common::Profiling
     // appears in, so the backend that writes it and the panel that reads it share one string.
     inline constexpr const char* kGpuFrameTotalScope = "GPU: Frame Total";
 
+    // The prefix of the row the graph backend publishes one async compute segment under ("RDG Async: <first
+    // pass> .. <last pass> (<n> passes)"): the run of passes recorded on the compute queue, overlapping the
+    // graphics queue. Its time is NOT on the graphics timeline, so a reader adding self times up against the
+    // frame bracket has to tell these rows apart; the backend that writes it and the dump that reads it share it.
+    inline constexpr const char* kGpuAsyncSegmentScopePrefix = "RDG Async: ";
+
     // What a CPU scope is. Work is the default; Wait marks a scope whose time is the thread BLOCKED on
     // something outside it (vkWaitForFences, vkAcquireNextImageKHR, vkQueuePresentKHR, the frame pacer's
     // sleep). Every enclosing scope reports that time in its WaitMs column, so a parent row splits into work

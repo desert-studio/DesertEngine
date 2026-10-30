@@ -13,6 +13,10 @@
 // Page table entry (Entries, VsmPageEntry): the physical page it maps, its flags and the world page it holds.
 // Physical pool: one R32_UINT texture of 128 x 128 pages, kVsmPoolPagesPerRow pages per row, each texel the bits
 // of (1 - light NDC depth) written with an atomic max by the casters ("VSM: Raster"), cleared to 0 = no occluder.
+// Two layers, one above the other (UE r.Shadow.Virtual.Cache.StaticSeparate): the top half is the MERGED layer every
+// reader samples (VsmPoolPageOrigin), the bottom half the STATIC layer only the still casters write and only
+// "VSM: Clear Pages" reads (VsmPoolStaticPageOrigin): a page whose movers alone changed gets its static layer copied
+// into its merged one and only the movers drawn over it (VirtualShadowMap.hpp, "the static and the movable layer").
 
 #define VSM_PAGE_SIZE           128u
 #define VSM_LEVEL_PAGES         128u
@@ -36,6 +40,13 @@
 // translucent front layer).
 #define VSM_FLAG_COARSE   8u
 #define VSM_FLAG_RECEIVER 16u
+// Its static layer is redrawn too (kVsmFlagDirtyStatic): a still caster over it changed, or the page is new. Never set
+// without VSM_FLAG_DIRTY; DIRTY alone = the static layer is copied and only the movers are drawn.
+#define VSM_FLAG_DIRTY_STATIC 32u
+// A "VSM: Raster" node's casters (VsmCasterLayer, VsmRasterLevel.y): the still ones into both layers of the pages
+// whose static layer is redrawn, or the movers into the merged layer of every drawn page.
+#define VSM_LAYER_STATIC  0u
+#define VSM_LAYER_MOVABLE 1u
 #define VSM_FLAG_MARK_KINDS ( VSM_FLAG_COARSE | VSM_FLAG_RECEIVER )
 // THE COARSE MIP of a local light's views (UE MarkCoarsePagesLocal): 2 x 2 pages of 128 texels per view, mapped for
 // every shadowed light every frame (never finer than the light's finest drawn mip, VsmLocalLight.Views.w). A reader
@@ -166,11 +177,18 @@ ivec2 VsmWorldPageOfSlot( ivec2 windowOrigin, uint local )
     return windowOrigin + offset;
 }
 
-// The top-left texel of physical page @p physical in the pool.
+// The top-left texel of physical page @p physical in the pool: its merged layer, the one every reader samples.
 ivec2 VsmPoolPageOrigin( uint physical )
 {
     return ivec2( int( physical % VSM_POOL_PAGES_PER_ROW ), int( physical / VSM_POOL_PAGES_PER_ROW ) ) *
            int( VSM_PAGE_SIZE );
+}
+
+// The top-left texel of physical page @p physical's static layer, in a pool @p poolHeight texels tall (imageSize of
+// the pool: both layers).
+ivec2 VsmPoolStaticPageOrigin( uint physical, int poolHeight )
+{
+    return VsmPoolPageOrigin( physical ) + ivec2( 0, poolHeight / 2 );
 }
 
 // THE LEVEL A RECEIVER IS SHADED FROM (UE CalcClipmapLevel): the level whose texel matches the receiver's screen

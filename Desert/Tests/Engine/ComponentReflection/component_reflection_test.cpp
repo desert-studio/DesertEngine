@@ -496,6 +496,7 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "PerSampleAtmosphereTransmittance",
          "LightMarchDistance",
          "LightMarchSamples",
+         "LightMarchLocalSamples",
          "AerialPerspectiveStartDistance",
          "AerialPerspectiveFadeDistance",
          "CastShadows",

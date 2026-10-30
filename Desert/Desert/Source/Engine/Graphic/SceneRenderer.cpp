@@ -1556,8 +1556,10 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
-        // RenderPipeline.AsyncCompute: the AsyncCompute passes below (particles, cloud shadow map, light grids) run
-        // on the compute queue, or on the graphics queue when the setting or the device says no.
+        // RenderPipeline.AsyncCompute: the AsyncCompute passes below (particle simulation, SSAO, the light grids,
+        // the global distance field update and near-field cull, the radiance cache, the screen probe / irradiance
+        // field gather) run on the compute queue, or on the graphics queue when the setting or the device says no.
+        // The cloud shadow map is NOT among them: it is a graphics-queue pass.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
@@ -2198,6 +2200,9 @@ namespace Desert::Graphic
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
+            // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which
+            // discards the texels it shades) and before every node that reads the scene colour.
+            AddFrameSkyBehindScene( graph, textures );
 
             // THE PATH-TRACED FRAME (UE RenderPathTracing): the lit image is the path tracer's accumulation,
             // written over the scene colour in place of the deferred lighting chain - no SSAO, surface cache,
@@ -2342,8 +2347,19 @@ namespace Desert::Graphic
                                                    m_RenderSystems["SceneColorHistorySystem"] );
                     stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
                 }
-                const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                     graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
+                // THE COPY ONLY FOR A CONSUMER (UE: the scene colour copy only for a view with a refractive
+                // primitive): next frame's screen traces (the history above), this frame's water, or a translucent
+                // section in the view (the glass refraction). None of them: no copy, and the water and glass
+                // nodes, which have nothing to draw, add none.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                const auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+                const bool  copyConsumed =
+                     screenTrace.SceneHistory.IsValid() || ( water != nullptr && water->HasDraws() ) ||
+                     ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
+                const RDG::TextureRef sceneCopy =
+                     copyConsumed ? AddFrameSceneCopy( graph, textures, sceneColor(), copy,
+                                                       screenTrace.SceneHistory, std::move( stampHistory ) )
+                                  : RDG::TextureRef{};
 
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
@@ -2363,7 +2379,11 @@ namespace Desert::Graphic
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
             AddFrameOpaqueFog( graph, textures, frame );
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
+            // The copy only for a translucent section in the view (its one consumer on this path).
+            const RDG::TextureRef sceneCopy =
+                 meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible()
+                      ? AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} )
+                      : RDG::TextureRef{};
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 
@@ -3061,8 +3081,7 @@ namespace Desert::Graphic
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
              graph, view, hasSun ? &sun : nullptr, locals, receiverDepths, m_VirtualShadowQuality,
-             invalidation.Boxes,
-             invalidation.StaticCastersChanged );
+             invalidation.Boxes, invalidation.MovableBoxes, invalidation.StaticCastersChanged );
         if ( !pages )
         {
             LOG_ERROR( "[SceneRenderer] {}: {}; the virtual shadow map casts no shadow this frame",

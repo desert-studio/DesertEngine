@@ -299,6 +299,24 @@ float CloudShadowOpticalDepth( CloudShadowTexel texel, float sampleDepthKm )
     return min( texel.MaxOpticalDepth, texel.MeanExtinctionPerKm * insideKm );
 }
 
+// THE FAR HALF OF A SHADOW RAY, for a point INSIDE the layer that has already marched the near half itself.
+//
+// The view march's sample at depth @p sampleDepthKm along the light ray has walked @p localKm of its own
+// shadow ray toward the sun (CloudLightOpticalDepth over that length). The point where that walk stopped is
+// on the SAME light ray — the map is orthographic along the sun, so the two share one texel — at depth
+// sampleDepthKm - localKm, and everything between it and the sun is what the map reconstructs at that depth.
+// Near + far is the whole ray with no overlap and no gap, and the far half costs the one fetch the caller
+// already made.
+//
+// This is Unreal's split (a short secondary trace beside the sample, the Beer shadow map for the rest), and
+// it is the reason the map's triple is worth having beyond the ground: the same three numbers serve both.
+// A sample whose short ray already reaches above the front gets zero here, which is right — the map has no
+// material sunward of its front.
+float CloudShadowFarOpticalDepth( CloudShadowTexel texel, float sampleDepthKm, float localKm )
+{
+    return CloudShadowOpticalDepth( texel, max( sampleDepthKm - max( localKm, 0.0f ), 0.0f ) );
+}
+
 // The transmittance a receiver sees, with the artist's strength applied.
 //
 // STRENGTH IS APPLIED HERE AND NOT BAKED INTO THE MAP, which is where this parts company with the

@@ -727,6 +727,11 @@ namespace Desert::Graphic
         {
             return m_VirtualShadowMap.GetLocalLightStats();
         }
+        // The virtual shadow map's drawn pages as last read back, static layer and movers apart (state "vsm").
+        [[nodiscard]] const System::VsmPageStats& GetVirtualShadowPageStats() const
+        {
+            return m_VirtualShadowMap.GetPageStats();
+        }
 
         // THE CURRENT FRAME'S VIEW (TAA1 step 3) — what every camera-block writer of this renderer fills
         // CameraUB from (ShaderProtocols::MakeCameraUB). CONTRACT: non-null only while OnUpdate runs, from the
@@ -1284,6 +1289,9 @@ namespace Desert::Graphic
         void AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                             System::MeshRenderer* meshRenderer, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
+        // The deferred path's sky, after AddFrameDepthResolve: SkyboxRenderer::SkyBehindScenePass on the scene
+        // target, shading only the texels whose depth is the far plane.
+        void AddFrameSkyBehindScene( RDG::Builder& graph, FrameTextures& textures );
         // THE FORWARD PATH'S DEPTH PREPASS (UE: the full DepthPass of the forward renderer), every forward frame:
         // the opaque meshes and the terrain into the scene target's depth ALONE, cleared here; the base pass
         // (AddFrameBasePass) then loads it, tests CloserOrEqual and writes none. The scene depth it wrote, for
