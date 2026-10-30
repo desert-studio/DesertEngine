@@ -342,7 +342,7 @@ namespace Desert::Graphic::System
             return glm::ivec4( 0 );
         const int cx = static_cast<int>( std::floor( row.DiceWindow.x + 0.5f ) );
         const int cz = static_cast<int>( std::floor( row.DiceWindow.y + 0.5f ) );
-        const int h  = static_cast<int>( half + 0.5f );
+        const int h  = static_cast<int>( std::floor( half + 0.5f ) );
         // Past the fade's square the rings are clipped to the view's footprint (DiceClip).
         const glm::ivec4 clip = level > 0
                                      ? glm::ivec4( glm::floor( row.DiceClip + glm::vec4( 0.5f ) ) )

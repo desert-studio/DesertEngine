@@ -147,7 +147,7 @@ namespace Common::Json
                 if constexpr ( std::is_floating_point_v<std::remove_cvref_t<T>> )
                 {
                     if ( const auto integer = var.to_int64() )
-                        return static_cast<T>( integer.value() );
+                        return integer.transform( []( const int64_t v ) { return static_cast<T>( v ); } );
                 }
                 return rfl::generic::Reader::template to_basic_type<T>( var );
             }

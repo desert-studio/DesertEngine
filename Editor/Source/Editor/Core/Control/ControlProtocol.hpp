@@ -145,7 +145,7 @@ namespace Desert::Editor::Control
 
     /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
     /// VFX-13) - the widest property a document offers. A number property still takes exactly its own count.
-    inline constexpr std::size_t kMaxSetNumbers = 64 * 5;
+    inline constexpr std::size_t kMaxSetNumbers = std::size_t{ 64 } * 5;
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
     /// build has never heard of is the last thing that should be run against a half-built editor.
@@ -336,10 +336,11 @@ namespace Desert::Editor::Control
             auto read = ReadOptionalInt( fields, key );
             if ( !read )
                 return Common::MakeFormattedError<int64_t>( "'{}': {}", op, read.GetError() );
-            if ( !read.GetValue().has_value() )
+            const auto& stated = read.GetValue();
+            if ( !stated.has_value() )
                 return Common::MakeFormattedError<int64_t>(
                      "'{}' requires '{}' and the request does not state it.", op, key );
-            return Common::MakeSuccess( int64_t{ *read.GetValue() } );
+            return Common::MakeSuccess( int64_t{ *stated } );
         }
 
         /// An array-of-strings field, or empty. Anything in the array that is not a string is DROPPED

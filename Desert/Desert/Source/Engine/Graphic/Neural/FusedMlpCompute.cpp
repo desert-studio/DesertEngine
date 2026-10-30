@@ -335,13 +335,13 @@ namespace Desert::Engine::Neural
 
         const uint32_t       L = inputs.Shape.MatrixCount();
         FusedMlpGraphOutputs out;
-        out.Output      = graph.CreateBuffer(
+        out.Output = graph.CreateBuffer(
              RDG::BufferDesc{ static_cast<uint64_t>( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
              "NeuralFusedMlp.Output" );
-        out.Activations = graph.CreateBuffer(
-             RDG::BufferDesc{ static_cast<uint64_t>( L ) * inputs.Batch * kFusedMlpWidth *
-                              FusedMlpStoredElementBytes( path ) },
-             "NeuralFusedMlp.Activations" );
+        out.Activations =
+             graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( L ) * inputs.Batch * kFusedMlpWidth *
+                                                  FusedMlpStoredElementBytes( path ) },
+                                 "NeuralFusedMlp.Activations" );
 
         // Forward: h_0 = input, h_{l+1} = ReLU(W_l h_l), y = W_last h_last.
         graph.AddPass(
@@ -416,10 +416,9 @@ namespace Desert::Engine::Neural
         const uint32_t       L     = inputs.Shape.MatrixCount();
         const uint32_t       batch = inputs.Batch;
         FusedMlpGraphOutputs out   = forward;
-        out.Grads                  = graph.CreateBuffer(
-             RDG::BufferDesc{ static_cast<uint64_t>( L ) * batch * kFusedMlpWidth *
-                              FusedMlpStoredElementBytes( path ) },
-             "NeuralFusedMlp.Grads" );
+        out.Grads      = graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( L ) * batch * kFusedMlpWidth *
+                                                         FusedMlpStoredElementBytes( path ) },
+                                             "NeuralFusedMlp.Grads" );
         out.WeightGrad = graph.CreateBuffer(
              RDG::BufferDesc{ static_cast<uint64_t>( L ) * kFusedMlpWidth * kFusedMlpWidth * sizeof( float ) },
              "NeuralFusedMlp.WeightGrad" );
@@ -574,11 +573,10 @@ namespace Desert::Engine::Neural
         if ( !weightGrad )
             return Common::MakeError<FusedMlpPathCheck>( weightGrad.GetError() );
         std::memcpy( gpu.WeightGrad.data(), weightGrad.GetValue().data(), weightGrad.GetValue().size() );
-        const auto activations =
-             bytesOf( m_Activations,
-                      static_cast<size_t>( L ) * problem.Batch * kFusedMlpWidth *
-                           FusedMlpStoredElementBytes( m_Path ),
-                      "activation" );
+        const auto activations = bytesOf( m_Activations,
+                                          static_cast<size_t>( L ) * problem.Batch * kFusedMlpWidth *
+                                               FusedMlpStoredElementBytes( m_Path ),
+                                          "activation" );
         if ( !activations )
             return Common::MakeError<FusedMlpPathCheck>( activations.GetError() );
         gpu.Activations = FromStored( activations.GetValue(), m_Path );

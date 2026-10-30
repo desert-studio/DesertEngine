@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <format>
+#include <map>
+#include <set>
 #include <utility>
 
 namespace Desert::HeaderTool

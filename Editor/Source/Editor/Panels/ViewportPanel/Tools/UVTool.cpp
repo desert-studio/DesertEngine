@@ -267,7 +267,7 @@ namespace Desert::Editor::Tools
                 break;
             case MS::Tool::UVProject:
                 session.MeshToWorld = WorldOfDouble( scene, session.Entity );
-                out = Geometry::ProjectUVs( input, session.MeshToWorld, ms.UVProject );
+                out                 = Geometry::ProjectUVs( input, session.MeshToWorld, ms.UVProject );
                 break;
             case MS::Tool::UVUnwrap:
                 out = Geometry::UnwrapUVs( input, ms.UVUnwrap );
@@ -291,8 +291,8 @@ namespace Desert::Editor::Tools
             return;
         }
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
-        const auto            entity = scene.FindEntityByID( session.Entity );
-        Common::BoolResultStr set    = Common::MakeError<bool>( "the entity is no longer in the scene" );
+        const auto entity  = scene.FindEntityByID( session.Entity );
+        Common::BoolResultStr set = Common::MakeError<bool>( "the entity is no longer in the scene" );
         if ( entity )
             set = ECS::SetEditableMesh( scene.GetRegistry(), entity->get().GetHandle(), preview );
         if ( !set.IsSuccess() )
@@ -302,12 +302,12 @@ namespace Desert::Editor::Tools
             session.Preview.reset();
             return;
         }
-        session.Preview = std::move( preview );
+        session.Preview    = std::move( preview );
         ms.UVStatus        = out.GetValue().Report;
         session.Volume.reset();
         if ( session.Tool == MS::Tool::UVProject )
-            if ( auto volume = Geometry::ResolveUVProjectionVolume(
-                      input, WorldOfDouble( scene, session.Entity ), ms.UVProject );
+            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, WorldOfDouble( scene, session.Entity ),
+                                                                    ms.UVProject );
                  volume.IsSuccess() )
                 session.Volume = volume.GetValue();
     }
@@ -329,8 +329,8 @@ namespace Desert::Editor::Tools
             case MeshRestore::Set:
                 if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), handle, session.Committed );
                      !set.IsSuccess() )
-                    LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}",
-                               UVToolName( session.Tool ), set.GetError() );
+                    LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}", UVToolName( session.Tool ),
+                               set.GetError() );
                 break;
         }
     }
@@ -359,7 +359,8 @@ namespace Desert::Editor::Tools
         return true;
     }
 
-    void UVTool::DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld, const Session& session ) const
+    void UVTool::DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld,
+                              const Session& session ) const
     {
         using Vertex       = Graphic::MaterialDebugLine::LineVertex;
         const MS&  ms      = MS::Get();
@@ -530,7 +531,7 @@ namespace Desert::Editor::Tools
         }
     }
 
-    bool UVTool::TransformChanged( ::Desert::Core::Scene& scene, const Session& session ) const
+    bool UVTool::TransformChanged( ::Desert::Core::Scene& scene, const Session& session )
     {
         return session.Tool == MS::Tool::UVProject &&
                WorldOfDouble( scene, session.Entity ) != session.MeshToWorld;

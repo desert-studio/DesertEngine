@@ -64,12 +64,12 @@ namespace Desert::Editor::Tools
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         void               Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms, Session& session );
-        void               Restore( ::Desert::Core::Scene& scene, const Session& session );
-        void               DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld, const Session& session ) const;
+        static void        Restore( ::Desert::Core::Scene& scene, const Session& session );
+        void DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld, const Session& session ) const;
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
         // UV Project projects in world space: moving the entity mid-session moves the mesh through the volume.
-        [[nodiscard]] bool TransformChanged( ::Desert::Core::Scene& scene, const Session& session ) const;
+        [[nodiscard]] static bool TransformChanged( ::Desert::Core::Scene& scene, const Session& session );
         void               RememberSettings( const Core::ModelingState& ms );
 
         std::optional<Session> m_Session;

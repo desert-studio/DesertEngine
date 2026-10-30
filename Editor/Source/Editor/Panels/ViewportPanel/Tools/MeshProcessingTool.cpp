@@ -402,16 +402,16 @@ namespace Desert::Editor::Tools
         const glm::dmat4                    objectToWorld( WorldOf( scene, session.Entity ) );
         std::optional<Geometry::FFDLattice> lattice = session.Lattice;
         auto cancel                                 = std::make_shared<Geometry::ProgressCancel>();
-        session.PendingCancel                    = CancelOnDrop( cancel );
-        session.PendingStarted                   = std::chrono::steady_clock::now();
-        session.Pending                          = Common::JobSystem::Get().Async(
+        session.PendingCancel  = CancelOnDrop( cancel );
+        session.PendingStarted = std::chrono::steady_clock::now();
+        session.Pending        = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = session.Tool, input = session.Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
               voxBlend = m_VoxBlend, other = session.OtherInput, normals = m_Normals, tangents = m_Tangents,
               holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket, remesh = m_Remesh,
-              simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges,
-              targetMesh = session.TargetMesh, targetToInput = session.TargetToInput, warp = m_Warp,
-              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
+              simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges, targetMesh = session.TargetMesh,
+              targetToInput = session.TargetToInput, warp = m_Warp, latticeSettings = m_Lattice,
+              points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
               objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
@@ -457,10 +457,10 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::ApplyResult( ::Desert::Core::Scene& scene, MS& ms, Session& session )
     {
         Common::ResultStr<Geometry::DeformOutcome> out = session.Pending.get();
-        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ProcessingToolName( session.Tool ),
-                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                             session.PendingStarted )
-                       .count() );
+        LOG_INFO(
+             "[Modeling] {0} computed in the background in {1:.1f} ms", ProcessingToolName( session.Tool ),
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - session.PendingStarted )
+                  .count() );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
@@ -471,8 +471,8 @@ namespace Desert::Editor::Tools
         }
         std::string report = out.GetValue().Report;
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
-        const auto            entity = scene.FindEntityByID( session.Entity );
-        Common::BoolResultStr set    = Common::MakeError<bool>( "the entity is no longer in the scene" );
+        const auto  entity  = scene.FindEntityByID( session.Entity );
+        Common::BoolResultStr set = Common::MakeError<bool>( "the entity is no longer in the scene" );
         if ( entity )
             set = ECS::SetEditableMesh( scene.GetRegistry(), entity->get().GetHandle(), preview );
         if ( !set.IsSuccess() )
@@ -482,7 +482,7 @@ namespace Desert::Editor::Tools
             session.Preview.reset();
             return;
         }
-        session.Preview = std::move( preview );
+        session.Preview    = std::move( preview );
         ms.DeformStatus    = std::move( report );
     }
 

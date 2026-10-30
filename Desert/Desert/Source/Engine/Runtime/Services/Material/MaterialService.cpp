@@ -195,12 +195,15 @@ namespace Desert::Runtime
     static bool AssignsSurfaceHeight( const Assets::MaterialAsset& asset, const std::string& templateName )
     {
         const auto shader = ResourceRegistry::GetShaderService()->GetByName( templateName );
-        if ( shader == nullptr || !shader->GetProgramMeta().Height )
+        if ( shader == nullptr )
+            return false;
+        const auto& heightLine = shader->GetProgramMeta().Height;
+        if ( !heightLine )
             return false;
         const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( &asset );
         if ( surface == nullptr )
             return false;
-        const std::string& height = shader->GetProgramMeta().Height->Texture;
+        const std::string& height = heightLine->Texture;
         const auto&        slots  = surface->Data().Textures;
         return std::any_of( slots.begin(), slots.end(),
                             [&]( const auto& t ) { return t.Name == height && !t.Guid.empty(); } );

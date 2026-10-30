@@ -9,6 +9,8 @@
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <regex>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <algorithm>
 #include <array>
@@ -2346,8 +2348,16 @@ namespace Desert::Migration
         // Every name the v51 step uses is a row of kEngineVFXModulesV3 (the step's own constant list).
         S::VFXModuleUse Use( const char* module, std::vector<S::VFXModuleInput> inputs )
         {
+            // A name outside the table is this step's own bug, not the document's: a module written with no
+            // guid would load as a missing module, so the migrator stops rather than write it.
+            auto ref = EngineVFXModuleRefV3( module );
+            if ( !ref )
+            {
+                std::fprintf( stderr, "SceneMigration v51: '%s' is not a row of kEngineVFXModulesV3\n", module );
+                std::abort();
+            }
             S::VFXModuleUse use;
-            use.Module = EngineVFXModuleRefV3( module ).value();
+            use.Module = std::move( *ref );
             use.Inputs = std::move( inputs );
             return use;
         }
