@@ -539,6 +539,15 @@ static int RunTool( int argc, char** argv )
              std::format( R"({{"id":1,"op":"input","kind":"{}","panel":"{}","value":{},"key":"{}","paths":[{}]}})",
                           Escape( rest[1] ), Escape( panel ), point, Escape( key ), paths );
     }
+    else if ( operation == "select" )
+    {
+        if ( rest.size() != 2 )
+        {
+            std::fprintf( stderr, "desertctl: select needs <entity UUID>.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"select","entity":")" + Escape( rest[1] ) + R"("})";
+    }
     else if ( operation == "advance" )
     {
         // One number: the editor answers once Play's simulated clock has moved on that far -- the scenario's

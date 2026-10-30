@@ -1228,6 +1228,19 @@ namespace Desert::Editor
                 return Control::Response::Success( request.Id );
             }
 
+            case Control::Op::Select:
+            {
+                // An outliner click (UE: selecting the actor in the World Outliner): what the gameplay debugger
+                // and Details then follow. The entity must exist in the open scene - in Play, the played copy.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                if ( const auto entity = ControlEntity( *scene, request.Entity ); !entity )
+                    return Control::Response::Failure( request.Id, entity.GetError() );
+                Core::SelectionManager::SetSelected( ControlEntityId( request.Entity ).GetValue() );
+                return Control::Response::Success( request.Id );
+            }
+
             case Control::Op::AddComponent:
             {
                 // DETAILS' ADD COMPONENT (UE: the Details panel's +Add): selected first, as a person adding it
