@@ -1674,6 +1674,11 @@ namespace Desert::Graphic::System
         // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
         // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
         m_FrameMaterialRows.clear();
+        // Every row's surface is forgotten with it and named again only by this frame's registrations (UE drops a
+        // primitive's cached draw commands when it leaves the scene): a row no queued draw registers names a
+        // template or instance that may be freed since (a re-imported mesh's materials), and resolving it read a
+        // dangling instance.
+        std::fill( m_RowSurfaces.begin(), m_RowSurfaces.end(), RowSurface{} );
         for ( auto& data : m_StaticQueue )
         {
             if ( !data.MaterialSlots )
