@@ -207,8 +207,13 @@ namespace Desert::Editor
         // (blended by depth and by how much the ellipsoid faces up), so the crown's top reads as one sloped layer.
         // The depth goes to COLOR_0.a = kCanopyAlphaMax * (1 - depth / kCanopyDepthRangeCm): alpha <= 0.5 marks a
         // canopy vertex (SurfaceTypes.glslh DesertIsCanopyVertex, which must agree with both constants).
+        // The crown's SNOW numbers are the mesh's import settings (MeshCanopySettings ShellCm, ClearTexels), not
+        // shader constants: each leaf vertex carries them in UV1 (as SpeedTree / UE foliage pack per-vertex
+        // data into spare UV channels) - UV1.x = the leaf's shelter weight, 1 - smoothstep(ShellCm, 2 ShellCm,
+        // depth) (the same in-shell weight its normal blends by), UV1.y = the clearance over the crown's peak in
+        // precipitation-map texels (SurfaceTypes.glslh DesertCanopySnowData). A leaf section with an authored UV1
+        // is refused, like one with authored alpha.
         constexpr float kCanopyCellCm       = 25.0f;
-        constexpr float kCanopyShellCm      = 40.0f;
         constexpr float kCanopyDepthRangeCm = 1024.0f;
         constexpr float kCanopyAlphaMax     = 0.5f;
 
@@ -283,6 +288,12 @@ namespace Desert::Editor
             if ( data.Colors.size() != vertices.size() )
                 return Common::MakeFormattedError<bool>( "'{}' LOD{}: {} vertex colours for {} vertices",
                                                          asset.Name, lod, data.Colors.size(), vertices.size() );
+            if ( data.UV1.empty() )
+                data.UV1.assign( vertices.size(), glm::vec2( 0.0f ) );
+            if ( data.UV1.size() != vertices.size() )
+                return Common::MakeFormattedError<bool>( "'{}' LOD{}: {} second UVs for {} vertices", asset.Name,
+                                                         lod, data.UV1.size(), vertices.size() );
+            const Assets::MeshCanopySettings& canopy  = asset.Import.Settings.Canopy;
             float deepest = 0.0f;
             for ( const size_t j : leaves )
             {
@@ -293,6 +304,10 @@ namespace Desert::Editor
                     if ( data.Colors[v][3] != 255 )
                         return Common::MakeFormattedError<bool>( "'{}' LOD{}: section '{}' has authored vertex "
                                                                  "alpha; the canopy depth would overwrite it",
+                                                                 asset.Name, lod, sm.Name );
+                    if ( data.UV1[v] != glm::vec2( 0.0f ) )
+                        return Common::MakeFormattedError<bool>( "'{}' LOD{}: section '{}' has an authored second "
+                                                                 "UV; the canopy's snow data would overwrite it",
                                                                  asset.Name, lod, sm.Name );
                     const glm::vec3 p     = vertex.Position;
                     const Cell      c     = cellOf( p );
@@ -317,7 +332,7 @@ namespace Desert::Editor
                     ellipsoid =
                          glm::length( ellipsoid ) > 1e-6f ? glm::normalize( ellipsoid ) : glm::vec3( 0, 1, 0 );
 
-                    const float inShell = 1.0f - glm::smoothstep( kCanopyShellCm, 2.0f * kCanopyShellCm, depth );
+                    const float inShell = 1.0f - glm::smoothstep( canopy.ShellCm, 2.0f * canopy.ShellCm, depth );
                     const float facesUp = glm::clamp( 2.0f * ellipsoid.y, 0.0f, 1.0f );
                     glm::vec3   normal  = glm::mix( ellipsoid, topNormal, inShell * facesUp );
                     normal              = glm::length( normal ) > 1e-6f ? glm::normalize( normal ) : ellipsoid;
@@ -338,13 +353,16 @@ namespace Desert::Editor
                     const float alpha = kCanopyAlphaMax * ( 1.0f - std::min( depth / kCanopyDepthRangeCm, 1.0f ) );
                     data.Colors[v][3] =
                          static_cast<uint8_t>( std::floor( alpha * 255.0f ) ); // <= 127: a canopy vertex
+                    data.UV1[v] = glm::vec2( inShell, canopy.ClearTexels );
                 }
             }
             LOG_INFO(
                  "[Canopy] '{}' LOD{}: {} leaf sections, crown centre ({:.0f}, {:.0f}, {:.0f}) cm, half extent "
-                 "({:.0f}, {:.0f}, {:.0f}) cm, {} top cells, deepest leaf {:.0f} cm under the top",
+                 "({:.0f}, {:.0f}, {:.0f}) cm, {} top cells, deepest leaf {:.0f} cm under the top, snow shell "
+                 "{:.0f} "
+                 "cm, clearance {:.2f} texels",
                  asset.Name, lod, leaves.size(), centre.x, centre.y, centre.z, half.x, half.y, half.z,
-                 surface.size(), deepest );
+                 surface.size(), deepest, canopy.ShellCm, canopy.ClearTexels );
             return Common::MakeSuccess( true );
         }
 

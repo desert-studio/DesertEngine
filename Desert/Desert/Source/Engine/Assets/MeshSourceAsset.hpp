@@ -45,7 +45,9 @@ namespace Desert::Assets
     // off.
     // 4 (FIELD-WINTER): IMPT states MeshImportSettings::Canopy (the leaf slots); a version-1..3 asset is raised
     // with none.
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 4;
+    // 5 (FIELD-WINTER-3): IMPT states the canopy's ShellCm and ClearTexels after the leaf slots; a version-1..4
+    // asset is raised with the defaults (40 cm, 2 texels: the numbers the shader stated before).
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 5;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -113,11 +115,30 @@ namespace Desert::Assets
     // build (MeshDeriver) gives each of their vertices the crown's surface normal - the normal of the crown's top
     // height field near the top, the crown ellipsoid's below - and its depth under the crown's top in COLOR_0.a
     // (SurfaceTypes.glslh DesertIsCanopyVertex / DesertCanopyDepthCm). Empty = no canopy. In the render-data key.
+    // The crown's SNOW numbers are the mesh's too (UE: a foliage asset's own settings, not a shader constant),
+    // baked per leaf vertex into UV1 (SurfaceTypes.glslh DesertCanopySnowData), so the shader states none of them:
+    //   ShellCm     - a leaf deeper than this under the crown's top (mesh cm) is sheltered by the leaves above it,
+    //                 its snow weight falls to 0 over the next shell (the crown's inside stays green);
+    //   ClearTexels - how far above its own peak the crown reads the view's precipitation map, in that map's
+    //   texels
+    //                 (its texel is wider than the 25 cm top cells: a flank leaf read the peak beside it as a
+    //                 roof).
+    inline constexpr float kMeshCanopyShellMinCm     = 1.0f;
+    inline constexpr float kMeshCanopyShellMaxCm     = 512.0f;
+    inline constexpr float kMeshCanopyClearTexelsMax = 16.0f;
     struct MeshCanopySettings
     {
         std::vector<std::string> LeafSlots;
+        float                    ShellCm                                       = 40.0f;
+        float                    ClearTexels                                   = 2.0f;
         bool                     operator==( const MeshCanopySettings& ) const = default;
     };
+    // The one range rule for the two numbers (the IMPT read, the .deimport read and the Import Options window).
+    [[nodiscard]] inline bool MeshCanopyNumbersValid( const MeshCanopySettings& c )
+    {
+        return c.ShellCm >= kMeshCanopyShellMinCm && c.ShellCm <= kMeshCanopyShellMaxCm && c.ClearTexels >= 0.0f &&
+               c.ClearTexels <= kMeshCanopyClearTexelsMax; // false for NaN as well
+    }
 
     struct MeshImportSettings
     {

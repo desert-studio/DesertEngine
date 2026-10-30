@@ -25,9 +25,9 @@ namespace Desert::Assets
     namespace
     {
         // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 3 (VIRT-GEOM): + VirtualGeometry (u32 0 /
-        // 1). 4 (FIELD-WINTER): + Canopy leaf slots (u32 count, then each name). 1 to 3 are read by
-        // UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it ships
-        // under.
+        // 1). 4 (FIELD-WINTER): + Canopy leaf slots (u32 count, then each name). 5 (FIELD-WINTER-3): + Canopy
+        // ShellCm, ClearTexels (f32 each). 1 to 4 are read by UpgradeMeshSourceAsset only. The IMPT version is the
+        // MSAS version it ships under.
         constexpr uint32_t kImportInfoVersion = kMeshAssetSubsystemVersion;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
         // one mesh and was never written by an import, so it has no migration.
@@ -315,6 +315,11 @@ namespace Desert::Assets
                 return Common::MakeFormattedError<bool>(
                      "mesh displacement bake edge length {} cm is not a finite positive number",
                      s.DisplacementBake.EdgeLengthCm );
+            if ( !MeshCanopyNumbersValid( s.Canopy ) )
+                return Common::MakeFormattedError<bool>(
+                     "mesh canopy shell {} cm / clearance {} texels is outside [{}, {}] cm / [0, {}] texels",
+                     s.Canopy.ShellCm, s.Canopy.ClearTexels, kMeshCanopyShellMinCm, kMeshCanopyShellMaxCm,
+                     kMeshCanopyClearTexelsMax );
             const bool named = !info.SourceFile.empty() && info.SourceHash != 0;
             const bool blank = info.SourceFile.empty() && info.SourceHash == 0;
             if ( info.Provenance == MeshSourceProvenance::Imported && !named )
@@ -344,11 +349,14 @@ namespace Desert::Assets
             w.U32( static_cast<uint32_t>( info.Settings.Canopy.LeafSlots.size() ) );
             for ( const std::string& slot : info.Settings.Canopy.LeafSlots )
                 w.String( slot );
+            w.F32( info.Settings.Canopy.ShellCm );
+            w.F32( info.Settings.Canopy.ClearTexels );
             return std::move( w.Out );
         }
 
         // @p expected: kImportInfoVersion, or 1 / 2 for UpgradeMeshSourceAsset (1: no displacement fields; 1 and
-        // 2: no VirtualGeometry, read as off; 1 to 3: no Canopy, read as none).
+        // 2: no VirtualGeometry, read as off; 1 to 3: no Canopy, read as none; 1 to 4: the canopy's default shell
+        // and clearance).
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                             const uint32_t expected = kImportInfoVersion )
         {
@@ -383,6 +391,11 @@ namespace Desert::Assets
                          "mesh ImportInfo states {} canopy leaf slots, more than its bytes hold", leafSlots );
                 for ( uint32_t k = 0; r.Ok && k < leafSlots; ++k )
                     info.Settings.Canopy.LeafSlots.push_back( r.String() );
+            }
+            if ( expected >= 5 )
+            {
+                info.Settings.Canopy.ShellCm     = r.F32();
+                info.Settings.Canopy.ClearTexels = r.F32();
             }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<MeshImportInfo>( "mesh ImportInfo is truncated or has trailing bytes" );
@@ -660,16 +673,18 @@ namespace Desert::Assets
         using Out = std::optional<std::vector<std::byte>>;
         if ( DecodeMeshSourceAssetAt( file, kMeshAssetSubsystemVersion ).IsSuccess() )
             return Common::MakeSuccess( Out{} );
-        auto old = DecodeMeshSourceAssetAt( file, 3 );
+        auto old = DecodeMeshSourceAssetAt( file, 4 );
+        if ( !old.IsSuccess() )
+            old = DecodeMeshSourceAssetAt( file, 3 );
         if ( !old.IsSuccess() )
             old = DecodeMeshSourceAssetAt( file, 2 );
         if ( !old.IsSuccess() )
             old = DecodeMeshSourceAssetAt( file, 1 );
         if ( !old.IsSuccess() )
-            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 3, 2 or 1 reads it: {}",
+            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 4, 3, 2 or 1 reads it: {}",
                                                     kMeshAssetSubsystemVersion, old.GetError() );
         // DecodeImportInfo at version 1 left Displacement = None and the default bake settings; at 1 and 2,
-        // VirtualGeometry off; at 1 to 3, no canopy.
+        // VirtualGeometry off; at 1 to 3, no canopy; at 1 to 4, the canopy's default ShellCm / ClearTexels.
         auto encoded = EncodeMeshSourceAsset( old.GetValue() );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );
