@@ -55,12 +55,12 @@ DesertSurfaceLayerOutput DesertSurfaceLayer_M_SnowLayer_Dirty( const DesertSurfa
             float n7 = 0.005;
             vec2 n6 = n3.TopUV * n7;
             BindlessTexture n5_t; const bool n5_ok = DesertWorldTexture( 0x0f6031cdu, n5_t ); resident = resident && n5_ok; vec4 n5 = SampleBindless( n5_t, n6 );
-            float n10 = 0.75;
-            float n11 = 0.95;
+            float n10 = 0.5;
+            float n11 = 0.8;
             float n15 = 1.0;
             float n16 = 0.0;
-            float n18 = 0.84;
-            float n19 = 0.92;
+            float n18 = 0.935;
+            float n19 = 0.955;
             float n22 = 0.000769231;
             vec2 n21 = n3.TopUV * n22;
             BindlessTexture n20_t; const bool n20_ok = DesertWorldTexture( 0x50d9a841u, n20_t ); resident = resident && n20_ok; vec4 n20 = SampleBindless( n20_t, n21 );

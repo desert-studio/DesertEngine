@@ -2,6 +2,8 @@
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <cmath>
 #include <format>
 
@@ -49,19 +51,28 @@ namespace Desert::Core
                 continue;
             // The layer's id under the row's own key (the shaders' dispatcher reads it), then each texture the
             // layer samples as a Texture value of its own: the layer's look rides the world's bindless table.
-            const SurfaceLayerSource layer = resolveLayer ? resolveLayer( row.Layer ) : SurfaceLayerSource{};
-            m_Values.back().Value          = glm::vec4(
+            const SurfaceLayerSource layer    = resolveLayer ? resolveLayer( row.Layer ) : SurfaceLayerSource{};
+            const size_t             layerRow = m_Values.size() - 1;
+            m_Values.back().Value             = glm::vec4(
                  layer.Name.empty()
                       ? 0.0f
                       : static_cast<float>( Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name ) ),
                  0.0f, 0.0f, 0.0f );
+            std::string handles;
             for ( const std::string& texture : layer.Textures )
             {
                 std::string    name = Assets::Serialization::ShaderGraph::SurfaceLayerTextureName( texture );
                 const uint32_t key  = Assets::Serialization::WorldParameterKey( name );
                 m_Values.push_back( { std::move( name ), key, WorldParameterType::Texture, glm::vec4( 0.0f ),
                                       resolveTexture ? resolveTexture( texture ) : Common::AssetHandle{} } );
+                handles += std::format( " {}={}", texture, static_cast<uint64_t>( m_Values.back().Texture ) );
             }
+            // Once per adoption (a scene open, a collection switch or a saved edit), never per frame: which layer
+            // the world now draws and whether each of its textures resolved (0 = the texture service did not know
+            // the path, and that texture's samples read as absent until the next adoption).
+            LOG_INFO( "[WorldParameters] '{}' adopts surface layer '{}' (id {:#x}, from '{}'), {} texture(s):{}",
+                      row.Name, layer.Name, static_cast<uint32_t>( m_Values[layerRow].Value.x ), row.Layer,
+                      layer.Textures.size(), handles );
         }
     }
 

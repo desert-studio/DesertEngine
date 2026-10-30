@@ -1098,7 +1098,7 @@
             "Kind": "FloatConst",
             "ParamName": "",
             "Value": [
-                0.84,
+                0.935,
                 1.0,
                 1.0,
                 1.0
@@ -1120,7 +1120,7 @@
             "Kind": "FloatConst",
             "ParamName": "",
             "Value": [
-                0.92,
+                0.955,
                 1.0,
                 1.0,
                 1.0
@@ -1405,7 +1405,7 @@
             "Kind": "FloatConst",
             "ParamName": "",
             "Value": [
-                0.75,
+                0.5,
                 1.0,
                 1.0,
                 1.0
@@ -1427,7 +1427,7 @@
             "Kind": "FloatConst",
             "ParamName": "",
             "Value": [
-                0.95,
+                0.8,
                 1.0,
                 1.0,
                 1.0
