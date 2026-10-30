@@ -23,6 +23,7 @@
 #include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
@@ -1241,6 +1242,15 @@ namespace Desert::Editor
                 // The scenario's frame wait (UE FWaitForFrames): the frame being built now is the first of the
                 // asked count; nothing is sent to the editor, unlike the zero-length `drag` it replaces.
                 m_FramesUntil = m_FrameIndex + static_cast<uint64_t>( request.Value[0] );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::ProfileDump:
+            {
+                // UE ProfileGPU from a live session: the one writer of the per-pass table, the same call a
+                // headless --shot ends with (ShotDirector::EndFrame), so both runs log identical rows. The table
+                // goes to editor.log; the reply only says it was written.
+                ProfilerWindow::DumpProfilerToLog();
                 return Control::Response::Success( request.Id );
             }
 
