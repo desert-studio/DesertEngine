@@ -29,6 +29,11 @@
 #error "SurfaceCacheSampling.glslh: define GI_SURFACE_CACHE_BINDING (the first of the surface cache's seven bindings)"
 #endif
 
+// THE EMISSION LEFT OUT (GI-EMISSIVE-LIGHTS): an includer that defines GI_HIT_EXCLUDES_EMISSION reads a hit's
+// FinalLighting less the card's own Emissive layer (SurfaceCacheEmissiveTexture, which that includer declares) -
+// the radiosity under a tracer whose direct lighting samples the emissive surfaces as lights already
+// (SurfaceCacheDirectLighting.shader), so the emitter -> texel path is not counted twice.
+
 layout( std430, binding = GI_SURFACE_CACHE_BINDING + 0 ) readonly buffer SurfaceCardBuffer
 {
     SurfaceCard surfaceCards[];
@@ -184,7 +189,13 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
                 const float w          = bilinear * visibility;
                 if ( w <= 0.0 )
                     continue;
+#if defined( GI_HIT_EXCLUDES_EMISSION )
+                lighting += max( texelFetch( SurfaceCacheFinalLightingTexture, atlasTexel, 0 ).rgb -
+                                     texelFetch( SurfaceCacheEmissiveTexture, atlasTexel, 0 ).rgb,
+                                 vec3( 0.0 ) ) * w;
+#else
                 lighting += texelFetch( SurfaceCacheFinalLightingTexture, atlasTexel, 0 ).rgb * w;
+#endif
                 weightSum += w;
             }
             if ( weightSum <= 0.0 )

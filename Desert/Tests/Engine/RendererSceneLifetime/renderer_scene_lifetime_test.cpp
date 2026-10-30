@@ -267,6 +267,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "target format and sample count" },
          { "HeightFogSystem", "Graphic/Systems/Scene/Fog/HeightFogRenderer.hpp", false, false,
            "SetFogSettings takes `present` and HeightFogECSSystem states the absent case explicitly" },
+         { "VolumetricFogSystem", "Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp", true, true,
+           "the reprojected light-scattering history (PassHistoryStamp); the froxel volumes are keyed by the grid "
+           "size and the settings are pushed every frame" },
          { "VolumetricCloudSystem", "Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp", true, true,
            "the temporal reconstruction's history — everything else here is already content-keyed" },
          { "ParticleSystem", "Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", true, false,

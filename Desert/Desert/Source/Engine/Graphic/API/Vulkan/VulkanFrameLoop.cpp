@@ -78,28 +78,44 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<VkSemaphore>          waits   = entry.WaitSemaphores;
             std::vector<VkPipelineStageFlags> stages  = entry.WaitStages;
             std::vector<VkSemaphore>          signals = entry.SignalSemaphores;
+            // The values of a submission that waits or signals a timeline: one per semaphore, ignored for the
+            // binary ones. Starts from the entry's own (RDG-EXTERNAL points; empty when it has none).
+            std::vector<uint64_t> waitValues   = entry.WaitValues;
+            std::vector<uint64_t> signalValues = entry.SignalValues;
+            const bool            timelines    = !waitValues.empty() || !signalValues.empty();
             if ( output != nullptr && !waitedOnImage && entry.OnPipe == RDG::Pipe::Graphics )
             {
                 waits.push_back( output->ImageAcquired );
                 stages.push_back( output->ImageFirstUse );
+                if ( timelines )
+                    waitValues.push_back( 0 );
                 waitedOnImage = true;
             }
-            // The wait values of a submission that waits a timeline: one per wait, ignored for the binary ones.
-            std::vector<uint64_t>         waitValues;
             VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
             if ( !waitedOnUploads && entry.OnPipe == RDG::Pipe::AsyncCompute &&
                  target != device->GetGraphicsQueue() )
             {
-                waitValues.assign( waits.size(), 0 );
+                waitValues.resize( waits.size(), 0 );
                 waits.push_back( uploads.Timeline );
                 stages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
                 waitValues.push_back( uploads.Value );
-                timelineInfo.waitSemaphoreValueCount = static_cast<uint32_t>( waitValues.size() );
-                timelineInfo.pWaitSemaphoreValues    = waitValues.data();
-                waitedOnUploads                      = true;
+                waitedOnUploads = true;
             }
             if ( last && output != nullptr )
+            {
                 signals.push_back( output->RenderComplete );
+                if ( timelines )
+                    signalValues.push_back( 0 );
+            }
+            if ( !waitValues.empty() || !signalValues.empty() )
+            {
+                waitValues.resize( waits.size(), 0 );
+                signalValues.resize( signals.size(), 0 );
+                timelineInfo.waitSemaphoreValueCount   = static_cast<uint32_t>( waitValues.size() );
+                timelineInfo.pWaitSemaphoreValues      = waitValues.data();
+                timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>( signalValues.size() );
+                timelineInfo.pSignalSemaphoreValues    = signalValues.data();
+            }
 
             // RESET IMMEDIATELY BEFORE THE SUBMISSION THAT SIGNALS IT. BeginSlot waited this fence for the slot's
             // previous frame; resetting any earlier would leave a fence that nothing will signal behind a frame
@@ -121,7 +137,7 @@ namespace Desert::Graphic::API::Vulkan
 
             VkSubmitInfo submitInfo{};
             submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submitInfo.pNext                = waitValues.empty() ? nullptr : &timelineInfo;
+            submitInfo.pNext                = waitValues.empty() && signalValues.empty() ? nullptr : &timelineInfo;
             submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( waits.size() );
             submitInfo.pWaitSemaphores      = waits.data();
             submitInfo.pWaitDstStageMask    = stages.data();
@@ -134,6 +150,10 @@ namespace Desert::Graphic::API::Vulkan
             if ( submitted != VK_SUCCESS )
             {
                 (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );
+                // RDG-EXTERNAL: the points this and the later entries would have signalled are signalled from the
+                // host, so another API waiting on one (an enqueued OIDN filter) is released.
+                for ( size_t rest = i; rest < frame.size(); ++rest )
+                    m_QueueObjects.SignalOnHost( frame[rest].ExternalSignals );
                 return Common::MakeFormattedError<bool>( "vkQueueSubmit of frame entry {} of {} failed: {}", i,
                                                          frame.size(), VkResultToString( submitted ) );
             }

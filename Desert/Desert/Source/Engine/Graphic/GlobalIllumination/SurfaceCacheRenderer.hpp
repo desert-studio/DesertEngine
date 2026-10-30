@@ -8,8 +8,11 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 
+#include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -42,9 +45,20 @@ namespace Desert::Graphic
 // captured card's pages out of it into the atlas layers.
 namespace Desert::Graphic::SurfaceCache
 {
+    // ONE PER SCENE (UE: FScene's FLumenSceneData - the Lumen scene is the scene's, a view owns no cards):
+    // Core::Scene::GetSurfaceCache, read by every view of that scene (the editor viewports, PIE, which plays in
+    // the edited Scene). A reflection capture's face views stand at one capture point and keep one of their own
+    // (ReflectionCaptureRenderer::m_FaceSurfaceCache, SceneRenderer::ShareSurfaceCache).
     class SurfaceCacheRenderer
     {
     public:
+        // @p owner: the ledger instance whose rows the cache's device objects are - the scene's
+        // (Scene::GetLedgerInstance). Every call that creates one (Initialize, Configure, the programs and view
+        // pipelines) opens its scope, whichever view asked first.
+        explicit SurfaceCacheRenderer( ResourceOwnerInstance owner );
+        SurfaceCacheRenderer( const SurfaceCacheRenderer& )            = delete;
+        SurfaceCacheRenderer& operator=( const SurfaceCacheRenderer& ) = delete;
+
         // UE r.LumenScene.SurfaceCache.CardCaptureAtlas: the frame's captures share one atlas of this side; a
         // card that does not fit waits for the next frame (SurfaceCacheScene::Update packs it).
         static constexpr uint32_t kCaptureAtlasSize = 1024;
@@ -87,9 +101,18 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4                       Light1Dir{ 0.0f, -1.0f, 0.0f, 0.0f };
             glm::vec4                       Light1Color{ 0.0f };
             GlobalIllumination::TracerFrame Tracer;
+            // The scene's emissive triangles as lights (GI-EMISSIVE-LIGHTS; RayTracing::EmissiveLightsFrame, the
+            // path tracer's one list): required (Valid) under either GI tracer, whose programs sample them;
+            // the list is built from the scene's meshes, a TLAS only adds its hit lookup.
+            RayTracing::EmissiveLightsFrame Emissive;
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.
             bool IndirectLighting = false;
+            // The local lights' shadows the cards are lit through: the updating view's frame value
+            // (SceneRenderer::LocalLightsReadVirtualPages, the one its page passes were built by): true = the
+            // lights read View.Vsm through the DESERT_LOCAL_SHADOW_VSM program, false = the atlas's view table
+            // (Lights.ShadowViews).
+            bool VirtualLocalShadows = false;
         };
         // What the radiosity (UE LumenRadiosity) is traced and integrated with: the frame's tracer and the GI ray
         // contract's reads - the same a radiance cache probe traces with (WorldRadianceCache::
@@ -126,8 +149,52 @@ namespace Desert::Graphic::SurfaceCache
         {
             return m_CaptureBuffer != nullptr;
         }
-        // The machine's budget; a new atlas side recreates the layers and drops every capture.
+        // THE FRAME'S VIEWS, stated by the cache's owner once per engine frame BEFORE any view of the frame opens
+        // (Core::Scene::OnUpdate for the scene's cache, ReflectionCaptureRenderer for a capture point's): what the
+        // frame's one update is cut from, whichever view runs it (UE: the Lumen scene update gathers every view
+        // origin of the family and reads the r.LumenScene settings, never one view's).
+        struct FrameViews
+        {
+            uint64_t Frame = 0;
+            // Every view's origin: the cards' distances, so their resolutions and capture order (SurfaceCacheScene::
+            // Update). Never empty when stated.
+            std::vector<glm::vec3> Origins;
+            // The machine's budget (Scalability GlobalIllumination group, QualityState::Resolved).
+            SurfaceCacheBudget Budget;
+            // The tracer the cards are lit with (their shadow rays): the scene's GI method - its unbound post
+            // process settings under the machine's ceiling and the device - when traced, else the software walk
+            // every device runs. The updating view records the lighting with it and builds what it reads.
+            GlobalIllumination::Pipeline Tracer;
+        };
+        // States @p origins of engine frame @p engineFrame and resolves the budget and the card tracer from the
+        // scene: @p registry's unbound post-process volumes (ResolveViewSettings without a view position) and
+        // @p deferred (the scene's rendering path) under the machine's quality and the device catalogue, minus the
+        // tracers whose lighting program did not build here (RefuseLightingTracer).
+        void BeginFrame( uint64_t engineFrame, std::vector<glm::vec3> origins, const entt::registry& registry,
+                         bool deferred );
+        // The views stated for @p engineFrame; null when BeginFrame did not run in it.
+        [[nodiscard]] const FrameViews* ViewsOf( uint64_t engineFrame ) const
+        {
+            return m_FrameViews && m_FrameViews->Frame == engineFrame ? &*m_FrameViews : nullptr;
+        }
+        // @p tracer's lighting program did not build (EnsureLightingProgram failed): the GI methods it serves are
+        // refused (for @p reason) for the cache's tracer from the next BeginFrame on (the view refuses them for its own GI).
+        void RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer, std::string_view reason );
+
+        // The frame's budget (FrameViews::Budget); a new atlas side recreates the layers and drops every capture.
+        // Asked by the view that updates the cache this frame (UpdatedIn false).
         [[nodiscard]] Common::BoolResultStr Configure( const SurfaceCacheBudget& budget );
+        // Whether UpdateScene already ran in @p engineFrame: a later view of the frame reads that update.
+        [[nodiscard]] bool UpdatedIn( uint64_t engineFrame ) const
+        {
+            return m_FrameUpdate && m_FrameUpdate->Frame == engineFrame;
+        }
+        // Whether the atlases exist (Configure ran with a budget): the cache's resident instance, counted by the
+        // editor state ("views.surfaceCaches").
+        [[nodiscard]] bool IsConfigured() const
+        {
+            return m_AtlasSize != 0;
+        }
 
         // What a view's frame of the cache works from: the scene's records (SurfaceCacheScene::Update) and whether
         // this call updated the cache - true: the view records the frame's capture, copy, direct and indirect
@@ -138,17 +205,18 @@ namespace Desert::Graphic::SurfaceCache
             SceneFrame Scene;
             bool       Updated = false;
         };
-        // Brings the scene up to @p instances at @p camera, once per @p engineFrame (UPDATED AT MOST ONCE PER
-        // ENGINE FRAME, as GlobalDistanceField::AddUpdatePasses): the first call of a frame updates the scene and
-        // its caller records the passes that write the atlases; a later one in the same frame for the same camera
-        // and instances hands back the same records with Updated false; a later one for another camera or
-        // instance set is refused - the scene picked one frame's captures and relit pages, and a second update in
-        // the frame would capture and relight over what the frame's earlier graph reads.
+        // Brings the scene up to @p instances seen from every origin of the frame's views (BeginFrame, required in
+        // @p engineFrame), once per @p engineFrame (UPDATED AT MOST ONCE PER ENGINE FRAME, as
+        // GlobalDistanceField::AddUpdatePasses): the first call of a frame updates the scene and its caller
+        // records the passes that write the atlases; every later one in the same frame - another view of the
+        // scene - hands back the frame's records with Updated false and reads the same atlases (UE: one Lumen
+        // scene update per scene render, read by all its views). A second update in the frame would capture and
+        // relight over what the frame's earlier graph reads.
         // @p lighting is the frame's directional lights: a significant change from those the lit pages were last
         // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
         // frame.
         [[nodiscard]] Common::ResultStr<SceneUpdate>
-        UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera, uint64_t engineFrame,
+        UpdateScene( const std::vector<SceneInstance>& instances, uint64_t engineFrame,
                      const GlobalIllumination::DirectionalLighting& lighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const
@@ -203,7 +271,10 @@ namespace Desert::Graphic::SurfaceCache
         // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
         // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not
         // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
-        [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer );
+        // @p virtualLocalShadows: Shadows.Method VirtualMaps - the DESERT_LOCAL_SHADOW_VSM permutation, whose
+        // point/spot lights read the view's virtual shadow map (SceneViewInputs::Vsm) in place of the atlas.
+        [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                   bool virtualLocalShadows );
         // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it.
         [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer );
         // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
@@ -218,17 +289,18 @@ namespace Desert::Graphic::SurfaceCache
                       bool depth, std::string_view name );
 
         SurfaceCacheScene m_Scene;
-        // THE FRAME'S UPDATE (once per frame): the engine frame it ran in, what it was asked for (the camera and
-        // the identity of the instance list: key, placement, surface and capture readiness of each, in order),
-        // and the records a later call of that frame hands back without updating anything.
+        // THE FRAME'S UPDATE (once per frame): the engine frame it ran in and the records a later call of that
+        // frame hands back without updating anything.
         struct FrameUpdate
         {
             uint64_t   Frame = 0;
-            glm::vec3  Camera{ 0.0f };
-            uint64_t   Instances = 0;
             SceneFrame Scene;
         };
+        ResourceOwnerInstance     m_LedgerInstance; // see the constructor
         std::optional<FrameUpdate> m_FrameUpdate;
+        std::optional<FrameViews>  m_FrameViews; // BeginFrame's, the latest frame
+        // The tracers whose lighting program did not build (RefuseLightingTracer): BeginFrame resolves under them.
+        ProgramRefusals m_Refusals;
         // The directional lighting of the last full relight (empty until the first update).
         std::optional<GlobalIllumination::DirectionalLighting>                m_LitBy;
         uint32_t                                                              m_AtlasSize = 0;
@@ -251,6 +323,7 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_LightingLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_LightingPipeline;
         GlobalIllumination::Pipeline                                          m_LightingProgramFor{};
+        bool                                                                  m_LightingProgramVsm = false;
         std::shared_ptr<Shader>                                               m_IndirectShader;
         mutable ShaderBindingLayoutCache                                      m_IndirectLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_IndirectPipeline;

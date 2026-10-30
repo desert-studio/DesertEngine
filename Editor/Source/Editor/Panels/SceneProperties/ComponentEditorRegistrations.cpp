@@ -648,8 +648,8 @@ namespace Desert::Editor
             if ( edit.Activated )
             {
                 const auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
-                s_Before      = { { en.GetComponent<::Desert::ECS::UUIDComponent>().UUID, t.Translation, t.Rotation,
-                                    t.Scale } };
+                s_Before      = { { en.GetComponent<::Desert::ECS::UUIDComponent>().UUID, t.GetTranslation(), t.GetRotation(),
+                                    t.GetScale() } };
             }
             if ( edit.Changed )
             {
@@ -1505,6 +1505,7 @@ namespace Desert::Editor
     static ComponentEditorEntry MakeInstancedStaticMeshEntry()
     {
         using ISMC   = ::Desert::ECS::InstancedStaticMeshComponent;
+        using ISMD   = ::Desert::ECS::InstancedStaticMeshDesc;
         namespace GG = ::Desert::Geometry;
 
         ComponentEditorEntry e;
@@ -1513,21 +1514,27 @@ namespace Desert::Editor
         e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<ISMC>(); };
         e.Add       = []( ::Desert::ECS::Entity& en )
         {
-            auto& c     = en.AddComponent<ISMC>();
-            c.Primitive = GG::PrimitiveType::Cube; // renders immediately
-            if ( c.InstanceTransforms.empty() )
-                c.InstanceTransforms.emplace_back( 1.0f );
+            // Through the one writer (it adds the component when absent): a cube with one instance renders
+            // immediately.
+            ISMD desc;
+            desc.Primitive = GG::PrimitiveType::Cube;
+            desc.InstanceTransforms.emplace_back( 1.0f );
+            ::Desert::ECS::SetInstancedStaticMesh( *en.GetRegistry(), en.GetHandle(), desc );
         };
         e.Remove = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<ISMC>(); };
         e.Draw   = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
             namespace U = ::Desert::Editor::Utils;
-            auto& c     = en.GetComponent<ISMC>();
+            // READ-ONLY: every edit below copies GetDesc(), changes the copy and hands it to
+            // ECS::SetInstancedStaticMesh once per edit, so on_update marks the render state dirty.
+            const auto& c     = en.GetComponent<ISMC>();
+            const auto  write = [&en]( const ISMD& desc )
+            { ::Desert::ECS::SetInstancedStaticMesh( *en.GetRegistry(), en.GetHandle(), desc ); };
 
             // ── MESH SOURCE ───────────────────────────────────────────────────────────────────────
             U::ImGuiUtilities::ResetPropertyRows();
 
-            if ( c.MeshHandle.IsNull() )
+            if ( c.GetMeshHandle().IsNull() )
             {
                 // OFFERED LIST AND STORED VALUE BOTH FROM Geometry::kAuthorablePrimitives. The hand-typed
                 // list that stood here was { "Cube", "Sphere", "Plane", "Pyramid" } against an enum that
@@ -1539,20 +1546,21 @@ namespace Desert::Editor
                 for ( size_t i = 0; i < GG::kAuthorablePrimitives.size(); ++i )
                 {
                     shapes[i] = GG::PrimitiveTypeName( GG::kAuthorablePrimitives[i] );
-                    if ( c.Primitive.has_value() && GG::kAuthorablePrimitives[i] == *c.Primitive )
+                    if ( c.GetPrimitive().has_value() && GG::kAuthorablePrimitives[i] == *c.GetPrimitive() )
                         current = static_cast<int>( i );
                 }
                 U::ImGuiUtilities::BeginPropertyRow( "Shape", "The built-in mesh every instance draws" );
                 if ( ::ImGui::Combo( "##ism_shape", &current, shapes.data(), static_cast<int>( shapes.size() ) ) )
                 {
-                    c.Primitive = GG::kAuthorablePrimitives[static_cast<size_t>( current )];
-                    c.RuntimeMesh.reset();
+                    ISMD desc      = c.GetDesc();
+                    desc.Primitive = GG::kAuthorablePrimitives[static_cast<size_t>( current )];
+                    write( desc ); // a new shape drops the generated mesh in the writer
                 }
                 U::ImGuiUtilities::EndPropertyRow();
             }
 
             U::ImGuiUtilities::BeginPropertyRow( "Mesh", "Drop a .stmesh here to instance an asset mesh" );
-            ::ImGui::Button( c.MeshHandle.IsNull() ? "Drop a .stmesh to use an asset mesh"
+            ::ImGui::Button( c.GetMeshHandle().IsNull() ? "Drop a .stmesh to use an asset mesh"
                                                    : "Mesh: <asset> (drop to replace)",
                              ImVec2( -1.0f, 0.0f ) );
             if ( ::ImGui::BeginDragDropTarget() )
@@ -1566,20 +1574,22 @@ namespace Desert::Editor
                     const auto        handle = ::Desert::Editor::MeshDnD::ResolveOrImport( *ctx.AssetMgr(), path );
                     if ( !handle.IsNull() )
                     {
-                        c.MeshHandle = handle;
-                        c.Primitive.reset();
-                        c.RuntimeMesh.reset();
+                        ISMD desc       = c.GetDesc();
+                        desc.MeshHandle = handle;
+                        desc.Primitive.reset();
+                        write( desc );
                     }
                 }
                 ::ImGui::EndDragDropTarget();
             }
             U::ImGuiUtilities::EndPropertyRow();
 
-            if ( !c.MeshHandle.IsNull() && ::ImGui::SmallButton( "Use Primitive Instead" ) )
+            if ( !c.GetMeshHandle().IsNull() && ::ImGui::SmallButton( "Use Primitive Instead" ) )
             {
-                c.MeshHandle = {};
-                c.Primitive  = GG::PrimitiveType::Cube;
-                c.RuntimeMesh.reset();
+                ISMD desc       = c.GetDesc();
+                desc.MeshHandle = {};
+                desc.Primitive  = GG::PrimitiveType::Cube;
+                write( desc );
             }
 
             // ── MATERIAL SLOTS ────────────────────────────────────────────────────────────────────
@@ -1600,18 +1610,18 @@ namespace Desert::Editor
             // would be an instrument answering a different question than the one asked — the shape this
             // project keeps finding. The instance count is the array's size, the triangle count is the
             // mesh's own index counts, and the draw figure is the batch rule stated as a rule.
-            const size_t instanceCount = c.InstanceTransforms.size();
+            const size_t instanceCount = c.GetInstanceTransforms().size();
 
             // The renderer's own order of preference (MeshECSSystem): the in-editor mesh, then the
             // asset, then the built-in shape. Spelled as statements rather than three nested conditional
             // operators, which is both what the analyser asks for and what makes the order readable.
             ::Desert::Mesh* mesh = nullptr;
-            if ( c.RuntimeMesh )
-                mesh = static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() );
-            else if ( !c.MeshHandle.IsNull() )
-                mesh = ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
-            else if ( c.Primitive.has_value() )
-                mesh = GG::PrimitiveMeshFactory::GetShared( *c.Primitive );
+            if ( c.RuntimeMesh() )
+                mesh = static_cast<::Desert::Mesh*>( c.RuntimeMesh().get() );
+            else if ( !c.GetMeshHandle().IsNull() )
+                mesh = ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
+            else if ( c.GetPrimitive().has_value() )
+                mesh = GG::PrimitiveMeshFactory::GetShared( *c.GetPrimitive() );
             // AND THE LOD CHAIN IS EMPTY FOR EXACTLY THE MESHES AN ISM USUALLY HOLDS. Submesh::LODs says
             // so in its own header — "empty for meshes with no LODs (procedural / skinned)" — and the
             // first version of this readout asked only the chain, so every primitive ISM reported
@@ -1625,7 +1635,7 @@ namespace Desert::Editor
                          ( submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs.front().IndexCount ) / 3;
 
             uint32_t cascades = 0;
-            if ( c.CastShadows && scene != nullptr && scene->GetSceneRenderer() != nullptr )
+            if ( c.GetCastShadows() && scene != nullptr && scene->GetSceneRenderer() != nullptr )
                 cascades = scene->GetSceneRenderer()->GetShadowCascadeCount();
 
             if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_CHART_BAR "  Statistics", true ) )
@@ -1672,16 +1682,18 @@ namespace Desert::Editor
             if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_EYE "  Rendering", false ) )
             {
                 U::ImGuiUtilities::ResetPropertyRows();
+                ISMD rendering        = c.GetDesc();
+                bool renderingChanged = false;
                 U::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
                                                      "Skip every instance in the shadow (depth) passes" );
-                ::ImGui::Checkbox( "##ism_castshadows", &c.CastShadows );
+                renderingChanged |= ::ImGui::Checkbox( "##ism_castshadows", &rendering.CastShadows );
                 U::ImGuiUtilities::EndPropertyRow();
 
                 U::ImGuiUtilities::BeginPropertyRow(
                      "Cast Contact Shadow",
                      "A light's contact-shadow ray that hits an instance darkens with the light's Contact Shadow "
                      "Casting Intensity; off = its Non Casting Intensity" );
-                ::ImGui::Checkbox( "##ism_castcontactshadow", &c.CastContactShadow );
+                renderingChanged |= ::ImGui::Checkbox( "##ism_castcontactshadow", &rendering.CastContactShadow );
                 U::ImGuiUtilities::EndPropertyRow();
 
                 U::ImGuiUtilities::BeginPropertyRow(
@@ -1689,10 +1701,13 @@ namespace Desert::Editor
                      "cm from the camera beyond which an instance is not drawn (0 = no limit); scaled by the "
                      "camera's field of view, so a zoomed-in camera draws farther. A foliage type's Cull "
                      "Distance is clipped to it" );
-                ::ImGui::DragFloat( "##ism_maxdraw", &c.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
-                                    c.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
-                c.MaxDrawDistance = std::max( c.MaxDrawDistance, 0.0f );
+                renderingChanged |=
+                     ::ImGui::DragFloat( "##ism_maxdraw", &rendering.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
+                                         rendering.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
+                rendering.MaxDrawDistance = std::max( rendering.MaxDrawDistance, 0.0f );
                 U::ImGuiUtilities::EndPropertyRow();
+                if ( renderingChanged )
+                    write( rendering );
             }
 
             // ── THE INSTANCE LIST ─────────────────────────────────────────────────────────────────
@@ -1712,6 +1727,16 @@ namespace Desert::Editor
             if ( U::ImGuiUtilities::SectionHeader( ICON_MDI_FORMAT_LIST_NUMBERED "  Instances (world space)",
                                                    true ) )
             {
+                // One pending copy for the whole list, taken on the first edit and written once at the end
+                // of the section; the rows read the component itself, so an untouched frame copies nothing.
+                const std::vector<glm::mat4>& instances = c.GetInstanceTransforms();
+                std::optional<ISMD>           pending;
+                const auto                    edit = [&]() -> std::vector<glm::mat4>&
+                {
+                    if ( !pending )
+                        pending = c.GetDesc();
+                    return pending->InstanceTransforms;
+                };
                 if ( ::ImGui::Button( "Add" ) )
                 {
                     // 200 cm, AND THE OLD NUMBER WAS 2. These two buttons stepped by `2.0f`, which is a
@@ -1721,22 +1746,22 @@ namespace Desert::Editor
                     // 2 cm along sat wholly INSIDE the previous one. Ten by ten of them made one cube.
                     // The button looked broken and was in fact doing exactly what it said.
                     glm::mat4 seed( 1.0f );
-                    if ( !c.InstanceTransforms.empty() )
-                        seed = glm::translate( c.InstanceTransforms.back(), glm::vec3( 200.0f, 0.0f, 0.0f ) );
-                    c.InstanceTransforms.push_back( seed );
+                    if ( !instances.empty() )
+                        seed = glm::translate( instances.back(), glm::vec3( 200.0f, 0.0f, 0.0f ) );
+                    edit().push_back( seed );
                 }
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( "Add 10x10 Grid" ) )
                 {
                     for ( int z = 0; z < 10; ++z )
                         for ( int x = 0; x < 10; ++x )
-                            c.InstanceTransforms.push_back( glm::translate(
+                            edit().push_back( glm::translate(
                                  glm::mat4( 1.0f ), glm::vec3( static_cast<float>( x ) * 200.0f, 0.0f,
                                                                static_cast<float>( z ) * 200.0f ) ) );
                 }
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( "Clear" ) )
-                    c.InstanceTransforms.clear();
+                    edit().clear();
 
                 // Deferred so the vector is not resized while the clipper is walking it.
                 int duplicateIndex = -1;
@@ -1744,15 +1769,15 @@ namespace Desert::Editor
 
                 U::ImGuiUtilities::ResetPropertyRows();
                 ImGuiListClipper clipper;
-                clipper.Begin( static_cast<int>( c.InstanceTransforms.size() ) );
+                clipper.Begin( static_cast<int>( instances.size() ) );
                 while ( clipper.Step() )
                 {
                     for ( int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i )
                     {
                         ::ImGui::PushID( i );
 
-                        const auto decomposed = ::Desert::ECS::Rules::DecomposeTransform(
-                             c.InstanceTransforms[static_cast<size_t>( i )] );
+                        const auto decomposed =
+                             ::Desert::ECS::Rules::DecomposeTransform( instances[static_cast<size_t>( i )] );
                         glm::vec3 translation = decomposed.Translation;
                         // `+ 0.0f` turns IEEE negative zero into positive zero: eulerAngles of an
                         // unrotated instance hands back -0.0 on two axes, and a row reading "-0.0" on a
@@ -1784,9 +1809,10 @@ namespace Desert::Editor
                             removeIndex = i;
                         U::ImGuiUtilities::EndPropertyRow();
 
-                        if ( moved )
+                        // Bounded by the pending copy: a Clear earlier this frame already emptied it.
+                        if ( moved && static_cast<size_t>( i ) < edit().size() )
                         {
-                            c.InstanceTransforms[static_cast<size_t>( i )] =
+                            edit()[static_cast<size_t>( i )] =
                                  glm::translate( glm::mat4( 1.0f ), translation ) *
                                  glm::toMat4( glm::quat( glm::radians( degrees ) ) ) *
                                  glm::scale( glm::mat4( 1.0f ), scale );
@@ -1797,17 +1823,20 @@ namespace Desert::Editor
                 }
                 clipper.End();
 
-                if ( duplicateIndex >= 0 )
+                // Against the pending copy, not `instances`: an Add or Clear this frame already changed it.
+                if ( duplicateIndex >= 0 && static_cast<size_t>( duplicateIndex ) < edit().size() )
                 {
                     // Offset by the same 200 cm as Add, and for the reason given there: a duplicate that
                     // lands inside its source is a button that appears to do nothing.
-                    c.InstanceTransforms.insert(
-                         c.InstanceTransforms.begin() + duplicateIndex + 1,
-                         glm::translate( c.InstanceTransforms[static_cast<size_t>( duplicateIndex )],
-                                         glm::vec3( 200.0f, 0.0f, 0.0f ) ) );
+                    std::vector<glm::mat4>& list   = edit();
+                    const glm::mat4         source = list[static_cast<size_t>( duplicateIndex )];
+                    list.insert( list.begin() + duplicateIndex + 1,
+                                 glm::translate( source, glm::vec3( 200.0f, 0.0f, 0.0f ) ) );
                 }
-                if ( removeIndex >= 0 )
-                    c.InstanceTransforms.erase( c.InstanceTransforms.begin() + removeIndex );
+                if ( removeIndex >= 0 && static_cast<size_t>( removeIndex ) < edit().size() )
+                    edit().erase( edit().begin() + removeIndex );
+                if ( pending )
+                    write( *pending );
             }
         };
         return e;
@@ -1894,9 +1923,9 @@ namespace Desert::Editor
             {
                 const auto&     smc = targetEntity->GetComponent<::Desert::ECS::SkinnedMeshComponent>();
                 ::Desert::Mesh* mesh =
-                     smc.RuntimeMesh
-                          ? static_cast<::Desert::Mesh*>( smc.RuntimeMesh.get() )
-                          : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
+                     smc.GetRuntimeMesh()
+                          ? static_cast<::Desert::Mesh*>( smc.GetRuntimeMesh().get() )
+                          : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() );
                 if ( mesh && mesh->IsSkinned() )
                     skeleton = &static_cast<::Desert::SkinnedMesh*>( mesh )->GetSkeleton();
             }
@@ -2476,9 +2505,9 @@ namespace Desert::Editor
 
             ::Desert::Assets::AssetHandle meshHandle;
             if ( en.HasComponent<::Desert::ECS::SkinnedMeshComponent>() )
-                meshHandle = en.GetComponent<::Desert::ECS::SkinnedMeshComponent>().MeshHandle;
+                meshHandle = en.GetComponent<::Desert::ECS::SkinnedMeshComponent>().GetMeshHandle();
             else if ( en.HasComponent<::Desert::ECS::StaticMeshComponent>() )
-                meshHandle = en.GetComponent<::Desert::ECS::StaticMeshComponent>().MeshHandle;
+                meshHandle = en.GetComponent<::Desert::ECS::StaticMeshComponent>().GetMeshHandle();
 
             const ::Desert::Assets::MeshAsset* meshAsset =
                  meshHandle ? ::Desert::Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle )

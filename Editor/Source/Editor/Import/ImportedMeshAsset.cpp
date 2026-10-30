@@ -1,5 +1,6 @@
 #include "ImportedMeshAsset.hpp"
 #include "SourceToEngine.hpp"
+#include "VirtualGeometryGate.hpp"
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Common/Content/ImportRecord.hpp>
@@ -425,16 +426,20 @@ namespace Desert::Editor
                                                                    std::span<const Assets::MeshMaterialSlot> named,
                                                                    const std::filesystem::path&      source,
                                                                    const Common::Content::AssetGuid  guid,
-                                                                   const Assets::MeshImportSettings& settings,
+                                                                   const Assets::MeshImportSettings& recorded,
                                                                    const uint64_t                    hash )
         {
+            // The settings the envelope stores: the record's, with the import's verdict on Virtual Geometry
+            // (VirtualGeometryGate.hpp) - judged first, so an unchanged re-import of a refused mesh is a hit.
+            const Assets::MeshImportSettings stored =
+                 GateVirtualGeometry( recorded, imported, named, source, source.generic_string() );
             const uint64_t key = Assets::MeshSourceDerivedDataKey( hash );
             // This exact content is already cached - unless it was imported with other options (a re-import from
             // the Details' Import Settings keeps the bytes and changes the scale, the axis or the LOD policy).
             if ( const auto cached = Common::DDC::Get( Assets::kMeshSourceDeriver, key ) )
             {
                 const auto decoded = Assets::DecodeMeshSourceAsset( std::as_bytes( std::span{ *cached } ) );
-                if ( decoded && decoded.GetValue().Import.Settings == settings )
+                if ( decoded && decoded.GetValue().Import.Settings == stored )
                     return Common::MakeSuccess( MeshAssetWrite::Unchanged );
             }
 
@@ -447,7 +452,7 @@ namespace Desert::Editor
             asset.Name              = source.stem().string();
             asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
             asset.Import.SourceHash = hash;
-            asset.Import.Settings   = settings;
+            asset.Import.Settings   = stored;
             auto sourceData         = MeshSourceFromImport( imported, named, source.string() );
             if ( !sourceData )
                 return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );

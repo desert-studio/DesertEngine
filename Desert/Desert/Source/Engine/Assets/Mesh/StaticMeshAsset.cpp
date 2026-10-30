@@ -8,6 +8,7 @@
 
 #include <format>
 #include <functional>
+#include <algorithm>
 #include <optional>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -102,6 +103,16 @@ namespace Desert::Assets
             m_CpuGeometryReleased = false;
             m_CpuAccessRequested  = false;
             FillCpuGeometry( data );
+        }
+
+        // Every submesh or none carries a DAG (the cook builds one per submesh when the import flag is on).
+        m_ClusterDags.clear();
+        if ( std::any_of( data.Submeshes.begin(), data.Submeshes.end(),
+                          []( const auto& s ) { return !s.ClusterDag.Clusters.empty(); } ) )
+        {
+            m_ClusterDags.reserve( data.Submeshes.size() );
+            for ( const auto& s : data.Submeshes )
+                m_ClusterDags.push_back( s.ClusterDag );
         }
 
         m_MorphTargets.clear();
@@ -244,6 +255,8 @@ namespace Desert::Assets
         m_MorphTargets.shrink_to_fit();
         m_VertexStreams.clear();
         m_VertexStreams.shrink_to_fit();
+        m_ClusterDags.clear();
+        m_ClusterDags.shrink_to_fit();
         m_MaterialAssetHandles.shrink_to_fit();
 
         // Same reason as SkinnedMeshAsset::Unload: the flag is what EnsureLoaded asks before deciding to

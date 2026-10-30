@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -52,6 +53,23 @@ namespace Desert::Graphic::API::Vulkan
     [[nodiscard]] Common::BoolResultStr VulkanVertexBuffer::Invalidate()
     {
         return RT_Invalidate();
+    }
+
+    uint64_t CurrentBufferAddress( const VkBuffer buffer )
+    {
+        if ( buffer == VK_NULL_HANDLE )
+            return 0;
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        // bufferDeviceAddress alone (its own DeviceCaps row, loaded without acceleration structures too): the GI
+        // emissive list reads mesh buffers by address on a device that cannot trace (MeshBufferUsage.hpp).
+        if ( !logical || logical->GetRayTracingFunctions().GetBufferDeviceAddress == nullptr )
+            return 0;
+        return logical->GetRayTracingFunctions().BufferAddress( logical->GetVulkanLogicalDevice(), buffer );
+    }
+
+    uint64_t VulkanVertexBuffer::GetDeviceAddress() const
+    {
+        return CurrentBufferAddress( m_VulkanBuffer );
     }
 
     [[nodiscard]] Common::BoolResultStr VulkanVertexBuffer::RT_Invalidate()

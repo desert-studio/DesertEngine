@@ -359,13 +359,27 @@ namespace Desert::Runtime
     void ShaderService::ForgetRefusalsOf( const Assets::AssetHandle& handle )
     {
         std::erase_if( m_Refusals, [&handle]( const auto& entry ) { return entry.second.Handle == handle; } );
-        ++m_RecompileGeneration;
+        m_FileGenerations[handle] = ++m_RecompileGeneration;
     }
 
     void ShaderService::ForgetRefusalsOfProgram( const std::string& program )
     {
         std::erase_if( m_Refusals, [&program]( const auto& entry ) { return entry.second.Program == program; } );
-        ++m_RecompileGeneration;
+        m_ProgramNameGenerations[program] = ++m_RecompileGeneration;
+    }
+
+    std::uint64_t ShaderService::ProgramGeneration( const std::string& name ) const
+    {
+        // A pass "<Shader>/<Pass>" is its file's program <Shader>.
+        const std::string program    = name.substr( 0, name.find( '/' ) );
+        std::uint64_t     generation = m_ClearGeneration;
+        if ( const auto stamped = m_ProgramNameGenerations.find( program );
+             stamped != m_ProgramNameGenerations.end() )
+            generation = std::max( generation, stamped->second );
+        if ( const auto handle = m_NameToHandleMap.find( program ); handle != m_NameToHandleMap.end() )
+            if ( const auto file = m_FileGenerations.find( handle->second ); file != m_FileGenerations.end() )
+                generation = std::max( generation, file->second );
+        return generation;
     }
 
     std::vector<Core::CookedProgramVariant> ShaderService::ShippedByCookRequests() const
@@ -488,7 +502,9 @@ namespace Desert::Runtime
         m_Media.clear();
         m_WarnedNotAMedium.clear();
         m_Refusals.clear();
-        ++m_RecompileGeneration;
+        m_FileGenerations.clear();
+        m_ProgramNameGenerations.clear();
+        m_ClearGeneration = ++m_RecompileGeneration;
         // Only the weak bookkeeping — a variant's modules belong to whoever still holds it, and freeing
         // them from here would leave that holder with a program made of destroyed modules.
         m_Variants.clear();

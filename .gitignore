@@ -80,6 +80,7 @@ dist/
 # Vendor binaries are DOWNLOADED, never committed (owner 2026-10-15): scripts/Windows/FetchVendorBinaries.py
 # fetches them from the release named in ThirdParty/Streamline/manifest.json and checks every SHA-256.
 ThirdParty/Streamline/bin/
+ThirdParty/OIDN/bin/
 
 # Optional: cloned by the user to enable dlib face tracking (see BuildScripts/ThirdParty/Dlib.lua)
 ThirdParty/dlib/

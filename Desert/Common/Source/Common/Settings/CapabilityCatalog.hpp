@@ -163,6 +163,22 @@ namespace Common::Scalability
         Discrete,
     };
 
+    // How this device hands GPU memory and GPU-ordered work to another API (CUDA / HIP / SYCL / Metal) without a
+    // host copy. Reader: System::PathTracer's OIDN denoise (Graphic/Denoise/OidnDenoiser on SharedGpuBuffer /
+    // SharedGpuTimeline). Win32: Capability::ExternalMemoryWin32 + ExternalSemaphoreWin32 enabled AND the driver
+    // exports OPAQUE_WIN32 for a storage buffer and for a timeline semaphore. Fd: the same with OPAQUE_FD. Metal:
+    // MoltenVK, VK_EXT_metal_objects (the MTLBuffer of a VkDeviceMemory, ordering by the shared MTLCommandQueue);
+    // not probed yet, so a Mac catalog says None. None: nothing is shared, and every reader refuses by name.
+    enum class GpuSharing : int
+    {
+        None = 0,
+        Win32,
+        Fd,
+        Metal,
+    };
+    inline constexpr std::array<std::string_view, 4> kGpuSharingNames{ "None", "Win32", "Fd", "Metal" };
+    static_assert( static_cast<std::size_t>( GpuSharing::Metal ) + 1 == kGpuSharingNames.size() );
+
     // The render-scale axis' legal range, in percent of output size. Reader: the ResolutionScale group.
     struct RenderScaleRange
     {
@@ -229,17 +245,40 @@ namespace Common::Scalability
     // Reconstruction - the view keeps that upscaler whatever AntiAliasing.Method says, and the paths go to it raw
     // with their own guides (PathTracedGuides). Auto: RR where the device offers DLSS Ray Reconstruction, else
     // ReLAX; Resolve settles it against the catalog, so a resolved quality never holds Auto. 0 and 1 keep the
-    // values the former on/off switch stored (Off, the engine denoiser).
+    // values the former on/off switch stored (Off, the engine denoiser). OIDN: Intel Open Image Denoise on the
+    // CONVERGED image (UE's OpenImageDenoise plugin, which denoises the path tracer once its samples per pixel are
+    // reached): while the sum still grows the view is ReLAX's, and once PathTracing.SamplesPerPixel paths are
+    // summed OIDN filters the accumulation once with the paths' albedo and normal (System::PathTracer,
+    // Graphic/Denoise/ OidnDenoiser) on the GPU it finds for this device, in the frame's own graph on memory
+    // shared with OIDN (CapabilityCatalog::Sharing). Refused by name without GpuSharing or without an OIDN GPU
+    // module for this GPU (the view stays the raw accumulation, the log says why); there is no host copy. Auto
+    // never settles to it (a still-frame denoiser, not a real-time one).
     enum class PathTracingDenoiserMethod : int
     {
         Off   = 0,
         ReLAX = 1,
         RR    = 2,
         Auto  = 3,
+        OIDN  = 4,
     };
-    inline constexpr std::array<std::string_view, 4> kPathTracingDenoiserNames{ "Off", "ReLAX", "RR", "Auto" };
-    static_assert( static_cast<std::size_t>( PathTracingDenoiserMethod::Auto ) + 1 ==
+    inline constexpr std::array<std::string_view, 5> kPathTracingDenoiserNames{ "Off", "ReLAX", "RR", "Auto",
+                                                                                 "OIDN" };
+    static_assert( static_cast<std::size_t>( PathTracingDenoiserMethod::OIDN ) + 1 ==
                    kPathTracingDenoiserNames.size() );
+
+    // WHAT ENDS A PATH-TRACED PATH EARLY (Parameter::PathTracingRadianceCache). Stored by name. Off: every path
+    // runs to its last bounce. Nrc: the neural radiance cache (Graphic/Neural/NeuralRadianceCache.hpp, Muller et
+    // al. 2021) - a path is cut where its spread passes the threshold and the cache's prediction stands for the
+    // rest, trained every frame from a sparse set of longer training paths. Runs on every device (the MLP picks
+    // its kernel path by MachineSettings, the float path is everywhere), so no catalog list narrows it.
+    enum class PathTracingRadianceCacheMethod : int
+    {
+        Off = 0,
+        Nrc = 1,
+    };
+    inline constexpr std::array<std::string_view, 2> kPathTracingRadianceCacheNames{ "Off", "Nrc" };
+    static_assert( static_cast<std::size_t>( PathTracingRadianceCacheMethod::Nrc ) + 1 ==
+                   kPathTracingRadianceCacheNames.size() );
 
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
@@ -310,6 +349,10 @@ namespace Common::Scalability
         // Reader: recommended settings (benchmark fallback + VRAM-scaled texture / shadow levels).
         DeviceClass Class       = DeviceClass::Unknown;
         uint64_t    VideoMemory = 0; // device-local bytes (Mac: recommendedMaxWorkingSetSize); 0 = unknown
+
+        // Reader: System::PathTracer OIDN (Renderer::CreateSharedBuffer / CreateSharedTimeline refuse without
+        // it). See GpuSharing. Mac: None until VK_EXT_metal_objects is probed.
+        GpuSharing Sharing = GpuSharing::None;
 
         // Does `list` offer `value`? The one membership question every selector and the resolver ask.
         template <typename T>

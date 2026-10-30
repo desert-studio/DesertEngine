@@ -57,7 +57,9 @@ namespace Desert::Graphic
 
     // Where a mesh's geometry sits in the pool: vertices (and streams) [BaseVertex, +VertexCount) of its arena's
     // page VertexPage, indices [FirstIndex, +IndexCount) of index page IndexPage (IndexCount 0 = a non-indexed
-    // mesh).
+    // mesh). A virtual-geometry mesh's CLUSTER WORDS (every submesh DAG's VertexRefs then Triangles, in submesh
+    // order) follow its indices in the same span: [FirstIndex + IndexCount, +ClusterWordCount), so its one index
+    // span holds both and the VirtualMeshTable addresses the words from the span's device address.
     struct GeometryPoolRange
     {
         GeometryArena Arena       = GeometryArena::Static;
@@ -67,7 +69,13 @@ namespace Desert::Graphic
         uint32_t      VertexCount = 0;
         uint32_t      FirstIndex  = 0;
         uint32_t      IndexCount  = 0;
+        uint32_t      ClusterWordCount = 0;
 
+        // The index span's elements: the indices and the cluster words after them.
+        [[nodiscard]] uint32_t IndexSpanCount() const
+        {
+            return IndexCount + ClusterWordCount;
+        }
         [[nodiscard]] bool operator==( const GeometryPoolRange& ) const = default;
     };
 
@@ -134,6 +142,8 @@ namespace Desert::Graphic
         uint32_t                      VertexStride     = 0;
         uint32_t                      VertexCount      = 0;
         uint32_t                      IndexCount       = 0;
+        // Cluster words after the indices (IndexByteOffset + IndexCount * 4): a virtual-geometry mesh's DAG data.
+        uint32_t ClusterWordCount = 0;
         // The mesh's own data carries colours / a second UV set (a pooled mesh without them has default values
         // written into its stream span, so Streams alone does not say whether the asset authored any).
         bool AuthoredStreams = false;
@@ -197,11 +207,13 @@ namespace Desert::Graphic
         // Allocates the mesh's spans and uploads its data (blocking one-off copies, like the per-mesh upload it
         // replaces). @p vertices are VertexCount x GeometryArenaVertexStride( arena ) bytes; @p streams are
         // empty (default values written) or one per vertex; @p indices are mesh-relative, empty for a
-        // non-indexed mesh. Refused: no vertex, a streams count other than 0 or the vertex count, a span past
-        // 2^32 bytes.
+        // non-indexed mesh; @p clusterWords (a virtual-geometry mesh's DAG VertexRefs + Triangles) are written
+        // right after the indices in the same index span. Refused: no vertex, a streams count other than 0 or the
+        // vertex count, cluster words without indices, a span past 2^32 bytes.
         [[nodiscard]] Common::ResultStr<GeometryPoolAllocation>
         RT_Upload( GeometryArena arena, std::span<const std::byte> vertices,
-                   std::span<const MeshVertexStreams> streams, std::span<const uint32_t> indices );
+                   std::span<const MeshVertexStreams> streams, std::span<const uint32_t> indices,
+                   std::span<const uint32_t> clusterWords = {} );
 
         // Scene open (FIELD-MEM): one page per arena (and one index page) sized to the scene's meshes plus an
         // eighth, so the meshes the scene then streams in add no page of their own (UE: the pool is sized for
@@ -288,7 +300,8 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr       RT_Write( const GeometryPoolRange&           range,
                                                             std::span<const std::byte>         vertices,
                                                             std::span<const MeshVertexStreams> streams,
-                                                            std::span<const uint32_t>          indices );
+                                                            std::span<const uint32_t>          indices,
+                                                            std::span<const uint32_t>          clusterWords );
 
         mutable std::mutex                     m_Mutex;
         std::array<Arena, kGeometryArenaCount> m_Arenas;

@@ -107,6 +107,15 @@ namespace Desert::Graphic
         ResolvedMethod<Common::Scalability::GIMethod>         GlobalIllumination;
         ResolvedMethod<Common::Scalability::ReflectionMethod> Reflections;
         ResolvedMethod<Common::Scalability::ShadowMethod>     Shadows;
+        // Shadows Stochastic's visibility source (Common::Scalability::StochasticVisibility): the best the device
+        // runs (`DeviceVisibility`) and this frame's (`Visibility`: the device's, or, a ray-query device whose frame
+        // has no traceable scene, the best source without rays - LowerShadowsForFrame). Meaningless under any
+        // other Shadows method.
+        Common::Scalability::StochasticVisibility DeviceVisibility = Common::Scalability::StochasticVisibility::RayQuery;
+        Common::Scalability::StochasticVisibility Visibility       = Common::Scalability::StochasticVisibility::RayQuery;
+        // The best source without rays on this device (VirtualMapsAndScreen or Screen): where a RayQuery frame
+        // without a TLAS lands.
+        Common::Scalability::StochasticVisibility RaylessVisibility = Common::Scalability::StochasticVisibility::Screen;
         // The shadow supplements, after the same rule (distance-field shadows refused at load until they land).
         bool ContactShadows       = false;
         bool DistanceFieldShadows = false;
@@ -123,16 +132,49 @@ namespace Desert::Graphic
                                                       bool gBuffer, const ProgramRefusals& refusals );
 
     // THE FRAME'S SUN-SHADOW PATH, decided ONCE per view-frame before any pass is declared
-    // (SceneRenderer::OnUpdate, right after the view's TLAS is declared): a Shadows method that traces rays
-    // (HardwareTraced, Stochastic) whose frame has no traceable scene (`rayTracedSceneReady` false: TLAS not
-    // built, or the trace resources could not be created) is lowered here to CascadedMaps with
-    // MethodLimit::FrameScene, so every pass of the frame (cascades, prepass, composite, forward) reads one
-    // decision and the overlay / log name the cause. PURE. The next BeginScene resolves afresh.
+    // (SceneRenderer::OnUpdate, right after the view's TLAS is declared): HardwareTraced whose frame has no
+    // traceable scene (`rayTracedSceneReady` false: TLAS not built, or the trace resources could not be created)
+    // is lowered here to CascadedMaps with MethodLimit::FrameScene; Stochastic keeps its method and its
+    // Visibility drops from RayQuery to RaylessVisibility. Every pass of the frame (cascades, prepass, composite,
+    // forward) reads one decision and the overlay / log name the cause. PURE. The next BeginScene resolves afresh.
     void LowerShadowsForFrame( RenderMethods& methods, bool rayTracedSceneReady );
+
+    // One light's Shadow Method this frame and what it resolved to (ResolveLightVisibility); SourceId =
+    // LocalLightShadowSettings::SourceId (entity + 1).
+    struct StochasticLightMethod
+    {
+        uint32_t                                  SourceId  = 0;
+        Common::Scalability::LightShadowMethod    Requested = Common::Scalability::LightShadowMethod::Auto;
+        Common::Scalability::StochasticVisibility Effective = Common::Scalability::StochasticVisibility::Screen;
+    };
+
+    // THE VISIBILITY SOURCE OF ONE LIGHT'S MegaLights SAMPLES this frame (Common::Scalability::LightShadowMethod,
+    // the light component's Shadow Method), after LowerShadowsForFrame: Auto is the frame's Visibility; RayQuery
+    // only while the frame traces the ray query (its TLAS built), else the frame's Visibility; VirtualMaps only on a
+    // device that runs them (RaylessVisibility vsm+screen), else RaylessVisibility; Screen always. PURE.
+    [[nodiscard]] Common::Scalability::StochasticVisibility
+    ResolveLightVisibility( Common::Scalability::LightShadowMethod requested, const RenderMethods& methods );
+
+    // This frame's Shadows trace hardware rays: HardwareTraced, or Stochastic whose visibility is the ray query.
+    [[nodiscard]] bool ShadowsTraceRays( const RenderMethods& methods );
 
     // THE VIEW PATH-TRACES this frame: GI and reflections both resolved to PathTraced (they are one integrator,
     // ResolveRenderMethods pairs them). The path tracer's image replaces the lit scene before post.
     [[nodiscard]] bool PathTraced( const RenderMethods& methods );
+
+    // THE LOCAL LIGHTS' SHADOWS ARE VIRTUAL MAPS: Shadows resolved to VirtualMaps on a view that does not path-trace.
+    // Every reader of a point or spot light's shadow picks its permutation by this one rule (DESERT_LOCAL_SHADOW_VSM:
+    // the opaque composite, the forward / translucent cells, the terrain, the froxel fog, the surface cache's cards);
+    // false = they read the local shadow atlas. PURE.
+    [[nodiscard]] bool LocalShadowsVirtual( const RenderMethods& methods );
+
+    // THE LOCAL LIGHTS HAVE VIRTUAL-SHADOW-MAP PAGES this frame: LocalShadowsVirtual, or Shadows Stochastic (not
+    // path traced) with @p lightsOnVirtualMaps > 0 casting lights whose own source resolved to vsm+screen
+    // (ResolveLightVisibility). Resolved once per view frame (SceneRenderer::AssignLocalShadowMaskSlots) into the
+    // one value both the view's page passes and the surface cache's cards read (SceneRenderer::
+    // LocalLightsReadVirtualPages), so the cards are lit through exactly the local shadows the updating view
+    // built. PURE.
+    [[nodiscard]] bool LocalLightsVirtualPages( const RenderMethods& methods, uint32_t lightsOnVirtualMaps );
 
     // WHETHER THIS DEVICE CAN PATH-TRACE AT ALL, whatever a view requests: empty when it can, else the reason a
     // PathTraced request is refused - the same walk and the same words as ResolveRenderMethods' Device /

@@ -1,5 +1,5 @@
-// Terrain vertex stage, shared by the three Terrain programs (Terrain = forward, TerrainGBuffer = deferred,
-// TerrainShadow = cascade depth): ONE statement of where a terrain vertex is, so the surface a cascade sees
+// Terrain vertex stage, shared by the Terrain programs (Terrain = forward, TerrainGBuffer = deferred,
+// TerrainDepth = the forward view's depth prepass, TerrainShadow / TerrainVirtualShadow = casters): ONE statement of where a terrain vertex is, so the surface a cascade sees
 // is the surface the camera sees — same grid, same LOD (chosen on the CPU from the main camera), same morph.
         // A landscape tile is a grid of cells over its samples, two triangles per cell on Jolt's diagonal,
         // decoded from gl_VertexIndex (LandscapeLod.glslh; UE's FLandscapeVertexFactory, ported). The tile
@@ -34,10 +34,15 @@
         #include <Common/LandscapeLod.glslh>
 #ifdef TERRAIN_DEPTH_ONLY
 #include <Common/ShadowCasterBias.glslh>
+#else
+        // The camera's programs: the forward view's depth prepass (TerrainDepth, TERRAIN_VIEW_DEPTH) and the base
+        // pass then tests its depth CloserOrEqual against it - one gl_Position, bit for bit (GLSL invariance).
+        invariant gl_Position;
 #endif
 
-        // A caster writes depth and nothing else: the shading outputs exist only for the programs that shade.
-#ifndef TERRAIN_DEPTH_ONLY
+        // A caster (and the view's depth prepass) writes depth and nothing else: the shading outputs exist only
+        // for the programs that shade.
+#if !defined( TERRAIN_DEPTH_ONLY ) && !defined( TERRAIN_VIEW_DEPTH )
         Out(0) vec3 v_WorldPos;
         Out(1) vec3 v_Normal;
 #else
@@ -69,11 +74,13 @@
             gl_Position    = m_PushConstants.Transform * worldPos;
 
             vec3 normal = v.Normal;
-#ifndef TERRAIN_DEPTH_ONLY
+#if !defined( TERRAIN_DEPTH_ONLY ) && !defined( TERRAIN_VIEW_DEPTH )
             v_WorldPos = worldPos.xyz;
             v_Normal   = normal;
 #else
             v_TileSample = v.Local; // the sample coordinate within the tile, as the surface derives it
+#endif
+#ifdef TERRAIN_DEPTH_ONLY
             // The caster's slope depth bias, as every mesh caster's vertex stage adds it (UE:
             // ShadowDepthVertexShader.usf). One material draws every cascade, so the cascade's pair is pushed
             // beside its matrix (Material::SetShadowSlopeBias).

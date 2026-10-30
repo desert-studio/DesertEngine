@@ -224,6 +224,30 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+        // The virtual-geometry views under names (UE r.Nanite.Visualize): the [vg_clusters] scenario photographs
+        // the clusters view over the channel.
+        constexpr struct
+        {
+            const char*                  Label;
+            Graphic::VirtualGeometryView Mode;
+        } kVirtualGeometryViews[] = {
+             { "View mode: Virtual Geometry Clusters", Graphic::VirtualGeometryView::Clusters },
+        };
+        static_assert(
+             std::size( kVirtualGeometryViews ) == static_cast<size_t>( Graphic::VirtualGeometryView::Clusters ),
+             "a VirtualGeometryView without a View mode command cannot be photographed over the channel" );
+        for ( const auto& row : kVirtualGeometryViews )
+        {
+            const Graphic::VirtualGeometryView mode = row.Mode;
+            commands.push_back( { "View", row.Label, [mode]
+                                  {
+                                      auto& view = EditorPreferences::Get().DebugView;
+                                      view.ClearViewMode();
+                                      view.VirtualGeometry = mode;
+                                      EditorPreferences::Save();
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown

@@ -47,6 +47,7 @@
 #include <vector>
 
 using Desert::ECS::IsHidden;
+using Desert::ECS::SetVisible;
 using Desert::ECS::VisibilityComponent;
 
 // ---------------------------------------------------------------------------------------------------
@@ -68,13 +69,13 @@ TEST( EntityVisibility, TheBoolIsTheAnswer )
     entt::registry registry;
     const auto     entity = registry.create();
 
-    registry.emplace<VisibilityComponent>( entity ).Visible = true;
+    registry.emplace<VisibilityComponent>( entity, true );
     EXPECT_FALSE( IsHidden( registry, entity ) );
 
-    registry.get<VisibilityComponent>( entity ).Visible = false;
+    SetVisible( registry, entity, false );
     EXPECT_TRUE( IsHidden( registry, entity ) ) << "the one bit the outliner's eye writes";
 
-    registry.get<VisibilityComponent>( entity ).Visible = true;
+    SetVisible( registry, entity, true );
     EXPECT_FALSE( IsHidden( registry, entity ) ) << "and it comes back";
 }
 
@@ -86,7 +87,7 @@ TEST( EntityVisibility, NullAndDestroyedEntitiesAreNotHidden )
     EXPECT_FALSE( IsHidden( registry, entt::null ) );
 
     const auto entity                                       = registry.create();
-    registry.emplace<VisibilityComponent>( entity ).Visible = false;
+    registry.emplace<VisibilityComponent>( entity, false );
     registry.destroy( entity );
     EXPECT_FALSE( IsHidden( registry, entity ) ) << "a destroyed entity is nothing, not a hidden thing";
 }

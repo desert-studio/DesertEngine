@@ -149,6 +149,19 @@ namespace Desert::Runtime
             return m_RecompileGeneration;
         }
 
+        /**
+         * @brief RecompileGeneration as it stood when @p name's own program last forgot its refusals - moved by
+         *        a Recompile or re-Register of THAT program's file (or Clear), and by nothing else, so a holder
+         *        of state built by one program (trained weights, a held refusal) keys on it and an unrelated
+         *        shader's hot reload leaves it be.
+         *
+         * @p name is a registered program ("NeuralFusedMlp") or one of its passes ("NeuralRadianceCache/Encode");
+         * a pass is its file's program - every pass and every variant of a file recompile together (Recompile).
+         * A name not registered (yet) answers the stamp of that name (ForgetRefusalsOfProgram: its Register
+         * moves it) or of the last Clear, whichever is later. Values are RecompileGeneration's, so they only grow.
+         */
+        [[nodiscard]] std::uint64_t ProgramGeneration( const std::string& name ) const;
+
         // All registered shader program names (for the editor's material shader picker).
         //
         // A NAME IN HERE DOES NOT PROMISE THAT GetByName RESOLVES IT. A Volume medium owns its name —
@@ -193,6 +206,11 @@ namespace Desert::Runtime
         std::unordered_map<std::string, Refusal> m_Refusals;
         /// RecompileGeneration: bumped by ForgetRefusalsOf, ForgetRefusalsOfProgram and Clear.
         std::uint64_t m_RecompileGeneration = 0;
+        /// ProgramGeneration: the RecompileGeneration each file's ForgetRefusalsOf, each program name's
+        /// ForgetRefusalsOfProgram and the last Clear stamped.
+        std::unordered_map<Assets::AssetHandle, std::uint64_t> m_FileGenerations;
+        std::unordered_map<std::string, std::uint64_t>         m_ProgramNameGenerations;
+        std::uint64_t                                          m_ClearGeneration = 0;
         /// Record (or keep) the refusal of @p key and return it as AcquireVariant's error.
         Common::ResultStr<std::shared_ptr<Graphic::Shader>> Refuse( const std::string& key, Refusal refusal );
         /// Forget the refusals of names that resolve to @p program (Register of that name).

@@ -1,0 +1,58 @@
+{
+    "Name": "Intel Open Image Denoise (Windows x64)",
+    "Version": "2.5.1",
+    "Url": "https://github.com/RenderKit/oidn/releases/download/v2.5.1/oidn-2.5.1.x64.windows.zip",
+    "ArchiveSha256": "f11f91bc072a5e3a564515724cb72ab8fcfbc445c84a84c197ff9b16cc01396f",
+    "Platform": "windows",
+    "Destination": "bin/x64",
+    "Files": [
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/OpenImageDenoise.dll",
+            "Sha256": "64ceb78b1e10342a5323ead6f346d7f2b2e1c69fe17c399bebbcef3df26bed16"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/OpenImageDenoise_core.dll",
+            "Sha256": "18557e4424297ed892f2a0285dd565ec9065234a84bac1b84d16fd995371a422"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/OpenImageDenoise_device_cpu.dll",
+            "Sha256": "e22617f115ae4056c3417983545aebed1d75ac7c1baca086c39d18a84bf47d78"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/OpenImageDenoise_device_cuda.dll",
+            "Sha256": "2216a1f96ae5c1c0b0a879b6a1f6c5fdaee409473dafb96751b1c27c29d321ba"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/OpenImageDenoise_device_hip.dll",
+            "Sha256": "8eeca7e5d2a1a07e48d1b7d52821c1d3fb7b51a6a87decfa400545250e1b1385"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/OpenImageDenoise_device_sycl.dll",
+            "Sha256": "efdc2cc3ed34f3e2a3cf121bbb30971c189df1860b3eef5e22032ebca13acf4c"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/sycl9.dll",
+            "Sha256": "284f530ea2628b82ac390f7a3fbd9f59c0ac49441d99014533c5142b21a4e05b"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/tbb12.dll",
+            "Sha256": "454ea95817cd33b837540bbfe21f6bf415f6fbf2ad712c2353896d17492e763d"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/ur_adapter_level_zero.dll",
+            "Sha256": "7c3d21adc1a43c6ffa9a2d6d9332dec3dc8be0a14882d1bf3668b0584b9cfeec"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/ur_adapter_level_zero_v2.dll",
+            "Sha256": "ce584f1fe8cf15b8b4c761819d3e00a1e621bbda461ccf97475209121919ceb3"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/ur_loader.dll",
+            "Sha256": "bd41294460d41eabf1e25a58cd924b02148f569251167398c2b60e65ecfc3a50"
+        },
+        {
+            "Archive": "oidn-2.5.1.x64.windows/bin/ur_win_proxy_loader.dll",
+            "Sha256": "1b84f40be694c2046c1bfb79454f02e73b32ed6f0efc649c00207cd9a8da7b8a"
+        }
+    ]
+}

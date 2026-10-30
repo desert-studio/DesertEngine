@@ -4,6 +4,9 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryBasic.hpp>
+#include <Engine/GameplayDebugger/GameplayDebuggerCategoryPhysics.hpp>
+#include <Engine/GameplayDebugger/GameplayDebuggerCategoryRendering.hpp>
+#include <Engine/GameplayDebugger/GameplayDebuggerCategoryScript.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
@@ -72,6 +75,9 @@ namespace Desert::Debug
     GameplayDebugger::GameplayDebugger()
     {
         AddCategory( std::make_unique<GameplayDebuggerCategoryBasic>() );
+        AddCategory( std::make_unique<GameplayDebuggerCategoryPhysics>() );
+        AddCategory( std::make_unique<GameplayDebuggerCategoryScript>() );
+        AddCategory( std::make_unique<GameplayDebuggerCategoryRendering>() ); // key 4
     }
 
     void GameplayDebugger::AddCategory( std::unique_ptr<IGameplayDebuggerCategory> category )

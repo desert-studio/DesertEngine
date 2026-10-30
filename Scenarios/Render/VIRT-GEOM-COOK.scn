@@ -1,0 +1,32 @@
+# VIRT-GEOM-COOK: a Bistro mesh imported with Virtual Geometry on -> cooked cluster DAGs (DDC) -> loaded -> its rows in
+# the VirtualMeshTable -> drawn in the vg_clusters view -> unloaded (rows released on the frame rule).
+# Project: F:/BistroFoliageProj (never the old BistroProj). Proof lines in editor.log:
+#   "[VirtualMeshTable] '<path>' registered N clusters, M groups, rows ..." and "... released N clusters".
+# UNVERIFIED (written unbuilt, VIRT-GEOM step 6): the "Import Options: Virtual Geometry On" command name and the mesh
+# path below must be confirmed against the Assets palette / the Bistro content before the first run.
+Дано run Scene "Open Scene Bistro.desce"
+Когда run Assets "Drop into the viewport: Meshes/Bistro/Bistro_Exterior_Lantern.fbx"
+Когда run Assets "Import Options: Virtual Geometry On"
+Когда run Assets "Import Options: Import"
+Тогда [virt_geom_cook] the mesh is imported and cooked with its cluster DAGs: editor.log 0 import errors, 0 "[VirtualGeometryGate]" refusals
+Тогда [vg_table] editor.log has "[VirtualMeshTable] '...Bistro_Exterior_Lantern...' registered" with N clusters > 0 and "(1 meshes resident)" or more
+Когда run View "View mode: Virtual Geometry Clusters"
+Тогда-вид [vg_clusters] the lantern shows flat per-cluster colours (patches of ~128 triangles), every other mesh lit as in "View mode: Lit"; 0 VUID
+# [vg_cut] (VIRT-GEOM step 10): the cluster cut per frame - LOD by distance and occlusion by last frame's HZB. UNVERIFIED
+# (written unbuilt): the camera positions assume the lantern dropped at the viewport centre of the VFX-PORT camera; the
+# first run re-picks them so the lantern fills the view (near), is a few pixels tall (far), and sits behind the
+# Bistro facade (wall) with the camera looking through it.
+Когда --subject viewport set Camera.Position -800,190,-60
+Когда --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_cut] near: views.virtualGeometry.instances >= 1, clustersVisible = N_near > 0, overflow 0; the vg_clusters frame shows coloured clusters on the lantern
+Когда --subject viewport set Camera.Position -1400,260,-840
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_cut] far: same direction, clustersVisible = N_far with 0 < N_far < N_near (coarser DAG levels), overflow 0; the lantern still coloured
+Когда --subject viewport set Camera.Position -800,190,-600
+Когда --subject viewport set Camera.Direction 0,0,1
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_cut] behind the wall: instances >= 1 (the instance cull hands VG candidates in before its HZB test), clustersVisible drops to ~0, occludedClusters > 0, overflow 0; frame shows no lantern clusters; 0 VUID in editor.log over the whole walk
+Когда run View "View mode: Lit"
+Когда run Scene "Open Scene Bistro.desce"
+Тогда [vg_table] after the reload without save the lantern is gone: editor.log "[VirtualMeshTable] '...Bistro_Exterior_Lantern...' released"

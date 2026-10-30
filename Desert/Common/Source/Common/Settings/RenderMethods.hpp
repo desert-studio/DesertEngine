@@ -76,9 +76,84 @@ namespace Common::Scalability
         CascadedMaps = 0, // the sun's cascaded shadow maps
         VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer, "VSM: Raster")
         HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
-        // Stochastic: the sun as HardwareTraced, the local lights by MegaLights (System::MegaLightsRenderer:
-        // ReSTIR DI over the light grid, ray-query visibility, the screen-space denoiser); RT device.
+        // Stochastic: the local lights by MegaLights (System::MegaLightsRenderer: ReSTIR DI over the light grid,
+        // one visibility test per sample, the screen-space denoiser), on ANY device: the test's source is
+        // StochasticVisibility below (ray query, else the virtual shadow map's pages plus a screen trace, else the
+        // screen trace alone), and the sun follows the same source (ray traced, virtual map, cascades).
         Stochastic,
+    };
+
+    // WHERE MegaLights' ONE VISIBILITY TEST PER SAMPLE COMES FROM (UE 5.5 MegaLights: r.MegaLights.HardwareRayTracing
+    // and the per-light shadow method RayTracing / VirtualShadowMap, its screen traces before either). Resolved
+    // from the device beside ShadowMethod (Graphic::ResolveRenderMethods), per frame from the TLAS
+    // (Graphic::LowerShadowsForFrame): a Stochastic frame is never lowered for want of rays, its source is.
+    //  RayQuery             - the contact march through the G-buffer depth, then a ray query over the TLAS;
+    //                         the sun ray traced (RayTracedSunShadow).
+    //  VirtualMapsAndScreen - the screen trace through the scene's depth, then the light's virtual shadow map
+    //                         pages (VSM-LOCAL: "VSM: Mark Local" from the G-buffer, Common/VirtualShadowMap.glslh
+    //                         VsmLocalVisibility); the sun from the virtual map's clipmap. Needs what VirtualMaps
+    //                         needs (fragment stores, the render area).
+    //  Screen               - the screen trace alone (no off-screen occluder); the sun from its cascades.
+    enum class StochasticVisibility : int
+    {
+        RayQuery = 0,
+        VirtualMapsAndScreen,
+        Screen,
+    };
+    // DesertCtl's state, the overlay row and the log spell these.
+    inline constexpr std::array<std::string_view, 3> kStochasticVisibilityNames{ "rayquery", "vsm+screen",
+                                                                                 "screen" };
+    static_assert( static_cast<std::size_t>( StochasticVisibility::Screen ) + 1 ==
+                   kStochasticVisibilityNames.size() );
+
+    // A POINT / SPOT LIGHT'S OWN SHADOW METHOD UNDER Shadows Stochastic (UE ULightComponent::MegaLightsShadowMethod,
+    // the per-light MegaLights shadow method): the visibility source MegaLights' trace tests this light's samples
+    // with, clamped to what the device and the frame run (Graphic::ResolveLightVisibility):
+    //  Auto        - the frame's source (Graphic::RenderMethods::Visibility).
+    //  RayQuery    - the ray query over the TLAS; a frame without one (a device without ray queries, ray tracing
+    //                hidden, a frame whose TLAS was not built) tests the frame's source instead.
+    //  VirtualMaps - the screen trace, then the light's virtual shadow map pages; a device without what
+    //                VirtualMaps needs tests its rayless source (the screen trace) instead.
+    //  Screen      - the screen trace alone: no page of a virtual map is drawn for the light.
+    // Meaningless under any other Shadows method (the light's shadow is the method's).
+    enum class LightShadowMethod : int
+    {
+        Auto = 0,
+        RayQuery,
+        VirtualMaps,
+        Screen,
+    };
+    inline constexpr std::array<std::string_view, 4> kLightShadowMethodNames{ "Auto", "RayQuery", "VirtualMaps",
+                                                                              "Screen" };
+    static_assert( static_cast<std::size_t>( LightShadowMethod::Screen ) + 1 == kLightShadowMethodNames.size() );
+
+    // THE SOURCES A FRAME'S MEGALIGHTS SAMPLES TEST: one flag per StochasticVisibility, set when at least one
+    // casting light of the view resolved to it (Graphic::ResolveLightVisibility, the payload's ShadowVisibility).
+    // MegaLights' trace and its volume run the one program that holds every source present and branch per light on
+    // its ShadowVisibility (a ray-query frame with a Screen lamp runs the ray query and the screen trace in one
+    // program), so the effective source the state reports per light is the one its pixels test.
+    struct StochasticSources
+    {
+        bool RayQuery    = false;
+        bool VirtualMaps = false; // StochasticVisibility::VirtualMapsAndScreen
+        bool Screen      = false;
+
+        [[nodiscard]] static constexpr StochasticSources Of( const StochasticVisibility source )
+        {
+            return { .RayQuery    = source == StochasticVisibility::RayQuery,
+                     .VirtualMaps = source == StochasticVisibility::VirtualMapsAndScreen,
+                     .Screen      = source == StochasticVisibility::Screen };
+        }
+        [[nodiscard]] constexpr bool Empty() const
+        {
+            return !RayQuery && !VirtualMaps && !Screen;
+        }
+        // The screen trace over the closest HZB runs: vsm+screen marches it before the pages, Screen alone.
+        [[nodiscard]] constexpr bool ScreenTrace() const
+        {
+            return VirtualMaps || Screen;
+        }
+        constexpr bool operator==( const StochasticSources& ) const = default;
     };
 
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
@@ -150,9 +225,10 @@ namespace Common::Scalability
     {
         return method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
     }
+    // Stochastic is not here: its visibility source walks down instead of the method (StochasticVisibility).
     [[nodiscard]] constexpr bool NeedsRayQuery( ShadowMethod method )
     {
-        return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+        return method == ShadowMethod::HardwareTraced;
     }
 
     // ---- What a method needs from the device: stores and atomics in the fragment stage (CapabilityCatalog

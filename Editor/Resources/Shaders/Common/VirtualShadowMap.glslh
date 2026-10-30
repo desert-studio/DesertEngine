@@ -30,6 +30,17 @@
 #define VSM_FLAG_ALLOCATED 1u // maps a physical page
 #define VSM_FLAG_DIRTY     2u // its physical page does not hold its current depth: cleared and drawn when requested
 #define VSM_FLAG_REQUESTED 4u // a screen pixel of this frame needs it ("VSM: Mark")
+// Who requested a local page this frame, beside REQUESTED (counted by "VSM: Dirty Mask" for DesertCtl's "vsm"; cleared
+// with REQUESTED by "VSM: Invalidate"): "VSM: Mark Coarse" (every shadowed light's coarse mip, for the readers with no
+// pixel to mark from: the surface cache's cards) and "VSM: Mark Receivers" (the forward receivers' own depth: the
+// translucent front layer).
+#define VSM_FLAG_COARSE   8u
+#define VSM_FLAG_RECEIVER 16u
+#define VSM_FLAG_MARK_KINDS ( VSM_FLAG_COARSE | VSM_FLAG_RECEIVER )
+// THE COARSE MIP of a local light's views (UE MarkCoarsePagesLocal): 2 x 2 pages of 128 texels per view, mapped for
+// every shadowed light every frame (never finer than the light's finest drawn mip, VsmLocalLight.Views.w). A reader
+// whose own mip is not mapped falls back to it (VsmLocalOccluderDistance).
+#define VSM_LOCAL_COARSE_MIP 6u
 
 struct VsmFrame
 {
@@ -38,13 +49,37 @@ struct VsmFrame
     vec4 Lod;               // x = resolution LOD bias (levels), y = level count, z = first level, w = frame index
     vec4 ToSun;             // xyz = toward the sun, w = SourceAngle radians
     vec4 Smrt;              // x = rays per pixel, y = samples per ray, z = normal bias texels, w = ray length pages
+    vec4 SmrtLocal;         // x = samples per local light ray, y = extrapolation max slope (depth cm per lateral cm)
 };
+
+// A LEVEL is one virtual map of the page table: a clipmap level of the sun (VSM_LEVEL_CLIPMAP, the first
+// Frame.Lod.y levels) or one mip of one view of a point / spot light (VSM_LEVEL_LOCAL: a spot has one view, a point
+// light six cube faces, each a 16k perspective map with VSM_LOCAL_MIPS mips; UE FVirtualShadowMap per local light
+// with its mip chain). A local level's pages are addressed directly (page (x, y) of its mip, no window, no tag).
+#define VSM_LEVEL_CLIPMAP 0u
+#define VSM_LEVEL_LOCAL   1u
+#define VSM_LOCAL_MIPS    8u // VSM_MAX_MIP_LEVELS: 128 x 128 pages at mip 0 down to 1 x 1
+#define VSM_LOCAL_POINT_CONE -2.0 // VsmLocalLight.Spot.w of a point light: no cone
 
 struct VsmLevel
 {
-    mat4  ViewProjection; // world -> level clip: orthographic, standard Z [0, 1] (0 = toward the sun)
-    ivec4 Window;         // xy = world page coordinate of the window's page 0, z = absolute level, w = 1 reset now
-    vec4  Extent;         // x = page world size cm, y = depth range cm, z = radius cm, w = texel world size cm
+    mat4  ViewProjection; // world -> level clip: standard Z [0, 1]; orthographic (sun) or perspective (local)
+    ivec4 Window;         // xy = world page coordinate of the window's page 0 (local: 0), z = absolute level (local:
+                          // mip), w = 1 reset now
+    vec4  Extent;         // x = page world size cm (local: 0), y = depth range cm (local: far), z = radius cm (local:
+                          // near), w = texel world size cm (local: at unit distance from the light)
+    uvec4 Pages;          // x = first page-table entry, y = pages per side (0 = unused level), z = VSM_LEVEL_*,
+                          // w = local: the light's index in VsmLocalLights (VSM_INVALID: not shaded this frame)
+};
+
+// One point / spot light shaded from the map this frame ("VSM: Mark Local", "VSM: Project Local").
+struct VsmLocalLight
+{
+    vec4  Position; // xyz cm, w attenuation radius cm
+    vec4  Spot;     // xyz out of the cone apex, w cos outer half-angle (VSM_LOCAL_POINT_CONE = a point light)
+    uvec4 Views;    // x = level of its view 0 mip 0 (view v mip m = x + v * VSM_LOCAL_MIPS + m), y = view count,
+                    // z = its screen-mask layer, w = finest mip its pixels may ask for
+    vec4  Params;   // x = near cm, y = far cm, z = texel world size at unit distance (mip 0), w = source radius cm
 };
 
 struct VsmPageEntry
@@ -60,6 +95,67 @@ uint VsmEntryIndex( uint level, ivec2 worldPage )
 {
     const uvec2 slot = uvec2( worldPage & ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
     return level * VSM_PAGES_PER_LEVEL + slot.y * VSM_LEVEL_PAGES + slot.x;
+}
+
+// The page-table entry of page @p page of level @p level, whatever its kind: a clipmap level is toroidal around its
+// window (VsmEntryIndex), a local level addressed directly.
+uint VsmLevelEntryIndex( VsmLevel level, uint levelIndex, ivec2 windowPage )
+{
+    if ( level.Pages.z == VSM_LEVEL_LOCAL )
+        return level.Pages.x + uint( windowPage.y ) * level.Pages.y + uint( windowPage.x );
+    return VsmEntryIndex( levelIndex, level.Window.xy + windowPage );
+}
+
+// The tag an allocated entry of slot @p local of @p level holds while it is current: the world page of a clipmap
+// slot, the page itself of a local one.
+ivec2 VsmExpectedTag( VsmLevel level, uint local )
+{
+    if ( level.Pages.z == VSM_LEVEL_LOCAL )
+        return ivec2( int( local % level.Pages.y ), int( local / level.Pages.y ) );
+    const ivec2 slot   = ivec2( int( local % VSM_LEVEL_PAGES ), int( local / VSM_LEVEL_PAGES ) );
+    const ivec2 offset = ( slot - level.Window.xy ) & ivec2( int( VSM_LEVEL_PAGES ) - 1 );
+    return level.Window.xy + offset;
+}
+
+// The page of @p level slot @p local stands for, relative to its window (0 .. side - 1 on each axis).
+ivec2 VsmWindowPageOfSlot( VsmLevel level, uint local )
+{
+    return VsmExpectedTag( level, local ) - ( level.Pages.z == VSM_LEVEL_LOCAL ? ivec2( 0 ) : level.Window.xy );
+}
+
+// The pages of @p level a world box covers: false when none (outside the map, or behind a perspective view). A box
+// that reaches behind a local view's near plane covers the whole map (its projection is unbounded there).
+bool VsmLevelPageRect( VsmLevel level, vec3 lo, vec3 hi, out ivec2 lowPage, out ivec2 highPage, out float nearest )
+{
+    const int side  = int( level.Pages.y );
+    vec2      first = vec2( 1.0e30 );
+    vec2      last  = vec2( -1.0e30 );
+    nearest         = 1.0e30;
+    bool behind     = false;
+    for ( uint c = 0u; c < 8u; ++c )
+    {
+        const vec3 corner = mix( lo, hi, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
+        const vec4 clip   = level.ViewProjection * vec4( corner, 1.0 );
+        if ( level.Pages.z == VSM_LEVEL_LOCAL && clip.w <= 1.0e-4 )
+        {
+            behind = true;
+            continue;
+        }
+        const vec3 ndc  = level.Pages.z == VSM_LEVEL_LOCAL ? clip.xyz / clip.w : clip.xyz;
+        const vec2 page = ( ndc.xy * 0.5 + 0.5 ) * float( side );
+        first           = min( first, page );
+        last            = max( last, page );
+        nearest         = min( nearest, ndc.z );
+    }
+    if ( behind )
+    {
+        first   = vec2( 0.0 );
+        last    = vec2( float( side - 1 ) );
+        nearest = 0.0;
+    }
+    lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
+    highPage = min( ivec2( floor( last ) ), ivec2( side - 1 ) );
+    return side > 0 && nearest <= 1.0 && all( lessThanEqual( lowPage, highPage ) );
 }
 
 // The world page the slot @p local (0 .. 16383) of a level stands for this frame, given its window.
@@ -100,4 +196,292 @@ bool VsmProject( VsmLevel level, vec3 world, out vec2 texel, out float depth )
     return all( greaterThanEqual( texel, vec2( 0.0 ) ) ) && all( lessThan( texel, vec2( VSM_VIRTUAL_RESOLUTION ) ) );
 }
 
-#endif
+// ---- Point / spot lights (VSM_LEVEL_LOCAL) ----------------------------------------------------------------------
+
+// Whether @p world is lit by local light @p light at all: inside its attenuation sphere and, for a spot, its cone.
+bool VsmLocalReaches( VsmLocalLight light, vec3 world )
+{
+    const vec3  fromLight = world - light.Position.xyz;
+    const float distance  = length( fromLight );
+    if ( distance >= light.Position.w || distance <= 1.0e-3 )
+        return false;
+    return light.Spot.w <= VSM_LOCAL_POINT_CONE + 0.5 || dot( fromLight / distance, light.Spot.xyz ) >= light.Spot.w;
+}
+
+// The view of @p light a world point is seen through: 0 for a spot, the cube face for a point light in the faces'
+// order (Graphic::PointShadowFaceViewProj, Mesh/LocalLightShadow.glslh PointShadowFace): +X -X +Y -Y +Z -Z.
+uint VsmLocalView( VsmLocalLight light, vec3 world )
+{
+    if ( light.Views.y <= 1u )
+        return 0u;
+    const vec3 d = world - light.Position.xyz;
+    const vec3 a = abs( d );
+    if ( a.x >= a.y && a.x >= a.z )
+        return d.x > 0.0 ? 0u : 1u;
+    if ( a.y >= a.z )
+        return d.y > 0.0 ? 2u : 3u;
+    return d.z > 0.0 ? 4u : 5u;
+}
+
+// THE MIP A RECEIVER IS SHADED FROM (UE: a local light's mip from the receiver's screen footprint against the map's
+// texel at the receiver's depth from the light): the texel of mip m at view depth @p viewDepth is
+// viewDepth * Params.z * 2^m; the finest mip whose texel is not smaller than the footprint, moved by the LOD bias,
+// never finer than the light's Views.w (the finest the CPU drew passes for).
+uint VsmLocalMip( VsmFrame frame, VsmLocalLight light, vec3 world, float viewDepth )
+{
+    const float distanceCm = max( length( world - frame.CameraFootprint.xyz ), 1.0 );
+    const float footprint  = max( distanceCm * frame.CameraFootprint.w, 1.0e-4 );
+    const float texel0     = max( viewDepth * light.Params.z, 1.0e-6 );
+    const float mip        = floor( log2( footprint / texel0 ) + frame.Lod.x );
+    return uint( clamp( mip, float( light.Views.w ), float( VSM_LOCAL_MIPS - 1u ) ) );
+}
+
+// The view distance a stored standard-Z depth of a local view stands for (perspectiveRH_ZO).
+float VsmLocalLinearDepth( float z, float nearPlane, float farPlane )
+{
+    return nearPlane * farPlane / max( farPlane - z * ( farPlane - nearPlane ), 1.0e-6 );
+}
+
+
+// THE CASTER PAGE TEST's footprint, the one statement of it (UE CullPerPageDrawCommands / Nanite's VSM page cull):
+// the "VSM: Dirty Mask" cells [lowCell, highCell] a world box covers in the level @p viewProjection projects into
+// (the map's texel convention, VsmProject). False: the box is wholly past the level's far end (nearer the sun than
+// its range still draws - depth clamp, "VSM: Raster") or outside its window. The caller tests the cells against its
+// own DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + cell / 32] - "VSM: Cull Casters" (instances of the CPU walk),
+// InstanceCull (a kVsmPageMask view) and ClusterCut (the virtual geometry's nodes and clusters per level).
+bool VsmBoxMaskCells( mat4 viewProjection, vec3 boxMin, vec3 boxMax, out ivec2 lowCell, out ivec2 highCell )
+{
+    vec2  first   = vec2( 1.0e30 );
+    vec2  last    = vec2( -1.0e30 );
+    float nearest = 1.0e30;
+    for ( uint c = 0u; c < 8u; ++c )
+    {
+        const vec3 corner = mix( boxMin, boxMax, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
+        const vec4 clip   = viewProjection * vec4( corner, 1.0 );
+        const vec2 page   = ( clip.xy * 0.5 + 0.5 ) * float( VSM_LEVEL_PAGES );
+        first             = min( first, page );
+        last              = max( last, page );
+        nearest           = min( nearest, clip.z );
+    }
+    lowCell  = ivec2( 0 );
+    highCell = ivec2( -1 );
+    if ( nearest > 1.0 )
+        return false;
+    const ivec2 lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
+    const ivec2 highPage = min( ivec2( floor( last ) ), ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
+    if ( any( greaterThan( lowPage, highPage ) ) )
+        return false;
+    lowCell  = lowPage / int( VSM_MASK_CELL_PAGES );
+    highCell = highPage / int( VSM_MASK_CELL_PAGES );
+    return true;
+}
+
+#endif // DESERT_VIRTUAL_SHADOW_MAP_GLSLH
+
+// ---- Reading a local light's map (UE VirtualShadowMapProjection.usf for a local light) ---------------------------
+// One reader for every receiver of a local light's virtual map: "VSM: Project Local" (the G-buffer's screen masks)
+// and the forward receivers through Mesh/LocalLightShadow.glslh (DESERT_LOCAL_SHADOW_VSM: translucent and forward
+// meshes, forward terrain, particles, the surface cache's cards). Its declarations need the types above, the reader
+// needs the includer's declarations, so the reader has a guard of its own: the includer includes this header, declares
+// the frame's level table (VsmFrameData: Frame, Levels[]), its page table (VsmPageTable: Entries[]) and the physical
+// pool (PhysicalPoolTexture, an r32ui image it may read only), then defines DESERT_VSM_READ and includes it again.
+#if defined( DESERT_VSM_READ ) && !defined( DESERT_VIRTUAL_SHADOW_MAP_READ_GLSLH )
+#define DESERT_VIRTUAL_SHADOW_MAP_READ_GLSLH
+// The view distance of the nearest occluder over texel @p texel of mip @p mip of the view whose mip 0 is level
+// @p first, falling back to coarser mips where the page holds no current depth; the far plane where no mip holds one
+// (nothing drawn there: no occluder). A receiver's own mip was requested by it ("VSM: Mark Local" for a G-buffer
+// pixel, "VSM: Mark Receivers" for a forward one); a receiver no pass marked (the surface cache's off-screen cards,
+// a fog froxel) lands on the light's coarse mip, which "VSM: Mark Coarse" maps for every light every frame.
+float VsmLocalOccluderDistance( VsmLocalLight light, uint first, uint mip, ivec2 texel )
+{
+    for ( uint m = mip; m < VSM_LOCAL_MIPS; ++m )
+    {
+        const uint         level = first + m;
+        const int          size  = int( Levels[level].Pages.y * VSM_PAGE_SIZE );
+        const ivec2        t     = clamp( texel >> int( m - mip ), ivec2( 0 ), ivec2( size - 1 ) );
+        const VsmPageEntry entry = Entries[VsmLevelEntryIndex( Levels[level], level, t / int( VSM_PAGE_SIZE ) )];
+        // Mapped and current: drawn this frame (dirty and requested) or cached (not dirty).
+        if ( ( entry.Flags & VSM_FLAG_ALLOCATED ) == 0u ||
+             ( entry.Flags & ( VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED ) ) == VSM_FLAG_DIRTY )
+            continue;
+        const uint bits = imageLoad( PhysicalPoolTexture,
+                                     VsmPoolPageOrigin( entry.Physical ) + ( t & ivec2( int( VSM_PAGE_SIZE ) - 1 ) ) )
+                               .r;
+        const float z = 1.0 - uintBitsToFloat( bits );
+        return z >= 1.0 ? light.Params.y : VsmLocalLinearDepth( z, light.Params.x, light.Params.y );
+    }
+    return light.Params.y;
+}
+
+// Where a receiver at @p world reads light @p light's map: the level of its view's mip 0 (@p first), its mip, and
+// its clip position in that view (w = view depth). False when the view does not see it (behind the near plane).
+bool VsmLocalReceiver( VsmLocalLight light, vec3 world, out uint first, out uint mip, out vec4 clip0 )
+{
+    first = light.Views.x + VsmLocalView( light, world ) * VSM_LOCAL_MIPS;
+    clip0 = Levels[first].ViewProjection * vec4( world, 1.0 );
+    mip   = 0u;
+    if ( clip0.w <= light.Params.x )
+        return false;
+    mip = VsmLocalMip( Frame, light, world, clip0.w );
+    return true;
+}
+
+// THE SHADOW OF LIGHT @p light ON A RECEIVER at @p world with normal @p normal, 1 = lit. The receiver is offset along
+// its normal by a texel of its mip (more as the light grazes it), then a 3 x 3 bilinear PCF over the texels of that
+// mip (4 x 4 taps with tent weights, the atlas's LocalShadowPCF shape); depths are compared as distances along the
+// view axis, with a bias of one texel of the receiver's mip.
+float VsmLocalVisibility( VsmLocalLight light, vec3 world, vec3 normal )
+{
+    uint first;
+    uint mip;
+    vec4 clip0;
+    if ( !VsmLocalReceiver( light, world, first, mip, clip0 ) )
+        return 1.0;
+    const mat4  vp      = Levels[first].ViewProjection;
+    const float texelAt = light.Params.z * float( 1u << mip ) * clip0.w; // the mip's texel here, cm
+    const vec3  L       = normalize( light.Position.xyz - world );
+    const float NdotL   = clamp( dot( normal, L ), 0.0, 1.0 );
+    const vec3  offset  = world + normal * texelAt * ( 0.5 + 1.5 * ( 1.0 - NdotL ) );
+    const vec4  clip    = vp * vec4( offset, 1.0 );
+    if ( clip.w <= light.Params.x )
+        return 1.0;
+    const vec2 ndc = clip.xy / clip.w;
+    if ( any( greaterThan( abs( ndc ), vec2( 1.0 ) ) ) )
+        return 1.0;
+    const float size     = float( Levels[first + mip].Pages.y * VSM_PAGE_SIZE );
+    const vec2  texel    = ( ndc * 0.5 + 0.5 ) * size - 0.5;
+    const vec2  base     = floor( texel );
+    const vec2  f        = texel - base;
+    const float receiver = clip.w - texelAt;
+    const vec4  wx       = vec4( 1.0 - f.x, 1.0, 1.0, f.x );
+    const vec4  wy       = vec4( 1.0 - f.y, 1.0, 1.0, f.y );
+    float       lit      = 0.0;
+    for ( int j = 0; j < 4; ++j )
+    {
+        for ( int i = 0; i < 4; ++i )
+        {
+            const ivec2 t = ivec2( base ) + ivec2( i - 1, j - 1 );
+            lit += wx[i] * wy[j] * ( VsmLocalOccluderDistance( light, first, mip, t ) >= receiver ? 1.0 : 0.0 );
+        }
+    }
+    return lit / 9.0;
+}
+
+// SHADOW MAP RAY TRACING FOR A LOCAL LIGHT (UE VirtualShadowMapSMRTCommon.ush SMRTRayCast through a local light's
+// perspective map; the sun's form is VirtualShadowMapProject.shader): whether the one ray from a receiver at @p world
+// (normal @p normal) along @p dir, which reaches a point of the light's source sphere @p reach cm away, crosses an
+// occluder the map holds. 1 = lit, 0 = blocked. The caller draws @p dir over the source sphere (MegaLights:
+// SampleLightSourceSphere), so the fraction of its rays that pass is the area of the emitter the receiver sees: the
+// penumbra widens with the occluder's distance from the receiver (contact hardening), where the PCF above blurs
+// every edge by the same texels whatever SourceRadius is.
+// The ray leaves the receiver as VsmLocalVisibility does (off the surface along its normal by a texel of the
+// receiver's mip); Frame.SmrtLocal.x samples go along it (Scalability Shadows.VirtualSMRTSamplesPerRayLocal, UE
+// SMRT.SamplesPerRayLocal), denser near the receiver (t^2, as the sun's march), each shifted by @p jitter in [0, 1).
+// A sample is projected through the view of the light that sees it (a ray of a point light may cross cube faces) at
+// the receiver's mip - an unmapped page there falls back to coarser mips (VsmLocalOccluderDistance).
+// SLOPE EXTRAPOLATION (UE SMRTRayCast with r.Shadow.Virtual.SMRT.ExtrapolateMaxSlopeLocal): a depth map holds the
+// front surface only, so the receiver's own surface, curving or tilted toward the light, reads as "nearer than the
+// ray" at the samples next to it. The march keeps the surface it has followed - its depth at the last sample and its
+// slope, in depth cm per cm of lateral travel across the map, clamped to Frame.SmrtLocal.y - seeded with the
+// receiver itself. A sample blocks only when the map's occluder is nearer than the ray AND nearer than that surface
+// extrapolated to the sample, each by a texel of the mip at the sample's depth: a caster is a jump in depth, the
+// receiver's surface a continuation. Before a slope is measured the extrapolation allows the steepest slope toward
+// the light. A sample on another cube face than the previous one starts a new history (the depths are along another
+// axis there) and is tested plainly. Frame.SmrtLocal.y = 0 holds the followed surface flat.
+// A sample outside a spot's view holds no occluder; a sample past the near plane is inside the emitter, where nothing
+// casts. Frame.Smrt.x = 0 (the quality asks for no shadow-map rays) reads the PCF lookup instead, as the sun's
+// projection does with no rays.
+float VsmLocalVisibilityRay( VsmLocalLight light, vec3 world, vec3 normal, vec3 dir, float reach, float jitter )
+{
+    if ( uint( Frame.Smrt.x ) == 0u )
+        return VsmLocalVisibility( light, world, normal );
+    uint first;
+    uint mip;
+    vec4 clip0;
+    if ( !VsmLocalReceiver( light, world, first, mip, clip0 ) )
+        return 1.0;
+    const float texelScale = light.Params.z * float( 1u << mip ); // the mip's texel per cm of view depth
+    const vec3  L          = normalize( light.Position.xyz - world );
+    const float NdotL      = clamp( dot( normal, L ), 0.0, 1.0 );
+    const vec3  origin     = world + normal * ( texelScale * clip0.w ) * ( 0.5 + 1.5 * ( 1.0 - NdotL ) );
+    const uint  samples    = max( uint( Frame.SmrtLocal.x ), 1u );
+    const float maxSlope   = max( Frame.SmrtLocal.y, 0.0 );
+    // The surface followed so far: on view @p historyView, depth @p historyDepth at map position @p historyAt
+    // (texels of the mip), slope @p historySlope. Seeded with the receiver, whose slope is not known yet.
+    uint  historyView  = first;
+    float historyDepth = clip0.w;
+    vec2  historyAt    = ( clip0.xy / clip0.w * 0.5 + 0.5 ) * float( Levels[first + mip].Pages.y * VSM_PAGE_SIZE );
+    float historySlope = -maxSlope;
+    for ( uint s = 0u; s < samples; ++s )
+    {
+        const float t    = ( float( s ) + jitter ) / float( samples );
+        const vec3  at   = origin + dir * ( reach * t * t );
+        const uint  view = light.Views.x + VsmLocalView( light, at ) * VSM_LOCAL_MIPS;
+        const vec4  clip = Levels[view].ViewProjection * vec4( at, 1.0 );
+        if ( clip.w <= light.Params.x )
+            break;
+        const vec2 ndc = clip.xy / clip.w;
+        if ( any( greaterThan( abs( ndc ), vec2( 1.0 ) ) ) )
+            continue;
+        const float size     = float( Levels[view + mip].Pages.y * VSM_PAGE_SIZE );
+        const vec2  mapAt    = ( ndc * 0.5 + 0.5 ) * size;
+        const float texelCm  = texelScale * clip.w; // a texel of the mip at the sample's depth
+        const float occluder = VsmLocalOccluderDistance( light, view, mip, ivec2( floor( mapAt ) ) );
+        const bool  nearer   = occluder < clip.w - texelCm;
+        if ( view != historyView )
+        {
+            if ( nearer )
+                return 0.0;
+            historyView  = view;
+            historyDepth = occluder;
+            historyAt    = mapAt;
+            historySlope = -maxSlope;
+            continue;
+        }
+        const float lateral   = distance( mapAt, historyAt ) * texelCm;
+        const float predicted = historyDepth + historySlope * lateral;
+        if ( nearer && occluder < predicted - texelCm )
+            return 0.0;
+        if ( lateral > 0.0 )
+            historySlope = clamp( ( occluder - historyDepth ) / lateral, -maxSlope, maxSlope );
+        historyDepth = occluder;
+        historyAt    = mapAt;
+    }
+    return 1.0;
+}
+
+// THE LIGHT THROUGH A SUBSURFACE RECEIVER'S OCCLUDERS (DesertLight::TransmissionShadow) from light @p light: the
+// atlas's LocalShadowTransmissionAt (Mesh/LocalLightShadow.glslh) on the virtual map - the receiver at its own
+// position (no normal offset, no bias), its view distance against each occluder's, as exp( -thickness * density ),
+// over the same 3 x 3 bilinear shape. A texel with no occluder (the far plane) transmits all.
+float VsmLocalTransmission( VsmLocalLight light, vec3 world, float density )
+{
+    uint first;
+    uint mip;
+    vec4 clip;
+    if ( !VsmLocalReceiver( light, world, first, mip, clip ) )
+        return 1.0;
+    const vec2 ndc = clip.xy / clip.w;
+    if ( any( greaterThan( abs( ndc ), vec2( 1.0 ) ) ) )
+        return 1.0;
+    const float size    = float( Levels[first + mip].Pages.y * VSM_PAGE_SIZE );
+    const vec2  texel   = ( ndc * 0.5 + 0.5 ) * size - 0.5;
+    const vec2  base    = floor( texel );
+    const vec2  f       = texel - base;
+    const vec4  wx      = vec4( 1.0 - f.x, 1.0, 1.0, f.x );
+    const vec4  wy      = vec4( 1.0 - f.y, 1.0, 1.0, f.y );
+    float       through = 0.0;
+    for ( int j = 0; j < 4; ++j )
+    {
+        for ( int i = 0; i < 4; ++i )
+        {
+            const float occluder = VsmLocalOccluderDistance( light, first, mip, ivec2( base ) + ivec2( i - 1, j - 1 ) );
+            const float tap      = occluder >= light.Params.y
+                                       ? 1.0
+                                       : clamp( exp( -max( clip.w - occluder, 0.0 ) * density ), 0.0, 1.0 );
+            through += wx[i] * wy[j] * tap;
+        }
+    }
+    return through / 9.0;
+}
+#endif // DESERT_VIRTUAL_SHADOW_MAP_READ_GLSLH

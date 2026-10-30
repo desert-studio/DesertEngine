@@ -233,7 +233,8 @@ namespace Desert::Graphic::SurfaceCache
         m_ExecutedCaptureFrames.push_back( frame );
     }
 
-    SceneFrame SurfaceCacheScene::Update( const std::vector<SceneInstance>& instances, const glm::vec3& viewer )
+    SceneFrame SurfaceCacheScene::Update( const std::vector<SceneInstance>& instances,
+                                          const std::span<const glm::vec3>  viewers )
     {
         ++m_Frame;
         SceneFrame frame;
@@ -312,8 +313,14 @@ namespace Desert::Graphic::SurfaceCache
         for ( auto& [key, instance] : m_Instances )
             for ( Card& card : instance.Cards )
             {
-                const glm::vec3 local = glm::transpose( card.Axes ) * ( viewer - card.Center );
-                card.Distance = glm::length( glm::max( glm::abs( local ) - card.Extent, glm::vec3( 0.0f ) ) );
+                // The nearest viewer's distance (UE GetCardMaxResolution over the scene update's view origins).
+                card.Distance = std::numeric_limits<float>::max();
+                for ( const glm::vec3& viewer : viewers )
+                {
+                    const glm::vec3 local = glm::transpose( card.Axes ) * ( viewer - card.Center );
+                    card.Distance         = std::min(
+                         card.Distance, glm::length( glm::max( glm::abs( local ) - card.Extent, glm::vec3( 0.0f ) ) ) );
+                }
                 const float    longest = std::max( std::max( card.Extent.x, card.Extent.y ), 1e-3f );
                 const uint32_t want    = WantedLongSide( card );
                 const auto     side    = [&]( const float extent )

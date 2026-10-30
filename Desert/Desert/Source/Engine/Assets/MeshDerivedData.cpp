@@ -4,6 +4,7 @@
 // string keys over the MeshDescription id + FMeshBuildSettings per LOD + platform; the build step is a
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
@@ -39,6 +40,15 @@ namespace Desert::Assets
         PutU32( out, std::bit_cast<uint32_t>( settings.Import.UniformScale ) );
         PutU32( out, static_cast<uint32_t>( settings.Import.UpAxis ) );
         PutU32( out, static_cast<uint32_t>( settings.Import.LodPolicy ) );
+        PutU32( out, settings.Import.VirtualGeometry ? 1u : 0u );
+        if ( settings.Import.VirtualGeometry )
+        {
+            // The DAG's cook options (UE FMeshNaniteSettings in the Nanite DDC key). A mesh without the flag does
+            // not build a DAG, so its key does not move when these change.
+            const Geometry::ClusterDagSettings dag;
+            PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
+            PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
+        }
         PutU32( out, settings.BuilderVersion );
         return out;
     }

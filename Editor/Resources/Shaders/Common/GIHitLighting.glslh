@@ -62,7 +62,12 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance )
         return;
     albedo   = textureLod( GBufferATexture, uv, 0.0 ).rgb;
+#if defined( GI_HIT_EXCLUDES_EMISSION )
+    // The includer counts the emitter -> origin path by light sampling (Common/SurfaceCacheSampling.glslh).
+    emissive = vec3( 0.0 );
+#else
     emissive = textureLod( GBufferEmissiveTexture, uv, 0.0 ).rgb;
+#endif
 }
 
 vec3 GIMissRadiance( vec3 rayDirection )

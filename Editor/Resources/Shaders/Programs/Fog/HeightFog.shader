@@ -71,6 +71,7 @@ Shader "HeightFog"
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
         Uniform sampler GlobalFilterSampler;
         Uniform sampler LinearRepeatSampler;
+        Uniform sampler LinearClampSampler;
         Uniform(2) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, GlobalFilterSampler)
 
@@ -79,7 +80,6 @@ Shader "HeightFog"
         // silhouette, and across z because that interpolation is what turns 16 slices into a smooth
         // distance ramp instead of 16 visible shells.
         Uniform(3) texture3D AerialPerspectiveTexture;
-        #define AerialPerspectiveTexture sampler3D(AerialPerspectiveTexture, LinearRepeatSampler)
 
         // The sky's DISTANT SKY LIGHT (Graphic::kFogDistantSkyLightBinding): one texel holding the
         // average radiance of the sky, marched this frame from 64 directions at 6 km
@@ -88,16 +88,23 @@ Shader "HeightFog"
         // separate ground term to double-count against. Bound on the same terms as the volume above:
         // always bound, read only when FogAmbient.w says the value is real.
         Uniform(4) texture2D DistantSkyLightTexture;
-        #define DistantSkyLightTexture sampler2D(DistantSkyLightTexture, GlobalFilterSampler)
+
+        // The VOLUMETRIC FOG's integrated froxels (VolumetricFogRenderer, Programs/Fog/VolumetricFogIntegration.shader):
+        // per froxel, the lit fog between the camera and that froxel's far edge, premultiplied, transmittance in
+        // .a. Always bound (the engine's 3D fallback when the volume did not run); read only when
+        // FogVolumetric0.w says it is real. Trilinear: the grid is coarse, and the filter is what hides it.
+        Uniform(5) texture3D VolumetricFogTexture;
 
         PushConstant FogPush
         {
             mat4 InverseViewProjection;
-            vec4 CameraPosition;   // xyz = camera position in world units, w unused
-            vec4 AerialPerspectiveParams;         // x = volume depth (km), y = view distance scale,
-                                     // z = 1 when the volume exists, w = 1 when height fog is enabled
-            vec4 ExposureTexture;         // x = ViewFrame::PreExposure (scales the inscattering only), yzw unused
         };
+
+        // The evaluation itself (height fog, volumetric fog, aerial perspective, and their order) is
+        // Common/ViewFog.glslh, the text every translucent surface evaluates at its own depth too. The AP
+        // extent, the gates and the camera are in the FogParams block (FogView, FogGates, FogCamera),
+        // not the push constant, because those surfaces read them from the same buffer.
+        #include <Common/ViewFog.glslh>
 
         LocalSize(8, 8, 1);
 
@@ -120,65 +127,13 @@ Shader "HeightFog"
             vec4 worldH   = InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
             vec3 worldPos = worldH.xyz / max(worldH.w, 1e-9f);
 
-            vec3 cameraKm = CameraPosition.xyz * (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
-            vec3 worldKm  = worldPos * (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
-
-            HeightFogResult fog;
-            fog.Inscattering = vec3(0.0f, 0.0f, 0.0f);
-            fog.Transmittance = 1.0f;
-            if (AerialPerspectiveParams.w > 0.5f)
-            {
-                HeightFogParams params = FogUnpackParams();
-
-                // THE SKY'S OWN AMBIENT, added to the fog's in-scattering colour before the closed form
-                // integrates it — which is what makes it an ambient and not an overlay: the same
-                // transmittance that hides distant geometry is what fades this in. In the physical
-                // model it is the marched average sky (UE's Distant Sky Light); in the artistic
-                // gradient the packer already folded the dome's mean into Inscattering and w is 0 here.
-                if (FogAmbient.w > 0.5f)
-                {
-                    vec3 distantSky =
-                         texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
-                    params.Inscattering = params.Inscattering + FogAmbient.rgb * distantSky;
-                }
-
-                fog = HeightFogEvaluate(params, cameraKm, worldKm);
-            }
-
-            // Aerial perspective, on OPAQUE PIXELS ONLY. A sky pixel (depth at the far plane) already
-            // carries the atmosphere's full radiance — the sky pass drew it from the Sky-View LUT, which
-            // integrates the same medium out to the shell — so adding the volume's 96 km on top would be
-            // the atmosphere counted twice, as a bright band exactly where the sky is thickest.
-            vec4 ap = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            // `> 0` IS THE SKY TEST under reversed-Z — a sky pixel stores 0, the far plane. Left as
-            // `< 1.0` it would be true for every pixel including the sky, and the atmosphere would be
-            // integrated twice across the whole upper half of the frame.
-            if (AerialPerspectiveParams.z > 0.5f && deviceDepth > 0.0f)
-            {
-                // Distance ALONG THE RAY, which is what the volume's slices measure — not the linear
-                // view-space z, which would put a pixel at the corner of the frame in the wrong slice.
-                float distanceKm =
-                     length(worldKm - cameraKm) * max(AerialPerspectiveParams.y, 0.0f);
-
-                float sliceUnit = SkyApSliceUnitFromDistance(distanceKm, AerialPerspectiveParams.x);
-
-                // Read through the exact inverse of the fill's texel-centre remap on all three axes:
-                // unit 0 is the centre of froxel 0 and unit 1 the centre of the last, so the frame's
-                // edges and the volume's near plane land exactly on written texels.
-                vec3 uvw = vec3(SkyUnitToTexelUv(uv.x, SKY_AP_VOLUME_WIDTH),
-                                SkyUnitToTexelUv(uv.y, SKY_AP_VOLUME_HEIGHT),
-                                SkyUnitToTexelUv(sliceUnit, SKY_AP_VOLUME_DEPTH));
-                ap = texture(AerialPerspectiveTexture, uvw);
-            }
-
-            // Fog OVER aerial perspective — see the header. Premultiplied throughout, so this is one
-            // over-operator and nothing has to be un-premultiplied to apply it.
-            vec3  inscattering = fog.Inscattering + ap.rgb * fog.Transmittance;
-            float transmittance = fog.Transmittance * clamp(ap.a, 0.0f, 1.0f);
-
-            // The inscattering is radiance and goes into the pre-exposed scene colour; the transmittance is a
-            // ratio and does not (ViewFrame::PreExposure).
-            imageStore(FogApplyTexture, coord, vec4(inscattering * ExposureTexture.x, transmittance));
+            // The OPAQUE depth: this image is the composite for the opaque scene only. Translucent surfaces
+            // are drawn after it and fog themselves at their own depth. ViewFogEvaluate pre-exposes the
+            // inscattering (FogGates.z = ViewFrame::PreExposure); the transmittance is a ratio.
+            imageStore(FogApplyTexture, coord,
+                       ViewFogEvaluate(uv, worldPos, deviceDepth > 0.0f, AerialPerspectiveTexture,
+                                       LinearRepeatSampler, DistantSkyLightTexture, GlobalFilterSampler,
+                                       VolumetricFogTexture, LinearClampSampler));
         }
     }
 }

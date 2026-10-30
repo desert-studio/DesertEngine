@@ -565,6 +565,15 @@ namespace Desert::Scripting::LuauProperties
                     return false;
                 out.Str = lua_tostring( L, index );
                 return true;
+            case PropertyType::Color:
+            case PropertyType::Vector:
+            {
+                if ( !lua_isvector( L, index ) )
+                    return false;
+                const float* v = lua_tovector( L, index );
+                out.Vec        = { v[0], v[1], v[2] };
+                return true;
+            }
             default:
                 return false;
         }

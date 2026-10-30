@@ -174,7 +174,8 @@ namespace Desert::Editor::Tools
             return true;
         }
         auto after = std::shared_ptr<const Geometry::DynamicMesh3>( std::move( m_Session->Working ) );
-        if ( auto set = ECS::SetEditableMesh( *component, after ); !set.IsSuccess() )
+        const ECS::Entity* entity = EntityOf( scene, m_Session->Entity );
+        if ( auto set = ECS::SetEditableMesh( *entity->GetRegistry(), entity->GetHandle(), after ); !set.IsSuccess() )
         {
             Refuse( ms, "Accept", set.GetError() );
             m_Session.reset();
@@ -279,7 +280,7 @@ namespace Desert::Editor::Tools
                  MeshOf( EntityOf( scene, m_Session->Entity ) ) == nullptr ||
                  // Undo / Redo (or any other edit) replaced the component's mesh under the session: start over
                  // from what it holds now, or the preview would show the copy of the mesh it no longer has.
-                 MeshOf( EntityOf( scene, m_Session->Entity ) )->EditableMesh != m_Session->Committed )
+                 MeshOf( EntityOf( scene, m_Session->Entity ) )->GetEditableMesh() != m_Session->Committed )
             {
                 if ( !active && ms.ReqCancel )
                     ms.ReqCancel = false;

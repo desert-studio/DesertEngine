@@ -1,0 +1,194 @@
+// THE VIRTUAL GEOMETRY TABLES as shaders read them: the std430 twins of Engine/Graphic/VirtualGeometry/
+// VirtualGeometryLayout.hpp (every offset static_asserted there) and the fetches through the device addresses a
+// GpuClusterDag row carries (the mesh's GeometryPool spans; GL_EXT_buffer_reference(_uvec2) is enabled for every
+// stage by the assembler, DShaderParser.cpp AssembleStage). A uint64 address is a uvec2 (lo, hi).
+#ifndef DESERT_VIRTUAL_GEOMETRY_GLSLH
+#define DESERT_VIRTUAL_GEOMETRY_GLSLH
+
+struct VgClusterDag
+{
+    uvec2 VertexAddress;    // 0  the submesh's first Desert::Vertex
+    uvec2 VertexRefAddress; // 8  submesh-relative vertex indices, uint32 each
+    uvec2 TriangleAddress;  // 16 one word per triangle: three cluster-local indices (bits 0-7, 8-15, 16-23)
+    uvec2 StreamAddress;    // 24
+    uint  RootNode;         // 32
+    uint  FirstCluster;     // 36
+    uint  ClusterCount;     // 40
+    uint  Submesh;          // 44
+    uint  Pad0;             // 48 (no submesh transform: VgSubmeshToWorld reads the view's draw slot)
+    uint  VertexStride;     // 52 bytes
+    uint  Pad1;             // 56
+    uint  Pad2;             // 60
+};
+
+struct VgCluster
+{
+    vec4 BoxCenter;      // 0  xyz cm submesh space, w = LodError
+    vec4 BoxExtent;      // 16 w = MaxEdgeLength
+    vec4 LodBounds;      // 32
+    uint FirstVertexRef; // 48
+    uint FirstTriangle;  // 52
+    uint Counts;         // 56 bits 0-7 VertexCount, 8-15 TriangleCount, 16-23 Level (PackClusterCounts)
+    uint Dag;            // 60
+};
+
+uint VgClusterVertexCount( VgCluster c )
+{
+    return c.Counts & 0xFFu;
+}
+uint VgClusterTriangleCount( VgCluster c )
+{
+    return ( c.Counts >> 8u ) & 0xFFu;
+}
+uint VgClusterLevel( VgCluster c )
+{
+    return ( c.Counts >> 16u ) & 0xFFu;
+}
+
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer VgWords
+{
+    uint Words[];
+};
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer VgFloats
+{
+    float Floats[];
+};
+
+// The submesh-relative vertex index of corner @p corner (0..2) of triangle @p triangle of cluster @p c.
+uint VgClusterCornerVertex( VgClusterDag dag, VgCluster c, uint triangle, uint corner )
+{
+    uint word  = VgWords( dag.TriangleAddress ).Words[c.FirstTriangle + triangle];
+    uint local = ( word >> ( 8u * corner ) ) & 0xFFu;
+    return VgWords( dag.VertexRefAddress ).Words[c.FirstVertexRef + local];
+}
+
+vec3 VgFetchFloat3( VgFloats floats, uint first )
+{
+    return vec3( floats.Floats[first], floats.Floats[first + 1u], floats.Floats[first + 2u] );
+}
+
+// The submesh-space position of corner @p corner (0..2) of triangle @p triangle of cluster @p c.
+vec3 VgClusterCornerPosition( VgClusterDag dag, VgCluster c, uint triangle, uint corner )
+{
+    // Desert::Vertex starts with its float3 Position.
+    const uint ref = VgClusterCornerVertex( dag, c, triangle, corner );
+    return VgFetchFloat3( VgFloats( dag.VertexAddress ), ref * ( dag.VertexStride / 4u ) );
+}
+
+// ONE MESH VERTEX FETCHED THROUGH ITS DAG (the VG raster's vertex stage, Mesh/Surface/Vertex_Static.glslh under
+// DESERT_SURFACE_VIRTUAL_GEOMETRY): the fields the vertex inputs carry in a binned draw, from the same buffers -
+// Desert::Vertex (Geometry/MeshTypes.hpp: Position, Normal, Tangent, Bitangent float3, TexCoord float2; the
+// attribute list ShaderProtocols/VertexInputs.hpp DESERT_MESH_VERTEX_FIELDS) and MeshVertexStreams (RGBA8 UNORM
+// Color, float2 UV1, 12 bytes; StreamAddress 0 = the shared default streams: white, (0,0)). The UV is the stored
+// one: the caller applies DesertMeshTextureUV as the attribute path does.
+struct VgMeshVertex
+{
+    vec3 Position;
+    vec3 Normal;
+    vec3 Tangent;
+    vec3 Bitangent;
+    vec2 TextureCoord;
+    vec4 Color;
+    vec2 TexCoord1;
+};
+
+#define VG_MESH_STREAM_STRIDE_WORDS 3u // sizeof( MeshVertexStreams ) / 4
+
+VgMeshVertex VgFetchMeshVertex( VgClusterDag dag, uint ref )
+{
+    VgFloats       vertices = VgFloats( dag.VertexAddress );
+    const uint     first    = ref * ( dag.VertexStride / 4u );
+    VgMeshVertex   v;
+    v.Position     = VgFetchFloat3( vertices, first );
+    v.Normal       = VgFetchFloat3( vertices, first + 3u );
+    v.Tangent      = VgFetchFloat3( vertices, first + 6u );
+    v.Bitangent    = VgFetchFloat3( vertices, first + 9u );
+    v.TextureCoord = vec2( vertices.Floats[first + 12u], vertices.Floats[first + 13u] );
+    if ( dag.StreamAddress == uvec2( 0u ) )
+    {
+        v.Color     = vec4( 1.0 );
+        v.TexCoord1 = vec2( 0.0 );
+        return v;
+    }
+    const uint stream = ref * VG_MESH_STREAM_STRIDE_WORDS;
+    v.Color           = unpackUnorm4x8( VgWords( dag.StreamAddress ).Words[stream] );
+    VgFloats streams  = VgFloats( dag.StreamAddress );
+    v.TexCoord1       = vec2( streams.Floats[stream + 1u], streams.Floats[stream + 2u] );
+    return v;
+}
+
+// One BVH node over cluster groups, 4 children (GpuClusterHierarchyNode). A leaf child (Child bit 31) names
+// its group's first cluster row (Child & 0x7FFFFFFF) and ClusterCount; its LodBounds and BoxExtent.w are THAT
+// group's sphere and ParentLodError - the very pair its clusters' children carry as LodBounds / LodError.
+#define VG_HIERARCHY_LEAF 0x80000000u
+#define VG_INVALID_INDEX  0xFFFFFFFFu
+struct VgHierarchyNode
+{
+    vec4 BoxCenter[4];    // 0   w = MinLodError below the child
+    vec4 BoxExtent[4];    // 64  w = MaxParentLodError below the child
+    vec4 LodBounds[4];    // 128
+    uint Child[4];        // 192 node row | VG_HIERARCHY_LEAF + cluster row, VG_INVALID_INDEX = empty
+    uint ClusterCount[4]; // 208
+};
+
+struct VgClusterCandidate
+{
+    uint Instance; // 0 GpuScene Instances[] row
+    uint Dag;      // 4 Dags[] row
+    uint Node;     // 8 the node the traversal starts at (the DAG's RootNode)
+    uint View;     // 12
+};
+
+struct VgVisibleCluster
+{
+    uint Instance; // 0
+    uint Cluster;  // 4 Clusters[] row
+    uint View;     // 8
+    uint Flags;    // 12
+};
+
+struct VgRasterArgs
+{
+    uint SwDispatch[3]; // 0
+    uint SwCount;       // 12
+    uint HwDraw[4];     // 16 VkDrawIndirectCommand: vertexCount, instanceCount (= HW clusters), firstVertex, firstInstance
+};
+
+// The largest axis scale of a world matrix: a submesh-space length (sphere radius, LOD error) in world cm.
+float VgMaxScale( mat4 world )
+{
+    return sqrt( max( max( dot( world[0].xyz, world[0].xyz ), dot( world[1].xyz, world[1].xyz ) ),
+                      dot( world[2].xyz, world[2].xyz ) ) );
+}
+
+// UE Nanite GetProjectedEdgeScales, the sphere's nearest point: a world LOD error @p error seen from @p origin
+// in the view's own pixels. Perspective: @p lodScale = 0.5 x view height x Projection[1][1], divided by the
+// nearest distance; a view inside the sphere sees any positive error as infinitely large (refine).
+// @p orthographic (a shadow cascade, UE: shadow LOD by the shadow view's resolution): @p lodScale = texels per
+// world cm, no distance. Error 0 (level 0) projects to 0. THE ONE FUNCTION both sides of the cut call:
+// a group's (LodBounds, ParentLodError) in the parent test is bit-for-bit its children's (LodBounds, LodError)
+// in the own test, so a group and the clusters generated from it can never both draw or both hide (no crack).
+float VgProjectedError( vec4 sphere, float error, mat4 world, float worldScale, vec3 origin, float lodScale,
+                        bool orthographic )
+{
+    if ( error <= 0.0 )
+        return 0.0;
+    if ( orthographic )
+        return error * worldScale * lodScale;
+    const vec3  center = ( world * vec4( sphere.xyz, 1.0 ) ).xyz;
+    const float near   = distance( center, origin ) - sphere.w * worldScale;
+    if ( near <= 0.0 )
+        return 3.0e38;
+    return error * worldScale * lodScale / near;
+}
+
+// A submesh-space box (centre, half size) as a world AABB under @p world.
+void VgWorldBox( vec3 center, vec3 extent, mat4 world, out vec3 boxMin, out vec3 boxMax )
+{
+    const vec3 c = ( world * vec4( center, 1.0 ) ).xyz;
+    const vec3 e = abs( world[0].xyz ) * extent.x + abs( world[1].xyz ) * extent.y + abs( world[2].xyz ) * extent.z;
+    boxMin       = c - e;
+    boxMax       = c + e;
+}
+
+#endif

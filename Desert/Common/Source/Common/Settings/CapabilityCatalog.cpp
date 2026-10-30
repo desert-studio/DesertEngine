@@ -123,6 +123,8 @@ namespace Common::Scalability
         std::format_to( std::back_inserter( out ), " async={} timing={} class={} vram={}MiB",
                         catalog.AsyncCompute ? "yes" : "no", Name( catalog.Timing ), Name( catalog.Class ),
                         catalog.VideoMemory / ( 1024ull * 1024ull ) );
+        std::format_to( std::back_inserter( out ), " share={}",
+                        kGpuSharingNames[static_cast<std::size_t>( catalog.Sharing )] );
         return out;
     }
 } // namespace Common::Scalability

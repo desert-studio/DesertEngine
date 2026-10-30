@@ -34,9 +34,15 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
+#include <array>
 #include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -255,7 +261,7 @@ namespace Desert::Editor
                 return Common::MakeSuccess( true );
             }
 
-            auto&           tc    = entity.GetComponent<ECS::TransformComponent>();
+            const auto&     tc    = entity.GetComponent<ECS::TransformComponent>();
             const glm::mat4 world = entity.GetWorldTransform();
             const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
 
@@ -280,8 +286,10 @@ namespace Desert::Editor
             const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
                                       glm::normalize( glm::vec3( local[1] ) ),
                                       glm::normalize( glm::vec3( local[2] ) ) );
-            tc.Translation = glm::vec3( local[3] );
-            tc.Rotation    = glm::eulerAngles( glm::quat_cast( rotation ) );
+            ECS::LocalTransform posed = tc.GetLocal();
+            posed.Translation         = glm::vec3( local[3] );
+            posed.Rotation            = glm::eulerAngles( glm::quat_cast( rotation ) );
+            entity.SetLocalTransform( posed );
             return Common::MakeSuccess( true );
         }
     } // namespace
@@ -966,14 +974,16 @@ namespace Desert::Editor
                         return Control::Response::Failure( request.Id, NoEditorCameraReason() );
                     const glm::vec3 forward =
                          -glm::normalize( glm::vec3( glm::inverse( viewCamera->GetViewMatrix() )[2] ) );
+                    const Graphic::DebugViewState& debugView = EditorPreferences::Get().DebugView;
 
                     return Control::Response::Success(
                          request.Id,
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
-                              DescribeViewportCamera( viewCamera->GetPosition(), forward,
-                                                      viewCamera->GetFOV(),
-                                                      EditorPreferences::Get().DebugView.ValidateGpuCulling ) ) );
+                              DescribeViewportCamera( viewCamera->GetPosition(), forward, viewCamera->GetFOV(),
+                                                      debugView.ValidateGpuCulling,
+                                                      debugView.ForceVirtualGeometryCutRefusal,
+                                                      debugView.ForceVirtualGeometryPostCutRefusal ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1053,10 +1063,8 @@ namespace Desert::Editor
                              request.Id, fmt::format( "the selected entity {} is not in the scene",
                                                       static_cast<uint64_t>( uuid ) ) );
                     const ECS::Entity entity = ref->get();
-                    auto&             tc     = entity.GetComponent<ECS::TransformComponent>();
-                    tc.Translation           = after.GetValue().Translation;
-                    tc.Rotation              = after.GetValue().Rotation;
-                    tc.Scale                 = after.GetValue().Scale;
+                    entity.SetLocalTransform( ECS::LocalTransform{
+                         after.GetValue().Translation, after.GetValue().Rotation, after.GetValue().Scale } );
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
@@ -1139,11 +1147,36 @@ namespace Desert::Editor
                     Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
                     const CommandHistory::FieldSubject fieldSubject( entityId );
+                    // The undo and redo of this edit reach the component again through the same entry's
+                    // EditData (entity + type), so they end in the component's writer as the edit does and never
+                    // hold an address inside EnTT storage.
+                    const ReflectedEditRoute route =
+                         [weakScene = std::weak_ptr<::Desert::Core::Scene>( scene ), entityId,
+                          reflectedType = found->ReflectedTypeName]( const std::function<void( void* )>& write )
+                    {
+                        const auto owner = weakScene.lock();
+                        if ( !owner )
+                            return false;
+                        auto ref = owner->FindEntityByID( entityId );
+                        if ( !ref )
+                            return false;
+                        ECS::Entity target = ref->get(); // a handle: a copy names the same entity
+                        for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                            if ( entry.DataPtr && entry.ReflectedTypeName == reflectedType && entry.Has( target ) )
+                            {
+                                if ( entry.EditData )
+                                    entry.EditData( target, write );
+                                else
+                                    write( entry.DataPtr( target ) );
+                                return true;
+                            }
+                        return false;
+                    };
                     Common::BoolResultStr written = Common::MakeSuccess( true );
                     const auto            edit    = [&]( void* data )
                     {
                         written = SetReflectedFieldFromText( data, found->ReflectedTypeName, fieldPath,
-                                                             request.Text, CommandHistory::Get() );
+                                                             request.Text, CommandHistory::Get(), route );
                     };
                     if ( found->EditData )
                         found->EditData( en, edit );
@@ -1390,7 +1423,7 @@ namespace Desert::Editor
                                                        static_cast<uint64_t>( uuid ) );
         const auto& tc = entity.GetComponent<ECS::TransformComponent>();
         return Common::MakeSuccess(
-             Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
+             Result{ uuid, Core::SelectionTransform{ tc.GetTranslation(), tc.GetRotation(), tc.GetScale() } } );
     }
 
     Control::Response ControlService::SetViewportCameraProperty( const Control::Request& request )
@@ -1403,6 +1436,19 @@ namespace Desert::Editor
         if ( which.GetValue() == ViewportCameraWrite::ValidateGpuCulling )
         {
             EditorPreferences::Get().DebugView.ValidateGpuCulling = request.Value[0] != 0.0f;
+            return Control::Response::Success( request.Id );
+        }
+        // [vg_refused_fallback]: every cluster cut refused, the CPU walk draws the VG primitives.
+        if ( which.GetValue() == ViewportCameraWrite::ForceVgCutRefusal )
+        {
+            EditorPreferences::Get().DebugView.ForceVirtualGeometryCutRefusal = request.Value[0] != 0.0f;
+            return Control::Response::Success( request.Id );
+        }
+        // [vg_refused_fallback], post cut: the post cluster cut refused before the main cut, which then holds
+        // nothing back.
+        if ( which.GetValue() == ViewportCameraWrite::ForceVgPostCutRefusal )
+        {
+            EditorPreferences::Get().DebugView.ForceVirtualGeometryPostCutRefusal = request.Value[0] != 0.0f;
             return Control::Response::Success( request.Id );
         }
 
@@ -1466,6 +1512,8 @@ namespace Desert::Editor
         snapshot.SceneName = m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetSceneName() : std::string();
         snapshot.SceneHasUnsavedChanges = m_SceneFiles.HasUnsavedChanges();
         snapshot.InPlayMode             = m_Play.InPlayMode();
+        snapshot.SceneRenderDirty =
+             m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetRenderStateDirtyCount() : 0;
 
         for ( const Common::UUID& uuid : Core::SelectionManager::GetSelection() )
         {
@@ -1570,6 +1618,104 @@ namespace Desert::Editor
             const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
             snapshot.GeometryPoolBinds            = pool.Binds;
             snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
+            if ( const auto* primary = m_Workspace.PrimaryRenderer(); primary != nullptr )
+            {
+                const Graphic::System::ForwardPrepassStats prepass = primary->GetForwardPrepassStats();
+                {
+                    using namespace Common::Scalability;
+                    const Graphic::RenderMethods& methods = primary->GetRenderMethods();
+                    snapshot.ShadowsRequested =
+                         kShadowMethodNames[static_cast<std::size_t>( methods.Shadows.Requested )];
+                    snapshot.ShadowsEffective =
+                         kShadowMethodNames[static_cast<std::size_t>( methods.Shadows.Effective )];
+                    snapshot.ShadowsVisibility =
+                         methods.Shadows.Effective == ShadowMethod::Stochastic
+                              ? kStochasticVisibilityNames[static_cast<std::size_t>( methods.Visibility )]
+                              : std::string_view{};
+                    snapshot.ShadowsSmrtSamplesLocal = primary->GetVirtualShadowQuality().SmrtSamplesPerRayLocal;
+                    for ( const Graphic::StochasticLightMethod& light : primary->GetStochasticLightMethods() )
+                        snapshot.ShadowsLights.push_back(
+                             { .Source    = light.SourceId,
+                               .Requested = std::string(
+                                    kLightShadowMethodNames[static_cast<std::size_t>( light.Requested )] ),
+                               .Effective = std::string(
+                                    kStochasticVisibilityNames[static_cast<std::size_t>( light.Effective )] ) } );
+                }
+                snapshot.ForwardPrepass = { .Draws            = prepass.Draws,
+                                            .Cells            = prepass.Cells,
+                                            .GpuSections      = prepass.GpuSections,
+                                            .DepthWriteInBase = prepass.DepthWriteInBase };
+                for ( const Graphic::System::VsmLocalLightStats& light : primary->GetVirtualShadowLocalStats() )
+                    snapshot.VsmLocalLights.push_back( { .Source    = light.SourceId,
+                                                         .Views     = light.Views,
+                                                         .Requested = light.Requested,
+                                                         .Rendered  = light.Rendered,
+                                                         .Cached    = light.Cached,
+                                                         .Coarse    = light.Coarse,
+                                                         .Receivers = light.Receivers } );
+            }
+            // GpuDriven::MeshPass order (DrawCounters.hpp kCountedMeshPasses).
+            static constexpr std::array<const char*, Graphic::kCountedMeshPasses> kMeshPassNames{
+                 "depthPrepass", "gbuffer", "forward", "shadowCascade", "virtualShadow" };
+            static_assert( Graphic::kCountedMeshPasses == Graphic::GpuDriven::kMeshPassCount );
+            const Graphic::GpuDriven::DrawCommandCache* const cache =
+                 m_Workspace.PrimaryRenderer() != nullptr ? m_Workspace.PrimaryRenderer()->GetDrawCommandCache()
+                                                          : nullptr;
+            snapshot.MeshPasses.clear();
+            for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
+            {
+                const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
+                Control::MeshPassDrawSnapshot       item{ .Name          = kMeshPassNames[pass],
+                                                          .CpuDraws      = counted.CpuDraws,
+                                                          .IndirectCalls = counted.IndirectCalls,
+                                                          .BinsIssued    = counted.BinsIssued };
+                if ( cache != nullptr )
+                {
+                    const Graphic::GpuDriven::PassDrawTable& table =
+                         cache->Pass( static_cast<Graphic::GpuDriven::MeshPass>( pass ) );
+                    item.CachedBins  = static_cast<uint32_t>( table.Bins.size() );
+                    item.CachedSlots = static_cast<uint32_t>( table.DrawSlots.size() );
+                    for ( uint32_t reason = 0; reason < Graphic::GpuDriven::kBinFallbackCount; ++reason )
+                        if ( table.Fallbacks[reason] > 0u )
+                            item.CpuFallbacks.emplace_back(
+                                 Graphic::GpuDriven::BinFallbackName(
+                                      static_cast<Graphic::GpuDriven::BinFallback>( reason ) ),
+                                 table.Fallbacks[reason] );
+                }
+                snapshot.MeshPasses.push_back( std::move( item ) );
+            }
+            snapshot.DrawBinViews.clear();
+            if ( m_Workspace.PrimaryRenderer() != nullptr )
+                for ( const Graphic::GpuDriven::CullPhaseViewCount& view :
+                      m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
+                    snapshot.DrawBinViews.push_back( Control::DrawBinViewSnapshot{
+                         .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
+            snapshot.VirtualGeometry = {};
+            if ( m_Workspace.PrimaryRenderer() != nullptr )
+            {
+                const Graphic::SceneRenderer::VirtualGeometryCounts vg =
+                     m_Workspace.PrimaryRenderer()->GetVirtualGeometryCounts();
+                snapshot.VirtualGeometry =
+                     Control::VirtualGeometrySnapshot{ .Instances            = vg.Instances,
+                                                       .ClustersVisible      = vg.ClustersVisible,
+                                                       .ClustersDrawn        = vg.ClustersDrawn,
+                                                       .ShadowClustersDrawn  = vg.ShadowClustersDrawn,
+                                                       .VsmClustersDrawn     = vg.VsmClustersDrawn,
+                                                       .VsmRefusedGroups     = vg.VsmRefusedGroups,
+                                                       .VsmFallbackSubmeshes = vg.VsmFallbackSubmeshes,
+                                                       .Overflow             = vg.Overflow,
+                                                       .OccludedClusters     = vg.OccludedClusters,
+                                                       .BinnedVgInstances    = vg.BinnedVgInstances };
+            }
+            // The scene-owned GI pools: one per live scene that brought each up, never one per view.
+            for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
+            {
+                ++snapshot.Scenes;
+                if ( scene->GetDistanceFields().GetBrickAtlas() != nullptr )
+                    ++snapshot.DistanceFieldPools;
+                if ( scene->GetSurfaceCache().IsConfigured() )
+                    ++snapshot.SurfaceCaches;
+            }
         }
 
         {
@@ -1602,6 +1748,17 @@ namespace Desert::Editor
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
 
+            const Graphic::Denoise::OidnStatus oidn = Graphic::Denoise::OidnDenoiser::Status();
+            device.OidnCreated                      = oidn.Created;
+            device.OidnDevice                       = oidn.Device;
+            device.OidnReason                       = oidn.Reason;
+            device.OidnError                        = oidn.Error;
+            device.OidnRuns                         = oidn.Runs;
+            device.OidnLastPaths                    = oidn.LastPaths;
+            device.OidnLastWidth                    = oidn.LastWidth;
+            device.OidnLastHeight                   = oidn.LastHeight;
+            device.OidnLastMilliseconds             = oidn.LastMilliseconds;
+
             // Ray tracing: the catalog's modes (what every RT consumer branches on), why rt is off, and what the
             // main viewport resolved to - its SceneRenderer's RenderMethods, the rows its overlay and the log
             // print.
@@ -1609,7 +1766,8 @@ namespace Desert::Editor
             const bool rtOffered = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
                                                 []( Common::Scalability::RayTracingMode m )
                                                 { return m != Common::Scalability::RayTracingMode::None; } );
-            device.Rt            = rtOffered ? "on" : ( capabilities.RayTracingHidden ? "hidden" : "off" );
+            device.BufferDeviceAddress = capabilities.SupportsBufferDeviceAddress;
+            device.Rt = rtOffered ? "on" : ( capabilities.RayTracingHidden ? "hidden" : "off" );
             for ( const Common::Scalability::RayTracingMode mode : catalog.RayTracingModes )
                 device.RtModes.emplace_back(
                      Common::Scalability::kRayTracingModeNames[static_cast<std::size_t>( mode )] );
@@ -1626,6 +1784,51 @@ namespace Desert::Editor
                 device.ReflectionsMethod =
                      name( Common::Scalability::kReflectionMethodNames, methods.Reflections.Effective );
                 device.ShadowsMethod = name( Common::Scalability::kShadowMethodNames, methods.Shadows.Effective );
+                const Graphic::SceneRenderer::EmissiveLightCounters emissive = renderer->GetEmissiveLightCounters();
+                device.EmissiveGatherFullRebuilds = emissive.GatherFullRebuilds;
+                device.EmissiveGatherMoves        = emissive.GatherMoves;
+                device.EmissiveListFullRebuilds   = emissive.ListFullRebuilds;
+                device.EmissiveListMoves          = emissive.ListMoves;
+                device.EmissiveGpuFullRebuilds    = emissive.GpuFullRebuilds;
+                device.EmissiveGpuMoves           = emissive.GpuMoves;
+                device.EmissiveGpuMovesRetried    = emissive.GpuMovesRetried;
+                device.TlasFullBuilds             = emissive.TlasFullBuilds;
+                device.TlasUpdates                = emissive.TlasUpdates;
+                device.TlasMovedRows              = emissive.TlasMovedRows;
+            }
+        }
+
+        // The main view's neural radiance cache (System::PathTracer's read-back), absent = inactive.
+        if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
+        {
+            const auto status = renderer->GetRadianceCacheStatus();
+            const auto name   = []( const Common::Scalability::PathTracingRadianceCacheMethod method ) {
+                return std::string(
+                     Common::Scalability::kPathTracingRadianceCacheNames[static_cast<size_t>( method )] );
+            };
+            snapshot.Nrc.Requested = name( status.Requested );
+            snapshot.Nrc.Status    = name( status.Effective );
+            snapshot.Nrc.Reason    = status.Reason;
+            snapshot.Nrc.RetryOn   = status.RetryOn;
+            snapshot.Nrc.Rebuilds  = status.Rebuilds;
+            for ( const auto& stamp : status.ProgramGenerations )
+                snapshot.Nrc.ProgramGenerations.emplace_back( stamp.Program, stamp.Generation );
+            if ( const Engine::Neural::NrcStats* stats = renderer->GetRadianceCacheStats() )
+            {
+                Control::NrcSnapshot& nrc = snapshot.Nrc;
+                nrc.Active                = stats->Active;
+                nrc.KernelPath            = stats->KernelPath;
+                nrc.TrainingSteps         = stats->TrainingSteps;
+                nrc.TrainingSamples       = stats->TrainingSamples;
+                nrc.TrainingPaths         = stats->TrainingPaths;
+                nrc.SelfQueries           = stats->SelfQueries;
+                nrc.RenderQueries         = stats->RenderQueries;
+                nrc.QueryCapacity         = stats->QueryCapacity;
+                nrc.QueryMemoryBytes      = stats->QueryMemoryBytes;
+                nrc.TrainLoss             = stats->TrainLoss;
+                nrc.FirstTrainLoss        = stats->FirstTrainLoss;
+                nrc.LossHistory           = stats->LossHistory;
+                nrc.Error                 = stats->Error;
             }
         }
 

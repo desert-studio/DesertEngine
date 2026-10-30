@@ -581,7 +581,7 @@ namespace Desert::Graphic::System
     }
 
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
-                                                            MeshVertexPath path, uint32_t cascade )
+                                                            MeshVertexPath path, uint32_t cascade ) const
     {
         const MeshPass pass =
              IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
@@ -602,19 +602,34 @@ namespace Desert::Graphic::System
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell )
     {
-        return CellPipeline( passState, cell.GetShaderName() );
+        // The cell's OWN program: a permutation (ShaderService::AcquireVariant - the DESERT_LOCAL_SHADOW_VSM twin
+        // of a forward cell) carries its base program's name but is not registered under it, and its bindings
+        // are its own; a pipeline found by the name alone would bind the base program to the twin's sets.
+        const MaterialExecutor* const executor = cell.GetMaterialExecutor();
+        const std::shared_ptr<Shader> program  = executor != nullptr ? executor->GetShader() : nullptr;
+        if ( program == nullptr || program->GetVariant().IsDefault() )
+            return CellPipeline( passState, cell.GetShaderName() );
+        return CellPipeline( passState, cell.GetShaderName(), program );
     }
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader )
     {
+        return CellPipeline( passState, cellShader, nullptr );
+    }
+
+    GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader,
+                                                  const std::shared_ptr<Shader>& permutation )
+    {
         if ( passState == nullptr )
             return nullptr;
-        MeshCellPipelineKey key{ passState, cellShader };
+        MeshCellPipelineKey key{ passState, cellShader,
+                                 permutation != nullptr ? permutation->GetVariant().Hash() : 0u };
         if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_CellPipelines[key];
 
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
+        auto shader =
+             permutation != nullptr ? permutation : Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
         if ( !shader )
         {
             LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': no such shader is registered",
@@ -622,7 +637,9 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         GraphicsPipelineSpecification spec = passState->GetSpecification();
-        spec.DebugName                     = std::format( "{} {}", spec.DebugName, key.CellShader );
+        spec.DebugName = permutation != nullptr
+                              ? std::format( "{} {}#{:016x}", spec.DebugName, key.CellShader, key.Variant )
+                              : std::format( "{} {}", spec.DebugName, key.CellShader );
         // The pass's own program is an engine pipeline the reveal waits for; any other program is a CONTENT
         // material's cell, compiled on demand (AL1-12) and drawn only once ChooseCellDraw says it is Ready.
         const bool content = shader != spec.Shader;
@@ -833,7 +850,9 @@ namespace Desert::Graphic::System
         // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the
         // level's standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone,
         // Frustum::Rebuild).
-        if ( IsVirtualShadowView( c ) )
+        // A local light's mip is a perspective view from the light: its near-plane casters are clamped and
+        // dropped by the raster (Common/VirtualShadowRaster.glslh), nothing lies beyond its far plane.
+        if ( c >= kVsmViewBase && c < kRainOcclusionView )
             cascadeFrustum.Open( Core::PLANE_FAR );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
@@ -847,10 +866,11 @@ namespace Desert::Graphic::System
                                   : Geometry::LODView{};
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
-        std::vector<std::pair<std::pair<Desert::StaticMesh*, uint64_t>, std::vector<const StaticMeshRenderData*>>>
+        std::vector<
+             std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
                    byMesh;
         const auto bucketFor = [&]( Desert::StaticMesh* mesh,
-                                    uint64_t            hidden ) -> std::vector<const StaticMeshRenderData*>&
+                                    const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
             for ( auto& [key, v] : byMesh )
                 if ( key.first == mesh && key.second == hidden )
@@ -884,14 +904,35 @@ namespace Desert::Graphic::System
         };
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
 
+        // A sun cascade's layer issued from its GPU-culled bins (AttachBinned below; the static layer at the
+        // cascade view, the movable layer at CascadeMovableView). Local views and VSM levels (layer All) issue
+        // none.
+        const bool binnedLayer = layer != ShadowCasterLayer::All;
+        if ( binnedLayer )
+            AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
+        // THE CPU WALK of this view (CpuWalkHidden, the one rule of every view pass): a VSM level (its VG-only
+        // raster), a sun cascade's static layer (its bins and their cluster raster: a VG primitive is walked for
+        // every submesh the raster does not draw - a refused cut or carrier leaves it whole to the walk), a sun
+        // cascade's movable layer (its bins; no cluster raster), or a view with neither (a local light):
+        // everything. Empty: the walk draws none of the record.
+        const ClusterWalkView walkView = IsVirtualShadowView( c ) ? VirtualShadowWalkView()
+                                         : binnedLayer ? BinnedWalkView( GpuDriven::MeshPass::ShadowCascade, c )
+                                                       : UnbinnedWalkView( GpuDriven::MeshPass::ShadowCascade );
+        const auto            walkHidden = [&]( const Desert::Mesh*             mesh, const std::size_t /*submeshes*/,
+                                     const GpuDriven::PrimitiveIndex primitive,
+                                     const uint64_t                  hidden ) -> std::optional<SubmeshMask>
+        { return CpuWalkHidden( walkView, mesh, primitive, hidden ); };
         for ( const auto& rd : m_StaticQueue )
         {
-            if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
-                 !IsVisibleInView( cascadeFrustum, rd.Transform,
-                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
-            {
+            if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
-            }
+            // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
+            const std::optional<SubmeshMask> walk =
+                 walkHidden( rd.Mesh, rd.Mesh->GetSubmeshes().size(), rd.GpuPrimitive, rd.HiddenSubmeshes );
+            if ( !walk || !IsVisibleInView( cascadeFrustum, rd.Transform,
+                                            Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                continue;
+            const SubmeshMask hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
             // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so
             // a masked section takes the masked route and an opaque one the opaque route.
@@ -900,7 +941,7 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
             {
-                bucketFor( rd.Mesh, rd.HiddenSubmeshes ).push_back( &rd );
+                bucketFor( rd.Mesh, hidden ).push_back( &rd );
                 continue;
             }
             auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
@@ -924,7 +965,7 @@ namespace Desert::Graphic::System
             draw.Instance  = inst;
             draw.Row       = *row;
             draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
-            draw.HiddenSubmeshMask = rd.HiddenSubmeshes;
+            draw.HiddenSubmeshMask = hidden;
             m_ScratchMaskedDraws.push_back( draw );
         }
 
@@ -967,7 +1008,7 @@ namespace Desert::Graphic::System
                         instTransforms.resize( first );
                         for ( std::size_t i = 0; i < bucket.size(); ++i )
                             if ( levels[i] == level )
-                                singles.push_back( bucket[i] );
+                                singles.push_back( { bucket[i], meshKey.second } );
                         continue;
                     }
                     batches.push_back(
@@ -977,7 +1018,7 @@ namespace Desert::Graphic::System
             else
             {
                 for ( const auto* rd : bucket )
-                    singles.push_back( rd );
+                    singles.push_back( { rd, meshKey.second } );
             }
         }
 
@@ -994,6 +1035,21 @@ namespace Desert::Graphic::System
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
                      !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
                     continue;
+                // The field's walk (walkHidden over its primitive, the rule the static loop above reads): a still
+                // VG field in a cascade or a VSM level hides exactly its clustered submeshes; a field the bins or
+                // the clusters hold whole is skipped.
+                SubmeshMask ismHidden{ ism.HiddenSubmeshes };
+                if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                     field < m_FieldPrimitives.size() )
+                {
+                    const auto*       fieldMesh = dynamic_cast<const Desert::StaticMesh*>( ism.Mesh );
+                    const std::size_t submeshes = ism.Mesh->GetSubmeshes().size();
+                    const std::optional<SubmeshMask> walk =
+                         walkHidden( fieldMesh, submeshes, m_FieldPrimitives[field], ism.HiddenSubmeshes );
+                    if ( !walk )
+                        continue;
+                    ismHidden = *walk;
+                }
 
                 // Per-instance, against this cascade. A cascade covers a slice of the view,
                 // so a forest spread over the map has most of its instances outside every
@@ -1043,7 +1099,7 @@ namespace Desert::Graphic::System
                         draw.Set      = &set;
                         draw.Path     = MeshVertexPath::Instanced;
                         draw.Mesh     = ism.Mesh;
-                        draw.HiddenSubmeshMask = ism.HiddenSubmeshes;
+                        draw.HiddenSubmeshMask = ismHidden;
                         draw.Instance = ismInst;
                         draw.Row      = *row;
                         draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
@@ -1063,20 +1119,21 @@ namespace Desert::Graphic::System
                         if ( levels[i] == level )
                             instTransforms.push_back( visible[i] );
                     batches.push_back( ShadowBatch{
-                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level,
-                         ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
+                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level, ismHidden,
+                         PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
                 }
             }
         }
 
         // Per-object path (singletons).
-        for ( const auto* rd : singles )
+        for ( const ShadowSingle& single : singles )
         {
+            const StaticMeshRenderData* rd = single.Data;
             list.Add( { .Pipeline          = casters.Static,
                         .Mesh              = rd->Mesh,
                         .Transform         = rd->Transform,
                         .Material          = casterExecutor,
-                        .HiddenSubmeshMask = rd->HiddenSubmeshes,
+                        .HiddenSubmeshMask = single.Hidden,
                         .LodLevel          = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
         }
 
@@ -1102,14 +1159,19 @@ namespace Desert::Graphic::System
         // lit draw runs the shader's own program, which clips nothing, so an opaque caster is what it shows.
         for ( const auto& g : m_GenericQueue )
         {
-            if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
+            if ( !drawStatic || g.Mesh == nullptr || !g.CastShadows )
+                continue;
+            // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
+            const std::optional<SubmeshMask> walk =
+                 walkHidden( g.Mesh, g.Mesh->GetSubmeshes().size(), g.GpuPrimitive, ~g.VisibleSubmeshMask );
+            if ( walk &&
                  IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
             {
                 list.Add( { .Pipeline          = casters.Static,
                             .Mesh              = g.Mesh,
                             .Transform         = g.Transform,
                             .Material          = casterExecutor,
-                            .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
+                            .HiddenSubmeshMask = *walk,
                             .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
             }
         }
@@ -1148,6 +1210,10 @@ namespace Desert::Graphic::System
                 uint64_t opaqueVisible = 0;
                 for ( const SkinnedSection& section : sd.Sections )
                 {
+                    // The movable layer's bins hold the section (the cull issues it): not walked.
+                    if ( !walkHidden( sd.Mesh, sd.Mesh->GetSubmeshes().size(), sd.GpuPrimitive,
+                                      section.HiddenSubmeshes ) )
+                        continue;
                     if ( !isMasked( section.Material ) )
                     {
                         opaqueVisible |= ~section.HiddenSubmeshes;

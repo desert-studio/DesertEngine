@@ -25,6 +25,19 @@ namespace Desert::Graphic
         uint32_t Instances = 0; ///< their instance counts summed — an ISM batch is ONE draw, many instances.
     };
 
+    // PER MESH PASS, how its draws were ISSUED (GPU-DRIVEN PASSES, DesertCtl `state views.meshPasses`): the
+    // measure of the migration from the per-submesh CPU funnel to the culled bins. Indexed by
+    // GpuDriven::MeshPass (DepthPrepass, GBuffer, Forward, ShadowCascade, VirtualShadow; MeshRenderer.cpp
+    // asserts the count). A draw is attributed to the pass whose MeshDrawList is recording (MeshPassScope).
+    inline constexpr uint32_t kCountedMeshPasses = 5;
+    struct MeshPassDrawCounters
+    {
+        uint32_t CpuDraws = 0; ///< per-submesh draws the CPU issued: counted or GPU-counted (RenderMeshIndirect)
+        uint32_t IndirectCalls =
+             0;                  ///< vkCmdDrawIndexedIndirect calls of culled bin groups (RenderMeshIndirectGroup)
+        uint32_t BinsIssued = 0; ///< bin records those calls named (a culled-empty bin included)
+    };
+
     // THE SNAPSHOT IS OF THE FRAME THAT FINISHED, never of the one being recorded. A HUD reading the live
     // counter would show a number that grows while it is being looked at, and two panels reading it in the
     // same frame would disagree — which is the defect shape this project keeps finding, an instrument
@@ -54,6 +67,16 @@ namespace Desert::Graphic
 
         /// The finished frame. Zero before the first Roll, which is honest: nothing has finished yet.
         [[nodiscard]] static DrawCounters LastFrame();
+
+        /// The mesh pass the following draws belong to, until EndMeshPass (MeshPassScope; not nested).
+        static void BeginMeshPass( uint32_t pass );
+        static void EndMeshPass();
+        /// A per-submesh draw whose counts a GPU buffer holds (RenderMeshIndirect): a CPU draw of the active pass.
+        static void RecordCpuIndirect();
+        /// One culled bin group issued (RenderMeshIndirectGroup): @p calls indirect calls naming @p bins records.
+        static void RecordBins( uint32_t bins, uint32_t calls );
+        /// The finished frame's counters of @p pass (every view's draws of it summed).
+        [[nodiscard]] static MeshPassDrawCounters LastFrameMeshPass( uint32_t pass );
 #else
         static void Roll()
         {
@@ -65,6 +88,38 @@ namespace Desert::Graphic
         {
             return {};
         }
+        static void BeginMeshPass( uint32_t )
+        {
+        }
+        static void EndMeshPass()
+        {
+        }
+        static void RecordCpuIndirect()
+        {
+        }
+        static void RecordBins( uint32_t, uint32_t )
+        {
+        }
+        [[nodiscard]] static MeshPassDrawCounters LastFrameMeshPass( uint32_t )
+        {
+            return {};
+        }
 #endif
+    };
+
+    // Attributes the draws recorded in its lifetime to one mesh pass (MeshDrawList::Record).
+    class MeshPassScope
+    {
+    public:
+        explicit MeshPassScope( const uint32_t pass )
+        {
+            DrawCounter::BeginMeshPass( pass );
+        }
+        ~MeshPassScope()
+        {
+            DrawCounter::EndMeshPass();
+        }
+        MeshPassScope( const MeshPassScope& )            = delete;
+        MeshPassScope& operator=( const MeshPassScope& ) = delete;
     };
 } // namespace Desert::Graphic

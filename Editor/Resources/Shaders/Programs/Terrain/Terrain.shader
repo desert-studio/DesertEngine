@@ -218,9 +218,10 @@ Shader "Terrain"
         // Read through the shared point-clamped state, as Mesh/Surface/SurfaceTypes.glslh reads them (the local
         // shadow atlas below takes the same state).
         Uniform sampler PointClampSampler;
-        layout( binding = 27 ) uniform texture2D SceneDepthTexture;          // Core::kSceneDepthBinding
+        #include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+        layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
-        layout( binding = 28 ) uniform utexture2D SceneShadingWordTexture;   // Core::kSceneShadingWordBinding
+        layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWordTexture;
         #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
         #include <ShadingModels/ShadingModelContract.glslh>
         #define CONTACT_SHADOW_DEPTH        SceneDepthTexture

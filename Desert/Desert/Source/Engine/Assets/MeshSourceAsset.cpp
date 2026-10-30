@@ -24,8 +24,10 @@ namespace Desert::Assets
 
     namespace
     {
-        // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 1 is read by UpgradeMeshSourceAsset only.
-        constexpr uint32_t kImportInfoVersion = 2;
+        // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 3 (VIRT-GEOM): + VirtualGeometry (u32 0 /
+        // 1). 1 and 2 are read by UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it ships
+        // under.
+        constexpr uint32_t kImportInfoVersion = kMeshAssetSubsystemVersion;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
         // one mesh and was never written by an import, so it has no migration.
         // 3 (SKEL-eng3): the skin names its skeleton by GUID (Hi, Lo) where version 2 stated the rig's bone
@@ -337,10 +339,12 @@ namespace Desert::Assets
             w.String( MeshLodPolicyName( info.Settings.LodPolicy ) );
             w.String( MeshDisplacementModeName( info.Settings.Displacement ) );
             w.F32( info.Settings.DisplacementBake.EdgeLengthCm );
+            w.U32( info.Settings.VirtualGeometry ? 1u : 0u );
             return std::move( w.Out );
         }
 
-        // @p expected: kImportInfoVersion, or 1 for UpgradeMeshSourceAsset (no displacement fields).
+        // @p expected: kImportInfoVersion, or 1 / 2 for UpgradeMeshSourceAsset (1: no displacement fields; 1 and
+        // 2: no VirtualGeometry, read as off).
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                             const uint32_t expected = kImportInfoVersion )
         {
@@ -362,8 +366,15 @@ namespace Desert::Assets
                 mode                                      = r.String();
                 info.Settings.DisplacementBake.EdgeLengthCm = r.F32();
             }
+            uint32_t virtualGeometry = 0;
+            if ( expected >= 3 )
+                virtualGeometry = r.U32();
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<MeshImportInfo>( "mesh ImportInfo is truncated or has trailing bytes" );
+            if ( virtualGeometry > 1u )
+                return Common::MakeFormattedError<MeshImportInfo>(
+                     "mesh ImportInfo states VirtualGeometry {}, not 0 or 1", virtualGeometry );
+            info.Settings.VirtualGeometry = virtualGeometry == 1u;
             const auto p = MeshSourceProvenanceFromName( provenance );
             const auto a = MeshSourceUpAxisFromName( axis );
             const auto l = MeshLodPolicyFromName( lodPolicy );
@@ -561,7 +572,8 @@ namespace Desert::Assets
 
     namespace
     {
-        // One reading of the envelope at MSAS @p subsystemVersion (the current one, or 1 for the upgrade step).
+        // One reading of the envelope at MSAS @p subsystemVersion (the current one, or 1 / 2 for the upgrade
+        // step).
         Common::ResultStr<MeshSourceAsset> DecodeMeshSourceAssetAt( std::span<const std::byte> file,
                                                                     const uint32_t             subsystemVersion )
         {
@@ -589,7 +601,7 @@ namespace Desert::Assets
         }
 
         auto meta   = CC::DecodeEnvelopeMeta( e.Sections[0].Bytes );
-        auto import = DecodeImportInfo( e.Sections[1].Bytes, subsystemVersion >= 2 ? kImportInfoVersion : 1u );
+        auto import = DecodeImportInfo( e.Sections[1].Bytes, subsystemVersion );
         auto source = DecodeSource( e.Sections[2].Bytes );
         if ( !meta.IsSuccess() )
             return Common::MakeError<MeshSourceAsset>( meta.GetError() );
@@ -633,11 +645,14 @@ namespace Desert::Assets
         using Out = std::optional<std::vector<std::byte>>;
         if ( DecodeMeshSourceAssetAt( file, kMeshAssetSubsystemVersion ).IsSuccess() )
             return Common::MakeSuccess( Out{} );
-        auto old = DecodeMeshSourceAssetAt( file, 1 );
+        auto old = DecodeMeshSourceAssetAt( file, 2 );
         if ( !old.IsSuccess() )
-            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 1 reads it: {}",
+            old = DecodeMeshSourceAssetAt( file, 1 );
+        if ( !old.IsSuccess() )
+            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 2 or 1 reads it: {}",
                                                     kMeshAssetSubsystemVersion, old.GetError() );
-        // DecodeImportInfo at version 1 left Displacement = None and the default bake settings.
+        // DecodeImportInfo at version 1 left Displacement = None and the default bake settings; at 1 and 2,
+        // VirtualGeometry off.
         auto encoded = EncodeMeshSourceAsset( old.GetValue() );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );

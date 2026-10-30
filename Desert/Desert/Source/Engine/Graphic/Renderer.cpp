@@ -3,6 +3,7 @@
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -221,18 +222,17 @@ namespace Desert::Graphic
                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                 const glm::mat4& transform, const MaterialExecutor& material,
                                                 uint32_t instanceCount, uint32_t firstInstance,
-                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel,
-                                                std::span<const uint32_t> submeshFirstRows )
+                                                SubmeshMask hiddenSubmeshMask, uint32_t lodLevel )
     {
         return s_RendererAPI->RenderMesh( bindings, pipeline, mesh, transform, material, instanceCount,
-                                          firstInstance, hiddenSubmeshMask, lodLevel, submeshFirstRows );
+                                          firstInstance, hiddenSubmeshMask, lodLevel );
     }
 
     Common::BoolResultStr
     Renderer::RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                   const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
                                   const RDG::BufferRef args, const uint64_t offset,
-                                  const uint64_t hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
+                                  const SubmeshMask hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
     {
         return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, args, offset,
                                                   hiddenSubmeshMask, order );
@@ -323,6 +323,18 @@ namespace Desert::Graphic
                                                   RDG::ExternalBuffer&                                   into )
     {
         return s_RendererAPI->ImportBuffer( buffer, into );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuBuffer>> Renderer::CreateSharedBuffer( const std::string_view name,
+                                                                                      const uint64_t bytes )
+    {
+        return s_RendererAPI->CreateSharedBuffer( name, bytes );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+    Renderer::CreateSharedTimeline( const std::string_view name )
+    {
+        return s_RendererAPI->CreateSharedTimeline( name );
     }
 
     Common::BoolResultStr Renderer::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
@@ -429,6 +441,7 @@ namespace Desert::Graphic
 
         // The pool's arena buffers are device memory owned by a static: dropped here, before the device.
         GeometryPool::Get().RT_Shutdown();
+        VirtualGeometry::VirtualMeshTable::Get().RT_Shutdown();
 
         s_RendererAPI->Shutdown();
         delete s_RendererAPI;
