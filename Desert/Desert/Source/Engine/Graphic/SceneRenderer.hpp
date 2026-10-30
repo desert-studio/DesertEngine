@@ -1,6 +1,7 @@
 #pragma once
 #include <unordered_set>
 
+#include <Engine/Graphic/VirtualGeometry/VisibilityBuffer.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
@@ -1360,6 +1361,11 @@ namespace Desert::Graphic
         void AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                            System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
+        // GRASS-VIS (after the G-buffer, the terrain and the particles, BEFORE the draw bins' HZB, so this frame's
+        // HZB still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
+        // "Grass: Visibility Resolve" into the G-buffer. Nothing when the mesh renderer chose no section.
+        void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
+                                      const VirtualGeometry::VisibilityBufferFrame& visibility );
         // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer );
@@ -1823,6 +1829,10 @@ namespace Desert::Graphic
         // device's SupportsVisibilityBuffer64 (refreshed in BeginScene). The refusal is logged once per renderer.
         bool                    m_GrassVisibilityBuffer  = false;
         bool                    m_GrassVisibilityRefusal = false;
+        // The view's visibility buffer (GRASS-VIS): initialised with the grass system; the last error its frame
+        // returned, logged when it changes (a view that cannot allocate it keeps the G-buffer grass path).
+        VirtualGeometry::VisibilityBuffer m_GrassVisibility;
+        std::string                       m_GrassVisibilityError;
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;

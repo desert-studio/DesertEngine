@@ -430,6 +430,36 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGBufferPostOcclusionDraws( pass, view ); } );
     }
 
+    void SceneRenderer::AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures,
+                                                 System::MeshRenderer*                         meshRenderer,
+                                                 const VirtualGeometry::VisibilityBufferFrame& visibility )
+    {
+        // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material pass).
+        // The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it and writes
+        // none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins whatever order
+        // the draws ran in and no overdraw is shaded. The resolve LOADs the G-buffer and writes each won texel
+        // once, with the word's depth, so the HZB built next and every later pass see the grass as before.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
+        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+            return;
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        AddRaster(
+             graph, "Grass: Visibility Raster", depthOnly, {}, RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGrassVisibilityRasterManual( context ); },
+             [meshRenderer, view, words = visibility.Words]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words ); } );
+        AddRaster(
+             graph, "Grass: Visibility Resolve", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGrassVisibilityResolveManual( context ); },
+             [meshRenderer, view, words = visibility.Words, args = visibility.ResolveArgs]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args ); } );
+    }
+
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the

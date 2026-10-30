@@ -351,6 +351,11 @@ namespace Desert::Graphic
                                "grow: {}",
                                init.GetError() );
                 }
+                // Its visibility buffer (GRASS-VIS): without it the view refuses GrassVisibilityBuffer by this error.
+                if ( const auto init = m_GrassVisibility.Initialize(); !init )
+                    LOG_ERROR( "[SceneRenderer] no grass visibility buffer; GrassVisibilityBuffer keeps the G-buffer "
+                               "grass path: {}",
+                               init.GetError() );
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
@@ -2209,6 +2214,26 @@ namespace Desert::Graphic
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
 
+            // GRASS-VIS: the visibility buffer is allocated and cleared BEFORE the G-buffer's setup decides which
+            // blade sections leave it, so a buffer that could not be made keeps every blade on the G-buffer path.
+            VirtualGeometry::VisibilityBufferFrame grassVisibility;
+            if ( m_GrassVisibilityBuffer && meshRenderer != nullptr )
+            {
+                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height );
+                if ( made )
+                {
+                    grassVisibility = made.GetValue();
+                    m_GrassVisibilityError.clear();
+                }
+                else if ( made.GetError() != m_GrassVisibilityError )
+                {
+                    m_GrassVisibilityError = made.GetError();
+                    LOG_ERROR( "[SceneRenderer] {}: the grass draws through the G-buffer: {}",
+                               m_ViewResources.GetName(), m_GrassVisibilityError );
+                }
+            }
+            if ( meshRenderer != nullptr )
+                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
@@ -2217,6 +2242,8 @@ namespace Desert::Graphic
             if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
                  particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
+            if ( grassVisibility.IsValid() )
+                AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible.
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
