@@ -12,6 +12,13 @@
         "Min": [-209.21690368652344, -2.5186991691589355, -113.00201416015625],
         "Max": [396.1708679199219, 167.73594665527344, 115.50424194335938]
     },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "CanopyLeafSlots": ["shrub_02"]
+    },
     "Nodes": [
         {
             "Name": "shrub_02_a",

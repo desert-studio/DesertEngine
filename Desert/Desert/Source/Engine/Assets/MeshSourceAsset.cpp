@@ -25,7 +25,8 @@ namespace Desert::Assets
     namespace
     {
         // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 3 (VIRT-GEOM): + VirtualGeometry (u32 0 /
-        // 1). 1 and 2 are read by UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it ships
+        // 1). 4 (FIELD-WINTER): + Canopy leaf slots (u32 count, then each name). 1 to 3 are read by
+        // UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it ships
         // under.
         constexpr uint32_t kImportInfoVersion = kMeshAssetSubsystemVersion;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
@@ -340,11 +341,14 @@ namespace Desert::Assets
             w.String( MeshDisplacementModeName( info.Settings.Displacement ) );
             w.F32( info.Settings.DisplacementBake.EdgeLengthCm );
             w.U32( info.Settings.VirtualGeometry ? 1u : 0u );
+            w.U32( static_cast<uint32_t>( info.Settings.Canopy.LeafSlots.size() ) );
+            for ( const std::string& slot : info.Settings.Canopy.LeafSlots )
+                w.String( slot );
             return std::move( w.Out );
         }
 
         // @p expected: kImportInfoVersion, or 1 / 2 for UpgradeMeshSourceAsset (1: no displacement fields; 1 and
-        // 2: no VirtualGeometry, read as off).
+        // 2: no VirtualGeometry, read as off; 1 to 3: no Canopy, read as none).
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                             const uint32_t expected = kImportInfoVersion )
         {
@@ -369,6 +373,17 @@ namespace Desert::Assets
             uint32_t virtualGeometry = 0;
             if ( expected >= 3 )
                 virtualGeometry = r.U32();
+            if ( expected >= 4 )
+            {
+                const uint32_t leafSlots = r.U32();
+                // Each name costs at least its u32 length: a count the remaining bytes cannot hold is corrupt,
+                // not an allocation to attempt.
+                if ( r.Ok && leafSlots > ( bytes.size() - r.At ) / 4 )
+                    return Common::MakeFormattedError<MeshImportInfo>(
+                         "mesh ImportInfo states {} canopy leaf slots, more than its bytes hold", leafSlots );
+                for ( uint32_t k = 0; r.Ok && k < leafSlots; ++k )
+                    info.Settings.Canopy.LeafSlots.push_back( r.String() );
+            }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<MeshImportInfo>( "mesh ImportInfo is truncated or has trailing bytes" );
             if ( virtualGeometry > 1u )
@@ -645,14 +660,16 @@ namespace Desert::Assets
         using Out = std::optional<std::vector<std::byte>>;
         if ( DecodeMeshSourceAssetAt( file, kMeshAssetSubsystemVersion ).IsSuccess() )
             return Common::MakeSuccess( Out{} );
-        auto old = DecodeMeshSourceAssetAt( file, 2 );
+        auto old = DecodeMeshSourceAssetAt( file, 3 );
+        if ( !old.IsSuccess() )
+            old = DecodeMeshSourceAssetAt( file, 2 );
         if ( !old.IsSuccess() )
             old = DecodeMeshSourceAssetAt( file, 1 );
         if ( !old.IsSuccess() )
-            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 2 or 1 reads it: {}",
+            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 3, 2 or 1 reads it: {}",
                                                     kMeshAssetSubsystemVersion, old.GetError() );
         // DecodeImportInfo at version 1 left Displacement = None and the default bake settings; at 1 and 2,
-        // VirtualGeometry off.
+        // VirtualGeometry off; at 1 to 3, no canopy.
         auto encoded = EncodeMeshSourceAsset( old.GetValue() );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );

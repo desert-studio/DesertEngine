@@ -35,7 +35,8 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         13; // 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG);
+         14; // 14: canopy leaf cards (MeshImportSettings::Canopy: crown normal + depth in COLOR_0.a);
+             // 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG);
              // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
              // tangent frames together; 10: UV weighs 0.5 in the reduction
              // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
@@ -103,7 +104,9 @@ namespace Desert::Assets
 
     // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
     // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into
-    // hashing two different things for "the same" file.
+    // hashing two different things for "the same" file. A .gltf also hashes every external buffer its
+    // "buffers" name (the .bin files hold the geometry; a buffer edited alone is a new source, as UE's DDC
+    // keys cover every file the source reads); a buffer that cannot be read is an error.
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file );
 
     // Source file bytes -> DDC key. No settings image beyond the builder version: unlike the render bucket,

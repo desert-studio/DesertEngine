@@ -9,10 +9,14 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
+#include <algorithm>
 #include <bit>
+#include <cctype>
+#include <format>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -48,6 +52,15 @@ namespace Desert::Assets
             const Geometry::ClusterDagSettings dag;
             PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
             PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
+        }
+        // The canopy's leaf slots, by name (count, then each name's length and bytes): which sections the build
+        // turns into the crown's volume.
+        PutU32( out, static_cast<uint32_t>( settings.Import.Canopy.LeafSlots.size() ) );
+        for ( const std::string& slot : settings.Import.Canopy.LeafSlots )
+        {
+            PutU32( out, static_cast<uint32_t>( slot.size() ) );
+            for ( const char c : slot )
+                out.push_back( static_cast<std::byte>( c ) );
         }
         PutU32( out, settings.BuilderVersion );
         return out;
@@ -136,8 +149,52 @@ namespace Desert::Assets
         if ( !bytes.IsSuccess() )
             return Common::MakeFormattedError<uint64_t>( "'{}' cannot be read: {}", file.string(),
                                                          bytes.GetError() );
-        return Common::MakeSuccess(
-             Common::Utils::PakContentHash( bytes.GetValue().data(), bytes.GetValue().size() ) );
+        const uint64_t own = Common::Utils::PakContentHash( bytes.GetValue().data(), bytes.GetValue().size() );
+        auto ext = file.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), []( unsigned char c ) { return std::tolower( c ); } );
+        if ( ext != ".gltf" )
+            return Common::MakeSuccess( own );
+
+        // A .gltf is a JSON index over its buffers: the geometry lives in the .bin files its "buffers" name, so
+        // a buffer edited alone (a baked sidecar, foliage_canopy_normals.py) is a different source, as UE's DDC
+        // keys hash every file the source reads. The key is the hash of (own hash, each external buffer's hash)
+        // in file order; an embedded data: URI is already inside the .gltf's bytes.
+        const auto document = Common::Json::Parse( bytes.GetValue() );
+        if ( !document.IsSuccess() )
+            return Common::MakeFormattedError<uint64_t>( "'{}' is not valid JSON: {}", file.string(),
+                                                         document.GetError() );
+        std::vector<uint64_t> parts{ own };
+        std::string           failure;
+        if ( const auto buffers = Common::Json::Root( document.GetValue() ).Find( "buffers" ) )
+            buffers->ForEachElement(
+                 [&]( std::size_t index, const Common::Json::Node& buffer )
+                 {
+                     const auto uriNode = buffer.Find( "uri" );
+                     if ( !uriNode || !failure.empty() )
+                         return; // a GLB-style buffer without a URI has no file of its own
+                     const auto uri = uriNode->AsString();
+                     if ( !uri.IsSuccess() )
+                     {
+                         failure = std::format( "buffers[{}].uri: {}", index, uri.GetError() );
+                         return;
+                     }
+                     if ( uri.GetValue().starts_with( "data:" ) )
+                         return;
+                     const auto path  = file.parent_path() / std::filesystem::path( uri.GetValue() );
+                     const auto bytes = Common::Utils::FileSystem::ReadFileContent( path );
+                     if ( !bytes.IsSuccess() )
+                     {
+                         failure = std::format( "buffer '{}' cannot be read: {}", path.string(), bytes.GetError() );
+                         return;
+                     }
+                     parts.push_back(
+                          Common::Utils::PakContentHash( bytes.GetValue().data(), bytes.GetValue().size() ) );
+                 } );
+        if ( !failure.empty() )
+            return Common::MakeFormattedError<uint64_t>( "'{}': {}", file.string(), failure );
+        if ( parts.size() == 1 )
+            return Common::MakeSuccess( own );
+        return Common::MakeSuccess( Common::Utils::PakContentHash( parts.data(), parts.size() * sizeof( uint64_t ) ) );
     }
 
     uint64_t MeshSourceDerivedDataKey( const uint64_t sourceFileHash )
