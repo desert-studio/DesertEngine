@@ -27,15 +27,25 @@ namespace Desert::Graphic::API::Vulkan
         return allocator.RT_AllocateBuffer( tag, info, VMA_MEMORY_USAGE_GPU_ONLY, out );
     }
 
-    // Copies @p size bytes of @p data to @p dst at @p offset through a staging buffer.
-    [[nodiscard]] inline Common::BoolResultStr RT_WritePooledBuffer( VulkanAllocator& allocator,
-                                                                     const VkBuffer dst, const uint64_t offset,
-                                                                     const void* data, const uint64_t size )
+    // THE ONE UPLOAD PATH OF A DEVICE-LOCAL BUFFER (a GeometryPool arena range, a static vertex or index buffer):
+    // copies @p size bytes of @p data to @p dst at @p offset through a staging buffer, SUBMITTED AND NOT WAITED FOR
+    // (FPS-CPU-3; UE's RHI upload batching: the loading thread never sleeps on the GPU). @p data is copied into the
+    // staging buffer before this returns, so the caller may drop it at once. The staging buffer is released once
+    // the copy's fence is seen signalled (CommandBufferAllocator::CollectFinished, every frame).
+    // THE BARRIERS ARE THE WHOLE DEPENDENCY. The first: ALL_COMMANDS/MEMORY_WRITE -> TRANSFER, so every earlier
+    // submission on the queue - a frame still reading the range a recycled arena slot reuses, an earlier write
+    // to it - is done before the copy writes. The second: TRANSFER_WRITE -> ALL_COMMANDS/MEMORY_READ|WRITE, so
+    // every later submission sees the bytes, whatever reads them (vertex input, index fetch, a storage read, a
+    // BLAS build, a copy out of the arena). Readers on another queue go through FlushOneShot, which waits the
+    // in-flight uploads first.
+    [[nodiscard]] inline Common::BoolResultStr RT_UploadDeviceBuffer( VulkanAllocator& allocator, const VkBuffer dst,
+                                                                      const uint64_t offset, const void* data,
+                                                                      const uint64_t size )
     {
         if ( size == 0 )
             return Common::MakeSuccess( true );
         if ( dst == VK_NULL_HANDLE )
-            return Common::MakeError<bool>( "pooled buffer write before the buffer was created" );
+            return Common::MakeError<bool>( "device buffer write before the buffer was created" );
         VkBufferCreateInfo info{};
         info.sType         = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         info.size          = size;
@@ -43,7 +53,7 @@ namespace Desert::Graphic::API::Vulkan
         info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
         VkBuffer   staging = VK_NULL_HANDLE;
         const auto allocated =
-             allocator.RT_AllocateBuffer( "PooledBuffer_staging", info, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
+             allocator.RT_AllocateBuffer( "DeviceBuffer_staging", info, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
         if ( !allocated.IsSuccess() )
             return Common::MakeError<bool>( allocated.GetError() );
         const VmaAllocation stagingMemory = allocated.GetValue();
@@ -54,7 +64,7 @@ namespace Desert::Graphic::API::Vulkan
             {
                 mapping.Unmap();
                 allocator.RT_DestroyBuffer( staging, stagingMemory );
-                return Common::MakeFormattedError<bool>( "pooled buffer staging write: {}", wrote.GetError() );
+                return Common::MakeFormattedError<bool>( "device buffer staging write: {}", wrote.GetError() );
             }
         }
         auto command = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
@@ -63,18 +73,29 @@ namespace Desert::Graphic::API::Vulkan
             allocator.RT_DestroyBuffer( staging, stagingMemory );
             return Common::MakeError<bool>( command.GetError() );
         }
+        const VkCommandBuffer cmd = command.GetValue();
+
+        const VkMemoryBarrier before = { .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                         .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+                                         .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT };
+        vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before,
+                              0, nullptr, 0, nullptr );
         VkBufferCopy region{};
         region.dstOffset = offset;
         region.size      = size;
-        vkCmdCopyBuffer( command.GetValue(), staging, dst, 1, &region );
-        const auto flushed =
-             CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( command.GetValue() );
-        allocator.RT_ReleaseStaging( staging, stagingMemory, flushed );
-        if ( !flushed.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "pooled buffer copy not submitted: {}", flushed.GetError() );
-        if ( flushed.GetValue() != VK_SUCCESS )
-            return Common::MakeFormattedError<bool>( "pooled buffer copy failed (VkResult {})",
-                                                     static_cast<int>( flushed.GetValue() ) );
+        vkCmdCopyBuffer( cmd, staging, dst, 1, &region );
+        const VkMemoryBarrier after = { .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                                        .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+        vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &after, 0,
+                              nullptr, 0, nullptr );
+
+        VulkanAllocator* const owner     = &allocator;
+        const auto             submitted = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
+             cmd, [owner, staging, stagingMemory]
+             { owner->RT_ReleaseStaging( staging, stagingMemory, Common::MakeSuccess( VK_SUCCESS ) ); } );
+        if ( !submitted.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "device buffer copy not submitted: {}", submitted.GetError() );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::API::Vulkan

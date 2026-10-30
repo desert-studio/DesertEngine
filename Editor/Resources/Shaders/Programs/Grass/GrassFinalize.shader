@@ -1,7 +1,7 @@
 // DesertAsset {"Kind":"Shader","Guid":"9af5b17398544149b3546d72bc857b7b","Versions":{"SHDR":1},"Dependencies":[]}
 // After GrassGenerate: each bucket's appended count, clamped to its capacity, becomes the instanceCount of the
-// records that draw it and its first instance their firstInstance (GpuInstances.hpp: one bucket for every section of
-// a mesh, bucket s for record s of a blade strip), the UNCLAMPED counts (the generator's atomic counts past the
+// records that draw it and its first instance their firstInstance (GpuInstances.hpp: bucket L for the submeshes'
+// records of a mesh's level L - one bucket without a LOD chain - and bucket s for record s of a blade strip), the UNCLAMPED counts (the generator's atomic counts past the
 // capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback), and
 // the counters are reset for the next frame's generation. One thread.
 Shader "GrassFinalize"
@@ -12,7 +12,7 @@ Shader "GrassFinalize"
 
         Buffer(0) Args
         {
-            uint Arguments[]; // bucket count, capacity, submesh count, drawn, 5 words per submesh, 4 per bucket
+            uint Arguments[]; // bucket count, capacity, record count, drawn, 5 words per record, 4 per bucket
         };
 
         Buffer(1) Feedback
@@ -23,10 +23,13 @@ Shader "GrassFinalize"
         void main()
         {
             uint buckets = Arguments[0];
-            uint table   = 4u + Arguments[2] * 5u;
-            for ( uint s = 0u; s < Arguments[2]; ++s )
+            uint records = Arguments[2];
+            uint table   = 4u + records * 5u;
+            // Records come in equal groups, one per bucket (a blade strip: groups of one).
+            uint group   = max( 1u, records / buckets );
+            for ( uint s = 0u; s < records; ++s )
             {
-                uint b = buckets == 1u ? 0u : min( s, buckets - 1u );
+                uint b = min( s / group, buckets - 1u );
                 uint at = table + b * 4u;
                 Arguments[4u + s * 5u + 1u] = min( Arguments[at], Arguments[at + 2u] );
                 Arguments[4u + s * 5u + 4u] = Arguments[at + 1u];

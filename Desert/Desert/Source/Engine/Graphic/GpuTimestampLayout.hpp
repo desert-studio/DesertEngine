@@ -133,14 +133,19 @@ namespace Desert::Graphic
 
         // The scope's index (its queries are GpuScopeQueryBase( index ) and the next), or -1 when the pool
         // is full. A refused scope still counts towards Requested(), which is what grows the pool.
+        // A scope opened DIRECTLY inside an open scope of the same name and owner is that scope again - the render
+        // graph times every node by its name (VulkanRdgBackend::BeginPass) and a node's record body may open its own
+        // DESERT_PROFILE_PASS with the same name: it is not timed twice (-1, as a refused scope), so one pass is
+        // one row of one count, not "x2" at twice its time (FPS-MAC: "Clouds: ShadowMap" / "Sky: SkyViewLut").
         [[nodiscard]] int32_t Begin( std::string name, const void* owner )
         {
+            const uint32_t stackIndex = StackOf( owner );
+            auto&          stack      = m_Stacks[stackIndex].second;
+            if ( !stack.empty() && m_Scopes[static_cast<size_t>( stack.back() )].Name == name )
+                return -1;
             ++m_Requested;
             if ( m_Scopes.size() >= m_Capacity )
                 return -1;
-
-            const uint32_t stackIndex = StackOf( owner );
-            auto&          stack      = m_Stacks[stackIndex].second;
 
             const auto index = static_cast<int32_t>( m_Scopes.size() );
             m_Scopes.push_back(

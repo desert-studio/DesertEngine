@@ -628,15 +628,54 @@ namespace Desert::Graphic::System
         }
     }
 
-    void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights )
+    void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,
+                                                   const std::vector<float>& cascadeWorldPerTexel )
     {
         // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
         m_LocalLightDraws.clear();
         for ( const LocalShadowCasterLight& light : localLights )
             m_LocalLightDraws.push_back(
                  { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
+        m_CascadeDraws.assign( cascadeWorldPerTexel.size(), {} );
         if ( m_Queue.empty() )
             return;
+
+        // ── Each sun cascade's draws: the camera's tiles and LOD, diced to the cascade's own texels ──────────
+        //
+        // The camera's rows dice the displaced landscape to DicingRate PIXELS of the camera (16 sub-cells a side
+        // at the eye); a far cascade's texel is metres wide, and drawing the camera's dice into every cascade
+        // was the largest share of the frame (FPS-MAC p5: the four cascades 182 ms of a 520 ms GPU frame at
+        // FIELD_Barn's eye, 25 ms without the dicing). LandscapeCasterDicedRow keeps the camera's vertices up
+        // to the finest dice the cascade resolves; a row that changes goes after the camera's in its group
+        // buffer, as the lights' rows do (instance row only - the shadow program reads no param row).
+        const int dicingRate = m_SceneRenderer->GetDisplacementDicingRate();
+        for ( std::size_t v = 0; v < cascadeWorldPerTexel.size(); ++v )
+        {
+            if ( cascadeWorldPerTexel[v] <= 0.0f )
+                continue;
+            std::vector<FrameDraw>& draws = m_CascadeDraws[v];
+            draws.reserve( m_FrameDraws.size() );
+            for ( std::size_t i = 0; i < m_Queue.size(); ++i )
+            {
+                const FrameDraw&         camera = m_FrameDraws[i];
+                const LandscapeTileDraw& l      = m_Queue[i].Landscape;
+                const TerrainInstance    row    = LandscapeCasterDicedRow( m_FrameInstances[i], l.SpacingCm,
+                                                                           cascadeWorldPerTexel[v], dicingRate );
+                const uint32_t           count =
+                     LandscapeDicedVertexCount( l.QuadsPerTile, static_cast<uint32_t>( row.Params.w ), row );
+                if ( count == camera.VertexCount )
+                {
+                    draws.push_back( camera );
+                    continue;
+                }
+                FrameGroup& group = m_FrameGroups[camera.Group];
+                FrameDraw   draw  = camera;
+                draw.Row          = static_cast<uint32_t>( group.Instances.size() );
+                draw.VertexCount  = count;
+                draws.push_back( draw );
+                group.Instances.push_back( row );
+            }
+        }
 
         // ── Each point/spot light's own draws: the tiles in its reach, at the LOD its position asks for ─────────
         //
@@ -863,7 +902,12 @@ namespace Desert::Graphic::System
         for ( const LocalLightDraws& local : m_LocalLightDraws )
             if ( local.Light.Owns( view ) )
                 return local.Draws;
-        // A cascade (or its movable layer): the camera's draws, whose vertices the receivers' are.
+        // A cascade (or its movable layer, kCascadeMovableViewBase + v with the base at the cascade count): the
+        // camera's tiles at the cascade's dicing. A view no cascade was prepared for draws the camera's.
+        const std::size_t cascades = m_CascadeDraws.size();
+        const std::size_t cascade  = view >= cascades && view < 2 * cascades ? view - cascades : view;
+        if ( cascade < cascades && !m_CascadeDraws[cascade].empty() )
+            return m_CascadeDraws[cascade];
         return m_FrameDraws;
     }
 

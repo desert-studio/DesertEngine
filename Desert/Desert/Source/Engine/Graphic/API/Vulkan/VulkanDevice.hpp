@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingFunctions.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanResourceSharing.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp> // VulkanPresentationDispatch
 
@@ -80,6 +81,16 @@ namespace Desert::Graphic::API::Vulkan
             return m_ResolvedQueueFamilies.Transfer;
         }
 
+        /// The sharing every buffer and image the engine creates is made with (VulkanResourceSharing.hpp):
+        /// CONCURRENT across the distinct graphics / compute / transfer families, EXCLUSIVE when there is one.
+        /// Settled with the families; the reference is stable for the device's life (create infos point into it).
+        [[nodiscard]] const VulkanResourceSharing& GetResourceSharing() const
+        {
+            DESERT_VERIFY( m_QueueFamiliesResolved,
+                           "resource sharing read before VulkanPhysicalDevice::Create() settled the families" );
+            return m_ResourceSharing;
+        }
+
         VkFormat GetDepthFormat() const
         {
             return m_DepthFormat;
@@ -125,6 +136,7 @@ namespace Desert::Graphic::API::Vulkan
         QueueFamilyIndices                   m_QueueFamilyIndices;
         ResolvedQueueFamilies                m_ResolvedQueueFamilies;
         bool                                 m_QueueFamiliesResolved = false;
+        VulkanResourceSharing                m_ResourceSharing;
 
         VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 
