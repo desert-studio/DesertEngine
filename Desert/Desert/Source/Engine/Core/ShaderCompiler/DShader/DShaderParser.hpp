@@ -129,7 +129,8 @@ namespace Desert::Core::Preprocess
     // The passes a `.VirtualGeometry` cell exists for: every binned one (VIRT-GEOM step 17: the virtual shadow map
     // rasters the clusters of every level in one pass, "VSM: Raster VirtualGeometry", with
     // "<T>/<Path>.VirtualShadowDepth[.Parallax].Binned.VirtualGeometry" - the twin of its own table's group).
-    inline constexpr std::array<std::string_view, 4> kSurfaceVirtualGeometryCellPasses = kSurfaceBinnedCellPasses;
+    inline constexpr std::array<std::string_view, 4> kSurfaceVirtualGeometryCellPasses = {
+        "Forward", "GBuffer", "ShadowDepth", "VirtualShadowDepth" };
     // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless
     // the stage defined it first (a binned cell: the vertex stage's resolved row, SurfaceTypes.glslh
     // g_SurfaceMaterialRow).
