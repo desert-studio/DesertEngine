@@ -66,7 +66,6 @@ project "WorldGen"
     includedirs(DesertModuleLibs.IncludeDirs())
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
     }
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do

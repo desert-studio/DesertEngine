@@ -6,6 +6,9 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <filesystem>
@@ -96,6 +99,14 @@ namespace Desert::Editor
         slot.Stamp = stamp;
         slot.Racy  = Common::Utils::IsRacyWriteTime( stamp, readBegan );
         return Common::MakeSuccess( ToolTargetMesh{ slot.Mesh, nullptr } );
+    }
+
+    ECS::StaticMeshComponent* FindToolTargetComponent( ::Desert::Core::Scene& scene, const Common::UUID& id )
+    {
+        auto ref = scene.FindEntityByID( id );
+        if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            return nullptr;
+        return &ref->get().GetComponent<ECS::StaticMeshComponent>();
     }
 
     MeshRestore PlanMeshRestore( const MeshPtr& current, const MeshPtr& state )

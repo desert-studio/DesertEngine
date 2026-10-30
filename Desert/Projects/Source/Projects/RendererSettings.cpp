@@ -14,8 +14,8 @@ namespace Desert::Project
     {
         // The cache CurrentRendererSettings() answers from and the project directory it was filled for, shared
         // with SaveRendererSettings so a save is what the next read returns (as GameSettings.cpp).
-        std::string      loadedFor;
-        RendererSettings settings;
+        std::string      rendererLoadedFor;
+        RendererSettings rendererSettings;
 
         std::filesystem::path RendererSettingsFile( const std::string& projectDirectory )
         {
@@ -26,25 +26,25 @@ namespace Desert::Project
     const RendererSettings& CurrentRendererSettings()
     {
         const std::string directory = ProjectContext::HasProject() ? ProjectContext::Directory() : std::string{};
-        if ( directory == loadedFor )
-            return settings;
-        loadedFor = directory;
-        settings  = {};
+        if ( directory == rendererLoadedFor )
+            return rendererSettings;
+        rendererLoadedFor = directory;
+        rendererSettings  = {};
         if ( directory.empty() )
-            return settings;
+            return rendererSettings;
 
         const std::filesystem::path path = RendererSettingsFile( directory );
         std::error_code             exists;
         if ( !std::filesystem::exists( path, exists ) )
-            return settings; // the project keeps the renderer's defaults
+            return rendererSettings; // the project keeps the renderer's defaults
         auto parsed = Common::Json::ReadFile<RendererSettings>( path );
         if ( !parsed )
         {
             LOG_ERROR( "[Project] {} does not parse: {}", path.string(), parsed.GetError() );
-            return settings;
+            return rendererSettings;
         }
-        settings = parsed.GetValue();
-        return settings;
+        rendererSettings = parsed.GetValue();
+        return rendererSettings;
     }
 
     Common::BoolResultStr SaveRendererSettings( const RendererSettings& toSave )
@@ -65,8 +65,8 @@ namespace Desert::Project
             return Common::MakeError<bool>(
                  std::format( "{} was not saved: {}", path.string(), written.GetError() ) );
 
-        loadedFor = directory;
-        settings  = toSave;
+        rendererLoadedFor = directory;
+        rendererSettings  = toSave;
         LOG_INFO( "[Project] saved the renderer settings -> {}", path.string() );
         return Common::MakeSuccess( true );
     }

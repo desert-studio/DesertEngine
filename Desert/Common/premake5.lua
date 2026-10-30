@@ -67,10 +67,6 @@ endif
         externalincludedirs { path }
     end
     
-    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
-        externalincludedirs { path }
-    end
-    
     links { "Optick" }
 
     -- reflect-cpp, FROM THE TABLE THAT HAS NAMED IT SINCE JS1a AND THAT NOTHING READ UNTIL NOW.

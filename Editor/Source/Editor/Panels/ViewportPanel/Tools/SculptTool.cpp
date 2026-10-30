@@ -12,7 +12,6 @@
 #include <Engine/Geometry/DynamicMeshRemesh.hpp>
 #include <Engine/Geometry/DynamicMeshSculpt.hpp>
 #include <Engine/Geometry/ElementSelection.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <Common/Core/Logger.hpp>
 

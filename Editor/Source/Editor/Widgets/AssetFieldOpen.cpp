@@ -7,6 +7,11 @@
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        namespace ImGui = ::ImGui; // engine headers introduce a Desert::ImGui that would otherwise shadow ::ImGui
+    } // namespace
+
     void DrawAssetFieldOpen( uint64_t handle )
     {
         if ( handle == 0 )
