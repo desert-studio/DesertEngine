@@ -1,18 +1,26 @@
-# FOLIAGE-TRUNK-GLOW: the centre tree (FIELD_Barn "Tree 1", island_tree_01 as a StaticMesh entity) glowed green-yellow
-# on its trunk against a low sun while the scattered trees' trunks (FB_TreeA, the same mesh as ISMs) stayed dark.
-# The FOLIAGE-PROOF frame 3 setup; then the G-buffer views that name the cause.
+# FOLIAGE-TRUNK-GLOW: FOLIAGE-PROOF under its own name (own control socket; two runs of one .scn share a socket and deadlock).
+# FOLIAGE-PROOF: the landed foliage on FIELD_Barn in one run - GPU grass + blades to the horizon, the procedural scatter (S1),
+# wind on grass and leaves, leaves lit through from behind and contact shadows at the grass roots. Code is not changed.
+# The Bistro half (frame 4) is FOLIAGE-PROOF-BISTRO.scn: a scenario opens one project, Bistro is its own content project.
+# Sun aim: toward-sun = (cos El * sin Az, sin El, cos El * cos Az) (PORT-SUN-ROTATION: El 5 / Az 54.5 = +X+Z).
 Дано run Scene "Open Scene FIELD_Barn.desce"
+# The view mode is the editor's saved one (the first run came up in Wireframe: ISMs refused, barn as lines): set it.
 Дано run View "View mode: Lit"
-Дано --subject viewport set Camera.FOV 70
 Дано run Entity "Sun"
-Дано --subject selection set SunElevation 12
-Дано --subject selection set SunAzimuth 180
-Дано --subject viewport set Camera.Position -1500,450,-2800
-Дано --subject viewport set Camera.Direction 0,0.05,-1
-Тогда-вид 3_field_backlit the centre tree's trunk dark like the neighbouring trunks; the crowns lit through as before
-Когда run View "View mode: Shading Model"
-Тогда-вид 4_shading_model the centre trunk shows the Default Lit colour, the leaves the foliage colour
-Когда run View "View mode: Virtual Geometry Clusters"
-Тогда-вид 5_vg_clusters which meshes the cluster raster draws (diagnostic)
-Когда run View "View mode: Lit"
-Тогда-вид 6_lit_again the centre trunk as in 3_field_backlit (diagnostic: does a view-mode round trip change it)
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_field_grass GPU grass and blades to the horizon with no holes along cells; the scattered trees/shrubs (S1) read as a field, not a grid
+Когда run Action Simulate
+Когда advance 2
+Тогда-вид 2_field_wind the same view: grass and leaves displaced by the wind against 1_field_grass
+Когда run Action Stop
+# Against the sun: low sun (El 12) straight ahead of the camera (Az 180 = -Z), the tree line between.
+Когда run Entity "Sun"
+Когда --subject selection set SunElevation 12
+Когда --subject selection set SunAzimuth 180
+Когда --subject viewport set Camera.Position -1500,450,-2800
+Когда --subject viewport set Camera.Direction 0,0.05,-1
+Тогда-вид 3_field_backlit leaves glow with the sun behind them (transmission through the leaf); contact shadows dark at the grass roots
