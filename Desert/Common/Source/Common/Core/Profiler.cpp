@@ -85,8 +85,8 @@ namespace Common::Profiling
     } // namespace
 
     ScopedTimer::ScopedTimer( const char* name, ScopeKind kind )
-        : m_Name( name ), m_Enclosing( t_Innermost ), m_Start( std::chrono::high_resolution_clock::now() ),
-          m_Kind( kind )
+         : m_Name( name ), m_Enclosing( t_Innermost ), m_Start( std::chrono::high_resolution_clock::now() ),
+           m_Kind( kind )
     {
         t_Innermost = this;
     }

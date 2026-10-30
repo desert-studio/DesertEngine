@@ -115,16 +115,18 @@ namespace Desert::Graphic::API::Vulkan
                 if ( timelines )
                     prepared.SignalValues.push_back( 0 );
             }
-            prepared.Timeline    = VkTimelineSemaphoreSubmitInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            prepared.Timeline =
+                 VkTimelineSemaphoreSubmitInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
             prepared.HasTimeline = !prepared.WaitValues.empty() || !prepared.SignalValues.empty();
             if ( prepared.HasTimeline )
             {
                 prepared.WaitValues.resize( prepared.Waits.size(), 0 );
                 prepared.SignalValues.resize( prepared.Signals.size(), 0 );
-                prepared.Timeline.waitSemaphoreValueCount   = static_cast<uint32_t>( prepared.WaitValues.size() );
-                prepared.Timeline.pWaitSemaphoreValues      = prepared.WaitValues.data();
-                prepared.Timeline.signalSemaphoreValueCount = static_cast<uint32_t>( prepared.SignalValues.size() );
-                prepared.Timeline.pSignalSemaphoreValues    = prepared.SignalValues.data();
+                prepared.Timeline.waitSemaphoreValueCount = static_cast<uint32_t>( prepared.WaitValues.size() );
+                prepared.Timeline.pWaitSemaphoreValues    = prepared.WaitValues.data();
+                prepared.Timeline.signalSemaphoreValueCount =
+                     static_cast<uint32_t>( prepared.SignalValues.size() );
+                prepared.Timeline.pSignalSemaphoreValues = prepared.SignalValues.data();
             }
         }
         // The tail is a graphics entry recorded after any acquire, so an output always finds its waiter. Refused
@@ -197,7 +199,8 @@ namespace Desert::Graphic::API::Vulkan
                 for ( size_t rest = first; rest < frame.size(); ++rest )
                     m_QueueObjects.SignalOnHost( frame[rest].ExternalSignals );
                 return Common::MakeFormattedError<bool>( "vkQueueSubmit of frame entries {}..{} of {} failed: {}",
-                                                         first, end - 1, frame.size(), VkResultToString( submitted ) );
+                                                         first, end - 1, frame.size(),
+                                                         VkResultToString( submitted ) );
             }
             first = end;
         }

@@ -63,9 +63,9 @@ namespace Desert::Graphic::API::Vulkan
         // first in the common case, so an OUT_OF_DATE here is the rare case of a surface that changed between
         // the boundary and the last pass.
         auto* const presentComplete = m_FrameSemaphores[currentIndex].PresentComplete;
-        const auto  held            = Graphic::AcquireLate(
-             [&] { return m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex ); },
-             [&] { m_SwapChain->RequestRebuildAtCurrentSize(); } );
+        const auto  held =
+             Graphic::AcquireLate( [&] { return m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex ); },
+                                   [&] { m_SwapChain->RequestRebuildAtCurrentSize(); } );
         if ( !held.IsSuccess() )
         {
             // A LOST DEVICE IS NOT A RESIZE: AcquireNextImage refuses on a lost device and the latch already
