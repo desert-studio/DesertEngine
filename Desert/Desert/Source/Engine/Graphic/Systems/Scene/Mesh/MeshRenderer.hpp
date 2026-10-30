@@ -453,8 +453,8 @@ namespace Desert::Graphic::System
         // a bare row.
         struct RowSurface
         {
-            const DataDrivenMaterial* Surface  = nullptr;
-            const MaterialInstance*   Instance = nullptr;
+            const DataDrivenMaterial* Surface                               = nullptr;
+            const MaterialInstance*   Instance                              = nullptr;
             bool                      operator==( const RowSurface& ) const = default;
         };
 
