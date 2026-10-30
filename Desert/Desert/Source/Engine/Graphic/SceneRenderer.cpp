@@ -1929,7 +1929,8 @@ namespace Desert::Graphic
                 for ( uint32_t v = 0; v < SceneResources::kMaxCascadeViews; ++v )
                     cascadeWorldPerTexel[v] = localShadowMeshes->GetCascadeWorldPerTexel( v );
                 UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(), cascadeWorldPerTexel );
+                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(),
+                                                cascadeWorldPerTexel );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
