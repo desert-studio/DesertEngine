@@ -307,6 +307,27 @@ uint g_SurfaceMaterialRow = 0u;
 #define DESERT_SURFACE_BEGIN_FRAGMENT()
 #endif
 
+// A CANOPY VERTEX (FIELD-WINTER p9). A tree's leaf cards whose normal is its crown's VOLUME normal (UE / SpeedTree
+// foliage: the card normals are transferred from a proxy around the crown, so the crown shades and takes snow as one
+// volume) carry the canopy in COLOR_0.a: alpha in [0, kDesertCanopyAlphaMax] is a canopy vertex, its depth below the
+// crown's top surface = (1 - alpha / kDesertCanopyAlphaMax) * kDesertCanopyDepthRangeCm; a mesh without vertex
+// colours reads white (alpha 1) = not a canopy. Baked by scripts/Content/foliage_canopy_normals.py.
+const float kDesertCanopyDepthRangeCm = 1024.0;
+const float kDesertCanopyAlphaMax     = 0.5;
+
+bool DesertIsCanopyVertex( const vec4 vertexColor )
+{
+    return vertexColor.a <= kDesertCanopyAlphaMax + 0.5 / 255.0;
+}
+
+// How far (cm) a canopy vertex hangs below its crown's top surface; 0 for any other vertex.
+float DesertCanopyDepthCm( const vec4 vertexColor )
+{
+    return DesertIsCanopyVertex( vertexColor )
+              ? ( 1.0 - clamp( vertexColor.a / kDesertCanopyAlphaMax, 0.0, 1.0 ) ) * kDesertCanopyDepthRangeCm
+              : 0.0;
+}
+
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
                                  bool frontFacing )
@@ -319,7 +340,11 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
     // header is compiled into the vertex stage too, where the built-in does not exist. Without the flip a leaf
     // card seen from behind was lit as the side facing away (no sun, the far hemisphere's ambient, a grazing sky
     // reflection). The whole TBN turns, so a tangent-space normal map lands on the visible side as well.
-    const float facing = frontFacing ? 1.0 : -1.0;
+    // A CANOPY vertex is the exception: its normal is the crown's volume normal, the same for both faces of the card
+    // (the crown's top faces up whichever side of a card the viewer sees), so it is not negated - negated, every
+    // card seen from its back read the crown's top as facing down: dark, and bare of snow (FIELD-WINTER p9 debug
+    // frame: the crowns' tops back-facing with the normal pointing down).
+    const float facing = ( frontFacing || DesertIsCanopyVertex( vertexColor ) ) ? 1.0 : -1.0;
     SurfaceInput i;
     i.WorldPosition = worldPosition;
     i.Normal        = facing * normalize( normal );

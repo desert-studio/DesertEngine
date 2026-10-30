@@ -9,7 +9,7 @@
 # negates the normal on the back face (SurfaceTypes.glslh DesertSurfaceInput, UE's TwoSidedSign), so a card wound
 # inward would show the crown's outside as its inside - the canopy normal pointing down on the crown's top.
 # Per leaf vertex it also bakes the CANOPY DEPTH: how far (cm) the vertex hangs below its crown's top surface (the
-# highest leaf over its (x, z) neighbourhood, in the frame the plant stands in), as COLOR_0.a = 1 - depth / 1024 cm.
+# highest leaf over its (x, z) neighbourhood, in the frame the plant stands in), as COLOR_0.a = 0.5 * (1 - depth / 1024 cm) (alpha <= 0.5 marks the canopy vertex).
 # The surface's snow / rain occlusion is looked up that far up (SurfaceWeather.glslh DesertCanopyLift), so a card
 # reads what OTHER casters hold over its crown rather than its own crown's top (UE foliage snow: a world-up mask on
 # the crown volume, no self-occlusion inside it). A file may hold several plants (one crown per node).
@@ -21,8 +21,10 @@ from array import array
 
 COMPONENT = {5121: 'B', 5123: 'H', 5125: 'I', 5126: 'f'}
 WIDTH = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4}
-# Must equal kDesertCanopyDepthRangeCm (Editor/Resources/Shaders/Mesh/Surface/SurfaceWeather.glslh).
+# Must equal kDesertCanopyDepthRangeCm / kDesertCanopyAlphaMax (Editor/Resources/Shaders/Mesh/Surface/SurfaceTypes.glslh):
+# alpha in [0, 0.5] marks a canopy vertex (its normal is the crown's, not negated on a card's back face).
 CANOPY_DEPTH_RANGE_CM = 1024.0
+CANOPY_ALPHA_MAX = 0.5
 
 
 def read_accessor(gltf, buffers, index):
@@ -211,7 +213,7 @@ def main():
                 deepest = max(deepest, depth)
                 c = 4 * v
                 col[c], col[c + 1], col[c + 2] = 1.0, 1.0, 1.0
-                col[c + 3] = 1.0 - min(depth / CANOPY_DEPTH_RANGE_CM, 1.0)
+                col[c + 3] = CANOPY_ALPHA_MAX * (1.0 - min(depth / CANOPY_DEPTH_RANGE_CM, 1.0))
             # Winding is tested in the crown's frame against the crown-frame normal (a proper rotation keeps the
             # handedness; a mirroring node would flip it, and is refused below).
             tri = array('I', idx)

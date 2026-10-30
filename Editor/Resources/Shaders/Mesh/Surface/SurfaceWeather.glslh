@@ -27,15 +27,12 @@
 // (UE / SpeedTree foliage: the leaf cards carry the crown's normal), but the map is a top-down depth of the casters,
 // and the crown is its own caster: every card under the crown's top read the crown above it as its roof, so only
 // the topmost specks took snow. The asset carries, per leaf vertex, how far below its crown's top surface it hangs
-// (scripts/Content/foliage_canopy_normals.py: COLOR_0.a = 1 - depth / kDesertCanopyDepthRangeCm), and the lookup
-// is lifted by that depth: the card reads the occlusion at the crown's surface above it - what OTHER casters hold
-// over the crown - and the canopy normal decides how much of the volume faces the sky (the crown's underside
-// faces down and stays bare). A mesh without vertex colours reads white (alpha 1) = no lift.
-const float kDesertCanopyDepthRangeCm = 1024.0;
-
+// (SurfaceTypes.glslh DesertCanopyDepthCm), and the lookup is lifted by that depth: the card reads the occlusion at
+// the crown's surface above it - what OTHER casters hold over the crown - and the canopy normal decides how much of
+// the volume faces the sky (the crown's underside faces down and stays bare). Any other vertex: no lift.
 float DesertCanopyLift( SurfaceInput i )
 {
-    return ( 1.0 - clamp( i.VertexColor.a, 0.0, 1.0 ) ) * kDesertCanopyDepthRangeCm;
+    return DesertCanopyDepthCm( i.VertexColor );
 }
 
 float DesertRainOcclusion( SurfaceInput i )
