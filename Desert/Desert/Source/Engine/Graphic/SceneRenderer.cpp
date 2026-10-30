@@ -2017,10 +2017,11 @@ namespace Desert::Graphic
             // path-traced frame draws none either: its paths trace every light's visibility through the TLAS.
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
-            // (LocalShadowMapsRead: meshes, forward terrain, particles, the volumetric fog's froxels) - no
-            // reader the masks cannot serve loses its shadows.
+            // (LocalShadowMapsRead: meshes, forward terrain, particles, the water, the volumetric fog's froxels) -
+            // no reader the masks cannot serve loses its shadows.
             // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
-            // terrain, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM (ForwardShadowMaskVariant).
+            // terrain, the water, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM
+            // (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes =
@@ -2068,12 +2069,12 @@ namespace Desert::Graphic
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (SunCascadesRead: blended/glass mesh draws, forward terrain, particles,
-            // the volumetric fog's froxels - each program that declares ShadowCascadesTexture; the low-detail sun
-            // CSM, budgeted by the Shadows.RayTracedTranslucency* rows). Not drawn -> the view binds the far-plane
-            // stand-in, never last drawn frame's maps; drawn after a gap -> every cascade's static cache is
-            // redrawn (it went stale while nothing drew it). A path-traced frame reads no cascade: its paths trace
-            // the sun's visibility through the TLAS, and the lit passes that sample the maps do not run. EVERY
-            // OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
+            // the water, the volumetric fog's froxels - each program that declares ShadowCascadesTexture; the
+            // low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency* rows). Not drawn -> the view
+            // binds the far-plane stand-in, never last drawn frame's maps; drawn after a gap -> every cascade's
+            // static cache is redrawn (it went stale while nothing drew it). A path-traced frame reads no cascade:
+            // its paths trace the sun's visibility through the TLAS, and the lit passes that sample the maps do
+            // not run. EVERY OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
             // kShadowLightAtmosphere1: DeferredScreenShadowMask::Lights, the surface cache's cascade arm), so the
             // array is drawn while any slot casts. The sun's own slot is dropped when nothing reads it
             // (MeshRenderer::DropDirectionalShadow): its layers are not drawn for the moon's sake, and the
@@ -2679,18 +2680,24 @@ namespace Desert::Graphic
     namespace
     {
         // The readers of one shadow map name outside the mesh renderer: the forward terrain, the view's particle
-        // sprites (both prepared before OnUpdate's shadow gates) and the volumetric fog. A froxel has no screen
-        // position, so no screen mask can stand in for its lookup: while the fog's nodes run this frame
-        // (VolumetricFogRenderer::IsActive, settled by BeginScene and the scene's fog command) its scattering
-        // pass reads the sun's cascades and - outside VirtualMaps - the point/spot atlas through the same
-        // Point/SpotLightShadow every surface reads (Mesh/LocalLightShadowLookup.glslh). Without its maps the
-        // lights' ShadowView is -1 and the froxels light through every wall.
+        // sprites, the water surface (all prepared before OnUpdate's shadow gates) and the volumetric fog. A
+        // froxel has no screen position, so no screen mask can stand in for its lookup: while the fog's nodes run
+        // this frame (VolumetricFogRenderer::IsActive, settled by BeginScene and the scene's fog command) its
+        // scattering pass reads the sun's cascades and - outside VirtualMaps - the point/spot atlas through the
+        // same Point/SpotLightShadow every surface reads (Mesh/LocalLightShadowLookup.glslh). Without its maps the
+        // lights' ShadowView is -1 and the froxels light through every wall. The water is in no opaque depth the
+        // screen masks were traced against either: its program reads the maps wherever it draws
+        // (WaterRenderer::FrameSamples, after PrepareFrame).
         template <typename Systems>
         bool ShadowMapReadersOutsideMeshes( const Systems& systems, const std::string_view mapName )
         {
             const auto fog = systems.find( "VolumetricFogSystem" );
             if ( fog != systems.end() && fog->second &&
                  static_cast<const System::VolumetricFogRenderer*>( fog->second.get() )->IsActive() )
+                return true;
+            const auto water = systems.find( "WaterSystem" );
+            if ( water != systems.end() && water->second &&
+                 static_cast<const System::WaterRenderer*>( water->second.get() )->FrameSamples( mapName ) )
                 return true;
             const auto terrain = systems.find( "TerrainSystem" );
             if ( terrain != systems.end() && terrain->second &&

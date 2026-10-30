@@ -13,7 +13,8 @@
 //     water), surf where the wave height outgrows the depth (H / d past the breaker index); the foam stays on the
 //     water particle that broke and decays (WaterFoamAmount). Its look and thresholds are the material's;
 //   - the interface through the SHADING MODEL (ShadingModels/SingleLayerWater.shadingmodel): the sun's specular and
-//     the environment's reflection, the volume weighted by what the split-sum Fresnel lets through.
+//     the environment's reflection, the volume weighted by what the split-sum Fresnel lets through; the point and
+//     spot lights of the froxel through the same model, each under its shadow; the sun under its shadow maps.
 #include <Common/Velocity.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
@@ -27,6 +28,31 @@ layout( location = 3 ) out float oThinGeometryCoverage;
 
 Uniform sampler LinearClampSampler;
 Uniform sampler PointClampSampler;
+// The cascades and the cloud layer's map are read linear, repeat (Graphic::SceneViewDetail::BindWhere's states).
+Uniform sampler LinearRepeatSampler;
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+
+// THE LIGHTS AND SHADOWS OF EVERY TRANSLUCENT SURFACE (UE: single layer water reads the view's forward light grid and
+// the directional light's forward shadow, as every translucency does). The water is not in the opaque depth the
+// screen shadow masks were traced against, so it reads the shadow MAPS: the sun's cascades (Mesh/CascadedShadow
+// .glslh, the forward cells' reader), its contact shadow and the cloud layer's; the point and spot lights of its
+// froxel through Mesh/ForwardLocalLights.glslh (Point/SpotLightShadow over the atlas, or DESERT_LOCAL_SHADOW_VSM's
+// virtual map under Shadows.Method VirtualMaps), or the MegaLights volume under Stochastic. Each is a program input
+// the shadow gates count (WaterRenderer::FrameSamples -> SceneRenderer ShadowMapReadersOutsideMeshes), so the maps
+// are drawn while the water reads them.
+#include <Common/MegaLightsVolume.glslh>
+layout( binding = 5 ) uniform texture2DArray ShadowCascadesTexture;
+#define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
+#include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
+#include <Mesh/CascadedShadow.glslh>
+layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
+#define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+layout( binding = 21 ) uniform CloudShadowUB
+{
+    mat4 CloudShadowWorldToMap;
+    vec4 CloudShadowParams;
+};
+#include <Common/CloudShadowReceiver.glslh>
 
 layout( binding = 8 ) uniform textureCube EnvironmentSpecularTexture;
 #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
@@ -47,10 +73,22 @@ layout( binding = 19 ) uniform texture2D SceneColorTexture;
 #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
 // The opaque scene's device depth (reversed-Z): the water's bottom (SceneViewInputs::SceneDepth, Core::kSceneDepthBinding).
 #ifndef DESERT_SURFACE_DEPTH_FADE
-#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture;
 #endif
 #define WaterSceneDepth sampler2D(SceneDepthTexture, PointClampSampler)
+// The opaque scene's shading word beside it: the contact-shadow ray's hit texel's caster bit (as the forward cells).
+layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWordTexture;
+#define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
+
+// The lights' contact shadows march the opaque depth, the water's bottom (Common/ContactShadow.glslh), then the
+// point and spot lights of the froxel with their shadows.
+#include <ShadingModels/ShadingModelContract.glslh>
+#define CONTACT_SHADOW_DEPTH        WaterSceneDepth
+#define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+#define CONTACT_SHADOW_INV_VP       cameraUB.InvJitteredViewProjection
+#define CONTACT_SHADOW_SHADING_WORD SceneShadingWordTexture
+#include <Common/ContactShadow.glslh>
+#include <Mesh/ForwardLocalLights.glslh>
 
 // The view's fog at the surface's own depth: the water is drawn after the opaque fog composite, so the copy it
 // refracts is already fogged and the surface's own light is fogged here (as Pass_Forward_Translucent.glslh).
@@ -59,6 +97,8 @@ layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture;
 #include <Mesh/BRDF.glslh>
 #include <Mesh/AmbientIBL.glslh>
 #include <Generated/ShadingModels.glslh>
+// The point and spot lights through the shading model: the statement every forward-lit cell shares.
+#include <Mesh/ForwardSceneLighting.glslh>
 // After the lighting half of Mesh/AmbientIBL.glslh: this header includes the generated models, whose own
 // include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
 #include <Common/ThinGeometryCoverage.glslh>
@@ -133,8 +173,19 @@ void main()
 
     const float exposure = cameraUB.PreExposure;
     const vec3  L        = normalize( -directionLights.directionLights.Direction.xyz );
-    const vec3  sun      = directionLights.directionLights.ColorIntensity.rgb *
+    const vec3  sunLit   = directionLights.directionLights.ColorIntensity.rgb *
                      directionLights.directionLights.ColorIntensity.a; // not yet pre-exposed
+    // The sun's shadow at the surface, as the ground beside it is shadowed: the cascades, the contact shadow through
+    // the opaque depth, the cloud layer. One factor for the interface, the volume's scattered sun and the foam (UE
+    // single layer water: the directional light's forward shadow at the surface lights its volume too). Judged with
+    // the mesh's normal: a ripple is no surface the cascades were biased for.
+    const vec3  geomN    = normalize( i.Normal );
+    int         cascade;
+    const float sunShadow = ShadowFactor( kShadowLightSun, i.WorldPosition, geomN, L, cascade ) *
+                            ContactShadowFactor( i.WorldPosition, geomN, L, SunContactShadow,
+                                                 /*not a subsurface receiver*/ -1.0 ) *
+                            CloudShadowFactor( i.WorldPosition );
+    const vec3  sun = sunLit * sunShadow;
 
     // --- The scene behind, refracted (UE SingleLayerWater's distortion: the offset grows with the water in front).
     const vec2  screen   = vec2( textureSize( WaterSceneDepth, 0 ) );
@@ -172,10 +223,16 @@ void main()
     const DesertPayload P = DesertQuantizePayload( DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
     DesertLight         sunLight;
     sunLight.L                  = L;
-    sunLight.Radiance           = sun;
-    sunLight.Shadow             = 1.0;
-    sunLight.TransmissionShadow = 1.0;
-    const vec3 direct = DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, sunLight, S, P );
+    sunLight.Radiance           = sunLit;
+    sunLight.Shadow             = sunShadow;
+    sunLight.TransmissionShadow = sunShadow;
+    // ...and each point and spot light of the froxel under its shadow (or the MegaLights volume's), through the same
+    // model. The volume's scattering stays the sun's and the sky's (UE SingleLayerWater's), so the local lights'
+    // isotropic remainder (Indirect) has no diffuse surface to light here.
+    const vec3 direct = DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, sunLight, S, P ) +
+                        DesertForwardLocalLights( DESERT_SHADING_MODEL_INDEX, gl_FragCoord.xy, i.WorldPosition, N,
+                                                  /*not a subsurface receiver*/ -1.0, S, P )
+                             .Light;
 
     vec3        R   = reflect( -V, N );
     R.y             = abs( R.y );

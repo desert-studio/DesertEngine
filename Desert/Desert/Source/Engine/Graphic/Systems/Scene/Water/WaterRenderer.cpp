@@ -1,6 +1,8 @@
 #include "WaterRenderer.hpp"
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
@@ -22,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace
@@ -136,22 +139,77 @@ namespace Desert::Graphic::System
             return nullptr;
         }
 
+        if ( auto built = BuildProgram( shader, "WaterSurfacePipeline:" + templ.CompileName, program ); !built )
+        {
+            WarnOnce( material,
+                      std::format( "its template '{}' does not build: {}", templ.CompileName, built.GetError() ) );
+            return nullptr;
+        }
+        program.Material = std::make_unique<DataDrivenMaterial>( cellName );
+        return &program;
+    }
+
+    Common::BoolResultStr WaterRenderer::BuildProgram( const std::shared_ptr<Shader>& shader,
+                                                       const std::string& debugName, WaterProgram& program )
+    {
         GraphicsPipelineSpecification spec;
-        spec.DebugName    = "WaterSurfacePipeline:" + templ.CompileName;
+        spec.DebugName    = debugName;
         spec.Shader       = shader;
         spec.TargetLayout = SceneTargetLayout();
         spec.BlendEnable  = false;
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
         const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
+            return Common::MakeError( std::string( pipeline.GetError() ) );
+        program.Pipeline = pipeline.GetValue();
+        return BOOLSUCCESS;
+    }
+
+    WaterRenderer::WaterProgram* WaterRenderer::VirtualLocalProgramFor( const Assets::AssetHandle& material,
+                                                                        WaterProgram&              program )
+    {
+        if ( program.VirtualLocalTried )
+            return program.VirtualLocal ? program.VirtualLocal.get() : nullptr;
+        program.VirtualLocalTried = true;
+        // The forward cells' one permutation rule, with no screen mask: the water is not in the opaque depth the
+        // masks were traced against. Listed for the cook by MeshRenderer::MaterialProgramVariants.
+        const std::shared_ptr<Shader>& shader = program.Pipeline->GetSpecification().Shader;
+        const Core::ShaderVariant      permutation =
+             MeshRenderer::ForwardShadowMaskVariant( *shader, /*rayTracedSun*/ false, /*localShadowMasks*/ false,
+                                                     /*virtualLocal*/ true );
+        if ( permutation.IsDefault() )
+            return &program; // reads no local shadow: the cell itself serves VirtualMaps
+        auto acquired =
+             Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shader->GetName(), permutation );
+        if ( !acquired )
         {
-            WarnOnce( material, std::format( "its template '{}' does not build: {}", templ.CompileName,
-                                             pipeline.GetError() ) );
+            WarnOnce( material,
+                      std::format( "its cell has no DESERT_LOCAL_SHADOW_VSM permutation ({}) - the water "
+                                   "is not drawn under Shadows.Method VirtualMaps",
+                                   acquired.GetError() ) );
             return nullptr;
         }
-        program.Pipeline = pipeline.GetValue();
-        program.Material = std::make_unique<DataDrivenMaterial>( cellName );
-        return &program;
+        auto twin = std::make_unique<WaterProgram>();
+        if ( auto built =
+                  BuildProgram( acquired.GetValue(), "WaterSurfacePipelineVsm:" + shader->GetName(), *twin );
+             !built )
+        {
+            WarnOnce( material,
+                      std::format( "its DESERT_LOCAL_SHADOW_VSM permutation does not build: {} - the water "
+                                   "is not drawn under Shadows.Method VirtualMaps",
+                                   built.GetError() ) );
+            return nullptr;
+        }
+        // Over the permutation itself: its layout is its own (the virtual map's tables, no atlas).
+        twin->Material       = std::make_unique<DataDrivenMaterial>( acquired.GetValue() );
+        program.VirtualLocal = std::move( twin );
+        return program.VirtualLocal.get();
+    }
+
+    bool WaterRenderer::FrameSamples( const std::string_view textureName ) const
+    {
+        return !m_FrameDraws.empty() && m_Frame != nullptr && m_Frame->Pipeline &&
+               m_Frame->Pipeline->GetSpecification().Shader->SamplesTexture( textureName );
     }
 
     void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program )
@@ -220,6 +278,10 @@ namespace Desert::Graphic::System
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
         WaterProgram* program = ProgramFor( material );
+        // Under Shadows.Method VirtualMaps no atlas is drawn: the cell's virtual-map permutation draws, as every
+        // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
+        if ( program != nullptr && m_SceneRenderer->LocalShadowsAreVirtual() )
+            program = VirtualLocalProgramFor( material, *program );
         if ( program == nullptr )
             return;
 

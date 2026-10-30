@@ -15,13 +15,11 @@
 //     occlusion. The forward path has no screen-space bounce gather: Indirect is the volume's isotropic local light
 //     (zero when the volume is off).
 //
-// The includer declares, before this file: Common/MegaLightsVolume.glslh, Mesh/ForwardLocalLights.glslh,
-// Mesh/Surface/ViewIndirect.glslh, Mesh/AmbientIBL.glslh and the generated dispatch (Generated/ShadingModels.glslh).
+// The includer declares, before this file: Common/MegaLightsVolume.glslh, Mesh/ForwardLocalLights.glslh and the
+// generated dispatch (Generated/ShadingModels.glslh); for DesertForwardAmbient also Mesh/Surface/ViewIndirect.glslh
+// and Mesh/AmbientIBL.glslh. The single layer water reads the local lights alone (its ambient is its own).
 #ifndef MEGALIGHTS_VOLUME_GLSLH
 #error "Mesh/ForwardSceneLighting.glslh: include Common/MegaLightsVolume.glslh first"
-#endif
-#ifndef DESERT_VIEW_RADIANCE_CACHE
-#error "Mesh/ForwardSceneLighting.glslh: include Mesh/Surface/ViewIndirect.glslh (the view's radiance cache) first"
 #endif
 
 struct DesertForwardLocalLighting
@@ -56,6 +54,7 @@ DesertForwardLocalLighting DesertForwardLocalLights( int model, vec2 fragCoord, 
     return result;
 }
 
+#ifdef DESERT_VIEW_RADIANCE_CACHE
 // The ambient of shading model @p model under @p occlusion, with @p indirect (DesertForwardLocalLighting.Indirect).
 vec3 DesertForwardAmbient( int model, DesertSurface surface, vec3 indirect, float occlusion, vec2 fragCoord,
                            DesertPayload payload )
@@ -63,5 +62,7 @@ vec3 DesertForwardAmbient( int model, DesertSurface surface, vec3 indirect, floa
     return DesertEvaluateShadingModelAmbient(
          model, DesertSampleViewAmbient( surface, indirect, occlusion, fragCoord ), surface, payload );
 }
+
+#endif // DESERT_VIEW_RADIANCE_CACHE
 
 #endif // FORWARD_SCENE_LIGHTING_GLSLH
