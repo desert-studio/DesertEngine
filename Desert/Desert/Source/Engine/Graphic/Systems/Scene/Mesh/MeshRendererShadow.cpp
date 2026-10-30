@@ -605,22 +605,16 @@ namespace Desert::Graphic::System
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound) and by
         // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
         // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull
-        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying one makes the
-        // cascade movable only when one of its kept instances reaches it (UE: a WPO primitive invalidates the
-        // dynamic layer of the views its bounds touch, not of every view): a crown beyond the cascade's box
-        // draws nothing into it, so it must not force its movable layer every frame.
+        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying field is split
+        // per instance (the gather's Sways; the GPU bins' GpuDriven::IsMovableCasterIn): an instance past the shadow
+        // wind distance casts its rest pose into the static layer and is keyed like a still one, so one crossing
+        // the distance either way redraws the layer; a nearer one makes the cascade movable only when it reaches
+        // it (UE: a WPO primitive invalidates the dynamic layer of the views its bounds touch, not of every view):
+        // a crown beyond the cascade's box draws nothing into it, so it must not force its movable layer.
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                 continue;
-            if ( ism.Wind.Sways() )
-            {
-                const ShadowIsmField& swaying =
-                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-                for ( uint32_t k = swaying.First; k < swaying.First + swaying.Count && !movable; ++k )
-                    movable = reaches( m_ShadowCasterSetup.Instances[k] );
-                continue;
-            }
             hash.Add( ism.Mesh->GetRenderRevision() );
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
@@ -629,10 +623,16 @@ namespace Desert::Graphic::System
                  ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
             for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
             {
-                if ( !reaches( m_ShadowCasterSetup.Instances[k] ) )
+                const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
+                if ( !reaches( row ) )
                     continue;
+                if ( row.Sways )
+                {
+                    movable = true;
+                    continue;
+                }
                 hash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
-                hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
+                hash.Add( row.LodLevel );
             }
         }
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
@@ -1052,14 +1052,10 @@ namespace Desert::Graphic::System
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
         const auto               inView   = [&cascadeFrustum]( const Common::Math::AABB& box )
         { return IsVisibleInView( cascadeFrustum, box ); };
-        // Whether gathered instance @p k of @p ism sways in this view. A VSM level, a local light's view and the
-        // rain occlusion are walked here whole, so each instance follows the shadow wind distance (the gather's
-        // Sways); a sun cascade's layers follow its bins, which split a field by its primitive's kMovableCaster:
-        // the whole swaying field is a mover there (CascadeStaticSignature keys the same rule).
-        const bool perInstanceSway = c >= kVsmViewBase;
-        const auto instanceSways   = [&gathered, perInstanceSway]( const InstancedMeshRenderData& field,
-                                                                   const uint32_t                 k )
-        { return perInstanceSway ? gathered.Instances[k].Sways : field.Wind.Sways(); };
+        // Whether gathered instance @p k sways in this view: the shadow wind distance's rule (the gather's Sways),
+        // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by its
+        // twin GpuDriven::IsMovableCasterIn), a VSM level, a local light's view and the rain occlusion.
+        const auto instanceSways = [&gathered]( const uint32_t k ) { return gathered.Instances[k].Sways; };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
@@ -1271,7 +1267,7 @@ namespace Desert::Graphic::System
                     levels.clear();
                     for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
                     {
-                        if ( instanceSways( ism, k ) != swaying || !inView( gathered.Instances[k].WorldBounds ) )
+                        if ( instanceSways( k ) != swaying || !inView( gathered.Instances[k].WorldBounds ) )
                             continue;
                         visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
                         levels.push_back( gathered.Instances[k].LodLevel );

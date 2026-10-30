@@ -1469,7 +1469,8 @@ namespace Desert::Graphic::System
             case GpuDriven::MeshPass::ShadowCascade:
             {
                 // Static and movable casters share the pass's bins; the cull splits them into the cascade cache's
-                // layers by PrimitiveFlags::kMovableCaster (skinned, swaying), SyncGpuScene's bit.
+                // layers per instance: PrimitiveFlags::kMovableCaster (skinned, swaying), SyncGpuScene's bit, less
+                // the swaying instances past the shadow wind distance (GpuDriven::IsMovableCasterIn).
                 const auto defaultCell =
                      MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
                 if ( !defaultCell )

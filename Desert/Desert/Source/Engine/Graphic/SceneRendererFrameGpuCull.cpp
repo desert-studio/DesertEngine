@@ -38,17 +38,20 @@ namespace Desert::Graphic
     namespace
     {
         // CullViewInput of one view: the matrices, frustum, LOD and distance-cull origins of the main camera, and
-        // the flags; ViewIndex / FrustumPlanes are filled by InstanceCulling from the list position and Frustum.
+        // the flags; ViewIndex / FrustumPlanes are filled by InstanceCulling from the list position and Frustum. A
+        // caster view also carries the shadow wind distance (MeshRenderer::GetShadowWindDistance, cm): its swaying
+        // instances farther from the main camera cast their rest pose (GpuDriven::CastsRestPose).
         GpuDriven::CullViewInput MakeCullView( const GpuDriven::MeshPass pass, const glm::mat4& viewProjection,
                                                const glm::mat4& prevViewProjection, const Core::Frustum& frustum,
                                                const Geometry::LODView& lod, const float lensScale,
-                                               const uint32_t flags )
+                                               const float shadowWindDistance, const uint32_t flags )
         {
+            const bool               caster = ( flags & GpuDriven::CullViewFlags::kShadowCaster ) != 0u;
             GpuDriven::CullViewInput input{};
             input.View.ViewProjection     = viewProjection;
             input.View.PrevViewProjection = prevViewProjection;
             input.View.LodProjection      = lod.Projection;
-            input.View.LodOrigin          = glm::vec4( lod.Origin, 0.0f );
+            input.View.LodOrigin          = glm::vec4( lod.Origin, caster ? shadowWindDistance : 0.0f );
             input.View.CullOrigin         = glm::vec4( lod.Origin, lensScale );
             input.View.Pass               = static_cast<uint32_t>( pass );
             input.View.Flags              = flags;
@@ -223,8 +226,9 @@ namespace Desert::Graphic
 
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
                                      .Projection = camera->GetProjectionMatrix() };
-        const float             lensScale = Graphic::DrawDistanceScale( lod );
-        const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
+        const float             lensScale    = Graphic::DrawDistanceScale( lod );
+        const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
+        const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
 
         // The main view's phase 1 tests last frame's furthest HZB (UE two-phase occlusion) only when phase 2 can
         // redraw what it holds back: the deferred G-buffer (AddFrameDrawBinsPostOcclusion splits it around this
@@ -250,7 +254,7 @@ namespace Desert::Graphic
         {
             GpuDriven::CullViewInput mainInput = MakeCullView(
                  mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale,
-                 lodFlag | ( bins.MainTestsHzb ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
+                 windDistance, lodFlag | ( bins.MainTestsHzb ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
             if ( bins.MainTestsHzb )
             {
                 m_FramePrevHzb    = graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
@@ -274,7 +278,7 @@ namespace Desert::Graphic
         {
             views.push_back( MakeCullView( GpuDriven::MeshPass::DepthPrepass, frame.ViewProjection,
                                            frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale,
-                                           lodFlag ) );
+                                           windDistance, lodFlag ) );
             viewKeys.push_back( System::MeshRenderer::kBinnedMainView );
             bins.ViewNames.emplace_back( "depthPrepass" );
         }
@@ -297,6 +301,7 @@ namespace Desert::Graphic
                 {
                     views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
                                                    Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                                   windDistance,
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
@@ -305,6 +310,7 @@ namespace Desert::Graphic
                 {
                     views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
                                                    Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                                   windDistance,
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
                     viewKeys.push_back( System::MeshRenderer::CascadeMovableView( view ) );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}Movable", c ) );
@@ -494,8 +500,9 @@ namespace Desert::Graphic
         // MeshRenderer.cpp:193-209; the shadows draw the main view's LOD).
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
                                      .Projection = camera->GetProjectionMatrix() };
-        const float             lensScale = Graphic::DrawDistanceScale( lod );
-        const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
+        const float             lensScale    = Graphic::DrawDistanceScale( lod );
+        const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
+        const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
 
         std::vector<GpuDriven::CullViewInput> views;
         std::vector<std::string>              viewNames; // the validation log's name of each view
@@ -512,7 +519,7 @@ namespace Desert::Graphic
         {
             GpuDriven::CullViewInput mainInput =
                  MakeCullView( GpuDriven::MeshPass::GBuffer, frame.ViewProjection, frame.PrevViewProjection,
-                               camera->GetFrustum(), lod, lensScale,
+                               camera->GetFrustum(), lod, lensScale, windDistance,
                                lodFlag | ( prevHzbValid ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
             if ( prevHzbValid )
             {
@@ -537,6 +544,7 @@ namespace Desert::Graphic
                      SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c );
                 views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
                                                Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                               windDistance,
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
                 viewNames.push_back( std::format( "cascade {}", c ) );
@@ -553,7 +561,7 @@ namespace Desert::Graphic
                 Core::Frustum    frustum( vp, glm::mat4( 1.0f ) );
                 frustum.Open( Core::PLANE_FAR );
                 GpuDriven::CullViewInput input = MakeCullView(
-                     GpuDriven::MeshPass::VirtualShadow, vp, vp, frustum, lod, lensScale,
+                     GpuDriven::MeshPass::VirtualShadow, vp, vp, frustum, lod, lensScale, windDistance,
                      GpuDriven::CullViewFlags::kShadowCaster | GpuDriven::CullViewFlags::kOrthographic |
                           GpuDriven::CullViewFlags::kVsmPageMask | lodFlag );
                 input.View.VsmLevel = level;
@@ -879,8 +887,9 @@ namespace Desert::Graphic
         // casters' cull, and the level's drawn-page mask; cull view = cut view = level.
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
                                      .Projection = camera->GetProjectionMatrix() };
-        const float             lensScale = Graphic::DrawDistanceScale( lod );
-        const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
+        const float             lensScale    = Graphic::DrawDistanceScale( lod );
+        const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
+        const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
         std::vector<GpuDriven::CullViewInput> views;
         views.reserve( System::kVsmClipmapLevelCount );
         for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
@@ -889,7 +898,7 @@ namespace Desert::Graphic
             Core::Frustum    frustum( vp, glm::mat4( 1.0f ) );
             frustum.Open( Core::PLANE_FAR );
             GpuDriven::CullViewInput input =
-                 MakeCullView( GpuDriven::MeshPass::VirtualShadow, vp, vp, frustum, lod, lensScale,
+                 MakeCullView( GpuDriven::MeshPass::VirtualShadow, vp, vp, frustum, lod, lensScale, windDistance,
                                GpuDriven::CullViewFlags::kShadowCaster | GpuDriven::CullViewFlags::kOrthographic |
                                     GpuDriven::CullViewFlags::kVsmPageMask | lodFlag );
             input.View.VsmLevel = level;

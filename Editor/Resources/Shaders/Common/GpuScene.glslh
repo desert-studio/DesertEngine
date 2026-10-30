@@ -172,8 +172,12 @@ struct GpuIndirectDraw
 struct GpuVisibleInstance
 {
     uint Instance; // offset 0
-    uint DrawSlot; // offset 4
+    uint DrawSlot; // offset 4 — the row in DrawSlots[] | DESERT_GPU_VISIBLE_REST_POSE
 };
+// GpuDriven::kVisibleRestPose, the top bit of GpuVisibleInstance.DrawSlot: the cull drew this swaying instance in
+// its rest pose (GpuCull_CastsRestPose: a caster view, past the shadow wind distance), the vertex stage bends it
+// by no wind. DesertResolveDrawOf masks it off the slot row.
+#define DESERT_GPU_VISIBLE_REST_POSE 0x80000000u
 
 // Phase 1 rejected by the previous frame's HZB, re-tested by phase 2. 8 bytes.
 struct GpuOccludedInstance
@@ -189,7 +193,7 @@ struct GpuCullView
     mat4  PrevViewProjection; // offset 64
     mat4  LodProjection;      // offset 128 — Geometry::LODView::Projection
     vec4  FrustumPlanes[6];   // offset 192 — Core::Frustum planes, xyz normal / w distance, zero = open
-    vec4  LodOrigin;          // offset 288 — xyz = LODView::Origin
+    vec4  LodOrigin;          // offset 288 — xyz = LODView::Origin, w = the shadow wind distance (cm, caster views)
     vec4  CullOrigin;         // offset 304 — xyz = ISM distance-cull origin, w = lens scale (DrawDistanceScale)
     uvec4 HzbExtent;          // offset 320 — xy = mip-0 size, z = mip count (0 = no HZB)
     uint  Pass;               // offset 336 — GpuDriven::MeshPass
@@ -197,6 +201,18 @@ struct GpuCullView
     uint  VsmLevel;           // offset 344
     uint  ViewIndex;          // offset 348 — the caller's view index
 };
+
+// WHO SWAYS IN THE SHADOWS (GpuDriven::CastsRestPose, its C++ twin; MeshRenderer::ShadowIsmInstances the CPU walk's
+// rule; UE WPO Disable Distance): in a caster view, an instance of a swaying primitive (Wind.z = Strength > 0)
+// farther from the main camera than the view's shadow wind distance casts its rest pose and stands with the still
+// casters (a cascade's static layer); a nearer one is a mover. Measured from the instance's origin.
+bool GpuCull_CastsRestPose( const GpuCullView view, const GpuScenePrimitive primitive, const vec3 instanceOrigin )
+{
+    if ( ( view.Flags & DESERT_GPU_CULL_VIEW_SHADOW_CASTER ) == 0u || !( primitive.Wind.z > 0.0 ) )
+        return false;
+    const vec3 offset = instanceOrigin - view.LodOrigin.xyz;
+    return dot( offset, offset ) > view.LodOrigin.w * view.LodOrigin.w;
+}
 
 // THE SCENE'S PRIMITIVE TABLE (GpuDriven::GpuScene, one per scene, stable rows): a view-pass draw reads its row
 // through the push block's PrimitiveIndex (Common/MaterialTransport.glslh). Bound by name onto every view-pass
@@ -266,6 +282,7 @@ struct DesertMeshDraw
     uint Primitive;
     uint MaterialRow; // row in Materials[]; the fragment stage gets it as a flat varying
     uint Flags;       // the primitive's DESERT_GPU_PRIMITIVE_*; the fragment stage gets it as a flat varying
+    bool RestPose;    // DESERT_GPU_VISIBLE_REST_POSE: the wind does not bend it in this view
     mat4 World;
     mat4 PrevWorld;
 };
@@ -273,7 +290,7 @@ struct DesertMeshDraw
 DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
 {
     const GpuSceneInstance   instance  = gpuSceneInstances.Instances[visible.Instance];
-    const GpuDrawSlot        slot      = gpuSceneDrawSlots.DrawSlots[visible.DrawSlot];
+    const GpuDrawSlot        slot      = gpuSceneDrawSlots.DrawSlots[visible.DrawSlot & ~DESERT_GPU_VISIBLE_REST_POSE];
     const GpuScenePrimitive  primitive = gpuScene.Primitives[instance.Primitive];
     const mat4 local =
          GpuScene_InstanceToPrimitive( instance ) * gpuSceneSubmeshTransforms.SubmeshTransforms[slot.SubmeshTransform];
@@ -282,7 +299,8 @@ DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
     draw.Primitive   = instance.Primitive;
     draw.MaterialRow = slot.MaterialRow;
     draw.Flags       = primitive.Flags;
-    draw.World       = GpuScene_LocalToWorld( primitive ) * local;
+    draw.RestPose    = ( visible.DrawSlot & DESERT_GPU_VISIBLE_REST_POSE ) != 0u;
+    draw.World      = GpuScene_LocalToWorld( primitive ) * local;
     draw.PrevWorld   = GpuScene_PrevLocalToWorld( primitive ) * local;
     return draw;
 }
@@ -340,6 +358,8 @@ DesertVgDraw DesertResolveVgDraw()
     GpuVisibleInstance row;
     row.Instance = visible.Instance;
     row.DrawSlot = vgRasterPrimitiveDraws.PrimitiveDraws[primitive].FirstDrawSlot + vg.Dag.Submesh;
+    // The cut's rest pose (ClusterCut's CutFrame.RestPose) rides the slot's bit, as a binned entry's does.
+    row.DrawSlot |= visible.Flags & DESERT_GPU_VISIBLE_REST_POSE;
     vg.Draw      = DesertResolveDrawOf( row );
     return vg;
 }

@@ -821,7 +821,13 @@ namespace Desert::Graphic::System
          std::string name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
     {
         draws.Clear();
-        BuildShadowCascadeDraws( view, draws, layer );
+        {
+            // THE CPU WALK OF THE LEVEL'S LAYER (UE: a SCOPE_CYCLE_COUNTER per render CPU job): every level and
+            // layer and every local mip adds to this one row, so the casters the clusters and bins do not hold
+            // (the swaying fields among them) show their CPU cost by name instead of falling into Unaccounted.
+            DESERT_PROFILE_SCOPE( "VSM: Caster Walk" );
+            BuildShadowCascadeDraws( view, draws, layer );
+        }
         const bool movable = layer == ShadowCasterLayer::Movable;
         if ( draws.GetError() )
             return Common::MakeError(

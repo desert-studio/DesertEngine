@@ -110,7 +110,9 @@ void main()
     const DesertMeshDraw    draw  = DesertResolveMeshDraw();
     const GpuScenePrimitive row   = gpuScene.Primitives[draw.Primitive];
     const mat4              model = draw.World;
-    const vec4              windA = GpuScene_WindA( row );
+    // A swaying instance the cull drew in its rest pose (a caster view past the shadow wind distance,
+    // GpuCull_CastsRestPose): Strength 0 is FoliageWindOffset's "no offset".
+    const vec4              windA = draw.RestPose ? vec4( 0.0 ) : GpuScene_WindA( row );
     const vec4              windB = GpuScene_WindB( row, false );
 #else
     const mat4 model = transforms[DESERT_INSTANCE_INDEX];
