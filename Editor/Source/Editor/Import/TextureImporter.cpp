@@ -1,7 +1,10 @@
 #include <variant>
 #include "TextureImporter.hpp"
 
+#include <memory>
 #include <mutex>
+#include <optional>
+#include <unordered_map>
 #include "CookPaths.hpp"
 #include "CookedJsonWrite.hpp"
 
@@ -558,22 +561,56 @@ namespace Desert::Editor
             }
             return bytes;
         }
+
+        /// The lock of one texture asset, keyed by its canonical absolute path. Entries are never removed: a
+        /// process cooks a bounded set of assets, and a mutex handed out must outlive every thread holding it.
+        std::mutex& AssetCookLock( const std::string& assetKey )
+        {
+            static std::mutex                                                   tableMutex;
+            static std::unordered_map<std::string, std::unique_ptr<std::mutex>> table;
+            const std::lock_guard<std::mutex>                                   lock( tableMutex );
+            std::unique_ptr<std::mutex>&                                        slot = table[assetKey];
+            if ( !slot )
+                slot = std::make_unique<std::mutex>();
+            return *slot;
+        }
     } // namespace
+
+    std::optional<Common::UUID> TextureImporter::CachedHandle( const std::string& absolutePath ) const
+    {
+        const std::lock_guard<std::mutex> lock( m_CacheMutex );
+        if ( const auto it = m_Cache.find( absolutePath ); it != m_Cache.end() )
+            return it->second;
+        return std::nullopt;
+    }
+
+    void TextureImporter::Remember( const std::string& absolutePath, const Common::UUID handle )
+    {
+        const std::lock_guard<std::mutex> lock( m_CacheMutex );
+        m_Cache[absolutePath] = handle;
+    }
 
     TextureCookResult TextureImporter::Cook( const std::filesystem::path& path )
     {
-        // Bulk cooking runs mesh imports in PARALLEL; two meshes often share textures, and two threads
-        // writing the same cooked .tex would corrupt it. Texture cooking is cheap next to the Assimp
-        // parse, so one global lock here is the simplest safe answer.
-        static std::mutex           s_CookMutex;
-        std::lock_guard<std::mutex> cookLock( s_CookMutex );
+        // ONE TEXTURE AT A TIME PER ASSET, EVERY ASSET AT ONCE (UE: the cooker builds texture platform data
+        // concurrently, one DDC build per key). Two meshes imported in parallel often share a texture, and two
+        // threads importing the same image into one `.detex` would interleave its writes - so the asset is the
+        // unit of exclusion. It used to be one process-wide lock, which made the packager's cook of 162 textures
+        // serial: 25-75 s of BC7 each on a CI runner, past the job's 150 minutes. What two DIFFERENT assets share
+        // is all thread-safe already: the DDC (atomic Put through a per-thread working file), the content
+        // registry (its own lock), the encoder (Bc7Options builds the kernel's options once, then only reads
+        // them).
+        const auto abs = std::filesystem::weakly_canonical( Common::Constants::Path::FullPath( path ) ).string();
+        if ( const auto cached = CachedHandle( abs ) )
+            return { *cached, TextureCookOutcome::Fresh };
 
-        auto abs = std::filesystem::weakly_canonical( Common::Constants::Path::FullPath( path ) ).string();
-
-        if ( m_Cache.contains( abs ) )
-        {
-            return { m_Cache[abs], TextureCookOutcome::Fresh };
-        }
+        const std::string assetKey =
+             std::filesystem::weakly_canonical( Common::Constants::Path::FullPath( AssetPathFor( path ) ) )
+                  .string();
+        const std::lock_guard<std::mutex> assetLock( AssetCookLock( assetKey ) );
+        // Another thread may have cooked this asset while this one waited for its lock.
+        if ( const auto cached = CachedHandle( abs ) )
+            return { *cached, TextureCookOutcome::Fresh };
 
         // THE ASSET IS THE SOURCE OF TRUTH (AF3). A raw image handed in is IMPORTED first — its bytes go
         // inside `<stem>.detex` — and from then on only the asset is read: its header holds the handle, its
@@ -644,7 +681,7 @@ namespace Desert::Editor
         // this key IS the texture's platform data, whichever asset with the same source put it there.
         if ( finalStored || Common::DDC::Get( Assets::kTextureDeriver, ddcKey ).has_value() )
         {
-            m_Cache[abs] = handle;
+            Remember( abs, handle );
             Assets::ContentRegistry::NoteFile( assetPath );
             return { handle, TextureCookOutcome::Fresh };
         }
@@ -681,7 +718,7 @@ namespace Desert::Editor
                 return { Common::AssetHandle::Null(), TextureCookOutcome::Unwritten };
             }
 
-            m_Cache[abs] = handle;
+            Remember( abs, handle );
             Assets::ContentRegistry::NoteFile( assetPath );
             return { handle, TextureCookOutcome::Cooked };
         };

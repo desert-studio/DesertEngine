@@ -1431,10 +1431,94 @@ jobs:
       # game (`--shot` is not compiled into Shipping), so the smoke run below needs its package. `--out`
       # is ABSOLUTE because GamePackager works from the project folder (Editor/), so a relative one
       # would land under Editor/.
+      #
+      # THE TEXTURE PLATFORM DATA COMES FROM THE DDC, NOT FROM AN ENCODE PER RUN (UE: a shared Derived Data
+      # Cache the cook fetches from). Packaging builds every texture's BC7 chain into the project's DDC
+      # (Projects/Desert/DerivedDataCache/Buckets/Texture, keyed by source bytes + settings + encoder version,
+      # TextureImporter::Cook) and only a MISS is encoded. A cold DDC is 162 textures at 25-75 s each on this
+      # 4-core runner — task/CMAKE run 41092415844 was cancelled at the job's 150 minutes with ~118 done. So
+      # the bucket is restored before packaging and saved after it.
+      #   THE KEY: the content the entries derive from (Projects/Desert, the deriver and the encoder, as git
+      #   blob ids) + run id + attempt + config, and the fallback is the content prefix, then any. Restoring an
+      #   older bucket cannot ship a wrong texture: an entry is found only under the key of the source and
+      #   settings it was built from, so a stale entry is never asked for. The run id is in the key for the
+      #   reason the ccache note gives: a fixed key is written once and never again, and a save after a
+      #   cancelled cook would then freeze half a bucket for good.
+      #   WHO SAVES: a push to dev, as every cache here, AND workflow_dispatch. A branch can only land once its
+      #   own run is green, and that run cannot find a dev bucket that dev has never written (dev packages cold
+      #   too) — so a dispatched branch run saves for its own ref (GitHub scopes the entry to it; dev's set is
+      #   not touched by a save, only by eviction). Saved only when the cook wrote a new entry.
+      - name: Texture DDC key
+        id: ddc-key
+        if: matrix.config != 'Debug'
+        shell: bash
+        run: |
+          inputs=$(git ls-files -s -- Projects/Desert Desert/Desert/Source/Engine/Assets/TextureSourceAsset.hpp \
+            Editor/Source/Editor/Import/TextureImporter.cpp Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp \
+            Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp ThirdParty/compressonator | sha256sum | cut -c1-16)
+          echo "content=$inputs" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the texture DDC
+        if: matrix.config != 'Debug'
+        uses: actions/cache/restore@v4
+        with:
+          path: Projects/Desert/DerivedDataCache/Buckets/Texture
+          key: ddc-texture-windows-${{ steps.ddc-key.outputs.content }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}
+          restore-keys: |
+            ddc-texture-windows-${{ steps.ddc-key.outputs.content }}-
+            ddc-texture-windows-
+
+      # THE PACKAGE STEP STOPS BEFORE THE JOB DOES. At the job's 150 minutes the runner tears down and the
+      # save below never runs (the ccache note: run 37484896713); the entries a cut-short cook already wrote
+      # would be lost and the next run would encode them again. So GamePackager gets the job's remaining
+      # time minus 15 minutes for the steps after it (DLL check, package upload, DDC save), and a cook
+      # stopped there fails this step by name while the save keeps what it built. A DDC Put is atomic (a
+      # working file renamed into place), so a stopped cook leaves no half entry; its working files are
+      # removed before the save.
       - name: Package the sandbox game
         if: matrix.config != 'Debug'
         shell: bash
-        run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Projects/Desert/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
+        run: |
+          bucket=Projects/Desert/DerivedDataCache/Buckets/Texture
+          before=$( [ -d "$bucket" ] && find "$bucket" -type f -name '*.tex' | wc -l || echo 0 )
+          echo "DDC_TEXTURES_BEFORE=$before" >> "$GITHUB_ENV"
+          echo "texture DDC restored: $before entries"
+          left=$(( 150 * 60 - ( $(date +%s) - JOB_START ) - 15 * 60 ))
+          if [ "$left" -le 0 ]; then
+            echo "::error::no time left in the job's 150 minutes to package (build took them all)"; exit 1
+          fi
+          echo "packaging deadline: ${left}s"
+          set +e
+          timeout "$left" ./build/Bin/${{ matrix.config }}/GamePackager.exe Projects/Desert/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 124 ]; then
+            echo "::error::packaging stopped at its deadline (${left}s) - the texture DDC keeps what it built; the next run continues from it"
+          fi
+          exit "$rc"
+
+      - name: Did the cook add texture DDC entries
+        if: >-
+          always() && matrix.config != 'Debug' &&
+          ( ( github.event_name == 'push' && github.ref == 'refs/heads/dev' ) || github.event_name == 'workflow_dispatch' )
+        continue-on-error: true
+        id: ddc-changed
+        shell: bash
+        run: |
+          bucket=Projects/Desert/DerivedDataCache/Buckets/Texture
+          [ -d "$bucket" ] || { echo "no texture DDC at $bucket - nothing to save"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          find "$bucket" -type f -name '*.tmp' -delete
+          after=$(find "$bucket" -type f -name '*.tex' | wc -l)
+          echo "texture DDC: ${DDC_TEXTURES_BEFORE:-0} entries restored, $after now ($(du -sh "$bucket" | cut -f1))"
+          if [ "$after" -gt "${DDC_TEXTURES_BEFORE:-0}" ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; else echo "changed=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Upload the texture DDC
+        if: always() && steps.ddc-changed.outputs.changed == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: Projects/Desert/DerivedDataCache/Buckets/Texture
+          key: ddc-texture-windows-${{ steps.ddc-key.outputs.content }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}
 
       # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable installed. The workspace
       # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc libraries are MD_DynamicRelease) and

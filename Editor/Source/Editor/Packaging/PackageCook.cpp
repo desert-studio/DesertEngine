@@ -49,12 +49,14 @@
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <filesystem>
 #include <set>
 #include <span>
@@ -544,9 +546,18 @@ namespace Desert::Editor
                  "[PackageCook] textures: {} asset(s), encode effort {} (project Texture Encoding, cook role)",
                  sources.size(), plan.BuildEffort );
             TextureImporter importer{ Assets::TextureEncodeRole::Cook }; // the package ships the final encode
-            for ( const fs::path& source : sources )
+            // EVERY DDC MISS IS BUILT AT ONCE, ON EVERY CORE (UE: the cooker's texture builds run concurrently and
+            // only the misses are built). A hit costs a header read; a miss is a BC7 encode of 25-75 s per 2k on a
+            // CI runner, and 162 of them one after another ran the Windows Release job into its 150 minutes. The
+            // encoder already spreads one texture's block rows over the pool; running the textures side by side as
+            // well keeps the cores busy through each one's serial decode, mip chain and grading. The outcomes are
+            // written per index and counted afterwards, so the stats do not depend on which thread finished first.
+            std::vector<TextureCookOutcome> outcomes( sources.size(), TextureCookOutcome::Failed );
+            Common::JobSystem::Get().ParallelFor( sources.size(), [&]( const std::size_t i )
+                                                  { outcomes[i] = importer.Cook( sources[i] ).Outcome; } );
+            for ( const TextureCookOutcome outcome : outcomes )
             {
-                switch ( importer.Cook( source ).Outcome )
+                switch ( outcome )
                 {
                     case TextureCookOutcome::Cooked:
                         ++stats.TexturesCooked;

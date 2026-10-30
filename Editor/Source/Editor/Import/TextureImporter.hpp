@@ -8,6 +8,9 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -109,7 +112,13 @@ namespace Desert::Editor
                                                                                uint32_t maxEdge = 0 );
 
     private:
+        // The handle this importer already cooked @p absolutePath to, read and written under m_CacheMutex:
+        // one importer is shared by the threads of a parallel cook (PackageCook::CookTextures).
+        std::optional<Common::UUID> CachedHandle( const std::string& absolutePath ) const;
+        void                        Remember( const std::string& absolutePath, Common::UUID handle );
+
         ::Desert::Assets::TextureEncodeRole           m_Role;
+        mutable std::mutex                            m_CacheMutex;
         std::unordered_map<std::string, Common::UUID> m_Cache;
     };
 } // namespace Desert::Editor
