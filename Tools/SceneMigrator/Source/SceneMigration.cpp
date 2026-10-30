@@ -3709,6 +3709,47 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    Common::ResultStr<std::string> MigrateCloudTypeV7ToV8( const std::string& text )
+    {
+        // CLTY 8 IS CLTY 7 PLUS ONE KEY (WTH-OVERCAST p4), the way CLTY 7 was CLTY 6 plus one:
+        // `Shape.FillDensity` goes in after `BodyDiameterKm`, the shape's last v7 key, and the body then reads
+        // as the current type.
+        const std::string key = "\"BodyDiameterKm\"";
+        const size_t      at  = text.find( key );
+        if ( at == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "CLTY 7 body has no Shape.BodyDiameterKm" );
+        if ( text.find( "\"FillDensity\"" ) != std::string::npos )
+            return Common::MakeFormattedError<std::string>( "the body already states FillDensity" );
+        const size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+        if ( end == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "CLTY 7 Shape.BodyDiameterKm has no value end" );
+
+        // 0.35, the default type's: the fill every v7 type baked with (the bake's former constant), so a
+        // raised library draws the sky it drew; a sheet type states its own after the raise.
+        std::string patched = text;
+        patched.insert( end, ", \"FillDensity\": " + std::format( "{}", Graphic::CloudTypeShape{}.FillDensity ) );
+
+        const auto v7 = Common::Json::Read<Assets::CloudTypeData>( patched );
+        if ( !v7 )
+            return Common::MakeFormattedError<std::string>( "CLTY 7 body does not read: {}", v7.GetError() );
+        const Assets::CloudTypeData& data = v7.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises CLTY 7 only" );
+        const auto stated = data.Header->Versions.find( "CLTY" );
+        if ( stated == data.Header->Versions.end() || stated->second != 7u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states CLTY {}, and this step raises CLTY 7 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+
+        std::string written = Assets::WriteCloudType( data );
+        if ( auto reread = Assets::ParseCloudType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CLTY 8: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
     Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3()
     {
         Assets::Serialization::VFXEffectTypeData type;

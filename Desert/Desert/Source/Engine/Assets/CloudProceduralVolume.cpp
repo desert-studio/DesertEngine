@@ -870,6 +870,7 @@ namespace Desert::Assets
             KeyF32( out, shape.PlacementScale );
             KeyF32( out, shape.PlacementAnisotropy );
             KeyF32( out, shape.BodyDiameterKm );
+            KeyF32( out, shape.FillDensity );
         }
         return out;
     }
@@ -1965,7 +1966,7 @@ namespace Desert::Assets
             const float mask = kCloudFillFloor + ( 1.0f - kCloudFillFloor ) * std::clamp( presence, 0.0f, 1.0f );
             const float noise =
                  kCloudFillFloor + ( 1.0f - kCloudFillFloor ) * std::clamp( base.PerlinWorley, 0.0f, 1.0f );
-            return kCloudFillCeiling * mask * noise * CloudProceduralAltitudeDensity( type, pointKm.y );
+            return type.FillDensity * mask * noise * CloudProceduralAltitudeDensity( type, pointKm.y );
         }
 
         float CloudShapeNoiseOf( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec3& pointKm,
