@@ -1,6 +1,7 @@
 // MeshRenderer's light-view passes: the cascaded shadow map (setup, cascade fit, graph pass).
 #include "MeshRendererInternal.hpp"
 
+#include <Common/Core/GlslAsCpp.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <format>
@@ -14,6 +15,22 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
     };
+
+    // The shadow wind distance's rule, the same text InstanceCull.shader and ClusterCut.shader run
+    // (GpuCull_CastsRestPose), compiled as C++ (the shader root is on the Engine include path, premake5.lua).
+    using glm::dot;
+    using glm::mat4;
+    using glm::vec3;
+    using glm::vec4;
+    DESERT_GLSL_AS_CPP_BEGIN
+#include <Common/ShadowWind.glslh>
+    DESERT_GLSL_AS_CPP_END
+
+    // How far, relative to the shadow wind distance, the CPU walk's float rounding of the rule may differ from the
+    // GPU cull's (another order of the same multiplies and adds, fused or not): within it the walk cannot know
+    // which side the GPU decided, so the instance is keyed as both (MeshRenderer::ShadowCasterRow::NearWindEdge).
+    // Float's relative error of a squared distance is ~1e-6; 1e-3 is 1 m at 1 km.
+    constexpr float kShadowWindEdge = 1e-3f;
 } // namespace
 
 namespace Desert::Graphic::System
@@ -555,21 +572,31 @@ namespace Desert::Graphic::System
         // r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange):
         // a swaying instance nearer the main camera than Shadows.WindAnimationDistance is a mover; a farther one
         // casts its rest pose with the still casters and invalidates no page or view, so the wind costs what moves
-        // where it is seen moving. Measured from the instance's origin, the same point the cull distance keeps it by.
-        const bool  fieldSways = ism.Wind.Sways();
-        const float swayReach2 = m_ShadowWindDistance * m_ShadowWindDistance;
+        // where it is seen moving. Common/ShadowWind.glslh's one rule, the GPU cull's: the instance's bounds
+        // centre in the world (GpuScenePrimitive.LocalBoundsCenter is the same (Min + Max) * 0.5) against the main
+        // camera's position. An instance at the distance within the rounding the two sides may differ by
+        // (kShadowWindEdge) sways for every CPU view and is NearWindEdge for the cascade key: whichever side the
+        // GPU took is drawn.
+        const bool      fieldSways   = ism.Wind.Sways();
+        const glm::vec3 boundsCentre = ( localBounds.Min + localBounds.Max ) * 0.5f;
+        const float     inner        = m_ShadowWindDistance * ( 1.0f - kShadowWindEdge );
+        const float     outer        = m_ShadowWindDistance * ( 1.0f + kShadowWindEdge );
         for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
         {
             const std::optional<Common::Math::AABB> reach =
                  IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
             if ( !reach )
                 continue;
-            const glm::vec3 offset = glm::vec3( transforms[k][3] ) - lodView.Origin;
+            const glm::vec3 point    = ShadowWindInstancePoint( transforms[k], boundsCentre );
+            const bool      nearEdge = fieldSways && ShadowWindCastsRestPose( point, lodView.Origin, inner ) &&
+                                  !ShadowWindCastsRestPose( point, lodView.Origin, outer );
             setup.Instances.push_back(
-                 { .WorldBounds = *reach,
-                   .LodLevel    = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
-                                                                 ism.Mesh->GetLODScreenSizes(), -1, 0 ),
-                   .Sways       = fieldSways && glm::dot( offset, offset ) <= swayReach2 } );
+                 { .WorldBounds  = *reach,
+                   .LodLevel     = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
+                                                                  ism.Mesh->GetLODScreenSizes(), -1, 0 ),
+                   .Sways        = fieldSways && ( nearEdge || !ShadowWindCastsRestPose( point, lodView.Origin,
+                                                                                         m_ShadowWindDistance ) ),
+                   .NearWindEdge = nearEdge } );
             setup.InstanceIndex.push_back( k );
         }
         caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
@@ -633,7 +660,7 @@ namespace Desert::Graphic::System
         // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
         // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull
         // distance or a level redraws the layer instead of leaving its old depth cached. A swaying field is split
-        // per instance (the gather's Sways; the GPU bins' GpuDriven::IsMovableCasterIn): an instance past the shadow
+        // per instance (the gather's Sways; the GPU bins' GpuCull_CastsRestPose): an instance past the shadow
         // wind distance casts its rest pose into the static layer and is keyed like a still one, so one crossing
         // the distance either way redraws the layer; a nearer one makes the cascade movable only when it reaches
         // it (UE: a WPO primitive invalidates the dynamic layer of the views its bounds touch, not of every view):
@@ -653,6 +680,11 @@ namespace Desert::Graphic::System
                 const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
                 if ( !reaches( row ) )
                     continue;
+                // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
+                // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
+                // each frame until it leaves the edge.
+                if ( row.NearWindEdge )
+                    hash.Add( m_ShadowCasterSetup.Gather );
                 if ( row.Sways )
                 {
                     movable = true;
@@ -1109,8 +1141,8 @@ namespace Desert::Graphic::System
         const auto               inView   = [&cascadeFrustum]( const Common::Math::AABB& box )
         { return IsVisibleInView( cascadeFrustum, box ); };
         // Whether gathered instance @p k sways in this view: the shadow wind distance's rule (the gather's Sways),
-        // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by its
-        // twin GpuDriven::IsMovableCasterIn), a VSM level, a local light's view and the rain occlusion.
+        // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by
+        // GpuCull_CastsRestPose, the same function), a VSM level, a local light's view and the rain occlusion.
         const auto instanceSways = [&gathered]( const uint32_t k ) { return gathered.Instances[k].Sways; };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets

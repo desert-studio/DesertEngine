@@ -43,7 +43,7 @@ namespace Desert::Graphic::GpuDriven
         // Moves by itself every frame (a skinned pose, a swaying foliage field): a caster of the cascade cache's
         // MOVABLE layer, drawn over the copied static cache each frame, never into the cache (UE's cached shadow
         // maps: movable primitives go to the dynamic depths). The cull's layer flags below split on it, per
-        // instance: a swaying instance past the shadow wind distance stands still there (IsMovableCasterIn).
+        // instance: a swaying instance past the shadow wind distance stands still there (ShadowWind.glslh).
         inline constexpr uint32_t kMovableCaster = 1u << 5;
     } // namespace PrimitiveFlags
 
@@ -233,7 +233,7 @@ namespace Desert::Graphic::GpuDriven
     };
     static_assert( sizeof( GpuVisibleInstance ) == 8, "std430 twin in Common/GpuScene.glslh" );
     // The top bit of GpuVisibleInstance::DrawSlot (GLSL DESERT_GPU_VISIBLE_REST_POSE): the cull drew this swaying
-    // instance in its rest pose (CastsRestPose), the vertex stage bends it by no wind.
+    // instance in its rest pose (GpuCull_CastsRestPose), the vertex stage bends it by no wind.
     inline constexpr uint32_t kVisibleRestPose = 1u << 31;
 
     // Phase 1 of the two-phase HZB cull appends here what the PREVIOUS frame's HZB rejected; phase 2 re-tests
@@ -256,7 +256,7 @@ namespace Desert::Graphic::GpuDriven
         glm::mat4  LodProjection{ 1.0f };      // 128 Geometry::LODView::Projection (the main view's for shadows)
         glm::vec4  FrustumPlanes[6]{};         // 192 xyz = normal, w = distance (Core::Frustum::Plane), zero = open
         glm::vec4  LodOrigin{ 0.0f };          // 288 xyz = Geometry::LODView::Origin, w = the shadow wind distance
-                                               //     (cm; caster views, CastsRestPose; 0 elsewhere)
+                                               //     (cm; caster views, Common/ShadowWind.glslh; 0 elsewhere)
         glm::vec4  CullOrigin{ 0.0f };         // 304 xyz = ISM distance-cull origin (main camera), w = its lens scale
                                                //     (Graphic::DrawDistanceScale of the main view)
         glm::uvec4 HzbExtent{ 0u };            // 320 xy = HZB mip-0 size, z = mip count, w = 0 (no HZB: z = 0)
@@ -277,35 +277,19 @@ namespace Desert::Graphic::GpuDriven
         inline constexpr uint32_t kShadowCaster  = 1u << 2; // only kCastsShadow primitives
         inline constexpr uint32_t kLodDisabled   = 1u << 3; // MeshRenderer::IsLODEnabled() == false: auto LOD is 0
         inline constexpr uint32_t kVsmPageMask   = 1u << 4; // VSM level: also the "VSM: Dirty Mask" cell test
-        // A cached cascade's layers (MeshRenderer::PlanCascadeCache), per instance (IsMovableCasterIn): the static
+        // A cached cascade's layers (MeshRenderer::PlanCascadeCache), per instance (ShadowWind.glslh): the static
         // layer takes the instances that stand still in the view, the movable layer those that move by themselves.
         // Neither: every caster.
         inline constexpr uint32_t kCasterStaticLayer  = 1u << 5;
         inline constexpr uint32_t kCasterMovableLayer = 1u << 6;
     } // namespace CullViewFlags
 
-    // WHO SWAYS IN THE SHADOWS (GLSL GpuCull_CastsRestPose, Common/GpuScene.glslh; MeshRenderer::ShadowIsmInstances
-    // is the CPU walk's rule; UE WPO Disable Distance): in a caster view, an instance of a swaying primitive
-    // (Wind.z = Strength > 0) farther from the main camera (LodOrigin) than the view's shadow wind distance
-    // (LodOrigin.w) casts its rest pose and stands with the still casters; a nearer one is a mover. Measured from
-    // the instance's origin.
-    [[nodiscard]] inline bool CastsRestPose( const GpuCullView& view, const GpuScenePrimitive& primitive,
-                                             const glm::vec3& instanceOrigin )
-    {
-        if ( ( view.Flags & CullViewFlags::kShadowCaster ) == 0u || !( primitive.Wind.z > 0.0f ) )
-            return false;
-        const glm::vec3 offset = instanceOrigin - glm::vec3( view.LodOrigin );
-        return glm::dot( offset, offset ) > view.LodOrigin.w * view.LodOrigin.w;
-    }
-
-    // Whether the instance moves by itself in @p view (a skinned or swaying primitive, PrimitiveFlags::kMovableCaster,
-    // unless it casts its rest pose there): what a cached cascade's layers split on (InstanceCull.shader).
-    [[nodiscard]] inline bool IsMovableCasterIn( const GpuCullView& view, const GpuScenePrimitive& primitive,
-                                                 const glm::vec3& instanceOrigin )
-    {
-        return ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u &&
-               !CastsRestPose( view, primitive, instanceOrigin );
-    }
+    // WHO SWAYS IN THE SHADOWS: a caster view's swaying instance (Wind.z = Strength > 0) casts its rest pose by the
+    // ONE rule of Editor/Resources/Shaders/Common/ShadowWind.glslh (its bounds centre in the world against
+    // LodOrigin.xyz, the main camera's position, and LodOrigin.w, the shadow wind distance), compiled as GLSL by
+    // GpuCull_CastsRestPose and as C++ by the CPU walk (MeshRenderer::ShadowIsmInstances) and the cull's reference
+    // (InstanceCullValidation.cpp). A primitive with kMovableCaster moves by itself in a view unless it casts its
+    // rest pose there: what a cached cascade's layers split on (InstanceCull.shader).
 
     // One word per (view, instance) the cull writes (InstanceCull.shader Visibility[]; GLSL
     // DESERT_GPU_CULL_VISIBILITY_*): 0 = culled before occlusion. The debug readback compares kInView + LOD with

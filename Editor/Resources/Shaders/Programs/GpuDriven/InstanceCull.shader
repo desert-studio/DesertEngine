@@ -368,7 +368,7 @@ Shader "InstanceCull"
             // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer), per instance: the static layer
             // keeps what stands still (a swaying instance past the shadow wind distance among it, in its rest
             // pose), the movable layer what moves by itself.
-            const bool restPose = GpuCull_CastsRestPose( view, primitive, world[3].xyz );
+            const bool restPose = GpuCull_CastsRestPose( view, primitive, world );
             const bool movable  = ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u && !restPose;
             if ( ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u && movable ) ||
                  ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u && !movable ) )
@@ -442,7 +442,7 @@ Shader "InstanceCull"
             const uint lod  = Visibility[cell] & DESERT_GPU_CULL_VISIBILITY_LOD_MASK;
             atomicOr( Visibility[cell], DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE );
             EmitToBins( localView, entry.Instance, instance.Primitive, lod,
-                        GpuCull_CastsRestPose( view, primitive, world[3].xyz ) );
+                        GpuCull_CastsRestPose( view, primitive, world ) );
         }
 
         void WriteDispatchArgs()

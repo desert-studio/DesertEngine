@@ -378,8 +378,8 @@ Shader "ClusterCut"
             f.TestHzb      = Params2.x != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
                         ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u;
             const mat4 instanceWorld =
-                 GpuScene_UnpackAffine( primitive.LocalToWorld ) * GpuScene_InstanceToPrimitive( instance );
-            f.RestPose = GpuCull_CastsRestPose( view, primitive, instanceWorld[3].xyz );
+                 GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
+            f.RestPose = GpuCull_CastsRestPose( view, primitive, instanceWorld );
             return true;
         }
 

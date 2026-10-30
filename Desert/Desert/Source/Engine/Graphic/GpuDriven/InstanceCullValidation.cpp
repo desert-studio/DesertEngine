@@ -1,5 +1,6 @@
 #include <Engine/Graphic/GpuDriven/InstanceCullValidation.hpp>
 
+#include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Math/AABB.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -14,6 +15,20 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+
+// The shadow wind distance's rule as InstanceCull.shader runs it: the same text, compiled as C++ (the shader root
+// is on the Engine include path, premake5.lua). At global scope, as MeshRendererShadow.cpp includes it, so a unity
+// blob holding both (one copy behind the include guard) finds it from either.
+namespace
+{
+    using glm::dot;
+    using glm::mat4;
+    using glm::vec3;
+    using glm::vec4;
+    DESERT_GLSL_AS_CPP_BEGIN
+#include <Common/ShadowWind.glslh>
+    DESERT_GLSL_AS_CPP_END
+} // namespace
 
 namespace Desert::Graphic::GpuDriven
 {
@@ -223,7 +238,15 @@ namespace Desert::Graphic::GpuDriven
                         return 0u;
                     const glm::mat4            world = UnpackAffine( primitive.LocalToWorld ) * UnpackAffine( instance.InstanceToPrimitive );
                     // InstanceCull.shader's cascade-cache layer split, per instance.
-                    const bool movableCaster = IsMovableCasterIn( view.Gpu, primitive, glm::vec3( world[3] ) );
+                    // GpuCull_CastsRestPose: a caster view's swaying instance past the shadow wind distance stands
+                    // still there.
+                    const bool restPose =
+                         ( view.Gpu.Flags & CullViewFlags::kShadowCaster ) != 0u && primitive.Wind.z > 0.0f &&
+                         ShadowWindCastsRestPose(
+                              ShadowWindInstancePoint( world, glm::vec3( primitive.LocalBoundsCenter ) ),
+                              glm::vec3( view.Gpu.LodOrigin ), view.Gpu.LodOrigin.w );
+                    const bool movableCaster =
+                         ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose;
                     if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
                          ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
                         return 0u;
