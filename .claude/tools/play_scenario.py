@@ -93,7 +93,7 @@ def main():
     with open(os.path.join(out, "scenario.scn"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-    sock = os.path.join(tempfile.gettempdir(), f"desert-scn-{code}.sock")
+    sock = os.path.join(tempfile.gettempdir(), f"desert-scn-{os.path.basename(os.path.normpath(tree))}-{code}.sock")
     if os.path.exists(sock):
         os.remove(sock)
     log = open(os.path.join(out, "editor.log"), "w", encoding="utf-8", errors="replace")
