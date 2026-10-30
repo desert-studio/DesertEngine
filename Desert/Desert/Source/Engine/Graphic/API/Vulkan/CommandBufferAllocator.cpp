@@ -251,7 +251,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             // The x column of these rows is the number of one-off CPU waits a frame (all of them, and this
             // call site's); a frame's budget is zero.
-            DESERT_PROFILE_SCOPE( "Vulkan: FlushOneShot fence wait" );
+            DESERT_PROFILE_WAIT( "Vulkan: FlushOneShot fence wait" );
 #if DESERT_DEV_INSTRUMENTS
             const char* const site = WaitSiteName( where );
             DESERT_PROFILE_SCOPE_DYNAMIC( site );

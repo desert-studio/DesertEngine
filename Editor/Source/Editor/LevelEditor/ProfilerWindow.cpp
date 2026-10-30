@@ -116,13 +116,15 @@ namespace Desert::Editor
                   prof.AvgWindowSeconds() );
         LOG_INFO( "[Profiler] Frame (wall) {:.3f} ms ({:.0f} FPS), GPU frame {:.3f} ms", frameMs, fps,
                   gpuFrameMs );
-        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6}", "scope", "cpu ms", "x", "gpu ms",
-                  "gpu self", "x" );
+        // cpu self: the row with its nested CPU scopes subtracted; cpu wait: the part of cpu ms blocked in a
+        // Wait scope (fence, acquire, present, pacer) - cpu ms minus cpu wait is the row's real work.
+        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10}", "scope", "cpu ms", "x",
+                  "gpu ms", "gpu self", "x", "cpu self", "cpu wait" );
 
         for ( const auto& s : prof.LastFrame() )
         {
-            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6}", s.Name, s.TotalMs, s.Calls,
-                      s.GpuMs, s.GpuSelfMs, s.GpuCalls );
+            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f}", s.Name,
+                      s.TotalMs, s.Calls, s.GpuMs, s.GpuSelfMs, s.GpuCalls, s.SelfMs, s.WaitMs );
             // SELF time is the only summable column — the inclusive one counts a parent's microseconds
             // again in each child. The frame bracket is the denominator, not a pass, so it stays out.
             if ( s.GpuCalls > 0 && s.Name != frameTotalScope )
@@ -210,7 +212,7 @@ namespace Desert::Editor
 
         ImGui::Separator();
 
-        if ( ImGui::BeginTable( "##prof", 6,
+        if ( ImGui::BeginTable( "##prof", 7,
                                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
                                      ImGuiTableFlags_SizingStretchProp ) )
         {
@@ -222,6 +224,8 @@ namespace Desert::Editor
             const float kNumWidth = ImGui::CalcTextSize( "0000.000" ).x;
             ImGui::TableSetupColumn( "scope", ImGuiTableColumnFlags_WidthStretch );
             ImGui::TableSetupColumn( "cpu", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
+            // The part of "cpu" blocked in a Wait scope (fence, acquire, present, pacer): cpu - wait is the work.
+            ImGui::TableSetupColumn( "wait", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
             ImGui::TableSetupColumn( "gpu", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
             ImGui::TableSetupColumn( "self", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
             ImGui::TableSetupColumn( "%", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize( "000" ).x );
@@ -240,6 +244,11 @@ namespace Desert::Editor
                     ImGui::SetTooltip( "%s", s.Name.c_str() );
                 ImGui::TableNextColumn();
                 ImGui::Text( "%.3f", s.TotalMs );
+                ImGui::TableNextColumn();
+                if ( s.WaitMs > 0.0005 )
+                    ImGui::TextColored( ImVec4( 1.0f, 0.62f, 0.40f, 1.0f ), "%.3f", s.WaitMs );
+                else
+                    ImGui::TextDisabled( "-" );
                 ImGui::TableNextColumn();
                 // A dash, not 0.000: a scope that records no GPU work and a scope the GPU timer could not
                 // reach are different states, and printing zero for both invents a measurement.

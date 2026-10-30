@@ -420,7 +420,7 @@ namespace Desert::Graphic::API::Vulkan
         // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
         // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
         // A row of its own (FPS-CPU-2): under FIFO the acquire is where a vsync-bound frame waits.
-        DESERT_PROFILE_SCOPE( "Vulkan: AcquireNextImage" );
+        DESERT_PROFILE_WAIT( "Vulkan: AcquireNextImage" );
         const VkResult res =
              vkLogicalDevice->GetPresentationDispatch().vkAcquireNextImageKHR(
                   vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX, presentCompleteSemaphore,
