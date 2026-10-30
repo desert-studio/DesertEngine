@@ -390,9 +390,12 @@ def main():
         sys.exit(0)
 
     if event == "SubagentStop":
-        code = s["agents"].get(data.get("agent_id") or "") or \
-            code_from_transcript(data.get("agent_transcript_path") or "")
-        s["stopped"][data.get("agent_id") or ""] = time.time()
+        # A worker's nested child (an Explore it spawned) stops with the worker's agent_id; its own id is only in the
+        # transcript name, so a live FPS-MEASURE-5 read as stopped (10-30) - the transcript name wins.
+        named = re.search(r"agent-([0-9a-f]{8,})\.jsonl$", str(data.get("agent_transcript_path") or ""))
+        aid = named.group(1) if named else (data.get("agent_id") or "")
+        code = s["agents"].get(aid) or code_from_transcript(data.get("agent_transcript_path") or "")
+        s["stopped"][aid] = time.time()
         if code:
             s["pending"][code] = time.time()
         save(s)
