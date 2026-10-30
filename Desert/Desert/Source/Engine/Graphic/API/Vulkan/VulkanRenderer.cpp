@@ -1533,6 +1533,10 @@ namespace Desert::Graphic::API::Vulkan
         m_CurrentCommandBuffer                    = nullptr;
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
+        // A graph that failed inside an async segment never reached its EndPipeSegment: what records after the
+        // graph is on the graphics queue whatever the graph left behind.
+        if ( m_RdgDevice.Profiler != nullptr )
+            m_RdgDevice.Profiler->SetQueue( ::Common::Profiling::GpuQueue::Graphics );
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
                                    std::make_move_iterator( segments.end() ) );
 
@@ -1556,6 +1560,7 @@ namespace Desert::Graphic::API::Vulkan
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
         {
+            DESERT_PROFILE_PASS( "RDG: FrameFault clear" ); // recorded outside every pass of the graph
             if ( const auto cleared = ClearFrameFaultExternals( m_CurrentCommandBuffer, graph, *frame ); !cleared )
                 return fail( std::format( "graph '{}': {}", graph.GetName(), cleared.GetError() ) );
         }

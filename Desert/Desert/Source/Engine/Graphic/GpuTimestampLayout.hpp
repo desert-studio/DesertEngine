@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Common/Core/GpuQueue.hpp>
+
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -120,6 +123,9 @@ namespace Desert::Graphic
             // Which of m_Stacks this scope was pushed on, so End pops the right one even if the active
             // view has changed in between.
             uint32_t Stack = 0;
+            // The queue the scope's timestamps were written on (SetQueue at the time it opened): the
+            // timeline its interval belongs to (GpuCoverage).
+            Common::Profiling::GpuQueue Queue = Common::Profiling::GpuQueue::Graphics;
         };
 
         // Starts a frame with room for @p capacityScopes.
@@ -129,6 +135,13 @@ namespace Desert::Graphic
             m_Requested = 0;
             m_Scopes.clear();
             m_Stacks.clear();
+            m_Queue = Common::Profiling::GpuQueue::Graphics;
+        }
+
+        // The queue every scope opened from now on is recorded on, until the next call or Reset.
+        void SetQueue( Common::Profiling::GpuQueue queue ) noexcept
+        {
+            m_Queue = queue;
         }
 
         // The scope's index (its queries are GpuScopeQueryBase( index ) and the next), or -1 when the pool
@@ -149,7 +162,7 @@ namespace Desert::Graphic
 
             const auto index = static_cast<int32_t>( m_Scopes.size() );
             m_Scopes.push_back(
-                 Scope{ std::move( name ), stack.empty() ? kGpuNoParent : stack.back(), stackIndex } );
+                 Scope{ std::move( name ), stack.empty() ? kGpuNoParent : stack.back(), stackIndex, m_Queue } );
             stack.push_back( index );
             return index;
         }
@@ -192,6 +205,7 @@ namespace Desert::Graphic
             return static_cast<uint32_t>( m_Stacks.size() - 1 );
         }
 
+        Common::Profiling::GpuQueue                               m_Queue     = Common::Profiling::GpuQueue::Graphics;
         uint32_t                                                  m_Capacity  = 0;
         uint32_t                                                  m_Requested = 0;
         std::vector<Scope>                                        m_Scopes;
@@ -229,5 +243,83 @@ namespace Desert::Graphic
                 self[i] = 0.0;
 
         return self;
+    }
+
+    // One scope's interval on its queue's timeline, in ms from the frame bracket's begin. A scope whose two
+    // queries did not both land has Valid false and covers nothing.
+    struct GpuInterval
+    {
+        double BeginMs = 0.0;
+        double EndMs   = 0.0;
+        bool   Valid   = false;
+    };
+
+    // One stretch of a span no member interval covers. After / Before are the scope that ended last before it
+    // and the scope that began after it (indices into the interval list), kGpuNoParent at the span's edges.
+    struct GpuUncovered
+    {
+        int32_t After  = kGpuNoParent;
+        int32_t Before = kGpuNoParent;
+        double  Ms     = 0.0;
+    };
+
+    struct GpuCoverage
+    {
+        double                    UncoveredMs = 0.0;
+        std::vector<GpuUncovered> Gaps;
+    };
+
+    // What of [@p spanBeginMs, @p spanEndMs] the UNION of the @p members' intervals leaves uncovered, stretch by
+    // stretch. A union, not a sum: nested and overlapping scopes cover a moment once, so the remainder is the
+    // time no scope was around - work recorded outside every scope, barriers between them, and idle - and can
+    // never go negative. Intervals are clipped to the span. The relation it exists for: UncoveredMs plus the
+    // union's length is the span's length.
+    [[nodiscard]] inline GpuCoverage GpuCoverageOf( const std::vector<GpuInterval>& intervals,
+                                                    std::vector<int32_t> members, double spanBeginMs,
+                                                    double spanEndMs )
+    {
+        GpuCoverage coverage;
+        if ( spanEndMs <= spanBeginMs )
+            return coverage;
+
+        std::erase_if( members,
+                       [&]( int32_t index )
+                       {
+                           return index < 0 || static_cast<size_t>( index ) >= intervals.size() ||
+                                  !intervals[static_cast<size_t>( index )].Valid;
+                       } );
+        std::stable_sort( members.begin(), members.end(),
+                          [&]( int32_t a, int32_t b )
+                          {
+                              return intervals[static_cast<size_t>( a )].BeginMs <
+                                     intervals[static_cast<size_t>( b )].BeginMs;
+                          } );
+
+        double  cursor    = spanBeginMs;
+        int32_t lastEnded = kGpuNoParent;
+        for ( const int32_t index : members )
+        {
+            const GpuInterval& interval = intervals[static_cast<size_t>( index )];
+            const double       begin    = std::max( interval.BeginMs, spanBeginMs );
+            const double       end      = std::min( interval.EndMs, spanEndMs );
+            if ( end <= begin )
+                continue;
+            if ( begin > cursor )
+            {
+                coverage.Gaps.push_back( GpuUncovered{ lastEnded, index, begin - cursor } );
+                coverage.UncoveredMs += begin - cursor;
+            }
+            if ( end > cursor )
+            {
+                cursor    = end;
+                lastEnded = index;
+            }
+        }
+        if ( spanEndMs > cursor )
+        {
+            coverage.Gaps.push_back( GpuUncovered{ lastEnded, kGpuNoParent, spanEndMs - cursor } );
+            coverage.UncoveredMs += spanEndMs - cursor;
+        }
+        return coverage;
     }
 } // namespace Desert::Graphic

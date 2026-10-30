@@ -1299,9 +1299,9 @@ namespace Desert::Graphic::API::Vulkan
         // its last accesses complete before this graph's first one, recorded into the first command buffer the
         // graph opens (BeginGraph returns one only for a graph without segments).
         m_SharedHeapBarrierPending = reserved.GetValue();
+        m_GraphName                = graph.Name; // before the barrier: its GPU row is named after the graph
         if ( first.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( first.GetValue() );
-        m_GraphName = graph.Name;
         for ( const RDG::Allocation& allocation : plan.Allocations )
         {
             if ( allocation.Resource >= graph.Resources.size() )
@@ -1382,6 +1382,24 @@ namespace Desert::Graphic::API::Vulkan
         }
         segments.Begun = true;
         return Common::MakeSuccess( true );
+    }
+
+    // The graph's own commands outside every pass - the heap-reuse barrier, the fork releases at the graph start,
+    // the final barriers - each get a GPU row of their own ("RDG Barriers: <graph> | <what>"), so the graph
+    // records nothing the profiler cannot name (UE: RDG's prologue / epilogue barrier batches sit under the
+    // graph's event scope, not outside "stat gpu").
+    int32_t VulkanRdgBackend::BeginGraphCommandsScope( std::string_view what )
+    {
+        if ( m_Device.Profiler == nullptr )
+            return -1;
+        const std::string name = std::format( "RDG Barriers: {} | {}", m_GraphName, what );
+        return m_Device.Profiler->BeginScope( name.c_str() );
+    }
+
+    void VulkanRdgBackend::EndGraphCommandsScope( int32_t handle )
+    {
+        if ( m_Device.Profiler != nullptr )
+            m_Device.Profiler->EndScope( handle );
     }
 
     // THE one place a pass is labelled and timed: every graph pass gets both, and no pass records its own.
@@ -1702,7 +1720,11 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRdgBackend::EndGraph( std::span<const RDG::Barrier> finalBarriers )
     {
         if ( !finalBarriers.empty() )
+        {
+            const int32_t scope = BeginGraphCommandsScope( "final barriers" );
             RecordBarriers( finalBarriers );
+            EndGraphCommandsScope( scope );
+        }
         Release();
         m_Segments.EndGraph();
         m_Result = nullptr;
@@ -1718,7 +1740,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_SegmentScope >= 0 && m_Device.Profiler != nullptr )
             m_Device.Profiler->EndScope( m_SegmentScope );
         m_SegmentScope = -1;
-        m_Result       = nullptr;
+        if ( m_PrologueScope >= 0 )
+            EndGraphCommandsScope( m_PrologueScope );
+        m_PrologueScope = -1;
+        m_Result        = nullptr;
         Release();
         m_Segments.AbandonGraph();
         SetRecording( VK_NULL_HANDLE );
@@ -1750,12 +1775,22 @@ namespace Desert::Graphic::API::Vulkan
         if ( !begun )
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
+        // Every scope from here to EndPipeSegment is on this segment's queue: the profiler keeps one timeline
+        // per queue, and an async pass tiled against the graphics bracket would hide the graphics remainder.
+        if ( m_Device.Profiler != nullptr )
+            m_Device.Profiler->SetQueue( segment.OnPipe == RDG::Pipe::AsyncCompute
+                                              ? Common::Profiling::GpuQueue::AsyncCompute
+                                              : Common::Profiling::GpuQueue::Graphics );
         if ( begun.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( begun.GetValue() );
         // The async segment's own GPU row. Only a segment that waits on a fork: the frame's query reset is
         // recorded at the head of the graphics queue, and only a fork orders this queue after it.
+        // The prologue segment has no passes, only the releases of a fork from the graph start (RDGBuilder Execute).
+        if ( segment.FirstPosition == RDG::CrossPipeSync::kForkAtGraphStart )
+            m_PrologueScope = BeginGraphCommandsScope( "fork releases at the graph start" );
         if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
-             m_Device.Profiler != nullptr && m_Result != nullptr )
+             m_Device.Profiler != nullptr && m_Result != nullptr &&
+             segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
         {
             m_SegmentScopeName = std::string( Common::Profiling::kGpuAsyncSegmentScopePrefix ) +
                                  m_Result->Passes[segment.FirstPosition].Name + " .. " +
@@ -1771,12 +1806,14 @@ namespace Desert::Graphic::API::Vulkan
         if ( !m_SharedHeapBarrierPending )
             return;
         m_SharedHeapBarrierPending = false;
+        const int32_t scope        = BeginGraphCommandsScope( "shared heap reuse" );
         VkMemoryBarrier barrier{};
         barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
         vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                               VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
+        EndGraphCommandsScope( scope );
     }
 
     Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )
@@ -1788,6 +1825,15 @@ namespace Desert::Graphic::API::Vulkan
             m_Device.Profiler->EndScope( m_SegmentScope );
             m_SegmentScope = -1;
         }
+        if ( m_PrologueScope >= 0 )
+        {
+            EndGraphCommandsScope( m_PrologueScope );
+            m_PrologueScope = -1;
+        }
+        // Whatever records next (the next segment, or the frame's buffer after the graph) is graphics until a
+        // segment says otherwise.
+        if ( m_Device.Profiler != nullptr )
+            m_Device.Profiler->SetQueue( Common::Profiling::GpuQueue::Graphics );
         const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )

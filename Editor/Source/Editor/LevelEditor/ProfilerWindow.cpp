@@ -14,10 +14,13 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <ImGui/imgui.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -107,14 +110,28 @@ namespace Desert::Editor
         const double frameMs = prof.LastFrameMs();
         const double fps     = frameMs > 0.0001 ? 1000.0 / frameMs : 0.0;
 
-        const std::string frameTotalScope = ::Common::Profiling::kGpuFrameTotalScope;
+        const std::string      frameTotalScope = ::Common::Profiling::kGpuFrameTotalScope;
+        const std::string_view gapPrefix       = ::Common::Profiling::kGpuGapScopePrefix;
+        // The remainder rows (Profiler.hpp): published beside the passes, never one of them.
+        const auto isRemainder = [&]( const std::string& name )
+        {
+            return name == frameTotalScope || name == ::Common::Profiling::kGpuUnaccountedGraphicsScope ||
+                   name == ::Common::Profiling::kGpuUnaccountedAsyncScope ||
+                   std::string_view( name ).starts_with( gapPrefix );
+        };
 
-        double gpuFrameMs = 0.0;
-        double gpuSumMs   = 0.0;
+        double gpuFrameMs         = 0.0;
+        double gpuSumMs           = 0.0;
+        double unaccountedMs      = 0.0;
+        double asyncUnaccountedMs = -1.0; // no row: no async segment was timed
         for ( const auto& s : prof.LastFrame() )
         {
             if ( s.Name == frameTotalScope )
                 gpuFrameMs = s.GpuMs;
+            else if ( s.Name == ::Common::Profiling::kGpuUnaccountedGraphicsScope )
+                unaccountedMs = s.GpuMs;
+            else if ( s.Name == ::Common::Profiling::kGpuUnaccountedAsyncScope )
+                asyncUnaccountedMs = s.GpuMs;
         }
 
         LOG_INFO( "[Profiler] ---- per-pass breakdown (averaged over {:.1f} s of frames) ----",
@@ -128,17 +145,41 @@ namespace Desert::Editor
 
         for ( const auto& s : prof.LastFrame() )
         {
+            if ( std::string_view( s.Name ).starts_with( gapPrefix ) )
+                continue; // printed below, largest first
             LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f}", s.Name,
                       s.TotalMs, s.Calls, s.GpuMs, s.GpuSelfMs, s.GpuCalls, s.SelfMs, s.WaitMs );
             // SELF time is the only summable column — the inclusive one counts a parent's microseconds
-            // again in each child. The frame bracket is the denominator, not a pass, so it stays out.
-            if ( s.GpuCalls > 0 && s.Name != frameTotalScope )
+            // again in each child. The frame bracket is the denominator and the Unaccounted rows are its
+            // remainder, not passes, so they stay out.
+            if ( s.GpuCalls > 0 && !isRemainder( s.Name ) )
                 gpuSumMs += s.GpuSelfMs;
         }
 
         LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
                   "remainder is device work no pass is marked around.",
                   gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
+
+        // UNACCOUNTED, PER QUEUE (UE "stat gpu"): the GPU frame minus the union of the labelled graphics scopes,
+        // and the async segments minus the union of their passes - the backend's numbers, not this sum (which
+        // double-counts overlap). Then WHERE the graphics remainder sits: each stretch of at least
+        // kGpuGapReportMs, named by its neighbours, largest first.
+        LOG_INFO( "[Profiler] Unaccounted graphics queue {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %)", unaccountedMs,
+                  gpuFrameMs, gpuFrameMs > 0.0001 ? unaccountedMs / gpuFrameMs * 100.0 : 0.0 );
+        if ( asyncUnaccountedMs >= 0.0 )
+            LOG_INFO( "[Profiler] Unaccounted async compute queue {:.3f} ms (segment time outside its passes)",
+                      asyncUnaccountedMs );
+        else
+            LOG_INFO( "[Profiler] Unaccounted async compute queue: no async segment timed" );
+        {
+            std::vector<std::pair<double, std::string_view>> gaps;
+            for ( const auto& s : prof.LastFrame() )
+                if ( std::string_view( s.Name ).starts_with( gapPrefix ) )
+                    gaps.emplace_back( s.GpuMs, std::string_view( s.Name ).substr( gapPrefix.size() ) );
+            std::sort( gaps.begin(), gaps.end(), []( const auto& a, const auto& b ) { return a.first > b.first; } );
+            for ( const auto& [ms, where] : gaps )
+                LOG_INFO( "[Profiler]   unaccounted {:>10.3f} ms  {}", ms, where );
+        }
 
         // THE ASYNC QUEUE, NAMED. Every compute-queue segment of the frame is one row the backend publishes under
         // kGpuAsyncSegmentScopePrefix; its passes are the rows between its first and last pass. Their time
