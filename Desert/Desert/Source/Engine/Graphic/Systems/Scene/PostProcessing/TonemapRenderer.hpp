@@ -196,6 +196,12 @@ namespace Desert::Graphic::System
             m_AutoExposureEnabled = enabled;
             m_ExposureKey         = key;
         }
+        // This frame's view shows a display-referred buffer (Graphic::IsDisplayReferredView of the view's
+        // DebugViewState): the composite draws the scene colour as is, unexposed and untonemapped.
+        void SetVisualizeBuffer( bool enabled )
+        {
+            m_VisualizeBuffer = enabled;
+        }
 
         // The sun light's radial streaks (LightShaftRenderer) and their strength — the intensity is
         // Bloom Scale x the sun's screen-edge fade, computed by SceneRenderer from the SAME params that
@@ -235,6 +241,7 @@ namespace Desert::Graphic::System
         std::weak_ptr<Image2D> m_AutoExposureImage;
         bool                   m_AutoExposureEnabled = false;
         float                      m_ExposureKey         = 0.18f;
+        bool                   m_VisualizeBuffer     = false; // SetVisualizeBuffer
 
         float                  m_LightShaftIntensity = 0.0f;
         glm::vec3              m_LightShaftTint      = glm::vec3( 1.0f );

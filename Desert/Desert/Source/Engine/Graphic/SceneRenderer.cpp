@@ -1412,6 +1412,9 @@ namespace Desert::Graphic
                           EV100ToLuminance( post.AutoExposureMaxEV100 ) );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).
+        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
+             ->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 

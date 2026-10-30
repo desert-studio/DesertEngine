@@ -85,6 +85,17 @@ namespace Desert::Graphic
                mode == DeferredDebugMode::ShadingModel || mode == DeferredDebugMode::SunShadowReceive;
     }
 
+    // A DISPLAY-REFERRED BUFFER VIEW (UE VMI_VisualizeBuffer): the composite writes a stored value or a heat-map
+    // colour (DeferredLighting.shader debug channels 1-5, 7, 9-11), not radiance, so the tonemap shows it as is -
+    // no eye adaptation, manual exposure, bloom or tonemap curve (UE draws the buffer visualization after the
+    // tonemapper and turns eye adaptation off for it). Without this a physically lit scene (sun 100 000 lx, auto
+    // exposure EV100 9..15) multiplied the 0..1 channel by ~1/4000 and every buffer view was black (GP1 p8).
+    [[nodiscard]] constexpr bool IsDisplayReferredView( const DeferredDebugMode mode )
+    {
+        return IsGBufferView( mode ) || mode == DeferredDebugMode::LightComplexity ||
+               mode == DeferredDebugMode::MaterialComplexity;
+    }
+
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
     // property of the world.
     //
