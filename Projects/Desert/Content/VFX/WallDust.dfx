@@ -7,7 +7,7 @@
         },
         "Dependencies": [
             "0caef28c515f4a4e93363f1616ed3ca3", "13cdf49c6bf0428790436694facfc331", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "6f2b9c41d8e04a57b3a1c0e9f5d27b86", "94456c88cf0e495e9396474e052d53bd",
-            "9488cdf80a5f4f4fba16c02d431bc8e0", "a0f042db0b6248cab1bcf38605abbf78", "bd19bb728e4646919475240f1a19369d", "c3e1a7d94b2f4e6a8d05f1b97a6e2c48", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c", "e64f581d72684d28ab4dc2f70e9c807a"
+            "9488cdf80a5f4f4fba16c02d431bc8e0", "a0f042db0b6248cab1bcf38605abbf78", "bd19bb728e4646919475240f1a19369d", "c3e1a7d94b2f4e6a8d05f1b97a6e2c48", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c", "e64f581d72684d28ab4dc2f70e9c807a", "e9f40e7b3dae4463a5a47d725c82a1bb"
         ]
     },
     "Category": "Dust",
@@ -1133,6 +1133,39 @@
                                 "Type": "Float",
                                 "Source": "Value",
                                 "Value": [0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "e9f40e7b3dae4463a5a47d725c82a1bb",
+                            "Path": "engine:Engine/VFX/Modules/Collision.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Radius",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [1, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Thickness",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [50, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Restitution",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.3, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Friction",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.4, 0.0, 0.0, 0.0]
                             }
                         ]
                     },

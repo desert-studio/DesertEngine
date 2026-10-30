@@ -1608,6 +1608,9 @@ namespace Desert::Graphic
                               const ViewFrame& frame ,
                               const FrontLayerSurface* frontLayer = nullptr );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
+        // PORT-VFX-MODULES: the PostOpaque tick stage after the scene depth resolve @p sceneDepth - its scene
+        // inputs, its chain (simulating view), this view's PostOpaque sort, then the tick's readbacks.
+        void AddFrameParticlesPostOpaque( RDG::Builder& graph, RDG::TextureRef sceneDepth );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );

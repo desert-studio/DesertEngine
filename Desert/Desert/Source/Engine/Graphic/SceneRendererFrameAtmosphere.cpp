@@ -39,8 +39,12 @@
 
 namespace Desert::Graphic
 {
-    // The claiming view's simulation nodes (Compact 0, then per step Dispatch Args / Spawn+Update / Compact).
-    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer );
+    // The claiming view's simulation nodes of one tick stage's chain (Open, Compact 0, then per step Dispatch Args /
+    // Spawn+Update / Compact), every node with @p flags.
+    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
+                                            VFX::VFXTickStage stage, RDG::PassFlags flags );
+    // The claiming view's Debug / Light readbacks of the finished tick: after BOTH chains.
+    static void AddParticleReadbacks( RDG::Builder& graph, System::ParticleRenderer& renderer );
 
     void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph )
     {
@@ -63,11 +67,16 @@ namespace Desert::Graphic
         // twice. Spawn+Update s and compact s+1 are dispatched INDIRECT from what "Dispatch Args s" wrote from
         // compact s's GPU counts.
         particles->ImportFrameBuffers( graph );
-        if ( particles->ClaimsSimulation() )
-            AddParticleSimulationSteps( graph, *particles );
+        // PORT-VFX-MODULES (UE Niagara tick stages): the PreOpaque chain here, before the base pass, on the async
+        // pipe; the PostOpaque chain (a stack reading the scene depth) after the scene depth resolve
+        // (AddFrameParticlesPostOpaque).
+        if ( particles->ClaimsSimulation() && particles->SimulatesStage( VFX::VFXTickStage::PreOpaque ) )
+            AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PreOpaque,
+                                        RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute );
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
-        // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
-        particles->AddSortPasses( graph );
+        // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers. This
+        // phase sorts every draw but a simulated PostOpaque emitter's forward ones (DrawSortPhase).
+        particles->AddSortPasses( graph, VFX::VFXTickStage::PreOpaque );
         // VFX-09: Mesh renderer rows as GPU instances of the mesh renderer (lit by the GBuffer, cast into the
         // cascades) - submitted here, before the cascades and the base pass build their draws.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -75,40 +84,78 @@ namespace Desert::Graphic
             particles->AddMeshInstances( graph, *meshes );
     }
 
-    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )
+    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
+                                            const VFX::VFXTickStage stage, const RDG::PassFlags flags )
     {
-        // ASYNC COMPUTE (UE Niagara GPU simulation on the async pipe): every node reads and writes the particle pool and
-        // the emitters' host-written step tables only; the first graphics reader is the particle draw (translucency)
-        // or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run async as well, so the run
-        // is not joined by its own next node. Fork: the pool imports' first touch; join: that first reader.
-        const RDG::PassFlags kSimulationFlags = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+        // PreOpaque - ASYNC COMPUTE (UE Niagara GPU simulation on the async pipe): every node reads and writes the
+        // particle pool and the emitters' host-written step tables only; the first graphics reader is the particle
+        // draw (translucency) or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run async
+        // as well, so the run is not joined by its own next node. Fork: the pool imports' first touch; join: that
+        // first reader. PostOpaque - the graphics queue: its Spawn+Update reads the scene depth just resolved.
         System::ParticleRenderer* particles = &renderer;
-        const uint32_t            steps     = particles->SimulationStepCount();
+        const uint32_t            steps     = particles->SimulationStepCount( stage );
+        const std::string_view    name = stage == VFX::VFXTickStage::PreOpaque ? "PreOpaque" : "PostOpaque";
         graph.AddPass(
-             "Particles: Compact 0", kSimulationFlags,
-             [particles]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0 ); },
-             [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return particles->Compact( context, 0 ); } );
+             std::format( "Particles {}: Open", name ), flags,
+             [particles, stage]( RDG::PassBuilder& pass ) { particles->DeclareOpenBindings( pass, stage ); },
+             [particles, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return particles->OpenDrawSlots( context, stage ); } );
+        graph.AddPass(
+             std::format( "Particles {}: Compact 0", name ), flags,
+             [particles, stage]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0, stage ); },
+             [particles, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return particles->Compact( context, 0, stage ); } );
         for ( uint32_t step = 0; step < steps; ++step )
         {
             graph.AddPass(
-                 std::format( "Particles: Dispatch Args {}", step ), kSimulationFlags,
-                 [particles, step]( RDG::PassBuilder& pass )
-                 { particles->DeclareDispatchArgsBindings( pass, step ); },
-                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->BuildDispatchArgs( context, step ); } );
+                 std::format( "Particles {}: Dispatch Args {}", name, step ), flags,
+                 [particles, step, stage]( RDG::PassBuilder& pass )
+                 { particles->DeclareDispatchArgsBindings( pass, step, stage ); },
+                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->BuildDispatchArgs( context, step, stage ); } );
             graph.AddPass(
-                 std::format( "Particles: Spawn+Update {}", step ), kSimulationFlags,
-                 [particles, step]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass, step ); },
-                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->Simulate( context, step ); } );
+                 std::format( "Particles {}: Spawn+Update {}", name, step ), flags,
+                 [particles, step, stage]( RDG::PassBuilder& pass )
+                 { particles->DeclareSimulateBindings( pass, step, stage ); },
+                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->Simulate( context, step, stage ); } );
             graph.AddPass(
-                 std::format( "Particles: Compact {}", step + 1 ), kSimulationFlags,
-                 [particles, step]( RDG::PassBuilder& pass )
-                 { particles->DeclareCompactBindings( pass, step + 1 ); },
-                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->Compact( context, step + 1 ); } );
+                 std::format( "Particles {}: Compact {}", name, step + 1 ), flags,
+                 [particles, step, stage]( RDG::PassBuilder& pass )
+                 { particles->DeclareCompactBindings( pass, step + 1, stage ); },
+                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->Compact( context, step + 1, stage ); } );
         }
+    }
+
+    void SceneRenderer::AddFrameParticlesPostOpaque( RDG::Builder& graph, const RDG::TextureRef sceneDepth )
+    {
+        // UE Niagara PostOpaqueRender: the emitters whose stack reads the scene (depth collision) simulate after
+        // the opaque scene's depth is resolved, then this view's sort of their forward draws (current half); the
+        // G-buffer rows and Mesh instances recorded earlier drew their previous half. A capture face view neither
+        // simulates nor draws particles (AddFrameParticlesSimulate).
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        if ( particles == nullptr )
+            return;
+        if ( particles->ClaimsSimulation() )
+        {
+            // False (logged inside): the PostOpaque emitters sit this frame out, their draws skip (HasDrawnHalf).
+            (void)particles->ImportCollisionInputs( graph, sceneDepth );
+            if ( particles->SimulatesStage( VFX::VFXTickStage::PostOpaque ) )
+                AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PostOpaque,
+                                            RDG::PassFlags::Compute );
+        }
+        particles->AddSortPasses( graph, VFX::VFXTickStage::PostOpaque );
+        if ( particles->ClaimsSimulation() )
+            AddParticleReadbacks( graph, *particles );
+    }
+
+    static void AddParticleReadbacks( RDG::Builder& graph, System::ParticleRenderer& renderer )
+    {
+        // After both chains' last compacts (the graph orders them from the buffers), on the graphics queue.
+        const RDG::PassFlags      kSimulationFlags = RDG::PassFlags::Compute;
+        System::ParticleRenderer* particles        = &renderer;
         // VFX-16 (UE Niagara Debugger, dev only): the GPU counts and one attribute page, after the last compact (the
         // graph orders it from the buffers), only while an editor debugger asks.
         if ( particles->DebugReadbackRequested() )

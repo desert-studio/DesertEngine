@@ -734,6 +734,8 @@ namespace Desert::VFX
         const bool readsScene = std::ranges::any_of( kVFXSceneReadHostFunctions, [&body]( const std::string_view f )
                                                      { return CallsIdentifier( body, f ); } );
         compiled.TickStage    = readsScene ? VFXTickStage::PostOpaque : VFXTickStage::PreOpaque;
+        if ( readsScene )
+            body.insert( 0, std::format( "#define {} 1\n", kVFXSceneDepthDefine ) );
 
         // 5. The key is the body's hash: the body is a function of the stack's structure and the layout only (no
         //    value reaches it), so equal structures share one program and any structural change moves it. The

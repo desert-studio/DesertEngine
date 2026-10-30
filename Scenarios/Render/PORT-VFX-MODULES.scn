@@ -1,0 +1,21 @@
+# PORT-VFX-MODULES (UE Niagara tick stages + Scene Depth collision): WallDust.dfx's BreakSparks carries
+# Gravity -> Drag -> SolveForcesAndVelocity -> Collision (engine module, VFX_SceneDepthCollide). A stack calling a
+# scene-reading host function ticks PostOpaque: its chain ("Particles PostOpaque: Open / Compact / Dispatch Args /
+# Spawn+Update") runs on the graphics queue AFTER "Scene: DepthResolve" (SceneRenderer AddFrameParticlesPostOpaque)
+# and reads this frame's resolved depth; the PreOpaque chain stays before the base pass on the async pipe. Its
+# forward (additive) draws read the PostOpaque sort ("PostOpaque Particles: Sort ..."); G-buffer rows and Mesh
+# instances of a PostOpaque emitter would draw the previous half (one frame lag, as UE). Camera as SLICE-02 /
+# VFX-PORT-1. UNVERIFIED (written unbuilt). The scenario does not save the scene.
+Дано run Scene "Open Scene SLICE-02.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -800,190,-60
+Дано --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда run Action Simulate
+Когда advance 0.3
+Когда run Action "Fire Field 'WallBlast'"
+Когда 120 frames render
+Когда DesertCtl state views
+Когда shot viewport "port_vfx_modules_sparks.png"
+Тогда [log] editor.log: no "VUID", no [error] line from [Particles] (no "ImportCollisionInputs" refusal, no "sits out this frame"); the frame's graph has "Particles PostOpaque: Open" and "Particles PostOpaque: Spawn+Update 0" AFTER "Scene: DepthResolve" and "Particles PreOpaque: Open" before the base pass
+Тогда-вид port_vfx_modules_sparks BreakSparks' sparks fell onto the floor in front of the broken wall and lie / bounce ON it (Restitution 0.3, Friction 0.4) - none falls through the floor; dust and smoke as VFX-PORT-1 walldust_modules
+Когда run Action Stop

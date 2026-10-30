@@ -110,20 +110,6 @@ Shader "ParticleSimulate"
             vec4 PointSetsData[];
         };
 
-        // The simulating view's camera, the one its scene depth was drawn with (ParticleRenderer CollisionView):
-        // jittered view-projection and its inverse, camera position (cm), w = 1 when SceneDepth is the frame's scene
-        // depth (0: the frame has none, nothing collides).
-        ReadBuffer(11) CollisionView
-        {
-            mat4 CollisionViewProjection;
-            mat4 CollisionInvViewProjection;
-            vec4 CollisionCamera;
-        };
-
-        // The single-sample scene depth of this frame (SceneRenderer::AddFrameSceneDepthResolve), reversed Z. Read
-        // with texelFetch, never filtered: a filtered depth across a silhouette is a distance where nothing is.
-        Uniform(12) sampler2D SceneDepth;
-
         PushConstant PushConstants
         {
             // The entity's full transform (cm; UE Engine.Owner.SystemLocalToWorld): a World emitter's newborns are
@@ -179,6 +165,28 @@ Shader "ParticleSimulate"
             }
             return PointSetsData[first + lo].xyz;
         }
+
+        // PORT-VFX-MODULES: the PostOpaque scene inputs and the scene-reading host functions exist only in a
+        // stack that reads the scene (VFX::kVFXSceneDepthDefine, defined by the generated stack above), so a
+        // PreOpaque program's layout never names them.
+        #ifdef VFX_READS_SCENE_DEPTH
+        // The simulating view's camera, the one its scene depth was drawn with (ParticleRenderer CollisionView):
+        // jittered view-projection and its inverse, camera position (cm), w = 1 when SceneDepth is the frame's scene
+        // depth (0: the frame has none, nothing collides).
+        ReadBuffer(11) CollisionView
+        {
+            mat4 CollisionViewProjection;
+            mat4 CollisionInvViewProjection;
+            vec4 CollisionCamera;
+        };
+
+        // The single-sample scene depth of this frame (SceneRenderer::AddFrameSceneDepthResolve), reversed Z. Read
+        // with texelFetch, never filtered: a filtered depth across a silhouette is a distance where nothing is.
+        Uniform(12) texture2D SceneDepth;
+        // Its point sampler (dev RDG binds a texture and a sampler, no combined image sampler); the same-name
+        // macro keeps the sampled form (Fog/HeightFog.shader).
+        Uniform(13) sampler CollisionPointSampler;
+        #define SceneDepth sampler2D(SceneDepth, CollisionPointSampler)
 
         // The world point the scene depth holds at pixel @p px (reversed Z: 0 is the far plane / sky).
         vec3 SceneDepthPoint( ivec2 px, ivec2 size, out float deviceDepth )
@@ -262,6 +270,7 @@ Shader "ParticleSimulate"
             }
             return true;
         }
+        #endif // VFX_READS_SCENE_DEPTH
 
         vec3 ReadVec3( uint n, uint c )
         {

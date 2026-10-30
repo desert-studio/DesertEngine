@@ -194,6 +194,10 @@ namespace Desert::VFX
     /// The contract host functions (Common/VFXParticleContract.glslh) that read this frame's scene (UE: the data
     /// interface functions whose RequiresDepthBuffer() is true). A stack whose GLSL calls one ticks PostOpaque.
     inline constexpr std::array<std::string_view, 1> kVFXSceneReadHostFunctions = { "VFX_SceneDepthCollide" };
+    /// Defined (to 1) at the top of a scene-reading stack's generated GLSL: ParticleSimulate.shader declares the
+    /// PostOpaque scene inputs (CollisionView, SceneDepth + its sampler) and the scene-reading host functions only
+    /// under it, so a PreOpaque program's layout never names them.
+    inline constexpr std::string_view kVFXSceneDepthDefine = "VFX_READS_SCENE_DEPTH";
 
     struct VFXCompiledEmitter
     {

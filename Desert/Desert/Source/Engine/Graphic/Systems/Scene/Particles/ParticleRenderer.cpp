@@ -908,7 +908,8 @@ namespace Desert::Graphic::System
             const ViewEmitter& ve = m_ViewEmitters[i];
             if ( !IsDrawn( ve ) || !HasDrawnHalf( ve, beforeChains ) )
                 continue;
-            const auto inPhase = [this, &ve, phase]( const ViewDraw& d ) { return DrawSortPhase( ve, d.GBuffer ) == phase; };
+            const auto inPhase = [this, &ve, phase]( const ViewDraw& d )
+            { return DrawSortPhase( ve, d.GBuffer ) == phase; };
             const auto first   = std::find_if( ve.Draws.begin(), ve.Draws.end(), inPhase );
             if ( first == ve.Draws.end() )
                 continue; // no draw of this emitter reads this phase's sort

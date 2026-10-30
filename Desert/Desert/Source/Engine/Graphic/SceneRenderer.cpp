@@ -2357,8 +2357,11 @@ namespace Desert::Graphic
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 
-        // The water writes the scene depth: the clouds and the particles after it read the resolve again.
-        AddFrameSceneDepthResolve( graph, textures );
+        // The water writes the scene depth: the clouds and the particles after it read the resolve again. The
+        // opaque depth is final here: the PostOpaque particle stage simulates against it (depth collision).
+        const RDG::TextureRef resolvedDepth = AddFrameSceneDepthResolve( graph, textures );
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameParticlesPostOpaque( graph, resolvedDepth );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
