@@ -1553,6 +1553,7 @@ namespace Desert::Graphic::API::Vulkan
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
         {
+            DESERT_PROFILE_PASS( "RDG: FrameFault clear" ); // recorded outside every pass of the graph
             if ( const auto cleared = ClearFrameFaultExternals( m_CurrentCommandBuffer, graph, *frame ); !cleared )
                 return fail( std::format( "graph '{}': {}", graph.GetName(), cleared.GetError() ) );
         }

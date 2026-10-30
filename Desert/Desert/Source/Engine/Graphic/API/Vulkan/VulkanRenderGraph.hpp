@@ -21,6 +21,7 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -550,6 +551,10 @@ namespace Desert::Graphic::API::Vulkan
         // (VulkanRdgTransientAllocator::ReserveGraphHeaps): its first command buffer opens with a memory barrier.
         bool m_SharedHeapBarrierPending = false;
         void RecordSharedHeapBarrier( VkCommandBuffer commandBuffer );
+        // A GPU row around the graph's commands outside every pass ("RDG Barriers: <graph> | <what>"); -1 when
+        // there is no profiler. EndGraphCommandsScope ignores -1.
+        int32_t BeginGraphCommandsScope( std::string_view what );
+        void    EndGraphCommandsScope( int32_t handle );
 
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;
@@ -559,6 +564,8 @@ namespace Desert::Graphic::API::Vulkan
         // between its fork and join is readable (and its sum against "GPU: Frame Total" is not a tiling).
         const RDG::CompileResult* m_Result = nullptr; // the graph between BeginGraph and EndGraph / AbandonGraph
         int32_t                   m_SegmentScope = -1;
+        // The prologue segment's row (fork releases at the graph start), -1 when none is open.
+        int32_t m_PrologueScope = -1;
         std::string m_SegmentScopeName;
         // Per graph name, the async segment line last logged (Execute): a new "[RDG] ... async compute segments"
         // line only when a graph's segments change.
