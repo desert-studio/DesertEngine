@@ -394,6 +394,8 @@ def main():
         # transcript name, so a live FPS-MEASURE-5 read as stopped (10-30) - the transcript name wins.
         named = re.search(r"agent-([0-9a-f]{8,})\.jsonl$", str(data.get("agent_transcript_path") or ""))
         aid = named.group(1) if named else (data.get("agent_id") or "")
+        if aid not in s["agents"] and (data.get("agent_id") or "") in s["agents"]:
+            sys.exit(0)  # the worker's own child: nothing was handed in to the lead
         code = s["agents"].get(aid) or code_from_transcript(data.get("agent_transcript_path") or "")
         s["stopped"][aid] = time.time()
         if code:
