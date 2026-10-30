@@ -527,6 +527,17 @@ namespace Desert::Graphic::System
         {
             return m_CascadeCasterVP[view];
         }
+        // The world size of one map texel of cascade view @p view (slot * kMaxCascades + c, UpdateCascades), 0
+        // for a view no cascade was fitted for this frame: what a caster picks its own detail by (TerrainRenderer
+        // dices the displaced landscape per cascade, as UE's Nanite dices every view at its own resolution).
+        [[nodiscard]] float GetCascadeWorldPerTexel( const uint32_t view ) const
+        {
+            if ( view >= kCascadeViews )
+                return 0.0f;
+            const DirectionalShadowSlot& slot    = m_DirectionalShadow[view / kMaxCascades];
+            const uint32_t               cascade = view % kMaxCascades;
+            return cascade < slot.Fitted ? slot.WorldPerTexel[static_cast<glm::length_t>( cascade )] : 0.0f;
+        }
 
         [[nodiscard]] const GpuDriven::GpuScene* GetGpuScene() const
         {

@@ -1924,8 +1924,12 @@ namespace Desert::Graphic
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
                 // light's key failed - TERRAIN-LOCAL-SHADOW-LOG.
                 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                // And each sun cascade's, diced to its own texels (UpdateCascades fitted them above).
+                std::vector<float> cascadeWorldPerTexel( SceneResources::kMaxCascadeViews );
+                for ( uint32_t v = 0; v < SceneResources::kMaxCascadeViews; ++v )
+                    cascadeWorldPerTexel[v] = localShadowMeshes->GetCascadeWorldPerTexel( v );
                 UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights() );
+                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(), cascadeWorldPerTexel );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's

@@ -85,8 +85,11 @@ namespace Desert::Graphic::System
         // After PrepareFrame AND MeshRenderer::UpdateLocalShadows (the lights get their views there, later in the
         // frame than PrepareFrame, whose rows the TLAS and the motion rows read first): for each of @p localLights
         // (MeshRenderer::GetLocalShadowCasterLights) the tiles in its reach at the LOD its own position asks for,
-        // with their cache key (LocalShadowSignature), then the instance rows of every group are uploaded.
-        void PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights );
+        // with their cache key (LocalShadowSignature); for each sun cascade view v (index of
+        // @p cascadeWorldPerTexel, MeshRenderer::GetCascadeWorldPerTexel; 0 = no cascade) the camera's tiles diced
+        // to the cascade's own texels; then the instance rows of every group are uploaded.
+        void PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,
+                                      const std::vector<float>&                  cascadeWorldPerTexel );
 
         // After PrepareLocalShadowViews and SceneRenderer::AssignLocalShadowMaskSlots (every point/spot light has
         // its final ShadowView / ShadowMaskSlot): @p scene's lights, shadow block and cloud shadow onto the
@@ -167,6 +170,7 @@ namespace Desert::Graphic::System
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_LocalLightDraws.clear();
+            m_CascadeDraws.clear();
         }
 
     private:
@@ -205,8 +209,9 @@ namespace Desert::Graphic::System
             uint64_t               Signature = 0;
         };
 
-        // The draws shadow view @p view records: its light's (a local view), else the camera's (a cascade: the
-        // receivers' vertices, so a shadow cannot swim against its caster).
+        // The draws shadow view @p view records: its light's (a local view), else its cascade's (the camera's
+        // tiles and LOD - the receivers' vertices, so a shadow cannot swim against its caster - diced no finer
+        // than the cascade's texels resolve; a movable layer view draws its cascade's).
         [[nodiscard]] const std::vector<FrameDraw>& ShadowViewDraws( uint32_t view ) const;
 
         // The executors of @p program's material of every frame group, in group order: a node drawing the
@@ -257,5 +262,8 @@ namespace Desert::Graphic::System
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
+        // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a
+        // view with no cascade this frame.
+        std::vector<std::vector<FrameDraw>> m_CascadeDraws;
     };
 } // namespace Desert::Graphic::System

@@ -349,6 +349,27 @@ namespace Desert::Graphic::System
         return total + all - inner * 6u;
     }
 
+    // THE CAMERA'S ROW DICED FOR AN ORTHOGRAPHIC SHADOW VIEW whose texel is @p worldPerTexel cm (UE: Nanite dices
+    // every view by r.Nanite.DicingRate pixels of THAT view - a shadow view by its own texels). The camera's
+    // rings stop at dice 2^L, the finest whose sub-cell edge still spans @p dicingRate texels; the finer rings
+    // are dropped (-1, as ApplyLandscapeDisplacement leaves a ring no camera distance reaches), so every vertex
+    // the cascade keeps is one of the camera's own, displaced by the same evaluate: the caster is the receivers'
+    // surface sampled at the cascade's resolution. A row the camera does not dice is returned as it is.
+    inline TerrainInstance LandscapeCasterDicedRow( const TerrainInstance& camera, float spacingCm,
+                                                    float worldPerTexel, int dicingRate )
+    {
+        TerrainInstance row = camera;
+        if ( camera.DisplacementView.w < 0.5f || worldPerTexel <= 0.0f || dicingRate <= 0 )
+            return row;
+        const float subCells = spacingCm / ( worldPerTexel * static_cast<float>( dicingRate ) );
+        const int   finest   = subCells < 2.0f ? 0
+                                               : std::min( kLandscapeDiceLevels - 1,
+                                                           static_cast<int>( std::floor( std::log2( subCells ) ) ) );
+        for ( int level = finest + 1; level < kLandscapeDiceLevels; ++level )
+            row.DiceRings[static_cast<glm::length_t>( level - 1 )] = -1.0f;
+        return row;
+    }
+
     // The texture half of a terrain material's identity. Two terrains may share one material only if
     // they bind the same textures: the sorted texture-override handles plus the address of the landscape
     // tile's heightmap (runtime-owned, no asset handle — same spelling MeshRenderer uses for the font
