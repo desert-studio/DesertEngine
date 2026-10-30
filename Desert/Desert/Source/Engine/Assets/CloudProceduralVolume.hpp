@@ -218,20 +218,21 @@ namespace Desert::Assets
     /// two voxels peaked at three quarters of their strength and the cover at Coverage 0.2 was 0.12, not 0.2.
     inline constexpr float kCloudBodyPlateau = 0.95f;
 
-    /// THE FILL FIELD'S FLOOR (COVERAGE-FIELD), a share of its ceiling (the type's FillDensity): the presence and the noise between
-    /// the bodies never fall below this inside the type's band, so Coverage 1 under W = 1 leaves no column
-    /// empty.
+    /// THE FILL FIELD'S FLOOR (COVERAGE-FIELD), a share of its ceiling (the type's FillDensity): the presence and
+    /// the noise between the bodies never fall below this inside the type's band, so Coverage 1 under W = 1 leaves
+    /// no column empty.
     inline constexpr float kCloudFillFloor = 0.15f;
 
     // THE FILL FIELD'S CEILING is the TYPE'S (WTH-OVERCAST p4: Graphic::CloudTypeShape::FillDensity, an asset
-    // parameter, not a constant here). What follows is the measurement behind its default of 0.35 (COVERAGE-FIELD-2): the peak of the field between the bodies, where the
-    // presence mask is one. Its OWN number, not the weakest body's peak (1 - spread): tied to the spread it
-    // was 0.2, so the air between the bodies only began at Coverage 0.8 — after the bodies' Boolean
-    // footprint had already saturated near 0.7 of the sky — and a weather W under 0.8 erased it entirely.
-    // Because the presence is a uniform rank per column (CloudProceduralFillPresence), the fill alone covers
-    // about `(ceiling - (1 - Coverage)) / ceiling` of the sky, linear in the slider, and 0.35 is where it
-    // takes over as the bodies fall behind the slider. Measured (KeptCover, shipped congestus, W = 1, side
-    // 128): Coverage 0.1/0.2/0.3/0.4/0.5/0.6/0.7/0.75/0.8/0.85/0.9/0.95/1 covers
+    // parameter, not a constant here). What follows is the measurement behind its default of 0.35
+    // (COVERAGE-FIELD-2): the peak of the field between the bodies, where the presence mask is one. Its OWN
+    // number, not the weakest body's peak (1 - spread): tied to the spread it was 0.2, so the air between the
+    // bodies only began at Coverage 0.8 — after the bodies' Boolean footprint had already saturated near 0.7 of
+    // the sky — and a weather W under 0.8 erased it entirely. Because the presence is a uniform rank per column
+    // (CloudProceduralFillPresence), the fill alone covers about `(ceiling - (1 - Coverage)) / ceiling` of the
+    // sky, linear in the slider, and 0.35 is where it takes over as the bodies fall behind the slider. Measured
+    // (KeptCover, shipped congestus, W = 1, side 128): Coverage
+    // 0.1/0.2/0.3/0.4/0.5/0.6/0.7/0.75/0.8/0.85/0.9/0.95/1 covers
     // 0.08/0.20/0.32/0.41/0.50/0.57/0.68/0.76/0.84/0.90/0.95/1.00/1.00; side 256 at 0.7/0.8: 0.67/0.83. At
     // 0.4 the sky ran 0.05-0.06 over the slider from 0.75 to 0.9.
 

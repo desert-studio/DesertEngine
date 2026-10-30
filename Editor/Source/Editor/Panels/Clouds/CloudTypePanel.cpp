@@ -149,8 +149,8 @@ namespace Desert::Editor
                "exponential size law observed cumulus fields follow: many small, few large. Below about 3 km "
                "(fibrous kinds: more) the lumps of a body sit on the volume's voxel floor and a cloud reads "
                "as a pile of equal spheres - measure with LatticePeak --bodies." },
-             { "FillDensity", "Fill Density", &Graphic::CloudTypeShape::FillDensity, 0.0f, 1.0f, "%.2f",
-               nullptr, false, false,
+             { "FillDensity", "Fill Density", &Graphic::CloudTypeShape::FillDensity, 0.0f, 1.0f, "%.2f", nullptr,
+               false, false,
                "How dense this kind fills the air BETWEEN its bodies where the weather says cloud. 0.35 "
                "leaves gaps the Coverage slider opens and closes - a field of cumulus; 1 makes one sheet as "
                "dense as the bodies themselves - a stratus or nimbostratus deck that reaches the horizon." },
