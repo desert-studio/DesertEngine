@@ -1902,7 +1902,11 @@ namespace Desert::Core::Preprocess
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;
-            const std::string passInclude = particle ? std::string( kSurfaceParticleSpritePassInclude )
+            // The particle Forward cell has its own pass header (unlit, composited over the scene); a particle
+            // G-buffer cell (an opaque / masked sprite or ribbon, UE's base pass for Opaque/Masked particle
+            // materials) writes the G-buffer through the mesh header, as any opaque surface does.
+            const std::string passInclude = particle && pass == kSurfaceParticleSpritePass
+                                                 ? std::string( kSurfaceParticleSpritePassInclude )
                                             : rayHit ? std::string( kSurfaceRayHitPassInclude )
                                                      : SurfacePassInclude( pass, blend );
             RawBlock          code;
@@ -1922,7 +1926,10 @@ namespace Desert::Core::Preprocess
             {
                 bool              readsWorld = false;
                 const std::string lowered    = LowerWorldParameterReads( surface.Content, readsWorld );
-                const bool fades = particle && NamesIdentifier( surface.Content, kSurfaceDepthFadeFunction );
+                // Depth Fade reads the scene depth: only in the particle Forward cell (a G-buffer cell WRITES that
+                // depth; UE's DepthFade is a no-op outside translucency).
+                const bool fades = particle && pass == kSurfaceParticleSpritePass &&
+                                   NamesIdentifier( surface.Content, kSurfaceDepthFadeFunction );
                 code.Content =
                      // Only a stage that evaluates the surface fetches material textures: it alone declares the
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
@@ -3172,6 +3179,30 @@ namespace Desert::Core::Preprocess
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
             }
+
+            // An OPAQUE / MASKED particle template's G-buffer cells (UE: an Opaque or Masked material used with
+            // Niagara sprites / ribbons draws in the base pass, lit by the deferred composite like any surface):
+            // the same vertex factories, the mesh G-buffer pass header. Drawn by ParticleRenderer::GBufferPass.
+            if ( SurfaceBlendHasPass( result.Surface.Blend, kSurfaceParticleGBufferPass ) )
+                for ( const auto& [used, path] :
+                      { std::pair{ result.Surface.UsedWithParticleSprites, kSurfaceParticleSpritePath },
+                        std::pair{ result.Surface.UsedWithParticleRibbons, kSurfaceParticleRibbonPath } } )
+                {
+                    if ( !used )
+                        continue;
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( path, kSurfaceParticleGBufferPass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                         stage, path, kSurfaceParticleGBufferPass, *surfaceBlock,
+                                                         includeBlock, autoDecls, result.Surface.Blend,
+                                                         shadingModelDefine, result.Surface.ResponsiveAA,
+                                                         opacityMaskFunction, false, heightFunctions, false ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
 
             // `Usage GrassBlades`: the blade cells, last, in the mesh passes' order.
             if ( result.Surface.UsedWithGrassBlades )

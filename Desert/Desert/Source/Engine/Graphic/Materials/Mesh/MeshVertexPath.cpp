@@ -27,11 +27,11 @@ namespace Desert::Graphic
                "Skinned.VirtualShadowDepth", "Skinned.Depth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
                "Instanced.VirtualShadowDepth", "Instanced.Depth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+             { "ParticleSprite.Forward", "ParticleSprite.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr },
              // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).
              { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr,
                "GrassBlade.Depth" },
-             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+             { "ParticleRibbon.Forward", "ParticleRibbon.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr },
         };
 
         // THE FORWARD PREPASS RELATION: the forward base pass draws an opaque mesh only where "Forward: Depth
@@ -40,10 +40,20 @@ namespace Desert::Graphic
         // Forward and GBuffer without Depth would leave that path's meshes out of the forward frame; it fails here
         // instead. (The particle paths are drawn over the lit scene by ParticleRenderer, never by the mesh base
         // pass.)
+        // The particle paths' G-buffer cells (an opaque / masked sprite or ribbon) are drawn by ParticleRenderer's
+        // own G-buffer node, never by the mesh passes: outside both relations below.
+        constexpr bool IsParticlePath( const uint32_t path )
+        {
+            return path == static_cast<uint32_t>( MeshVertexPath::ParticleSprite ) ||
+                   path == static_cast<uint32_t>( MeshVertexPath::ParticleRibbon );
+        }
+
         constexpr bool EveryOpaqueMeshPathHasViewDepth()
         {
             for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
             {
+                if ( IsParticlePath( path ) )
+                    continue;
                 const auto& row = kMeshCells[path];
                 if ( row[static_cast<uint32_t>( MeshPass::GBuffer )] != nullptr &&
                      row[static_cast<uint32_t>( MeshPass::Depth )] == nullptr )
@@ -62,7 +72,7 @@ namespace Desert::Graphic
             for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
             {
                 const auto& row = kMeshCells[path];
-                if ( row[static_cast<uint32_t>( MeshPass::GBuffer )] == nullptr )
+                if ( IsParticlePath( path ) || row[static_cast<uint32_t>( MeshPass::GBuffer )] == nullptr )
                     continue;
                 if ( row[static_cast<uint32_t>( MeshPass::Forward )] == nullptr )
                     return false;

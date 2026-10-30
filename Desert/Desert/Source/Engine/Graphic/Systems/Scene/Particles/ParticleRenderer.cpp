@@ -261,6 +261,7 @@ namespace Desert::Graphic::System
         ParticleWorldGpu& world = ParticleWorldGpu::Of( scene.GetVFXWorld() );
         m_World                 = &world;
         m_Simulates             = world.PrepareTick( scene );
+        m_GBufferView           = DrawsOpaqueIntoGBuffer();
         if ( m_Simulates )
         {
             world.ReadDebugReadbacks(); // VFX-16: before this frame's node writes the copy it reads
@@ -301,6 +302,17 @@ namespace Desert::Graphic::System
                 }
                 ViewDraw draw;
                 draw.Sprite   = ResolveSprite( fe, row, material );
+                // An Opaque / Masked cell on a deferred view draws in the base pass (UE FBasePassMeshProcessor
+                // takes an opaque particle material like any opaque mesh): its G-buffer twin, in GBufferPass.
+                if ( draw.Sprite != nullptr && m_GBufferView &&
+                     !Core::Formats::IsTranslucentBlend( draw.Sprite->Blend ) )
+                {
+                    draw.Sprite =
+                         GBufferTwinOf( *draw.Sprite, row.Kind == Assets::Serialization::VFXRendererKind::Ribbon
+                                                           ? MeshVertexPath::ParticleRibbon
+                                                           : MeshVertexPath::ParticleSprite );
+                    draw.GBuffer = true;
+                }
                 draw.Instance = draw.Sprite != nullptr ? material.Instance.get() : nullptr;
                 draw.Material = draw.Sprite != nullptr ? material.Cell : nullptr;
                 if ( draw.Sprite != nullptr )
@@ -793,7 +805,36 @@ namespace Desert::Graphic::System
         return ve.Declared && ve.InView && !ve.Draws.empty();
     }
 
-    ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
+    bool ParticleRenderer::DrawsOpaqueIntoGBuffer() const
+    {
+        return m_SceneRenderer != nullptr && m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
+               m_SceneRenderer->GetGBuffer() != nullptr;
+    }
+
+    ParticleRenderer::SpriteDraw* ParticleRenderer::GBufferTwinOf( const SpriteDraw&    forward,
+                                                                   const MeshVertexPath path )
+    {
+        // The template is the cell's name before '/' ("<Template>/<Path>.Forward", MeshShaderFor).
+        const std::string templateName = forward.Cell.substr( 0, forward.Cell.find( '/' ) );
+        const auto        cell         = TemplateCellShader( templateName, path, MeshPass::GBuffer,
+                                                             []( std::string_view name ) {
+                                                  return Runtime::ResourceRegistry::GetShaderService()->GetByName(
+                                                              std::string( name ) ) != nullptr;
+                                              } );
+        if ( cell )
+            return SpriteDrawFor( *cell, MeshPass::GBuffer );
+        // Said once per Forward cell: the m_Sprites slot of the refusal's key stays null.
+        const std::string key = forward.Cell + "#GBuffer";
+        if ( m_Sprites.try_emplace( key ).second )
+            LOG_ERROR(
+                 "[Particles] opaque cell '{}' will not draw on the deferred path: its template '{}' has no "
+                 "registered {}.GBuffer cell (an Opaque / Masked particle template is drawn into the G-buffer)",
+                 forward.Cell, templateName, MeshVertexPathName( path ) );
+        return nullptr;
+    }
+
+    ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader,
+                                                                   const MeshPass     pass )
     {
         if ( const auto found = m_Sprites.find( cellShader ); found != m_Sprites.end() )
             return found->second.get(); // null = refused before (said once, below)
@@ -815,20 +856,24 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         draw->Blend = draw->Material->GetSchema().Blend;
+        draw->Cell         = cellShader;
+        draw->Pass         = pass;
+        const bool gbuffer = pass == MeshPass::GBuffer;
 
         // Depth-TESTED against the scene (read-only attachment, DrawPass), never written by a blended sprite;
         // the cell's template decides over / added / opaque - the one rule the translucent meshes use too.
         GraphicsPipelineSpecification spec;
         spec.DebugName        = cellShader;
         spec.Shader           = shader;
-        spec.TargetLayout     = SceneTargetLayout();
+        spec.TargetLayout     = gbuffer ? GBufferLayout() : SceneTargetLayout();
         spec.DepthTestEnabled = true;
         spec.DepthCompareOp   = DepthCompare::CloserOrEqual;
         spec.CullMode         = CullMode::None;
         spec.Topology         = PrimitiveTopology::Triangles;
         ApplySurfaceBlendMode( spec, draw->Blend );
-        // The pass holds the depth READ-ONLY (SystemRasterPass::DepthReadOnly): no cell writes it.
-        spec.DepthWriteEnabled = false;
+        // ParticlePass holds the depth READ-ONLY (SystemRasterPass::DepthReadOnly): no cell of it writes it. A
+        // G-buffer cell is an opaque surface of the base pass: it writes the depth it wins.
+        spec.DepthWriteEnabled = gbuffer;
 
         const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
@@ -908,150 +953,186 @@ namespace Desert::Graphic::System
         return SpriteDrawFor( engine );
     }
 
+    Common::BoolResultStr ParticleRenderer::RecordSpriteDraws( RDG::PassContext& context, const bool gbuffer )
+    {
+        if ( m_ViewEmitters.empty() )
+            return BOOLSUCCESS;
+        if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
+            return BOOLSUCCESS;
+
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !IsDrawn( ve ) )
+                continue;
+            for ( const ViewDraw& draw : ve.Draws )
+            {
+                if ( draw.GBuffer != gbuffer )
+                    continue;
+                // The n-th declared block is the n-th draw, drawn or not.
+                const uint32_t drawBlock = block++;
+                SpriteDraw&    sprite    = *draw.Sprite;
+                // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline
+                // is counted by PipelineBuilds, so no gated frame is shown without it. Failed still
+                // faults.
+                if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                    continue;
+                const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
+                sprite.Material->SetMaterialIndex( draw.Row );
+                sprite.Material->Bind( sprite.Instance.get() );
+                // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
+                // particle of alive half StepCount & 1 (the slot's FirstVertex).
+                const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
+                if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline,
+                                                                    sprite.Material->GetMaterialExecutor(),
+                                                                    ve.CountersRef, slot );
+                     !drawn.IsSuccess() )
+                    return drawn;
+            }
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareSpriteDraws( RenderPassDeclaration& declared, const FrameGraphRefs& refs,
+                                               const bool gbuffer )
+    {
+        const ViewFrame* view = m_SceneRenderer->GetViewFrame();
+        if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
+            return; // the exec draws nothing either
+
+        // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and
+        // the view's camera block, so the route fill is what the draws read.
+        // Only this pass's cells: a cell is drawn by one of the two passes (SpriteDraw::Pass).
+        for ( auto& [cell, sprite] : m_Sprites )
+            if ( sprite && ( sprite->Pass == MeshPass::GBuffer ) == gbuffer )
+                sprite->Rows.clear();
+        for ( ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !IsDrawn( ve ) )
+                continue;
+            for ( ViewDraw& draw : ve.Draws )
+            {
+                if ( draw.GBuffer != gbuffer )
+                    continue;
+                MaterialInstance* instance =
+                     draw.Instance != nullptr ? draw.Instance : draw.Sprite->Instance.get();
+                // The row is the material ASSET's (its values, its textures' bindless slots) under the row's
+                // overrides, as a mesh slot's is; only a row with no material of its own takes the cell's.
+                const DataDrivenMaterial* rowMaterial =
+                     draw.Material != nullptr ? draw.Material : draw.Sprite->Material.get();
+                draw.Row = MeshRendererDetail::AppendRow(
+                     draw.Sprite->Rows, MeshRendererDetail::EffectiveRow( rowMaterial, instance ) );
+            }
+        }
+        for ( auto& [cell, sprite] : m_Sprites )
+        {
+            if ( !sprite || sprite->Rows.empty() || ( sprite->Pass == MeshPass::GBuffer ) != gbuffer )
+                continue;
+            // Find: a sprite surface template with no parameters (or every row field dead) declares no row
+            // block.
+            if ( auto* sb = sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
+                sb->SetRawData( sprite->Rows.data(),
+                                static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
+            SceneCameraBind( sprite->Material.get(), *view );
+        }
+
+        // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
+        // read-only in this node), on BOTH paths (SceneViewInputs::SceneDepth is the G-buffer's, absent on the
+        // forward path). Every other scene/view input a cell samples comes from THE one list, as the forward
+        // meshes and the glass take them — the shading word the lit cell's contact shadow tests, the cascades,
+        // the environment, the light grid: a slot the pass leaves unfilled faults the node
+        // (ValidatePassBindings), so a sprite cell that gains a scene read must not need this pass to name it.
+        const std::shared_ptr<Image2D> depth  = m_SceneRenderer->GetComputeSceneDepth();
+        const SceneViewInputs          inputs = SceneViewInputsOf( refs );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !IsDrawn( ve ) )
+                continue;
+            bool drawn = false;
+            for ( const ViewDraw& draw : ve.Draws )
+            {
+                if ( draw.GBuffer != gbuffer )
+                    continue;
+                drawn                    = true;
+                const SpriteDraw& sprite = *draw.Sprite;
+                const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
+                // A translucent / additive emitter reads its alive half back to front from this view's
+                // SortedAlive (AddSortPasses), at the same offset; an opaque / masked one reads AliveList
+                // unsorted.
+                auto block = declared.Bindings( layout, sprite.Material->GetMaterialExecutor()->GetRouteFill() )
+                                  .Storage( ParticleSpriteShaderParameters::AttributeFloats, ve.FloatsRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( ParticleSpriteShaderParameters::DrawLayout, ve.DrawLayoutRef,
+                                            RDG::Access::StorageRead );
+                // A sprite cell reads the alive list; a ribbon cell reads the emitter's link order instead
+                // (Vertex_ParticleRibbon.glslh RibbonOrder, AddSortPasses), at the same offsets.
+                const bool links =
+                     std::any_of( layout->Slots.begin(), layout->Slots.end(),
+                                  []( const RDG::ShaderSlot& slot ) { return slot.Name == "RibbonOrder"; } );
+                if ( links && ve.Ribboned )
+                    block.Storage( ParticleSpriteShaderParameters::RibbonOrder, m_RibbonRef,
+                                   RDG::Access::StorageRead );
+                else
+                    block.Storage( ParticleSpriteShaderParameters::AliveList,
+                                   ve.Sorted ? m_SortedRef : m_Pool.AliveRef, RDG::Access::StorageRead );
+                const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
+                if ( fades && depth )
+                    block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
+                                   "SceneDepth.Compute" )
+                         .Sampler( ParticleSpriteShaderParameters::PointClampSampler,
+                                   RDG::SamplerDesc::PointClamp() );
+                // The rest of the list, minus the depth above and minus what the material route already fills
+                // (a slot filled by both faults the node as surely as one filled by neither).
+                const RDG::OtherRouteFill& route  = sprite.Material->GetMaterialExecutor()->GetRouteFill();
+                RDG::ShaderBindingLayout   others = *layout;
+                std::erase_if( others.Slots,
+                               [&route]( const RDG::ShaderSlot& slot )
+                               {
+                                   return slot.Name == kSceneViewSceneDepthName || slot.Name == "RibbonOrder" ||
+                                          std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
+                                               route.Slots.end();
+                               } );
+                BindSceneViewInputs( block, inputs, others );
+            }
+            if ( drawn )
+                declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
+        }
+    }
+
     SystemRasterPass ParticleRenderer::DrawPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
             return {};
 
+        // The translucent / additive draws - and, on a view without a G-buffer (the forward path), the opaque and
+        // masked ones too, as solid cards over the lit scene.
         SystemRasterPass pass{
              .Name        = "ParticlePass",
              .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-             {
-                 if ( m_ViewEmitters.empty() )
-                     return BOOLSUCCESS;
-                 if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
-                     return BOOLSUCCESS;
-
-                 uint32_t block = 0;
-                 for ( const ViewEmitter& ve : m_ViewEmitters )
-                 {
-                     if ( !IsDrawn( ve ) )
-                         continue;
-                     for ( const ViewDraw& draw : ve.Draws )
-                     {
-                         // The n-th declared block is the n-th draw, drawn or not.
-                         const uint32_t drawBlock = block++;
-                         SpriteDraw&    sprite    = *draw.Sprite;
-                         // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline
-                         // is counted by PipelineBuilds, so no gated frame is shown without it. Failed still
-                         // faults.
-                         if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
-                             continue;
-                         const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
-                         sprite.Material->SetMaterialIndex( draw.Row );
-                         sprite.Material->Bind( sprite.Instance.get() );
-                         // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
-                         // particle of alive half StepCount & 1 (the slot's FirstVertex).
-                         const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
-                         if ( auto drawn = Renderer::DrawProceduralIndirect(
-                                   bindings, *sprite.Pipeline, sprite.Material->GetMaterialExecutor(),
-                                   ve.CountersRef, slot );
-                              !drawn.IsSuccess() )
-                             return drawn;
-                     }
-                 }
-                 return BOOLSUCCESS;
-             },
+             { return RecordSpriteDraws( context, false ); },
              .TargetFramebuffer = targetFb };
         // Depth-tested, never written, and sampled for the depth fade in the same pass: the node holds the scene
         // depth READ-ONLY (UE: FExclusiveDepthStencil::DepthRead with the SceneDepth SRV).
         pass.DepthReadOnly = true;
         pass.Declare       = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
-        {
-            const ViewFrame* view = m_SceneRenderer->GetViewFrame();
-            if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
-                return; // the exec draws nothing either
+        { DeclareSpriteDraws( declared, refs, false ); };
+        return pass;
+    }
 
-            // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and
-            // the view's camera block, so the route fill is what the draws read.
-            for ( auto& [cell, sprite] : m_Sprites )
-                if ( sprite )
-                    sprite->Rows.clear();
-            for ( ViewEmitter& ve : m_ViewEmitters )
-            {
-                if ( !IsDrawn( ve ) )
-                    continue;
-                for ( ViewDraw& draw : ve.Draws )
-                {
-                    MaterialInstance* instance =
-                         draw.Instance != nullptr ? draw.Instance : draw.Sprite->Instance.get();
-                    // The row is the material ASSET's (its values, its textures' bindless slots) under the row's
-                    // overrides, as a mesh slot's is; only a row with no material of its own takes the cell's.
-                    const DataDrivenMaterial* rowMaterial =
-                         draw.Material != nullptr ? draw.Material : draw.Sprite->Material.get();
-                    draw.Row = MeshRendererDetail::AppendRow(
-                         draw.Sprite->Rows, MeshRendererDetail::EffectiveRow( rowMaterial, instance ) );
-                }
-            }
-            for ( auto& [cell, sprite] : m_Sprites )
-            {
-                if ( !sprite || sprite->Rows.empty() )
-                    continue;
-                // Find: a sprite surface template with no parameters (or every row field dead) declares no row
-                // block.
-                if ( auto* sb =
-                          sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
-                    sb->SetRawData( sprite->Rows.data(),
-                                    static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
-                SceneCameraBind( sprite->Material.get(), *view );
-            }
-
-            // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
-            // read-only in this node), on BOTH paths (SceneViewInputs::SceneDepth is the G-buffer's, absent on the
-            // forward path). Every other scene/view input a cell samples comes from THE one list, as the forward
-            // meshes and the glass take them — the shading word the lit cell's contact shadow tests, the cascades,
-            // the environment, the light grid: a slot the pass leaves unfilled faults the node
-            // (ValidatePassBindings), so a sprite cell that gains a scene read must not need this pass to name it.
-            const std::shared_ptr<Image2D> depth  = m_SceneRenderer->GetComputeSceneDepth();
-            const SceneViewInputs          inputs = SceneViewInputsOf( refs );
-            for ( const ViewEmitter& ve : m_ViewEmitters )
-            {
-                if ( !IsDrawn( ve ) )
-                    continue;
-                for ( const ViewDraw& draw : ve.Draws )
-                {
-                    const SpriteDraw& sprite = *draw.Sprite;
-                    const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
-                    // A translucent / additive emitter reads its alive half back to front from this view's
-                    // SortedAlive (AddSortPasses), at the same offset; an opaque / masked one reads AliveList
-                    // unsorted.
-                    auto block =
-                         declared.Bindings( layout, sprite.Material->GetMaterialExecutor()->GetRouteFill() )
-                              .Storage( ParticleSpriteShaderParameters::AttributeFloats, ve.FloatsRef, RDG::Access::StorageRead )
-                              .Storage( ParticleSpriteShaderParameters::DrawLayout, ve.DrawLayoutRef, RDG::Access::StorageRead );
-                    // A sprite cell reads the alive list; a ribbon cell reads the emitter's link order instead
-                    // (Vertex_ParticleRibbon.glslh RibbonOrder, AddSortPasses), at the same offsets.
-                    const bool links =
-                         std::any_of( layout->Slots.begin(), layout->Slots.end(),
-                                      []( const RDG::ShaderSlot& slot ) { return slot.Name == "RibbonOrder"; } );
-                    if ( links && ve.Ribboned )
-                        block.Storage( ParticleSpriteShaderParameters::RibbonOrder, m_RibbonRef, RDG::Access::StorageRead );
-                    else
-                        block.Storage( ParticleSpriteShaderParameters::AliveList, ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                       RDG::Access::StorageRead );
-                    const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
-                    if ( fades && depth )
-                        block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
-                                       "SceneDepth.Compute" )
-                             .Sampler( ParticleSpriteShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
-                    // The rest of the list, minus the depth above and minus what the material route already fills
-                    // (a slot filled by both faults the node as surely as one filled by neither).
-                    const RDG::OtherRouteFill& route  = sprite.Material->GetMaterialExecutor()->GetRouteFill();
-                    RDG::ShaderBindingLayout   others = *layout;
-                    std::erase_if( others.Slots,
-                                   [&route]( const RDG::ShaderSlot& slot )
-                                   {
-                                       return slot.Name == kSceneViewSceneDepthName ||
-                                              slot.Name == "RibbonOrder" ||
-                                              std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
-                                                   route.Slots.end();
-                                   } );
-                    BindSceneViewInputs( block, inputs, others );
-                }
-                declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
-            }
-        };
+    SystemRasterPass ParticleRenderer::GBufferPass()
+    {
+        if ( m_SceneRenderer == nullptr || !m_GBufferView || !m_SceneRenderer->GetGBuffer() )
+            return {};
+        // Depth-tested AND written, like every base-pass draw: an opaque card occludes what is behind it and is
+        // lit, shadowed and reflected by the deferred chain that reads this G-buffer.
+        SystemRasterPass pass{
+             .Name        = "ParticleGBuffer",
+             .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+             { return RecordSpriteDraws( context, true ); },
+             .TargetFramebuffer = m_SceneRenderer->GetGBuffer() };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        { DeclareSpriteDraws( declared, refs, true ); };
         return pass;
     }
 
