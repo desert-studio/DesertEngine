@@ -581,7 +581,10 @@ namespace Desert::Editor
         // only if nothing in it integrates a number that came from a clock, and "the scene is deterministic
         // but the thing above it is not" is the kind of split that holds until the day something above it
         // starts feeding the scene. Outside `--play` this is `ts` itself, so no existing frame moves.
-        const Common::Timestep frameTs( ShotOptions::Get().FrameSeconds( ts.GetSeconds(), shotRecorded ) );
+        // A Play the control channel drives runs on the channel's clock instead: fixed steps inside an `advance`,
+        // still between them (ControlService::DrivenFrameSeconds).
+        const Common::Timestep frameTs( m_Control.DrivenFrameSeconds().value_or(
+             ShotOptions::Get().FrameSeconds( ts.GetSeconds(), shotRecorded ) ) );
 
         // THE WORLDS INSIDE UI RENDER-TEXTURE ELEMENTS, advanced HERE and nowhere else (Ю16). Each one is
         // a whole scene render, and it has to be recorded before ANY pass of this frame opens: the canvas

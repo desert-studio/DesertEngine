@@ -26,6 +26,7 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/Core/ShotOptions.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -476,6 +477,13 @@ namespace Desert::Editor
         m_ControlPendingReply.reset();
         m_ControlInFlightClient = 0;
         return true;
+    }
+
+    std::optional<float> ControlService::DrivenFrameSeconds() const
+    {
+        if ( !m_ControlSocket.IsListening() || !PlaySimulatedSeconds() )
+            return std::nullopt;
+        return m_AdvanceUntil ? ShotOptions::PlayStepSeconds : 0.0f;
     }
 
     std::optional<double> ControlService::PlaySimulatedSeconds() const
