@@ -101,6 +101,24 @@ namespace Desert::Player
                 if ( const auto adopted = Settings::AdoptMachineQuality( s_UserSettings, s_UserDirectory );
                      !adopted )
                     LOG_ERROR( "[Settings] {}", adopted.GetError() );
+            // A PLAYER FILE OF AN OLDER VERSION (UE: LoadSettings on a stale UGameUserSettings::Version): brought to
+            // this build's format once QualityState is up — the groups it had keep the player's levels, the ones it
+            // had no field for take the machine's — and saved, so the next start reads the new version and leaves
+            // the file as it is. A movie render upgrades in memory only: nothing of it is the player's to keep.
+            bool keepPlayerFile = true;
+#if DESERT_DEV_INSTRUMENTS
+            keepPlayerFile = !s_Movie.has_value();
+#endif
+            if ( s_UserSettings.Version != Settings::kGameUserSettingsVersion )
+            {
+                const auto upgraded = Settings::UpgradeGameUserSettings( s_UserSettings );
+                if ( !upgraded )
+                    LOG_ERROR( "[Settings] {}", upgraded.GetError() );
+                else if ( keepPlayerFile )
+                    if ( const auto saved = Settings::SaveGameUserSettings( s_UserSettings, s_UserDirectory );
+                         !saved )
+                        LOG_ERROR( "[Settings] {}", saved.GetError() );
+            }
             // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
             // quality groups, the pacer, the mix, the language — reaches its consumers here. BETWEEN the layer's
             // construction and its attach: the constructor starts the quality (QualityBoot::Start ->
