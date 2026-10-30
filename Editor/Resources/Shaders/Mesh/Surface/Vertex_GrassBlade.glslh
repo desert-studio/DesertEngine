@@ -81,23 +81,32 @@ void main()
     }
 #endif
     const BladePoint blade = BladeAt( Blade, model, side, t, windA, m_PushConstants.WindB );
-#if defined( DESERT_SURFACE_PASS_Depth ) && defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
-    // THE VIEW'S MASKED DEPTH PREPASS reads one thing of the blade but its place: the opacity mask's UV
-    // (Pass_Depth.glslh: DESERT_SURFACE_CLIP, DShaderParser OpacityMaskFunction samples `i.UV<set>` and nothing
-    // else of SurfaceInput) - no shading frame, no velocity ("No velocity", Pass_Depth.glslh:11). The cell builds
-    // only that; the frame and the previous wind step are the G-buffer cell's, the pass that reads them. The
-    // place itself is the one expression every cell evaluates, so gl_Position stays invariant against it. (A
-    // `.Parallax` depth cell evaluates the surface, so it takes the full set below.)
+#if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
+#define GRASS_BLADE_DEPTH_CELL 1
+#endif
+#if defined( GRASS_BLADE_DEPTH_CELL ) && defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
+    // THE MASKED DEPTH CELLS - the view's depth prepass and a cascade's caster (UE's depth-only / shadow-depth vertex
+    // factory: position and the masked UV, no normal, tangent or velocity) - read one thing of the blade but its
+    // place: the opacity mask's UV (Pass_Depth.glslh / Pass_ShadowDepth.glslh: DESERT_SURFACE_CLIP, DShaderParser
+    // OpacityMaskFunction samples `i.UV<set>` and nothing else of SurfaceInput) - no shading frame, no velocity
+    // ("No velocity", Pass_Depth.glslh:11; a light view has no previous frame). The cells build only that; the frame
+    // and the previous wind step are the G-buffer cell's, the pass that reads them. The place itself is the one
+    // expression every cell evaluates, so gl_Position stays invariant against the base pass and a blade's shadow is
+    // the blade drawn. (A `.Parallax` depth cell evaluates the surface, so it takes the full set below.)
     v_Surface.WorldPosition = blade.Position;
-    v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cell's fragment stage
+    v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
     v_Surface.UV0           = BladeCardUV( BladeCard( Blade, model[0].w ), side, t );
     v_Surface.UV1           = vec2( model[2].w, t );
     v_Surface.VertexColor   = a_Color;
     v_Surface.ObjectScaleUp = 1.0;
-    v_Surface.TBN           = mat3( 1.0 ); // not read by the depth cell's fragment stage
+    v_Surface.TBN           = mat3( 1.0 ); // not read by the depth cells' fragment stage
     v_Surface.Clip          = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.ObjectMoved   = 0.0;
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    // The caster's slope bias reads the blade's normal - the vertex stage's own use, not a varying.
+    const vec3 normal = BladeNormal( blade, side );
+#endif
 #else
     const vec3 along  = normalize( blade.Along );
     const vec3 normal = BladeNormal( blade, side );
@@ -128,7 +137,7 @@ void main()
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.ObjectMoved = 0.0;
 #endif
-#endif // the masked depth prepass cell
+#endif // the masked depth cells
     gl_Position = cameraUB.JitteredViewProjection * vec4( blade.Position, 1.0 );
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection, normal,
