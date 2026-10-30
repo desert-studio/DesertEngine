@@ -1,0 +1,9 @@
+# CONTENT-V71: BistroFoliageProj migrated to the engine's v71 formats (local branch v71, d725389) opens on dev d6f3a6383.
+# The street must load whole - buildings, foliage, lights - as BISTRO-LOOK's frames before the migration, with no format refusals.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано --subject viewport set Camera.Position -440,300,-230
+Когда run View "View mode: Lit"
+Тогда-вид bistro_street улица Бистро загружена целиком: здания, листва, фонари/вывески на месте, как 9_day_physical BISTRO-LOOK до миграции; в editor.log нет отказов формата/подсистем, ошибок 0
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Тогда-вид bistro_street_awning фасады и маркизы под навесом, листва на месте
