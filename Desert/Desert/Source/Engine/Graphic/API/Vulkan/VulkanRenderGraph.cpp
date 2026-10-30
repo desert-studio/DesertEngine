@@ -747,9 +747,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RetiredTexture> released;
         {
             const std::lock_guard lock( m_RetiredMutex );
-            const auto            keptEnd = std::partition( m_Retired.begin(), m_Retired.end(),
-                                                            [this]( const RetiredTexture& retired )
-                                                            { return !Fenced( retired.Frame ); } );
+            const auto            keptEnd =
+                 std::partition( m_Retired.begin(), m_Retired.end(),
+                                 [this]( const RetiredTexture& retired ) { return !Fenced( retired.Frame ); } );
             released.assign( std::make_move_iterator( keptEnd ), std::make_move_iterator( m_Retired.end() ) );
             m_Retired.erase( keptEnd, m_Retired.end() );
         }

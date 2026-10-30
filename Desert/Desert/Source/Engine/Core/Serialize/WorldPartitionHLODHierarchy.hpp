@@ -260,9 +260,9 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> UnitOfNode;
         std::vector<std::size_t> FirstRecord;
         std::size_t              Records = 0;
-        // Per grid of Partition: the WORLD grids (by WorldPartitionGridSerialized::Name) whose cells that HLOD layer
-        // stands in for - every grid whose HLODLayer chain passes through it. A source's TargetGrids names world
-        // grids; HLODSources reads it through this.
+        // Per grid of Partition: the WORLD grids (by WorldPartitionGridSerialized::Name) whose cells that HLOD
+        // layer stands in for - every grid whose HLODLayer chain passes through it. A source's TargetGrids names
+        // world grids; HLODSources reads it through this.
         std::vector<std::vector<std::string>> StandsForGrids;
     };
 
@@ -291,10 +291,12 @@ namespace Desert::Core::Rules
                 out.Partition.Grids.push_back( std::move( grid ) );
                 std::vector<std::string> standsFor;
                 for ( const WorldPartitionGridSerialized& world : partition.Grids )
-                    for ( const HLODLayerSerialized* at =
-                               world.HLODLayer.has_value() ? FindHLODLayer( partition, *world.HLODLayer ) : nullptr;
+                    for ( const HLODLayerSerialized* at = world.HLODLayer.has_value()
+                                                               ? FindHLODLayer( partition, *world.HLODLayer )
+                                                               : nullptr;
                           at != nullptr;
-                          at = at->ParentLayer.has_value() ? FindHLODLayer( partition, *at->ParentLayer ) : nullptr )
+                          at = at->ParentLayer.has_value() ? FindHLODLayer( partition, *at->ParentLayer )
+                                                           : nullptr )
                         if ( at == &layer )
                         {
                             standsFor.push_back( world.Name );
@@ -347,10 +349,10 @@ namespace Desert::Core::Rules
     // THE SOURCES THE HLOD CELLS STREAM FOR. A source's TargetGrids names WORLD grids; the HLOD cells of a layer
     // stand in for the cells of the world grids beneath it, so a source streams an HLOD grid exactly when it
     // streams one of those. In UE the source carries a second list, TargetHLODLayers, set apart from TargetGrids;
-    // here it is derived, because the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell above
-    // it, so a source naming "Main" read literally (never "HLOD <layer>") would hold its Main cells forever. A source
-    // naming none streams every grid, HLOD grids included; one targeting no HLOD grid is left out (an emptied list
-    // would read as "every grid").
+    // here it is derived, because the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell
+    // above it, so a source naming "Main" read literally (never "HLOD <layer>") would hold its Main cells forever.
+    // A source naming none streams every grid, HLOD grids included; one targeting no HLOD grid is left out (an
+    // emptied list would read as "every grid").
     [[nodiscard]] inline std::vector<StreamingSource> HLODSources( const HLODResidency&             residency,
                                                                    std::span<const StreamingSource> sources )
     {

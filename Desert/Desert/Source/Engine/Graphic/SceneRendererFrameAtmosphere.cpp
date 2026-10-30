@@ -294,8 +294,8 @@ namespace Desert::Graphic
         const bool     hasNodes  = !nodes.empty();
         const bool     accepted  = AddComputeNodes( graph, textures, std::move( nodes ) );
         clouds->SettleFrameNodes( accepted );
-        // The reconstruction pair is the view's history (SceneViewState::Clouds); the composite (a translucency pass,
-        // added after this by AddFrameTranslucency) reads the full-resolution upsample by graph ref.
+        // The reconstruction pair is the view's history (SceneViewState::Clouds); the composite (a translucency
+        // pass, added after this by AddFrameTranslucency) reads the full-resolution upsample by graph ref.
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
         if ( accepted && hasNodes && result.Reconstruction.Scatter.IsValid() )
             history.SetWriterPass( firstPass + result.ResolveNode );

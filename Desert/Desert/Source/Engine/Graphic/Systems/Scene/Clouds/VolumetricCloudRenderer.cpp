@@ -2539,8 +2539,8 @@ namespace Desert::Graphic::System
         // The composite reads the full-resolution image the upsample node wrote this frame.
         config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            // The UPSAMPLED image (CloudUpsample.shader, full resolution, published by SceneRenderer), texelFetched
-            // 1:1: the upsample needs each pixel's scene depth, which this pass draws with attached.
+            // The UPSAMPLED image (CloudUpsample.shader, full resolution, published by SceneRenderer),
+            // texelFetched 1:1: the upsample needs each pixel's scene depth, which this pass draws with attached.
             const RDG::TextureRef scatter = refs.Transients.CloudScatter;
             if ( !scatter.IsValid() || !m_CompositeMaterial )
                 return;
@@ -2550,8 +2550,10 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
-                 .Texture( VolumetricCloudCompositeShaderParameters::CloudScatterTexture, scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( VolumetricCloudCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
+                 .Texture( VolumetricCloudCompositeShaderParameters::CloudScatterTexture, scatter,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( VolumetricCloudCompositeShaderParameters::LinearRepeatSampler,
+                           RDG::SamplerDesc::LinearRepeat() );
         };
 
         return config;

@@ -317,9 +317,8 @@ namespace Desert::Core::Rules
                               state.Units.size(), unitCount, plan.AlwaysLoaded.size(), plan.Cells.size() ) );
         }
 
-        if ( gate != nullptr &&
-             ( ( !gate->HoldActivation.empty() && gate->HoldActivation.size() != unitCount ) ||
-               ( !gate->HoldRelease.empty() && gate->HoldRelease.size() != unitCount ) ) )
+        if ( gate != nullptr && ( ( !gate->HoldActivation.empty() && gate->HoldActivation.size() != unitCount ) ||
+                                  ( !gate->HoldRelease.empty() && gate->HoldRelease.size() != unitCount ) ) )
             return Common::MakeError<ResidencyStep>(
                  std::format( "StepResidency: the gate holds {} activation(s) and {} release(s) for {} unit(s)",
                               gate->HoldActivation.size(), gate->HoldRelease.size(), unitCount ) );

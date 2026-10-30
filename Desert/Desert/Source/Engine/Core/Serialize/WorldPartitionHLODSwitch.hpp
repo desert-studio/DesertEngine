@@ -115,9 +115,8 @@ namespace Desert::Core::Rules
         // in node order, over the world's @p plan and the HLOD residency @p residency made from that hierarchy. A
         // node standing in for an HLOD cell reads that cell's state in the HLOD residency; a node living in an
         // HLOD cell has entities only while that cell is Activated.
-        [[nodiscard]] static Common::ResultStr<HLODRuntime> Make( const WorldPartitionPlan& plan,
-                                                                  const HLODHierarchy&      hierarchy,
-                                                                  const HLODResidency&      residency )
+        [[nodiscard]] static Common::ResultStr<HLODRuntime>
+        Make( const WorldPartitionPlan& plan, const HLODHierarchy& hierarchy, const HLODResidency& residency )
         {
             const std::size_t units     = ResidencyUnitCount( plan );
             const std::size_t hlodUnits = ResidencyUnitCount( residency.Plan );
@@ -190,8 +189,8 @@ namespace Desert::Core::Rules
         // The same over a streamed hierarchy: @p hlodState is the HLOD residency's (null for a runtime made from
         // a unit list, whose HLODs are resident the whole session). An HLOD whose own cell is not Activated has
         // no entities: nothing is told, and it is told again the frame its cell activates.
-        [[nodiscard]] Common::ResultStr<std::size_t> Sync( const ResidencyState& state, const ResidencyState* hlodState,
-                                                           HLODVisibilityWorld& world )
+        [[nodiscard]] Common::ResultStr<std::size_t>
+        Sync( const ResidencyState& state, const ResidencyState* hlodState, HLODVisibilityWorld& world )
         {
             if ( state.Units.size() != m_HLODOfUnit.size() )
                 return Common::MakeError<std::size_t>(

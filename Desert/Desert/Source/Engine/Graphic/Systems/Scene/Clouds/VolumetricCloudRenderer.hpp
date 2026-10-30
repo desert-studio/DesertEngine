@@ -180,8 +180,8 @@ namespace Desert::Graphic::System
         std::vector<ComputeNodeDeclaration> DeclareSkyOcclusionNodes();
         void                                SettleSkyOcclusionNodes( bool accepted );
 
-        // This frame's cloud images, after SettleFrameNodes. All invalid when the frame has none (clouds off, or the
-        // nodes were refused): the composite then draws nothing.
+        // This frame's cloud images, after SettleFrameNodes. All invalid when the frame has none (clouds off, or
+        // the nodes were refused): the composite then draws nothing.
         struct FrameResult
         {
             // The half-resolution reconstruction the resolve writes: the transient pair the view extracts as
