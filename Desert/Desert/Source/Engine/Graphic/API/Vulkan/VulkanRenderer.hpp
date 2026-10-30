@@ -80,12 +80,12 @@ namespace Desert::Graphic::API::Vulkan
                                          const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
                                          uint32_t height ) override;
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                              const MaterialExecutor* material, uint32_t vertexCount,
-                                              uint32_t instanceCount ) override;
+                                              const MaterialExecutor* material, std::span<const std::byte> push,
+                                              uint32_t vertexCount, uint32_t instanceCount ) override;
         Common::BoolResultStr DrawProceduralIndirect( const RDG::PassBindings& bindings,
                                                       const GraphicsPipeline&  pipeline,
-                                                      const MaterialExecutor* material, RDG::BufferRef args,
-                                                      uint64_t offset ) override;
+                                                      const MaterialExecutor* material, std::span<const std::byte> push,
+                                                      RDG::BufferRef args, uint64_t offset ) override;
         Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,
@@ -155,9 +155,13 @@ namespace Desert::Graphic::API::Vulkan
         // (the shared part of DispatchCompute and DispatchComputeIndirect); @p cmd receives that command buffer.
         Common::BoolResultStr BindComputePassState( const RDG::PassBindings& bindings,
                                                     const ComputePipeline& pipeline, VkCommandBuffer& cmd );
+        // @p drawPush: the draw's own push block (a copy of @p material's with the draw's values over it, built by
+        // the caller - RENDER-THREADS M2b, the shared material is not written to record a draw); empty = the
+        // material's block as it stands.
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                      const GraphicsPipeline&  pipeline,
-                                                     const MaterialExecutor*  material );
+                                                     const MaterialExecutor*  material,
+                                                     std::span<const std::byte> drawPush );
         // Binds @p geometry's vertex buffer (binding 0), its streams or the shared default (binding 1, when
         // @p pipeline's vertex input has it) and its index buffer, each at its byte offset, unless exactly those
         // are bound already for this pipeline on this command buffer (m_BoundGeometry); then the instance id

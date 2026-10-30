@@ -556,8 +556,6 @@ namespace Desert::Graphic::System
                 if ( draw.Viewport )
                     Renderer::GetInstance().SetViewportRegion( draw.Viewport->X, draw.Viewport->Y,
                                                                draw.Viewport->Width, draw.Viewport->Height );
-                if ( draw.BindTarget != nullptr )
-                    draw.BindTarget->Bind( draw.Instance );
                 // The draw's push block: the material's, with the draw's own values over it (by value - the
                 // material's block is read, never written, so another pass recording it reads the same bytes).
                 const Common::Memory::Buffer& materialPush = draw.Material->GetPushConstantBuffer();

@@ -246,7 +246,8 @@ namespace Desert::Graphic::System
 
         // The executors of @p program's material of every frame group, in group order: a node drawing the
         // terrain declares one binding block per entry (block firstBlock + group), and RecordDraws records group
-        // g's draws through block firstBlock + g.
+        // g's draws through block firstBlock + g. @p shadowSlope (RecordDraws): a light view's slope term (bias,
+        // clamp), the push field ShadowSlope of the shadow programs; nullopt for a program without it.
         // The culled records a virtual shadow map level draws the tiles from (RecordVirtualShadow): tile k's at
         // record FirstRecord + k of Arguments.
         struct VirtualShadowIndirect
@@ -262,7 +263,8 @@ namespace Desert::Graphic::System
         RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
                      const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
-                     const std::optional<VirtualShadowIndirect>& indirect = std::nullopt );
+                     const std::optional<glm::vec2>&             shadowSlope = std::nullopt,
+                     const std::optional<VirtualShadowIndirect>& indirect    = std::nullopt );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         // The forward program's DESERT_LOCAL_SHADOW_VSM permutation, built on the first frame whose local shadows

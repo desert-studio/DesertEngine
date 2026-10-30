@@ -109,13 +109,10 @@ namespace Desert::Graphic::System
             // primitive / material row, flags, wind, bone offset, skin cache), written by Record over a COPY of
             // the material's push block (DrawPushFields::WriteInto) - the material's own block is not touched.
             DrawPushFields Push{};
-            // The material instance laid on BindTarget right before the draw (Material::Bind: registered
-            // properties, the instance's overrides, the field-filled uniform blocks). Null BindTarget: no Bind.
-            // Still a write to the shared material in exec (REMAINDER RENDER-THREADS-8: the instance's values
-            // belong in its scene material row / its own block, prepared before the graph records); it allocates
-            // nothing - the material's view sets and block copies are prepared (MeshDrawList::DeclareBlocks).
-            ::Desert::Graphic::Material*               BindTarget = nullptr;
-            const ::Desert::Graphic::MaterialInstance* Instance   = nullptr;
+            // No material instance and no Bind: an instance's values are its scene material row (EffectiveRow,
+            // FindMaterialRow - the row the draw's MaterialIndex names), the material's own pending values are
+            // uploaded at use by MaterialExecutor::Apply. Record writes nothing of the shared material
+            // (RENDER-THREADS M2b).
             // The draw's own rectangle of the target (a card of the capture atlas, Renderer::SetViewportRegion),
             // a command of the draw's command buffer. Empty: the pass's viewport.
             struct ViewportRegion

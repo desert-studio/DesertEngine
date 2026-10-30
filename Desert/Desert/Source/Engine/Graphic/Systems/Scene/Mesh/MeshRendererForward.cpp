@@ -1239,9 +1239,7 @@ namespace Desert::Graphic::System
                                 .Push      = DrawPushFields{}
                                              .Transform( glm::mat4( 1.0f ) )
                                              .PrimitiveIndex( obj->GpuPrimitive )
-                                             .MaterialIndex( draw.Row ),
-                                .BindTarget = material,
-                                .Instance   = instance } );
+                                             .MaterialIndex( draw.Row ) } );
         }
 
         // A cell's block also carries the scene snapshot the cells sample for refraction (SceneColorTexture), this
@@ -1343,9 +1341,7 @@ namespace Desert::Graphic::System
                                      .Push      = DrawPushFields{}
                                                   .Transform( glm::mat4( 1.0f ) )
                                                   .PrimitiveIndex( obj->GpuPrimitive )
-                                                  .MaterialIndex( draw.Row ),
-                                     .BindTarget = material,
-                                     .Instance   = instance } );
+                                                  .MaterialIndex( draw.Row ) } );
         }
         return true;
     }
@@ -1965,9 +1961,7 @@ namespace Desert::Graphic::System
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj->GpuPrimitive )
                                          .MaterialIndex( materialRow )
-                                         .PrimitiveFlags( PrimitiveFlagsOf( obj->CastContactShadow ) ),
-                            .BindTarget = drawMat,
-                            .Instance   = inst } );
+                                         .PrimitiveFlags( PrimitiveFlagsOf( obj->CastContactShadow ) ) } );
             }
         }
 
@@ -2137,9 +2131,7 @@ namespace Desert::Graphic::System
                                 .Push              = DrawPushFields{}
                                                 .MaterialIndex( d.MaterialIndex )
                                                 .Wind( d.Wind )
-                                                .PrimitiveFlags( d.PrimitiveFlags ),
-                                .BindTarget        = &*set.Mat,
-                                .Instance          = &*set.Inst } );
+                                                .PrimitiveFlags( d.PrimitiveFlags ) } );
                 }
             }
         }
@@ -2407,9 +2399,7 @@ namespace Desert::Graphic::System
                             .Push      = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj.Obj->GpuPrimitive )
-                                         .MaterialIndex( *materialRow ),
-                            .BindTarget = &*mat,
-                            .Instance   = instOf( obj ) } );
+                                         .MaterialIndex( *materialRow ) } );
             }
         }
     }
