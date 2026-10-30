@@ -91,6 +91,9 @@ namespace Desert::Graphic::System
             // the node declares the reads of it and of Instances (the transforms its material binds).
             RDG::BufferRef IndirectArgs{};
             RDG::BufferRef IndirectInstances{};
+            // Where this draw's records begin in IndirectArgs: after the header, or a later level's group of
+            // records (one per submesh) when the producer draws a LOD chain (GpuInstancedRenderData::Levels).
+            uint64_t IndirectArgsOffset = kGpuInstanceArgsHeaderBytes;
             // The per-draw material state the draw records with (transform push constant, material row, bone
             // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
             // order as before the split. Empty: the draw has none.
@@ -360,6 +363,10 @@ namespace Desert::Graphic::System
             // Per bucket (a strip level for GrassBlade), the instances its record holds room for: the TLAS rows
             // reserved for that level (RayTracingGpuInstanceSource::Rows). Owned by the producer, this frame.
             std::span<const uint32_t> BucketCapacities;
+            // Instanced only: the mesh's LOD levels the producer sorts its instances into, one bucket and one
+            // group of records (one per submesh, level L at record L x submesh count) per level, each drawn by a
+            // draw of its own (UE grass HISM: the instance's LOD by screen size). 1: one bucket, level 0.
+            uint32_t Levels = 1;
             // Stable per section across frames: the view-variant key (several cascade views: Key * kCascadeViews + v).
             uint32_t Key = 0;
             // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
@@ -519,6 +526,17 @@ namespace Desert::Graphic::System
         [[nodiscard]] const glm::mat4& GetCasterViewProjection( const uint32_t view ) const
         {
             return m_CascadeCasterVP[view];
+        }
+        // The world size of one map texel of cascade view @p view (slot * kMaxCascades + c, UpdateCascades), 0
+        // for a view no cascade was fitted for this frame: what a caster picks its own detail by (TerrainRenderer
+        // dices the displaced landscape per cascade, as UE's Nanite dices every view at its own resolution).
+        [[nodiscard]] float GetCascadeWorldPerTexel( const uint32_t view ) const
+        {
+            if ( view >= kCascadeViews )
+                return 0.0f;
+            const DirectionalShadowSlot& slot    = m_DirectionalShadow[view / kMaxCascades];
+            const uint32_t               cascade = view % kMaxCascades;
+            return cascade < slot.Fitted ? slot.WorldPerTexel[static_cast<glm::length_t>( cascade )] : 0.0f;
         }
 
         [[nodiscard]] const GpuDriven::GpuScene* GetGpuScene() const
@@ -805,6 +823,14 @@ namespace Desert::Graphic::System
         // SurfaceWeather.glslh). The exec records that list.
         void DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
+        // SETUP of "Deferred: Masked Depth Prepass" (before "Deferred: GBuffer", same depth; UE: the masked depth
+        // prepass, r.EarlyZPass masked): every Masked GPU-instanced section (the landscape grass) through its
+        // template's (Instanced x Depth) cell - the opacity mask's clip and nothing else. The G-buffer then draws
+        // those sections at CloserOrEqual WITHOUT depth writes, so a hidden texel fails the depth test before its
+        // fragment runs: alpha-tested overdraw (on Apple's TBDR, a discard also defeats hidden-surface removal) is
+        // paid once, by the cheap mask, instead of by every layer of the full surface.
+        void DeclareMaskedDepthDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr RenderMaskedDepthManual( const RDG::PassContext& context ) const;
         // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
         // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
         // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
@@ -1240,6 +1266,10 @@ namespace Desert::Graphic::System
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
+        MeshRendererDetail::MeshDrawList m_MaskedDepthDraws; // "Deferred: Masked Depth Prepass": masked GPU sections
+        // The GPU-instanced sections (GpuInstancedRenderData::Key) THIS frame's masked depth prepass drew: the
+        // G-buffer draws exactly these through m_InstancedGBufferEqualPipeline, every other one as before.
+        std::vector<uint32_t> m_MaskedPrepassed;
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
@@ -1408,6 +1438,11 @@ namespace Desert::Graphic::System
         // the queue again.
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
+        // The two pass states of the masked depth prepass (DeclareMaskedDepthDraws): (Instanced x Depth) into the
+        // G-buffer's depth alone, and the G-buffer's instanced state with its depth writes off (the prepass's depth
+        // is final; CloserOrEqual passes on it). Null: no prepass, masked sections draw as before.
+        std::shared_ptr<GraphicsPipeline> m_InstancedViewDepthPipeline;
+        std::shared_ptr<GraphicsPipeline> m_InstancedGBufferEqualPipeline;
         // (Skinned x GBuffer): the deferred path draws skinned meshes in the base pass (UE), bones from the view's
         // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal; the
         // surface cache captures a skinned mesh's cards with the same state. Null if the shader or the cell is

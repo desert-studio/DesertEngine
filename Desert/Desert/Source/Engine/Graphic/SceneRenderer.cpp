@@ -1452,6 +1452,9 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
+        // RenderPipeline.AsyncCompute: the AsyncCompute passes below (particles, cloud shadow map, light grids) run
+        // on the compute queue, or on the graphics queue when the setting or the device says no.
+        graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
@@ -1921,8 +1924,13 @@ namespace Desert::Graphic
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
                 // light's key failed - TERRAIN-LOCAL-SHADOW-LOG.
                 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                // And each sun cascade's, diced to its own texels (UpdateCascades fitted them above).
+                std::vector<float> cascadeWorldPerTexel( SceneResources::kMaxCascadeViews );
+                for ( uint32_t v = 0; v < SceneResources::kMaxCascadeViews; ++v )
+                    cascadeWorldPerTexel[v] = localShadowMeshes->GetCascadeWorldPerTexel( v );
                 UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights() );
+                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(),
+                                                cascadeWorldPerTexel );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's

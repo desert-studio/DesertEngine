@@ -62,7 +62,9 @@ namespace Desert::Graphic::API::Vulkan
              // (MoltenVK) must have it enabled. "Optional" gives exactly that: enabled iff present.
              { C::PortabilitySubset, "portability_subset", N::Optional, 0, "VK_KHR_portability_subset" },
              { C::MemoryBudget, "memory_budget", N::Optional, 0, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME },
-             { C::TimelineSemaphore, "timelineSemaphore", N::Available, V12,
+             // Required: one-off uploads signal a timeline that the async-compute pipe and the compute/transfer
+             // one-offs wait on the GPU (CommandBufferAllocator::NewestUploadSync). Core in 1.2, the minimum.
+             { C::TimelineSemaphore, "timelineSemaphore", N::Required, V12,
                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME },
              // Required: the bindless texture table (runtime array of sampled images, update-after-bind,
              // partially bound, variable count, non-uniform indexing). Core in 1.2; every desktop GPU and

@@ -2,6 +2,8 @@
 
 #include <Engine/Geometry/Mesh.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 namespace Desert::Graphic::RayTracing
 {
     Common::ResultStr<const RayTracingGeometryResource*>
@@ -27,6 +29,8 @@ namespace Desert::Graphic::RayTracing
         variant.Indices  = indices;
         variant.Binding  = binding;
         variant.Geometry.reset();
+        // A row of its own (FPS-CPU-2): a variant built inside a frame's graph setup is CPU time the frame pays.
+        DESERT_PROFILE_SCOPE( "RT: BLAS variant build" );
         const Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>> built = m_Build( mesh, masks );
         if ( !built )
             return Common::MakeFormattedError<const RayTracingGeometryResource*>(

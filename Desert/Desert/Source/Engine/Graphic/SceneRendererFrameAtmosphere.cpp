@@ -76,28 +76,33 @@ namespace Desert::Graphic
 
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )
     {
+        // ASYNC COMPUTE (UE Niagara GPU simulation on the async pipe): every node reads and writes the particle pool and
+        // the emitters' host-written step tables only; the first graphics reader is the particle draw (translucency)
+        // or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run async as well, so the run
+        // is not joined by its own next node. Fork: the pool imports' first touch; join: that first reader.
+        const RDG::PassFlags kSimulationFlags = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         System::ParticleRenderer* particles = &renderer;
         const uint32_t            steps     = particles->SimulationStepCount();
         graph.AddPass(
-             "Particles: Compact 0", RDG::PassFlags::Compute,
+             "Particles: Compact 0", kSimulationFlags,
              [particles]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0 ); },
              [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return particles->Compact( context, 0 ); } );
         for ( uint32_t step = 0; step < steps; ++step )
         {
             graph.AddPass(
-                 std::format( "Particles: Dispatch Args {}", step ), RDG::PassFlags::Compute,
+                 std::format( "Particles: Dispatch Args {}", step ), kSimulationFlags,
                  [particles, step]( RDG::PassBuilder& pass )
                  { particles->DeclareDispatchArgsBindings( pass, step ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->BuildDispatchArgs( context, step ); } );
             graph.AddPass(
-                 std::format( "Particles: Spawn+Update {}", step ), RDG::PassFlags::Compute,
+                 std::format( "Particles: Spawn+Update {}", step ), kSimulationFlags,
                  [particles, step]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass, step ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Simulate( context, step ); } );
             graph.AddPass(
-                 std::format( "Particles: Compact {}", step + 1 ), RDG::PassFlags::Compute,
+                 std::format( "Particles: Compact {}", step + 1 ), kSimulationFlags,
                  [particles, step]( RDG::PassBuilder& pass )
                  { particles->DeclareCompactBindings( pass, step + 1 ); },
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -107,7 +112,7 @@ namespace Desert::Graphic
         // graph orders it from the buffers), only while an editor debugger asks.
         if ( particles->DebugReadbackRequested() )
             graph.AddPass(
-                 "Particles: Debug Readback", RDG::PassFlags::Compute,
+                 "Particles: Debug Readback", kSimulationFlags,
                  [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
                  [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->DebugReadback( context ); } );
@@ -115,7 +120,7 @@ namespace Desert::Graphic
         // scene's particle point lights FramesInFlight frames later (ParticleWorldGpu::ReadLightReadbacks).
         if ( particles->LightReadbackRequested() )
             graph.AddPass(
-                 "Particles: Light Readback", RDG::PassFlags::Compute,
+                 "Particles: Light Readback", kSimulationFlags,
                  [particles]( RDG::PassBuilder& pass ) { particles->DeclareLightReadbackBindings( pass ); },
                  [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->LightReadback( context ); } );
@@ -132,6 +137,12 @@ namespace Desert::Graphic
         if ( clouds == nullptr )
             return;
         std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareShadowMapNodes( graph );
+        // ASYNC COMPUTE (UE r.VolumetricCloud.ShadowMap on the async pipe): every input is the cloud field (host
+        // payloads, the uploads just below) and its first reader is a lit pass after the shadow depths, the light
+        // grids and the G-buffer, so the march overlaps them. Fork: after the input uploads; join: the first lit
+        // reader of Clouds.ShadowMap.
+        for ( ComputeNodeDeclaration& node : nodes )
+            node.AsyncCompute = true;
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
         // A transient of this graph; its readers take the ref through SceneViewInputsOf (CloudShadowMapOrWhite).

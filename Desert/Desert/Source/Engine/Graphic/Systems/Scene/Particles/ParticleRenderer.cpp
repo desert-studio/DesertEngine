@@ -769,7 +769,8 @@ namespace Desert::Graphic::System
                      glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
                      origin, forward };
                 graph.AddPass(
-                     ParticleSortPassName( range.Emitter, s, range.Ribbon ), RDG::PassFlags::Compute,
+                     ParticleSortPassName( range.Emitter, s, range.Ribbon ),
+                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
                      [this, buffers, stage]( RDG::PassBuilder& pass )
                      {
                          DeclareParticleSortStage(
@@ -1271,7 +1272,8 @@ namespace Desert::Graphic::System
                 const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
                 const GpuInstanceRefs refs  = state.Refs;
                 graph.AddPass(
-                     std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ),
+                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
                      [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
                      {
                          // PoolSlots: the slot's Id tells a respawned particle from the one the history row holds.
@@ -1306,7 +1308,8 @@ namespace Desert::Graphic::System
                 // into every record, so the GBuffer and the cascades draw it, and re-arms the reduction.
                 push.Lod.z = 1u;
                 graph.AddPass(
-                     std::format( "Particles: Mesh LOD {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     std::format( "Particles: Mesh LOD {}.{}", i, vm.Row ),
+                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
                      [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
                      {
                          pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),

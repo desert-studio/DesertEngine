@@ -404,7 +404,7 @@ namespace Desert::Graphic::System
                     static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
                     if ( auto drawn = Renderer::RenderMeshIndirect(
                               *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                              draw.IndirectArgs, kGpuInstanceArgsHeaderBytes, draw.HiddenSubmeshMask,
+                              draw.IndirectArgs, draw.IndirectArgsOffset, draw.HiddenSubmeshMask,
                               MeshDrawArgumentsOrder::Submesh );
                          !drawn.IsSuccess() )
                         return drawn;

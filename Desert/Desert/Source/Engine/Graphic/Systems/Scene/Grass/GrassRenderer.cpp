@@ -33,7 +33,8 @@ namespace Desert::Graphic::System
         constexpr uint32_t kFlagAlignToSurface   = 2u;
         constexpr uint32_t kFlagWeightAttenuates = 4u;
         constexpr uint32_t kFlagBlade            = 8u;
-        constexpr uint32_t kBucketWords          = 4u; // GpuInstanceBucket: count, first, capacity, 0
+        // GpuInstanceBucket: count, first, capacity, and a mesh level's half screen size (bit pattern; 0 for a blade).
+        constexpr uint32_t kBucketWords = 4u;
 
         // Mirrors GrassGenerate's GrassParams (std430).
         struct GrassParamsGpu
@@ -50,8 +51,11 @@ namespace Desert::Graphic::System
             glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
             glm::vec4  Spread;  // x = Scatter (cells), y = Patchiness, z = PatchSize
             glm::vec4  Lean;    // x = Tilt (radians), y = FacingJitter (radians)
+            // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
+            // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic).
+            glm::vec4 Lod;
         };
-        static_assert( sizeof( GrassParamsGpu ) == 240 );
+        static_assert( sizeof( GrassParamsGpu ) == 256 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -260,9 +264,17 @@ namespace Desert::Graphic::System
         // ground under it keep more, up to every cell.
         const float             keepShare   = std::min( 1.0f, 1.0f / std::max( lens, 1.0e-6f ) );
         const auto&             submeshes   = mesh.GetSubmeshes();
-        // A blade draws one level per bucket (submesh b = bucket b, by distance); a mesh one bucket for all its
-        // sections.
-        const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : 1u;
+        // A blade draws one level per bucket (submesh b = bucket b, by distance). A mesh draws one bucket per
+        // level of its LOD chain, every instance in the coarsest level whose screen size it is still below (UE
+        // grass HISM: the instance's LOD by ComputeStaticMeshLOD's screen size, Geometry::SelectLODFromBounds) -
+        // the levels are the mesh asset's own, its records (level L x submesh) each draw that level's index range.
+        const std::vector<float>& screenSizes = mesh.GetLODScreenSizes();
+        const uint32_t            levels =
+             variety.Blade ? 1u
+                                      : std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
+                                                                static_cast<uint32_t>( screenSizes.size() ) ) );
+        const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : levels;
+        const auto     records     = static_cast<uint32_t>( submeshes.size() ) * levels;
         const float    lodDistance = variety.Blade ? variety.Blade->LodDistance * lens : 0.0f;
         // The instance's bounding sphere in its local space: a blade's from its shape (the upright blade's
         // middle, reaching the farthest leaning tip - its own curvature draw and its root's tilt - and the wind's
@@ -331,9 +343,12 @@ namespace Desert::Graphic::System
         std::optional<uint32_t> overflowed;
         for ( uint32_t b = 0; b < buckets; ++b )
         {
-            const double inner = buckets == 1u ? 0.0 : static_cast<double>( b ) * lodDistance;
-            const double outer = b + 1u == buckets ? static_cast<double>( radius )
-                                                   : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
+            // A blade's level is a ring of distance; a mesh level's screen size reaches anywhere in the disc (a
+            // large instance keeps its detail farther than a small one), so it is bounded by the whole disc.
+            const bool   ring  = variety.Blade && buckets > 1u;
+            const double inner = ring ? static_cast<double>( b ) * lodDistance : 0.0;
+            const double outer = !ring || b + 1u == buckets ? static_cast<double>( radius )
+                                                            : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
             uint32_t     needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
             if ( perspective && needed > 0u )
                 needed = std::min<uint32_t>(
@@ -398,27 +413,41 @@ namespace Desert::Graphic::System
             gpu.Instances           = ShaderResources::StorageBuffer::Create(
                  "GrassInstances", std::max( capacity, 1u ) * sizeof( glm::mat4 ), 2, true );
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
-            const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( submeshCount ) / 4u );
+            const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
             gpu.Args                = ShaderResources::StorageBuffer::Create( "GrassArgs", argBytes, 3, true );
-            // The records' static half: each submesh's level-0 index range; instanceCount and firstInstance are
-            // GrassFinalize's. The bucket table: each bucket's first instance and capacity.
+            // The records' static half: record L x submeshCount + si draws submesh si at level L (a submesh with a
+            // shorter chain its coarsest level, one without a chain its base range; a blade has level 0 only);
+            // instanceCount and firstInstance are GrassFinalize's. The bucket table: each bucket's first instance,
+            // capacity and - a mesh level - half its screen size.
             std::vector<uint32_t> args( argBytes / 4u, 0u );
             args[0] = buckets;
             args[1] = capacity;
-            args[2] = submeshCount;
-            for ( size_t si = 0; si < submeshes.size(); ++si )
-            {
-                const auto& sm     = submeshes[si];
-                uint32_t*   record = &args[GpuInstanceArgsOffset( static_cast<uint32_t>( si ) ) / 4u];
-                record[0]          = sm.LODs.empty() ? sm.IndexCount : sm.LODs[0].IndexCount;
-                record[2]          = sm.LODs.empty() ? sm.IndexOffset : sm.LODs[0].IndexOffset;
-                record[3]          = sm.VertexOffset;
-            }
+            args[2] = records;
+            for ( uint32_t level = 0; level < levels; ++level )
+                for ( uint32_t si = 0; si < submeshCount; ++si )
+                {
+                    const auto& sm     = submeshes[si];
+                    uint32_t*   record = &args[GpuInstanceArgsOffset( level * submeshCount + si ) / 4u];
+                    if ( sm.LODs.empty() )
+                    {
+                        record[0] = sm.IndexCount;
+                        record[2] = sm.IndexOffset;
+                    }
+                    else
+                    {
+                        const auto& lod = sm.LODs[std::min<size_t>( level, sm.LODs.size() - 1 )];
+                        record[0]       = lod.IndexCount;
+                        record[2]       = lod.IndexOffset;
+                    }
+                    record[3] = sm.VertexOffset;
+                }
             for ( uint32_t b = 0, first = 0; b < buckets; first += capacities[b], ++b )
             {
                 args[tableWord + b * kBucketWords + 1u] = first;
                 args[tableWord + b * kBucketWords + 2u] = capacities[b];
+                if ( !variety.Blade )
+                    args[tableWord + b * kBucketWords + 3u] = std::bit_cast<uint32_t>( 0.5f * screenSizes[b] );
             }
             if ( const auto wrote = gpu.Args->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
             {
@@ -464,10 +493,7 @@ namespace Desert::Graphic::System
         params.ScaleZ  = glm::vec4( p.ScaleZ, 0.0f, keepShare );
         params.Info    = glm::uvec4( variety.Layer, capacity, static_cast<uint32_t>( submeshes.size() ),
                                      static_cast<uint32_t>( variety.Key * 0x9E3779B97F4A7C15ull >> 32 ) );
-        params.Buckets = glm::uvec4(
-             buckets,
-             static_cast<uint32_t>( GpuInstanceArgsOffset( static_cast<uint32_t>( submeshes.size() ) ) / 4u ), 0u,
-             0u );
+        params.Buckets = glm::uvec4( buckets, static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u ), 0u, 0u );
         params.Blade = variety.Blade ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping,
                                                   variety.Blade->ClumpPull )
                                      : glm::vec4( 0.0f );
@@ -477,6 +503,14 @@ namespace Desert::Graphic::System
         params.Lean   = variety.Blade ? glm::vec4( glm::radians( variety.Blade->Tilt ),
                                                    glm::radians( variety.Blade->FacingJitter ), 0.0f, 0.0f )
                                       : glm::vec4( 0.0f );
+        if ( !variety.Blade )
+        {
+            const Common::Math::AABB bounds   = Geometry::LocalBounds( submeshes );
+            const float              multiple = std::max( 0.5f * std::abs( frame.Projection[0][0] ),
+                                                          0.5f * std::abs( frame.Projection[1][1] ) );
+            params.Lod = glm::vec4( multiple * 0.5f * glm::length( bounds.Max - bounds.Min ),
+                                    std::abs( frame.Projection[2][3] ), 0.0f, 0.0f );
+        }
         if ( const auto wrote = gpu.Params->SetData( &params, sizeof( params ) ); !wrote.IsSuccess() )
         {
             LOG_ERROR( "[Grass] the variety's parameters were not written: {}", wrote.GetError() );
@@ -595,6 +629,7 @@ namespace Desert::Graphic::System
                            .Refs             = &gpu->Refs,
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
+                           .Levels           = variety.Blade ? 1u : gpu->Buckets,
                            .Key              = gpu->Index * 64u + s } );
                 // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                 // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules

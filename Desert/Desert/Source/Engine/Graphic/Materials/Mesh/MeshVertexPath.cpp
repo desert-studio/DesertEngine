@@ -19,17 +19,18 @@ namespace Desert::Graphic
         // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
         // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth
+             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth  View depth
              { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth", nullptr,
-               "Static.VirtualShadowDepth" },
+               "Static.VirtualShadowDepth", "Static.Depth" },
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", nullptr,
-               "Skinned.VirtualShadowDepth" },
+               "Skinned.VirtualShadowDepth", "Skinned.Depth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
-               "Instanced.VirtualShadowDepth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
+               "Instanced.VirtualShadowDepth", "Instanced.Depth" },
+             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
              // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).
-             { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr },
-             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
+             { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr,
+               "GrassBlade.Depth" },
+             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
         };
     } // namespace
 
@@ -189,6 +190,8 @@ namespace Desert::Graphic
                 return "DepthNormal";
             case MeshPass::VirtualShadowDepth:
                 return "VirtualShadowDepth";
+            case MeshPass::Depth:
+                return "Depth";
         }
         return "?";
     }

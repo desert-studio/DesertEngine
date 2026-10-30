@@ -342,10 +342,21 @@ namespace Desert::Graphic
         // the contract's clear value (Unlit, receives sun shadows).
         static_assert( Core::ShadingModels::kShadingWordClearValue == 0u,
                        "the G-buffer clear writes 0.0f bits into the uint shading word" );
+        // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
+        // alone, cleared here; the masked GPU-instanced sections write their clipped depth, and the G-buffer below
+        // LOADs it and draws those sections without depth writes (MeshRenderer::DeclareMaskedDepthDraws).
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        AddRaster(
+             graph, "Deferred: Masked Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderMaskedDepthManual( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
         AddRaster(
              graph, "Deferred: GBuffer", *targets,
              textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
-             RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGBufferManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )

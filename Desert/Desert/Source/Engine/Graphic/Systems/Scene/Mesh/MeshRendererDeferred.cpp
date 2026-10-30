@@ -37,6 +37,23 @@ namespace Desert::Graphic::System
         return m_GBufferDraws.Record( context );
     }
 
+    void MeshRenderer::DeclareMaskedDepthDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_MaskedDepthDraws.Clear();
+        m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
+        if ( !m_InstancedViewDepthPipeline || !m_InstancedGBufferEqualPipeline || m_SceneRenderer == nullptr ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
+            return;
+        BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ) );
+        m_MaskedDepthDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderMaskedDepthManual( const RDG::PassContext& context ) const
+    {
+        return m_MaskedDepthDraws.Record( context );
+    }
+
     void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,
                                                        const bool localShadowMasks )
     {
@@ -129,6 +146,36 @@ namespace Desert::Graphic::System
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
             {
                 m_InstancedGBufferPipeline = instanced.GetValue();
+                // The masked depth prepass's two states (DeclareMaskedDepthDraws). Optional: refused, the masked
+                // sections keep drawing their clip in the G-buffer alone, said once here.
+                GraphicsPipelineSpecification equal = ispec;
+                equal.DebugName                     = "StaticMeshGBufferInstancedDepthEqual";
+                equal.DepthWriteEnabled             = false;
+                GraphicsPipelineSpecification depth;
+                depth.DebugName      = "StaticMeshViewDepthInstanced";
+                depth.Layout         = MeshVertexLayout( MeshVertexPath::Instanced );
+                depth.DepthCompareOp = DepthCompare::CloserOrEqual;
+                depth.CullMode       = CullMode::Back;
+                depth.Shader         = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::Depth );
+                depth.TargetLayout   = RenderTargetLayout{ {}, ViewTargetFormats::kGBufferDepth, 1 };
+                std::string refused = depth.Shader ? std::string{} : std::string( "no (Instanced x Depth) cell" );
+                if ( depth.Shader )
+                {
+                    const auto equalPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( equal );
+                    const auto depthPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( depth );
+                    if ( equalPipeline && depthPipeline )
+                    {
+                        m_InstancedGBufferEqualPipeline = equalPipeline.GetValue();
+                        m_InstancedViewDepthPipeline    = depthPipeline.GetValue();
+                    }
+                    else
+                        refused = std::format( "depth: {} | equal: {}", depthPipeline ? "ok" : depthPipeline.GetError(),
+                                               equalPipeline ? "ok" : equalPipeline.GetError() );
+                }
+                if ( !refused.empty() )
+                    LOG_ERROR( "[MeshRenderer] no masked depth prepass: masked grass pays its alpha-tested overdraw "
+                               "in the G-buffer. {}",
+                               refused );
                 m_InstancedGBufferMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::GBuffer );
                 if ( m_InstancedGBufferMaterial )
                 {

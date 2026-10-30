@@ -177,9 +177,13 @@ namespace Desert::Graphic
         // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth
         // cell's vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
         VirtualShadowDepth = 5,
+        // Depth only, into the VIEW's scene depth before the base pass (UE: the DepthPass mesh pass): the view
+        // header's vertex stage (the base pass's very gl_Position), Mesh/Surface/Pass_Depth.glslh's fragment stage
+        // (nothing / the opacity mask's clip / the relief's depth). The base pass then tests equal and writes none.
+        Depth = 6,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 6;
+    inline constexpr uint32_t kMeshPassCount = 7;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).
