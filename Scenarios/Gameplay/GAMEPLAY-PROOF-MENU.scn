@@ -1,0 +1,7 @@
+# GAMEPLAY-PROOF [6_menu] (GP1): Mirage's MainMenu in Play -- a pointer over a button lights its hover state, Tab moves the keyboard focus onto the next button.
+# Mirage's own project (one project per scenario); UI points are window points: the viewport image starts at (324,145) in this layout.
+Проект ../Mirage/Mirage.deproj
+Дано run Scene "Open Scene MainMenu.desce"
+Дано run Action "Play from Here"
+Дано advance 1
+Тогда-вид 6a_menu_layout the Mirage main menu: title and the Settings / Credits / Quit column, nothing hovered or focused yet

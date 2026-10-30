@@ -1693,7 +1693,15 @@ namespace Desert::Physics
              new JPH::CharacterVirtual( &settings, ToJolt( desc.Position ), JPH::Quat::sIdentity(),
                                         &m_Impl->System );
         if ( !character->GetInnerBodyID().IsInvalid() )
+        {
             m_Impl->Bodies->SetUserData( character->GetInnerBodyID(), kCharacterInnerBit );
+            // Jolt pairs a KINEMATIC body (the inner body is one) only with dynamic bodies unless the body says
+            // otherwise, so a static Trigger volume never heard the pawn walk in: no BeginOverlap, no kill
+            // zone, no button (GP1 p3). UE: the pawn's capsule generates overlaps against static volumes.
+            JPH::BodyLockWrite lock( m_Impl->System.GetBodyLockInterface(), character->GetInnerBodyID() );
+            if ( lock.Succeeded() )
+                lock.GetBody().SetCollideKinematicVsNonDynamic( true );
+        }
 
         // Reuse a released slot before growing. Slots used to be append-only, which was harmless while
         // characters lived as long as a Play session, and is a vector that only grows once streaming creates

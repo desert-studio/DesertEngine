@@ -1,0 +1,105 @@
+{
+    "Header": {
+        "Kind": "Prefab",
+        "Guid": "696ef13e06794f81abb420103958e9ca",
+        "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 71,
+            "UNIT": 1,
+            "WPAR": 1
+        },
+        "Dependencies": []
+    },
+    "Name": "Pawn_Player",
+    "Entities": [
+        {
+            "id": 7401,
+            "Tag": "Player",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "CharacterController": {
+                "Radius": 34.0,
+                "Height": 176.0,
+                "MaxSlopeDeg": 50.0,
+                "MaxWalkSpeed": 600.0,
+                "MaxAcceleration": 2048.0,
+                "BrakingDecelerationWalking": 2048.0,
+                "GroundFriction": 8.0,
+                "BrakingFrictionFactor": 2.0,
+                "JumpZVelocity": 700.0,
+                "AirControl": 0.3499999940395355,
+                "GravityScale": 1.0,
+                "MaxWalkSpeedCrouched": 300.0,
+                "CrouchedHeight": 120.0,
+                "MaxSwimSpeed": 300.0,
+                "CollisionProfile": "Pawn"
+            },
+            "EnhancedInputPlayer": {
+                "Contexts": [6714955386148862235],
+                "BasePriority": 0
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/PlayerController.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7402,
+            "parent": 7401,
+            "Tag": "Body",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 1.7999999523162842, 0.6000000238418579],
+            "StaticMesh": {
+                "Primitive": "Capsule",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7403,
+            "parent": 7401,
+            "Tag": "CameraArm",
+            "Translation": [0.0, 60.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "SpringArm": {
+                "TargetArmLength": 450.0,
+                "SocketOffset": [0.0, 80.0, 0.0],
+                "DoCollisionTest": true,
+                "ProbeSize": 12.0,
+                "EnableCameraLag": false,
+                "CameraLagSpeed": 10.0
+            }
+        },
+        {
+            "id": 7404,
+            "parent": 7403,
+            "Tag": "PlayerCamera",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 60.0,
+                "Near": 10.0,
+                "Far": 5000000.0
+            }
+        }
+    ],
+    "Root": 7401
+}

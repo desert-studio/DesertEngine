@@ -26,6 +26,7 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/Core/ShotOptions.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -476,6 +477,13 @@ namespace Desert::Editor
         m_ControlPendingReply.reset();
         m_ControlInFlightClient = 0;
         return true;
+    }
+
+    std::optional<float> ControlService::DrivenFrameSeconds() const
+    {
+        if ( !m_ControlSocket.IsListening() || !PlaySimulatedSeconds() )
+            return std::nullopt;
+        return m_AdvanceUntil ? ShotOptions::PlayStepSeconds : 0.0f;
     }
 
     std::optional<double> ControlService::PlaySimulatedSeconds() const
@@ -1225,6 +1233,20 @@ namespace Desert::Editor
                          request.Id, "'advance' waits for Play's simulated time: press Play first (the scene "
                                      "has no running physics world)." );
                 m_AdvanceUntil = *now + static_cast<double>( request.Value[0] );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Select:
+            {
+                // An outliner click (UE: selecting the actor in the World Outliner): what the gameplay debugger
+                // and Details then follow. The entity must exist in the open scene - in Play, the played copy.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                if ( const auto entity = ControlEntity( *scene, request.Entity ); !entity )
+                    return Control::Response::Failure( request.Id, entity.GetError() );
+                const auto entityWord = ControlEntityId( request.Entity );
+                Core::SelectionManager::SetSelected( entityWord.GetValue() );
                 return Control::Response::Success( request.Id );
             }
 

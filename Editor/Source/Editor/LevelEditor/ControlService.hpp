@@ -63,6 +63,15 @@ namespace Desert::Editor
             return m_ControlSocket.Listen( socketPath );
         }
 
+        // THE GAME CLOCK OF A PLAY THE CHANNEL DRIVES (UE: an automation test ticks PIE at a fixed step, and a
+        // paused PIE moves only by Advance Single Frame). While this editor listens and Play runs, the world
+        // moves ONLY inside an `advance`: one fixed step of ShotOptions::PlayStepSeconds per frame until the
+        // mark, zero on every other frame. On the wall clock a scenario's world kept walking through every
+        // frame a key, a shot or a census waited for -- a 0.5 s `advance` with W held carried the pawn
+        // 11 m (GP1 p3), and no two runs agreed. Empty when not listening or not playing: the caller keeps
+        // its own step.
+        [[nodiscard]] std::optional<float> DrivenFrameSeconds() const;
+
         // Drained at the TOP of OnUpdate: accept, read one request, execute it. Everything it can run is
         // a palette entry.
         void ServiceChannel();

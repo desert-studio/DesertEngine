@@ -54,12 +54,30 @@ namespace Desert::Editor::Control
     };
 
     inline constexpr InputKeyName kInputNamedKeys[] = {
-         { "space", 32, 0 },      { "escape", 256, 0 }, { "enter", 257, 0 }, { "tab", 258, 0 },
-         { "backspace", 259, 0 }, { "delete", 261, 0 }, { "right", 262, 0 }, { "left", 263, 0 },
-         { "down", 264, 0 },      { "up", 265, 0 },     { "f1", 290, 0 },    { "f2", 291, 0 },
-         { "f3", 292, 0 },        { "f4", 293, 0 },     { "f5", 294, 0 },    { "f6", 295, 0 },
-         { "f7", 296, 0 },        { "f8", 297, 0 },     { "f9", 298, 0 },    { "f10", 299, 0 },
-         { "f11", 300, 0 },       { "f12", 301, 0 },
+         { "space", 32, 0 },
+         { "escape", 256, 0 },
+         { "enter", 257, 0 },
+         { "tab", 258, 0 },
+         { "backspace", 259, 0 },
+         { "delete", 261, 0 },
+         { "right", 262, 0 },
+         { "left", 263, 0 },
+         { "down", 264, 0 },
+         { "up", 265, 0 },
+         { "f1", 290, 0 },
+         { "f2", 291, 0 },
+         { "f3", 292, 0 },
+         { "f4", 293, 0 },
+         { "f5", 294, 0 },
+         { "f6", 295, 0 },
+         { "f7", 296, 0 },
+         { "f8", 297, 0 },
+         { "f9", 298, 0 },
+         { "f10", 299, 0 },
+         { "f11", 300, 0 },
+         { "f12", 301, 0 },
+         // GLFW_KEY_GRAVE_ACCENT: the gameplay debugger's toggle (`) in Play, so a scenario can open it.
+         { "grave", 96, 0 },
     };
 
     struct InputChord
@@ -116,7 +134,7 @@ namespace Desert::Editor::Control
             if ( chord.Key == 0 )
                 return Common::MakeFormattedError<InputChord>(
                      "'{}' is not a key this channel can press: a letter, a digit, space, escape, enter, tab, "
-                     "backspace, delete, the arrows or f1..f12.",
+                     "backspace, delete, the arrows, f1..f12 or grave (`).",
                      part );
             break;
         }
