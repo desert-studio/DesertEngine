@@ -109,15 +109,16 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanMaterialBackend::PrepareViewResources( const MaterialExecutor& executor )
     {
-        // The frame index Apply resolves with (ApplyUniformBuffer / ApplyStorageBuffer).
+        // The frame index the prepare's apply resolves with (ApplyUniformBuffer / ApplyStorageBuffer).
         const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( HasDescriptorSets() && ActiveSets( frameIndex ) == nullptr )
             return Common::MakeFormattedError( "shader '{}': its descriptor sets for frame {} were not made",
                                                m_VulkanShader->GetName(), frameIndex );
 
-        // The block copies Apply binds. A copy that cannot be made is NOT this pass's fault: the exec's Apply
-        // meets the same refusal at the bind, names it (m_BindRefusalReported) and keeps the set's fallback,
-        // exactly as before the prepare existed - so its result is not turned into a pass fault here.
+        // The block copies the prepare's descriptor writes bind (MaterialExecutor::PrepareForRecording applies
+        // right after this). A copy that cannot be made is NOT this pass's fault: that apply meets the same
+        // refusal at the bind, names it (m_BindRefusalReported) and keeps the set's fallback - so its result is
+        // not turned into a pass fault here.
         ShaderResources::API::Vulkan::ViewCopyBinding copy;
         for ( const auto& [name, index] : executor.GetUniformBufferProperties() )
         {

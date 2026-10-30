@@ -197,8 +197,15 @@ namespace Desert::Graphic::System
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
         // sets from the cell's reflection; the camera block and the Materials rows are written once per frame,
         // before the blocks are declared), the pipeline the cell's template blend built, and the layout cache.
-        struct SpriteDraw
+        // RENDER-THREADS M3: the cell is the prerequisite its passes declare (PassBuilder::Prepares). Its prepare
+        // writes the view's camera block and the cell's defaults into the cell material, then prepares the
+        // material (MaterialExecutor::PrepareForRecording) - all before the graph records, in the view the passes
+        // record in. The record only binds the material and hands each draw its row by value.
+        struct SpriteDraw : RDG::IRecordPrerequisite
         {
+            [[nodiscard]] Common::BoolResultStr PrepareForRecording() const override;
+
+            const ParticleRenderer*             Owner = nullptr;
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::shared_ptr<DataDrivenMaterial> Material;
             MaterialInstancePtr                 Instance; // the cell's defaults: the row of an emitter without one

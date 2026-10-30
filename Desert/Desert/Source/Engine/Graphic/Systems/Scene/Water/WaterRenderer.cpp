@@ -9,6 +9,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/DrawPushFields.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Core/Frustum.hpp>
@@ -23,6 +24,7 @@
 #include <array>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace
 {
@@ -349,21 +351,30 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( m_FrameDraws.empty() || m_Frame == nullptr || camera == nullptr )
             return BOOLSUCCESS;
-        DataDrivenMaterial& material = *m_Frame->Material;
+        const DataDrivenMaterial& material = *m_Frame->Material;
         DESERT_PROFILE_PASS( "Water: Surface" );
 
-        // The row base and the matrix are push constants, snapshotted per draw at record.
-        // Push constants, snapshotted per draw at record: the material row (the cell's one row) and the draw's
-        // first tile row (PrimitiveIndex: the water has no GpuScene primitive; Vertex_WaterMesh.glslh).
-        const RDG::PassBindings block( context, context.GetBindingBlock( 0 ) );
-        material.SetPushMatrix( glm::mat4( 1.0f ) );
-        material.SetMaterialIndex( 0u );
+        // RENDER-THREADS M3: the push values travel BY VALUE, the material is only read (DrawPushFields, as
+        // TerrainRenderer::RecordDraws): each draw's block is a copy of the material's with the identity matrix,
+        // the material row (the cell's one row) and the draw's first tile row over it (PrimitiveIndex: the water
+        // has no GpuScene primitive; Vertex_WaterMesh.glslh).
+        const RDG::PassBindings       block( context, context.GetBindingBlock( 0 ) );
+        const MaterialExecutor*       executor = material.GetMaterialExecutor();
+        const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
+        std::vector<std::byte>        push;
         for ( const FrameDraw& draw : m_FrameDraws )
         {
-            material.SetPrimitiveIndex( draw.FirstRow );
-            if ( auto drawn = Renderer::GetInstance().DrawProcedural(
-                      block, *m_Frame->Pipeline, material.GetMaterialExecutor(),
-                      draw.QuadsPerSide * draw.QuadsPerSide * 6u, draw.RowCount );
+            push.assign( pushed.Size, std::byte{ 0 } );
+            if ( pushed.Data != nullptr && pushed.Size != 0u )
+                std::memcpy( push.data(), pushed.Data, pushed.Size );
+            DrawPushFields fields;
+            fields.Transform( glm::mat4( 1.0f ) ).MaterialIndex( 0u ).PrimitiveIndex( draw.FirstRow );
+            if ( auto written = fields.WriteInto( push, material.GetMaterialLayout() ); !written )
+                return Common::MakeFormattedError( "{}: water draw at tile row {}: {}", context.GetPassName(),
+                                                   draw.FirstRow, written.GetError() );
+            if ( auto drawn = Renderer::GetInstance().DrawProcedural( block, *m_Frame->Pipeline, executor,
+                                                                      draw.QuadsPerSide * draw.QuadsPerSide * 6u,
+                                                                      draw.RowCount, push );
                  !drawn.IsSuccess() )
                 return drawn;
         }

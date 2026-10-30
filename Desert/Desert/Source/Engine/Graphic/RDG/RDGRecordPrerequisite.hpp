@@ -25,8 +25,8 @@ namespace Desert::Graphic::RDG
         virtual ~IRecordPrerequisite() = default;
 
         // Creates what the exec will look up. Sequential; an error faults the declaring pass (Execution stage)
-        // and its exec does not run. Const as MaterialExecutor::Apply is: what it makes is the object's per-view
-        // cache, not its value - so a pass declares the const material its setup already holds.
+        // and its exec does not run. Const: what it makes and writes is the object's per-view cache (a material's
+        // view sets and block copies), not its value - so a pass declares the const material its setup holds.
         [[nodiscard]] virtual Common::BoolResultStr PrepareForRecording() const = 0;
     };
 
