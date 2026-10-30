@@ -108,7 +108,8 @@ namespace Desert::Graphic::GpuDriven
     }
 
     DrawCommandCache::DrawCommandCache( PassPipelineResolver resolver, GroupPipelineResolver vgResolver )
-         : m_Resolver( std::move( resolver ) ), m_VgResolver( std::move( vgResolver ) ), m_TransformTable( MakeTable( "SubmeshTransforms" ) )
+         : m_Resolver( std::move( resolver ) ), m_VgResolver( std::move( vgResolver ) ),
+           m_TransformTable( MakeTable( "SubmeshTransforms" ) )
     {
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
             for ( size_t table = 0; table < kPassTableNames.size(); ++table )
@@ -136,8 +137,8 @@ namespace Desert::Graphic::GpuDriven
                 if ( IsHidden( record.HiddenSubmeshMask, si ) )
                     continue;
                 const PassPipelineResolution resolved =
-                     m_Resolver( static_cast<MeshPass>( pass ), primitive, *record.Mesh, static_cast<uint32_t>( si ),
-                                 record.MaterialRows[si] );
+                     m_Resolver( static_cast<MeshPass>( pass ), primitive, *record.Mesh,
+                                 static_cast<uint32_t>( si ), record.MaterialRows[si] );
                 pipelines[si] = resolved.Pipeline;
                 fallbacks[si] = resolved.Pipeline != nullptr ? BinFallback::None : resolved.Fallback;
             }
@@ -284,7 +285,7 @@ namespace Desert::Graphic::GpuDriven
             auto& record = m_Primitives[primitive];
             if ( !record )
                 continue;
-            const auto before         = record->Pipelines;
+            const auto before          = record->Pipelines;
             const auto fallbacksBefore = record->Fallbacks;
             ResolvePipelines( static_cast<PrimitiveIndex>( primitive ), *record );
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
@@ -347,7 +348,7 @@ namespace Desert::Graphic::GpuDriven
         };
         std::map<BinKey, uint32_t>                                         binOf;
         std::map<std::pair<const GraphicsPipeline*, BindingKey>, uint32_t> groupOf;
-        std::vector<BinDraft>                                               drafts;
+        std::vector<BinDraft>                                              drafts;
 
         for ( size_t primitive = 0; primitive < m_Primitives.size(); ++primitive )
         {
@@ -429,14 +430,14 @@ namespace Desert::Graphic::GpuDriven
             rowOf[order[row]] = row;
             if ( table.Groups.empty() || table.Groups.back().Pipeline != draft.Pipeline ||
                  table.Groups.back().Binding != draft.Binding )
-                table.Groups.push_back( IndirectGroup{
-                     .Pipeline                = draft.Pipeline,
-                     .Binding                 = draft.Binding,
-                     .VirtualGeometryPipeline = m_VgResolver && draft.Pipeline != nullptr
-                                                     ? m_VgResolver( pass, *draft.Pipeline )
-                                                     : nullptr,
-                     .FirstBin                = row,
-                     .BinCount                = 0 } );
+                table.Groups.push_back(
+                     IndirectGroup{ .Pipeline                = draft.Pipeline,
+                                    .Binding                 = draft.Binding,
+                                    .VirtualGeometryPipeline = m_VgResolver && draft.Pipeline != nullptr
+                                                                    ? m_VgResolver( pass, *draft.Pipeline )
+                                                                    : nullptr,
+                                    .FirstBin                = row,
+                                    .BinCount                = 0 } );
             ++table.Groups.back().BinCount;
             draft.Row.Group        = static_cast<uint32_t>( table.Groups.size() - 1u );
             draft.Row.FirstVisible = static_cast<uint32_t>( visible );
@@ -528,9 +529,8 @@ namespace Desert::Graphic::GpuDriven
             auto bins = UploadTable( graph, *gpu[2], BytesOf( table.Bins ), write );
             if ( !bins )
                 return Common::MakeError<DrawCommandBuffers>( bins.GetError() );
-            out.Passes[pass] = PassDrawBuffers{ .PrimitiveDraws  = draws.GetValue(),
-                                                .DrawSlots       = slots.GetValue(),
-                                                .Bins            = bins.GetValue() };
+            out.Passes[pass] = PassDrawBuffers{
+                 .PrimitiveDraws = draws.GetValue(), .DrawSlots = slots.GetValue(), .Bins = bins.GetValue() };
         }
         auto transforms =
              UploadTable( graph, *m_TransformTable, BytesOf( m_SubmeshTransforms ), m_TransformsUnuploaded );

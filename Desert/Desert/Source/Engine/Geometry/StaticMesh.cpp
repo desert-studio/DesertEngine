@@ -114,8 +114,8 @@ namespace Desert
         auto registered = Graphic::VirtualGeometry::VirtualMeshTable::Get().RT_Register(
              *this, m_VirtualGeometrySource.Dags, m_VirtualGeometrySource.Name );
         if ( registered.IsSuccess() )
-            m_VirtualMesh = std::make_shared<Graphic::VirtualGeometry::VirtualMeshRegistration>(
-                 registered.ExtractValue() );
+            m_VirtualMesh =
+                 std::make_shared<Graphic::VirtualGeometry::VirtualMeshRegistration>( registered.ExtractValue() );
         else
             LOG_ERROR( "StaticMesh '{}': not registered as virtual geometry ({}); its discrete LODs draw",
                        m_VirtualGeometrySource.Name, registered.GetError() );

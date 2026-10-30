@@ -93,9 +93,11 @@ namespace Desert::Editor
     // chain CUT from it at kClusterDagCutErrors (no second simplification: the DAG is the one reduction). The cook
     // refuses a DAG whose cut 0 is not LOD0 or whose error is not monotone - the two invariants the renderer's
     // LOD rule stands on.
-    Common::BoolResultStr BuildMeshClusterDags( Ser::MeshAssetData& data, const std::string& name, const bool cutLods )
+    Common::BoolResultStr BuildMeshClusterDags( Ser::MeshAssetData& data, const std::string& name,
+                                                const bool cutLods )
     {
-        // A triangle up to rotation (the winding kept): its smallest rotation, so a cluster-local reorder compares.
+        // A triangle up to rotation (the winding kept): its smallest rotation, so a cluster-local reorder
+        // compares.
         const auto Canonical = []( const std::vector<uint32_t>& tris )
         {
             std::vector<std::array<uint32_t, 3>> out;
@@ -115,8 +117,8 @@ namespace Desert::Editor
             if ( sm.IndexCount < 3 || sm.VertexCount == 0 ||
                  size_t( sm.VertexOffset ) + sm.VertexCount > data.StaticVertices.size() ||
                  size_t( sm.IndexOffset / 3 ) + sm.IndexCount / 3 > data.Indices.size() )
-                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): no triangles or ranges outside the mesh",
-                                                         name, s, sm.Name );
+                return Common::MakeFormattedError<bool>(
+                     "'{}' submesh {} ('{}'): no triangles or ranges outside the mesh", name, s, sm.Name );
             std::vector<float> pos, attrs;
             pos.reserve( size_t( sm.VertexCount ) * 3 );
             attrs.reserve( size_t( sm.VertexCount ) * Geometry::kSimplifyAttributeCount );
@@ -136,29 +138,33 @@ namespace Desert::Editor
                 const Ser::IndexData& f = data.Indices[sm.IndexOffset / 3 + t];
                 tris.insert( tris.end(), { f.V1, f.V2, f.V3 } );
             }
-            auto built = Geometry::BuildClusterDag( pos, sm.VertexCount, tris, attrs.data(), Geometry::ClusterDagSettings{} );
+            auto built = Geometry::BuildClusterDag( pos, sm.VertexCount, tris, attrs.data(),
+                                                    Geometry::ClusterDagSettings{} );
             if ( !built.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): {}", name, s, sm.Name, built.GetError() );
-            sm.ClusterDag             = built.ExtractValue();
-            const float boundsRadius  = 0.5f * glm::length( hi - lo );
+                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): {}", name, s, sm.Name,
+                                                         built.GetError() );
+            sm.ClusterDag            = built.ExtractValue();
+            const float boundsRadius = 0.5f * glm::length( hi - lo );
             if ( Canonical( Geometry::CutClusterDag( sm.ClusterDag, 0.0f, boundsRadius ) ) != Canonical( tris ) )
-                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): the DAG's cut 0 is not LOD0", name, s,
-                                                         sm.Name );
+                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): the DAG's cut 0 is not LOD0",
+                                                         name, s, sm.Name );
             uint32_t rootTriangles = 0;
             for ( const Geometry::ClusterRecord& c : sm.ClusterDag.Clusters )
             {
                 const Geometry::ClusterGroupRecord& g = sm.ClusterDag.Groups[c.Group];
                 if ( !( c.LodError < g.ParentLodError ) )
-                    return Common::MakeFormattedError<bool>(
-                         "'{}' submesh {} ('{}'): level {} cluster error {} is not below its group's parent error {}",
-                         name, s, sm.Name, c.Level, c.LodError, g.ParentLodError );
+                    return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): level {} cluster error {} "
+                                                             "is not below its group's parent error {}",
+                                                             name, s, sm.Name, c.Level, c.LodError,
+                                                             g.ParentLodError );
                 if ( g.ParentLodError == Geometry::kClusterRootError )
                     rootTriangles = std::max( rootTriangles, c.TriangleCount );
             }
-            LOG_INFO( "[VirtGeomCook] '{}' submesh {} ('{}'): {} triangles -> {} clusters, {} groups, {} levels, {} "
-                      "hierarchy nodes, largest root cluster {} triangles",
-                      name, s, sm.Name, tris.size() / 3, sm.ClusterDag.Clusters.size(), sm.ClusterDag.Groups.size(),
-                      sm.ClusterDag.LevelCount, sm.ClusterDag.Hierarchy.size(), rootTriangles );
+            LOG_INFO(
+                 "[VirtGeomCook] '{}' submesh {} ('{}'): {} triangles -> {} clusters, {} groups, {} levels, {} "
+                 "hierarchy nodes, largest root cluster {} triangles",
+                 name, s, sm.Name, tris.size() / 3, sm.ClusterDag.Clusters.size(), sm.ClusterDag.Groups.size(),
+                 sm.ClusterDag.LevelCount, sm.ClusterDag.Hierarchy.size(), rootTriangles );
 
             sm.LODs.clear();
             if ( !cutLods )

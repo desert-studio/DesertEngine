@@ -112,13 +112,13 @@ namespace Desert::Graphic::GpuDriven
         uint32_t SkinCacheAddressLo   = 0; // 168
         uint32_t SkinCacheAddressHi   = 0; // 172
         uint32_t SkinCacheVertexCount = 0; // 176
-        // The foliage wind of an instanced primitive (Graphic::InstanceWind; the binned instanced vertex stage reads it
-        // here, where the CPU-recorded draw pushed it, Graphic::PackViewInstanceWind): Speed and both clocks, then
-        // (dir.x, dir.z, Strength, Height). Strength 0 = does not sway (every other primitive).
-        float     WindSpeed       = 0.0f;               // 180
-        float     WindSeconds     = 0.0f;               // 184
-        float     WindPrevSeconds = 0.0f;               // 188
-        glm::vec4 Wind{ 0.0f };                         // 192
+        // The foliage wind of an instanced primitive (Graphic::InstanceWind; the binned instanced vertex stage
+        // reads it here, where the CPU-recorded draw pushed it, Graphic::PackViewInstanceWind): Speed and both
+        // clocks, then (dir.x, dir.z, Strength, Height). Strength 0 = does not sway (every other primitive).
+        float     WindSpeed       = 0.0f; // 180
+        float     WindSeconds     = 0.0f; // 184
+        float     WindPrevSeconds = 0.0f; // 188
+        glm::vec4 Wind{ 0.0f };           // 192
         // std430 struct-array stride: 208 = 13 x 16. The per-pass draws live in PassDraws[primitive], not here.
     };
     static_assert( sizeof( GpuScenePrimitive ) == 208, "std430 twin in Common/GpuScene.glslh" );

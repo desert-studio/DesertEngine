@@ -80,7 +80,8 @@ namespace Desert::Graphic::API::Vulkan
         GeometryPool::Get().BeginFrame();
         // The virtual-geometry cluster tables follow the pool's frame rule: released rows retire, rows registered
         // since the last frame (StaticMesh::Invalidate) go up before any pass reads them.
-        if ( const Common::BoolResultStr uploaded = VirtualGeometry::VirtualMeshTable::Get().RT_Upload(); !uploaded )
+        if ( const Common::BoolResultStr uploaded = VirtualGeometry::VirtualMeshTable::Get().RT_Upload();
+             !uploaded )
             LOG_ERROR( "{}; virtual-geometry meshes registered since the last frame are not on the device",
                        uploaded.GetError() );
 
@@ -907,13 +908,11 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings,
-                                                                const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                                const glm::mat4&        transform,
-                                                                const MaterialExecutor& material,
-                                                                const SubmeshMask       hiddenSubmeshMask,
-                                                                const VkBuffer          visibleRows,
-                                                                const SubmeshDraw&      draw )
+    Common::BoolResultStr
+    VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                          const Mesh& mesh, const glm::mat4& transform,
+                                          const MaterialExecutor& material, const SubmeshMask hiddenSubmeshMask,
+                                          const VkBuffer visibleRows, const SubmeshDraw& draw )
     {
         const std::string_view pass = bindings.GetContext().GetPassName();
         // The push block is the per-submesh transform the material carries (written below for each submesh).
@@ -1098,7 +1097,8 @@ namespace Desert::Graphic::API::Vulkan
         // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
         // VisibleInstances the record's firstInstance points into (BindMeshBuffers refuses a pipeline reading
         // a_VisibleRow without it, and a stream handed to one that does not).
-        const VkBuffer visibleRows = draw.VisibleRows != 0u ? VisibleRowIdentity( draw.VisibleRows ) : VK_NULL_HANDLE;
+        const VkBuffer visibleRows =
+             draw.VisibleRows != 0u ? VisibleRowIdentity( draw.VisibleRows ) : VK_NULL_HANDLE;
         // The group's shared binding (the pool arena at offset 0): bound once per pipeline switch, the records'
         // FirstIndex / VertexOffset are pool-absolute (DrawCommandCache).
         if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, geometry, visibleRows, true );
@@ -1128,15 +1128,15 @@ namespace Desert::Graphic::API::Vulkan
         const RDG::PassContext& context = bindings.GetContext();
         const std::string_view  pass    = context.GetPassName();
         if ( draw.ArgsOffset % 4u != 0u )
-            return Common::MakeFormattedError( "{}: cluster group arguments at byte {}: not a multiple of four", pass,
-                                               draw.ArgsOffset );
+            return Common::MakeFormattedError( "{}: cluster group arguments at byte {}: not a multiple of four",
+                                               pass, draw.ArgsOffset );
         const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
         if ( !declared )
             return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, declared.GetError() );
         if ( draw.ArgsOffset + sizeof( VkDrawIndirectCommand ) > declared.GetValue().Desc->Bytes )
-            return Common::MakeFormattedError( "{}: cluster group arguments at byte {} pass the end of '{}' ({} bytes)",
-                                               pass, draw.ArgsOffset, declared.GetValue().Name,
-                                               declared.GetValue().Desc->Bytes );
+            return Common::MakeFormattedError(
+                 "{}: cluster group arguments at byte {} pass the end of '{}' ({} bytes)", pass, draw.ArgsOffset,
+                 declared.GetValue().Name, declared.GetValue().Desc->Bytes );
         const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
         if ( !args )
             return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, args.GetError() );
@@ -1160,7 +1160,8 @@ namespace Desert::Graphic::API::Vulkan
         // buffers (m_BoundGeometry) is untouched; the next mesh draw binds binding 2 itself.
         const VkBuffer     rowBuffer = rows.GetValue()->GetBuffer();
         const VkDeviceSize zero      = 0;
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer, &zero );
+        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
+                                &zero );
         DrawCounter::RecordBins( 1u, 1u );
         vkCmdDrawIndirect( m_CurrentCommandBuffer, args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );

@@ -233,9 +233,9 @@ namespace Desert::Editor
         } kVirtualGeometryViews[] = {
              { "View mode: Virtual Geometry Clusters", Graphic::VirtualGeometryView::Clusters },
         };
-        static_assert( std::size( kVirtualGeometryViews ) ==
-                            static_cast<size_t>( Graphic::VirtualGeometryView::Clusters ),
-                       "a VirtualGeometryView without a View mode command cannot be photographed over the channel" );
+        static_assert(
+             std::size( kVirtualGeometryViews ) == static_cast<size_t>( Graphic::VirtualGeometryView::Clusters ),
+             "a VirtualGeometryView without a View mode command cannot be photographed over the channel" );
         for ( const auto& row : kVirtualGeometryViews )
         {
             const Graphic::VirtualGeometryView mode = row.Mode;

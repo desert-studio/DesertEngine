@@ -57,7 +57,7 @@ namespace Desert::Graphic::VirtualGeometry
         [[nodiscard]] bool Ensure();
         // Declares the pass's block (every table of @p draw, the args as IndirectArgs, the push range) and keeps
         // @p draw for Record. A draw with an invalid table records nothing.
-        void Declare( RDG::PassBuilder& pass, const ClusterViewDraw& draw );
+        void                                Declare( RDG::PassBuilder& pass, const ClusterViewDraw& draw );
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
 
     private:
@@ -66,7 +66,7 @@ namespace Desert::Graphic::VirtualGeometry
         ShaderBindingLayoutCache          m_Layout;
         ClusterViewDraw                   m_Draw;
         bool                              m_Declared = false;
-        bool                              m_Refused = false;
+        bool                              m_Refused  = false;
     };
 } // namespace Desert::Graphic::VirtualGeometry
 #endif // DESERT_DEV_INSTRUMENTS

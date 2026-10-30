@@ -345,18 +345,18 @@ namespace Common::Scalability
         // moving scene's tree degrades until the next build; 0 = built every frame. A cost/quality knob of every
         // ray-traced method; in the GlobalIllumination group, whose tracer reads the TLAS most. 0..240
         GlobalIlluminationTlasUpdatesBeforeRebuild,
-        // VIRT-GEOM (UE r.Nanite.MaxPixelsPerEdge): the screen-space error, in TENTHS of a pixel, a virtual-geometry
-        // cluster may show before the cluster cut refines below it (VirtualGeometryRenderer::AddClusterCull's
-        // threshold, x the view's LOD scale). Lower = finer. 1..1000
+        // VIRT-GEOM (UE r.Nanite.MaxPixelsPerEdge): the screen-space error, in TENTHS of a pixel, a
+        // virtual-geometry cluster may show before the cluster cut refines below it
+        // (VirtualGeometryRenderer::AddClusterCull's threshold, x the view's LOD scale). Lower = finer. 1..1000
         ViewDistanceVirtualGeometryMaxPixelsPerEdge,
         // 0/1: the view graph's AsyncCompute passes run on the device's compute queue family, overlapping the
-        // graphics queue (UE r.RDG.AsyncCompute and the per-feature r.*.AsyncCompute). 0 = every pass records on the
-        // graphics queue in AddPass order. Narrowed by the catalog: a device without a separate compute family (or a
-        // portability device, CapabilityCatalog::AsyncCompute) resolves it to 0, said as a fallback. Read by
-        // SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute.  Key "RenderPipeline.AsyncCompute": it is not a
-        // quality level's choice (equal at every level, so no level of Scalability.json names it), only a machine
-        // override; Effects owns it for the selector's listing because the passes it moves are particles, clouds
-        // and the light grids.
+        // graphics queue (UE r.RDG.AsyncCompute and the per-feature r.*.AsyncCompute). 0 = every pass records on
+        // the graphics queue in AddPass order. Narrowed by the catalog: a device without a separate compute family
+        // (or a portability device, CapabilityCatalog::AsyncCompute) resolves it to 0, said as a fallback. Read by
+        // SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute.  Key "RenderPipeline.AsyncCompute": it is not
+        // a quality level's choice (equal at every level, so no level of Scalability.json names it), only a
+        // machine override; Effects owns it for the selector's listing because the passes it moves are particles,
+        // clouds and the light grids.
         AsyncCompute,
         Count
     };

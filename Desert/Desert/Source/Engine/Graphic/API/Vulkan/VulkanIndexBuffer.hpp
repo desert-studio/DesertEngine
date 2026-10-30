@@ -22,11 +22,10 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] virtual Common::BoolResultStr Invalidate() override;
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() override;
-        [[nodiscard]] Common::BoolResultStr RT_WriteRange( uint64_t offset, const void* data, uint64_t size ) override;
+        [[nodiscard]] Common::BoolResultStr         RT_WriteRange( uint64_t offset, const void* data,
+                                                                   uint64_t size ) override;
         [[nodiscard]] uint64_t GetDeviceAddress() const override;
         [[nodiscard]] virtual Common::BoolResultStr Release() override;
-
-        [[nodiscard]] uint64_t GetDeviceAddress() const override;
 
         [[nodiscard]] virtual unsigned int GetSize() const override
         {

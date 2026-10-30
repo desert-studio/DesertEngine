@@ -315,10 +315,11 @@ namespace Desert::Graphic
                 return Common::MakeFormattedError<bool>( "GeometryPool: index upload: {}", wrote.GetError() );
         if ( !clusterWords.empty() )
             if ( const auto wrote = m_IndexPages[range.IndexPage].Indices->RT_WriteRange(
-                      ( uint64_t{ range.FirstIndex } + range.IndexCount ) * kGeometryIndexStride, clusterWords.data(),
-                      clusterWords.size_bytes() );
+                      ( uint64_t{ range.FirstIndex } + range.IndexCount ) * kGeometryIndexStride,
+                      clusterWords.data(), clusterWords.size_bytes() );
                  !wrote.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "GeometryPool: cluster word upload: {}", wrote.GetError() );
+                return Common::MakeFormattedError<bool>( "GeometryPool: cluster word upload: {}",
+                                                         wrote.GetError() );
         return Common::MakeSuccess( true );
     }
 
@@ -361,8 +362,8 @@ namespace Desert::Graphic
         range.VertexCount = static_cast<uint32_t>( vertexCount );
         if ( !indices.empty() )
         {
-            const auto first =
-                 RT_TakeIndices( RoundUp( indices.size() + clusterWords.size(), Granule( kGeometryIndexStride ) ) );
+            const auto first = RT_TakeIndices(
+                 RoundUp( indices.size() + clusterWords.size(), Granule( kGeometryIndexStride ) ) );
             if ( !first.IsSuccess() )
             {
                 target.Pages[range.VertexPage].Spans.Give( range.BaseVertex, vertexSpan );

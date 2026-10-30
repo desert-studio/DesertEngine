@@ -48,9 +48,9 @@ namespace Desert::Editor
         Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings& settings,
                                                Assets::MeshDisplacementMode mode, ImportContentKind kind );
         // Virtual Geometry (VIRT-GEOM contract §1, §6): the static mesh cooks a cluster DAG. Refused for @p kind
-        // SkeletalMesh (the skinned path stays binned) and beside Displacement Runtime (a surface diced per frame has
-        // no fixed clusters); SetDisplacement refuses Runtime while it is on. Materials are judged by the import
-        // itself (VirtualGeometryGate.hpp): the window does not know them yet.
+        // SkeletalMesh (the skinned path stays binned) and beside Displacement Runtime (a surface diced per frame
+        // has no fixed clusters); SetDisplacement refuses Runtime while it is on. Materials are judged by the
+        // import itself (VirtualGeometryGate.hpp): the window does not know them yet.
         Common::BoolResultStr SetVirtualGeometry( Assets::SourceImportSettings& settings, bool on,
                                                   ImportContentKind kind );
         Common::BoolResultStr SetShownVirtualGeometry( bool on );

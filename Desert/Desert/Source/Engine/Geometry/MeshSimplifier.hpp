@@ -27,7 +27,8 @@ namespace Desert::Geometry
     constexpr std::size_t kSimplifyAttributeCount = 5;
     // The attribute weights of that metric (normal xyz, uv); MeshSimplifier.cpp documents the values. One source
     // for every attribute-aware reduction: the discrete LOD chain and the cluster DAG (ClusterDag.cpp).
-    inline constexpr float kSimplifyAttributeWeights[kSimplifyAttributeCount] = { 0.08f, 0.08f, 0.08f, 0.5f, 0.5f };
+    inline constexpr float kSimplifyAttributeWeights[kSimplifyAttributeCount] = { 0.08f, 0.08f, 0.08f, 0.5f,
+                                                                                  0.5f };
 
     // positions: tightly-packed xyz per vertex (vertexCount * 3 floats). attributes: null, or
     // kSimplifyAttributeCount floats per vertex (normal xyz, uv). targetRatio in (0,1]; targetError is the

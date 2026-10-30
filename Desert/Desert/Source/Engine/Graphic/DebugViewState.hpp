@@ -202,18 +202,18 @@ namespace Desert::Graphic
         bool ValidateGpuCulling = false;
 
         // VIRTUAL-GEOMETRY FALLBACK check (VIRT-GEOM step 26; UE: a primitive the cluster path cannot draw renders
-        // its fallback mesh): every cluster cut of the frame (main view, sun cascades, VSM levels) is refused AFTER
-        // InstanceCull took the VG instances out of the bins, so the CPU walk (MeshRenderer::CpuWalkHidden) must
-        // draw them - a picture equal to VG off. Logged once while on. Set from a scenario through the viewport
-        // subject's 'Debug.ForceVirtualGeometryCutRefusal'.
+        // its fallback mesh): every cluster cut of the frame (main view, sun cascades, VSM levels) is refused
+        // AFTER InstanceCull took the VG instances out of the bins, so the CPU walk (MeshRenderer::CpuWalkHidden)
+        // must draw them - a picture equal to VG off. Logged once while on. Set from a scenario through the
+        // viewport subject's 'Debug.ForceVirtualGeometryCutRefusal'.
         bool ForceVirtualGeometryCutRefusal = false;
 
-        // VIRTUAL-GEOMETRY POST CUT check (VIRT-GEOM step 29; UE Nanite two-pass: the main pass tests occlusion only
-        // when the post pass runs): the main view's post-occlusion cluster cut is refused for the frame, and that
-        // refusal is decided BEFORE the main cut (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb), so the main
-        // cut tests no HZB and holds nothing back - every visible cluster is drawn in phase 1, a picture equal to VG
-        // off within the cut's LOD. Logged once while on. Set from a scenario through the viewport subject's
-        // 'Debug.ForceVirtualGeometryPostCutRefusal'.
+        // VIRTUAL-GEOMETRY POST CUT check (VIRT-GEOM step 29; UE Nanite two-pass: the main pass tests occlusion
+        // only when the post pass runs): the main view's post-occlusion cluster cut is refused for the frame, and
+        // that refusal is decided BEFORE the main cut (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb), so the
+        // main cut tests no HZB and holds nothing back - every visible cluster is drawn in phase 1, a picture
+        // equal to VG off within the cut's LOD. Logged once while on. Set from a scenario through the viewport
+        // subject's 'Debug.ForceVirtualGeometryPostCutRefusal'.
         bool ForceVirtualGeometryPostCutRefusal = false;
 
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an

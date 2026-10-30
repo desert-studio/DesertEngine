@@ -89,9 +89,9 @@ namespace Desert::Graphic::GpuDriven
         const GraphicsPipeline* Pipeline = nullptr; // owned by the SceneRenderer's PipelineCache
         MeshGeometryBinding     Binding;            // the vertex / stream / index buffers the group binds
         // The group's VIRTUAL-GEOMETRY TWIN: Pipeline's pass state with the `.VirtualGeometry` permutation of its
-        // cell (MeshVertexPath VirtualGeometryCellOf), what the VG raster draws the clusters binned into this group
-        // with (VirtualGeometry::RasterBins). Null: the cell has none (a skinned / grass / particle path, a template without the
-        // permutation) or it is still compiling (GroupPipelineResolver).
+        // cell (MeshVertexPath VirtualGeometryCellOf), what the VG raster draws the clusters binned into this
+        // group with (VirtualGeometry::RasterBins). Null: the cell has none (a skinned / grass / particle path, a
+        // template without the permutation) or it is still compiling (GroupPipelineResolver).
         const GraphicsPipeline* VirtualGeometryPipeline = nullptr;
         uint32_t                FirstBin = 0;
         uint32_t                BinCount = 0;
@@ -105,9 +105,10 @@ namespace Desert::Graphic::GpuDriven
         None,
         NoBinnedCell,        // the material's template emits no `.Binned` cell for the pass / vertex path
         PipelineUnavailable, // the `.Binned` cell is not registered, or its PSO failed to build
-        NoMaterialRow,       // the submesh's scene material row names no surface (SyncGpuScene did not register it)
-        BoundTextures,       // the template binds textures per material (a TextureBinding), which one bin cannot carry
-        MovableCaster,       // a skinned/swaying caster in the VSM table: clusters raster rest pose; the CPU walk draws it
+        NoMaterialRow, // the submesh's scene material row names no surface (SyncGpuScene did not register it)
+        BoundTextures, // the template binds textures per material (a TextureBinding), which one bin cannot carry
+        MovableCaster, // a skinned/swaying caster in the VSM table: clusters raster rest pose; the CPU walk draws
+                       // it
         Count
     };
     inline constexpr uint32_t kBinFallbackCount = static_cast<uint32_t>( BinFallback::Count );
@@ -130,7 +131,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<GpuDrawSlot>           DrawSlots;
         std::vector<GpuDrawBin>            Bins; // sorted by IndirectGroup
         std::vector<IndirectGroup>         Groups;
-        uint32_t                           VisibleCapacity = 0; // sum of the bins' Capacity
+        uint32_t                                VisibleCapacity = 0; // sum of the bins' Capacity
     };
 
     // The graph handles of one pass's tables after this frame's upload.
@@ -152,12 +153,15 @@ namespace Desert::Graphic::GpuDriven
     // How the cache learns the PSO a submesh draws with in a pass: the SceneRenderer's PipelineCache resolution
     // of the section's material for that pass (the question the CPU MeshDrawList asks today in its Build*).
     // A null Pipeline with BinFallback::None = the submesh does not draw in the pass (a translucent section in the
-    // opaque passes); with a fallback = it draws there on the CPU path, for that reason. Called from AddPrimitive and InvalidatePipelines only, never per frame.
+    // opaque passes); with a fallback = it draws there on the CPU path, for that reason. Called from AddPrimitive
+    // and InvalidatePipelines only, never per frame.
     using PassPipelineResolver = std::function<PassPipelineResolution(
          MeshPass pass, PrimitiveIndex primitive, const Mesh& mesh, uint32_t submesh, uint32_t materialRow )>;
     // How the cache learns a group's VG twin (IndirectGroup::VirtualGeometryPipeline) from the group's PSO: asked
-    // when a pass's groups are rebuilt and by InvalidatePipelines (a twin that finished compiling). Empty: no twins.
-    using GroupPipelineResolver = std::function<const GraphicsPipeline*( MeshPass pass, const GraphicsPipeline& group )>;
+    // when a pass's groups are rebuilt and by InvalidatePipelines (a twin that finished compiling). Empty: no
+    // twins.
+    using GroupPipelineResolver =
+         std::function<const GraphicsPipeline*( MeshPass pass, const GraphicsPipeline& group )>;
 
     // What a primitive hands the cache: its mesh, the scene material table row of each material slot
     // (GpuSceneRegistry::SyncMaterialRow; mesh section i draws with MaterialRows[SectionMaterialSlot( i, size )],
@@ -208,18 +212,19 @@ namespace Desert::Graphic::GpuDriven
         // 64 never hidden) draws in @p pass through one of its bins: the CPU list leaves the record to the issued
         // bins (a record's submeshes share one material, so they are binned together or not at all). False for a
         // primitive the cache does not hold, or with any such submesh on a fallback or out of the pass.
-        [[nodiscard]] bool SubmeshesBinned( MeshPass pass, PrimitiveIndex primitive, uint64_t hiddenSubmeshMask ) const;
+        [[nodiscard]] bool SubmeshesBinned( MeshPass pass, PrimitiveIndex primitive,
+                                            uint64_t hiddenSubmeshMask ) const;
         // The `.VirtualGeometry` twin (IndirectGroup::VirtualGeometryPipeline) of the group @p submesh of
         // @p primitive is binned into in @p pass at lod 0 - the group "VirtualGeometry: Raster Binning" puts the
-        // submesh's clusters in, so the pipeline that rasters them. Null: no bin there (not in the cache, not in the
-        // pass, a fallback) or the group has no twin (no such cell, still compiling). Valid after Rebuild.
-        [[nodiscard]] const GraphicsPipeline* SubmeshVirtualGeometryPipeline( MeshPass pass, PrimitiveIndex primitive,
-                                                                              uint32_t submesh ) const;
+        // submesh's clusters in, so the pipeline that rasters them. Null: no bin there (not in the cache, not in
+        // the pass, a fallback) or the group has no twin (no such cell, still compiling). Valid after Rebuild.
+        [[nodiscard]] const GraphicsPipeline*
+        SubmeshVirtualGeometryPipeline( MeshPass pass, PrimitiveIndex primitive, uint32_t submesh ) const;
         // The group (index into Pass( @p pass ).Groups) @p submesh of @p primitive is binned into at lod 0 - the
         // lookup SubmeshVirtualGeometryPipeline reads its twin from. Empty: no bin there (not in the cache, not in
         // the pass, a fallback). Valid after Rebuild.
-        [[nodiscard]] std::optional<uint32_t> SubmeshGroup( MeshPass pass, PrimitiveIndex primitive,
-                                                            uint32_t submesh ) const;
+        [[nodiscard]] std::optional<uint32_t>    SubmeshGroup( MeshPass pass, PrimitiveIndex primitive,
+                                                               uint32_t submesh ) const;
         [[nodiscard]] std::span<const glm::mat4> SubmeshTransforms() const
         {
             return m_SubmeshTransforms;

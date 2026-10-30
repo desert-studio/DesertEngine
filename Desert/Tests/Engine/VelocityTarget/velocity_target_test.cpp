@@ -251,15 +251,16 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 // lighting slots — none of which goes through the Properties block). The reserved slots are no longer numbers in
 // shader text: ShaderGraphBindings.hpp is the one place they are decided and shaders read them by name from the
 // generated Generated/SceneBindings.glslh (Core::kSceneBindingNames). So over the WHOLE shipped shader tree:
-//   (a) every scene-read / raster / front-layer resource is declared with its table name, and that name resolves to
+//   (a) every scene-read / raster / front-layer resource is declared with its table name, and that name resolves
+//   to
 //       the slot the C++ binder reserves for the resource (one name for one resource everywhere it is declared);
 //   (b) no file that reads the table also spells a literal number inside the reserved scene-read range - the
 //       collision the range exists to prevent, now only possible by writing a number by hand next to the names;
 //   (c) no shader defines a table name itself - a hand copy of the generated header.
 // A program of its own (the deferred composite, the path tracer) numbers its own set-0 slots and reads no table
-// name, so its literals are its pass's own slots (lead decision RT-LOCAL-SHADOWS-8). Text, not reflection, because a
-// resource that only collides inside one cell would need that cell compiled to be seen; the after-compile half is
-// ShaderReflection::ReflectStage, which refuses a slot claimed twice by name. Mutation: spell SceneDepthTexture
+// name, so its literals are its pass's own slots (lead decision RT-LOCAL-SHADOWS-8). Text, not reflection, because
+// a resource that only collides inside one cell would need that cell compiled to be seen; the after-compile half
+// is ShaderReflection::ReflectStage, which refuses a slot claimed twice by name. Mutation: spell SceneDepthTexture
 // `binding = kObjectBonesBinding` in SurfaceTypes.glslh, or `binding = 26` beside the include -> red.
 TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 {
@@ -295,7 +296,8 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const auto&                   m     = *it;
             const std::optional<uint32_t> value = tableValue( m[1].str() );
             if ( !value.has_value() )
-                continue; // a program's own macro (GI_TRACER_BINDING-style names are upper case; k* not in the table)
+                continue; // a program's own macro (GI_TRACER_BINDING-style names are upper case; k* not in the
+                          // table)
             const uint32_t offset = m[2].matched ? static_cast<uint32_t>( std::stoul( m[2].str() ) ) : 0u;
             declaredAt[m[3].str()].insert( *value + offset );
         }
@@ -321,8 +323,8 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
 
     namespace C = Desert::Core;
-    // The raster and the reader each declare their own copy of three VSM tables (ShaderGraphBindings.hpp), so those
-    // names may sit at either reservation; every other name has exactly one slot.
+    // The raster and the reader each declare their own copy of three VSM tables (ShaderGraphBindings.hpp), so
+    // those names may sit at either reservation; every other name has exactly one slot.
     const std::map<std::string, std::set<uint32_t>> expected{
          { "GpuScenePrimitives", { C::kGpuScenePrimitivesBinding } },
          { "ObjectBones", { C::kObjectBonesBinding } },
@@ -374,8 +376,10 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
          << "Mesh/Surface/SceneFog.glslh does not put the fog block at Core::kSceneFogParamsBinding";
     // The front layer reads sit in SSR's own set 1, outside every set-0 range (ShaderGraphBindings.hpp).
     const std::string ssrTrace = ReadFile( shaders / "Common/SSRTrace.glslh" );
-    EXPECT_NE( ssrTrace.find( "set = kSsrFrontLayerSet, binding = kSsrFrontLayerNormalBinding" ), std::string::npos );
-    EXPECT_NE( ssrTrace.find( "set = kSsrFrontLayerSet, binding = kSsrFrontLayerDepthBinding" ), std::string::npos );
+    EXPECT_NE( ssrTrace.find( "set = kSsrFrontLayerSet, binding = kSsrFrontLayerNormalBinding" ),
+               std::string::npos );
+    EXPECT_NE( ssrTrace.find( "set = kSsrFrontLayerSet, binding = kSsrFrontLayerDepthBinding" ),
+               std::string::npos );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )

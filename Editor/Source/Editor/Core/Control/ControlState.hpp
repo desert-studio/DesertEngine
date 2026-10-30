@@ -72,7 +72,8 @@ namespace Desert::Editor::Control
     };
 
     // One GPU-driven mesh pass's last finished frame (Graphic::DrawCounter::LastFrameMeshPass): how its draws were
-    // issued - per-submesh CPU draws against the culled bins' indirect calls. Every view's draws of the pass summed.
+    // issued - per-submesh CPU draws against the culled bins' indirect calls. Every view's draws of the pass
+    // summed.
     struct MeshPassDrawSnapshot
     {
         std::string Name; ///< GpuDriven::MeshPass: depthPrepass, gbuffer, forward, shadowCascade, virtualShadow
@@ -82,8 +83,8 @@ namespace Desert::Editor::Control
         // The pass's cached draw commands (GpuDriven::DrawCommandCache::Pass): the bins and draw slots it holds,
         // and per BinFallback reason the submeshes drawn in the pass that stay on the CPU path (name -> count,
         // only reasons with a non-zero count).
-        uint32_t                                     CachedBins  = 0;
-        uint32_t                                     CachedSlots = 0;
+        uint32_t                                      CachedBins  = 0;
+        uint32_t                                      CachedSlots = 0;
         std::vector<std::pair<std::string, uint32_t>> CpuFallbacks;
     };
 
@@ -98,19 +99,23 @@ namespace Desert::Editor::Control
 
     // The main view's virtual-geometry cluster cut (SceneRenderer::GetVirtualGeometryCounts, read back a few
     // frames late): the VG instances made cut candidates, the clusters drawn, what the cut could not do (Overflow:
-    // full stacks + clusters past capacity + candidates without a draw slot) and the clusters last frame's HZB hid.
+    // full stacks + clusters past capacity + candidates without a draw slot) and the clusters last frame's HZB
+    // hid.
     struct VirtualGeometrySnapshot
     {
-        uint32_t Instances        = 0;
-        uint32_t ClustersVisible  = 0;
+        uint32_t Instances           = 0;
+        uint32_t ClustersVisible     = 0;
         uint32_t ClustersDrawn       = 0; // the main view's rasters drew (main + post phase)
         uint32_t ShadowClustersDrawn = 0; // every shadow cascade's raster drew
-        // Per virtual shadow map clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew into it.
+        // Per virtual shadow map clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew
+        // into it.
         std::vector<uint32_t> VsmClustersDrawn;
-        uint32_t VsmRefusedGroups = 0; // VSM groups whose template declares a VG twin that has no pipeline (must be 0)
-        uint32_t VsmFallbackSubmeshes = 0; // VG submeshes in a VSM group whose template has no VG twin (walked, no error)
-        uint32_t Overflow         = 0;
-        uint32_t OccludedClusters = 0;
+        uint32_t              VsmRefusedGroups =
+             0; // VSM groups whose template declares a VG twin that has no pipeline (must be 0)
+        uint32_t VsmFallbackSubmeshes =
+             0; // VG submeshes in a VSM group whose template has no VG twin (walked, no error)
+        uint32_t Overflow          = 0;
+        uint32_t OccludedClusters  = 0;
         uint32_t BinnedVgInstances = 0; // VG instances the bins of a cut view still drew (must be 0)
     };
 
@@ -543,7 +548,7 @@ namespace Desert::Editor::Control
                 Common::Json::Object fallbacks;
                 for ( const auto& [reason, count] : pass.CpuFallbacks )
                     fallbacks.insert( reason, Num( count ) );
-                item["cpuFallbacks"] = Common::Json::Value( fallbacks );
+                item["cpuFallbacks"]  = Common::Json::Value( fallbacks );
                 meshPasses[pass.Name] = Common::Json::Value( item );
             }
             views["meshPasses"] = Common::Json::Value( meshPasses );
@@ -557,20 +562,20 @@ namespace Desert::Editor::Control
             }
             views["drawBinViews"] = Common::Json::Value( drawBinViews );
             Common::Json::Object virtualGeometry;
-            virtualGeometry["instances"]        = Num( snapshot.VirtualGeometry.Instances );
-            virtualGeometry["clustersVisible"]  = Num( snapshot.VirtualGeometry.ClustersVisible );
-            virtualGeometry["clustersDrawn"]    = Num( snapshot.VirtualGeometry.ClustersDrawn );
+            virtualGeometry["instances"]           = Num( snapshot.VirtualGeometry.Instances );
+            virtualGeometry["clustersVisible"]     = Num( snapshot.VirtualGeometry.ClustersVisible );
+            virtualGeometry["clustersDrawn"]       = Num( snapshot.VirtualGeometry.ClustersDrawn );
             virtualGeometry["shadowClustersDrawn"] = Num( snapshot.VirtualGeometry.ShadowClustersDrawn );
             Common::Json::Value::Array vsmClustersDrawn;
             for ( const uint32_t drawn : snapshot.VirtualGeometry.VsmClustersDrawn )
                 vsmClustersDrawn.push_back( Num( drawn ) );
-            virtualGeometry["vsmClustersDrawn"] = Common::Json::Value( vsmClustersDrawn );
-            virtualGeometry["vsmRefusedGroups"] = Num( snapshot.VirtualGeometry.VsmRefusedGroups );
+            virtualGeometry["vsmClustersDrawn"]     = Common::Json::Value( vsmClustersDrawn );
+            virtualGeometry["vsmRefusedGroups"]     = Num( snapshot.VirtualGeometry.VsmRefusedGroups );
             virtualGeometry["vsmFallbackSubmeshes"] = Num( snapshot.VirtualGeometry.VsmFallbackSubmeshes );
-            virtualGeometry["overflow"]         = Num( snapshot.VirtualGeometry.Overflow );
-            virtualGeometry["occludedClusters"] = Num( snapshot.VirtualGeometry.OccludedClusters );
-            virtualGeometry["binnedVgInstances"] = Num( snapshot.VirtualGeometry.BinnedVgInstances );
-            views["virtualGeometry"]            = Common::Json::Value( virtualGeometry );
+            virtualGeometry["overflow"]             = Num( snapshot.VirtualGeometry.Overflow );
+            virtualGeometry["occludedClusters"]     = Num( snapshot.VirtualGeometry.OccludedClusters );
+            virtualGeometry["binnedVgInstances"]    = Num( snapshot.VirtualGeometry.BinnedVgInstances );
+            views["virtualGeometry"]                = Common::Json::Value( virtualGeometry );
             views["scenes"]                = Num( snapshot.Scenes );
             views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );
             views["surfaceCaches"]         = Num( snapshot.SurfaceCaches );

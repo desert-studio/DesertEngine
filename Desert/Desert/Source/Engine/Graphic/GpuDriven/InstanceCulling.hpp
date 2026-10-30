@@ -118,8 +118,8 @@ namespace Desert::Graphic::GpuDriven
     // invariant: 0), [1 + v] = rows cut view v appended (may pass Capacity: the reader clamps).
     struct VirtualGeometryCandidateOutput
     {
-        RDG::BufferRef Rows;  // GpuClusterCandidate[CutViews x Capacity]
-        RDG::BufferRef Count; // uint32[1 + CutViews]
+        RDG::BufferRef Rows;         // GpuClusterCandidate[CutViews x Capacity]
+        RDG::BufferRef Count;        // uint32[1 + CutViews]
         uint32_t       Capacity = 0; // rows per cut view
         uint32_t       CutViews = 0;
     };
@@ -142,8 +142,9 @@ namespace Desert::Graphic::GpuDriven
         // Phase 1 for every view in @p views: per mesh pass, one dispatch over the scene's instances x its views.
         // @p passes: indexed by MeshPass (kMeshPassCount entries; a pass with no bins has invalid refs).
         // Refused for an empty @p views (the caller adds no draw then), a missing pipeline, or a pass whose views
-        // name more than one HZB / dirty mask. @p neutralHzb: a 1-texel texture any graph pass wrote (SceneRenderer
-        // System.Black), bound for a pass none of whose views has an HZB (the HZB flag is then off in the push).
+        // name more than one HZB / dirty mask. @p neutralHzb: a 1-texel texture any graph pass wrote
+        // (SceneRenderer System.Black), bound for a pass none of whose views has an HZB (the HZB flag is then off
+        // in the push).
         // @p virtualGeometry: the VG candidate append (invalid PrimitiveDags = none); refused when its tables are
         // half given or its Capacity is 0.
         [[nodiscard]] Common::ResultStr<MainPhaseResult>

@@ -32,9 +32,10 @@ namespace Desert::Graphic
     inline constexpr uint32_t kCountedMeshPasses = 5;
     struct MeshPassDrawCounters
     {
-        uint32_t CpuDraws      = 0; ///< per-submesh draws the CPU issued: counted or GPU-counted (RenderMeshIndirect)
-        uint32_t IndirectCalls = 0; ///< vkCmdDrawIndexedIndirect calls of culled bin groups (RenderMeshIndirectGroup)
-        uint32_t BinsIssued    = 0; ///< bin records those calls named (a culled-empty bin included)
+        uint32_t CpuDraws = 0; ///< per-submesh draws the CPU issued: counted or GPU-counted (RenderMeshIndirect)
+        uint32_t IndirectCalls =
+             0;                  ///< vkCmdDrawIndexedIndirect calls of culled bin groups (RenderMeshIndirectGroup)
+        uint32_t BinsIssued = 0; ///< bin records those calls named (a culled-empty bin included)
     };
 
     // THE SNAPSHOT IS OF THE FRAME THAT FINISHED, never of the one being recorded. A HUD reading the live

@@ -61,14 +61,6 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
         }
 
-        // The device address of the buffer's first byte (VIRT-GEOM: the cluster passes read a pooled mesh's spans
-        // by address, GpuClusterDag). 0 = it has none: not a Pooled buffer, not resident, or a device without
-        // bufferDeviceAddress. Stable while the buffer lives (a Pooled buffer never grows, GeometryPool.hpp).
-        [[nodiscard]] virtual uint64_t GetDeviceAddress() const
-        {
-            return 0;
-        }
-
         static std::shared_ptr<IndexBuffer> Create( const void* data, uint32_t size,
                                                     BufferUsage usage = BufferUsage::Static );
         static std::shared_ptr<IndexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );

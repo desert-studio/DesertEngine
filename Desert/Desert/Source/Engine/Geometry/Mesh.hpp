@@ -293,9 +293,8 @@ namespace Desert
                      "mesh geometry uploaded again after its host copy was released" );
             }
             const bool authored = !m_StagedStreams.empty();
-            auto       uploaded = Graphic::GeometryPool::Get().RT_Upload( m_StagedArena, m_StagedVertices,
-                                                                          m_StagedStreams, m_StagedIndices,
-                                                                          m_StagedClusterWords );
+            auto       uploaded = Graphic::GeometryPool::Get().RT_Upload(
+                 m_StagedArena, m_StagedVertices, m_StagedStreams, m_StagedIndices, m_StagedClusterWords );
             if ( !uploaded.IsSuccess() )
                 return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
                                                                     uploaded.GetError() );

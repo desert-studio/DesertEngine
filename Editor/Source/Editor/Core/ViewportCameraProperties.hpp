@@ -74,7 +74,8 @@ namespace Desert::Editor
     inline constexpr const char* kViewportValidateGpuCulling = "Debug.ValidateGpuCulling";
     // DebugViewState::ForceVirtualGeometryCutRefusal of the viewport: 0 or 1 ([vg_refused_fallback]).
     inline constexpr const char* kViewportForceVgCutRefusal = "Debug.ForceVirtualGeometryCutRefusal";
-    // DebugViewState::ForceVirtualGeometryPostCutRefusal of the viewport: 0 or 1 ([vg_refused_fallback], post cut).
+    // DebugViewState::ForceVirtualGeometryPostCutRefusal of the viewport: 0 or 1 ([vg_refused_fallback], post
+    // cut).
     inline constexpr const char* kViewportForceVgPostCutRefusal = "Debug.ForceVirtualGeometryPostCutRefusal";
 
     /// The field of view the viewport's own FOV slider offers, in degrees — one range for the slider and for
@@ -210,7 +211,7 @@ namespace Desert::Editor
         const bool isDirection = ( property == kViewportCameraDirection );
         const bool isFOV       = ( property == kViewportCameraFOV );
         const bool isCull      = ( property == kViewportValidateGpuCulling );
-        const bool isRefuse    = ( property == kViewportForceVgCutRefusal );
+        const bool isRefuse     = ( property == kViewportForceVgCutRefusal );
         const bool isPostRefuse = ( property == kViewportForceVgPostCutRefusal );
 
         if ( !isPosition && !isDirection && !isFOV && !isCull && !isRefuse && !isPostRefuse )

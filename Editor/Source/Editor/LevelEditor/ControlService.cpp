@@ -980,8 +980,7 @@ namespace Desert::Editor
                          request.Id,
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
-                              DescribeViewportCamera( viewCamera->GetPosition(), forward,
-                                                      viewCamera->GetFOV(),
+                              DescribeViewportCamera( viewCamera->GetPosition(), forward, viewCamera->GetFOV(),
                                                       debugView.ValidateGpuCulling,
                                                       debugView.ForceVirtualGeometryCutRefusal,
                                                       debugView.ForceVirtualGeometryPostCutRefusal ) ) );
@@ -1445,7 +1444,8 @@ namespace Desert::Editor
             EditorPreferences::Get().DebugView.ForceVirtualGeometryCutRefusal = request.Value[0] != 0.0f;
             return Control::Response::Success( request.Id );
         }
-        // [vg_refused_fallback], post cut: the post cluster cut refused before the main cut, which then holds nothing back.
+        // [vg_refused_fallback], post cut: the post cluster cut refused before the main cut, which then holds
+        // nothing back.
         if ( which.GetValue() == ViewportCameraWrite::ForceVgPostCutRefusal )
         {
             EditorPreferences::Get().DebugView.ForceVirtualGeometryPostCutRefusal = request.Value[0] != 0.0f;
@@ -1665,10 +1665,10 @@ namespace Desert::Editor
             for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
             {
                 const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
-                Control::MeshPassDrawSnapshot item{ .Name          = kMeshPassNames[pass],
-                                           .CpuDraws      = counted.CpuDraws,
-                                           .IndirectCalls = counted.IndirectCalls,
-                                           .BinsIssued    = counted.BinsIssued };
+                Control::MeshPassDrawSnapshot       item{ .Name          = kMeshPassNames[pass],
+                                                          .CpuDraws      = counted.CpuDraws,
+                                                          .IndirectCalls = counted.IndirectCalls,
+                                                          .BinsIssued    = counted.BinsIssued };
                 if ( cache != nullptr )
                 {
                     const Graphic::GpuDriven::PassDrawTable& table =
@@ -1688,23 +1688,24 @@ namespace Desert::Editor
             if ( m_Workspace.PrimaryRenderer() != nullptr )
                 for ( const Graphic::GpuDriven::CullPhaseViewCount& view :
                       m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
-                    snapshot.DrawBinViews.push_back(
-                         Control::DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
+                    snapshot.DrawBinViews.push_back( Control::DrawBinViewSnapshot{
+                         .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
             snapshot.VirtualGeometry = {};
             if ( m_Workspace.PrimaryRenderer() != nullptr )
             {
                 const Graphic::SceneRenderer::VirtualGeometryCounts vg =
                      m_Workspace.PrimaryRenderer()->GetVirtualGeometryCounts();
-                snapshot.VirtualGeometry = Control::VirtualGeometrySnapshot{ .Instances        = vg.Instances,
-                                                                    .ClustersVisible  = vg.ClustersVisible,
-                                                                    .ClustersDrawn    = vg.ClustersDrawn,
-                                                                    .ShadowClustersDrawn = vg.ShadowClustersDrawn,
-                                                                    .VsmClustersDrawn    = vg.VsmClustersDrawn,
-                                                                    .VsmRefusedGroups    = vg.VsmRefusedGroups,
-                                                                    .VsmFallbackSubmeshes = vg.VsmFallbackSubmeshes,
-                                                                    .Overflow         = vg.Overflow,
-                                                                    .OccludedClusters = vg.OccludedClusters,
-                                                                    .BinnedVgInstances = vg.BinnedVgInstances };
+                snapshot.VirtualGeometry =
+                     Control::VirtualGeometrySnapshot{ .Instances            = vg.Instances,
+                                                       .ClustersVisible      = vg.ClustersVisible,
+                                                       .ClustersDrawn        = vg.ClustersDrawn,
+                                                       .ShadowClustersDrawn  = vg.ShadowClustersDrawn,
+                                                       .VsmClustersDrawn     = vg.VsmClustersDrawn,
+                                                       .VsmRefusedGroups     = vg.VsmRefusedGroups,
+                                                       .VsmFallbackSubmeshes = vg.VsmFallbackSubmeshes,
+                                                       .Overflow             = vg.Overflow,
+                                                       .OccludedClusters     = vg.OccludedClusters,
+                                                       .BinnedVgInstances    = vg.BinnedVgInstances };
             }
             // The scene-owned GI pools: one per live scene that brought each up, never one per view.
             for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )

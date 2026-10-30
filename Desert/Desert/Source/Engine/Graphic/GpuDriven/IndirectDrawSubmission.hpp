@@ -72,10 +72,9 @@ namespace Desert::Graphic::GpuDriven
     // The pass declared IndirectDraws as Access::IndirectArgs and VisibleInstances + the GpuScene / pass tables as
     // storage reads. Refused for an undeclared buffer, a non-empty group without pipeline, geometry or block, or
     // spans not sized to the pass's groups.
-    [[nodiscard]] Common::BoolResultStr RecordIndirectGroups( RendererAPI&                             api,
-                                                              std::span<const RDG::PassBindings* const> groupBindings,
-                                                              std::span<const MaterialExecutor* const>  groupMaterials,
-                                                              const IndirectSubmissionMode&            mode,
-                                                              const PassDrawTable&                     pass,
-                                                              const CulledDraws&                       draws );
+    [[nodiscard]] Common::BoolResultStr
+    RecordIndirectGroups( RendererAPI& api, std::span<const RDG::PassBindings* const> groupBindings,
+                          std::span<const MaterialExecutor* const> groupMaterials,
+                          const IndirectSubmissionMode& mode, const PassDrawTable& pass,
+                          const CulledDraws& draws );
 } // namespace Desert::Graphic::GpuDriven

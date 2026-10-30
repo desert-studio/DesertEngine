@@ -266,10 +266,10 @@ namespace Desert::Graphic
     // Whether a compiled cell shader is a `.Parallax` permutation (its caster is its own; see ShadowCasterCellFor).
     [[nodiscard]] bool IsParallaxCell( std::string_view shaderName );
 
-    // THE BINNED PERMUTATION of a cell (DShaderParser kSurfaceBinnedCellSuffix): "<Template>/<Cell>[.Parallax].Binned",
-    // the cell a GPU-driven bin draws (GpuDriven::DrawCommandCache): it reads World / PrevWorld / material row /
-    // primitive flags through its instance id and pushes nothing. Registered for every Forward / GBuffer / ShadowDepth
-    // mesh cell of a non-translucent template.
+    // THE BINNED PERMUTATION of a cell (DShaderParser kSurfaceBinnedCellSuffix):
+    // "<Template>/<Cell>[.Parallax].Binned", the cell a GPU-driven bin draws (GpuDriven::DrawCommandCache): it
+    // reads World / PrevWorld / material row / primitive flags through its instance id and pushes nothing.
+    // Registered for every Forward / GBuffer / ShadowDepth mesh cell of a non-translucent template.
     [[nodiscard]] std::string BinnedCellOf( std::string_view cellShader );
     [[nodiscard]] bool        IsBinnedCell( std::string_view shaderName );
 
@@ -281,7 +281,8 @@ namespace Desert::Graphic
     [[nodiscard]] std::string VirtualGeometryCellOf( std::string_view binnedCell );
     [[nodiscard]] bool        IsVirtualGeometryCell( std::string_view shaderName );
     // Whether @p path's binned cells have a `.VirtualGeometry` permutation: its name is in DShaderParser's
-    // kSurfaceVirtualGeometryPaths (the one list; today a static mesh and an instanced static mesh, UE: Nanite ISM).
+    // kSurfaceVirtualGeometryPaths (the one list; today a static mesh and an instanced static mesh, UE: Nanite
+    // ISM).
     [[nodiscard]] bool HasVirtualGeometryPermutation( MeshVertexPath path );
 
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.

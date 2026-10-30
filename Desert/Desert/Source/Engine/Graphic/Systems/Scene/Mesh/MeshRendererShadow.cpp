@@ -866,7 +866,8 @@ namespace Desert::Graphic::System
                                   : Geometry::LODView{};
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
-        std::vector<std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
+        std::vector<
+             std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
                    byMesh;
         const auto bucketFor = [&]( Desert::StaticMesh* mesh,
                                     const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
@@ -904,20 +905,22 @@ namespace Desert::Graphic::System
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
 
         // A sun cascade's layer issued from its GPU-culled bins (AttachBinned below; the static layer at the
-        // cascade view, the movable layer at CascadeMovableView). Local views and VSM levels (layer All) issue none.
+        // cascade view, the movable layer at CascadeMovableView). Local views and VSM levels (layer All) issue
+        // none.
         const bool binnedLayer = layer != ShadowCasterLayer::All;
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
         // THE CPU WALK of this view (CpuWalkHidden, the one rule of every view pass): a VSM level (its VG-only
         // raster), a sun cascade's static layer (its bins and their cluster raster: a VG primitive is walked for
         // every submesh the raster does not draw - a refused cut or carrier leaves it whole to the walk), a sun
-        // cascade's movable layer (its bins; no cluster raster), or a view with neither (a local light): everything. Empty: the walk draws none of the record.
+        // cascade's movable layer (its bins; no cluster raster), or a view with neither (a local light):
+        // everything. Empty: the walk draws none of the record.
         const ClusterWalkView walkView = IsVirtualShadowView( c ) ? VirtualShadowWalkView()
                                          : binnedLayer ? BinnedWalkView( GpuDriven::MeshPass::ShadowCascade, c )
                                                        : UnbinnedWalkView( GpuDriven::MeshPass::ShadowCascade );
-        const auto walkHidden = [&]( const Desert::Mesh* mesh, const std::size_t /*submeshes*/,
+        const auto            walkHidden = [&]( const Desert::Mesh*             mesh, const std::size_t /*submeshes*/,
                                      const GpuDriven::PrimitiveIndex primitive,
-                                     const uint64_t hidden ) -> std::optional<SubmeshMask>
+                                     const uint64_t                  hidden ) -> std::optional<SubmeshMask>
         { return CpuWalkHidden( walkView, mesh, primitive, hidden ); };
         for ( const auto& rd : m_StaticQueue )
         {
@@ -926,8 +929,8 @@ namespace Desert::Graphic::System
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
                  walkHidden( rd.Mesh, rd.Mesh->GetSubmeshes().size(), rd.GpuPrimitive, rd.HiddenSubmeshes );
-            if ( !walk ||
-                 !IsVisibleInView( cascadeFrustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+            if ( !walk || !IsVisibleInView( cascadeFrustum, rd.Transform,
+                                            Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                 continue;
             const SubmeshMask hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
@@ -1116,8 +1119,8 @@ namespace Desert::Graphic::System
                         if ( levels[i] == level )
                             instTransforms.push_back( visible[i] );
                     batches.push_back( ShadowBatch{
-                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level,
-                         ismHidden, PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
+                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level, ismHidden,
+                         PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
                 }
             }
         }

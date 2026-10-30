@@ -24,8 +24,9 @@ namespace Desert::Assets
 
     namespace
     {
-        // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 3 (VIRT-GEOM): + VirtualGeometry (u32 0 / 1).
-        // 1 and 2 are read by UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it ships under.
+        // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 3 (VIRT-GEOM): + VirtualGeometry (u32 0 /
+        // 1). 1 and 2 are read by UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it ships
+        // under.
         constexpr uint32_t kImportInfoVersion = kMeshAssetSubsystemVersion;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
         // one mesh and was never written by an import, so it has no migration.
@@ -342,8 +343,8 @@ namespace Desert::Assets
             return std::move( w.Out );
         }
 
-        // @p expected: kImportInfoVersion, or 1 / 2 for UpgradeMeshSourceAsset (1: no displacement fields; 1 and 2:
-        // no VirtualGeometry, read as off).
+        // @p expected: kImportInfoVersion, or 1 / 2 for UpgradeMeshSourceAsset (1: no displacement fields; 1 and
+        // 2: no VirtualGeometry, read as off).
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                             const uint32_t expected = kImportInfoVersion )
         {
@@ -371,8 +372,8 @@ namespace Desert::Assets
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<MeshImportInfo>( "mesh ImportInfo is truncated or has trailing bytes" );
             if ( virtualGeometry > 1u )
-                return Common::MakeFormattedError<MeshImportInfo>( "mesh ImportInfo states VirtualGeometry {}, not 0 or 1",
-                                                                   virtualGeometry );
+                return Common::MakeFormattedError<MeshImportInfo>(
+                     "mesh ImportInfo states VirtualGeometry {}, not 0 or 1", virtualGeometry );
             info.Settings.VirtualGeometry = virtualGeometry == 1u;
             const auto p = MeshSourceProvenanceFromName( provenance );
             const auto a = MeshSourceUpAxisFromName( axis );
@@ -571,7 +572,8 @@ namespace Desert::Assets
 
     namespace
     {
-        // One reading of the envelope at MSAS @p subsystemVersion (the current one, or 1 / 2 for the upgrade step).
+        // One reading of the envelope at MSAS @p subsystemVersion (the current one, or 1 / 2 for the upgrade
+        // step).
         Common::ResultStr<MeshSourceAsset> DecodeMeshSourceAssetAt( std::span<const std::byte> file,
                                                                     const uint32_t             subsystemVersion )
         {

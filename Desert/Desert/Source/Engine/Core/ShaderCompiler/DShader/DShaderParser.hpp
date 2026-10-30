@@ -102,19 +102,18 @@ namespace Desert::Core::Preprocess
     // flags from its instance id (Common/GpuScene.glslh DesertResolveMeshDraw), the fragment's `Material` reads
     // the row the vertex stage handed down (kSurfaceMaterialRowMacro). Drawn by GpuDriven::DrawCommandCache's bins
     // only.
-    inline constexpr std::string_view                kSurfaceBinnedCellSuffix = ".Binned";
-    inline constexpr std::string_view                kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
+    inline constexpr std::string_view kSurfaceBinnedCellSuffix = ".Binned";
+    inline constexpr std::string_view kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
     // VirtualShadowDepth (VIRT-GEOM step 17): the virtual shadow map's own binned table (GpuDriven::MeshPass::
     // VirtualShadow), whose groups are what its `.VirtualGeometry` cells are twins of.
-    inline constexpr std::array<std::string_view, 4> kSurfaceBinnedCellPasses = { "Forward", "GBuffer",
-                                                                                  "ShadowDepth",
-                                                                                  "VirtualShadowDepth" };
+    inline constexpr std::array<std::string_view, 4> kSurfaceBinnedCellPasses = {
+         "Forward", "GBuffer", "ShadowDepth", "VirtualShadowDepth" };
     // THE VIRTUAL GEOMETRY PERMUTATION (VIRT-GEOM step 11; UE: the Nanite raster's vertex factory): every binned
     // cell of a kSurfaceVirtualGeometryPaths path (`.Parallax` too) once more, named
     // `<Path>.<Pass>[.Parallax].Binned.VirtualGeometry`, after the binned cells, with kSurfaceBinnedDefine AND
-    // kSurfaceVirtualGeometryDefine: the vertex stage draws one visible cluster per instance, fetching its triangles'
-    // vertices through the cluster's DAG (Mesh/Surface/Vertex_Static.glslh, Vertex_Instanced.glslh), everything else
-    // the binned cell's. Drawn by the VG raster's material groups only (MeshRenderer,
+    // kSurfaceVirtualGeometryDefine: the vertex stage draws one visible cluster per instance, fetching its
+    // triangles' vertices through the cluster's DAG (Mesh/Surface/Vertex_Static.glslh, Vertex_Instanced.glslh),
+    // everything else the binned cell's. Drawn by the VG raster's material groups only (MeshRenderer,
     // VirtualGeometryRenderer::AddRasterBinning).
     inline constexpr std::string_view kSurfaceVirtualGeometryCellSuffix = ".VirtualGeometry";
     inline constexpr std::string_view kSurfaceVirtualGeometryDefine     = "DESERT_SURFACE_VIRTUAL_GEOMETRY";

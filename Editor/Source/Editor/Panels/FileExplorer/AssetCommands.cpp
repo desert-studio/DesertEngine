@@ -306,7 +306,8 @@ namespace Desert::Editor
             commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
         for ( const bool on : { true, false } )
-            commands.push_back( { "Assets", std::format( "Import Options: Virtual Geometry {}", on ? "on" : "off" ),
+            commands.push_back( { "Assets",
+                                  std::format( "Import Options: Virtual Geometry {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownVirtualGeometry( on ); } } );
         for ( const auto mode : { Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
                                   Assets::MeshDisplacementMode::Baked } )

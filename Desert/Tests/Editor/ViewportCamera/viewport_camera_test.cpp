@@ -148,9 +148,8 @@ TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
 // and that the write then refuses is the census lying about the editor.
 TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 {
-    const std::vector<EditableProperty> census =
-         DescribeViewportCamera( glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false,
-                                 false, false );
+    const std::vector<EditableProperty> census = DescribeViewportCamera(
+         glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false, false, false );
 
     for ( const EditableProperty& row : census )
     {

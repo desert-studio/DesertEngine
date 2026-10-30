@@ -365,8 +365,7 @@ namespace Desert::Graphic::VirtualGeometry
             {
                 const Geometry::ClusterRecord& record = dag.Clusters[c];
                 if ( record.VertexCount > Geometry::kClusterMaxVertices ||
-                     record.TriangleCount > Geometry::kClusterMaxTriangles ||
-                     record.Level > kClusterMaxLevel ||
+                     record.TriangleCount > Geometry::kClusterMaxTriangles || record.Level > kClusterMaxLevel ||
                      uint64_t{ record.FirstVertexRef } + record.VertexCount > dag.VertexRefs.size() ||
                      uint64_t{ record.FirstTriangle } + record.TriangleCount > dag.Triangles.size() )
                     return refuse( std::format(
@@ -382,7 +381,7 @@ namespace Desert::Graphic::VirtualGeometry
                 cluster.FirstVertexRef = record.FirstVertexRef;
                 cluster.FirstTriangle  = record.FirstTriangle;
                 cluster.Counts = PackClusterCounts( record.VertexCount, record.TriangleCount, record.Level );
-                cluster.Dag            = dagRow;
+                cluster.Dag    = dagRow;
             }
 
             for ( std::size_t n = 0; n < dag.Hierarchy.size(); ++n )

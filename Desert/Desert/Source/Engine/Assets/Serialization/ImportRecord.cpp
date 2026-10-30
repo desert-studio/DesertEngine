@@ -19,26 +19,27 @@ namespace Desert::Assets::Serialization
 {
     SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings )
     {
-        return { settings.CombineMeshes,
-                 settings.Mesh.UniformScale,
-                 std::string( Assets::MeshSourceUpAxisName( settings.Mesh.UpAxis ) ),
-                 std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ),
-                 settings.Skeleton
-                      ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
-                      : std::nullopt,
-                 settings.SpecularMap == Assets::FbxSpecularMap::FromImage
-                      ? std::nullopt
-                      : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
-                 settings.FileUnit == Assets::MeshFileUnit::FromFile
-                      ? std::nullopt
-                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ),
-                 settings.Mesh.Displacement == Assets::MeshDisplacementMode::None
-                      ? std::nullopt
-                      : std::optional<std::string>( Assets::MeshDisplacementModeName( settings.Mesh.Displacement ) ),
-                 settings.Mesh.DisplacementBake == Assets::MeshDisplacementBakeSettings{}
-                      ? std::nullopt
-                      : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ),
-                 settings.Mesh.VirtualGeometry ? std::optional<bool>( true ) : std::nullopt };
+        return {
+             settings.CombineMeshes,
+             settings.Mesh.UniformScale,
+             std::string( Assets::MeshSourceUpAxisName( settings.Mesh.UpAxis ) ),
+             std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ),
+             settings.Skeleton
+                  ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
+                  : std::nullopt,
+             settings.SpecularMap == Assets::FbxSpecularMap::FromImage
+                  ? std::nullopt
+                  : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
+             settings.FileUnit == Assets::MeshFileUnit::FromFile
+                  ? std::nullopt
+                  : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ),
+             settings.Mesh.Displacement == Assets::MeshDisplacementMode::None
+                  ? std::nullopt
+                  : std::optional<std::string>( Assets::MeshDisplacementModeName( settings.Mesh.Displacement ) ),
+             settings.Mesh.DisplacementBake == Assets::MeshDisplacementBakeSettings{}
+                  ? std::nullopt
+                  : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ),
+             settings.Mesh.VirtualGeometry ? std::optional<bool>( true ) : std::nullopt };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )

@@ -71,14 +71,15 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupViewCounts );
         };
 
-        constexpr const char* kClusterCutShader    = "ClusterCut";    // Programs/VirtualGeometry/ClusterCut.shader
-        constexpr const char* kRasterBinningShader = "RasterBinning"; // Programs/VirtualGeometry/RasterBinning.shader
-        constexpr uint32_t    kBinStepCount        = 0u;
-        constexpr uint32_t    kBinStepOffsets      = 1u;
-        constexpr uint32_t    kBinStepScatter      = 2u;
-        constexpr uint32_t    kBinGroupSize        = 64u; // RasterBinning.shader LocalSize
-        constexpr uint32_t    kStepArgs         = 0u;
-        constexpr uint32_t    kStepCut          = 1u;
+        constexpr const char* kClusterCutShader = "ClusterCut"; // Programs/VirtualGeometry/ClusterCut.shader
+        constexpr const char* kRasterBinningShader =
+             "RasterBinning"; // Programs/VirtualGeometry/RasterBinning.shader
+        constexpr uint32_t kBinStepCount   = 0u;
+        constexpr uint32_t kBinStepOffsets = 1u;
+        constexpr uint32_t kBinStepScatter = 2u;
+        constexpr uint32_t kBinGroupSize   = 64u; // RasterBinning.shader LocalSize
+        constexpr uint32_t kStepArgs       = 0u;
+        constexpr uint32_t kStepCut        = 1u;
 
         // ClusterCut.shader's push block.
         struct CutPush
@@ -150,8 +151,9 @@ namespace Desert::Graphic::VirtualGeometry
             RDG::BufferRef DispatchArgs; // step 0 writes it, step 1 reads it as its indirect arguments
             RDG::BufferRef ArgsSlot;     // step 1's DispatchArgs slot: an unread buffer
             RDG::BufferRef OccludedCandidates, OccludedCount; // the main phase's post carry (post: unread slots)
-            RDG::TextureRef Hzb; // the views' HZB of the phase (previous frame / this frame), or the neutral texture
-            RDG::BufferRef  VsmDirtyMask; // the VSM levels' "VSM: Dirty Mask", or a one-word stand-in (no level)
+            RDG::TextureRef
+                 Hzb; // the views' HZB of the phase (previous frame / this frame), or the neutral texture
+            RDG::BufferRef VsmDirtyMask; // the VSM levels' "VSM: Dirty Mask", or a one-word stand-in (no level)
         };
 
         void BindCut( RDG::PassBuilder& pass, const VirtualGeometryRenderer::Programs::Program& program,
@@ -182,7 +184,8 @@ namespace Desert::Graphic::VirtualGeometry
                  .Storage( P::ClusterCutOccludedCount, b.OccludedCount, W )
                  .Storage( P::ClusterCutVsmDirtyMask, b.VsmDirtyMask, R )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-                 .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
             if ( indirect )
             {
@@ -198,8 +201,8 @@ namespace Desert::Graphic::VirtualGeometry
          RDG::Builder& graph, const GpuDriven::CullPhase phase, const GpuDriven::GpuSceneBuffers& scene,
          const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
          const GpuDriven::PassDrawBuffers& passSlots, const RDG::BufferRef submeshTransforms,
-         const ClusterCandidates& candidates, const std::span<const ClusterCullView> views, const uint32_t firstView,
-         const RDG::TextureRef neutralHzb ) const
+         const ClusterCandidates& candidates, const std::span<const ClusterCullView> views,
+         const uint32_t firstView, const RDG::TextureRef neutralHzb ) const
     {
         using Result    = ClusterCullResult;
         const bool post = phase == GpuDriven::CullPhase::PostOcclusion;
@@ -229,7 +232,8 @@ namespace Desert::Graphic::VirtualGeometry
             if ( !viewHzb.IsValid() )
                 continue;
             if ( hzb.IsValid() && hzb != viewHzb )
-                return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: views with two HZBs in one dispatch" );
+                return Common::MakeError<Result>(
+                     "VirtualGeometry: Cluster Cut: views with two HZBs in one dispatch" );
             hzb = viewHzb;
         }
         // One drawn-page mask per dispatch: a VSM level's view (kVsmPageMask) culls its nodes and clusters against
@@ -240,8 +244,9 @@ namespace Desert::Graphic::VirtualGeometry
             if ( ( view.Instance.View.Flags & GpuDriven::CullViewFlags::kVsmPageMask ) == 0u )
                 continue;
             if ( !view.Instance.VsmDirtyMask.IsValid() )
-                return Common::MakeError<Result>( std::format(
-                     "VirtualGeometry: Cluster Cut: VSM level {} has no drawn-page mask", view.Instance.View.VsmLevel ) );
+                return Common::MakeError<Result>(
+                     std::format( "VirtualGeometry: Cluster Cut: VSM level {} has no drawn-page mask",
+                                  view.Instance.View.VsmLevel ) );
             if ( vsmDirtyMask.IsValid() && vsmDirtyMask != view.Instance.VsmDirtyMask )
                 return Common::MakeError<Result>(
                      "VirtualGeometry: Cluster Cut: VSM levels with two drawn-page masks in one dispatch" );
@@ -252,7 +257,8 @@ namespace Desert::Graphic::VirtualGeometry
             return Common::MakeError<Result>(
                  "VirtualGeometry: Cluster Cut: the PostOcclusion phase has no view with this frame's HZB" );
         if ( !hasHzb && !neutralHzb.IsValid() )
-            return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: no HZB and no neutral texture to bind" );
+            return Common::MakeError<Result>(
+                 "VirtualGeometry: Cluster Cut: no HZB and no neutral texture to bind" );
         if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() || !meshes.Hierarchy.IsValid() )
             return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: the VirtualMeshTable has no tables" );
         if ( !candidates.Rows.IsValid() || !candidates.Count.IsValid() || candidates.Capacity == 0u ||
@@ -340,10 +346,11 @@ namespace Desert::Graphic::VirtualGeometry
         // disjoint subtree or a cluster of a candidate's cut, so the visible capacity bounds each region: node
         // children from row 0, clusters from row carryCapacity (packed 64 per post workgroup).
         const uint32_t carryCapacity = !post && hasHzb ? visibleCapacity : 0u;
-        b.OccludedCount              = Upload( graph, post ? "VirtualGeometry.CutOccludedSlot" : "VirtualGeometry.OccludedCount",
-                                               Bytes( zeros ) );
-        b.OccludedCandidates         = graph.CreateBuffer(
-             RDG::BufferDesc{ .Bytes = uint64_t{ std::max( carryCapacity, 1u ) } * 2u * sizeof( GpuClusterCandidate ) },
+        b.OccludedCount              = Upload(
+             graph, post ? "VirtualGeometry.CutOccludedSlot" : "VirtualGeometry.OccludedCount", Bytes( zeros ) );
+        b.OccludedCandidates = graph.CreateBuffer(
+             RDG::BufferDesc{ .Bytes = uint64_t{ std::max( carryCapacity, 1u ) } * 2u *
+                                       sizeof( GpuClusterCandidate ) },
              post ? "VirtualGeometry.CutOccludedRowsSlot" : "VirtualGeometry.OccludedCandidates" );
 
         const Programs::Program& program       = m_Programs->ClusterCut;
@@ -355,7 +362,8 @@ namespace Desert::Graphic::VirtualGeometry
                                 glm::uvec4( hasHzb ? 1u : 0u, carryCapacity, post ? 1u : 0u, 0u ),
                                 glm::uvec4( firstView, static_cast<uint32_t>( views.size() ), 0u, 0u ) };
             graph.AddPass(
-                 post ? ( indirect ? "VirtualGeometry: Cluster Cut Post" : "VirtualGeometry: Cluster Cut Post Args" )
+                 post ? ( indirect ? "VirtualGeometry: Cluster Cut Post"
+                                   : "VirtualGeometry: Cluster Cut Post Args" )
                       : ( indirect ? "VirtualGeometry: Cluster Cut" : "VirtualGeometry: Cluster Cut Args" ),
                  RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder ) { BindCut( builder, program, scene, meshes, b, indirect ); },
@@ -390,19 +398,22 @@ namespace Desert::Graphic::VirtualGeometry
     {
         using Result = RasterBins;
         if ( passTable.Groups.empty() || passTable.Bins.empty() || passTable.DrawSlots.empty() )
-            return Common::MakeError<Result>( std::format(
-                 "VirtualGeometry: Raster Binning: the pass has {} groups, {} bins, {} draw slots",
-                 passTable.Groups.size(), passTable.Bins.size(), passTable.DrawSlots.size() ) );
+            return Common::MakeError<Result>(
+                 std::format( "VirtualGeometry: Raster Binning: the pass has {} groups, {} bins, {} draw slots",
+                              passTable.Groups.size(), passTable.Bins.size(), passTable.DrawSlots.size() ) );
         if ( !passSlots.PrimitiveDraws.IsValid() || !passSlots.DrawSlots.IsValid() || !passSlots.Bins.IsValid() )
-            return Common::MakeError<Result>( "VirtualGeometry: Raster Binning: the pass's draw tables are not uploaded" );
+            return Common::MakeError<Result>(
+                 "VirtualGeometry: Raster Binning: the pass's draw tables are not uploaded" );
         if ( !culled.VisibleClusters.IsValid() || !culled.RasterArgs.IsValid() || culled.VisibleCapacity == 0u )
             return Common::MakeError<Result>( "VirtualGeometry: Raster Binning: no cluster cut to bin" );
         if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() )
-            return Common::MakeError<Result>( "VirtualGeometry: Raster Binning: the VirtualMeshTable has no tables" );
+            return Common::MakeError<Result>(
+                 "VirtualGeometry: Raster Binning: the VirtualMeshTable has no tables" );
         if ( const Common::BoolResultStr ready = m_Programs->RasterBinning.Ensure(
                   kRasterBinningShader, "Editor/Resources/Shaders/Programs/VirtualGeometry/RasterBinning.shader" );
              !ready )
-            return Common::MakeError<Result>( std::format( "VirtualGeometry: Raster Binning: {}", ready.GetError() ) );
+            return Common::MakeError<Result>(
+                 std::format( "VirtualGeometry: Raster Binning: {}", ready.GetError() ) );
 
         const auto groupCount = static_cast<uint32_t>( passTable.Groups.size() );
         RasterBins bins;
@@ -431,7 +442,7 @@ namespace Desert::Graphic::VirtualGeometry
         const uint32_t           threads   = ( culled.VisibleCapacity + kBinGroupSize - 1u ) / kBinGroupSize;
         for ( const uint32_t step : { kBinStepCount, kBinStepOffsets, kBinStepScatter } )
         {
-            const CutPush push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
+            const CutPush  push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
                                 glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, countViews ) };
             const uint32_t groupsX = step == kBinStepOffsets ? 1u : threads;
             graph.AddPass(
@@ -441,10 +452,10 @@ namespace Desert::Graphic::VirtualGeometry
                  RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder )
                  {
-                     constexpr auto R = RDG::Access::StorageRead;
-                     constexpr auto W = RDG::Access::StorageWrite;
-                     auto blk = builder.Bindings( program.Layout.Get( program.Shader ),
-                                                  Renderer::GetPipelineRouteFill( *program.Pipeline ) );
+                     constexpr auto R   = RDG::Access::StorageRead;
+                     constexpr auto W   = RDG::Access::StorageWrite;
+                     auto           blk = builder.Bindings( program.Layout.Get( program.Shader ),
+                                                            Renderer::GetPipelineRouteFill( *program.Pipeline ) );
                      blk.Storage( P::RasterBinningInstances, scene.Instances, R )
                           .Storage( P::RasterBinningPrimitiveDraws, passSlots.PrimitiveDraws, R )
                           .Storage( P::RasterBinningDrawSlots, passSlots.DrawSlots, R )
@@ -528,9 +539,7 @@ namespace Desert::Graphic::VirtualGeometry
         ClusterCutCount count;
         std::string     message;
         const auto      fail = [&message]( std::string what )
-        {
-            message += std::format( "{}{}", message.empty() ? "" : "; ", what );
-        };
+        { message += std::format( "{}{}", message.empty() ? "" : "; ", what ); };
         for ( const Entry& entry : slot.Entries )
         {
             const char* const kind = entry.Kind == ClusterCutKind::Main            ? "main"
@@ -546,8 +555,8 @@ namespace Desert::Graphic::VirtualGeometry
             const std::span<const std::byte> status = entry.Status.Physical->ReadForHost();
             if ( args.size() < sizeof( GpuClusterRasterArgs ) || status.size() < sizeof( ClusterCutStatus ) )
             {
-                fail( std::format( "the {} cut's readback holds {} / {} bytes, RasterArgs / Status need {} / {}", kind,
-                                   args.size(), status.size(), sizeof( GpuClusterRasterArgs ),
+                fail( std::format( "the {} cut's readback holds {} / {} bytes, RasterArgs / Status need {} / {}",
+                                   kind, args.size(), status.size(), sizeof( GpuClusterRasterArgs ),
                                    sizeof( ClusterCutStatus ) ) );
                 continue;
             }
@@ -586,8 +595,8 @@ namespace Desert::Graphic::VirtualGeometry
                 if ( entry.GroupViewCounts.Physical && entry.CountViews > 0u )
                 {
                     const std::span<const std::byte> perView = entry.GroupViewCounts.Physical->ReadForHost();
-                    const size_t views = entry.CountViews;
-                    const size_t rows  = std::min( entry.DrawnGroups.size(), perView.size() / ( views * 4u ) );
+                    const size_t                     views   = entry.CountViews;
+                    const size_t rows = std::min( entry.DrawnGroups.size(), perView.size() / ( views * 4u ) );
                     std::vector<uint64_t> levels( views, 0u );
                     for ( size_t g = 0; g < rows; ++g )
                     {
@@ -596,7 +605,8 @@ namespace Desert::Graphic::VirtualGeometry
                         for ( size_t v = 0; v < views; ++v )
                         {
                             uint32_t n = 0;
-                            std::memcpy( &n, perView.data() + ( g * views + v ) * sizeof( uint32_t ), sizeof( n ) );
+                            std::memcpy( &n, perView.data() + ( g * views + v ) * sizeof( uint32_t ),
+                                         sizeof( n ) );
                             levels[v] += n;
                         }
                     }
@@ -618,8 +628,8 @@ namespace Desert::Graphic::VirtualGeometry
                 if ( n == 0u )
                     return;
                 const std::string mesh = VirtualMeshTable::Get().DagMeshName( dag );
-                fail( std::format( "{} cut: '{}' (DAG row {}): {} x {}", kind, mesh.empty() ? "<released>" : mesh, dag,
-                                   n, what ) );
+                fail( std::format( "{} cut: '{}' (DAG row {}): {} x {}", kind, mesh.empty() ? "<released>" : mesh,
+                                   dag, n, what ) );
             };
             named( "hierarchy node dropped by a full traversal stack (ClusterCut.shader kStackDepth)",
                    cut.StackOverflow, cut.StackOverflowDag );
@@ -627,8 +637,9 @@ namespace Desert::Graphic::VirtualGeometry
                    cut.MissingSlot, cut.MissingSlotDag );
             named( "cluster past the visible capacity", cut.VisibleOverflow, cut.VisibleOverflowDag );
             if ( cut.OccludedOverflow != 0u )
-                fail( std::format( "{} cut: {} occluded entries past the post carry's capacity (missing this frame)",
-                                   kind, cut.OccludedOverflow ) );
+                fail( std::format(
+                     "{} cut: {} occluded entries past the post carry's capacity (missing this frame)", kind,
+                     cut.OccludedOverflow ) );
         }
         m_Last = count;
         if ( !message.empty() && message != m_LastError )

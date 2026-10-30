@@ -93,7 +93,8 @@ namespace Desert::Geometry
 
     // ONE BVH NODE over groups (UE FHierarchyNode, 4-wide here: UE NANITE_MAX_BVH_NODE_FANOUT is 4 on the
     // compute path). A leaf child references one group; an interior child a node. Built top-down by
-    // spatial median over the groups' boxes, one subtree per DAG level then a root over them, as UE's BuildHierarchy.
+    // spatial median over the groups' boxes, one subtree per DAG level then a root over them, as UE's
+    // BuildHierarchy.
     inline constexpr uint32_t kClusterHierarchyFanout = 4u;
     inline constexpr uint32_t kClusterHierarchyLeaf   = 1u << 31; // Child: leaf bit | group index
     inline constexpr uint32_t kClusterHierarchyNone   = 0xFFFFFFFFu;

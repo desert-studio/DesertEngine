@@ -329,9 +329,10 @@ namespace Desert::Editor::ImportOptions
                  "Displacement {}: a skeletal mesh is displaced None or Runtime",
                  Assets::MeshDisplacementModeName( mode ) );
         if ( settings.Mesh.VirtualGeometry && mode == Assets::MeshDisplacementMode::Runtime )
-            return Common::MakeError<bool>( "Displacement Runtime: the mesh is Virtual Geometry, whose clusters are "
-                                            "cooked once; a surface diced per frame has none (turn Virtual "
-                                            "Geometry off first)" );
+            return Common::MakeError<bool>(
+                 "Displacement Runtime: the mesh is Virtual Geometry, whose clusters are "
+                 "cooked once; a surface diced per frame has none (turn Virtual "
+                 "Geometry off first)" );
         settings.Mesh.Displacement = mode;
         return BOOLSUCCESS;
     }
@@ -558,8 +559,8 @@ namespace Desert::Editor::ImportOptions
         }
         UI::EndPropertyRow();
 
-        // VIRT-GEOM (contract §1, §6): a static mesh only. The import refuses it, naming the reason in the log, for
-        // a mesh that draws a Masked / Translucent / Additive material (VirtualGeometryGate.hpp).
+        // VIRT-GEOM (contract §1, §6): a static mesh only. The import refuses it, naming the reason in the log,
+        // for a mesh that draws a Masked / Translucent / Additive material (VirtualGeometryGate.hpp).
         if ( kind == ImportContentKind::StaticMesh )
         {
             UI::BeginPropertyRow( "Virtual Geometry",
@@ -936,7 +937,8 @@ namespace Desert::Editor::ImportOptions
     Common::BoolResultStr SetStoredVirtualGeometry( const std::filesystem::path& assetPath, const bool on )
     {
         if ( assetPath.extension() != ".stmesh" )
-            return Common::MakeFormattedError<bool>( "'{}' is not a static mesh asset", assetPath.generic_string() );
+            return Common::MakeFormattedError<bool>( "'{}' is not a static mesh asset",
+                                                     assetPath.generic_string() );
         // A mesh whose source sits beside it under its own name stores what its import made: the flag is the
         // import's (its record), so it is set on the section's working copy and the mesh reimported from it.
         if ( Common::Content::MeshSourceBeside( assetPath ) && !Assets::IsEditedImportedMesh( assetPath ) )
@@ -963,9 +965,10 @@ namespace Desert::Editor::ImportOptions
             return Common::MakeError<bool>( asset.GetError() );
         Assets::MeshSourceAsset stored = asset.ExtractValue();
         if ( stored.Kind != Common::Content::ContentKind::StaticMesh || stored.Source.Skin.has_value() )
-            return Common::MakeFormattedError<bool>( "'{}': Virtual Geometry: a skinned mesh is drawn by the binned "
-                                                     "path (its clusters would be one pose)",
-                                                     assetPath.generic_string() );
+            return Common::MakeFormattedError<bool>(
+                 "'{}': Virtual Geometry: a skinned mesh is drawn by the binned "
+                 "path (its clusters would be one pose)",
+                 assetPath.generic_string() );
         if ( stored.Import.Settings.VirtualGeometry == on )
             return BOOLSUCCESS;
         Assets::MeshImportSettings settings = stored.Import.Settings;
@@ -973,12 +976,13 @@ namespace Desert::Editor::ImportOptions
         // The materials are judged where the import wrote them (MaterialAdoption: beside the import source); a
         // mesh with no import source names its own folder.
         const std::filesystem::path materialsOf =
-             stored.Import.Provenance == Assets::MeshSourceProvenance::Imported && !stored.Import.SourceFile.empty()
+             stored.Import.Provenance == Assets::MeshSourceProvenance::Imported &&
+                       !stored.Import.SourceFile.empty()
                   ? Common::AssetHandle::PathForStableKey( stored.Import.SourceFile )
                   : assetPath;
         if ( const auto refused = VirtualGeometryRefusal( settings, stored.Source.MaterialSlots, materialsOf ) )
-            return Common::MakeFormattedError<bool>( "'{}': Virtual Geometry refused: {}", assetPath.generic_string(),
-                                                     *refused );
+            return Common::MakeFormattedError<bool>( "'{}': Virtual Geometry refused: {}",
+                                                     assetPath.generic_string(), *refused );
         stored.Import.Settings = settings;
         if ( auto written = Assets::WriteMeshSourceAssetFile( assetPath, stored ); !written )
             return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", assetPath.generic_string(),
@@ -998,9 +1002,10 @@ namespace Desert::Editor::ImportOptions
                                                          assetPath.generic_string(), unloaded.GetError() );
             service->EvictBuilt( row->Handle );
             if ( !service->LoadNow( row->Handle ) )
-                return Common::MakeFormattedError<bool>( "'{}' was written but could not be rebuilt (the log names "
-                                                         "why)",
-                                                         assetPath.generic_string() );
+                return Common::MakeFormattedError<bool>(
+                     "'{}' was written but could not be rebuilt (the log names "
+                     "why)",
+                     assetPath.generic_string() );
         }
         LOG_INFO( "[Import] '{}': Virtual Geometry {}", assetPath.generic_string(), on ? "on" : "off" );
         return BOOLSUCCESS;

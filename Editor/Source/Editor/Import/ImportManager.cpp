@@ -728,10 +728,11 @@ namespace Desert::Editor
             if ( !shader->IsReadyForUse() )
                 continue;
             const std::filesystem::path& file = shader->GetMetadata().Filepath;
-            const std::string locator =
+            const std::string            locator =
                  std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() );
             // A shader the DSL parser does not read (an engine-internal pass without a Shader block) has no
-            // BlendMode: a material naming it is refused Virtual Geometry as "blend unknown", never guessed Opaque.
+            // BlendMode: a material naming it is refused Virtual Geometry as "blend unknown", never guessed
+            // Opaque.
             if ( auto blend = ReadShaderBlend( shader->GetShaderContent(), locator ) )
                 blends.push_back( blend.ExtractValue() );
             else
@@ -753,7 +754,7 @@ namespace Desert::Editor
 
     void ImportManager::PublishShaderBlends( std::vector<ShaderBlendRow> blends )
     {
-        auto                   published = std::make_shared<const std::vector<ShaderBlendRow>>( std::move( blends ) );
+        auto published = std::make_shared<const std::vector<ShaderBlendRow>>( std::move( blends ) );
         const std::scoped_lock lock( s_TemplatesMutex );
         s_ShaderBlends = std::move( published );
     }

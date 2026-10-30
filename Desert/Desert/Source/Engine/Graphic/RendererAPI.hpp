@@ -65,14 +65,14 @@ namespace Desert::Graphic
 
     // One material group of the virtual-geometry raster (VirtualGeometry::RasterBins): ONE non-indexed
     // VkDrawIndirectCommand at Args + ArgsOffset (vertexCount = kClusterMaxTriangles x 3, instanceCount = the
-    // group's clusters, firstInstance = its first Rows entry), drawn with the group's `.VirtualGeometry` cell. Rows
-    // is bound at binding 2 as the instance id stream (a_VisibleRow = a VisibleClusters row); the cell fetches its
-    // vertices from the cluster (Common/VirtualGeometry.glslh), so no vertex or index buffer is bound.
+    // group's clusters, firstInstance = its first Rows entry), drawn with the group's `.VirtualGeometry` cell.
+    // Rows is bound at binding 2 as the instance id stream (a_VisibleRow = a VisibleClusters row); the cell
+    // fetches its vertices from the cluster (Common/VirtualGeometry.glslh), so no vertex or index buffer is bound.
     struct ClusterIndirectGroupDraw
     {
-        RDG::BufferRef Args{};       // Access::IndirectArgs
+        RDG::BufferRef Args{}; // Access::IndirectArgs
         uint64_t       ArgsOffset = 0;
-        RDG::BufferRef Rows{};       // uint32 rows - Access::VertexIndex
+        RDG::BufferRef Rows{}; // uint32 rows - Access::VertexIndex
         // The view's carrier of the scene blocks, as MeshIndirectGroupDraw::Material.
         const MaterialExecutor* Material = nullptr;
     };
@@ -242,18 +242,19 @@ namespace Desert::Graphic
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
                             uint64_t offset, SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
         // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
-        // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream / index buffers (the group's shared binding: one bind per pipeline
-        // switch), then the indirect draws @p draw names. No push block is written: a binned draw reads its
-        // per-draw state from GpuScene through gl_InstanceIndex.
+        // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream /
+        // index buffers (the group's shared binding: one bind per pipeline switch), then the indirect draws @p
+        // draw names. No push block is written: a binned draw reads its per-draw state from GpuScene through
+        // gl_InstanceIndex.
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMeshIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                  const MeshGeometryBinding& geometry, const MeshIndirectGroupDraw& draw ) = 0;
         // One material group of the VG raster (ClusterIndirectGroupDraw): @p pipeline's pass state (the group's
         // `.VirtualGeometry` cell), the Rows stream at binding 2, one vkCmdDrawIndirect. Refused: a pipeline that
         // does not read the instance id stream, arguments past the end of their buffer.
-        [[nodiscard]] virtual Common::BoolResultStr RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
-                                                                                const GraphicsPipeline&         pipeline,
-                                                                                const ClusterIndirectGroupDraw& draw ) = 0;
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderClusterIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                    const ClusterIndirectGroupDraw& draw ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

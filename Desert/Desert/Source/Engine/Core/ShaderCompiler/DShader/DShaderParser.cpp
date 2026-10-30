@@ -1867,24 +1867,27 @@ namespace Desert::Core::Preprocess
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
-            const std::string defines  = std::format(
-                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}{}#define {} {}\n", pass,
-                 // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
-                 stage == ShaderStage::AnyHit ? "#define DESERT_SURFACE_RAY_ANY_HIT 1\n" : "",
-                 masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
-                 Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
-                                                       : std::string(),
-                 blend == SurfaceBlendMode::Additive ? std::format( "#define {} 1\n", kSurfaceAdditiveDefine )
-                                                      : std::string(),
-                 particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
-                 responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
-                 parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
-                 kSurfaceShadingModelDefine, shadingModelDefine ) +
+            const std::string defines =
+                 std::format(
+                      "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}{}#define {} {}\n", pass,
+                      // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
+                      stage == ShaderStage::AnyHit ? "#define DESERT_SURFACE_RAY_ANY_HIT 1\n" : "",
+                      masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
+                      Formats::IsTranslucentBlend( blend )
+                           ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
+                           : std::string(),
+                      blend == SurfaceBlendMode::Additive ? std::format( "#define {} 1\n", kSurfaceAdditiveDefine )
+                                                          : std::string(),
+                      particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
+                      responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
+                      parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
+                      kSurfaceShadingModelDefine, shadingModelDefine ) +
                  ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() ) +
                  ( virtualGeometry ? std::format( "#define {} 1\n", kSurfaceVirtualGeometryDefine )
                                    : std::string() );
-            // A binned cell's fragment `Material` reads the row its vertex stage resolved (kSurfaceMaterialRowMacro):
-            // named ahead of the generated declarations, which default it to the push block's.
+            // A binned cell's fragment `Material` reads the row its vertex stage resolved
+            // (kSurfaceMaterialRowMacro): named ahead of the generated declarations, which default it to the push
+            // block's.
             const std::string cellDecls =
                  binned ? std::format( "#define {} g_SurfaceMaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls )
                         : autoDecls;
@@ -3279,12 +3282,12 @@ namespace Desert::Core::Preprocess
                                         std::string( kSurfaceVirtualGeometryCellSuffix );
                             cell.State = cellState;
                             for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                                cell.Stages.emplace(
-                                     stage, AssembleSurfaceCellStage(
-                                                 stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
-                                                 result.Surface.Blend, shadingModelDefine,
-                                                 result.Surface.ResponsiveAA, opacityMaskFunction, parallax,
-                                                 heightFunctions, respondsToWeather, true, true ) );
+                                cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                                 stage, path, pass, *surfaceBlock, includeBlock,
+                                                                 autoDecls, result.Surface.Blend,
+                                                                 shadingModelDefine, result.Surface.ResponsiveAA,
+                                                                 opacityMaskFunction, parallax, heightFunctions,
+                                                                 respondsToWeather, true, true ) );
                             result.Meta.PassNames.push_back( cell.Name );
                             result.Surface.Cells.push_back( cell.Name );
                             result.Passes.push_back( std::move( cell ) );

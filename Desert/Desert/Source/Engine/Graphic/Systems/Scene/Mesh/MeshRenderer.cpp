@@ -315,7 +315,7 @@ namespace Desert::Graphic::System
                 if ( indirect.BinCount == 0u )
                     continue;
                 const MaterialExecutor* carrier = issue.GroupCarriers[group];
-                const Shader* recordedWith =
+                const Shader*           recordedWith =
                      indirect.Pipeline != nullptr ? indirect.Pipeline->GetSpecification().Shader.get() : nullptr;
                 if ( carrier == nullptr || recordedWith == nullptr )
                 {
@@ -324,13 +324,12 @@ namespace Desert::Graphic::System
                     return;
                 }
                 // Deduped as Add does: the groups of one cell shader (several geometry bindings) share a block.
-                const auto known = std::find_if( m_Blocks.begin(), m_Blocks.end(),
-                                                 [&]( const Block& block )
-                                                 {
-                                                     return block.Material == carrier &&
-                                                            block.Pipeline->GetSpecification().Shader.get() ==
-                                                                 recordedWith;
-                                                 } );
+                const auto known =
+                     std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                                   [&]( const Block& block ) {
+                                       return block.Material == carrier &&
+                                              block.Pipeline->GetSpecification().Shader.get() == recordedWith;
+                                   } );
                 m_GroupBlock[group] = static_cast<uint32_t>( known - m_Blocks.begin() );
                 if ( known == m_Blocks.end() )
                     m_Blocks.push_back( Block{ carrier, indirect.Pipeline, true } );
@@ -346,8 +345,8 @@ namespace Desert::Graphic::System
                 if ( vg.GroupCount != issue.Table->Groups.size() || vg.GroupCarriers.size() != vg.GroupCount ||
                      !vg.GroupArgs.IsValid() || !vg.Rows.IsValid() )
                 {
-                    Fail( std::format( "virtual geometry raster: {} bins and {} carriers for {} groups", vg.GroupCount,
-                                       vg.GroupCarriers.size(), issue.Table->Groups.size() ) );
+                    Fail( std::format( "virtual geometry raster: {} bins and {} carriers for {} groups",
+                                       vg.GroupCount, vg.GroupCarriers.size(), issue.Table->Groups.size() ) );
                     return;
                 }
                 for ( size_t group = 0; group < issue.Table->Groups.size(); ++group )
@@ -357,13 +356,12 @@ namespace Desert::Graphic::System
                     if ( pipeline == nullptr || carrier == nullptr )
                         continue; // SetFrameVirtualGeometry said why
                     const Shader* recordedWith = pipeline->GetSpecification().Shader.get();
-                    const auto    known        = std::find_if( m_Blocks.begin(), m_Blocks.end(),
-                                                               [&]( const Block& block )
-                                                               {
-                                                                   return block.Material == carrier &&
-                                                                          block.Pipeline->GetSpecification()
-                                                                                    .Shader.get() == recordedWith;
-                                                               } );
+                    const auto    known =
+                         std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                                       [&]( const Block& block ) {
+                                           return block.Material == carrier &&
+                                                  block.Pipeline->GetSpecification().Shader.get() == recordedWith;
+                                       } );
                     m_VgGroupBlock[group] = static_cast<uint32_t>( known - m_Blocks.begin() );
                     if ( known == m_Blocks.end() )
                         m_Blocks.push_back( Block{ carrier, pipeline, true, true } );
@@ -469,9 +467,11 @@ namespace Desert::Graphic::System
                 {
                     for ( const auto& [name, buffer] :
                           { std::pair{ SceneResources::kGpuSceneInstances, m_Binned->Instances },
-                            std::pair{ SceneResources::kGpuSceneVisibleInstances, m_Binned->Culled.VisibleInstances },
+                            std::pair{ SceneResources::kGpuSceneVisibleInstances,
+                                       m_Binned->Culled.VisibleInstances },
                             std::pair{ SceneResources::kGpuSceneDrawSlots, m_Binned->DrawSlots },
-                            std::pair{ SceneResources::kGpuSceneSubmeshTransforms, m_Binned->SubmeshTransforms } } )
+                            std::pair{ SceneResources::kGpuSceneSubmeshTransforms,
+                                       m_Binned->SubmeshTransforms } } )
                         if ( SceneViewDetail::LayoutReadsBuffer( *layout, name.Name ) )
                             block.Storage( name, buffer, RDG::Access::StorageRead );
                 }
@@ -585,9 +585,9 @@ namespace Desert::Graphic::System
                         groupBindings[group] = blocks[m_GroupBlock[group]].get();
                 RendererAPI& api = *Renderer::GetInstance().GetRendererAPI();
                 if ( m_Binned->BinsIssued )
-                    if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings, m_Binned->GroupCarriers,
-                                                                          m_Binned->Mode, *m_Binned->Table,
-                                                                          m_Binned->Culled );
+                    if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings,
+                                                                          m_Binned->GroupCarriers, m_Binned->Mode,
+                                                                          *m_Binned->Table, m_Binned->Culled );
                          !recorded )
                         return recorded;
                 // The VG raster after the bins: per group its clusters' one indirect draw (an empty group draws
@@ -600,11 +600,11 @@ namespace Desert::Graphic::System
                         if ( m_VgGroupBlock[group] >= blocks.size() )
                             continue;
                         const GraphicsPipeline& pipeline = *m_Binned->Table->Groups[group].VirtualGeometryPipeline;
-                        const ClusterIndirectGroupDraw draw{
-                             .Args       = vg.GroupArgs,
-                             .ArgsOffset = uint64_t{ group } * VirtualGeometry::kRasterBinsArgsStride,
-                             .Rows       = vg.Rows,
-                             .Material   = vg.GroupCarriers[group] };
+                        const ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
+                                                             .ArgsOffset = uint64_t{ group } *
+                                                                           VirtualGeometry::kRasterBinsArgsStride,
+                                                             .Rows     = vg.Rows,
+                                                             .Material = vg.GroupCarriers[group] };
                         if ( auto drawn =
                                   api.RenderClusterIndirectGroup( *blocks[m_VgGroupBlock[group]], pipeline, draw );
                              !drawn )
@@ -812,20 +812,22 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void MeshRenderer::FeedDrawCommandCache( const GpuDriven::GpuScene&            scene,
+    void MeshRenderer::FeedDrawCommandCache( const GpuDriven::GpuScene&           scene,
                                              const GpuDriven::GpuSceneRecordRows& rows )
     {
         if ( !m_DrawCommandCache )
             m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
-                 [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh&,
-                         uint32_t, const uint32_t materialRow ) -> GpuDriven::PassPipelineResolution
+                 [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive,
+                         const Desert::Mesh&, uint32_t,
+                         const uint32_t materialRow ) -> GpuDriven::PassPipelineResolution
                  { return ResolveBinnedPipeline( pass, primitive, materialRow ); },
                  [this]( const GpuDriven::MeshPass pass, const GraphicsPipeline& group ) -> const GraphicsPipeline*
                  { return ResolveVirtualGeometryPipeline( pass, group ); } );
-        // Answers resolved before a recompile, a wireframe toggle or a shadow method change are stale: a reload can
-        // add or drop a cell (PipelineCache's InvalidateByShader point, Graphic::PipelineRebuildEpoch), the Forward
-        // pass state is the line twin while the Wireframe view is on, and the VirtualShadow table holds draws only
-        // while the sun shadow is the virtual shadow map (no VSM caster state or cell is built under cascades).
+        // Answers resolved before a recompile, a wireframe toggle or a shadow method change are stale: a reload
+        // can add or drop a cell (PipelineCache's InvalidateByShader point, Graphic::PipelineRebuildEpoch), the
+        // Forward pass state is the line twin while the Wireframe view is on, and the VirtualShadow table holds
+        // draws only while the sun shadow is the virtual shadow map (no VSM caster state or cell is built under
+        // cascades).
         const bool virtualShadow = m_SceneRenderer != nullptr && m_SceneRenderer->SunShadowIsVirtual();
         if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
                                                                      WireframeView() != m_BinnedWireframe ||
@@ -834,7 +836,7 @@ namespace Desert::Graphic::System
             m_BinnedPipelineEpoch = epoch;
             m_BinnedWireframe     = WireframeView();
             m_BinnedVirtualShadow = virtualShadow;
-            m_BinnedRefused.clear(); // a reload may have fixed what was refused; say a remaining refusal again
+            m_BinnedRefused.clear();  // a reload may have fixed what was refused; say a remaining refusal again
             m_BinnedAwaiting.clear(); // every answer is asked again below, so is every PSO still compiling
             m_DrawCommandCache->InvalidatePipelines();
         }
@@ -849,13 +851,15 @@ namespace Desert::Graphic::System
             m_DrawCommandCache->InvalidatePipelines();
 
         // One entry per primitive, gathered across its records: a record draws the submeshes it does not hide with
-        // its row; the primitive hides what every record hides (the other records' sections, the component's mask).
+        // its row; the primitive hides what every record hides (the other records' sections, the component's
+        // mask).
         auto& feed = m_ScratchBinnedFeed;
         feed.clear();
         const auto claim = [&feed, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
                                             const MeshVertexPath path, const uint32_t firstInstance,
-                                            const uint32_t instanceCount, const uint64_t hidden, const uint32_t row,
-                                            const bool generic = false, const bool genericProgram = false )
+                                            const uint32_t instanceCount, const uint64_t hidden,
+                                            const uint32_t row, const bool generic = false,
+                                            const bool genericProgram = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -884,14 +888,16 @@ namespace Desert::Graphic::System
         };
         for ( const auto& data : m_StaticQueue )
             if ( data.MaterialSlots &&
-                 MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ).Surface != nullptr )
-                claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Static, data.GpuInstance, 1, data.HiddenSubmeshes,
-                       data.MaterialRow );
+                 MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ).Surface !=
+                      nullptr )
+                claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Static, data.GpuInstance, 1,
+                       data.HiddenSubmeshes, data.MaterialRow );
         for ( size_t f = 0; f < m_InstancedQueue.size() && f < rows.FieldPrimitives.size(); ++f )
         {
             const auto& data = m_InstancedQueue[f];
-            const auto* mat =
-                 data.Material ? dynamic_cast<const DataDrivenMaterial*>( data.Material->GetParentMaterial() ) : nullptr;
+            const auto* mat  = data.Material
+                                    ? dynamic_cast<const DataDrivenMaterial*>( data.Material->GetParentMaterial() )
+                                    : nullptr;
             if ( mat == nullptr || !data.Transforms )
                 continue;
             if ( const auto row = FindMaterialRow( mat, data.Material.get(), true ) )
@@ -909,9 +915,10 @@ namespace Desert::Graphic::System
 
         // The generic queue (Shader Override and custom-program slot draws), as UE caches every mesh batch a pass
         // processor accepts: a Shader Override naming a SURFACE template draws in the G-buffer through its
-        // (Static x GBuffer) cell (BuildGenericDraws' surfaceOverride), so its `.Binned` twin is its bin; any other
-        // program (GenericProgram) shades forward through its own passes, whose opaque ones have `.Binned` twins
-        // (Forward.Binned, DepthNormal.Binned: ResolveGenericProgramBinned), and casts through the shared caster.
+        // (Static x GBuffer) cell (BuildGenericDraws' surfaceOverride), so its `.Binned` twin is its bin; any
+        // other program (GenericProgram) shades forward through its own passes, whose opaque ones have `.Binned`
+        // twins (Forward.Binned, DepthNormal.Binned: ResolveGenericProgramBinned), and casts through the shared
+        // caster.
         {
             auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
             const auto  isRegistered = [shaders]( std::string_view name )
@@ -932,7 +939,8 @@ namespace Desert::Graphic::System
         // Only the changed primitives reach the cache (UE: a cached command is rebuilt when its primitive is).
         for ( const auto& [primitive, entry] : feed )
         {
-            if ( const auto held = m_BinnedFeed.find( primitive ); held != m_BinnedFeed.end() && held->second == entry )
+            if ( const auto held = m_BinnedFeed.find( primitive );
+                 held != m_BinnedFeed.end() && held->second == entry )
                 continue;
             const GpuDriven::PrimitiveDrawDesc desc{ .Mesh              = entry.Mesh,
                                                      .MaterialRows      = entry.MaterialRows,
@@ -967,7 +975,8 @@ namespace Desert::Graphic::System
     GpuDriven::MeshPass MeshRenderer::MainViewPass() const
     {
         const bool deferred = m_SceneRenderer != nullptr &&
-                              m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+                              m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
+                              m_StaticGBufferPipeline;
         return deferred ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward;
     }
 
@@ -990,8 +999,9 @@ namespace Desert::Graphic::System
     }
 
     bool MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
-                                       const GpuDriven::CulledDraws& culled, const GpuDriven::DrawCommandBuffers& upload,
-                                       const GpuDriven::GpuSceneBuffers& scene )
+                                       const GpuDriven::CulledDraws&        culled,
+                                       const GpuDriven::DrawCommandBuffers& upload,
+                                       const GpuDriven::GpuSceneBuffers&    scene )
     {
         const auto refuse = [this]( std::string message )
         {
@@ -1002,20 +1012,21 @@ namespace Desert::Graphic::System
         };
         const bool casterLayer =
              pass == GpuDriven::MeshPass::ShadowCascade &&
-             ( CascadeBinsDrawn( viewKey ) ||
-               ( viewKey >= kCascadeMovableViewBase && CascadeMovableBinsDrawn( viewKey - kCascadeMovableViewBase ) ) );
+             ( CascadeBinsDrawn( viewKey ) || ( viewKey >= kCascadeMovableViewBase &&
+                                                CascadeMovableBinsDrawn( viewKey - kCascadeMovableViewBase ) ) );
         if ( !m_DrawCommandCache || m_SceneRenderer == nullptr || ( viewKey != kBinnedMainView && !casterLayer ) )
             return false;
         const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( pass );
         MeshRendererDetail::BinnedIssue issue;
-        issue.Table             = &table;
-        issue.Culled            = culled;
-        issue.Instances         = scene.Instances;
-        issue.DrawSlots         = upload.Passes[static_cast<size_t>( pass )].DrawSlots;
-        issue.SubmeshTransforms = upload.SubmeshTransforms;
+        issue.Table              = &table;
+        issue.Culled             = culled;
+        issue.Instances          = scene.Instances;
+        issue.DrawSlots          = upload.Passes[static_cast<size_t>( pass )].DrawSlots;
+        issue.SubmeshTransforms  = upload.SubmeshTransforms;
         const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
-        issue.Mode = GpuDriven::SelectIndirectSubmission( { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
-                                                            .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } );
+        issue.Mode =
+             GpuDriven::SelectIndirectSubmission( { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
+                                                    .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } );
         issue.GroupCarriers.assign( table.Groups.size(), nullptr );
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( size_t group = 0; group < table.Groups.size(); ++group )
@@ -1061,7 +1072,7 @@ namespace Desert::Graphic::System
     }
 
     bool MeshRenderer::SetFrameVirtualGeometry( const GpuDriven::MeshPass pass, const uint32_t viewKey,
-                                                const GpuDriven::CullPhase                phase,
+                                                const GpuDriven::CullPhase               phase,
                                                 MeshRendererDetail::VirtualGeometryIssue issue )
     {
         const auto refuse = [this]( std::string message )
@@ -1080,9 +1091,10 @@ namespace Desert::Graphic::System
                                         static_cast<uint32_t>( pass ) ) );
         const bool post = phase == GpuDriven::CullPhase::PostOcclusion;
         if ( post && !view->PostOcclusion )
-            return refuse( std::format( "virtual geometry raster of pass {}, post-occlusion phase: the view has no "
-                                        "phase-2 issue (SetFramePostOcclusion first)",
-                                        static_cast<uint32_t>( pass ) ) );
+            return refuse(
+                 std::format( "virtual geometry raster of pass {}, post-occlusion phase: the view has no "
+                              "phase-2 issue (SetFramePostOcclusion first)",
+                              static_cast<uint32_t>( pass ) ) );
         MeshRendererDetail::BinnedIssue& target = post ? *view->PostOcclusion : view->Issue;
         const GpuDriven::PassDrawTable&  table  = *target.Table;
         if ( issue.GroupCount != table.Groups.size() )
@@ -1097,14 +1109,14 @@ namespace Desert::Graphic::System
                 continue;
             if ( indirect.VirtualGeometryPipeline == nullptr )
             {
-                // The binning still places a VG cluster of this group here: it is not drawn. A template without the
-                // permutation is a fallback (its meshes draw through the bins), not an error: said only for a twin
-                // the template declares.
+                // The binning still places a VG cluster of this group here: it is not drawn. A template without
+                // the permutation is a fallback (its meshes draw through the bins), not an error: said only for a
+                // twin the template declares.
                 const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
                 if ( DeclaresVirtualGeometryTwin( cell ) && m_BinnedRefused.insert( cell + "|vg" ).second )
                     LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` pipeline (no such cell, or it is "
-                                 "compiling): virtual-geometry clusters drawn with it are not rastered",
-                                 cell );
+                              "compiling): virtual-geometry clusters drawn with it are not rastered",
+                              cell );
                 continue;
             }
             std::string error;
@@ -1118,7 +1130,7 @@ namespace Desert::Graphic::System
     }
 
     const GraphicsPipeline* MeshRenderer::ResolveVirtualGeometryPipeline( const GpuDriven::MeshPass pass,
-                                                                         const GraphicsPipeline&   group )
+                                                                          const GraphicsPipeline&   group )
     {
         if ( pass != GpuDriven::MeshPass::GBuffer && pass != GpuDriven::MeshPass::Forward &&
              pass != GpuDriven::MeshPass::ShadowCascade && pass != GpuDriven::MeshPass::VirtualShadow )
@@ -1127,7 +1139,8 @@ namespace Desert::Graphic::System
         if ( !shader || !IsBinnedCell( shader->GetName() ) )
             return nullptr;
         // Static and Instanced (an ISM's group: its clusters are its instances', UE Nanite ISM).
-        if ( const auto path = MeshCellPath( shader->GetName() ); !path || !HasVirtualGeometryPermutation( *path ) )
+        if ( const auto path = MeshCellPath( shader->GetName() );
+             !path || !HasVirtualGeometryPermutation( *path ) )
             return nullptr;
         // A template without the permutation is a fallback (DeclaresVirtualGeometryTwin), not an error here.
         if ( !DeclaresVirtualGeometryTwin( shader->GetName() ) )
@@ -1154,7 +1167,7 @@ namespace Desert::Graphic::System
             // Phase 1's clusters are drawn; phase 2 rasters only the post cut's (SetFrameVirtualGeometry,
             // CullPhase::PostOcclusion).
             issue.VirtualGeometry.reset();
-            view.PostOcclusion                    = std::move( issue );
+            view.PostOcclusion = std::move( issue );
             return true;
         }
         return false;
@@ -1185,10 +1198,10 @@ namespace Desert::Graphic::System
     MeshRenderer::ClusterWalkView MeshRenderer::VirtualShadowWalkView() const
     {
         // The carriers AddVirtualShadowRasterPasses made (null until then, and for a refused group).
-        return ClusterWalkView{ .Pass           = GpuDriven::MeshPass::VirtualShadow,
-                                .RasterCarriers = m_VsmGeometry ? &m_VsmGeometry->VirtualGeometry->GroupCarriers
-                                                                : nullptr,
-                                .VirtualShadow  = true };
+        return ClusterWalkView{ .Pass = GpuDriven::MeshPass::VirtualShadow,
+                                .RasterCarriers =
+                                     m_VsmGeometry ? &m_VsmGeometry->VirtualGeometry->GroupCarriers : nullptr,
+                                .VirtualShadow = true };
     }
 
     MeshRenderer::ClusterWalkView MeshRenderer::UnbinnedWalkView( const GpuDriven::MeshPass pass ) const
@@ -1210,7 +1223,8 @@ namespace Desert::Graphic::System
     }
 
     const GraphicsPipeline* MeshRenderer::BinnedCellPipeline( const std::string&      cellShader,
-                                                              const GraphicsPipeline* passState, const bool twoSided )
+                                                              const GraphicsPipeline* passState,
+                                                              const bool              twoSided )
     {
         if ( passState == nullptr )
             return nullptr;
@@ -1227,12 +1241,14 @@ namespace Desert::Graphic::System
     {
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
         if ( !shader && m_BinnedRefused.insert( cellShader ).second )
-            LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.", cellShader );
+            LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.",
+                       cellShader );
         return shader;
     }
 
     const GraphicsPipeline* MeshRenderer::BinnedSpecPipeline( const std::string&            cellShader,
-                                                              GraphicsPipelineSpecification spec, const bool twoSided )
+                                                              GraphicsPipelineSpecification spec,
+                                                              const bool                    twoSided )
     {
         if ( twoSided )
             spec.CullMode = CullMode::None; // CullPermutation's rule
@@ -1253,7 +1269,8 @@ namespace Desert::Graphic::System
                 // default surface while their own cell compiles too, and the cache re-resolves them the frame
                 // this one leaves the driver (FeedDrawCommandCache); until then the frame is not the scene's
                 // picture (GetStandInDraws).
-                if ( std::ranges::none_of( m_BinnedAwaiting, [&pipeline]( const std::weak_ptr<GraphicsPipeline>& w )
+                if ( std::ranges::none_of( m_BinnedAwaiting,
+                                           [&pipeline]( const std::weak_ptr<GraphicsPipeline>& w )
                                            { return w.lock() == pipeline; } ) )
                     m_BinnedAwaiting.push_back( pipeline );
                 return nullptr;
@@ -1261,24 +1278,26 @@ namespace Desert::Graphic::System
                 break;
         }
         if ( m_BinnedRefused.insert( cellShader ).second )
-            LOG_ERROR( "[MeshRenderer] binned cell '{}' did not compile; its draws stay on the CPU path.", cellShader );
+            LOG_ERROR( "[MeshRenderer] binned cell '{}' did not compile; its draws stay on the CPU path.",
+                       cellShader );
         return nullptr;
     }
 
-    GpuDriven::PassPipelineResolution MeshRenderer::ResolveBinnedPipeline( const GpuDriven::MeshPass       pass,
-                                                                           const GpuDriven::PrimitiveIndex primitive,
-                                                                           const uint32_t                  materialRow )
+    GpuDriven::PassPipelineResolution
+    MeshRenderer::ResolveBinnedPipeline( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive,
+                                         const uint32_t materialRow )
     {
         using GpuDriven::BinFallback;
         const auto fallback = []( const BinFallback reason )
         { return GpuDriven::PassPipelineResolution{ nullptr, reason }; };
-        const auto binned   = []( const GraphicsPipeline* pipeline )
+        const auto binned = []( const GraphicsPipeline* pipeline )
         {
-            return GpuDriven::PassPipelineResolution{ pipeline, pipeline != nullptr ? BinFallback::None
-                                                                                    : BinFallback::PipelineUnavailable };
+            return GpuDriven::PassPipelineResolution{
+                 pipeline, pipeline != nullptr ? BinFallback::None : BinFallback::PipelineUnavailable };
         };
-        // The VSM's own table is resolved only while the sun shadow is the virtual shadow map (FeedDrawCommandCache
-        // re-resolves on a method change): under cascades no draw is in it and no VSM state or cell is built.
+        // The VSM's own table is resolved only while the sun shadow is the virtual shadow map
+        // (FeedDrawCommandCache re-resolves on a method change): under cascades no draw is in it and no VSM state
+        // or cell is built.
         if ( pass == GpuDriven::MeshPass::VirtualShadow && !m_BinnedVirtualShadow )
             return {};
         const BinnedPrimitiveFeed* feed = nullptr;
@@ -1286,12 +1305,12 @@ namespace Desert::Graphic::System
             feed = &it->second;
         else if ( const auto held = m_BinnedFeed.find( primitive ); held != m_BinnedFeed.end() )
             feed = &held->second;
-        if ( feed == nullptr || materialRow >= m_RowSurfaces.size() || m_RowSurfaces[materialRow].Surface == nullptr )
+        if ( feed == nullptr || materialRow >= m_RowSurfaces.size() ||
+             m_RowSurfaces[materialRow].Surface == nullptr )
             return fallback( BinFallback::NoMaterialRow );
-        const RowSurface& row = m_RowSurfaces[materialRow];
-        const std::array<const GraphicsPipeline*, 3> casterStates{ m_ShadowPipeline.get(),
-                                                                   m_ShadowInstancedPipeline.get(),
-                                                                   m_ShadowSkinnedPipeline.get() };
+        const RowSurface&                            row = m_RowSurfaces[materialRow];
+        const std::array<const GraphicsPipeline*, 3> casterStates{
+             m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get() };
         // The virtual shadow map's caster states (EnsureVirtualShadowPipelines: no attachment, depth clamp), its
         // own table's (VIRT-GEOM step 17): what its groups' `.VirtualGeometry` twins draw the clusters of every
         // level with. Built on first ask; a refusal leaves the pass unbinned (its casters are the CPU walk's).
@@ -1303,7 +1322,8 @@ namespace Desert::Graphic::System
             // The generic casters' rule: the default surface's opaque Static caster, never the program's own.
             const bool     vsm        = pass == GpuDriven::MeshPass::VirtualShadow;
             const MeshPass casterPass = vsm ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
-            const auto     defaultCell = MeshRendererDetail::DefaultSurfaceShaderName( MeshVertexPath::Static, casterPass );
+            const auto     defaultCell =
+                 MeshRendererDetail::DefaultSurfaceShaderName( MeshVertexPath::Static, casterPass );
             if ( !defaultCell )
                 return fallback( BinFallback::NoBinnedCell );
             return binned(
@@ -1313,18 +1333,20 @@ namespace Desert::Graphic::System
             return ResolveGenericProgramBinned( pass, row );
         if ( IsTranslucentSurface( row.Surface ) )
             return {}; // translucency is sorted per view, never binned
-        // A bin's draws share one PSO and one descriptor set: a texture bound per material (a TextureBinding) would
-        // be the first draw's for all of them. Row textures (BindlessTexture slots) travel with the material row.
+        // A bin's draws share one PSO and one descriptor set: a texture bound per material (a TextureBinding)
+        // would be the first draw's for all of them. Row textures (BindlessTexture slots) travel with the material
+        // row.
         if ( !row.Surface->GetMaterialLayout().Textures.empty() )
         {
             if ( m_BinnedRefused.insert( row.Surface->GetShaderName() + "|bound" ).second )
-                LOG_ERROR( "[MeshRenderer] '{}' binds {} texture(s) per material (TextureBinding); its draws stay on "
-                           "the CPU path. Its textures belong in the material row (BindlessTexture).",
-                           row.Surface->GetShaderName(), row.Surface->GetMaterialLayout().Textures.size() );
+                LOG_ERROR(
+                     "[MeshRenderer] '{}' binds {} texture(s) per material (TextureBinding); its draws stay on "
+                     "the CPU path. Its textures belong in the material row (BindlessTexture).",
+                     row.Surface->GetShaderName(), row.Surface->GetMaterialLayout().Textures.size() );
             return fallback( BinFallback::BoundTextures );
         }
         const MeshVertexPath path = feed->Path;
-        const size_t pathIndex = path == MeshVertexPath::Static ? 0 : path == MeshVertexPath::Instanced ? 1 : 2;
+        const size_t pathIndex    = path == MeshVertexPath::Static ? 0 : path == MeshVertexPath::Instanced ? 1 : 2;
         const std::string&     surface  = row.Surface->GetShaderName();
         const std::string_view templ    = std::string_view( surface ).substr( 0, surface.find( '/' ) );
         const bool             parallax = IsParallaxCell( surface );
@@ -1364,13 +1386,14 @@ namespace Desert::Graphic::System
             {
                 // Static and movable casters share the pass's bins; the cull splits them into the cascade cache's
                 // layers by PrimitiveFlags::kMovableCaster (skinned, swaying), SyncGpuScene's bit.
-                const auto defaultCell = MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
+                const auto defaultCell =
+                     MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
                 if ( !defaultCell )
                     return fallback( BinFallback::NoBinnedCell );
                 const std::string_view defaultTemplate =
                      std::string_view( *defaultCell ).substr( 0, defaultCell->find( '/' ) );
-                const auto cell =
-                     ShadowCasterShaderFor( templ, defaultTemplate, row.Surface->GetSchema().Blend, parallax, path );
+                const auto cell = ShadowCasterShaderFor( templ, defaultTemplate, row.Surface->GetSchema().Blend,
+                                                         parallax, path );
                 if ( !cell )
                     return fallback( BinFallback::NoBinnedCell );
                 // The casters' state culls nothing already: a two-sided material changes no state there.
@@ -1380,13 +1403,15 @@ namespace Desert::Graphic::System
                 return {}; // a surface is in the G-buffer; this pass holds the generic programs (above)
             case GpuDriven::MeshPass::VirtualShadow:
             {
-                // The VSM's own table (UE: the VSM mesh pass's cached commands): the cascade rule with the VSM cell.
-                // Its bins are not issued yet - the levels' CPU walk draws every non-cluster caster through its
-                // per-page remap ("VSM: Cull Casters"); the table is what the clusters of every level are binned
-                // into and rastered by ("VSM: Raster VirtualGeometry", MeshRenderer::SetVirtualShadowGeometry).
-                // A movable caster (skinned, swaying) stays out of it: the cluster raster draws rest-pose geometry
-                // into cached pages, so its clusters would cast the unanimated shape; the CPU walk redraws it.
-                if ( path == MeshVertexPath::Skinned || ( feed->Flags & GpuDriven::PrimitiveFlags::kMovableCaster ) != 0 )
+                // The VSM's own table (UE: the VSM mesh pass's cached commands): the cascade rule with the VSM
+                // cell. Its bins are not issued yet - the levels' CPU walk draws every non-cluster caster through
+                // its per-page remap ("VSM: Cull Casters"); the table is what the clusters of every level are
+                // binned into and rastered by ("VSM: Raster VirtualGeometry",
+                // MeshRenderer::SetVirtualShadowGeometry). A movable caster (skinned, swaying) stays out of it:
+                // the cluster raster draws rest-pose geometry into cached pages, so its clusters would cast the
+                // unanimated shape; the CPU walk redraws it.
+                if ( path == MeshVertexPath::Skinned ||
+                     ( feed->Flags & GpuDriven::PrimitiveFlags::kMovableCaster ) != 0 )
                     return fallback( BinFallback::MovableCaster );
                 const auto defaultCell =
                      MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::VirtualShadowDepth );
@@ -1430,14 +1455,15 @@ namespace Desert::Graphic::System
         if ( !row.Surface->GetMaterialLayout().Textures.empty() )
         {
             if ( m_BinnedRefused.insert( program + "|bound" ).second )
-                LOG_ERROR( "[MeshRenderer] '{}' binds {} texture(s) per material (TextureBinding); its draws stay on "
-                           "the CPU path. Its textures belong in the material row (BindlessTexture).",
-                           program, row.Surface->GetMaterialLayout().Textures.size() );
+                LOG_ERROR(
+                     "[MeshRenderer] '{}' binds {} texture(s) per material (TextureBinding); its draws stay on "
+                     "the CPU path. Its textures belong in the material row (BindlessTexture).",
+                     program, row.Surface->GetMaterialLayout().Textures.size() );
             return fallback( BinFallback::BoundTextures );
         }
-        const std::string cell = std::format( "{}/{}", program,
+        const std::string             cell       = std::format( "{}/{}", program,
                                               forward ? Core::Preprocess::kGenericForwardBinnedPass
-                                                      : Core::Preprocess::kGenericDepthNormalBinnedPass );
+                                                                        : Core::Preprocess::kGenericDepthNormalBinnedPass );
         const std::shared_ptr<Shader> cellShader = BinnedCellShader( cell );
         if ( !cellShader )
             return fallback( BinFallback::NoBinnedCell );
@@ -1451,8 +1477,8 @@ namespace Desert::Graphic::System
         }
         const bool twoSided = row.Instance != nullptr ? row.Instance->IsTwoSided() : row.Surface->IsTwoSided();
         const GraphicsPipeline* const pipeline = BinnedSpecPipeline( cell, std::move( spec ), twoSided );
-        return GpuDriven::PassPipelineResolution{ pipeline, pipeline != nullptr ? BinFallback::None
-                                                                                : BinFallback::PipelineUnavailable };
+        return GpuDriven::PassPipelineResolution{
+             pipeline, pipeline != nullptr ? BinFallback::None : BinFallback::PipelineUnavailable };
     }
 
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
@@ -1567,15 +1593,16 @@ namespace Desert::Graphic::System
         skinned.clear();
         skinned.reserve( m_SkinnedQueue.size() );
         for ( const auto& data : m_SkinnedQueue )
-            skinned.push_back( { .Entity = data.Entity,
-                                 .World  = data.Transform,
-                                 .Bones  = data.BoneMatrices,
-                                 .Mesh    = data.Mesh,
-                                 .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ),
-                                 .Content = skinnedContent( data ) } );
+            skinned.push_back(
+                 { .Entity  = data.Entity,
+                   .World   = data.Transform,
+                   .Bones   = data.BoneMatrices,
+                   .Mesh    = data.Mesh,
+                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ),
+                   .Content = skinnedContent( data ) } );
 
-        // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway), which
-        // the binned instanced vertex stage reads from the row instead of the push block.
+        // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway),
+        // which the binned instanced vertex stage reads from the row instead of the push block.
         const auto primitiveWind = []( const InstanceWind& wind ) -> GpuDriven::PrimitiveWind
         {
             if ( !wind.Sways() )
@@ -1598,9 +1625,9 @@ namespace Desert::Graphic::System
                                 .CullDistanceEnd   = data.CullDistance.Max,
                                 .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
                                          ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
-                                .BoundsPad         = WindBoundsPad( data.Wind ),
-                                .Content           = fieldContent( data ),
-                                .Wind              = primitiveWind( data.Wind ) } );
+                                .BoundsPad = WindBoundsPad( data.Wind ),
+                                .Content   = fieldContent( data ),
+                                .Wind      = primitiveWind( data.Wind ) } );
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );

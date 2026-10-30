@@ -44,7 +44,8 @@ namespace Desert::Graphic::System
         const FrameBinnedView* const binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
         if ( binned == nullptr || !binned->PostOcclusion )
             return;
-        // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred: GBuffer".
+        // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred:
+        // GBuffer".
         m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
         m_GBufferPostDraws.Declare( pass, view );
     }

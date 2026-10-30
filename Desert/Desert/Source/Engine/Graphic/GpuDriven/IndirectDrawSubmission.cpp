@@ -15,7 +15,7 @@ namespace Desert::Graphic::GpuDriven
         return { .Submission = IndirectSubmission::DrawIndexedIndirectPerRecord, .MaxDrawsPerCall = 1u };
     }
 
-    Common::BoolResultStr RecordIndirectGroups( RendererAPI&                             api,
+    Common::BoolResultStr RecordIndirectGroups( RendererAPI&                              api,
                                                 std::span<const RDG::PassBindings* const> groupBindings,
                                                 std::span<const MaterialExecutor* const>  groupMaterials,
                                                 const IndirectSubmissionMode& mode, const PassDrawTable& pass,
@@ -40,9 +40,10 @@ namespace Desert::Graphic::GpuDriven
                                                    indirect.Pipeline == nullptr ? "pipeline" : "geometry" );
             MeshIndirectGroupDraw draw;
             draw.Args = draws.IndirectDraws;
-            // This view's records start at FirstIndirectDraw (the views of a pass share one table, InstanceCulling).
-            draw.ArgsOffset      = ( uint64_t{ draws.FirstIndirectDraw } + indirect.FirstBin ) * kIndirectDrawStride;
-            draw.MaxDraws        = indirect.BinCount;
+            // This view's records start at FirstIndirectDraw (the views of a pass share one table,
+            // InstanceCulling).
+            draw.ArgsOffset = ( uint64_t{ draws.FirstIndirectDraw } + indirect.FirstBin ) * kIndirectDrawStride;
+            draw.MaxDraws   = indirect.BinCount;
             draw.Stride          = kIndirectDrawStride;
             draw.MaxDrawsPerCall = mode.MaxDrawsPerCall;
             draw.Material        = groupMaterials[group];

@@ -16,8 +16,9 @@ namespace Desert::Editor
     namespace
     {
         // Why the material @p slot names cannot be drawn by the cluster raster; nullopt when it can. Only
-        // Translucent / Additive refuse; an Opaque or Masked material on any shader, import template or not, stands
-        // (a Masked one clips in its `.VirtualGeometry` cells, Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_CLIP).
+        // Translucent / Additive refuse; an Opaque or Masked material on any shader, import template or not,
+        // stands (a Masked one clips in its `.VirtualGeometry` cells, Mesh/Surface/SurfaceTypes.glslh
+        // DESERT_SURFACE_CLIP).
         std::optional<std::string> MaterialRefusal( const Assets::MeshMaterialSlot& slot,
                                                     const std::filesystem::path&    source )
         {

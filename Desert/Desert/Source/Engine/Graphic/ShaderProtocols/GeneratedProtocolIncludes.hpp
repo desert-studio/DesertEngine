@@ -70,8 +70,8 @@ namespace Desert::Graphic::ShaderProtocols
                    "(material row / terrain layer arrays) or a reserved range already holds" );
 
     /// The include path of the set-0/set-1 slot table (Core::kSceneBindingNames, ShaderGraphBindings.hpp): every
-    /// scene-read, fog, virtual shadow, virtual geometry and graph-window slot as `#define <C++ name> <number>`, so a
-    /// shader declares `layout( binding = kSceneFogVolumeBinding )` and never repeats the number.
+    /// scene-read, fog, virtual shadow, virtual geometry and graph-window slot as `#define <C++ name> <number>`,
+    /// so a shader declares `layout( binding = kSceneFogVolumeBinding )` and never repeats the number.
     inline constexpr std::string_view kSceneBindingsInclude = "Generated/SceneBindings.glslh";
 
     [[nodiscard]] inline const std::string& SceneBindingsGlsl()

@@ -114,11 +114,14 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)", 64,
                Vis::Advanced },
              { P::VolumetricFog, G::Effects, "Effects.VolumetricFog", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> VolumetricFogRenderer (\"VolumetricFog\" passes run)", 1, Vis::Basic },
+               "SceneRenderer::BeginScene -> VolumetricFogRenderer (\"VolumetricFog\" passes run)", 1,
+               Vis::Basic },
              { P::VolumetricFogGridPixelSize, G::Effects, "Effects.VolumetricFogGridPixelSize", 4, 32, CL::None,
-               "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel columns)", 8, Vis::Advanced },
+               "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel columns)", 8,
+               Vis::Advanced },
              { P::VolumetricFogGridSizeZ, G::Effects, "Effects.VolumetricFogGridSizeZ", 32, 256, CL::None,
-               "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel slices)", 128, Vis::Advanced },
+               "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel slices)", 128,
+               Vis::Advanced },
              { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
                "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")",
                1, Vis::Advanced },
@@ -410,11 +413,13 @@ namespace Common::Scalability
                60, Vis::Advanced },
              { P::ViewDistanceVirtualGeometryMaxPixelsPerEdge, G::ViewDistance,
                "ViewDistance.VirtualGeometryMaxPixelsPerEdge", 1, 1000, CL::None,
-               "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD cut, "
+               "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD "
+               "cut, "
                "tenths of a pixel)",
                10, Vis::Advanced },
              { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
-               "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on the "
+               "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on "
+               "the "
                "compute queue family)",
                1, Vis::Advanced },
         } };

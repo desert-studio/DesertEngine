@@ -191,11 +191,10 @@ namespace Desert::Geometry
             const float* weights = nullptr;
             if ( mesh.Attributes )
                 weights = kSimplifyAttributeWeights;
-            error                            = 0.0f;
+            error = 0.0f;
             out.resize( meshopt_simplifyWithAttributes(
                  out.data(), merged.data(), merged.size(), mesh.Positions, mesh.VertexCount, sizeof( float ) * 3,
-                 mesh.Attributes, sizeof( float ) * attributeCount,
-                 weights, attributeCount, locks.data(), target,
+                 mesh.Attributes, sizeof( float ) * attributeCount, weights, attributeCount, locks.data(), target,
                  std::numeric_limits<float>::max(), kOptions, &error ) );
             return out;
         }

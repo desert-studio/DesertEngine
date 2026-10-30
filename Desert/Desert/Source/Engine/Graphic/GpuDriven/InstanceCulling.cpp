@@ -366,19 +366,20 @@ namespace Desert::Graphic::GpuDriven
             push.Params2 = { hasBins ? bins : 0u, capacity,
                              hasBins ? static_cast<uint32_t>( table.PrimitiveDraws.size() ) : 0u,
                              hasHzb ? 1u : 0u };
-            push.Params3 = appendsVg ? glm::uvec4( virtualGeometry.PrimitiveRows, virtualGeometry.Capacity, 0u, 0u )
-                                     : glm::uvec4( 0u );
+            push.Params3 = appendsVg
+                                ? glm::uvec4( virtualGeometry.PrimitiveRows, virtualGeometry.Capacity, 0u, 0u )
+                                : glm::uvec4( 0u );
             AddStep( graph, std::format( "GPUDriven: Cull Init Draws P{}", p ), *m_Program, scene, binds, push,
                      uint64_t{ local } * std::max( bins, 1u ), false );
             push.Params.x = kStepMain;
             AddStep( graph, std::format( "GPUDriven: Cull Phase 1 P{}", p ), *m_Program, scene, binds, push,
                      uint64_t{ local } * instances, false );
             for ( uint32_t k = 0; k < local; ++k )
-                result.Draws[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
-                                                          .VisibleInstances  = binds.Visible,
+                result.Draws[groups[p][k]] = CulledDraws{ .IndirectDraws      = binds.Draws,
+                                                          .VisibleInstances   = binds.Visible,
                                                           .VisibleInstanceIds = binds.VisibleIds,
-                                                          .FirstIndirectDraw = k * bins,
-                                                          .VisibleRowEnd     = ( k + 1u ) * capacity };
+                                                          .FirstIndirectDraw  = k * bins,
+                                                          .VisibleRowEnd      = ( k + 1u ) * capacity };
         }
         return Common::MakeSuccess( std::move( result ) );
     }
@@ -472,11 +473,11 @@ namespace Desert::Graphic::GpuDriven
             AddStep( graph, std::format( "GPUDriven: Cull Phase 2 P{}", p ), *m_Program, scene, binds, push, 0u,
                      true );
             for ( uint32_t k = 0; k < local; ++k )
-                result[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
-                                                    .VisibleInstances  = binds.Visible,
-                                                          .VisibleInstanceIds = binds.VisibleIds,
-                                                    .FirstIndirectDraw = k * bins,
-                                                    .VisibleRowEnd     = ( k + 1u ) * table.VisibleCapacity };
+                result[groups[p][k]] = CulledDraws{ .IndirectDraws      = binds.Draws,
+                                                    .VisibleInstances   = binds.Visible,
+                                                    .VisibleInstanceIds = binds.VisibleIds,
+                                                    .FirstIndirectDraw  = k * bins,
+                                                    .VisibleRowEnd      = ( k + 1u ) * table.VisibleCapacity };
         }
         return Common::MakeSuccess( std::move( result ) );
     }

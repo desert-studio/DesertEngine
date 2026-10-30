@@ -39,9 +39,10 @@ namespace Desert::Assets
              // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
              // tangent frames together; 10: UV weighs 0.5 in the reduction
              // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
-             // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over position-welded
-             // topology; 4: LODs reduced to the ratio with normal/UV attributes, no error cap / MikkTSpace tangent
-             // frames (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2: sections named by slot
+             // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over
+             // position-welded topology; 4: LODs reduced to the ratio with normal/UV attributes, no error cap /
+             // MikkTSpace tangent frames (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2:
+             // sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings

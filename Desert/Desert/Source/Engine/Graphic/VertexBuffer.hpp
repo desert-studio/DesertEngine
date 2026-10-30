@@ -264,14 +264,6 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
         }
 
-        // The device address of the buffer's first byte (VIRT-GEOM: the cluster passes read a pooled mesh's spans
-        // by address, GpuClusterDag). 0 = it has none: not a Pooled buffer, not resident, or a device without
-        // bufferDeviceAddress. Stable while the buffer lives (a Pooled buffer never grows, GeometryPool.hpp).
-        [[nodiscard]] virtual uint64_t GetDeviceAddress() const
-        {
-            return 0;
-        }
-
         // @p file / @p line name the ledger row after the line that asked for the buffer: a vertex buffer has no
         // name of its own, and a row a closing view leaves behind has to say WHOSE it is (EDITOR-LOG-CLEAN).
         // __builtin_FILE/__builtin_LINE rather than std::source_location::current(): Apple clang 15 evaluates

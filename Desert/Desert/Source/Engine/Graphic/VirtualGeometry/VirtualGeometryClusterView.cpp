@@ -112,10 +112,12 @@ namespace Desert::Graphic::VirtualGeometry
         if ( !m_Declared || !m_Pipeline )
             return BOOLSUCCESS;
         RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
-        const ClusterViewPush push{ .ViewProjection = m_Draw.ViewProjection, .VisibleCapacity = m_Draw.VisibleCapacity };
+        const ClusterViewPush push{ .ViewProjection  = m_Draw.ViewProjection,
+                                    .VisibleCapacity = m_Draw.VisibleCapacity };
         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         // vertexCount = kClusterMaxTriangles x 3 (the cut wrote it, VirtualGeometryRenderer.cpp RasterArgs).
-        return Renderer::DrawProceduralIndirect( bindings, *m_Pipeline, nullptr, m_Draw.RasterArgs, kHwDrawOffset );
+        return Renderer::DrawProceduralIndirect( bindings, *m_Pipeline, nullptr, m_Draw.RasterArgs,
+                                                 kHwDrawOffset );
     }
 } // namespace Desert::Graphic::VirtualGeometry
 #endif // DESERT_DEV_INSTRUMENTS

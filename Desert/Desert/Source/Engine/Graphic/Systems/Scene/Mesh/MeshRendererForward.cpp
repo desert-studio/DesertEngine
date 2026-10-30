@@ -503,9 +503,10 @@ namespace Desert::Graphic::System
                     m_GenericPrepassed.insert( &g );
                     // Admitted, so "Deferred: Generic" shades it; its depth and normal come from the DepthPrepass
                     // bins (the "depthPrepass" cull view, AttachBinned) when they hold every visible submesh - the
-                    // view's CPU walk rule (CpuWalkHidden; a VG candidate is in no bin and no raster here: walked).
-                    if ( !CpuWalkHidden( BinnedWalkView( GpuDriven::MeshPass::DepthPrepass, kBinnedMainView ), g.Mesh,
-                                         g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                    // view's CPU walk rule (CpuWalkHidden; a VG candidate is in no bin and no raster here:
+                    // walked).
+                    if ( !CpuWalkHidden( BinnedWalkView( GpuDriven::MeshPass::DepthPrepass, kBinnedMainView ),
+                                         g.Mesh, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
                         continue;
                 }
                 if ( choice.UseOwnPipeline )
@@ -1409,9 +1410,14 @@ namespace Desert::Graphic::System
         // is issued from them; a VG primitive (out of the bins, the cluster raster's) is walked for every submesh
         // the raster does not draw - a refused cut / carrier or a twin-less group leaves it to its own submeshes.
         // The masks that differ from an entry's own HiddenSubmeshes (a partly clustered VG entry) are kept here.
+        // The forward depth prepass walks every record (no bins are attached to it): the base pass's binned draws
+        // test against the depth it wrote.
         const ClusterWalkView mainWalk =
-             BinnedWalkView( m_DeferredGeometry ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
-                             kBinnedMainView );
+             m_GeometryPass == MeshPass::Depth
+                  ? UnbinnedWalkView( GpuDriven::MeshPass::DepthPrepass )
+                  : BinnedWalkView( m_GeometryPass == MeshPass::GBuffer ? GpuDriven::MeshPass::GBuffer
+                                                                        : GpuDriven::MeshPass::Forward,
+                                    kBinnedMainView );
         std::unordered_map<const StaticMeshRenderData*, SubmeshMask> walked;
         const auto hiddenOf = [&walked]( const StaticMeshRenderData* obj ) -> SubmeshMask
         {
@@ -1424,7 +1430,8 @@ namespace Desert::Graphic::System
                 continue;
 
             // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
-            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling work.
+            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
+            // work.
             const std::optional<SubmeshMask> walk =
                  CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
             if ( !walk )
@@ -1687,7 +1694,8 @@ namespace Desert::Graphic::System
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
             // section of its twins, one mask for the whole instanced draw.
             std::vector<std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<ObjDraw>>> byMesh;
-            const auto bucketFor = [&]( Desert::StaticMesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            const auto bucketFor = [&]( Desert::StaticMesh* mesh,
+                                        const SubmeshMask   hidden ) -> std::vector<ObjDraw>&
             {
                 for ( auto& [key, v] : byMesh )
                     if ( key.first == mesh && key.second == hidden )
@@ -2262,10 +2270,13 @@ namespace Desert::Graphic::System
                 continue;
             for ( const auto& section : data.Sections )
                 if ( section.Material != nullptr && section.Instance != nullptr &&
-                     CpuWalkHidden( BinnedWalkView( gbuffer ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
-                                                    kBinnedMainView ),
-                                    /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive,
-                                    section.HiddenSubmeshes ) )
+                     CpuWalkHidden(
+                          cellPass == MeshPass::Depth
+                               ? UnbinnedWalkView( GpuDriven::MeshPass::DepthPrepass )
+                               : BinnedWalkView( cellPass == MeshPass::GBuffer ? GpuDriven::MeshPass::GBuffer
+                                                                               : GpuDriven::MeshPass::Forward,
+                                                 kBinnedMainView ),
+                          /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive, section.HiddenSubmeshes ) )
                     if ( DataDrivenMaterial* const mat = passMaterial( section.Material ) )
                         groupFor( mat ).push_back( { &data, &section } );
         }

@@ -47,9 +47,9 @@ namespace Desert::Core
      * THE RESERVED SCENE-READ RANGE: set-0 slots a VIEW-pass surface cell reads per-(frame x view) scene data at,
      * bound by name — the scene's GpuScene primitive table (`GpuScenePrimitives`) and the scene's bone palettes
      * (`ObjectBones`), both declared by Common/GpuScene.glslh and bound by Graphic::SceneFrameBinding::ApplyTo
-     * (TAA1 step 4), and the view's scene depth (`SceneDepthTexture`) the particle-sprite cell reads for Depth Fade,
-     * declared by Mesh/Surface/SurfaceTypes.glslh and bound by ParticleRenderer. The depth had sat at 26 on its
-     * own, i.e. on top of the bone palettes in every sprite cell — a per-view scene read is exactly what this
+     * (TAA1 step 4), and the view's scene depth (`SceneDepthTexture`) the particle-sprite cell reads for Depth
+     * Fade, declared by Mesh/Surface/SurfaceTypes.glslh and bound by ParticleRenderer. The depth had sat at 26 on
+     * its own, i.e. on top of the bone palettes in every sprite cell — a per-view scene read is exactly what this
      * range is for, so it takes the range's third slot rather than a number of its own.
      *
      * They need fixed numbers because one header declares them into EVERY view-pass cell of EVERY surface
@@ -183,10 +183,10 @@ namespace Desert::Core
      */
     inline constexpr uint32_t kVirtualGeometryRasterBindingFirst =
          kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
-    inline constexpr uint32_t kVgRasterClustersBinding        = kVirtualGeometryRasterBindingFirst;
-    inline constexpr uint32_t kVgRasterDagsBinding            = kVirtualGeometryRasterBindingFirst + 1u;
-    inline constexpr uint32_t kVgRasterVisibleClustersBinding = kVirtualGeometryRasterBindingFirst + 2u;
-    inline constexpr uint32_t kVgRasterPrimitiveDrawsBinding  = kVirtualGeometryRasterBindingFirst + 3u;
+    inline constexpr uint32_t kVgRasterClustersBinding           = kVirtualGeometryRasterBindingFirst;
+    inline constexpr uint32_t kVgRasterDagsBinding               = kVirtualGeometryRasterBindingFirst + 1u;
+    inline constexpr uint32_t kVgRasterVisibleClustersBinding    = kVirtualGeometryRasterBindingFirst + 2u;
+    inline constexpr uint32_t kVgRasterPrimitiveDrawsBinding     = kVirtualGeometryRasterBindingFirst + 3u;
     inline constexpr uint32_t kVirtualGeometryRasterBindingCount = 4u;
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
@@ -207,15 +207,15 @@ namespace Desert::Core
 
     /**
      * THE SSR PROGRAM'S FRONT-LAYER READS (Programs/Deferred/SSR.shader under DESERT_REFLECTIONS_FRONT_LAYER,
-     * Common/SSRTrace.glslh): the translucent front layer's normal/roughness (`FrontLayerNormalTexture`) and device
-     * depth (`FrontLayerDepthTexture`), bound by name (SSRRenderer DeclareFrontLayerReads).
+     * Common/SSRTrace.glslh): the translucent front layer's normal/roughness (`FrontLayerNormalTexture`) and
+     * device depth (`FrontLayerDepthTexture`), bound by name (SSRRenderer DeclareFrontLayerReads).
      *
      * SET 1, because set 0 has no slot for them outside every shared range: the traced permutation they ride on
-     * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI tracer
-     * at 23..33 and the surface cache at 34..40), 25..61 are the scene-read and raster ranges, and 62 up is the
-     * graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at 50/51,
-     * inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header SSR.shader
-     * includes declares into it; the deferred composite parks its own extra reads there the same way
+     * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI
+     * tracer at 23..33 and the surface cache at 34..40), 25..61 are the scene-read and raster ranges, and 62 up is
+     * the graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at
+     * 50/51, inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header
+     * SSR.shader includes declares into it; the deferred composite parks its own extra reads there the same way
      * (Programs/Deferred/DeferredLighting.shader GiBackfaceTexture).
      */
     inline constexpr uint32_t kSsrFrontLayerSet           = 1u;
@@ -227,17 +227,21 @@ namespace Desert::Core
      * (`#define kSceneFogVolumeBinding 48`; Graphic::ShaderProtocols::SceneBindingsGlsl, served by the shader
      * includer and hashed by the cache key like every generated protocol include - there is no file on disk to
      * edit). A shader never spells one of these numbers: it includes that header and writes
-     * `layout( binding = kSceneFogVolumeBinding )`, so moving a range here moves every declaration with it, and the
-     * changed generated text recompiles every program that reads one. One name in both languages, so
-     * sym.sh --refs finds the C++ binder and the GLSL declaration together. A slot added above without a row here
-     * is a name no shader can spell: the shader that needs it fails to compile, naming it.
+     * `layout( binding = kSceneFogVolumeBinding )`, so moving a range here moves every declaration with it, and
+     * the changed generated text recompiles every program that reads one. One name in both languages, so sym.sh
+     * --refs finds the C++ binder and the GLSL declaration together. A slot added above without a row here is a
+     * name no shader can spell: the shader that needs it fails to compile, naming it.
      */
     struct SceneBindingName
     {
         std::string_view Name;
         uint32_t         Value = 0;
     };
-#define DESERT_SCENE_BINDING_ROW( constant ) SceneBindingName{ #constant, constant }
+#define DESERT_SCENE_BINDING_ROW( constant )                                                                      \
+    SceneBindingName                                                                                              \
+    {                                                                                                             \
+        #constant, constant                                                                                       \
+    }
     inline constexpr std::array kSceneBindingNames = {
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kGpuScenePrimitivesBinding ),
