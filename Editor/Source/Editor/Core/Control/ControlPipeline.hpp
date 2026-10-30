@@ -58,7 +58,6 @@ namespace Desert::Editor::Control
         ControlNudge,       ///< a control-rig nudge is queued, or has been applied but not yet drawn
         PointerDrag,        ///< a `drag` is still feeding ImGui, or its release has not been drawn yet
         GameTime,           ///< an `advance` is waiting for Play's simulated clock to reach its mark
-        FrameWait,          ///< a `frames` wait has not yet seen as many presented frames as it asked for
         ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
@@ -85,7 +84,6 @@ namespace Desert::Editor::Control
          "a control-rig nudge has not reached a drawn frame yet",
          "a pointer drag is still playing",
          "Play's simulated time has not yet advanced as far as asked",
-         "a 'frames' wait has not yet seen its frames presented",
          "the reflection captures are still being filled for the first time",
          "textures are still streaming in",
          "a modeling tool's Accept is waiting for its background compute",

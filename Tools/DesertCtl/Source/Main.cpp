@@ -86,8 +86,6 @@ namespace
              "                                minus the panel's corner\n"
              "  advance <seconds>             during Play: answered once the simulated clock has\n"
              "                                moved on that far (0 < seconds <= 2)\n"
-             "  frames <count>                answered once that many frames have been presented\n"
-             "                                since it ran (1 <= count <= 600); nothing is input\n"
              "  quit [code]                   end the session with that exit status\n"
              "  nn-check                      run the NN layer's fused MLP on the GPU against its CPU\n"
              "                                reference: machine.json's forced kernel path, or every\n"
@@ -554,18 +552,6 @@ static int RunTool( int argc, char** argv )
         if ( !NumberArray( rest[1], seconds ) )
             return kNoEditor;
         request = R"({"id":1,"op":"advance","value":)" + seconds + "}";
-    }
-    else if ( operation == "frames" )
-    {
-        // One whole number: the editor answers after that many presented frames -- the scenario's wait for a
-        // temporal history, stated as one op instead of N idle inputs. The range is the editor's to refuse.
-        if ( rest.size() != 2 || rest[1].empty() ||
-             rest[1].find_first_not_of( "0123456789" ) != std::string::npos )
-        {
-            std::fprintf( stderr, "desertctl: frames needs <count>, a whole number of frames.\n" );
-            return kNoEditor;
-        }
-        request = R"({"id":1,"op":"frames","count":)" + rest[1] + "}";
     }
     else if ( operation == "quit" )
     {

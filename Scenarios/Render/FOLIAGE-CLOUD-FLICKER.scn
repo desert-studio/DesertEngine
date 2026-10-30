@@ -13,8 +13,8 @@
 Дано --subject viewport set Camera.Direction 0.15,0.25,-1
 Тогда-вид 1_a camera at 0.4 m looking up: grass blades and canopy edges over clouds, crisp, no cloud on the blades
 Тогда-вид 1_b the very next frame: identical to 1_a at every blade and leaf edge over the sky (<= 2/255)
-# 30 presented frames between 1_b and 2_a: play_scenario maps the step below to DesertCtl `frames 30`,
+# 30 presented frames between 1_b and 2_a: DesertCtl `frames 30` (SCN-VERBS op),
 # answered by the editor after 30 presented frames; nothing is input, so neither camera nor TAA history moves.
-Когда 30 frames render
+Когда frames 30
 Тогда-вид 2_a 30 frames later, same camera: identical to 1_a
 Тогда-вид 2_b the next frame: identical to 2_a
