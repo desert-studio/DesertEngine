@@ -22,7 +22,7 @@ namespace Desert::UI
         Delegate() = default;
 
         template <class F>
-            requires std::is_invocable_r_v<R, F&, Args...> && ( !std::is_same_v<std::decay_t<F>, Delegate> )
+            requires std::is_invocable_r_v<R, F&, Args...> && (!std::is_same_v<std::decay_t<F>, Delegate>)
         Delegate( F&& fn ) // NOLINT(google-explicit-constructor): a lambda IS the delegate it binds
              : m_Fn( std::forward<F>( fn ) )
         {

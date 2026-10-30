@@ -111,7 +111,7 @@ namespace Desert::UI
         UIPointerButton Button = UIPointerButton::Left;
         NodeId          Target = NodeId::Null; // the ELECTED element (the hot leaf), not its control
         glm::vec2       Pos{ 0.0f };
-        double          Time   = -1.0;  // UIViewContext::Time of the press
+        double          Time   = -1.0; // UIViewContext::Time of the press
         uint64_t        Frame  = 0;
         int             Clicks = 0; // 1 = single, 2 = double, 3 = triple …
     };
@@ -618,7 +618,7 @@ namespace Desert::UI
             WheelTarget   = NodeId::Null;
             PrevDown      = false;
             Drag          = UIDragState{};
-            LastDrop      = UIDropRecord{};
+            LastDrop       = UIDropRecord{};
             Capture        = NodeId::Null;
             LastPress      = UIPressRecord{};
             PrevMiddleDown = false;

@@ -231,10 +231,10 @@ namespace Desert::UI
                 return;
             msg.remove_prefix( kRetainedClickPrefix.size() );
             // "<id>" is a button's click; "<id>|<text>" an input field's commit (OnTextCommitted).
-            const std::size_t bar    = msg.find( '|' );
-            const std::string_view id = bar == std::string_view::npos ? msg : msg.substr( 0, bar );
-            std::uint32_t     raw    = 0;
-            const auto [end, ec]     = std::from_chars( id.data(), id.data() + id.size(), raw );
+            const std::size_t      bar = msg.find( '|' );
+            const std::string_view id  = bar == std::string_view::npos ? msg : msg.substr( 0, bar );
+            std::uint32_t          raw = 0;
+            const auto [end, ec]       = std::from_chars( id.data(), id.data() + id.size(), raw );
             if ( ec != std::errc{} || end != id.data() + id.size() )
                 return;
             const NodeId n = static_cast<NodeId>( raw );

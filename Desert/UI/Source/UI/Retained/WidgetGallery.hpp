@@ -22,12 +22,12 @@ namespace Desert::UI
         bool        Enabled  = true;
         std::string Name     = "Desert";
         std::string LastPick = "none";
-        float       Speed    = 1.0f;                          // the NumberField row
+        float       Speed    = 1.0f;                             // the NumberField row
         glm::vec3   Tint     = glm::vec3( 0.80f, 0.50f, 0.20f ); // the ColorField row
 
         // The drag-and-drop row: two lists an item is dragged between (typed payload "gallery.item"), and a
         // well that takes only colours ("gallery.color") and so refuses every item.
-        static constexpr std::size_t kDragSlots = 3;
+        static constexpr std::size_t kDragSlots   = 3;
         std::vector<std::string>     DragLists[2] = { { "Rock", "Tree", "Bush" }, {} };
 
         std::string Code; // the code row (Widgets::CodeEditor, Lua)

@@ -271,7 +271,8 @@ namespace Desert::Editor::Control
             return Common::MakeSuccess( Frames{ std::move( typed ) } );
         }
         return Common::MakeFormattedError<Frames>(
-             "'{}' is not an input kind: move, click, press, release, scroll, key, keydown, keyup, type, drop.", kind );
+             "'{}' is not an input kind: move, click, press, release, scroll, key, keydown, keyup, type, drop.",
+             kind );
     }
 
     class InputInjection

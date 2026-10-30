@@ -101,8 +101,7 @@ namespace Desert::UI
             UICursorShape CursorFor( IUITree& tree, NodeId hot, NodeId capture )
             {
                 const NodeId from = capture != NodeId::Null ? capture : hot;
-                if ( const NodeId stating = NearestAtOrAbove( tree, from,
-                                                              [&tree]( NodeId t )
+                if ( const NodeId stating = NearestAtOrAbove( tree, from, [&tree]( NodeId t )
                                                               { return tree.CursorOf( t ).has_value(); } );
                      stating != NodeId::Null )
                     return *tree.CursorOf( stating );
@@ -417,9 +416,9 @@ namespace Desert::UI
                 // and the release can never disagree about it.
                 if ( ctx.View.Drag.Active && e != ctx.View.Drag.Source )
                 {
-                    const bool              over           = e == ctx.View.Drag.Over;
-                    const UIDropAnswer      answer         = over ? ctx.View.Drag.OverAnswer
-                                                                  : DropAnswerAt( tree, e, ctx.View.Drag.Payload );
+                    const bool         over = e == ctx.View.Drag.Over;
+                    const UIDropAnswer answer =
+                         over ? ctx.View.Drag.OverAnswer : DropAnswerAt( tree, e, ctx.View.Drag.Payload );
                     const UIDropTargetData* authoredTarget = tree.Get<UIDropTargetData>( e );
                     glm::vec3               acceptLocal( 0.35f, 0.75f, 1.0f );
                     if ( authoredTarget != nullptr )
@@ -473,7 +472,7 @@ namespace Desert::UI
                 // same list, in the same space, over its widgets and under its children — a node kind with
                 // code of its own, not a widget the walk has to know.
                 {
-                    const bool      overNode = interactive && ( e == ctx.View.Hot || e == ctx.View.PointerTarget );
+                    const bool overNode = interactive && ( e == ctx.View.Hot || e == ctx.View.PointerTarget );
                     // A text-input node is focused by the press that lands on it, BEFORE it paints, so the same
                     // press places its caret (Slate focuses on mouse down) — the InputField's own rule.
                     const bool textInput = interactive && focused != nullptr && tree.TakesTextInput( e );
@@ -849,8 +848,8 @@ namespace Desert::UI
             {
                 const Rect row{ popup.X, popup.Y + static_cast<float>( i ) * rowH, popup.W, rowH };
                 const bool hover = input && input->PointerOver && input->MousePx.x >= row.X &&
-                                   input->MousePx.x <= row.X + row.W &&
-                                   input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
+                                   input->MousePx.x <= row.X + row.W && input->MousePx.y >= row.Y &&
+                                   input->MousePx.y <= row.Y + row.H;
                 const auto keyHl = ctx.View.DropdownHighlight.find( pi.Entity );
                 const bool keyed =
                      keyHl != ctx.View.DropdownHighlight.end() && keyHl->second == static_cast<int>( i );
@@ -1022,9 +1021,8 @@ namespace Desert::UI
             // started, or the first of a new one (UIPressRecord).
             auto recordPress = [&]( UIPointerButton button )
             {
-                const UIPressRecord& last   = view.LastPress;
-                const bool           series = last.Clicks > 0 && last.Button == button &&
-                                    last.Target == view.HotNext &&
+                const UIPressRecord& last = view.LastPress;
+                const bool series = last.Clicks > 0 && last.Button == button && last.Target == view.HotNext &&
                                     view.Time - last.Time <= static_cast<double>( input->DoubleClickSeconds ) &&
                                     glm::length( input->MousePx - last.Pos ) <= UIPressRecord::kDoubleClickSlopPx;
                 view.LastPress = UIPressRecord{ .Button = button,
@@ -1237,8 +1235,7 @@ namespace Desert::UI
             view.Capture = NodeId::Null;
         view.PointerTarget = view.Capture != NodeId::Null ? view.Capture : Walk::PointerTargetOf( tree, view.Hot );
         view.WheelTarget   = Walk::WheelTargetOf( tree, view.Hot );
-        view.Cursor =
-             input != nullptr ? Walk::CursorFor( tree, view.Hot, view.Capture ) : UICursorShape::Default;
+        view.Cursor = input != nullptr ? Walk::CursorFor( tree, view.Hot, view.Capture ) : UICursorShape::Default;
 
         // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
         // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.
@@ -1268,7 +1265,7 @@ namespace Desert::UI
                     *focused = hovered;
                     cause    = UIFocusCause::Pointer;
                 }
-                const bool textEntry = IsTextEntry( tree, *focused );
+                const bool   textEntry = IsTextEntry( tree, *focused );
                 const NodeId next =
                      ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
                                         NavigationOf( *input, textEntry, view.ConsumedKeys ), view.ViewportPx );

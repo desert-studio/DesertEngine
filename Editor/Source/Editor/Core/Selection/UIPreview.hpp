@@ -36,7 +36,7 @@ namespace Desert::Editor::Core
         bool MiddleDown = false; // MMB held; its edge is derived in the frame, as the right one's is
         // The double-click interval the host's toolkit uses (ImGui's MouseDoubleClickTime), so a double click
         // in the preview is the same gesture as one anywhere else in the editor (UIInput::DoubleClickSeconds).
-        float DoubleClickSeconds = 0.5f;
+        float                                 DoubleClickSeconds = 0.5f;
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
         std::vector<::Desert::UI::UIKeyEvent> Keys; // key presses this frame, in order (UIInput::Keys)
         ::Desert::UI::UIKeyMods Mods = ::Desert::UI::UIKeyMods::None; // modifiers held (UIInput::Mods)

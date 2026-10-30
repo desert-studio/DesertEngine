@@ -206,7 +206,7 @@ namespace Desert::UI
         // its text field). The tree cannot move focus itself — focus is the host's (the NodeId it passes to the
         // walk) — so the request waits here and the host applies it after DispatchFrame, together with the
         // keyboard (UIKeyboardUser::Owner = its view). Null asks for no focus. The last request of a frame wins.
-        void RequestKeyboardFocus( NodeId n );
+        void                                RequestKeyboardFocus( NodeId n );
         [[nodiscard]] std::optional<NodeId> TakeKeyboardFocusRequest();
 
         // Turn the frame that just ended into delegate calls: the clicks among @p clicked / @p messages, the
@@ -238,7 +238,7 @@ namespace Desert::UI
         [[nodiscard]] bool                         TakesTextInput( NodeId n ) const override;
         [[nodiscard]] std::optional<UIDragPayload> DragSourceOf( NodeId n ) const override;
         [[nodiscard]] UIDropAnswer DropAnswerOf( NodeId n, const UIDragPayload& payload ) const override;
-        void                                       Paint( NodeId n, const UIPaintArgs& args ) override;
+        void                       Paint( NodeId n, const UIPaintArgs& args ) override;
 
     private:
         // One owned argument block, type-erased: the T it holds is the one whose Arg indexes the slot.
@@ -289,7 +289,7 @@ namespace Desert::UI
             std::uint64_t                                   Stable = 0;
             std::optional<glm::vec3>                        Origin;
             std::optional<UICursorShape>                    Cursor;
-            bool                                            Captures = false;
+            bool                                            Captures  = false;
             bool                                            TextInput = false;
             std::array<Box, kArgKindCount>                  Args;
             std::vector<std::function<void( WidgetTree& )>> Bindings;

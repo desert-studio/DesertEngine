@@ -21,7 +21,7 @@ namespace Desert::UI
 
         // A constant — from anything a T is made from, so a string literal sets a string attribute.
         template <class U>
-            requires std::is_convertible_v<U, T> && ( !std::is_same_v<std::remove_cvref_t<U>, Attribute> )
+            requires std::is_convertible_v<U, T> && (!std::is_same_v<std::remove_cvref_t<U>, Attribute>)
         Attribute( U&& value ) // NOLINT(google-explicit-constructor): a plain value IS a set attribute
              : m_Value( std::forward<U>( value ) )
         {

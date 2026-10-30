@@ -49,15 +49,15 @@ namespace Desert::UI
         Previous
     };
 
+    // Is @p n typed into — an authored InputField, or a node whose tree says it takes text input
+    // (IUITree::TakesTextInput)? The one predicate every "a text field is focused" rule asks.
+    NO_DISCARD bool IsTextEntry( const IUITree& tree, NodeId n );
+
     // The single request a frame's keys ask for: Tab = Next, Shift+Tab = Previous, arrows (and W/S for Up/
     // Down) are spatial. When several arrive in one frame the LAST event wins — the order the host saw.
     // @p textEntry: a text field holds focus, so letters are text and W/S navigate nothing. @p consumed: keys
     // a control already used this frame (a focused slider's Left/Right, an open dropdown's Up/Down) — Slate's
     // FReply::Handled, which stops the key before it becomes a navigation.
-    // Is @p n typed into — an authored InputField, or a node whose tree says it takes text input
-    // (IUITree::TakesTextInput)? The one predicate every "a text field is focused" rule asks.
-    NO_DISCARD bool IsTextEntry( const IUITree& tree, NodeId n );
-
     NO_DISCARD UINavigation NavigationOf( const UIInput& input, bool textEntry = false,
                                           std::span<const Common::KeyCode> consumed = {} );
 

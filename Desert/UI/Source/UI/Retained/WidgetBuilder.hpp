@@ -91,7 +91,7 @@ namespace Desert::UI
         WidgetDecl& OnDoubleClicked( Delegate<void()> onDoubleClicked );        // a double click inside the node
         WidgetDecl& OnValueChanged( Delegate<void( const float& )> onChanged ); // a slider's drag / step
         WidgetDecl& OnToggled( Delegate<void( const bool& )> onToggled );       // a toggle's flip
-        WidgetDecl& OnTextChanged( Delegate<void( const std::string& )> onChanged ); // an input field's edit
+        WidgetDecl& OnTextChanged( Delegate<void( const std::string& )> onChanged );     // an input field's edit
         WidgetDecl& OnTextCommitted( Delegate<void( const std::string& )> onCommitted ); // Enter / focus left
         WidgetDecl& OnDragDetected( Delegate<UIDragPayload()> onDragDetected ); // a drag source (WidgetTree)
         WidgetDecl& OnDrop( WidgetTree::DropHandler handler );                  // a drop target, per type
@@ -150,7 +150,7 @@ namespace Desert::UI
 
         [[nodiscard]] SplitAxis                 Axis() const;
         [[nodiscard]] std::size_t               Count() const;
-        [[nodiscard]] const std::vector<float>& Ratios() const; // sums to 1
+        [[nodiscard]] const std::vector<float>& Ratios() const;                  // sums to 1
         [[nodiscard]] float                     Start( std::size_t pane ) const; // fraction where pane starts
         [[nodiscard]] float                     End( std::size_t pane ) const;
 
@@ -203,8 +203,8 @@ namespace Desert::UI
         // The slot of pane @p pane of @p layout: a box spanning that pane's share, inset by half of
         // @p handlePx on each side that has a neighbour — exactly where Splitter puts its pane. Put the
         // cell's content inside it ([]). A row's cells under a Columns header are these.
-        [[nodiscard]] WidgetDecl SplitCell( std::string name, std::shared_ptr<SplitLayout> layout, std::size_t pane,
-                                            float handlePx = 6.0f );
+        [[nodiscard]] WidgetDecl SplitCell( std::string name, std::shared_ptr<SplitLayout> layout,
+                                            std::size_t pane, float handlePx = 6.0f );
 
         // SHeaderRow: one labelled header cell per @p labels entry, resizable columns at @p layout's shares
         // (horizontal). Rows below follow the same widths with SplitCell over the same layout.
@@ -236,7 +236,7 @@ namespace Desert::UI
         // @p tokenizer, so the widget knows no language. Colours and font come from the theme's Code.* slots.
         // A press focuses it; it holds the keyboard through its view's owner (UIKeyboardUser).
         [[nodiscard]] WidgetDecl CodeEditor( std::string name, Attribute<std::string> text,
-                                             Delegate<void( const std::string& )>     onChanged,
+                                             Delegate<void( const std::string& )>    onChanged,
                                              std::shared_ptr<const IUICodeTokenizer> tokenizer,
                                              float                                   fontSize = 16.0f );
     } // namespace Widgets

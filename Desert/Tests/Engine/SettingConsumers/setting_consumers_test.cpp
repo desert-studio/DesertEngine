@@ -1167,8 +1167,8 @@ namespace
     };
 
     constexpr Row kDraggableRows[] = {
-         { "Payload", kCanvasRenderer },
-         { "GhostOpacity", kCanvasRenderer },
+         { "Payload", kUIWalkCtx },
+         { "GhostOpacity", kUIWalkCtx },
     };
 
     constexpr Row kDropTargetRows[] = {

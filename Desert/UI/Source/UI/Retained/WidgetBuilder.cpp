@@ -570,24 +570,23 @@ namespace Desert::UI
             state->Max       = std::max( minValue, maxValue );
             state->Step      = stepPerPx;
 
-            WidgetDecl shown =
-                 Text( name + ".Value",
-                       Attribute<std::string>::Bound( [state] { return FormatNumber( state->Value.Get() ); } ),
-                       16.0f );
+            WidgetDecl shown = Text(
+                 name + ".Value",
+                 Attribute<std::string>::Bound( [state] { return FormatNumber( state->Value.Get() ); } ), 16.0f );
             Fill( shown )
                  .Edit<UILayoutData>( []( UILayoutData& l ) { l.HitTest = UIHitTest::None; } )
                  .Bind<UILayoutData, UIVisibility>(
                       &UILayoutData::Visibility,
-                      Attribute<UIVisibility>::Bound( [state]
-                                                      { return ShownWhen( !state->Editing, UIVisibility::Hidden ); } ) );
+                      Attribute<UIVisibility>::Bound(
+                           [state] { return ShownWhen( !state->Editing, UIVisibility::Hidden ); } ) );
 
             WidgetDecl typed =
                  InputField( name + ".Edit", Attribute<std::string>::Bound( [state] { return state->Text; } ) );
             Fill( typed )
                  .Bind<UILayoutData, UIVisibility>(
                       &UILayoutData::Visibility,
-                      Attribute<UIVisibility>::Bound( [state]
-                                                      { return ShownWhen( state->Editing, UIVisibility::Collapsed ); } ) )
+                      Attribute<UIVisibility>::Bound(
+                           [state] { return ShownWhen( state->Editing, UIVisibility::Collapsed ); } ) )
                  .OnTextChanged( [state]( const std::string& text ) { state->Text = text; } )
                  .OnTextCommitted(
                       [state]( const std::string& text )
@@ -612,7 +611,8 @@ namespace Desert::UI
                  .OnDoubleClicked(
                       [state]
                       {
-                          // SSpinBox::EnterTextMode: the text is the value as shown, and the field takes the focus.
+                          // SSpinBox::EnterTextMode: the text is the value as shown, and the field takes the
+                          // focus.
                           state->Editing  = true;
                           state->Dragging = false;
                           state->Text     = FormatNumber( state->Value.Get() );
@@ -632,13 +632,13 @@ namespace Desert::UI
         {
             WidgetDecl              d = HorizontalBox( name, 6.0f );
             std::vector<WidgetDecl> parts;
-            WidgetDecl              swatch = PaintBox( name + ".Swatch",
-                                                       [value]( const UIPaintArgs& a )
-                                                       {
-                                              a.Dl.AddRectFilled( { a.Box.X, a.Box.Y },
-                                                                  { a.Box.X + a.Box.W, a.Box.Y + a.Box.H },
-                                                                  glm::vec4( value.Get(), 1.0f ) );
-                                          } );
+            WidgetDecl              swatch =
+                 PaintBox( name + ".Swatch",
+                           [value]( const UIPaintArgs& a )
+                           {
+                               a.Dl.AddRectFilled( { a.Box.X, a.Box.Y }, { a.Box.X + a.Box.W, a.Box.Y + a.Box.H },
+                                                   glm::vec4( value.Get(), 1.0f ) );
+                           } );
             swatch.Size( { 32.0f, 32.0f } );
             parts.push_back( std::move( swatch ) );
             constexpr std::array<const char*, 3> kChannels{ ".R", ".G", ".B" };

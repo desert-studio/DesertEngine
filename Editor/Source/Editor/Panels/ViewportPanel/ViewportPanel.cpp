@@ -1909,7 +1909,7 @@ namespace Desert::Editor
                 pv.Released     = pv.Down && !down; // down->up edge
                 pv.Down         = down;
                 pv.RightDown    = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Right );
-                pv.MiddleDown   = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Middle );
+                pv.MiddleDown         = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Middle );
                 pv.DoubleClickSeconds = ImGui::GetIO().MouseDoubleClickTime;
                 // The shape the UI asked for last frame (the pass writes it after its EndUIFrame).
                 if ( m_ViewportData.IsHovered )

@@ -149,7 +149,8 @@ namespace Desert::UI
 
     bool IsTextEntry( const IUITree& tree, NodeId n )
     {
-        return n != NodeId::Null && tree.Valid( n ) && ( tree.Has<UIInputFieldData>( n ) || tree.TakesTextInput( n ) );
+        return n != NodeId::Null && tree.Valid( n ) &&
+               ( tree.Has<UIInputFieldData>( n ) || tree.TakesTextInput( n ) );
     }
 
     UINavigation NavigationOf( const UIInput& input, bool textEntry, std::span<const Common::KeyCode> consumed )

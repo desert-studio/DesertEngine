@@ -33,16 +33,17 @@ namespace Desert::UI
             std::vector<WidgetDecl> chips;
             for ( std::size_t slot = 0; slot < WidgetGalleryModel::kDragSlots; ++slot )
             {
-                const std::string chip = name + ".Item." + std::to_string( slot );
-                WidgetDecl label = Text( chip + ".Label", Attribute<std::string>::Bound(
-                                                              [m, list, slot]
-                                                              {
-                                                                  const auto& items = m->DragLists[list];
-                                                                  if ( slot < items.size() )
-                                                                      return items[slot];
-                                                                  return std::string();
-                                                              } ),
-                                         16.0f );
+                const std::string chip  = name + ".Item." + std::to_string( slot );
+                WidgetDecl        label = Text( chip + ".Label",
+                                                Attribute<std::string>::Bound(
+                                              [m, list, slot]
+                                              {
+                                                  const auto& items = m->DragLists[list];
+                                                  if ( slot < items.size() )
+                                                      return items[slot];
+                                                  return std::string();
+                                              } ),
+                                                16.0f );
                 label.Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } ).Offsets( { 0.0f, 0.0f }, { 0.0f, 0.0f } );
                 std::vector<WidgetDecl> chipChildren;
                 chipChildren.push_back( std::move( label ) );
@@ -135,24 +136,26 @@ namespace Desert::UI
             const float     r   = std::min( a.Box.W, a.Box.H ) * 0.32f;
 
             a.Dl.AddRectFilled( mn, mx, glm::vec4( 0.10f, 0.11f, 0.14f, 1.0f ), 6.0f * a.Scale );
-            a.Dl.AddRect( mn, mx, a.Hot ? glm::vec4( 0.30f, 0.62f, 0.98f, 1.0f ) : glm::vec4( 0.32f, 0.34f, 0.40f, 1.0f ),
+            a.Dl.AddRect( mn, mx,
+                          a.Hot ? glm::vec4( 0.30f, 0.62f, 0.98f, 1.0f ) : glm::vec4( 0.32f, 0.34f, 0.40f, 1.0f ),
                           std::max( 1.0f, a.Scale ) );
             a.Dl.AddRing( { mn.x + a.Box.W * 0.25f, mid.y }, r, r * 0.7f, glm::vec4( 0.95f, 0.62f, 0.20f, 1.0f ),
                           glm::vec4( 0.95f, 0.30f, 0.45f, 1.0f ) );
             a.Dl.AddTriangleFilled( { mid.x, mid.y - r }, { mid.x + r, mid.y + r }, { mid.x - r, mid.y + r },
                                     glm::vec4( 0.35f, 0.80f, 0.55f, 1.0f ) );
 
-            constexpr int                 kWave = 24;
+            constexpr int                kWave = 24;
             std::array<glm::vec2, kWave> wave{};
-            const float                   x0 = mn.x + a.Box.W * 0.62f;
-            const float                   w  = a.Box.W * 0.32f;
+            const float                  x0 = mn.x + a.Box.W * 0.62f;
+            const float                  w  = a.Box.W * 0.32f;
             for ( int i = 0; i < kWave; ++i )
             {
-                const float t = static_cast<float>( i ) / static_cast<float>( kWave - 1 );
-                wave[static_cast<std::size_t>( i )] = { x0 + t * w, mid.y + std::sin( t * 6.2831853f ) * r * 0.8f };
+                const float t                       = static_cast<float>( i ) / static_cast<float>( kWave - 1 );
+                wave[static_cast<std::size_t>( i )] = { x0 + t * w,
+                                                        mid.y + std::sin( t * 6.2831853f ) * r * 0.8f };
             }
-            a.Dl.AddPolyline( wave.data(), static_cast<uint32_t>( wave.size() ), glm::vec4( 0.55f, 0.75f, 1.0f, 1.0f ),
-                              2.0f * a.Scale, 1.0f, true );
+            a.Dl.AddPolyline( wave.data(), static_cast<uint32_t>( wave.size() ),
+                              glm::vec4( 0.55f, 0.75f, 1.0f, 1.0f ), 2.0f * a.Scale, 1.0f, true );
         }
     } // namespace
 
@@ -172,7 +175,7 @@ namespace Desert::UI
              { "Audio", "Mixer" },
              { "Gameplay", "Logic" },
         } };
-        std::vector<WidgetDecl> rows;
+        std::vector<WidgetDecl>                                      rows;
         for ( const auto& [row, kind] : kRows )
         {
             const std::string label  = row;
@@ -191,10 +194,11 @@ namespace Desert::UI
             kindCell.push_back( std::move( kindText ) );
 
             WidgetDecl line( prefix );
-            line.With( UILayoutData{} ).Size( { 620.0f, 32.0f } )[ {
-                 SplitCell( prefix + ".Cell.0", columns, 0 )[std::move( pickCell )],
-                 SplitCell( prefix + ".Cell.1", columns, 1 )[std::move( kindCell )],
-            } ];
+            line.With( UILayoutData{} )
+                 .Size( { 620.0f, 32.0f } )[{
+                      SplitCell( prefix + ".Cell.0", columns, 0 )[std::move( pickCell )],
+                      SplitCell( prefix + ".Cell.1", columns, 1 )[std::move( kindCell )],
+                 }];
             rows.push_back( std::move( line ) );
         }
 
@@ -211,100 +215,107 @@ namespace Desert::UI
             std::vector<WidgetDecl> right;
             right.push_back( std::move( rightText ) );
             panes.push_back( Panel( "Gallery.Split.Left", glm::vec3( 0.22f, 0.30f, 0.42f ) )[std::move( left )] );
-            panes.push_back( Panel( "Gallery.Split.Right", glm::vec3( 0.36f, 0.26f, 0.30f ) )[std::move( right )] );
+            panes.push_back(
+                 Panel( "Gallery.Split.Right", glm::vec3( 0.36f, 0.26f, 0.30f ) )[std::move( right )] );
         }
 
-        return Canvas( "Gallery" )[ {
-                    Panel( "Gallery.Background" )
-                         .Anchors( { 0.5f, 0.5f }, { 0.5f, 0.5f } )
-                         .Offsets( { -340.0f, -300.0f }, { 340.0f, 356.0f } )[ {
-                              VerticalBox( "Gallery.Column", 10.0f )
-                                   .Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } )
-                                   .Offsets( { 0.0f, 0.0f }, { 0.0f, 0.0f } )[ {
-                                        Text( "Gallery.Title", "Widget gallery (retained tree)", 24.0f )
-                                             .Size( { 640.0f, 36.0f } ),
-                                        HorizontalBox( "Gallery.ButtonRow", 10.0f )
-                                             .Size( { 640.0f, 48.0f } )[ {
-                                                  Button( "Gallery.Click", "Click me" )
-                                                       .Size( { 200.0f, 48.0f } )
-                                                       .OnClicked( [m] { ++m->Clicks; } ),
-                                                  Text( "Gallery.ClickCount",
-                                                        Attribute<std::string>::Bound(
-                                                             [m] { return "Clicks: " + std::to_string( m->Clicks ); } ) )
-                                                       .Size( { 200.0f, 48.0f } ),
-                                             } ],
-                                        Slider( "Gallery.Volume",
-                                                Attribute<float>::Bound( [m] { return m->Volume; } ), 0.0f, 1.0f )
-                                             .Size( { 640.0f, 24.0f } )
-                                             .OnValueChanged( [m]( const float& v ) { m->Volume = v; } ),
-                                        // The details row: a toggle, a number and a colour, each dragged or
-                                        // typed (NumberField / ColorField).
-                                        HorizontalBox( "Gallery.ValueRow", 10.0f )
-                                             .Size( { 640.0f, 32.0f } )[ {
-                                                  Toggle( "Gallery.Enabled",
-                                                          Attribute<bool>::Bound( [m] { return m->Enabled; } ) )
-                                                       .Size( { 32.0f, 32.0f } )
-                                                       .OnToggled( [m]( const bool& v ) { m->Enabled = v; } ),
-                                                  NumberField( "Gallery.Speed",
-                                                               Attribute<float>::Bound( [m] { return m->Speed; } ),
-                                                               [m]( const float& v ) { m->Speed = v; }, 0.0f, 10.0f,
-                                                               0.01f )
-                                                       .Size( { 160.0f, 32.0f } ),
-                                                  ColorField( "Gallery.Tint",
-                                                              Attribute<glm::vec3>::Bound( [m] { return m->Tint; } ),
-                                                              [m]( const glm::vec3& v ) { m->Tint = v; } )
-                                                       .Size( { 360.0f, 32.0f } ),
-                                             } ],
-                                        InputField( "Gallery.Name",
-                                                    Attribute<std::string>::Bound( [m] { return m->Name; } ),
-                                                    "Type a name" )
-                                             .Size( { 640.0f, 40.0f } )
-                                             .OnTextChanged( [m]( const std::string& v ) { m->Name = v; } ),
-                                        Text( "Gallery.Pick",
-                                              Attribute<std::string>::Bound( [m] { return "Picked: " + m->LastPick; } ) )
-                                             .Size( { 640.0f, 28.0f } ),
-                                        HorizontalBox( "Gallery.PaintRow", 10.0f )
-                                             .Size( { 640.0f, 120.0f } )[ {
-                                                  PaintBox( "Gallery.Paint", &PaintGalleryShape )
-                                                       .Size( { 200.0f, 120.0f } ),
-                                                  Splitter( "Gallery.Split", split, std::move( panes ) )
-                                                       .Size( { 430.0f, 120.0f } ),
-                                             } ],
-                                        Columns( "Gallery.Columns", columns, { "Name", "Kind" } )
-                                             .Size( { 620.0f, 28.0f } ),
-                                        ScrollBox( "Gallery.List", 5.0f * 36.0f )
-                                             .Size( { 640.0f, 120.0f } )[ {
-                                                  VerticalBox( "Gallery.List.Rows", 4.0f )
-                                                       .Anchors( { 0.0f, 0.0f }, { 1.0f, 0.0f } )
-                                                       .Offsets( { 0.0f, 0.0f }, { 0.0f, 5.0f * 36.0f } )[ rows ],
-                                             } ],
-                                        // The drag-and-drop row (typed payload, UIDragDrop.hpp): list A | list
-                                        // B | a well that takes colours only.
-                                        HorizontalBox( "Gallery.DragRow", 10.0f )
-                                             .Size( { 640.0f, 72.0f } )[ {
-                                                  GalleryDragList( m, 0, "Gallery.DragA",
-                                                                   glm::vec3( 0.18f, 0.24f, 0.30f ) ),
-                                                  GalleryDragList( m, 1, "Gallery.DragB",
-                                                                   glm::vec3( 0.20f, 0.28f, 0.22f ) ),
-                                                  GalleryColourWell( m ),
-                                             } ],
-                                   } ],
-                         } ],
-                    // The code row (Widgets::CodeEditor over the Lua tokenizer) stands beside the column: the
-                    // column already reaches the canvas' foot, and moving it would move every earlier row.
-                    Panel( "Gallery.CodePanel" )
-                         .Anchors( { 0.5f, 0.5f }, { 0.5f, 0.5f } )
-                         .Offsets( { 350.0f, -300.0f }, { 630.0f, -80.0f } )[ {
-                              Text( "Gallery.CodeTitle", std::string( "Lua" ), 18.0f )
-                                   .Anchors( { 0.0f, 0.0f }, { 1.0f, 0.0f } )
-                                   .Offsets( { 10.0f, 4.0f }, { -10.0f, 34.0f } ),
-                              CodeEditor( "Gallery.Code", Attribute<std::string>::Bound( [m] { return m->Code; } ),
-                                          [m]( const std::string& v ) { m->Code = v; },
-                                          std::make_shared<UILuaTokenizer>() )
-                                   .Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } )
-                                   .Offsets( { 10.0f, 40.0f }, { -10.0f, -10.0f } ),
-                         } ],
-               } ]
-             .Build( tree );
+        return Canvas( "Gallery" )
+             [{
+                   Panel( "Gallery.Background" )
+                        .Anchors( { 0.5f, 0.5f }, { 0.5f, 0.5f } )
+                        .Offsets( { -340.0f, -300.0f }, { 340.0f, 356.0f } )[{
+                             VerticalBox( "Gallery.Column", 10.0f )
+                                  .Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } )
+                                  .Offsets( { 0.0f, 0.0f }, { 0.0f, 0.0f } )[{
+                                       Text( "Gallery.Title", "Widget gallery (retained tree)", 24.0f )
+                                            .Size( { 640.0f, 36.0f } ),
+                                       HorizontalBox( "Gallery.ButtonRow", 10.0f )
+                                            .Size( { 640.0f, 48.0f } )[{
+                                                 Button( "Gallery.Click", "Click me" )
+                                                      .Size( { 200.0f, 48.0f } )
+                                                      .OnClicked( [m] { ++m->Clicks; } ),
+                                                 Text( "Gallery.ClickCount", Attribute<std::string>::Bound(
+                                                                                  [m] {
+                                                                                      return "Clicks: " +
+                                                                                             std::to_string(
+                                                                                                  m->Clicks );
+                                                                                  } ) )
+                                                      .Size( { 200.0f, 48.0f } ),
+                                            }],
+                                       Slider( "Gallery.Volume",
+                                               Attribute<float>::Bound( [m] { return m->Volume; } ), 0.0f, 1.0f )
+                                            .Size( { 640.0f, 24.0f } )
+                                            .OnValueChanged( [m]( const float& v ) { m->Volume = v; } ),
+                                       // The details row: a toggle, a number and a colour, each dragged or
+                                       // typed (NumberField / ColorField).
+                                       HorizontalBox( "Gallery.ValueRow", 10.0f )
+                                            .Size( { 640.0f, 32.0f } )[{
+                                                 Toggle( "Gallery.Enabled",
+                                                         Attribute<bool>::Bound( [m] { return m->Enabled; } ) )
+                                                      .Size( { 32.0f, 32.0f } )
+                                                      .OnToggled( [m]( const bool& v ) { m->Enabled = v; } ),
+                                                 NumberField(
+                                                      "Gallery.Speed",
+                                                      Attribute<float>::Bound( [m] { return m->Speed; } ),
+                                                      [m]( const float& v ) { m->Speed = v; }, 0.0f, 10.0f, 0.01f )
+                                                      .Size( { 160.0f, 32.0f } ),
+                                                 ColorField(
+                                                      "Gallery.Tint",
+                                                      Attribute<glm::vec3>::Bound( [m] { return m->Tint; } ),
+                                                      [m]( const glm::vec3& v ) { m->Tint = v; } )
+                                                      .Size( { 360.0f, 32.0f } ),
+                                            }],
+                                       InputField( "Gallery.Name",
+                                                   Attribute<std::string>::Bound( [m] { return m->Name; } ),
+                                                   "Type a name" )
+                                            .Size( { 640.0f, 40.0f } )
+                                            .OnTextChanged( [m]( const std::string& v ) { m->Name = v; } ),
+                                       Text( "Gallery.Pick", Attribute<std::string>::Bound(
+                                                                  [m] { return "Picked: " + m->LastPick; } ) )
+                                            .Size( { 640.0f, 28.0f } ),
+                                       HorizontalBox( "Gallery.PaintRow", 10.0f )
+                                            .Size( { 640.0f, 120.0f } )[{
+                                                 PaintBox( "Gallery.Paint", &PaintGalleryShape )
+                                                      .Size( { 200.0f, 120.0f } ),
+                                                 Splitter( "Gallery.Split", split, std::move( panes ) )
+                                                      .Size( { 430.0f, 120.0f } ),
+                                            }],
+                                       Columns( "Gallery.Columns", columns, { "Name", "Kind" } )
+                                            .Size( { 620.0f, 28.0f } ),
+                                       ScrollBox( "Gallery.List", 5.0f * 36.0f )
+                                            .Size( { 640.0f, 120.0f } )[{
+                                                 VerticalBox( "Gallery.List.Rows", 4.0f )
+                                                      .Anchors( { 0.0f, 0.0f }, { 1.0f, 0.0f } )
+                                                      .Offsets( { 0.0f, 0.0f }, { 0.0f, 5.0f * 36.0f } )[rows],
+                                            }],
+                                       // The drag-and-drop row (typed payload, UIDragDrop.hpp): list A | list
+                                       // B | a well that takes colours only.
+                                       HorizontalBox( "Gallery.DragRow", 10.0f )
+                                            .Size( { 640.0f, 72.0f } )[{
+                                                 GalleryDragList( m, 0, "Gallery.DragA",
+                                                                  glm::vec3( 0.18f, 0.24f, 0.30f ) ),
+                                                 GalleryDragList( m, 1, "Gallery.DragB",
+                                                                  glm::vec3( 0.20f, 0.28f, 0.22f ) ),
+                                                 GalleryColourWell( m ),
+                                            }],
+                                  }],
+                        }],
+                   // The code row (Widgets::CodeEditor over the Lua tokenizer) stands beside the column: the
+                   // column already reaches the canvas' foot, and moving it would move every earlier row.
+                   Panel( "Gallery.CodePanel" )
+                        .Anchors( { 0.5f, 0.5f }, { 0.5f, 0.5f } )
+                        .Offsets( { 350.0f, -300.0f }, { 630.0f, -80.0f } )[{
+                             Text( "Gallery.CodeTitle", std::string( "Lua" ), 18.0f )
+                                  .Anchors( { 0.0f, 0.0f }, { 1.0f, 0.0f } )
+                                  .Offsets( { 10.0f, 4.0f }, { -10.0f, 34.0f } ),
+                             CodeEditor(
+                                  "Gallery.Code", Attribute<std::string>::Bound( [m] { return m->Code; } ),
+                                  [m]( const std::string& v ) { m->Code = v; },
+                                  std::make_shared<UILuaTokenizer>() )
+                                  .Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } )
+                                  .Offsets( { 10.0f, 40.0f }, { -10.0f, -10.0f } ),
+                        }],
+              }]
+                  .Build( tree );
     }
 } // namespace Desert::UI

@@ -223,10 +223,10 @@ namespace Desert::Editor::Render
                 std::vector<std::string> galleryMessages;
                 m_Gallery.RefreshAttributes();
                 UI::BeginUIFrame( m_GalleryView, m_Gallery, UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
-                if ( const auto drawn = UI::RenderCanvas2D( m_GalleryView, m_Gallery, m_GalleryCanvas,
-                                                            m_Render2D.GetDrawList(), nullptr, feed ? &input : nullptr,
-                                                            feed ? &galleryClicked : nullptr,
-                                                            feed ? &m_GalleryFocused : nullptr );
+                if ( const auto drawn =
+                          UI::RenderCanvas2D( m_GalleryView, m_Gallery, m_GalleryCanvas, m_Render2D.GetDrawList(),
+                                              nullptr, feed ? &input : nullptr, feed ? &galleryClicked : nullptr,
+                                              feed ? &m_GalleryFocused : nullptr );
                      !drawn )
                     LOG_ERROR( "[UI Preview] widget gallery: {}", drawn.GetError() );
                 UI::EndUIFrame( m_GalleryView, m_Gallery, m_Render2D.GetDrawList(), feed ? &input : nullptr,
