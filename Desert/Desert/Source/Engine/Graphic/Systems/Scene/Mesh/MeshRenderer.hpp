@@ -2014,8 +2014,9 @@ namespace Desert::Graphic::System
         // the GPU-instanced paths, under every pass a camera list draws in (the geometry pass of either render
         // path: Forward, GBuffer, the Depth prepass; the grass visibility raster and its resolve) and the
         // cascade's ShadowDepth. MaterialProgramVariants cooks SurfaceInstanceIdsVariant for each such cell of a
-        // `.demat` (plus its G-buffer DepthEqual and forward VSM compositions); a draw asking for one outside
-        // these is named by PackageCook's census (ShaderService::ShippedByCookRequests).
+        // `.demat` an id list draws with (LandscapeGrassTypeService::InstanceIdListMaterials; plus its G-buffer
+        // DepthEqual and forward VSM compositions); a draw asking for one outside these is named by PackageCook's
+        // census (ShaderService::ShippedByCookRequests).
         static constexpr MeshVertexPath kInstanceIdsPaths[]  = { MeshVertexPath::Instanced,
                                                                  MeshVertexPath::GrassBlade };
         static constexpr MeshPass       kInstanceIdsPasses[] = {
@@ -2028,13 +2029,16 @@ namespace Desert::Graphic::System
         // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. Also the default
         // surface's (Static|Instanced|Skinned x Forward) cells' DESERT_LOCAL_SHADOW_VSM permutation: the
         // renderer-owned twins (ForwardVsmTwin). A Shader Override draw (no `.demat`) is OverrideProgramVariants'.
-        // And every (kInstanceIdsPaths x kInstanceIdsPasses) cell of each material in SurfaceInstanceIdsVariant
-        // (alone, over the G-buffer's equal-depth and over the forward virtual shadow map's permutation): the
-        // id-list draws.
+        // And every (kInstanceIdsPaths x kInstanceIdsPasses) cell of each @p instanceIdHandles material in
+        // SurfaceInstanceIdsVariant (alone, over the G-buffer's equal-depth and over the forward virtual shadow
+        // map's permutation): the id-list draws, cooked only for the materials an id list draws with
+        // (Runtime::LandscapeGrassTypeService::InstanceIdListMaterials - UE's ShouldCompilePermutation over the
+        // material's usage), not for every `.demat`.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
              MaterialProgramVariants( const Runtime::MaterialService& materials,
                                       const Runtime::ShaderService&   shaders,
-                                      std::span<const ::Common::AssetHandle> handles );
+                                      std::span<const ::Common::AssetHandle> handles,
+                                      std::span<const ::Common::AssetHandle> instanceIdHandles );
         // The permutations a Shader Override draw (MaterialComponent::ShaderName, no `.demat`) can select: each
         // named program BuildGenericDraws shades forward, under every ForwardShadowMaskVariant (sun only, local
         // only, both), defaults omitted. A surface template's override is drawn through its (Static x GBuffer)

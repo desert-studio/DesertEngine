@@ -20,6 +20,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/View/TemporalSuperResolution.hpp>
@@ -215,7 +216,9 @@ namespace Desert::Editor
         //                           TerrainRenderer, VolumetricFogRenderer ProgramVariants
         //                           (and SSR's untraced front layer in SSRRenderer's);
         //   the mesh materials      every registered `.demat` (ContentRegistry) under its forward cell's
-        //                           permutations (MeshRenderer::MaterialProgramVariants);
+        //                           permutations (MeshRenderer::MaterialProgramVariants), the id-list one
+        //                           only for the registered grass types' materials
+        //                           (LandscapeGrassTypeService::InstanceIdListMaterials);
         //   the shader overrides    every registered scene's and prefab's Material (Shader Override) block,
         //                           the PrefabOverrides' too, its shader by GUID, under
         //                           MeshRenderer::OverrideProgramVariants;
@@ -253,7 +256,14 @@ namespace Desert::Editor
                     std::vector<::Common::AssetHandle> handles;
                     for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
                         handles.push_back( row.Handle );
-                    append( Graphic::System::MeshRenderer::MaterialProgramVariants( *materials, *shaders, handles ) );
+                    // The id-list permutation only for the materials an id list draws with (the grass types'),
+                    // not for every `.demat` (UE ShouldCompilePermutation over the material's usage).
+                    const std::vector<::Common::AssetHandle> instanceIdHandles =
+                         Runtime::LandscapeGrassTypeService::InstanceIdListMaterials();
+                    LOG_INFO( "[PackageCook] the instance-id permutation: {} of {} materials (the grass types')",
+                              instanceIdHandles.size(), handles.size() );
+                    append( Graphic::System::MeshRenderer::MaterialProgramVariants( *materials, *shaders, handles,
+                                                                                    instanceIdHandles ) );
                 }
                 else
                 {
