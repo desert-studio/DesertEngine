@@ -763,7 +763,8 @@ namespace Desert::Graphic::System
     std::vector<Core::CookedProgramVariant>
     MeshRenderer::MaterialProgramVariants( const Runtime::MaterialService& materials,
                                            const Runtime::ShaderService&   shaders,
-                                           std::span<const ::Common::AssetHandle> handles )
+                                           std::span<const ::Common::AssetHandle> handles,
+                                           std::span<const ::Common::AssetHandle> instanceIdHandles )
     {
         std::vector<Core::CookedProgramVariant> variants;
         std::set<std::pair<std::string, uint64_t>> listed; // materials sharing a template share its cell
@@ -821,7 +822,22 @@ namespace Desert::Graphic::System
                 if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
                     variants.push_back( { cell.GetValue(), std::move( permutation ) } );
             }
-            // The cells a GPU-instanced id list is drawn through (kInstanceIdsPaths x kInstanceIdsPasses: the
+            // The water cell (`Usage WaterMesh` templates only): WaterRenderer draws it as itself or, under
+            // VirtualMaps, through its DESERT_LOCAL_SHADOW_VSM permutation
+            // (WaterRenderer::VirtualLocalProgramFor).
+            if ( const auto templ = materials.ShaderHandleOf( handle ); !templ.CompileName.empty() )
+            {
+                const std::string waterCell =
+                     std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
+                if ( const auto water = shaders.GetByName( waterCell ) )
+                    AppendForwardShadowMaskVariants( *water, waterCell, listed, variants, /*virtualOnly*/ true );
+            }
+        }
+        // The cells a GPU-instanced id list is drawn through, for the materials an id list draws with only
+        // (@p instanceIdHandles: the grass types' materials, LandscapeGrassTypeService::InstanceIdListMaterials).
+        for ( const ::Common::AssetHandle& handle : instanceIdHandles )
+        {
+            // Its cells a GPU-instanced id list is drawn through (kInstanceIdsPaths x kInstanceIdsPasses: the
             // camera's list and a cascade's own one, BuildGpuInstancedDraws / BuildGpuInstancedShadowDraws), each
             // in SurfaceInstanceIdsVariant; the G-buffer one also over the equal-depth permutation (an early-Z
             // admitted template, as above), the forward one also over the virtual shadow map's
@@ -854,16 +870,6 @@ namespace Desert::Graphic::System
                             variants.push_back( { cell.GetValue(), std::move( permutation ) } );
                     }
                 }
-            // The water cell (`Usage WaterMesh` templates only): WaterRenderer draws it as itself or, under
-            // VirtualMaps, through its DESERT_LOCAL_SHADOW_VSM permutation
-            // (WaterRenderer::VirtualLocalProgramFor).
-            if ( const auto templ = materials.ShaderHandleOf( handle ); !templ.CompileName.empty() )
-            {
-                const std::string waterCell =
-                     std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
-                if ( const auto water = shaders.GetByName( waterCell ) )
-                    AppendForwardShadowMaskVariants( *water, waterCell, listed, variants, /*virtualOnly*/ true );
-            }
         }
         // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
         // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.

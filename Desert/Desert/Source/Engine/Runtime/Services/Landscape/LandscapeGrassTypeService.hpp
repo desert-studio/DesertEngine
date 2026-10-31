@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Desert::Runtime
 {
@@ -36,6 +37,17 @@ namespace Desert::Runtime
         [[nodiscard]] std::string ErrorOf( const Assets::AssetHandle& handle ) const;
 
         void Clear();
+
+        /// THE MATERIALS A GPU-INSTANCED ID LIST DRAWS WITH (UE: a material's bUsedWithInstancedStaticMeshes /
+        /// bUsedWithFoliage, here stated by the assets instead of a flag): the `.demat` rows every registered
+        /// `.degrasstype` reaches through the registry's dependency edges (ContentRegistry::Closure) - a Blade
+        /// variety's material, a Mesh variety's mesh and that mesh's section materials (the sections
+        /// LandscapeECSSystem builds a variety from), and their parents. The grass is the only producer of an id
+        /// list (GrassRenderer: GpuInstancedRenderData::CameraIds / CascadeIds; a particle mesh draws its whole
+        /// instance buffer), so these are the materials whose SurfaceInstanceIdsVariant the runtime can ask for
+        /// and the cook lists (MeshRenderer::MaterialProgramVariants). Each handle is its row's own number (the
+        /// one ContentRegistry::Rows hands the cook), listed once, in registry order.
+        [[nodiscard]] static std::vector<Assets::AssetHandle> InstanceIdListMaterials();
 
     private:
         OnDemandAssets<Assets::LandscapeGrassTypeAsset> m_Types{
