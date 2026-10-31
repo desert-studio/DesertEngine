@@ -1,6 +1,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingPipeline.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
@@ -9,10 +12,12 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingFunctions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSbtWrites.hpp>
 
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <optional>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -63,10 +68,18 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRayTracingPipeline::Destroy()
     {
-        Release( m_Sbt );
-        Release( m_Rows );
+        {
+            const std::lock_guard lock( m_SlotsMutex );
+            for ( auto& frame : m_Slots )
+                for ( TableSlot& slot : frame )
+                {
+                    Release( slot.Sbt );
+                    Release( slot.Rows );
+                }
+            m_Slots.clear();
+        }
         // A rebuild mid-session (the hit group set changed) drops a pipeline the previous frames recorded
-        // vkCmdTraceRaysKHR with: it waits for those frames in the deletion queue, as the SBT above does.
+        // vkCmdTraceRaysKHR with: it waits for those frames in the deletion queue, as the tables above do.
         Allocator().RT_DestroyPipeline( m_Pipeline, m_Layout );
         m_Pipeline = VK_NULL_HANDLE;
         m_Layout   = VK_NULL_HANDLE;
@@ -299,6 +312,72 @@ namespace Desert::Graphic::API::Vulkan
         buffer = {};
     }
 
+    VulkanRayTracingPipeline::TableSlot& VulkanRayTracingPipeline::SlotOfThisTrace()
+    {
+        const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
+        const uint32_t              slots  = std::max( frames.GetMaxFramesInFlight(), 1u );
+        // The ring is sized by the frame count the swapchain fixed; a change re-keys every slot, so the old
+        // buffers go through the frame-delayed deletion and the new slots start empty.
+        if ( m_Slots.size() != slots )
+        {
+            for ( auto& frame : m_Slots )
+                for ( TableSlot& slot : frame )
+                {
+                    Release( slot.Sbt );
+                    Release( slot.Rows );
+                }
+            m_Slots.clear();
+            m_Slots.resize( slots );
+        }
+        if ( const uint64_t frame = frames.GetAbsoluteFrameCount(); frame != m_SlotsFrame )
+        {
+            m_SlotsFrame    = frame;
+            m_TracesInFrame = 0;
+        }
+        std::vector<TableSlot>& frame = m_Slots[frames.GetCurrentFrameIndex() % slots];
+        const uint32_t          trace = m_TracesInFrame++;
+        if ( frame.size() <= trace )
+            frame.resize( trace + 1u );
+        return frame[trace];
+    }
+
+    Common::BoolResultStr VulkanRayTracingPipeline::Reserve( TableSlot& slot, const VkDeviceSize sbtBytes,
+                                                             const VkDeviceSize rowBytes )
+    {
+        const std::string_view name = m_Specification.DebugName;
+        if ( slot.Sbt.Buffer == VK_NULL_HANDLE || slot.SbtCapacity < sbtBytes )
+        {
+            const VkDeviceSize capacity = std::max( sbtBytes, slot.SbtCapacity * 2u );
+            Release( slot.Sbt );
+            slot.Written.clear();
+            slot.SbtCapacity = 0;
+            // + the base alignment: the table starts on it, the allocation's own alignment may be smaller.
+            auto sbt = CreateHostBuffer( "RayTracing.SBT", capacity + m_BaseAlignment,
+                                         VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR );
+            if ( !sbt )
+                return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, sbt.GetError() );
+            slot.Sbt         = sbt.GetValue();
+            slot.SbtCapacity = capacity;
+            slot.Base        = AlignUp( slot.Sbt.Address, m_BaseAlignment ) - slot.Sbt.Address;
+        }
+        if ( slot.Rows.Buffer == VK_NULL_HANDLE || slot.RowCapacity < rowBytes )
+        {
+            const VkDeviceSize capacity = std::max( rowBytes, slot.RowCapacity * 2u );
+            Release( slot.Rows );
+            slot.RowsWritten.clear();
+            slot.RowCapacity = 0;
+            // The rows' address moves: every hit record relocated against the old one is stale.
+            slot.Written.clear();
+            auto rows =
+                 CreateHostBuffer( "RayTracing.HitMaterialRows", capacity, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT );
+            if ( !rows )
+                return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, rows.GetError() );
+            slot.Rows        = rows.GetValue();
+            slot.RowCapacity = capacity;
+        }
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr VulkanRayTracingPipeline::RecordTraceRays(
          VkCommandBuffer cmd, const RayTracing::RayTracingHitGroupTable& table, uint32_t width, uint32_t height )
     {
@@ -329,58 +408,133 @@ namespace Desert::Graphic::API::Vulkan
         const VkDeviceSize rowBytes =
              std::max<VkDeviceSize>( table.Rows.size() * sizeof( glm::vec4 ), sizeof( glm::vec4 ) );
 
-        // This trace's buffers; the previous trace's go through the frame-delayed deletion queue.
-        Release( m_Sbt );
-        Release( m_Rows );
-        auto sbt = CreateHostBuffer( "RayTracing.SBT", sbtBytes + m_BaseAlignment,
-                                     VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR );
-        if ( !sbt )
-            return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, sbt.GetError() );
-        m_Sbt     = sbt.GetValue();
-        auto rows = CreateHostBuffer( "RayTracing.HitMaterialRows", rowBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT );
-        if ( !rows )
-            return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, rows.GetError() );
-        m_Rows = rows.GetValue();
+        const std::lock_guard lock( m_SlotsMutex );
+        TableSlot&            slot = SlotOfThisTrace();
+        if ( const Common::BoolResultStr reserved = Reserve( slot, sbtBytes, rowBytes ); !reserved )
+            return reserved;
 
-        // The table's start on the base alignment (the allocation's own alignment may be smaller).
-        const VkDeviceSize   base = AlignUp( m_Sbt.Address, m_BaseAlignment ) - m_Sbt.Address;
-        std::vector<uint8_t> bytes( static_cast<std::size_t>( base + sbtBytes ), 0 );
-        const auto           handle = [&]( std::size_t group ) { return m_Handles.data() + group * m_HandleSize; };
-        std::memcpy( bytes.data() + base, handle( 0 ), m_HandleSize );
-        std::memcpy( bytes.data() + base + missOffset, handle( 1 ), m_HandleSize );
+        // This trace's table, MaterialRow relocated to the slot's row buffer.
+        m_Table.assign( static_cast<std::size_t>( sbtBytes ), 0 );
+        const auto handle = [&]( std::size_t group ) { return m_Handles.data() + group * m_HandleSize; };
+        std::memcpy( m_Table.data(), handle( 0 ), m_HandleSize );
+        std::memcpy( m_Table.data() + missOffset, handle( 1 ), m_HandleSize );
         for ( std::size_t i = 0; i < table.Records.size(); ++i )
         {
             const RayTracing::RayTracingHitRecord& record = table.Records[i];
-            uint8_t* const                         at     = bytes.data() + base + hitOffset + hitStride * i;
+            uint8_t* const                         at     = m_Table.data() + hitOffset + hitStride * i;
             std::memcpy( at, handle( 2u + record.HitGroup ), m_HandleSize );
             RayTracing::RayTracingHitRecordData data = record.Data;
-            data.MaterialRow                         = m_Rows.Address + record.Data.MaterialRow;
+            data.MaterialRow                         = slot.Rows.Address + record.Data.MaterialRow;
             std::memcpy( at + m_HandleSize, &data, sizeof( data ) );
         }
         if ( table.Records.empty() )
-            std::memcpy( bytes.data() + base + hitOffset, handle( 2u ), m_HandleSize );
+            std::memcpy( m_Table.data() + hitOffset, handle( 2u ), m_HandleSize );
 
+        // THE DIRTY RECORDS. Record r covers [RecordBegin(r), RecordBegin(r + 1)) of the table: the ray generation
+        // region, the miss region up to the hit region's start, then one hit stride each - every byte of the
+        // table belongs to one record. A record is dirty when its bytes differ from what the slot holds or the
+        // slot never held it; a run of dirty records is one write.
+        const std::size_t recordCount = 2u + hitCount;
+        const auto        recordBegin = [&]( std::size_t r ) -> std::size_t
         {
-            MappedMemory mapped = Allocator().MapMemory( m_Sbt.Allocation );
-            if ( !mapped )
-                return Common::MakeFormattedError( "RayTracingPipeline '{}': the SBT could not be mapped: {}",
-                                                   name, mapped.GetRefusal() );
-            if ( const auto written = mapped.Write( bytes.data(), bytes.size() ); !written )
-                return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, written.GetError() );
-        }
-        if ( !table.Rows.empty() )
+            if ( r == 0 )
+                return 0;
+            if ( r == 1 )
+                return static_cast<std::size_t>( missOffset );
+            return static_cast<std::size_t>( hitOffset + hitStride * ( r - 2u ) );
+        };
+        const auto recordDirty = [&]( std::size_t r )
         {
-            MappedMemory mapped = Allocator().MapMemory( m_Rows.Allocation );
-            if ( !mapped )
-                return Common::MakeFormattedError( "RayTracingPipeline '{}': the material rows could not be "
-                                                   "mapped: {}",
-                                                   name, mapped.GetRefusal() );
-            if ( const auto written = mapped.Write( table.Rows.data(), table.Rows.size() * sizeof( glm::vec4 ) );
-                 !written )
-                return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, written.GetError() );
+            const std::size_t from = recordBegin( r );
+            const std::size_t to   = recordBegin( r + 1u );
+            return slot.Written.size() < to ||
+                   std::memcmp( slot.Written.data() + from, m_Table.data() + from, to - from ) != 0;
+        };
+        RayTracing::RayTracingSbtWriteCounts written;
+        written.RecordsTotal = static_cast<uint32_t>( recordCount );
+        {
+            std::optional<MappedMemory> mapped;
+            for ( std::size_t r = 0; r < recordCount; )
+            {
+                if ( !recordDirty( r ) )
+                {
+                    ++r;
+                    continue;
+                }
+                std::size_t end = r + 1u;
+                while ( end < recordCount && recordDirty( end ) )
+                    ++end;
+                if ( !mapped )
+                {
+                    mapped.emplace( Allocator().MapMemory( slot.Sbt.Allocation ) );
+                    if ( !*mapped )
+                    {
+                        slot.Written.clear(); // what the slot holds is no longer known
+                        return Common::MakeFormattedError( "RayTracingPipeline '{}': the SBT could not be mapped: {}",
+                                                           name, mapped->GetRefusal() );
+                    }
+                }
+                const std::size_t from = recordBegin( r );
+                const std::size_t to   = recordBegin( end );
+                if ( const auto wrote = mapped->Write( m_Table.data() + from, to - from,
+                                                       static_cast<std::size_t>( slot.Base ) + from );
+                     !wrote )
+                {
+                    slot.Written.clear();
+                    return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, wrote.GetError() );
+                }
+                written.Records += static_cast<uint32_t>( end - r );
+                r = end;
+            }
         }
+        slot.Written.swap( m_Table );
 
-        const VkDeviceAddress                 start = m_Sbt.Address + base;
+        // THE DIRTY ROWS, by the same rule over the 16-byte rows.
+        {
+            const std::size_t rowCount = table.Rows.size();
+            const auto        rowDirty = [&]( std::size_t r )
+            { return slot.RowsWritten.size() <= r || slot.RowsWritten[r] != table.Rows[r]; };
+            written.RowsTotal = static_cast<uint32_t>( rowCount );
+            std::optional<MappedMemory> mapped;
+            for ( std::size_t r = 0; r < rowCount; )
+            {
+                if ( !rowDirty( r ) )
+                {
+                    ++r;
+                    continue;
+                }
+                std::size_t end = r + 1u;
+                while ( end < rowCount && rowDirty( end ) )
+                    ++end;
+                if ( !mapped )
+                {
+                    mapped.emplace( Allocator().MapMemory( slot.Rows.Allocation ) );
+                    if ( !*mapped )
+                    {
+                        slot.RowsWritten.clear();
+                        return Common::MakeFormattedError( "RayTracingPipeline '{}': the material rows could "
+                                                           "not be mapped: {}",
+                                                           name, mapped->GetRefusal() );
+                    }
+                }
+                if ( const auto wrote = mapped->Write( table.Rows.data() + r, ( end - r ) * sizeof( glm::vec4 ),
+                                                       r * sizeof( glm::vec4 ) );
+                     !wrote )
+                {
+                    slot.RowsWritten.clear();
+                    return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, wrote.GetError() );
+                }
+                written.Rows += static_cast<uint32_t>( end - r );
+                r = end;
+            }
+            slot.RowsWritten.assign( table.Rows.begin(), table.Rows.end() );
+        }
+        if ( const auto finished = RayTracing::RayTracingSbtWrites::Add( written ) )
+            LOG_INFO( "[RayTracing] SBT writes, previous frame: {} traces, {}/{} records, {}/{} material rows",
+                      finished->Traces, finished->Records, finished->RecordsTotal, finished->Rows,
+                      finished->RowsTotal );
+
+        const VkDeviceAddress                 start = slot.Sbt.Address + slot.Base;
         const VkStridedDeviceAddressRegionKHR raygen{ start, raygenStride, raygenStride };
         const VkStridedDeviceAddressRegionKHR miss{ start + missOffset, missStride, missStride };
         const VkStridedDeviceAddressRegionKHR hits{ start + hitOffset, hitStride, hitStride * hitCount };
