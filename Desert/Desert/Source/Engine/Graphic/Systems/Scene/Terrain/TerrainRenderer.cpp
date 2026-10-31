@@ -562,12 +562,6 @@ namespace Desert::Graphic::System
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
-        // The view's grass field lens (GRASS-VIS-17): TerrainUB::GrassLens for the raster, and the same vec4 in
-        // the frame's ray tracing view block for the hit group (GetFrameGrassLens, GRASS-VIS-19) - never in a
-        // tile's TerrainInstance row nor in its hit row.
-        const GrassFieldLens fieldLens = MakeGrassFieldLens( m_GrassQuality, frame );
-        const glm::vec4      grassLens( fieldLens.DistanceScale, fieldLens.PixelsPerUnit, 0.0f, 0.0f );
-        m_FrameGrassLens = grassLens;
         if ( m_Queue.empty() )
             return;
 
@@ -772,7 +766,10 @@ namespace Desert::Graphic::System
         ub.JitteredViewProjection    = frame.JitteredViewProjection;
         ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
         ub.Exposure                  = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
-        ub.GrassLens                 = grassLens;
+        // The view's grass field lens (GRASS-VIS-17): the frame's (ViewFrame::GrassLens), the same vec4 the view
+        // block (CameraUB::GrassLens) hands the landscape's ray tracing hit - never in a tile's TerrainInstance row
+        // nor in its hit row.
+        ub.GrassLens                 = frame.GrassLens;
 
         for ( const auto& group : m_FrameGroups )
         {

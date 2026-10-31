@@ -17,7 +17,11 @@
 // tail pad; the static_assert below makes any other order a build error.
 //
 // It is THE view block (UE's FViewUniformShaderParameters): one per view per frame, the shader view of the
-// per-frame ViewFrame (TAA1 step 3). WHICH MATRIX (ViewFrame.hpp): raster geometry -> JitteredViewProjection;
+// per-frame ViewFrame (TAA1 step 3), for the raster AND for ray tracing: every ray generation that traces into
+// hit groups binds it (PathTracer "PathTracing: Trace", SSR "Deferred: Reflections (HitLighting)"), so a hit cell
+// that includes Common/CameraUB.glslh reads the program's own binding (VulkanRayTracingPipeline: a hit cell reads
+// only what the program binds); the landscape's hit reads CameraPos and GrassLens here (GPU-COST-25).
+// WHICH MATRIX (ViewFrame.hpp): raster geometry -> JitteredViewProjection;
 // world position from depth -> InvJitteredViewProjection; reprojection -> PrevViewProjection vs ViewProjection
 // (both unjittered); Projection / View stay the camera's own, unjittered.
 //
@@ -55,7 +59,10 @@
     FIELD( float, FrameIndexMod8, FrameIndexMod8, { 0.0f } ) /* offset 476 */                                     \
     /* light views only: the shadow wind rule's measure (ViewFrame::CasterWindOrigin) */                          \
     FIELD( glm::vec4, CasterWindOrigin, CasterWindOrigin, { 0.0f } ) /* offset 480 */                             \
-    /* block size 496 */
+    /* scene views only: the view's grass field lens (ViewFrame::GrassLens, x DistanceScale, y */                 \
+    /* PixelsPerUnit) the landscape's far grass cover is laid through, by the raster and a ray hit alike */       \
+    FIELD( glm::vec4, GrassLens, GrassLens, { 0.0f } ) /* offset 496 */                                           \
+    /* block size 512 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -65,7 +72,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 496 );
+    static_assert( sizeof( Camera ) == 512 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -110,6 +117,7 @@ namespace Desert::Graphic::ShaderProtocols
         ub.PrevPreExposure           = frame.PrevPreExposure;
         ub.FrameIndexMod8            = static_cast<float>( frame.FrameIndex % 8u );
         ub.CasterWindOrigin          = frame.CasterWindOrigin;
+        ub.GrassLens                 = frame.GrassLens;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

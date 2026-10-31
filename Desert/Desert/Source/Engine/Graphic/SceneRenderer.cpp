@@ -1180,9 +1180,8 @@ namespace Desert::Graphic
             if ( const auto grass = m_RenderSystems.find( "GrassSystem" ); grass != m_RenderSystems.end() )
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 UNIQUE_GET_AS( System::GrassRenderer, grass->second )->SetQuality( grassQuality );
-            if ( const auto terrain = m_RenderSystems.find( "TerrainSystem" ); terrain != m_RenderSystems.end() )
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                UNIQUE_GET_AS( System::TerrainRenderer, terrain->second )->SetGrassQuality( grassQuality );
+            // The ground's far cover reads the lens through the view's frame (ViewFrame::GrassLens, OnUpdate).
+            m_GrassQuality = grassQuality;
         }
         m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
         m_VirtualShadowQuality = System::VirtualShadowMapQuality{
@@ -1703,8 +1702,14 @@ namespace Desert::Graphic
                        begun.GetError() );
             return;
         }
-        m_CameraCutPending     = false;
-        const ViewFrame& frame = begun.GetValue();
+        m_CameraCutPending = false;
+        // THE VIEW'S GRASS FIELD LENS (ViewFrame::GrassLens): the Foliage quality through this frame's camera and
+        // render extent, written once here so the view block (CameraUB) and the landscape's raster block
+        // (TerrainUB) carry the same lens to the raster and to the ray tracing hits.
+        ViewFrame                    viewFrame = begun.GetValue();
+        const System::GrassFieldLens grassLens = System::MakeGrassFieldLens( m_GrassQuality, viewFrame );
+        viewFrame.GrassLens = glm::vec4( grassLens.DistanceScale, grassLens.PixelsPerUnit, 0.0f, 0.0f );
+        const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type

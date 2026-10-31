@@ -9,7 +9,6 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
-#include <Engine/Graphic/Systems/Scene/Grass/GrassFieldLens.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
@@ -165,14 +164,6 @@ namespace Desert::Graphic::System
         {
             m_Queue.push_back( data );
         }
-        // The Foliage quality the grass field is grown under (GrassRenderer::SetQuality, the same value): the
-        // ground's far cover reads the blades' distances through it (GrassFieldLens in the frame's TerrainUB::
-        // GrassLens, over TerrainInstance::GrassCoverRange / GrassCoverFloorWidth), so on every quality level it
-        // takes over where the blades thin.
-        void SetGrassQuality( const GrassQuality& quality )
-        {
-            m_GrassQuality = quality;
-        }
 
         // This frame's tiles and, parallel to them, the row PrepareFrame packed for each (LOD, borders, frame):
         // what the view's ray-tracing landscape (LandscapeRayTracing) builds its BLAS from.
@@ -190,12 +181,6 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const TerrainFrameMaterial> GetFrameMaterials() const
         {
             return m_FrameMaterials;
-        }
-        // ...and the view's grass field lens of that frame (TerrainUB::GrassLens): the frame's ray tracing view
-        // block carries it to the landscape's hit group (SceneRenderer::FrameRayTracingView).
-        [[nodiscard]] const glm::vec4& GetFrameGrassLens() const
-        {
-            return m_FrameGrassLens;
         }
 
         // THE WORLD WAS TORN DOWN (SceneRenderer::ReleaseWorldResources): the landscape materials and their layer
@@ -331,10 +316,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D>                            m_EmptyLayerArray; // CreateTerrainEmptyLayerArray
 
         std::vector<TerrainDrawData> m_Queue;
-        GrassQuality                      m_GrassQuality;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
-        glm::vec4 m_FrameGrassLens{ 0.0f }; // the view's grass field lens of the last PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame

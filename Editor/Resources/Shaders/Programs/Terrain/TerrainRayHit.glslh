@@ -10,12 +10,13 @@
 #include <Common/RayTracingHitTriangle.glslh>
 #include <Common/LandscapeSurface.glslh>
 #include <Common/LandscapeGrassCover.glslh>
-#include <Common/RayTracingView.glslh>
+#include <Common/CameraUB.glslh> // the view block the ray generation binds (CameraPos, GrassLens)
 
 // The tile's hit-group row. C++ twin: Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp LandscapeRayHitRow
 // (kLandscapeRayHitRowSlots: TerrainInstance's slots, the Tint, the sampling slots, the material's 18 value slots,
-// the eight inputs' map slots). No view data: the camera and the grass lens are the frame's RayTracingViewUB
-// (Common/RayTracingView.glslh), one block per frame, never a copy per tile (GRASS-VIS-19).
+// the eight inputs' map slots). No view data: the camera and the grass lens are the frame's view block (CameraUB,
+// ShaderProtocols/Camera.hpp - the raster's own), one block per frame, never a copy per tile (GRASS-VIS-19,
+// GPU-COST-25).
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer LandscapeRayHitRowRef
 {
     TerrainInstance   Tile;         // the raster's TerrainInstances row of the tile this frame

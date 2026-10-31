@@ -44,7 +44,7 @@ Shader "PathTracer"
     {
         RayGen
         {
-            #include <Common/CameraUB.glslh>
+            #include <Common/CameraUB.glslh> // the view block: the raygen's camera, and what the hit groups read of the view
             #include <Common/GIFrame.glslh>
             #include <Common/SkyLook.glslh>
             #include <Common/ReconstructPosition.glslh>
@@ -52,7 +52,6 @@ Shader "PathTracer"
             #include <Common/LightSourceSampling.glslh>
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
-            #include <Common/RayTracingView.glslh> // the hit groups' view block (bound, read by the hits)
             #include <Common/EmissiveLights.glslh>
             #include <Common/PathTracingDenoise.glslh>
             #include <Common/PathTracingRandom.glslh>

@@ -127,8 +127,7 @@ Shader "SSR"
     {
         RayGen
         {
-            #include <Common/SSRTrace.glslh>
-            #include <Common/RayTracingView.glslh> // the hit groups' view block (bound, read by the hits)
+            #include <Common/SSRTrace.glslh> // its CameraUB is also the view block the hit groups read
 
             void main()
             {

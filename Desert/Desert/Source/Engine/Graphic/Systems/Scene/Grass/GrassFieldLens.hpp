@@ -2,7 +2,8 @@
 
 // The grass field's per-view distances (GRASS-VIS-16): the Foliage quality and the lens that turn a grass
 // variety's authored Start / EndCullDistance and its screen-width floor into this view's - one statement read by
-// the grass generator (GrassRenderer) and by the ground's far cover (TerrainRenderer -> TerrainUB::GrassLens).
+// the grass generator (GrassRenderer) and by the ground's far cover (ViewFrame::GrassLens -> TerrainUB::GrassLens
+// for the raster, CameraUB::GrassLens for a ray tracing hit).
 
 namespace Desert::Graphic
 {
@@ -13,8 +14,8 @@ namespace Desert::Graphic::System
 {
     // THE VIEW'S FOLIAGE QUALITY (GRASS-DENSITY; UE sg.FoliageQuality: grass.DensityScale multiplies every
     // variety's GrassDensity, grass.CullDistanceScale its Start and End cull distances), from the Foliage
-    // scalability group (Scalability.json; SceneRenderer::BeginScene -> GrassRenderer::SetQuality and
-    // TerrainRenderer::SetGrassQuality). Fractions: 1 = the asset as authored. A machine's quality, never a
+    // scalability group (Scalability.json; SceneRenderer::BeginScene -> GrassRenderer::SetQuality and the scene
+    // view's ViewFrame::GrassLens). Fractions: 1 = the asset as authored. A machine's quality, never a
     // scene's or an asset's: the asset states the density and the distances, the level only scales them.
     struct GrassQuality
     {
