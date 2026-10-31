@@ -56,7 +56,10 @@ Shader "TerrainRayHit"
                 payload.HitT      = gl_HitTEXT;
                 payload.BaseColor = s.Albedo;
                 payload.Metallic  = 0.0;
-                payload.Roughness = s.Roughness;
+                // The payload carries the roughness already floored, one place per hit group (UE: the hit shader
+                // writes the clamped value, its consumers never re-clamp): the floor Pass_RayHit writes with
+                // (= kDesertMinRoughness, task/PT-DARK-MIRROR; the merge folds both onto the constant).
+                payload.Roughness = max( s.Roughness, 0.04 );
                 payload.Emissive  = vec3( 0.0 );
                 payload.Normal    = s.N;
                 payload.Flags     = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
