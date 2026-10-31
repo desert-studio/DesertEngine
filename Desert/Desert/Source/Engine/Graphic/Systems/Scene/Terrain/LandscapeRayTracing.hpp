@@ -139,6 +139,12 @@ namespace Desert::Graphic::RayTracing
          ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u +
          ( sizeof( System::LandscapeMaterialValues ) / sizeof( glm::vec4 ) ) +
          World::Landscape::kLandscapeMaxWeightLayers + 2u;
+    // TerrainRayHit.glslh LandscapeRayHitRowRef, slot by slot: Tile 65 (TerrainInstance 1040 B), Tint 1, Weightmap
+    // 1, MaterialValues 18, LayerMaps 8, ViewOrigin 1, GrassLens 1 - GrassLens is the last slot (94), the raster's
+    // TerrainUB::GrassLens LandscapeGrassCoverAt reads at the hit (GRASS-VIS-18).
+    static_assert(
+         sizeof( System::TerrainInstance ) == 65u * sizeof( glm::vec4 ) && kLandscapeRayHitRowSlots == 95u,
+         "LandscapeRayHitRow must match TerrainRayHit.glslh LandscapeRayHitRowRef (ViewOrigin 93, GrassLens 94)" );
     [[nodiscard]] Core::Formats::MaterialParamRow
     LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
 
