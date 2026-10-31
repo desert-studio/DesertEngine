@@ -8,6 +8,7 @@
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
+#include <Engine/Scripting/ScriptEngine.hpp>
 #include "Editor/Core/Control/PointerDrag.hpp"
 #include "Editor/Core/ControlNudgeRequest.hpp"
 #include "Editor/Core/DocumentWell.hpp"
@@ -1233,6 +1234,20 @@ namespace Desert::Editor
                          request.Id, "'advance' waits for Play's simulated time: press Play first (the scene "
                                      "has no running physics world)." );
                 m_AdvanceUntil = *now + static_cast<double>( request.Value[0] );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Lua:
+            {
+                // THE EDITOR'S LUA CONSOLE, BY SOCKET (DEFORM-FIELD): the chunk runs in a console sandbox bound to
+                // the open scene - in Play, the played copy - under that scene's WorldContext (RunString opens
+                // it), so World.* reaches the same world a script component does. A script error is the reply.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                Scripting::ScriptEngine engine( scene.get() );
+                if ( const auto ran = engine.RunString( request.Code ); !ran )
+                    return Control::Response::Failure( request.Id, std::format( "lua: {}", ran.GetError() ) );
                 return Control::Response::Success( request.Id );
             }
 

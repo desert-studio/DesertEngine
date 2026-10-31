@@ -1238,7 +1238,50 @@ namespace Desert::Graphic
              !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
     }
+
+    void SceneRenderer::AddFrameDeformationFieldView( RDG::Builder& graph, FrameTextures& textures,
+                                                      const ViewFrame& frame, const RDG::TextureRef target )
+    {
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::DeformationField || m_ViewProfile.SceneCapture )
+            return;
+        if ( !m_DeformationFrame || !target.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Deformation Field not drawn: {}",
+                       !target.IsValid() ? "the frame has no post input" : "the field was not brought up this frame" );
+            return;
+        }
+        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
+        // The view's matrices, unjittered (ViewFrame, as every overlay reads them).
+        if ( const auto drawn = m_DeformationField.AddDebugViewPass( graph, *m_DeformationFrame, depth, target,
+                                                                     EngineClearColor(), frame.InvViewProjection );
+             !drawn )
+            LOG_ERROR( "[SceneRenderer] Debug: Deformation Field: {}", drawn.GetError() );
+    }
 #endif // DESERT_DEV_INSTRUMENTS
+
+    void SceneRenderer::AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        m_DeformationFrame.reset();
+        // A reflection capture's face sees the ground as the scene's views do not need it to: no field of its own.
+        if ( m_FrameDeformation == nullptr || m_ViewProfile.SceneCapture )
+            return;
+#if DESERT_DEV_INSTRUMENTS
+        const bool wanted = m_DebugView.DeferredDebug == DeferredDebugMode::DeformationField;
+#else
+        const bool wanted = false;
+#endif
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        // The window follows the UNJITTERED camera position (ViewFrame::CameraPosition), texel-snapped per level.
+        auto field = m_DeformationField.AddUpdatePasses( graph, import, *m_FrameDeformation, frame.CameraPosition,
+                                                         wanted );
+        if ( !field )
+        {
+            LOG_ERROR( "[SceneRenderer] Deformation field: {}", field.GetError() );
+            return;
+        }
+        m_DeformationFrame = field.ExtractValue();
+    }
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                       const std::vector<RDG::TextureRef>& sceneColor,

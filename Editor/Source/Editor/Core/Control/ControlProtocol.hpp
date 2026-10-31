@@ -79,6 +79,7 @@ namespace Desert::Editor::Control
         Select,       ///< select one entity of the open (or played) scene, as an outliner click does
         NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every
                  ///< path)
+        Lua, ///< run a Luau chunk in the open (or played) scene's world, as the editor's Lua console does
     };
 
     /**
@@ -137,6 +138,7 @@ namespace Desert::Editor::Control
          { "advance", Op::Advance, RequiresReady::Yes },
          { "nn-check", Op::NnCheck, RequiresReady::Yes },
          { "select", Op::Select, RequiresReady::Yes },
+         { "lua", Op::Lua, RequiresReady::Yes },
     };
 
     /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
@@ -258,6 +260,9 @@ namespace Desert::Editor::Control
 
         /// Op::AddComponent — the component, by its Details name or its reflected type name.
         std::string Component;
+
+        /// Op::Lua — the Luau chunk to run.
+        std::string Code;
 
         /// Op::SaveAs — the scene's new name; the file is <scene dir>/<name with spaces as _>.desce.
         std::string SceneName;
@@ -621,6 +626,13 @@ namespace Desert::Editor::Control
                          "'save-as' needs the scene's new 'name'. A Save As with no name would be File -> Save "
                          "under another word." );
                 }
+                break;
+            }
+            case Op::Lua:
+            {
+                request.Code = ReadString( fields, "code" );
+                if ( request.Code.empty() )
+                    return Common::MakeError<Request>( "'lua' needs 'code' (the Luau chunk to run)." );
                 break;
             }
             case Op::Select:

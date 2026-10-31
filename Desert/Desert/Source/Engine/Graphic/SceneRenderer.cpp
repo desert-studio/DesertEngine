@@ -970,6 +970,8 @@ namespace Desert::Graphic
         m_FrameLocalShadows = &scene.GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
         m_FrameDistanceFields = &scene.GetDistanceFields();
+        // The scene's deformation contacts, which this view's deformation field applies.
+        m_FrameDeformation = &scene.GetDeformation();
         // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
         m_FrameSurfaceCache = &scene.GetSurfaceCache();
 
@@ -2126,6 +2128,7 @@ namespace Desert::Graphic
         AddFrameDrawBins( graph, textures, frame );
         AddFrameVirtualGeometry( graph, frame );
         AddFrameShadowDepths( graph, textures );
+        AddFrameDeformationField( graph, textures, frame );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
@@ -2472,6 +2475,8 @@ namespace Desert::Graphic
                                              postInput.empty() ? RDG::TextureRef{} : postInput.front() );
             AddFrameSurfaceCacheView( graph, textures, frame,
                                       postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameDeformationFieldView( graph, textures, frame,
+                                          postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
@@ -2623,6 +2628,7 @@ namespace Desert::Graphic
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
+        m_FrameDeformation        = nullptr;
         m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;

@@ -1358,6 +1358,7 @@ namespace Desert::Editor
                 VM_Velocity,
                 VM_LightGridWorld,
                 VM_GlobalDistanceField,
+                VM_DeformationField,
                 VM_SurfaceCacheAtlas,
                 VM_SurfaceCacheScene,
                 VM_SurfaceCacheSceneLit,
@@ -1385,6 +1386,7 @@ namespace Desert::Editor
                                          ICON_MDI_ARROW_ALL "  Velocity",
                                          ICON_MDI_GRID "  Light Grid (World)",
                                          ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
+                                         ICON_MDI_GRID "  Deformation Field",
                                          ICON_MDI_TEXTURE "  Surface Cache Atlas",
                                          ICON_MDI_CUBE_OUTLINE "  Lumen Scene (Cards)",
                                          ICON_MDI_LIGHTBULB_ON "  Lumen Scene (Lit)",
@@ -1435,6 +1437,8 @@ namespace Desert::Editor
                 vm = VM_LightGridWorld;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
                 vm = VM_GlobalDistanceField;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::DeformationField )
+                vm = VM_DeformationField;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheAtlas )
                 vm = VM_SurfaceCacheAtlas;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheScene )
@@ -1648,6 +1652,9 @@ namespace Desert::Editor
                         break;
                     case VM_GlobalDistanceField:
                         view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
+                        break;
+                    case VM_DeformationField:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::DeformationField;
                         break;
                     case VM_SurfaceCacheAtlas:
                         view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheAtlas;

@@ -59,6 +59,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/LightGrid.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/Deformation/DeformationFieldRenderer.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -979,6 +980,10 @@ namespace Desert::Graphic
         DistanceField::GlobalDistanceField*                 m_SharedGlobalDistanceField = nullptr;
         // What this view does with the field it reads (its near-field grid, the debug view), made on first use.
         std::unique_ptr<DistanceField::GlobalDistanceFieldView> m_GlobalDistanceFieldView;
+        // The view's deformation field (DEFORM-FIELD: the clipmap of the world's contacts around this view's camera),
+        // and what this frame's graph imported of it (empty while the world never deformed: no pass, no image).
+        Deformation::DeformationFieldRenderer               m_DeformationField;
+        std::optional<Deformation::DeformationFieldFrame>   m_DeformationFrame;
         // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
         // made on first use.
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
@@ -1411,7 +1416,15 @@ namespace Desert::Graphic
         // "Debug: Global Distance Field" over @p target from the field AddFrameGlobalDistanceField brought up.
         void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                               RDG::TextureRef target );
+        // The Deformation Field view mode (DeferredDebugMode::DeformationField): "Debug: Deformation Field" over
+        // @p target from the field AddFrameDeformationField brought up.
+        void AddFrameDeformationFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                           RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
+        // The view's deformation field (DEFORM-FIELD): scrolls its clipmap to the unjittered camera and applies the
+        // world's new contacts, before the base pass (its readers - terrain, grass - draw there). No pass while the
+        // world never deformed and the debug view is off.
+        void AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         // "Scene: DepthResolve" (@p name): the scene depth as the single-sample texture a compute or sampling pass
@@ -1737,6 +1750,9 @@ namespace Desert::Graphic
         // The scene's mesh distance fields (brick atlas, records, streaming), the same bracket: what this view's
         // global distance field composites from (AddFrameGlobalDistanceField).
         DistanceField::DistanceFieldSceneData* m_FrameDistanceFields = nullptr;
+        // The scene's deformation contacts (World::DeformationWorld), the same bracket: what AddFrameDeformationField
+        // applies to this view's field.
+        const ::Desert::World::DeformationWorld* m_FrameDeformation = nullptr;
         // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the first
         // view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent (m_SharedSurfaceCache).
         SurfaceCache::SurfaceCacheRenderer* m_FrameSurfaceCache = nullptr;

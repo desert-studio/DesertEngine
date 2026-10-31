@@ -102,6 +102,8 @@ namespace
              "  set world WorldPartition.ChunkRegionSize <cm>\n"
              "                                World Settings > World Partition's region size (0 =\n"
              "                                the base archive; one undo step)\n"
+             "  lua \"<chunk>\"                run Luau in the open scene's world (the Lua console's\n"
+             "                                sandbox; World.* reaches the scene)\n"
              "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
              "                                Save's path; refused if that file already exists)\n"
              "\n"
@@ -538,6 +540,15 @@ static int RunTool( int argc, char** argv )
         request =
              std::format( R"({{"id":1,"op":"input","kind":"{}","panel":"{}","value":{},"key":"{}","paths":[{}]}})",
                           Escape( rest[1] ), Escape( panel ), point, Escape( key ), paths );
+    }
+    else if ( operation == "lua" )
+    {
+        if ( rest.size() != 2 )
+        {
+            std::fprintf( stderr, "desertctl: lua needs one argument, the Luau chunk (quoted).\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"lua","code":")" + Escape( rest[1] ) + R"("})";
     }
     else if ( operation == "select" )
     {
