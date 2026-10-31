@@ -47,16 +47,14 @@ namespace Desert::Graphic::System
         // GRASS-VIS: view keys of the post-occlusion draws' instances, apart from phase 1's of the same cell view.
         constexpr uint32_t kGpuInstancedPostViewOffset = 0x04000000u;
 
-        // GPU-COST-22: the permutation of a GPU-instanced section's cell that draws a list of ids (@p ids: the
-        // camera's or a cascade's, GpuInstanceRefs::Ids) - @p permutation plus kSurfaceInstanceIdsDefine, always
-        // last, so every asker spells the same defines; @p ids false: @p permutation as it is.
+        // The permutation of a GPU-instanced section's cell for the list it draws: @p ids (the camera's or a
+        // cascade's, GpuInstanceRefs::Ids) - MeshRenderer::SurfaceInstanceIdsVariant of @p permutation, the one
+        // spelling the cook lists too; @p ids false (the full list, drawn directly): @p permutation as it is.
         Core::ShaderVariant WithInstanceIds( Core::ShaderVariant permutation, const bool ids )
         {
             if ( !ids )
                 return permutation;
-            permutation.Defines.emplace_back( kSurfaceInstanceIdsDefine );
-            permutation.ShippedByCook = true;
-            return permutation;
+            return MeshRenderer::SurfaceInstanceIdsVariant( std::move( permutation ) );
         }
 
         // The producer's buffers into the cell: the section's one Instances, @p ids (the drawn list's ids, the
@@ -90,6 +88,13 @@ namespace Desert::Graphic::System
     {
         Core::ShaderVariant permutation;
         permutation.Defines.emplace_back( kSurfaceDepthEqualDefine );
+        permutation.ShippedByCook = true;
+        return permutation;
+    }
+
+    Core::ShaderVariant MeshRenderer::SurfaceInstanceIdsVariant( Core::ShaderVariant permutation )
+    {
+        permutation.Defines.emplace_back( kSurfaceInstanceIdsDefine );
         permutation.ShippedByCook = true;
         return permutation;
     }
