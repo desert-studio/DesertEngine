@@ -77,7 +77,11 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //                the G-buffer's PerObjectGBufferData bit): a light's contact-shadow ray that hits this texel
 //                darkens with the light's Non Casting Intensity instead of its Casting Intensity
 //                (Common/ContactShadow.glslh)
-//   bits 26..31  free
+//   bit  26      LANDSCAPE: set = the pixel is the landscape's own surface (Programs/Terrain/TerrainGBuffer.shader),
+//                not grass, foliage or a mesh standing on it - the ground mask a reader of the ground needs where the
+//                depth buffer holds whatever stands in front (the Deformation Field view; later the field's
+//                receivers). DEPTH32F has no stencil (UE keeps this in the stencil); DesertPackShadingWord never sets it
+//   bits 27..31  free
 //   bits 32..39  payload 2, unorm8   (.y bits 0..7)
 //   bits 40..47  payload 3, unorm8   (.y bits 8..15)
 //   bits 48..55  Specular, unorm8 (UE's Specular pin, GBuffer Specular): the dielectric F0 = 0.08 x Specular
@@ -98,6 +102,7 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
 #define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
 #define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
+#define DESERT_SHADING_WORD_LANDSCAPE_BIT      26
 #define DESERT_SHADING_WORD_SPECULAR_FIRST_BIT 48
 #define DESERT_SHADING_WORD_SPECULAR_BITS      8
 #define DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT 56
@@ -142,6 +147,18 @@ uvec2 DesertMarkContactShadowCast( uvec2 shadingWord, bool castContactShadow )
 bool DesertCastsContactShadow( uvec2 shadingWord )
 {
     return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT ) ) & 1u ) == 0u;
+}
+
+// The landscape mark: only the terrain's G-buffer pass calls it, after DesertPackShadingWord (which leaves the bit
+// clear), so a cleared texel and every other writer read "not ground".
+uvec2 DesertMarkLandscape( uvec2 shadingWord )
+{
+    return uvec2( shadingWord.x | ( 1u << uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) ), shadingWord.y );
+}
+
+bool DesertIsLandscape( uvec2 shadingWord )
+{
+    return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) ) & 1u ) != 0u;
 }
 
 // A model's four payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block

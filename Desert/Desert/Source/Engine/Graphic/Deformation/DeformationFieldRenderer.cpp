@@ -396,8 +396,9 @@ namespace Desert::Graphic::Deformation
 
     Common::BoolResultStr
     DeformationFieldRenderer::AddDebugViewPass( RDG::Builder& graph, const DeformationFieldFrame& field,
-                                                const RDG::TextureRef depth, const RDG::TextureRef target,
-                                                const RDG::LoadOp& load, const glm::mat4& inverseViewProjection )
+                                                const RDG::TextureRef depth, const RDG::TextureRef shadingWord,
+                                                const RDG::TextureRef target, const RDG::LoadOp& load,
+                                                const glm::mat4& inverseViewProjection )
     {
         if ( !m_ViewShader )
         {
@@ -449,6 +450,8 @@ namespace Desert::Graphic::Deformation
                       .Texture( DeformationFieldViewShaderParameters::DeformHeight1Texture, field.Height[1],
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .Texture( DeformationFieldViewShaderParameters::SceneDepthTexture, depth,
+                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                      .Texture( DeformationFieldViewShaderParameters::SceneShadingWordTexture, shadingWord,
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformViewPush ) ) );
                  pass.ColorTarget( 0, target, load );

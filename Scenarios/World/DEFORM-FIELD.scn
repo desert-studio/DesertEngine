@@ -1,14 +1,17 @@
 # DEFORM-FIELD: the deformation field around the main view (Notion DEFORM-ARCH card 1). A script presses the
 # DeformStamp asset DS_CircleRim three times along a line in FIELD_Barn; the debug view "Deformation Field" shows the
-# field over the scene (blue = sink, red = rim). The camera then moves 30 m: the clipmap scrolls (toroidal, texel
+# field over the ground only (blue = sink, red = rim; the shading word's LANDSCAPE bit, grass keeps the grey). The camera then moves 30 m: the clipmap scrolls (toroidal, texel
 # snapped to the unjittered view) and the prints stay on their world spots, read from L1 where L0 no longer covers.
 # NEEDS the DesertCtl `lua` op (REMAINDER): it runs the text through a ScriptEngine under the open scene's WorldContext.
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Deformation Field"
-Дано --subject viewport set Camera.Position 0,600,900
-Дано --subject viewport set Camera.Direction 0,-0.6,-1
+Дано --subject viewport set Camera.Position 0,400,150
+Дано --subject viewport set Camera.Direction 0,-0.94,-0.35
 Когда lua "for i = 0, 2 do World.deform{ Stamp = 'DS_CircleRim', At = vector.create(-150 + i * 150, 0, 0), Params = { Radius = 30 } } end"
-Тогда-вид 1_stamp three round prints in a row on the ground in front of the camera, 1.5 m apart, each a blue sink ringed by a red rim; nothing else coloured; editor.log errors 0
-Когда --subject viewport set Camera.Position 3000,600,900
-Когда --subject viewport set Camera.Direction -1,-0.2,-0.35
-Тогда-вид 2_scrolled from 30 m to the side the same three prints at the same world spots (coarser, L1), no second copy of them elsewhere in view and no shift; editor.log errors 0
+Тогда-вид 1_stamp from 4 m above, three round prints in a row on the ground, 1.5 m apart, each a blue sink ringed by a red rim, large; no speckle of grass over them (grass pixels stay grey); editor.log errors 0
+Когда --subject viewport set Camera.Position 800,400,150
+Когда --subject viewport set Camera.Direction -0.88,-0.44,-0.165
+Тогда-вид 2_scrolled_l0 the camera moved 8 m to the side (the L0 window scrolled, still covering the row): the same three prints at the same world spots on the checker, no shift and no second copy; editor.log errors 0
+Когда --subject viewport set Camera.Position 3000,1500,150
+Когда --subject viewport set Camera.Direction -0.893,-0.447,-0.045
+Тогда-вид 3_scrolled_l1 from 30 m to the side (outside L0's 20.48 m half-window, read from L1 at 8 cm/texel): the same three prints at the same world spots, coarser, on the darker L1 grey; editor.log errors 0

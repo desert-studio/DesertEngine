@@ -178,6 +178,7 @@ Shader "TerrainGBuffer"
                                                                 DesertPayload( sss.r, sss.g, sss.b, opacity ) )
                                        : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
                                                                 DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
+            oGBufferShadingWord = DesertMarkLandscape( oGBufferShadingWord ); // the ground mask (bit 26)
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps
             oVelocity        = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );

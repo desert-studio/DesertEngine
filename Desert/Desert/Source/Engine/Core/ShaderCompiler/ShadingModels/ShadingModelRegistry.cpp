@@ -454,6 +454,8 @@ uvec2 DesertPackShadingWord( int index, float sampledTextureCount, float specula
     word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData2 ), DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT );
     word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData3 ), DESERT_SHADING_WORD_PAYLOAD3_FIRST_BIT );
     word |= DesertShadingWordBits( DesertPayloadUnorm( specular ), DESERT_SHADING_WORD_SPECULAR_FIRST_BIT );
+    // The landscape bit belongs to the terrain pass alone (DesertMarkLandscape): no packed field may carry it.
+    word.x &= ~( 1u << uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) );
     return word;
 }
 

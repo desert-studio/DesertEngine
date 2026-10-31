@@ -1251,9 +1251,18 @@ namespace Desert::Graphic
             return;
         }
         const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
+        // The G-buffer's shading word: its LANDSCAPE bit says which pixels are the ground.
+        const RDG::TextureRef shadingWord = textures.Transients.SceneShadingWord;
+        if ( !shadingWord.IsValid() )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] Debug: Deformation Field not drawn: the frame has no G-buffer shading word" );
+            return;
+        }
         // The view's matrices, unjittered (ViewFrame, as every overlay reads them).
-        if ( const auto drawn = m_DeformationField.AddDebugViewPass( graph, *m_DeformationFrame, depth, target,
-                                                                     EngineClearColor(), frame.InvViewProjection );
+        if ( const auto drawn =
+                  m_DeformationField.AddDebugViewPass( graph, *m_DeformationFrame, depth, shadingWord, target,
+                                                       EngineClearColor(), frame.InvViewProjection );
              !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Deformation Field: {}", drawn.GetError() );
     }

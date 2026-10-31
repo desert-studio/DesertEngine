@@ -82,8 +82,10 @@ namespace Desert::Graphic::Deformation
         DESERT_SHADER_PARAMETER( Texture, DeformHeight0Texture );
         DESERT_SHADER_PARAMETER( Texture, DeformHeight1Texture );
         DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneShadingWordTexture );
         static constexpr std::array kAll{ RDG::Erase( PointClampSampler ), RDG::Erase( DeformHeight0Texture ),
-                                          RDG::Erase( DeformHeight1Texture ), RDG::Erase( SceneDepthTexture ) };
+                                          RDG::Erase( DeformHeight1Texture ), RDG::Erase( SceneDepthTexture ),
+                                          RDG::Erase( SceneShadingWordTexture ) };
     };
 
     // The pure parameters of a level: its texel (cm) and resolution (a power of two, a multiple of the 64-texel
@@ -126,12 +128,12 @@ namespace Desert::Graphic::Deformation
                          const glm::vec3& viewPosition, bool wanted );
 
         // "Debug: Deformation Field" over @p target: the field at each pixel's surface (@p depth, the scene
-        // depth).
+        // depth), drawn only where @p shadingWord (the G-buffer's) marks the landscape.
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder&                graph,
                                                               const DeformationFieldFrame& field,
-                                                              RDG::TextureRef depth, RDG::TextureRef target,
-                                                              const RDG::LoadOp& load,
-                                                              const glm::mat4&   inverseViewProjection );
+                                                              RDG::TextureRef depth, RDG::TextureRef shadingWord,
+                                                              RDG::TextureRef target, const RDG::LoadOp& load,
+                                                              const glm::mat4& inverseViewProjection );
 
     private:
         // One stamp asset's program: DeformStampApply compiled against the asset's Stamp body.

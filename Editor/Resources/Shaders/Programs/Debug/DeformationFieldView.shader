@@ -4,7 +4,9 @@
 // deformation clipmap - level 0 where its window covers the point, level 1 farther out - and shows the field over
 // a grey world: blue = sink (full at 8 cm), red = rim (full at 3 cm). The grey is a metre checker, slightly darker
 // where level 1 answers and darkest where no level covers, so a print's world place and the level's reach are both
-// readable. The sky is black.
+// readable. The sky is black. The field is drawn only where the pixel is the landscape's own surface (the shading
+// word's LANDSCAPE bit, ShadingModelContract.glslh): what stands on the ground - grass, foliage, meshes - keeps the
+// grey checker, so the view shows what the ground receives, not the depth of whatever is in front of it.
 Shader "DeformationFieldView"
 {
     Vertex
@@ -27,6 +29,9 @@ Shader "DeformationFieldView"
         #define DeformHeight1Texture sampler2D(DeformHeight1Texture, PointClampSampler)
         Uniform(2) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        Uniform(3) utexture2D SceneShadingWordTexture;
+        #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
+        #include <ShadingModels/ShadingModelContract.glslh>
         Out(0) vec4 oColor;
 
         PushConstant DeformViewPush
@@ -58,17 +63,21 @@ Shader "DeformationFieldView"
             const ivec2 n     = ivec2(Levels.zw);
             const ivec2 cell0 = ivec2(floor(world.xz / Levels.x));
             const ivec2 cell1 = ivec2(floor(world.xz / Levels.y));
+            // The shading word shares the depth's resolution (one G-buffer).
+            const bool ground = DesertIsLandscape(texelFetch(SceneShadingWordTexture, pixel, 0).rg);
             vec4  field = vec4(0.0);
             float grey  = 0.10;
             if (InWindow(cell0, Windows.xy, n.x))
             {
-                field = texelFetch(DeformHeight0Texture, cell0 & ivec2(n.x - 1), 0);
-                grey  = 0.30;
+                if (ground)
+                    field = texelFetch(DeformHeight0Texture, cell0 & ivec2(n.x - 1), 0);
+                grey = 0.30;
             }
             else if (InWindow(cell1, Windows.zw, n.y))
             {
-                field = texelFetch(DeformHeight1Texture, cell1 & ivec2(n.y - 1), 0);
-                grey  = 0.20;
+                if (ground)
+                    field = texelFetch(DeformHeight1Texture, cell1 & ivec2(n.y - 1), 0);
+                grey = 0.20;
             }
             const ivec2 metre   = ivec2(floor(world.xz / 100.0));
             const float checker = ((metre.x + metre.y) & 1) == 0 ? 1.0 : 0.85;
