@@ -1,0 +1,21 @@
+#ifndef DESERT_RAY_TRACING_VIEW_GLSLH
+#define DESERT_RAY_TRACING_VIEW_GLSLH
+
+// THE RAY TRACING VIEW BLOCK (UE: the View uniform buffer every ray tracing shader of a view reads): what a hit group
+// knows of the VIEW whose rays it shades - one block per frame, written once by the frame's owner
+// (SceneRenderer::AddFrameRayTracingView), never a copy in every primitive's shader-record row. Declared by every
+// ray generation that traces into hit groups (Programs/PathTracing/PathTracer.shader, Programs/Deferred/SSR.shader
+// "HitLighting"), so a hit cell that includes it reads the program's own binding (VulkanRayTracingPipeline: a hit
+// cell may read only what the program binds). C++ twin: Graphic/Systems/RayTracing/RayTracingView.hpp
+// RayTracingViewBlock (std140, 32 B). Its slot is Core::kRayTracingViewSet / kRayTracingViewBinding
+// (ShaderGraphBindings.hpp).
+
+#include <Generated/SceneBindings.glslh> // kRayTracingViewSet, kRayTracingViewBinding
+
+layout( std140, set = kRayTracingViewSet, binding = kRayTracingViewBinding ) uniform RayTracingViewUB
+{
+    vec4 RayTracingViewOrigin; // xyz = the camera the raster drew the frame for (cm): a hit's view distance
+    vec4 RayTracingGrassLens;  // the raster's TerrainUB::GrassLens this frame (x DistanceScale, y PixelsPerUnit)
+};
+
+#endif // DESERT_RAY_TRACING_VIEW_GLSLH

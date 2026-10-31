@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
@@ -1368,7 +1369,8 @@ namespace Desert::Graphic
 
     uint64_t SceneRenderer::PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
                                                   const uint64_t environment, const uint64_t emissive,
-                                                  const CloudShadowUniforms& cloudShadow ) const
+                                                  const CloudShadowUniforms& cloudShadow,
+                                                  const glm::vec4&           grassLens ) const
     {
         System::PathTracer::SceneHasher         hash;
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
@@ -1412,6 +1414,9 @@ namespace Desert::Graphic
         hash.Value( emissive );
         // The cloud shadow's placement and strength (the sun's transmittance through the clouds).
         hash.Value( cloudShadow );
+        // The view's grass field lens the landscape's hit group lays the far cover through (RayTracingViewUB). Not
+        // the view block's origin: the camera's motion is the restart test's, as above.
+        hash.Value( grassLens );
         return hash.Get();
     }
 
@@ -1555,6 +1560,7 @@ namespace Desert::Graphic
         graph.QueueBufferUpload( inputs.CloudShadow,
                                  std::as_bytes( std::span<const CloudShadowUniforms>( &cloudShadow, 1 ) ) );
         inputs.HitGroups       = &m_ReflectionHitGroups;
+        inputs.RayTracingView  = AddFrameRayTracingView( graph, frame );
         auto emissive          = AddFrameEmissiveLights( graph );
         if ( !emissive )
             return Common::MakeError( emissive.GetError() );
@@ -1567,7 +1573,8 @@ namespace Desert::Graphic
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
         inputs.SceneHash =
-             PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow );
+             PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow,
+                                  FrameRayTracingView( frame ).GrassLens );
         inputs.DynamicGeometry = rt.DynamicGeometry;
         // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
         // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made too: a runtime refusal reaches
@@ -1615,6 +1622,27 @@ namespace Desert::Graphic
                QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
                CapabilityCatalog::Offers( QualityState::Catalog().RayTracingModes,
                                           RayTracingMode::RayTracingPipeline );
+    }
+
+    RayTracing::RayTracingViewBlock SceneRenderer::FrameRayTracingView( const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        // The raster measures a tile's view distance from this camera (TerrainSurface.glslh length(View * p)), and
+        // lays the grass cover through this lens (TerrainUB::GrassLens): the hit reads the same two.
+        return { .ViewOrigin = glm::vec4( frame.CameraPosition, 1.0f ), .GrassLens = terrain->GetFrameGrassLens() };
+    }
+
+    RDG::BufferRef SceneRenderer::AddFrameRayTracingView( RDG::Builder& graph, const ViewFrame& frame )
+    {
+        if ( m_TracedFrameShared.RayTracingView.IsValid() )
+            return m_TracedFrameShared.RayTracingView;
+        const RayTracing::RayTracingViewBlock view = FrameRayTracingView( frame );
+        const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ sizeof( view ) }, "RayTracing.ViewUB" );
+        graph.QueueBufferUpload( buffer,
+                                 std::as_bytes( std::span<const RayTracing::RayTracingViewBlock>( &view, 1 ) ) );
+        m_TracedFrameShared.RayTracingView = buffer;
+        return buffer;
     }
 
     Common::BoolResultStr SceneRenderer::BuildReflectionHitGroups()
@@ -1806,6 +1834,8 @@ namespace Desert::Graphic
         reads.GBufferA        = gbuffer[0];
         reads.GBufferEmissive = gbuffer[3];
         reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
+        if ( hitLit )
+            reads.RayTracingView = AddFrameRayTracingView( graph, frame );
         return reads;
     }
 

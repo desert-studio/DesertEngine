@@ -191,6 +191,12 @@ namespace Desert::Graphic::System
         {
             return m_FrameMaterials;
         }
+        // ...and the view's grass field lens of that frame (TerrainUB::GrassLens): the frame's ray tracing view
+        // block carries it to the landscape's hit group (SceneRenderer::FrameRayTracingView).
+        [[nodiscard]] const glm::vec4& GetFrameGrassLens() const
+        {
+            return m_FrameGrassLens;
+        }
 
         // THE WORLD WAS TORN DOWN (SceneRenderer::ReleaseWorldResources): the landscape materials and their layer
         // arrays belong to the old world's landscapes. Kept, a reopen of the same scene rebuilt every array from
@@ -328,6 +334,7 @@ namespace Desert::Graphic::System
         GrassQuality                      m_GrassQuality;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
+        glm::vec4 m_FrameGrassLens{ 0.0f }; // the view's grass field lens of the last PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame

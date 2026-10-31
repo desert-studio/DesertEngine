@@ -94,8 +94,6 @@ namespace Desert::Graphic::RayTracing
              kValuesSlot + sizeof( System::LandscapeMaterialValues ) / sizeof( glm::vec4 );
         for ( std::size_t k = 0; k < material.Material.LayerMaps.size(); ++k )
             row[kMapsSlot + k] = std::bit_cast<glm::vec4>( material.Material.LayerMaps[k] );
-        row[kMapsSlot + material.Material.LayerMaps.size()]      = material.Material.ViewOrigin;
-        row[kMapsSlot + material.Material.LayerMaps.size() + 1u] = material.Material.GrassLens;
         return row;
     }
 

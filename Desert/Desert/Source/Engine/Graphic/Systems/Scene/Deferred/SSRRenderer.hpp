@@ -8,6 +8,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingView.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -204,6 +205,8 @@ namespace Desert::Graphic::System
             GlobalIllumination::SurfaceCacheFrame                           SurfaceCache;
             GlobalIllumination::RadianceCacheFrame                          RadianceCache;
             RDG::BufferRef                                                  GIFrame;
+            // Hit lighting: the frame's RayTracingViewUB the hit groups read (SceneRenderer::AddFrameRayTracingView).
+            RDG::BufferRef                                                  RayTracingView;
             RDG::BufferRef                                                  PointLights;
             RDG::BufferRef                                                  SpotLights;
             RDG::BufferRef                                                  WorldGridParams;
@@ -509,6 +512,7 @@ namespace Desert::Graphic::System
                  .Storage( SSRHitLightingShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageRead )
                  .Uniform( SSRHitLightingShaderParameters::SSRTraceUB, uniforms )
                  .Uniform( SSRHitLightingShaderParameters::CameraUB, camera )
+                 .Uniform( RayTracing::RayTracingViewShaderParameters::RayTracingViewUB, traced.RayTracingView )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             DeclareTracedReads( block, traced );
             DeclareFrontLayerReads( block, frontLayer );

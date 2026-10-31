@@ -273,8 +273,7 @@ namespace Desert::Graphic::System
         // each input's maps as the bindless slots of the images @p layers' arrays copied. Terrain.shader and
         // TerrainGBuffer.shader declare every one of these parameters (the ShaderCacheKey suite holds the two
         // Properties blocks equal); a cell without one is a broken shader, said, and its hits read zero for it.
-        TerrainFrameMaterial FrameMaterialOf( const DataDrivenMaterial& surface, const TerrainLayerInputs& layers,
-                                              const glm::vec3& viewOrigin, const glm::vec4& grassLens )
+        TerrainFrameMaterial FrameMaterialOf( const DataDrivenMaterial& surface, const TerrainLayerInputs& layers )
         {
             std::string missing;
             const auto  read = [&]( const std::string& name ) -> glm::vec4
@@ -312,8 +311,6 @@ namespace Desert::Graphic::System
                     material.LayerMaps[k][static_cast<glm::length_t>( kind )] = source->GetBindlessSlot().Index;
                 }
             }
-            material.ViewOrigin = glm::vec4( viewOrigin, 1.0f );
-            material.GrassLens  = grassLens;
             if ( !missing.empty() )
                 LOG_ERROR(
                      "[TerrainRenderer] '{}' has no {} parameter(s): the landscape's ray tracing hits read zero "
@@ -565,12 +562,14 @@ namespace Desert::Graphic::System
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
-        if ( m_Queue.empty() )
-            return;
         // The view's grass field lens (GRASS-VIS-17): TerrainUB::GrassLens for the raster, and the same vec4 in
-        // every tile's frame material for the ray tracing hit group - never in the tile's TerrainInstance row.
+        // the frame's ray tracing view block for the hit group (GetFrameGrassLens, GRASS-VIS-19) - never in a
+        // tile's TerrainInstance row nor in its hit row.
         const GrassFieldLens fieldLens = MakeGrassFieldLens( m_GrassQuality, frame );
         const glm::vec4      grassLens( fieldLens.DistanceScale, fieldLens.PixelsPerUnit, 0.0f, 0.0f );
+        m_FrameGrassLens = grassLens;
+        if ( m_Queue.empty() )
+            return;
 
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
         // does (it has no param rows, only the instances).
@@ -760,7 +759,7 @@ namespace Desert::Graphic::System
                                     surface->GetParamRow().end() );
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
-            m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers, frame.CameraPosition, grassLens ) );
+            m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
         }
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────

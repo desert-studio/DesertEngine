@@ -1,4 +1,6 @@
 #pragma once
+
+#include <Engine/Graphic/Systems/RayTracing/RayTracingView.hpp>
 #include <unordered_set>
 
 #include <Engine/Graphic/VirtualGeometry/VisibilityBuffer.hpp>
@@ -1011,6 +1013,7 @@ namespace Desert::Graphic
             RDG::BufferRef                                        GIFrame;
             std::optional<GlobalIllumination::RadianceCacheFrame> RadianceCache;
             RDG::BufferRef InstanceSurfaceCacheRows; // AddFrameInstanceSurfaceCacheRows
+            RDG::BufferRef RayTracingView;           // AddFrameRayTracingView
         };
         TracedFrameShared m_TracedFrameShared;
         // The view's irradiance field gather (GIMethod::ProbeVolume: the radiance cache read per pixel, no screen
@@ -1455,7 +1458,8 @@ namespace Desert::Graphic
         // GetEnvironmentIdentity().
         [[nodiscard]] uint64_t PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
                                                      uint64_t environment, uint64_t emissive,
-                                                     const CloudShadowUniforms& cloudShadow ) const;
+                                                     const CloudShadowUniforms& cloudShadow,
+                                                     const glm::vec4&           grassLens ) const;
         // THE SCENE'S EMISSIVE TRIANGLE LIST in this frame's graph (RayTracing::EmissiveLights.hpp): built from
         // this frame's TLAS instances and segment records (a built m_RayTracingScene), each segment's emission
         // estimated from its material's effective row; m_EmissiveLights keeps the static part on the GPU and
@@ -1516,6 +1520,11 @@ namespace Desert::Graphic
         // surface template and effective row (RayTracingHitGroupTable.hpp). An error: no default surface, or the
         // two sides of the per-segment table disagree.
         [[nodiscard]] Common::BoolResultStr BuildReflectionHitGroups();
+        // GRAPH BUILD: this frame's ray tracing view block (RayTracing::RayTracingViewBlock, RayTracingViewUB) - the
+        // camera and the view's grass field lens every hit group reads - made by its first reader and kept in
+        // m_TracedFrameShared, so a frame uploads it once whichever ray generations trace (GRASS-VIS-19).
+        [[nodiscard]] RDG::BufferRef AddFrameRayTracingView( RDG::Builder& graph, const ViewFrame& frame );
+        [[nodiscard]] RayTracing::RayTracingViewBlock FrameRayTracingView( const ViewFrame& frame );
         // This frame's TLAS custom index (GPU-scene row) -> surface cache instance-table row (contract B3), the
         // hardware tracer's GIInstanceSurfaceCacheRows: made by the first reader of the frame, kept in
         // m_TracedFrameShared. Invalid with no surface cache or no TLAS.
