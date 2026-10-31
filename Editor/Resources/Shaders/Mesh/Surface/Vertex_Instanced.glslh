@@ -142,6 +142,31 @@ void main()
 #endif
 #endif
     const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB );
+#if ( defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_CASTER_PASS ) ) &&                           \
+     defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
+    // THE MASKED DEPTH CELLS - the view's early-Z pass and the casters (UE's depth-only / shadow-depth vertex factory:
+    // position and the masked UV; MESH-GRASS-COST, as the blade's, Vertex_GrassBlade.glslh) - read one thing of the
+    // instance but its place: the opacity mask's UV (Pass_Depth / Pass_ShadowDepth / Pass_VirtualShadowDepth:
+    // DESERT_SURFACE_CLIP, DShaderParser OpacityMaskFunction samples `i.UV<set>` and nothing else of SurfaceInput).
+    // No shading frame (the normal matrix's inverse, three normalised axes), no previous world nor the wind's second
+    // step at the previous clock, no clip pair: the G-buffer cell builds them, the pass that reads them. The place is
+    // the one expression every cell evaluates, so gl_Position stays invariant against the base pass. (A `.Parallax`
+    // cell evaluates the surface, so it takes the full set below.)
+    v_Surface.WorldPosition = worldPosition;
+    v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
+    v_Surface.UV0           = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1           = DesertMeshTextureUV( a_TexCoord1 );
+    v_Surface.VertexColor   = a_Color;
+    v_Surface.ObjectScaleUp = 1.0;
+    v_Surface.TBN           = mat3( 1.0 ); // not read by the depth cells' fragment stage
+    v_Surface.Clip          = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved   = 0.0;
+#ifdef DESERT_SURFACE_BINNED
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
+#endif
+#else // the full cell
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
     const vec3 T             = normalize( normalMatrix * a_Tangent );
@@ -185,6 +210,7 @@ void main()
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.ObjectMoved = 0.0;
 #endif
+#endif // the masked depth cells
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
 #ifdef DESERT_VSM_CLUSTER_RASTER
