@@ -60,9 +60,9 @@ namespace Desert::Core
         void VisitFields( Self& m, Fn&& fn )
         {
             auto& [params, state, domain, passNames, rayTracingPassNames, defaultPassName, mediumSource,
-                   particleSource, layoutBindings, blend, opacityMask, height, shadingModel] = m;
+                   particleSource, stampSource, layoutBindings, blend, opacityMask, height, shadingModel] = m;
             fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( rayTracingPassNames ),
-                 fn( defaultPassName ), fn( mediumSource ), fn( particleSource ), fn( layoutBindings ),
+                 fn( defaultPassName ), fn( mediumSource ), fn( particleSource ), fn( stampSource ), fn( layoutBindings ),
                  fn( blend ), fn( opacityMask ), fn( height ), fn( shadingModel );
         }
 
