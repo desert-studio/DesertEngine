@@ -244,7 +244,7 @@ namespace Desert
         // Called by every subclass that (re)builds its LOD chain: the resolved sizes follow the level count.
         void ResolveLODScreenSizes()
         {
-            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( Geometry::MaxAvailableLOD( m_Submeshes ) + 1,
+            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( Geometry::LODTriangleCounts( m_Submeshes ),
                                                                 m_AuthoredLODScreenSizes );
         }
         std::optional<std::vector<float>> m_AuthoredLODScreenSizes;
