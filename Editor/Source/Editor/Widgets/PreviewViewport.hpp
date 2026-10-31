@@ -346,9 +346,6 @@ namespace Desert::Editor
         /// seek is spread over several updates) and the length of one fixed step.
         [[nodiscard]] double GetVFXAge() const;
         [[nodiscard]] double GetVFXStepSeconds() const;
-        /// Plays @p working (the VFX System editor's unsaved copy) instead of the asset SetVFXSystem named; null
-        /// returns to the asset. A new pointer starts every emitter over (VFXWorld keys instances by it).
-        void SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working );
 
         void Clear();
 

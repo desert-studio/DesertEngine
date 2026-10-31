@@ -15,6 +15,11 @@
 #include <atomic>
 #include <cstdint>
 
+namespace Desert::Core
+{
+    struct ShaderMap;
+}
+
 namespace Desert::Graphic
 {
     // THE COMPILE-TIME AXIS OF A PROGRAM, and it used to be `ShaderDefines` — a vector of name/value
@@ -144,6 +149,15 @@ namespace Desert::Graphic
         static std::shared_ptr<Shader> Create( const Assets::Asset<Assets::ShaderAsset>& asset,
                                                const ShaderVariant&                      variant  = {},
                                                const std::string&                        passName = {} );
+        // THE DEVICE HALF ALONE (VFX-PRESETS2-4): a program whose shader map (the CPU half, Core::BuildShaderMap) was
+        // built elsewhere - on a job, off the main thread - gets its modules and set layouts here, on the thread
+        // that owns the device. @p built must be the map of exactly (@p asset, @p variant, @p passName); a later
+        // Reload compiles from the asset as any other program does. Refusals as Create: IsCompiled() false and
+        // GetCompileError() says why.
+        static std::shared_ptr<Shader> CreateFromShaderMap( const Assets::Asset<Assets::ShaderAsset>& asset,
+                                                            const ShaderVariant&                      variant,
+                                                            const std::string&                        passName,
+                                                            const Core::ShaderMap&                    built );
 
     protected:
         // Called by the backend when a Reload has replaced the code — and only then: a failed recompile keeps the

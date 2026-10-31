@@ -19,6 +19,7 @@
 namespace Desert::Assets
 {
     class AssetManager;
+    class VFXSystemAsset;
 }
 
 namespace Desert::Editor::UI
@@ -37,16 +38,16 @@ namespace Desert::Editor
      * PREVIEW (a PreviewViewport whose scene holds one VFXComponent playing this system, realtime) | STACK (the
      * selected emitter's modules by stage - Emitter Update, Particle Spawn, Particle Update - then Render rows).
      *
-     * WORKING AND SAVED (12c): the window edits m_Working, a copy of the asset's data; Dirty is m_Working !=
-     * m_Saved (derived, never a flag). A stack input's gesture (a drag, a typed number, a `set` from the control
-     * socket) is ONE CommandHistory entry (VFXSystemEditCommand, the whole system before/after), refused by name
-     * when ValidateVFXSystemData rejects the result. Save writes m_Working through VFXSystemAsset::Save, re-reads
-     * the held asset and refreshes VFXSystemService, so level effects play what was written.
-     *
-     * THE PREVIEW PLAYS THE WORKING COPY (12a-override, UE's Niagara editor plays its own system copy): whenever
-     * m_Working differs from what the preview last got - an edit, an undo, a redo - a new immutable copy goes to
-     * the preview's VFXComponent::EditedSystem, and the new pointer restarts the simulation (UE ResetSimulation on
-     * every stack change). Levels keep playing the asset until Save.
+     * THE WINDOW EDITS THE ASSET IN PLACE (VFX-PRESETS2, owner 10-13 "variant B"; UE: editing a UNiagaraSystem
+     * dirties its package). There is one copy of the system's data - the AssetManager's VFXSystemAsset - and the
+     * preview is an ordinary VFXComponent naming that asset, exactly like every level placement. m_Working is the
+     * edit buffer the widgets and CommandHistory write (a stack input's gesture - a drag, a typed number, a `set`
+     * from the control socket - is ONE VFXSystemEditCommand, the whole system before/after); SyncWithAsset hands
+     * every valid state of it to the asset (VFXSystemAsset::Edit, a new snapshot), so the preview and every scene
+     * change together. An edit that moves values only re-fills parameter rows and spawn plans with the particles
+     * alive; a structural one rebuilds the emitters (VFXWorld's SameStructure decides). Dirty is the asset's
+     * (HasUnsavedEdits: its data against what the file held). Save writes the asset's data to the file; Revert
+     * (DiscardEdits, the toolbar's "Revert") reads the file back into the asset, which every scene then plays.
      *
      * THE TRANSPORT (12e, UE Niagara's timeline transport): the window owns the preview's time. m_Time runs while
      * playing (wall delta x speed), wraps at the playback end when looping (UE jumps back to the range start,
@@ -90,14 +91,13 @@ namespace Desert::Editor
             return true;
         }
 
-        [[nodiscard]] DiskState GetDiskState() const override
-        {
-            if ( !m_Loaded )
-                return DiskState::Untracked;
-            return m_Working != m_Saved ? DiskState::Dirty : DiskState::Clean;
-        }
+        [[nodiscard]] DiskState GetDiskState() const override;
 
         bool SaveDocument() override;
+
+        /// "Revert": the asset reads its file again - the window, the preview and every scene playing the system
+        /// return to what is saved. False when nothing differed from the file or the file would not be read.
+        bool DiscardEdits() override;
 
         /// Every stack input a number sets: `<Emitter>.<Stage>.<Module>.<Input>` for a Value, plus `.Min`/`.Max`
         /// for a Random range (a module repeated in one stage is `<Module>#2`, ...). Curve and Binding inputs are
@@ -114,10 +114,21 @@ namespace Desert::Editor
         [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
     private:
+        // The asset and m_Working agree: an asset replaced from outside (Revert, a re-read of the file) becomes the
+        // edit buffer; a valid m_Working the asset does not hold yet becomes the asset's data (VFXSystemAsset::Edit).
+        // An invalid intermediate state of a held drag stays in the window until the gesture's Commit decides.
+        void SyncWithAsset();
+        // The asset's data becomes the window's (history dropped unless equal); nothing is left unsubmitted.
+        void AdoptAssetData();
         void EnsurePreview();
         void DrawSystemColumn();
         void DrawStackColumn();
         void DrawTransport();
+        // The file changed on disk while the asset held unsaved edits (hot reload left the edits): the question
+        // row above the columns, and its two answers - Reload (the file wins) and Keep (the edits win).
+        void DrawChangedOnDisk();
+        void ReloadChangedFile();
+        void KeepEditsOverChangedFile();
         // The end of the transport's range: the system's Duration (one system loop), m_PlaybackEnd when it has
         // none.
         [[nodiscard]] double PlaybackEnd() const;
@@ -174,13 +185,15 @@ namespace Desert::Editor
         // the content registry (engine library and project Content) whose Usage takes the stage.
         [[nodiscard]] std::vector<ModuleChoice> ModuleLibrary( std::size_t stage ) const;
 
-        Assets::AssetManager*             m_Assets = nullptr;
-        bool                              m_Loaded = false;
-        std::string                       m_LoadError;
-        Assets::Serialization::VFXSystemData m_Working; // what the window edits (CommandHistory target)
-        Assets::Serialization::VFXSystemData m_Saved;   // what the file holds
-        // What the preview plays: a frozen copy of m_Working, replaced whenever the two differ.
-        std::shared_ptr<const Assets::Serialization::VFXSystemData> m_Played;
+        Assets::AssetManager*                  m_Assets = nullptr;
+        std::shared_ptr<Assets::VFXSystemAsset> m_Asset; // the one copy of the data (held while the window is open)
+        bool                                   m_Loaded = false;
+        std::string                            m_LoadError;
+        Assets::Serialization::VFXSystemData   m_Working; // the edit buffer (CommandHistory target)
+        // The asset snapshot m_Working was last made equal to (SyncWithAsset).
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> m_Synced;
+        // The snapshot the preview's transport last replayed from zero (OnPreUpdate).
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> m_Replayed;
         // m_Working when the active widget's gesture began (set while a drag is held).
         std::optional<Assets::Serialization::VFXSystemData> m_GestureBefore;
         // The stack input the last control-channel `set` named: its row scrolls into view on the next draw.

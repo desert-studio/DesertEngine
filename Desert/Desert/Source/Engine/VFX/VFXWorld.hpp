@@ -76,11 +76,21 @@ namespace Desert::VFX
     /// when the plan holds engine:SpawnFromChannel - this frame's entries of its channel in @p channels gathered
     /// for an emitter at @p emitterCm, all joining the first step (none runs: they count as Overflow). Ids are
     /// reserved for every spawn, channel spawns included.
-    // One placed system (a VFXComponent), keyed by entity UUID: the system data its plans were built from (a new
-    // pointer = reloaded or renamed: the instance starts over), each emitter's spawn plan and instance.
+    // One placed system (a VFXComponent), keyed by entity UUID: the system data its plans were built from, each
+    // emitter's spawn plan and instance. A new pointer whose STRUCTURE is the old one's (VFX-PRESETS2: an input
+    // value, a curve key, a bound or a lifecycle number moved in the `.dfx` window) re-reads the plans and keeps
+    // every instance running; any other new pointer (a renamed system, a module added, a capacity changed, a
+    // module file rewritten) starts the instance over under a new Generation.
     struct SystemInstance
     {
         std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
+        // Moves on every start-over, unique within the world (the counter EmitterInstance generations share):
+        // the render side rebuilds its emitters (compiles their programs) when it moved, and only re-uploads
+        // parameter values when the pointer changed under the same Generation.
+        std::uint64_t Generation = 0;
+        // Every emitter's compiled stack Key (VFXCompiledEmitter::Key: structure + layout, no input value; 0 for
+        // one that does not compile) as of the last start-over.
+        std::vector<std::uint64_t> StackKeys;
         std::vector<VFXSpawnPlan>                                   Plans;
         std::vector<bool>                                           Runs; // enabled and its plan compiled
         std::vector<EmitterInstance>                                Emitters;
@@ -172,6 +182,13 @@ namespace Desert::VFX
         // The render side's columns of @p stats (GpuCounts, and per emitter GpuRead / Alive / Free / FramesOld /
         // Events).
         virtual void FillDebugStats( VFXDebugStats& stats ) const = 0;
+
+        // VFX-PRESETS2-4 (UE FShaderCompilingManager / UNiagaraSystem::IsReadyToRun): whether every emitter
+        // program @p system needs is built, so placement @p uuid can start over on it now. False = at least one
+        // compiles in the background (this call starts what is not in flight yet): the world keeps playing the
+        // system the placement plays and asks again on its next tick. The last structure asked for a placement
+        // wins: a compile only an earlier structure of that placement wanted is dropped, its result discarded.
+        virtual bool ProgramsReady( std::uint64_t uuid, const Assets::Serialization::VFXSystemData& system ) = 0;
     };
 
     // The instances are VFXComponents' systems, keyed by entity UUID (one EmitterInstance per emitter); their GPU

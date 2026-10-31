@@ -19,6 +19,7 @@
 
 #include <format>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -301,26 +302,55 @@ namespace Desert::Graphic::System
                e.AttributeFloats && e.AttributeInts && e.Params && e.Curves && e.PointSets && e.DrawLayout;
     }
 
+    // The one substitution a stack's host program differs by: its generated include.
+    static Core::ShaderVariant HostVariant( const std::string& hostSource )
+    {
+        Core::ShaderVariant variant;
+        variant.VirtualSources.push_back( { "Generated/VFXEmitterStack.glslh", hostSource } );
+        return variant;
+    }
+
+    std::unordered_map<uint64_t, std::weak_ptr<ParticleWorldGpu::ProgramCompile>>& ParticleWorldGpu::CompilesInFlight()
+    {
+        static std::unordered_map<uint64_t, std::weak_ptr<ParticleWorldGpu::ProgramCompile>> inFlight;
+        return inFlight;
+    }
+
     std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
                                                                    const std::string& hostSource )
     {
         if ( const auto found = m_Programs.find( key ); found != m_Programs.end() )
             return found->second;
-        std::shared_ptr<ComputePipeline>& program = m_Programs[key];
-        auto*                             shaders = Runtime::ResourceRegistry::GetShaderService();
+        // Compiling in the background (an edit asked first, here or in another world, then a fresh placement of
+        // the same stack): this caller cannot draw without it, so it waits for that job rather than compiling the
+        // key a second time.
+        if ( !m_Compiling.contains( key ) )
+            if ( const auto shared = CompilesInFlight().find( key ); shared != CompilesInFlight().end() )
+                if ( auto compile = shared->second.lock() )
+                    m_Compiling[key] = std::move( compile );
+        while ( m_Compiling.contains( key ) )
+        {
+            const std::shared_ptr<ProgramJob> job = m_Compiling.at( key )->Job;
+            job->Done.wait( false, std::memory_order_acquire );
+            LandFinishedPrograms();
+        }
+        if ( const auto found = m_Programs.find( key ); found != m_Programs.end() )
+            return found->second;
+        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
         if ( shaders == nullptr )
             return nullptr;
-        Core::ShaderVariant variant;
-        variant.VirtualSources.push_back( { "Generated/VFXEmitterStack.glslh", hostSource } );
-        auto acquired = shaders->AcquireVariant( "ParticleSimulate", variant );
+        // The one line a program compile writes: an in-place value edit never reaches here (PatchEmitterValues).
+        LOG_INFO( "[VFX] stack {} compiles its host program", name );
+        const Core::ShaderVariant         variant  = HostVariant( hostSource );
+        auto                              acquired = shaders->AcquireVariant( "ParticleSimulate", variant );
+        std::shared_ptr<ComputePipeline>& program  = m_Programs[key];
         if ( !acquired )
         {
             if ( shaders->ClaimRefusalReport( "ParticleSimulate", variant ) )
                 LOG_ERROR( "[VFX] stack {} has no host program: {}", name, acquired.GetError() );
             return nullptr;
         }
-        const auto shader = acquired.ExtractValue();
-        const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
+        const auto made = ComputePipeline::Create( { .Shader = acquired.ExtractValue(), .DebugName = name } );
         if ( !made )
         {
             LOG_ERROR( "[VFX] stack {} does not simulate: {}", name, made.GetError() );
@@ -328,6 +358,146 @@ namespace Desert::Graphic::System
         }
         program = made.GetValue();
         return program;
+    }
+
+    bool ParticleWorldGpu::AdoptLookup( const uint64_t key, const std::string& name,
+                                        const Core::ShaderVariant&                                      variant,
+                                        const Common::ResultStr<Runtime::ShaderService::VariantLookup>& lookup )
+    {
+        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
+        if ( !lookup.IsSuccess() )
+        {
+            m_Programs[key] = nullptr;
+            if ( shaders != nullptr && shaders->ClaimRefusalReport( "ParticleSimulate", variant ) )
+                LOG_ERROR( "[VFX] stack {} has no host program: {}", name, lookup.GetError() );
+            return false;
+        }
+        if ( lookup.GetValue().Ready )
+        {
+            const auto made = ComputePipeline::Create( { .Shader = lookup.GetValue().Ready, .DebugName = name } );
+            if ( !made )
+                LOG_ERROR( "[VFX] stack {} does not simulate: {}", name, made.GetError() );
+            m_Programs[key] = made ? made.GetValue() : nullptr;
+            return false;
+        }
+        // THE COMPILE LEAVES THE FRAME (VFX-PRESETS2-4): the job reads its own copy of the request and writes its
+        // own result; the service, its cache and the device are touched again only by LandFinishedPrograms.
+        LOG_INFO( "[VFX] stack {} compiles its host program (background)", name );
+        const Runtime::ShaderService::VariantCompile& ticket  = *lookup.GetValue().Compile;
+        auto                                          job     = std::make_shared<ProgramJob>( ticket.Request );
+        auto                                          compile = std::make_shared<ProgramCompile>(
+             ProgramCompile{ .Job = job, .Ticket = ticket, .Name = name } );
+        const std::weak_ptr<ProgramCompile> wanted = compile;
+        const auto                          run    = [job, wanted]
+        {
+            if ( !wanted.expired() ) // every world let go before it ran: superseded, nothing to compile
+                job->Built.emplace( Core::BuildShaderMap( job->Request ) );
+            job->Done.store( true, std::memory_order_release );
+            job->Done.notify_all();
+        };
+        CompilesInFlight()[key] = compile;
+        m_Compiling[key]        = std::move( compile );
+        if ( !::Common::JobSystem::Get().Submit( run ) )
+            run(); // the pool is shutting down: the compile runs here rather than never
+        return true;
+    }
+
+    bool ParticleWorldGpu::RequestProgram( const uint64_t key, const std::string& name,
+                                           const std::string& hostSource )
+    {
+        if ( m_Programs.contains( key ) )
+            return false;
+        if ( m_Compiling.contains( key ) )
+            return true;
+        // Another world compiles it already (the preview and the level ask for one stack): wait on that job.
+        if ( const auto shared = CompilesInFlight().find( key ); shared != CompilesInFlight().end() )
+        {
+            if ( auto compile = shared->second.lock() )
+            {
+                m_Compiling[key] = std::move( compile );
+                return true;
+            }
+            CompilesInFlight().erase( shared );
+        }
+        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
+        if ( shaders == nullptr )
+        {
+            m_Programs[key] = nullptr;
+            return false;
+        }
+        const Core::ShaderVariant variant = HostVariant( hostSource );
+        return AdoptLookup( key, name, variant, shaders->BeginVariant( "ParticleSimulate", variant ) );
+    }
+
+    void ParticleWorldGpu::LandFinishedPrograms()
+    {
+        auto*                 shaders = Runtime::ResourceRegistry::GetShaderService();
+        std::vector<uint64_t> finished;
+        for ( const auto& [key, compile] : m_Compiling )
+            if ( compile->Job->Done.load( std::memory_order_acquire ) )
+                finished.push_back( key );
+        for ( const uint64_t key : finished )
+        {
+            const std::shared_ptr<ProgramCompile> compile = std::move( m_Compiling.at( key ) );
+            m_Compiling.erase( key );
+            if ( shaders == nullptr )
+            {
+                m_Programs[key] = nullptr;
+                continue;
+            }
+            // The first world to land a shared compile makes the program (FinishVariant), every later one finds it
+            // in the service's cache; a ticket the service moved past is asked again by FinishVariant itself. A job
+            // that skipped (no holder when it ran - not this one, which held it) leaves Built empty: asked again.
+            const Core::ShaderVariant& variant = compile->Ticket.Request.Variant;
+            const auto                 answer  = compile->Job->Built
+                                                      ? shaders->FinishVariant( compile->Ticket, *compile->Job->Built )
+                                                      : shaders->BeginVariant( "ParticleSimulate", variant );
+            AdoptLookup( key, compile->Name, variant, answer );
+        }
+    }
+
+    bool ParticleWorldGpu::ProgramsReady( const std::uint64_t                         uuid,
+                                          const Assets::Serialization::VFXSystemData& system )
+    {
+        std::vector<uint64_t> keys;
+        for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+        {
+            const auto& emitter = system.Emitters[k];
+            if ( !emitter.Enabled || emitter.Capacity == 0 )
+                continue;
+            // A stack that does not generate is refused aloud by BuildEmitter on the start-over: nothing to wait
+            // for here.
+            const auto compiled = VFX::CompileEmitterStack( system, k, Assets::RegistryVFXModuleResolver{} );
+            if ( !compiled.IsSuccess() )
+                continue;
+            const auto source = StackHostSource( compiled.GetValue() );
+            if ( !source.IsSuccess() )
+                continue;
+            if ( RequestProgram( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() ) )
+                keys.push_back( compiled.GetValue().Key );
+        }
+
+        // THE LAST ASK WINS: a key this placement asked for before and asks for no more, that no other placement
+        // of this world still waits on, is let go (ProgramCompile: the last world to let go drops the compile).
+        std::vector<uint64_t> previous;
+        if ( const auto asked = m_WantedKeys.find( uuid ); asked != m_WantedKeys.end() )
+            previous = std::move( asked->second );
+        if ( keys.empty() )
+            m_WantedKeys.erase( uuid );
+        else
+            m_WantedKeys[uuid] = keys;
+        const auto wanted = [this]( const uint64_t key )
+        {
+            return std::any_of( m_WantedKeys.begin(), m_WantedKeys.end(),
+                                [key]( const auto& entry ) {
+                                    return std::find( entry.second.begin(), entry.second.end(), key ) !=
+                                           entry.second.end();
+                                } );
+        };
+        for ( const uint64_t old : previous )
+            if ( !wanted( old ) )
+                m_Compiling.erase( old );
+        return keys.empty();
     }
 
     void ParticleWorldGpu::BuildEmitter( ParticleEmitterGpu&                         gpu,
@@ -371,6 +541,7 @@ namespace Desert::Graphic::System
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
+        gpu.Compiled     = compiled.GetValue();
         gpu.UserRows.clear();
         for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); ++s )
             if ( const VFX::VFXParamSlot& slot = compiled.GetValue().Slots[s];
@@ -401,6 +572,39 @@ namespace Desert::Graphic::System
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
+    }
+
+    void ParticleWorldGpu::PatchEmitterValues( ParticleEmitterGpu&                         gpu,
+                                               const Assets::Serialization::VFXSystemData& system,
+                                               const std::size_t index, const uint32_t entityId )
+    {
+        if ( gpu.Capacity == 0 || !gpu.Pipeline )
+            return; // disabled or refused at build time: the same structure is still disabled or refused
+        const auto& emitter = system.Emitters[index];
+        const auto  refuse  = [&]( const std::string& why )
+        {
+            LOG_ERROR( "[VFX] entity {} emitter {} '{}' does not simulate: {}", entityId, index, emitter.Name,
+                       why );
+            gpu.Capacity = 0;
+            gpu.Pipeline = nullptr;
+        };
+        const auto curves = VFX::BuildCurveAtlas( system );
+        if ( !curves.IsSuccess() )
+            return refuse( curves.GetError() );
+        auto params = VFX::BuildEmitterParams( gpu.Compiled, system, index, curves.GetValue() );
+        if ( !params.IsSuccess() )
+            return refuse( params.GetError() );
+        gpu.ParamRows = std::move( params.GetValue() );
+        if ( gpu.ParamRows.empty() )
+            gpu.ParamRows.emplace_back( 0.0f );
+        const std::size_t curveFloats = gpu.CurveFloats.size();
+        gpu.CurveFloats               = curves.GetValue().Floats;
+        if ( gpu.CurveFloats.empty() )
+            gpu.CurveFloats.push_back( 0.0f );
+        // A curve that gained or lost keys changes the atlas's length, not the program that reads it.
+        if ( gpu.CurveFloats.size() != curveFloats )
+            gpu.Curves = ShaderResources::StorageBuffer::Create(
+                 "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
     }
 
     void ParticleWorldGpu::FillDebugStats( VFX::VFXDebugStats& stats ) const
@@ -654,6 +858,10 @@ namespace Desert::Graphic::System
         // (VIEW-CLOSE-LEAK). Nested: the view's scope is restored when this one closes.
         const ResourceAttributionScope sceneRows( ResourceOwner::SceneRenderer, scene.GetLedgerInstance() );
 
+        // The programs compiled in the background since the last frame land first (the swap at frame start):
+        // the world's next tick finds them ready and starts the waiting placements over on them.
+        LandFinishedPrograms();
+
         m_FrameEmitters.clear();
 
         const auto&    clock        = world.GetClock().GetSettings();
@@ -678,10 +886,26 @@ namespace Desert::Graphic::System
 
                  const auto         entityId = static_cast<uint32_t>( entity );
                  ParticleSystemGpu& system   = m_Systems[entityId];
-                 if ( system.System != instances->System )
+                 if ( system.System != instances->System && system.System &&
+                      system.Generation == instances->Generation &&
+                      system.Emitters.size() == instances->System->Emitters.size() )
+                 {
+                     // The same structure with other values (VFXWorld's rule, SameStructure): the parameter rows
+                     // are filled again and every particle lives on - no program is generated or compiled.
+                     system.System = instances->System;
+                     for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                         PatchEmitterValues( system.Emitters[k], *instances->System, k, entityId );
+                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
+                     ApplyPointSets( system, vfx.Data.PointSets, entityId );
+                 }
+                 else if ( system.System != instances->System )
                  {
                      // A new system for this entity: every emitter is compiled again (programs are shared by key).
-                     system.System = instances->System;
+                     if ( system.System )
+                         LOG_INFO( "[VFX] entity {} rebuilds its {} emitter(s): the system's structure changed",
+                                   entityId, instances->System->Emitters.size() );
+                     system.System     = instances->System;
+                     system.Generation = instances->Generation;
                      system.Emitters.clear();
                      system.Emitters.resize( instances->System->Emitters.size() );
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )

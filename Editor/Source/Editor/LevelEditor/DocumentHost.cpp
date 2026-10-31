@@ -1,6 +1,8 @@
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/VFXSystemAsset.hpp>
 #include "Common/Core/Constants.hpp"
 #include "Common/Core/Logger.hpp"
 #include "DesertShared/ResultStr.hpp"
@@ -442,17 +444,62 @@ namespace Desert::Editor
                           document->GetName() );
             }
             // A kept document keeps the editor open too, and the rest of the exit's questions go with it.
-            if ( m_AfterCloseQuestions )
-            {
-                m_AfterCloseQuestions = nullptr;
-                std::erase_if( m_CloseQuestions,
-                               []( const PendingDocumentClose& p ) { return p.Reason == kEditorExitReason; } );
-            }
+            AbandonExit();
         }
 
-        if ( m_AfterCloseQuestions && m_CloseQuestions.empty() )
-            std::exchange( m_AfterCloseQuestions, nullptr )();
+        FinishExitIfAnswered();
         return closes;
+    }
+
+    void DocumentHost::AbandonExit()
+    {
+        if ( !m_AfterCloseQuestions )
+            return;
+        m_AfterCloseQuestions = nullptr;
+        std::erase_if( m_CloseQuestions,
+                       []( const PendingDocumentClose& p ) { return p.Reason == kEditorExitReason; } );
+        m_UnsavedAssetQuestions.clear();
+    }
+
+    void DocumentHost::FinishExitIfAnswered()
+    {
+        if ( m_AfterCloseQuestions && m_CloseQuestions.empty() && m_UnsavedAssetQuestions.empty() )
+            std::exchange( m_AfterCloseQuestions, nullptr )();
+    }
+
+    void DocumentHost::AnswerUnsavedAssetQuestion( const UnsavedCloseChoice choice )
+    {
+        if ( m_UnsavedAssetQuestions.empty() )
+            return;
+        const std::shared_ptr<Assets::VFXSystemAsset> asset = m_UnsavedAssetQuestions.front();
+        m_UnsavedAssetQuestions.erase( m_UnsavedAssetQuestions.begin() );
+        const std::string path = asset->GetMetadata().Filepath.string();
+
+        if ( choice == UnsavedCloseChoice::Save )
+        {
+            if ( auto saved = asset->SaveEdits(); !saved )
+            {
+                LOG_WARN( "'{}' was not saved ({}); the editor stays open so its edits are not lost", path,
+                          saved.GetError() );
+                AbandonExit();
+                return;
+            }
+        }
+        else if ( choice == UnsavedCloseChoice::Discard )
+        {
+            // As a document's Don't Save: the file's content is put back, nothing is written.
+            if ( auto read = asset->LoadFromFile(); !read )
+                LOG_WARN( "'{}': exiting without saving; the file could not be read back: {}", path,
+                          read.GetError() );
+            else
+                LOG_INFO( "'{}': exiting without saving its edits", path );
+        }
+        else
+        {
+            AbandonExit();
+            return;
+        }
+        FinishExitIfAnswered();
     }
 
     void DocumentHost::AskCloseAll( std::function<void()> onAllAnswered )
@@ -470,7 +517,23 @@ namespace Desert::Editor
                 m_CloseQuestions.push_back( PendingDocumentClose{ subject, std::string( kEditorExitReason ) } );
         }
 
-        if ( m_CloseQuestions.empty() )
+        // An asset edited in place with no window left to ask through: it is asked about by itself. Only the VFX
+        // system edits its asset in place today; another type that does joins this census.
+        if ( m_AssetManager )
+            for ( const auto& [handle, asset] : m_AssetManager->FindAllByType<Assets::VFXSystemAsset>() )
+            {
+                if ( !asset || !asset->HasUnsavedEdits() )
+                    continue;
+                const SubjectId subject =
+                     AssetSubject( handle, static_cast<uint32_t>( Assets::AssetTypeID::VFXSystem ) );
+                if ( m_OpenDocuments.Find( subject ) != nullptr )
+                    continue; // its window asks (above)
+                if ( std::find( m_UnsavedAssetQuestions.begin(), m_UnsavedAssetQuestions.end(), asset ) ==
+                     m_UnsavedAssetQuestions.end() )
+                    m_UnsavedAssetQuestions.push_back( asset );
+            }
+
+        if ( m_CloseQuestions.empty() && m_UnsavedAssetQuestions.empty() )
         {
             onAllAnswered();
             return;
@@ -483,12 +546,16 @@ namespace Desert::Editor
         namespace ImGui = ::ImGui;
 
         if ( m_CloseQuestions.empty() )
+        {
+            DrawUnsavedAssetQuestionPopup();
             return;
+        }
         const SubjectId         subject  = m_CloseQuestions.front().Subject;
         const ISubjectDocument* document = m_OpenDocuments.Find( subject );
         if ( document == nullptr )
         {
             m_CloseQuestions.erase( m_CloseQuestions.begin() );
+            FinishExitIfAnswered(); // a window gone some other way was the exit's last question
             return;
         }
 
@@ -519,6 +586,43 @@ namespace Desert::Editor
         {
             ImGui::CloseCurrentPopup();
             (void)AnswerCloseQuestion( subject, *choice );
+        }
+        ImGui::EndPopup();
+    }
+
+    void DocumentHost::DrawUnsavedAssetQuestionPopup()
+    {
+        namespace ImGui = ::ImGui;
+
+        if ( m_UnsavedAssetQuestions.empty() )
+            return;
+        constexpr const char* kTitle = "Save Changes?###UnsavedAsset";
+        if ( !ImGui::IsPopupOpen( kTitle ) )
+            ImGui::OpenPopup( kTitle );
+        ImGui::SetNextWindowPos( ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                                 ImVec2( 0.5f, 0.5f ) );
+        if ( !ImGui::BeginPopupModal( kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
+            return;
+
+        const std::string file = m_UnsavedAssetQuestions.front()->GetMetadata().Filepath.filename().string();
+        ImGui::Text( "Save changes to %s before closing?", file.c_str() );
+        ImGui::TextDisabled( "Its window is closed; the edits are still played in every scene." );
+        ImGui::Spacing();
+
+        std::optional<UnsavedCloseChoice> choice;
+        if ( ImGui::Button( "Save", ImVec2( 110.0f, 0.0f ) ) )
+            choice = UnsavedCloseChoice::Save;
+        ImGui::SameLine();
+        if ( ImGui::Button( "Don't Save", ImVec2( 110.0f, 0.0f ) ) )
+            choice = UnsavedCloseChoice::Discard;
+        ImGui::SameLine();
+        if ( ImGui::Button( "Cancel", ImVec2( 110.0f, 0.0f ) ) || ImGui::IsKeyPressed( ImGuiKey_Escape ) )
+            choice = UnsavedCloseChoice::Cancel;
+
+        if ( choice )
+        {
+            ImGui::CloseCurrentPopup();
+            AnswerUnsavedAssetQuestion( *choice );
         }
         ImGui::EndPopup();
     }

@@ -44,6 +44,11 @@ namespace Desert::Runtime
     //   .dfxtype — re-reads a VFX effect type in place (a failed re-read keeps the last good levels), so every
     //             world's next tick culls and scales its systems by the new per-level MaxDistance /
     //             SpawnCountScale.
+    //   .dfx    — re-reads a VFX system in place (a failed re-read keeps the last good one), so every
+    //             VFXComponent naming it plays the file's version: VFXSystemService follows its EditSerial. A
+    //             system holding UNSAVED EDITS (the `.dfx` window edits the asset itself) is NOT re-read - the
+    //             edit is the only copy; the asset is marked changed-on-disk and the window asks Reload / Keep
+    //             (UE).
     //   .shader — recompiles the program (errors land in the log / Logs panel, the old
     //             pipelines keep drawing); on success the pipeline cache entries for that
     //             shader are dropped after a device-idle wait, so the next frame draws with
@@ -81,6 +86,9 @@ namespace Desert::Runtime
         // No scene argument: every VFXWorld holds the type's asset and reads its levels each tick, so the
         // re-read in place IS the whole of the reload - the next tick culls and scales by the new levels.
         void PollVFXEffectTypes( Assets::AssetManager& assetManager );
+        // No scene argument: VFXSystemService hands every VFXComponent the asset's current snapshot and follows
+        // its EditSerial, so the re-read in place IS the whole of the reload.
+        void PollVFXSystems( Assets::AssetManager& assetManager );
 
         // Reports whether @p path CHANGED since the last poll (Common::Utils::WriteWatch: a moved stamp, or a
         // racy stamp over different content). A file seen for the first time returns false: the first
