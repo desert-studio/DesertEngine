@@ -1,7 +1,8 @@
 # VFX-INPLACE (card VFX-PRESETS2, owner 10-13 variant B): the .dfx window edits the AssetManager's asset in place. The
 # Starter scene's Campfire placement and the window's preview both name VFX/Campfire.dfx; a value edit in the window
 # reaches both with no program compile (editor.log: no "[VFX] stack ... compiles its host program" and no "rebuilds
-# its" line after the set), a structural edit (a module removed) rebuilds the emitters once, Revert reads the file
+# its" line after the set), a structural edit (a module removed) compiles its program on the job system (VFX-PRESETS2-4: the old flames play
+# until it lands, no hitch) and then rebuilds the emitters once, Revert reads the file
 # back into the asset and both return to the saved look. Nothing is saved: the file stays as it is.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
 Дано run View "View mode: Lit"
@@ -16,7 +17,8 @@
 Тогда-вид 1_value the preview flames are about three times larger; the level Campfire's flames grew the same way without restarting (the fire did not blink out)
 Когда run Document "Campfire: Remove Flames.ParticleUpdate.ColorOverLife"
 Когда state
-Тогда 2_struct_log editor.log has exactly one "[VFX] entity ... rebuilds its ... emitter(s): the system's structure changed" line per placement (preview and level) for this edit, and at most one "compiles its host program" line for the new stack key
+Когда state
+Тогда 2_struct_log editor.log for this edit: exactly one "[VFX] stack ... compiles its host program (background)" line for the new stack key and no "compiles its host program" line without "(background)"; then exactly one "[VFX] entity ... rebuilds its ... emitter(s): the system's structure changed" line per placement (preview and level); no frame longer than 100 ms between the Remove and the rebuild lines; no VUID
 Тогда-вид 2_struct both the preview and the level Campfire lose the orange-to-transparent fade (flames stay the spawn colour), alike
 Когда run Document "Discard edits"
 Когда state

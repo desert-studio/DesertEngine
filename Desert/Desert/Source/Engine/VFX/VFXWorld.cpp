@@ -290,6 +290,14 @@ namespace Desert::VFX
                      system.Overrides = vfx.Data.Overrides;
                      replan();
                  }
+                 else if ( system.System != data && system.System && m_GpuState &&
+                           !m_GpuState->ProgramsReady( uuid, *data ) )
+                 {
+                     // A structural edit whose programs compile in the background (VFX-PRESETS2-4): the placement
+                     // plays the system it plays until they are built, then starts over below on the snapshot
+                     // current then (an edit made meanwhile supersedes this one). First sight is not deferred:
+                     // the picture at age t stays a function of t (12e), so a fresh placement builds at once.
+                 }
                  else if ( system.System != data )
                  {
                      const bool firstSight = !system.System;

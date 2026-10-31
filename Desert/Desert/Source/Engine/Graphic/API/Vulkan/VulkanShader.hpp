@@ -30,6 +30,9 @@ namespace Desert::Graphic::API::Vulkan
     public:
         VulkanShader( const Assets::Asset<Assets::ShaderAsset>& asset, const ShaderVariant& variant,
                       const std::string& passName = {} );
+        // Shader::CreateFromShaderMap: the CPU half already built (@p built), only the device half runs here.
+        VulkanShader( const Assets::Asset<Assets::ShaderAsset>& asset, const ShaderVariant& variant,
+                      const std::string& passName, const Core::ShaderMap& built );
         ~VulkanShader();
 
         virtual Common::BoolResultStr Reload() override;
@@ -210,6 +213,9 @@ namespace Desert::Graphic::API::Vulkan
                                                        std::vector<DescriptorSetLayoutRef>&  layouts ) const;
 
         Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages );
+        // Everything Reload does after Core::BuildShaderMap answered: the empty-map refusal, the metadata, the
+        // device half, the code generation. Shared by Reload and the prebuilt-map constructor - one path.
+        Common::BoolResultStr AdoptShaderMap( const Core::ShaderMap& built );
 
     private:
         const std::weak_ptr<Assets::ShaderAsset> m_ShaderAsset;

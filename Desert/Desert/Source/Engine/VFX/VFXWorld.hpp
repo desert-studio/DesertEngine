@@ -177,6 +177,13 @@ namespace Desert::VFX
 
         // The render side's columns of @p stats (GpuCounts, and per emitter GpuRead / Alive / Free / FramesOld).
         virtual void FillDebugStats( VFXDebugStats& stats ) const = 0;
+
+        // VFX-PRESETS2-4 (UE FShaderCompilingManager / UNiagaraSystem::IsReadyToRun): whether every emitter
+        // program @p system needs is built, so placement @p uuid can start over on it now. False = at least one
+        // compiles in the background (this call starts what is not in flight yet): the world keeps playing the
+        // system the placement plays and asks again on its next tick. The last structure asked for a placement
+        // wins: a compile only an earlier structure of that placement wanted is dropped, its result discarded.
+        virtual bool ProgramsReady( std::uint64_t uuid, const Assets::Serialization::VFXSystemData& system ) = 0;
     };
 
     // The instances are VFXComponents' systems, keyed by entity UUID (one EmitterInstance per emitter); their GPU

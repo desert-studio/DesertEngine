@@ -8,14 +8,17 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticlePool.hpp"
 
 #include <glm/glm.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -310,6 +313,11 @@ namespace Desert::Graphic::System
         // returns true: that view simulates. Every later call of the same tick changes nothing and returns false.
         [[nodiscard]] bool PrepareTick( const Core::Scene& scene );
 
+        // VFX::WorldGpuState: every enabled emitter's stack of @p system is generated (CPU codegen, cheap) and its
+        // host program looked up by key; a program neither built nor compiling starts compiling on the job
+        // system. The placement's previous ask is replaced: a compile only that ask wanted is dropped.
+        [[nodiscard]] bool ProgramsReady( std::uint64_t uuid, const Assets::Serialization::VFXSystemData& system ) override;
+
         [[nodiscard]] const std::vector<ParticleFrameEmitter>& FrameEmitters() const
         {
             return m_FrameEmitters;
@@ -396,12 +404,51 @@ namespace Desert::Graphic::System
         // small for the points is made anew.
         static void ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
                                     uint32_t entityId );
-        // The host program for one compiled stack, by its key (null = refused, said once).
+        // The host program for one compiled stack, by its key (null = refused, said once). Synchronous: a key
+        // compiling in the background is waited for, any other key is compiled here (first sight, 12e).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );
 
+        // ONE BACKGROUND COMPILE of a host program (VFX-PRESETS2-4): the job builds Request's shader map and
+        // nothing else (ShaderService::BeginVariant / FinishVariant); Built is written before Done is released.
+        struct ProgramJob
+        {
+            explicit ProgramJob( Core::ShaderMapRequest request ) : Request( std::move( request ) )
+            {
+            }
+            const Core::ShaderMapRequest                      Request;
+            std::optional<Common::ResultStr<Core::ShaderMap>> Built;
+            std::atomic<bool>                                 Done{ false };
+        };
+        // A compile in flight, SHARED by every world waiting for its key (the editor's preview and the level ask
+        // for the same stack: one job, one log line, each world its own pipeline from the one program). Held only
+        // by the worlds' m_Compiling; when the last one lets go (every placement that asked moved on to another
+        // structure: the last edit wins) a job not yet run skips its compile and a finished result is discarded.
+        struct ProgramCompile
+        {
+            std::shared_ptr<ProgramJob>            Job;
+            Runtime::ShaderService::VariantCompile Ticket;
+            std::string                            Name;
+        };
+        // The compiles in flight across every world, by stack key. Weak: the worlds waiting own them. Main thread
+        // only, as every ParticleWorldGpu member is.
+        static std::unordered_map<uint64_t, std::weak_ptr<ProgramCompile>>& CompilesInFlight();
+        // Whether key @p key is still to wait for: false = m_Programs answers it (a pipeline, or null for a
+        // refusal said once); true = it compiles in the background (started here when it was not).
+        bool RequestProgram( uint64_t key, const std::string& name, const std::string& hostSource );
+        // The answer of ShaderService::BeginVariant / FinishVariant for @p key, made the program's state: a
+        // refusal or a ready program lands in m_Programs (false), a ticket starts a job (true).
+        bool AdoptLookup( uint64_t key, const std::string& name, const Core::ShaderVariant& variant,
+                          const Common::ResultStr<Runtime::ShaderService::VariantLookup>& lookup );
+        // THE SWAP: every finished job this world waits for lands (FinishVariant + the pipeline, in the scene's
+        // ledger scope). PrepareTick's first act; the world's next tick then starts over.
+        void LandFinishedPrograms();
+
         std::unordered_map<uint32_t, ParticleSystemGpu>                m_Systems;
         std::unordered_map<uint64_t, std::shared_ptr<ComputePipeline>> m_Programs;
+        std::unordered_map<uint64_t, std::shared_ptr<ProgramCompile>>  m_Compiling; // by stack key
+        // The stack keys each placement (entity UUID) last asked ProgramsReady for while one was compiling.
+        std::unordered_map<std::uint64_t, std::vector<uint64_t>>       m_WantedKeys;
         std::vector<ParticleFrameEmitter>                              m_FrameEmitters;
         ParticlePoolRanges                                             m_Ranges;
         ParticlePoolBuffers                                            m_Pool;
