@@ -8,12 +8,14 @@
 #ifndef DESERT_GENERIC_DEPTH_NORMAL_GLSLH
 #define DESERT_GENERIC_DEPTH_NORMAL_GLSLH
 
+#include <ShadingModels/ShadingModelContract.glslh> // kDesertMinRoughness, the normal slot's roughness floor
+
 layout( location = 1 ) out vec4 oGBufferB; // world Normal.rgb, Roughness.a (Mesh/Surface/Pass_GBuffer.glslh)
 
 // @p worldNormal need not be normalized; @p roughness is what SSR reads (clamped as the G-buffer pass clamps it).
 void DesertWriteDepthNormal( vec3 worldNormal, float roughness )
 {
-    oGBufferB = vec4( normalize( worldNormal ), max( roughness, 0.04 ) );
+    oGBufferB = vec4( normalize( worldNormal ), max( roughness, kDesertMinRoughness ) );
 }
 
 #endif // DESERT_GENERIC_DEPTH_NORMAL_GLSLH

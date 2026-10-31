@@ -7,6 +7,7 @@
 // (Pass_Forward_Translucent.glslh). Same surface function, same normal and roughness as the glass shades with: one
 // statement of the surface, never a second guess of it.
 #include <Common/MaterialTransport.glslh>
+#include <ShadingModels/ShadingModelContract.glslh> // kDesertMinRoughness, the normal slot's roughness floor
 
 DESERT_SURFACE_VARYINGS( in )
 
@@ -28,6 +29,6 @@ void main()
     // UE clips a zero-opacity texel out of the front layer: nothing is seen there to reflect from.
     if ( s.Opacity <= 0.0 )
         discard;
-    oFrontLayerNormal   = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
+    oFrontLayerNormal   = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, kDesertMinRoughness ) );
     oFrontLayerVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
 }

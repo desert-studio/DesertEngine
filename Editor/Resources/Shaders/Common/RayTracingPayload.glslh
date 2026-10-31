@@ -38,4 +38,11 @@ struct DesertRayPayload
 
 const uint kDesertRayPayloadFrontFace = 1u;
 
+// THE ROUGHNESS FLOOR of every ray-traced GGX lobe is the raster's, kDesertMinRoughness of the shading model contract
+// (one value for raster and ray tracing, as UE): the surface hit group writes the payload's Roughness floored by it
+// (Mesh/Surface/Pass_RayHit.glslh); the consumers that light the payload floor by it again (Programs/PathTracing/
+// PathTracer.shader PathTracingMaterialOf, Common/GIHitLighting.glslh GIHitLightResponse), because the landscape
+// hit group (Programs/Terrain/TerrainRayHit.shader) writes its blended ARM roughness unfloored.
+#include <ShadingModels/ShadingModelContract.glslh>
+
 #endif

@@ -218,7 +218,7 @@ MegaLightsPixel MegaLightsLoadPixel(ivec2 pixel)
 	p.ViewDepth        = (ViewProjection * vec4(p.Position, 1.0)).w;
 #ifdef MEGALIGHTS_SHADING
 	const vec4  ga        = texelFetch(GBufferATexture, pixel, 0);
-	const float roughness = max(gb.a, 0.04); // as the composite floors it
+	const float roughness = max(gb.a, kDesertMinRoughness); // as the composite floors it
 	const vec3  V         = normalize(CameraPosition.xyz - p.Position);
 	const uvec2 word      = texelFetch(GBufferShadingWordTexture, pixel, 0).rg;
 	p.Model               = DesertShadingModelIndex(word);
