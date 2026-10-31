@@ -59,6 +59,22 @@ namespace Common::Profiling
         m_DisplayFrameNamedMs = m_AccumFrameNamedMs * inv;
         m_AccumFrameNamedMs   = 0.0;
 
+        // The mesh draw split's groups, averaged over the same frames (empty when the split was off all window).
+        m_DrawSplitDisplay.clear();
+        m_DrawSplitDisplay.reserve( m_DrawSplitAccum.size() );
+        for ( const auto& [key, group] : m_DrawSplitAccum )
+        {
+            DrawSplitResult avg = group;
+            avg.GpuMs *= inv;
+            avg.Draws *= inv;
+            avg.Triangles *= inv;
+            m_DrawSplitDisplay.push_back( std::move( avg ) );
+        }
+        std::sort( m_DrawSplitDisplay.begin(), m_DrawSplitDisplay.end(),
+                   []( const DrawSplitResult& a, const DrawSplitResult& b )
+                   { return a.Pass != b.Pass ? a.Pass < b.Pass : a.GpuMs > b.GpuMs; } );
+        m_DrawSplitAccum.clear();
+
         m_Accum.clear();
         m_WindowFrames = 0;
         m_WindowStart  = now;
@@ -149,5 +165,29 @@ namespace Common::Profiling
         r.GpuMs += inclusiveMs;
         r.GpuSelfMs += selfMs;
         r.GpuCalls += 1;
+    }
+
+    void Profiler::AddDrawSplitSample( std::string_view pass, std::string_view mesh, std::string_view material,
+                                       double gpuMs, const DrawSplitCounts& counts )
+    {
+        if ( !m_Enabled )
+            return;
+
+        std::string key;
+        key.reserve( pass.size() + mesh.size() + material.size() + 2 );
+        key.append( pass ).append( 1, '' ).append( mesh ).append( 1, '' ).append( material );
+
+        std::lock_guard<std::mutex> lock( m_Mutex );
+        DrawSplitResult&            group = m_DrawSplitAccum[key];
+        if ( group.Pass.empty() )
+        {
+            group.Pass     = std::string( pass );
+            group.Mesh     = std::string( mesh );
+            group.Material = std::string( material );
+        }
+        group.GpuMs += gpuMs;
+        group.Draws += static_cast<double>( counts.Draws );
+        group.Triangles += static_cast<double>( counts.Triangles );
+        group.TrianglesPerInstance = group.TrianglesPerInstance || counts.TrianglesPerInstance;
     }
 } // namespace Common::Profiling

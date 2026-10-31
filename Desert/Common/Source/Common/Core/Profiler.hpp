@@ -22,6 +22,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -58,6 +59,38 @@ namespace Common::Profiling
     // anything summing the per-pass column has to leave it out. Declared here, beside the results it
     // appears in, so the backend that writes it and the panel that reads it share one string.
     inline constexpr const char* kGpuFrameTotalScope = "GPU: Frame Total";
+
+    // THE MESH DRAW SPLIT (UE `ProfileGPU` with `r.EmitMeshDrawEvents 1`): under Profiler::MeshDrawSplit a mesh
+    // pass brackets each of its draw groups - a run of CPU draws of one mesh x one material, one GPU-driven bin -
+    // with its own timestamp pair, so a pass row that costs 14 ms can say WHICH meshes cost it. The groups are not
+    // scopes of the pass tree: they live in a pool of their own (VulkanGpuProfiler), never become children of
+    // their pass, and leave its gpu / gpu self columns exactly as they are without the split - the split reads
+    // against its pass row, it does not re-partition it.
+    //
+    // What a group drew, counted on the CPU while it recorded. Draws: the draw calls (one per drawn submesh of a
+    // CPU draw, one per bin record). Triangles: the triangles those draws name times their instances; for a draw
+    // whose instance count only the GPU knows (a GPU-culled bin, a GPU-generated instanced draw) the triangles of
+    // ONE instance, with TrianglesPerInstance set - the CPU never reads the culled count back.
+    struct DrawSplitCounts
+    {
+        uint32_t Draws                = 0;
+        uint64_t Triangles            = 0;
+        bool     TrianglesPerInstance = false;
+    };
+
+    // One draw group's averaged row of the published window (Profiler::LastDrawSplit): Pass is the pass ROW the
+    // group recorded inside (view-prefixed like the pass's own row, GpuViewScopeName), so the two read side by
+    // side; GpuMs / Draws / Triangles are per frame, averaged like every other column.
+    struct DrawSplitResult
+    {
+        std::string Pass;
+        std::string Mesh;
+        std::string Material;
+        double      GpuMs                = 0.0;
+        double      Draws                = 0.0;
+        double      Triangles            = 0.0;
+        bool        TrianglesPerInstance = false;
+    };
 
     // The prefix of the row the graph backend publishes one async compute segment under ("RDG Async: <first
     // pass> .. <last pass> (<n> passes)"): the run of passes recorded on the compute queue, overlapping the
@@ -107,6 +140,12 @@ namespace Common::Profiling
         // The queue the scopes opened from now on are recorded on. The render graph's backend switches it at
         // every pipe segment it begins and ends; outside the graph it is Graphics (the frame's own buffer).
         virtual void SetQueue( GpuQueue queue ) = 0;
+
+        // One draw group of the mesh draw split (DrawSplitCounts): its own timestamp pair, outside the scope tree.
+        // @p pass is the recording pass's name (the view prefix is the sink's, as BeginScope's), @p mesh and
+        // @p material the group's labels; all three are copied. -1 when it cannot be timed (as BeginScope).
+        virtual int32_t BeginDrawScope( std::string_view pass, std::string_view mesh, std::string_view material ) = 0;
+        virtual void    EndDrawScope( int32_t handle, const DrawSplitCounts& counts ) = 0;
     };
 
     // Main-thread oriented CPU scope aggregator. Thread-safe (cheap mutex) so worker-thread scopes don't
@@ -165,6 +204,30 @@ namespace Common::Profiling
             return m_GpuPassScopes;
         }
 
+        // THE MESH DRAW SPLIT (DrawSplitCounts; UE r.EmitMeshDrawEvents): a timestamp pair per draw group of the
+        // mesh passes, on top of GpuEnabled. DEFAULT OFF, and off is not "cheap": no pool, no reset, not one query
+        // - a timestamp per draw group would tax the passes it measures, which is the tax GpuEnabled already
+        // refuses to make the default. Switched by the palette's "Profiler.MeshDrawSplit 1 / 0".
+        bool& MeshDrawSplit()
+        {
+            return m_MeshDrawSplit;
+        }
+        // Whether a mesh pass recording now should bracket its draw groups: the split asked for, GPU timing on,
+        // and a sink installed. The call sites read this once per pass and build no label when it is false.
+        [[nodiscard]] bool DrawSplitActive() const
+        {
+            return m_MeshDrawSplit && m_GpuEnabled && m_GpuSink != nullptr;
+        }
+        // One draw group of one resolved frame (the backend, at the same point as AddGpuSample).
+        void AddDrawSplitSample( std::string_view pass, std::string_view mesh, std::string_view material,
+                                 double gpuMs, const DrawSplitCounts& counts );
+        // The published window's draw groups, averaged per frame like LastFrame(): sorted by Pass, then by GpuMs
+        // (most expensive first). Empty when the split was off for the whole window.
+        const std::vector<DrawSplitResult>& LastDrawSplit() const
+        {
+            return m_DrawSplitDisplay;
+        }
+
         // Published, averaged-over-the-window results (see BeginFrame).
         const std::vector<ScopeResult>& LastFrame() const
         {
@@ -218,6 +281,9 @@ namespace Common::Profiling
         float                                        m_AvgWindowSec  = 0.5f;
         bool                                         m_GpuEnabled    = false; // see GpuEnabled()
         bool                                         m_GpuPassScopes = true;
+        bool                                         m_MeshDrawSplit = false;
+        std::unordered_map<std::string, DrawSplitResult> m_DrawSplitAccum; // key Pass  Mesh  Material
+        std::vector<DrawSplitResult>                     m_DrawSplitDisplay;
         IGpuProfilerSink*                            m_GpuSink       = nullptr;
     };
 
