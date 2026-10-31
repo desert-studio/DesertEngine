@@ -170,9 +170,10 @@ namespace Desert::Graphic::System
         // Before the cascades and the geometry: the generation nodes of this frame's view, and the sections handed
         // to @p meshes. A view that is not the main one (a capture face) grows nothing. @p rayTracing: the view
         // builds a TLAS this frame (RayTracingSceneRequired): the Blade varieties' level BLASes are prepared and
-        // handed with the sections (GrassBladeRayTracing.hpp). @p occlusion: what the generation tests its kept
-        // the camera's list against; a tested frame's camera list depends on last frame's depth, so every variety
-        // generates every such frame (VarietyGpu::GenerateKey holds nothing across them).
+        // handed with the sections (GrassBladeRayTracing.hpp). @p occlusion: what the camera cull tests the
+        // camera's list against. GRASS-VIS-24 (UE: grass built once per component, culled per view every frame):
+        // a variety generates only when its inputs change (VarietyGpu::GenerateKey); a tested frame's camera list
+        // depends on last frame's depth, so the camera cull runs every such frame over the kept instances.
         // GRASS-VIS-6: the full list (the cascades, the TLAS) is culled by the camera's side planes swept along
         // every directional light @p meshes fitted cascades for this frame (MeshRenderer::DirectionalCasterSweeps),
         // the camera's own list by the camera's planes; AddFrame runs after MeshRenderer::UpdateCascades.
@@ -333,6 +334,9 @@ namespace Desert::Graphic::System
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
         std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
+        // GRASS-VIS-24: this frame's whose camera list is culled (an HZB-tested frame: every one with a list; by
+        // the planes alone: those that generate)
+        std::vector<VarietyGpu*>         m_FrameCull;
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral

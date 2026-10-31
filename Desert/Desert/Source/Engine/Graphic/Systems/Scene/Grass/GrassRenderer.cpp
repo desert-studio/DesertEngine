@@ -63,8 +63,18 @@ namespace Desert::Graphic::System
         static_assert( kGrassIdBytes == 4u && sizeof( glm::mat4 ) == 64u,
                        "GrassGenerate.shader: uint GrassCameraIdsData[] / GrassCascadeIdsData[], mat4 "
                        "GrassInstancesData[]" );
-        // GrassGenerate's phase 2 runs one thread per slot (64 a group); its groups wrap at this many along x.
-        constexpr uint32_t kPostGroupsX = 1024u;
+        // GrassGenerate's camera cull and phase 2 run one thread per instance slot (64 a group); their groups wrap
+        // at this many along x.
+        constexpr uint32_t kSlotGroupsX = 1024u;
+
+        // The groups of a per-slot GrassGenerate dispatch over @p capacity slots: along x (at most kSlotGroupsX)
+        // and y (GrassGeneratePush::CellRange.y names the x count).
+        glm::uvec2 SlotGroups( const uint32_t capacity )
+        {
+            const uint32_t groups  = ( std::max( capacity, 1u ) + 63u ) / 64u;
+            const uint32_t groupsX = std::min( groups, kSlotGroupsX );
+            return { groupsX, ( groups + groupsX - 1u ) / groupsX };
+        }
 
         // Mirrors GrassGenerate's GrassParams (std430).
         struct GrassParamsGpu
@@ -237,8 +247,10 @@ namespace Desert::Graphic::System
         // GrassFinalize's push block (Programs/Grass/GrassFinalize.shader PushConstants).
         struct GrassFinalizePush
         {
-            // x = 0 after the generation, 1 after phase 2; y = 1 with a camera list; z = 1 for a blade's records
-            // (sets of one record per bucket, GpuInstances.hpp), 0 for a mesh's (a group of records per bucket)
+            // x = 0 after the generation, 1 after phase 2, 2 before a generation (zeroes Args' kept counts), 3
+            // after the camera cull; y = 1 with a camera list (its Feedback word is mode 3's); z = 1 for a blade's
+            // records (sets of one record per bucket, GpuInstances.hpp), 0 for a mesh's (a group of records per
+            // bucket); w = mode 0's cascade views with a list
             glm::uvec4 Mode{ 0u };
         };
         static_assert( sizeof( GrassFinalizePush ) == 16 );
@@ -915,6 +927,7 @@ namespace Desert::Graphic::System
         }
         m_Frame.clear();
         m_FrameGenerate.clear();
+        m_FrameCull.clear();
         m_Settling       = false;
         m_FrameTested    = testsHzb;
         m_FrameNeutral   = occlusion.Neutral;
@@ -1006,12 +1019,19 @@ namespace Desert::Graphic::System
                     ++gpu->Generation;
                     gpu->StableGenerations = 0;
                 }
-                // Instances culled by last frame's depth are this frame's only: a tested frame always generates.
-                if ( testsHzb || gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight() )
+                // GRASS-VIS-24: the generation follows its inputs alone; the camera's list is the cull's (below).
+                const bool generates =
+                     gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight();
+                if ( generates )
                 {
                     ++gpu->StableGenerations;
                     m_FrameGenerate.push_back( gpu );
                 }
+                // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every such
+                // frame; by the camera's planes alone it follows the generation's inputs (the planes are among
+                // them), so it is culled when the variety generates.
+                if ( testsHzb || ( volumes.List == CameraList::Planes && generates ) )
+                    m_FrameCull.push_back( gpu );
                 NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
                                           ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
@@ -1067,19 +1087,54 @@ namespace Desert::Graphic::System
                     meshes.SubmitGpuInstanced( section );
             }
         }
+        DrawCounter::RecordGrassGenerated( static_cast<uint32_t>( m_FrameGenerate.size() ) );
         if ( m_Frame.empty() )
             return;
 
-        // A frame whose varieties all keep their inputs generates nothing: the instances and the draw records
-        // GrassFinalize left stay in their persistent buffers (VarietyGpu::GenerateKey).
+        // A frame whose varieties all keep their inputs generates nothing: the instances, their kept counts and
+        // the draw records GrassFinalize left stay in their persistent buffers (VarietyGpu::GenerateKey).
         if ( !m_FrameGenerate.empty() )
         {
+            // The kept counts the camera culls of the frames since read are zeroed before the generation counts
+            // anew (GrassFinalize.shader Mode.x = 2).
+            graph.AddPass(
+                 "Grass: Generate Reset", RDG::PassFlags::Compute,
+                 [this]( RDG::PassBuilder& pass )
+                 {
+                     const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
+                     for ( const VarietyGpu* gpu : m_FrameGenerate )
+                         pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
+                              .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                        RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
+                 },
+                 [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto& renderer = Renderer::GetInstance();
+                     for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                     {
+                         RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
+                         const GrassFinalizePush mode{ glm::uvec4( 2u, 0u, 0u, 0u ) };
+                         bindings.PushConstants( &mode, sizeof( mode ) );
+                         if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
+                              !dispatched )
+                             return dispatched;
+                     }
+                     return BOOLSUCCESS;
+                 } );
+
+            // GrassGenerate.shader Hzb.w = 0: the full list and the cascades' lists; the HZB is the cull's.
             GrassGeneratePush push;
-            push.HzbViewProjection = occlusion.PrevViewProjection;
-            // GrassGenerate.shader Hzb.w: 1 the camera's list by its planes and the HZB, 3 by its planes only, 0 one list.
-            push.Hzb = testsHzb ? glm::uvec4( occlusion.Extent, 1u )
-                                : glm::uvec4( 0u, 0u, 0u, volumes.List == CameraList::Planes ? 3u : 0u );
-            const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
+            push.Hzb                  = glm::uvec4( 0u );
+            const RDG::TextureRef hzb = occlusion.Neutral;
             graph.AddPass(
                  "Grass: Generate", RDG::PassFlags::Compute,
                  [this, hzb]( RDG::PassBuilder& pass )
@@ -1100,11 +1155,11 @@ namespace Desert::Graphic::System
                               .Texture( GrassGenerateShaderParameters::GrassHzbTexture, hzb,
                                         RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                               .Storage( GrassGenerateShaderParameters::CameraIds, gpu->CameraRefs.Ids,
-                                        RDG::Access::StorageWrite )
+                                        RDG::Access::StorageRead )
                               .Storage( GrassGenerateShaderParameters::CameraArgs, gpu->CameraRefs.Args,
-                                        RDG::Access::StorageWrite )
+                                        RDG::Access::StorageRead )
                               .Storage( GrassGenerateShaderParameters::Candidates, gpu->CandidatesRef,
-                                        RDG::Access::StorageWrite )
+                                        RDG::Access::StorageRead )
                               .Storage( GrassGenerateShaderParameters::CascadeIds, gpu->CascadeRefs.Ids,
                                         RDG::Access::StorageWrite )
                               .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
@@ -1171,6 +1226,102 @@ namespace Desert::Graphic::System
                  } );
         }
 
+        // THE CAMERA CULL (GRASS-VIS-24; UE: the instance cull of every frame over instances built once): the
+        // camera's list from the kept instances in Instances, one thread per slot (GrassGenerate.shader
+        // CameraCull), then its records and phase words (GrassFinalize.shader Mode.x = 3).
+        if ( !m_FrameCull.empty() )
+        {
+            GrassGeneratePush push;
+            push.HzbViewProjection = occlusion.PrevViewProjection;
+            // GrassGenerate.shader Hzb.w: 1 the camera cull by its planes and the HZB, 3 by its planes only.
+            push.Hzb = testsHzb ? glm::uvec4( occlusion.Extent, 1u ) : glm::uvec4( 0u, 0u, 0u, 3u );
+            const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
+            graph.AddPass(
+                 "Grass: Camera Cull", RDG::PassFlags::Compute,
+                 [this, hzb]( RDG::PassBuilder& pass )
+                 {
+                     const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
+                     for ( const VarietyGpu* gpu : m_FrameCull )
+                         pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
+                              .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args,
+                                        RDG::Access::StorageRead )
+                              .Sampler( GrassGenerateShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( GrassGenerateShaderParameters::GrassHzbTexture, hzb,
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                              .Storage( GrassGenerateShaderParameters::CameraIds, gpu->CameraRefs.Ids,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::Candidates, gpu->CandidatesRef,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::CascadeIds, gpu->CascadeRefs.Ids,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                        RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
+                 },
+                 [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto& renderer = Renderer::GetInstance();
+                     for ( uint32_t i = 0; i < m_FrameCull.size(); ++i )
+                     {
+                         const VarietyGpu* gpu    = m_FrameCull[i];
+                         const glm::uvec2  groups = SlotGroups( gpu->Capacity );
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
+                         GrassGeneratePush variety = push;
+                         variety.CellRange         = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
+                                                                 static_cast<int32_t>( groups.x ), 0, 0 );
+                         bindings.PushConstants( &variety, sizeof( variety ) );
+                         if ( auto dispatched =
+                                   renderer.DispatchCompute( bindings, *m_Generate, groups.x, groups.y, 1 );
+                              !dispatched )
+                             return dispatched;
+                     }
+                     return BOOLSUCCESS;
+                 } );
+
+            graph.AddPass(
+                 "Grass: Camera Cull Finalize", RDG::PassFlags::Compute,
+                 [this]( RDG::PassBuilder& pass )
+                 {
+                     const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
+                     for ( const VarietyGpu* gpu : m_FrameCull )
+                         pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
+                              .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                        RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
+                 },
+                 [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto& renderer = Renderer::GetInstance();
+                     for ( uint32_t i = 0; i < m_FrameCull.size(); ++i )
+                     {
+                         RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
+                         const GrassFinalizePush mode{ glm::uvec4( 3u, 1u, m_FrameCull[i]->Shape ? 1u : 0u, 0u ) };
+                         bindings.PushConstants( &mode, sizeof( mode ) );
+                         if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
+                              !dispatched )
+                             return dispatched;
+                     }
+                     return BOOLSUCCESS;
+                 } );
+        }
+
         // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
         // builds (SceneRenderer).
         if ( const Common::BoolResultStr blades = m_BladeRayTracing.AddPass( graph ); !blades )
@@ -1181,8 +1332,8 @@ namespace Desert::Graphic::System
     bool GrassRenderer::AddFramePostOcclusion( RDG::Builder& graph, const RDG::TextureRef hzb,
                                                const glm::mat4& viewProjection, const glm::uvec3& extent )
     {
-        // A tested frame generates every variety (AddFrame), so m_FrameGenerate is the frame's whole list.
-        if ( !m_FrameTested || m_FrameGenerate.empty() || !m_Generate || !m_Finalize )
+        // A tested frame culls every variety's camera list (AddFrame), so m_FrameCull is the frame's whole list.
+        if ( !m_FrameTested || m_FrameCull.empty() || !m_Generate || !m_Finalize )
             return false;
         // No HZB of this frame (GrassGenerate.shader Hzb.z = 0): nothing to re-test against, so every candidate is
         // appended - drawn once more than an HZB would let through, never dropped.
@@ -1196,7 +1347,7 @@ namespace Desert::Graphic::System
              [this, bound]( RDG::PassBuilder& pass )
              {
                  const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
-                 for ( const VarietyGpu* gpu : m_FrameGenerate )
+                 for ( const VarietyGpu* gpu : m_FrameCull )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
                           .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
                           .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
@@ -1223,19 +1374,17 @@ namespace Desert::Graphic::System
              [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  auto& renderer = Renderer::GetInstance();
-                 for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                 for ( uint32_t i = 0; i < m_FrameCull.size(); ++i )
                  {
-                     const VarietyGpu* gpu = m_FrameGenerate[i];
+                     const VarietyGpu* gpu = m_FrameCull[i];
                      // One thread per instance slot of the camera's list: a group is 64 threads (8 x 8).
-                     const uint32_t groups = ( std::max( gpu->Capacity, 1u ) + 63u ) / 64u;
-                     const uint32_t groupsX = std::min( groups, kPostGroupsX );
-                     const uint32_t groupsY = ( groups + groupsX - 1u ) / groupsX;
+                     const glm::uvec2  groups = SlotGroups( gpu->Capacity );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
                      GrassGeneratePush variety = push;
                      variety.CellRange = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
-                                                     static_cast<int32_t>( groupsX ), 0, 0 );
+                                                     static_cast<int32_t>( groups.x ), 0, 0 );
                      bindings.PushConstants( &variety, sizeof( variety ) );
-                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsY, 1 );
+                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groups.x, groups.y, 1 );
                           !dispatched )
                          return dispatched;
                  }
@@ -1247,7 +1396,7 @@ namespace Desert::Graphic::System
              [this]( RDG::PassBuilder& pass )
              {
                  const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
-                 for ( const VarietyGpu* gpu : m_FrameGenerate )
+                 for ( const VarietyGpu* gpu : m_FrameCull )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
                           .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args, RDG::Access::StorageRead )
                           .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
@@ -1263,10 +1412,10 @@ namespace Desert::Graphic::System
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  auto& renderer = Renderer::GetInstance();
-                 for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                 for ( uint32_t i = 0; i < m_FrameCull.size(); ++i )
                  {
                      RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
-                     const GrassFinalizePush mode{ glm::uvec4( 1u, 1u, m_FrameGenerate[i]->Shape ? 1u : 0u, 0u ) };
+                     const GrassFinalizePush mode{ glm::uvec4( 1u, 1u, m_FrameCull[i]->Shape ? 1u : 0u, 0u ) };
                      bindings.PushConstants( &mode, sizeof( mode ) );
                      if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 ); !dispatched )
                          return dispatched;

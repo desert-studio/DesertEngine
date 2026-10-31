@@ -3,15 +3,17 @@
 // records that draw it and its first instance their firstInstance (GpuInstances.hpp: bucket L for the submeshes'
 // records of a mesh's level L - one bucket without a LOD chain - and bucket s for record s of every set of a blade
 // strip's records, one set per shadow LOD, Mode.z), the UNCLAMPED counts (the generator's atomic counts past the
-// capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback), and
-// the counters are reset for the next frame's generation. One thread.
-// The camera's list (GRASS-VIS, Mode.y): CameraArgs' records get its phase-1 counts the same way, and each bucket's
-// phase words (GrassGenerate.shader CameraArgs) freeze this frame's candidates and phase 1's drawn count for phase 2
-// and restart the counters. The post mode (Mode.x = 1, after phase 2) writes PostArgs' records: phase 2's appended
-// instances, right after phase 1's drawn ones in the camera's list.
+// capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback). The
+// counts STAY in Args until the next generation (GRASS-VIS-24: the camera cull of every later frame reads them -
+// which slots hold a kept instance); the reset mode (Mode.x = 2, before a generation) zeroes them. One thread.
+// The camera's list (GRASS-VIS; Mode.x = 3, after GrassGenerate's camera cull): CameraArgs' records get its phase-1
+// counts the same way, and each bucket's phase words (GrassGenerate.shader CameraArgs) freeze this frame's candidates
+// and phase 1's drawn count for phase 2 and restart the counters. The post mode (Mode.x = 1, after phase 2) writes
+// PostArgs' records: phase 2's appended instances, right after phase 1's drawn ones in the camera's list.
 // Drawn counts (GRASS-VIS-7, GrassRenderer::GetDrawnCounts): after the written mark, Feedback holds the full list's
-// drawn count, the camera's phase-1 drawn count (the full list's when the camera has no list of its own) and phase
-// 2's appended count (0 until the post mode writes it), read back with the bucket counts FramesInFlight frames later.
+// drawn count, the camera's phase-1 drawn count (the full list's when the camera has no list of its own, Mode.y = 0;
+// the camera mode's otherwise) and phase 2's appended count (0 until the post mode writes it), read back with the
+// bucket counts FramesInFlight frames later.
 // The cascades' lists (GPU-COST-21, Mode.w = the cascade views that have one, list k the k-th set bit): each list's
 // copy of Args' layout in CascadeArgs gets its records and counts the same way, and Feedback, after those three
 // counts, one drawn count per cascade VIEW (0 for a view without a list), so the read-back names the cascade
@@ -54,7 +56,9 @@ Shader "GrassFinalize"
         // Mirrors Graphic::System::GrassFinalizePush (GrassRenderer.cpp).
         PushConstant PushConstants
         {
-            uvec4 Mode; // x = 0 after the generation, 1 after phase 2; y = 1 when the camera's list was generated;
+            uvec4 Mode; // x = 0 after the generation, 1 after phase 2, 2 before a generation (the reset), 3 after
+                        // the camera cull; y = 1 when the camera has a list of its own (its Feedback word is the
+                        // camera mode's);
                         // z = 1: a blade's records, sets of one record per bucket (record s draws bucket s % count);
                         // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
         };
@@ -162,8 +166,21 @@ Shader "GrassFinalize"
                 FinalizePost();
                 return;
             }
-            if ( Mode.y != 0u )
+            if ( Mode.x == 2u )
+            {
+                uint tableAt = 4u + Arguments[2] * 5u;
+                for ( uint b = 0u; b < Arguments[0]; ++b )
+                    Arguments[tableAt + b * 4u] = 0u;
+                return;
+            }
+            if ( Mode.x == 3u )
+            {
                 FinalizeCamera();
+                uint cameraBuckets                = CameraArguments[0];
+                FeedbackData[cameraBuckets + 2u] = CameraArguments[3];
+                FeedbackData[cameraBuckets + 3u] = 0u;
+                return;
+            }
             uint buckets = Arguments[0];
             uint records = Arguments[2];
             uint table   = 4u + records * 5u;
@@ -178,13 +195,15 @@ Shader "GrassFinalize"
             for ( uint b = 0u; b < buckets; ++b )
             {
                 drawn += min( Arguments[table + b * 4u], Arguments[table + b * 4u + 2u] );
-                FeedbackData[b]          = Arguments[table + b * 4u];
-                Arguments[table + b * 4u] = 0u;
+                FeedbackData[b] = Arguments[table + b * 4u];
             }
             FeedbackData[buckets]      = 1u;
             FeedbackData[buckets + 1u] = drawn;
-            FeedbackData[buckets + 2u] = Mode.y != 0u ? CameraArguments[3] : drawn;
-            FeedbackData[buckets + 3u] = 0u;
+            if ( Mode.y == 0u )
+            {
+                FeedbackData[buckets + 2u] = drawn;
+                FeedbackData[buckets + 3u] = 0u;
+            }
             Arguments[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
             FinalizeCascades( buckets, records );
         }

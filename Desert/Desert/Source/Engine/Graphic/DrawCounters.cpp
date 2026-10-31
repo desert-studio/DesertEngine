@@ -87,6 +87,11 @@ namespace Desert::Graphic
         ++g_GrassRecording.Varieties;
     }
 
+    void DrawCounter::RecordGrassGenerated( const uint32_t varieties )
+    {
+        g_GrassRecording.Generated += varieties;
+    }
+
     GrassDrawCounters DrawCounter::LastFrameGrass()
     {
         return g_GrassFinished;

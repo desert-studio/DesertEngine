@@ -57,6 +57,9 @@ namespace Desert::Graphic
         uint64_t                            Post   = 0;
         std::array<uint64_t, kCascadeViews> Cascades{};
         uint32_t                            Varieties = 0; ///< the varieties whose counts had come back
+        /// GRASS-VIS-24: the varieties whose generation ran this frame (inputs changed; 0 on a still camera once
+        /// every frame in flight holds the counts) - the camera cull runs without it.
+        uint32_t Generated = 0;
     };
 
     // THE SNAPSHOT IS OF THE FRAME THAT FINISHED, never of the one being recorded. A HUD reading the live
@@ -101,6 +104,8 @@ namespace Desert::Graphic
         /// One grass variety's read-back drawn counts (GrassRenderer::AddFrame; GrassDrawCounters).
         static void RecordGrass( uint32_t full, uint32_t camera, uint32_t post,
                                  std::span<const uint32_t> cascades );
+        /// The varieties one GrassRenderer::AddFrame generated (GrassDrawCounters::Generated).
+        static void RecordGrassGenerated( uint32_t varieties );
         /// The finished frame's grass counts.
         [[nodiscard]] static GrassDrawCounters LastFrameGrass();
 #else
@@ -131,6 +136,9 @@ namespace Desert::Graphic
             return {};
         }
         static void RecordGrass( uint32_t, uint32_t, uint32_t, std::span<const uint32_t> )
+        {
+        }
+        static void RecordGrassGenerated( uint32_t )
         {
         }
         [[nodiscard]] static GrassDrawCounters LastFrameGrass()
