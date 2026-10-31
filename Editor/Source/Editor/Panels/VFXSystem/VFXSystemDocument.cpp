@@ -643,6 +643,8 @@ namespace Desert::Editor
             ImGui::TextWrapped( "This system could not be read: %s", m_LoadError.c_str() );
             return;
         }
+        // Above the columns, so the space they share is what is left under it.
+        DrawChangedOnDisk();
 
         constexpr float kSystemWidth = 260.0f;
         constexpr float kStackWidth  = 380.0f;
@@ -1388,9 +1390,54 @@ namespace Desert::Editor
         return std::nullopt;
     }
 
+    void VFXSystemDocument::ReloadChangedFile()
+    {
+        if ( !m_Asset || !m_Asset->ChangedOnDiskWhileEdited() )
+            return;
+        if ( DiscardEdits() )
+            LOG_INFO( "[VFX] '{}' reloaded from disk - the unsaved edits were discarded.",
+                      m_Asset->GetMetadata().Filepath.string() );
+    }
+
+    void VFXSystemDocument::KeepEditsOverChangedFile()
+    {
+        if ( !m_Asset || !m_Asset->ChangedOnDiskWhileEdited() )
+            return;
+        m_Asset->KeepEdits();
+        LOG_INFO( "[VFX] '{}' keeps its unsaved edits over the file changed on disk; the next Save overwrites it.",
+                  m_Asset->GetMetadata().Filepath.string() );
+    }
+
+    void VFXSystemDocument::DrawChangedOnDisk()
+    {
+        if ( !m_Asset || !m_Asset->ChangedOnDiskWhileEdited() )
+            return;
+        // UE's "file changed on disk" question on a dirty package: nothing was read over the edits; the person
+        // picks which side wins.
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored( ImVec4( 1.0f, 0.75f, 0.3f, 1.0f ),
+                            "The file changed on disk while this system has unsaved edits. The edits are kept." );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Reload##changedondisk" ) )
+            ReloadChangedFile();
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Read the file: the unsaved edits are discarded, here and in every scene" );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Keep##changedondisk" ) )
+            KeepEditsOverChangedFile();
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Keep the edits: the next Save overwrites the file's new contents" );
+    }
+
     std::vector<ISubjectDocument::DocumentAction> VFXSystemDocument::Actions()
     {
         std::vector<DocumentAction> out;
+        // The changed-on-disk question, addressable by words as the window's two buttons.
+        if ( m_Asset && m_Asset->ChangedOnDiskWhileEdited() )
+        {
+            out.push_back( { "Reload changed file", [this] { ReloadChangedFile(); } } );
+            out.push_back( { "Keep edits over changed file", [this] { KeepEditsOverChangedFile(); } } );
+        }
         if ( !m_Loaded || m_Working.Emitters.empty() )
             return out;
         const std::size_t e    = std::min( m_SelectedEmitter, m_Working.Emitters.size() - 1 );

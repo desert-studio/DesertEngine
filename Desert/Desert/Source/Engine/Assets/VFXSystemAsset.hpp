@@ -62,6 +62,30 @@ namespace Desert::Assets
         /// Writes the held data to the asset's file; afterwards HasUnsavedEdits is false.
         Common::BoolResultStr SaveEdits();
 
+        /// A file re-read cannot rebuild an asset holding unsaved edits: the edit is the only copy (UE: a dirty
+        /// package is not reloaded from disk behind the user's back). Unload refuses for the same reason.
+        [[nodiscard]] bool IsReloadableFromFile() const override
+        {
+            return !HasUnsavedEdits();
+        }
+
+        /// THE FILE CHANGED ON DISK WHILE THE ASSET HELD UNSAVED EDITS (UE: the "file changed on disk" question
+        /// on a dirty package). Hot reload does not re-read such an asset; it raises this instead, and the
+        /// `.dfx` window asks Reload (LoadFromFile: the file wins) or Keep (KeepEdits: the edits win, the next
+        /// Save overwrites the file). A read of the file or a save clears it.
+        void NoteChangedOnDisk()
+        {
+            m_ChangedOnDisk = true;
+        }
+        [[nodiscard]] bool ChangedOnDiskWhileEdited() const
+        {
+            return m_ChangedOnDisk && HasUnsavedEdits();
+        }
+        void KeepEdits()
+        {
+            m_ChangedOnDisk = false;
+        }
+
         /// Moves whenever any VFX system asset's data is replaced (an Edit, a read from the file): the one
         /// counter VFXSystemService compares before looking for a new snapshot.
         [[nodiscard]] static uint64_t EditSerial()
@@ -85,6 +109,7 @@ namespace Desert::Assets
         // The snapshot the file holds (the last read or write); HasUnsavedEdits compares against it.
         std::shared_ptr<const Serialization::VFXSystemData> m_OnDisk = m_Data;
         bool                                                 m_Ready  = false;
+        bool                                                 m_ChangedOnDisk = false;
 
         static inline std::atomic<uint64_t> s_EditSerial{ 1 };
     };

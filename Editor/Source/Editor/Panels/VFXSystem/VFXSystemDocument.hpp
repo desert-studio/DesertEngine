@@ -121,6 +121,11 @@ namespace Desert::Editor
         void DrawSystemColumn();
         void DrawStackColumn();
         void DrawTransport();
+        // The file changed on disk while the asset held unsaved edits (hot reload left the edits): the question
+        // row above the columns, and its two answers - Reload (the file wins) and Keep (the edits win).
+        void DrawChangedOnDisk();
+        void ReloadChangedFile();
+        void KeepEditsOverChangedFile();
         // The end of the transport's range: the system's Duration (one system loop), m_PlaybackEnd when it has
         // none.
         [[nodiscard]] double PlaybackEnd() const;
