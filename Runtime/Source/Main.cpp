@@ -113,11 +113,15 @@ namespace Desert::Player
             {
                 const auto upgraded = Settings::UpgradeGameUserSettings( s_UserSettings );
                 if ( !upgraded )
+                {
                     LOG_ERROR( "[Settings] {}", upgraded.GetError() );
+                }
                 else if ( keepPlayerFile )
+                {
                     if ( const auto saved = Settings::SaveGameUserSettings( s_UserSettings, s_UserDirectory );
                          !saved )
                         LOG_ERROR( "[Settings] {}", saved.GetError() );
+                }
             }
             // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
             // quality groups, the pacer, the mix, the language — reaches its consumers here. BETWEEN the layer's
