@@ -20,7 +20,8 @@
 // per-frame ViewFrame (TAA1 step 3), for the raster AND for ray tracing: every ray generation that traces into
 // hit groups binds it (PathTracer "PathTracing: Trace", SSR "Deferred: Reflections (HitLighting)"), so a hit cell
 // that includes Common/CameraUB.glslh reads the program's own binding (VulkanRayTracingPipeline: a hit cell reads
-// only what the program binds); the landscape's hit reads CameraPos and GrassLens here (GPU-COST-25).
+// only what the program binds); the landscape's hit reads CameraPos and GrassLens here (GPU-COST-25), and so does
+// the landscape's raster with its matrices and PreExposure - it keeps no copy of the view (GPU-COST-26).
 // WHICH MATRIX (ViewFrame.hpp): raster geometry -> JitteredViewProjection;
 // world position from depth -> InvJitteredViewProjection; reprojection -> PrevViewProjection vs ViewProjection
 // (both unjittered); Projection / View stay the camera's own, unjittered.

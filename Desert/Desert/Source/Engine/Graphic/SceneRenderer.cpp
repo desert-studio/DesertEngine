@@ -1704,11 +1704,10 @@ namespace Desert::Graphic
         }
         m_CameraCutPending = false;
         // THE VIEW'S GRASS FIELD LENS (ViewFrame::GrassLens): the Foliage quality through this frame's camera and
-        // render extent, written once here so the view block (CameraUB) and the landscape's raster block
-        // (TerrainUB) carry the same lens to the raster and to the ray tracing hits.
-        ViewFrame                    viewFrame = begun.GetValue();
-        const System::GrassFieldLens grassLens = System::MakeGrassFieldLens( m_GrassQuality, viewFrame );
-        viewFrame.GrassLens = glm::vec4( grassLens.DistanceScale, grassLens.PixelsPerUnit, 0.0f, 0.0f );
+        // render extent, written once here: the view block (CameraUB) carries it to the landscape's raster and to its
+        // ray tracing hits, and the grass generator reads it from this frame (GrassRenderer::PrepareVariety).
+        ViewFrame viewFrame = begun.GetValue();
+        viewFrame.GrassLens = System::PackGrassFieldLens( System::MakeGrassFieldLens( m_GrassQuality, viewFrame ) );
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.

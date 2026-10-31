@@ -93,7 +93,7 @@ namespace Desert::Graphic::System
         // GRASS-FIELD: per tile layer, the grass field's far cover (LandscapeGrassCover, see LandscapeWeightDraw):
         // the blades the generator thins out with distance are carried on by the ground's own shading.
         // GrassCoverRange x / y = the blades' AUTHORED Start / EndCullDistance (cm): the view's Foliage quality
-        // and lens scale them in the shader (TerrainUB::GrassLens.x), not here (GRASS-VIS-17).
+        // and lens scale them in the shader (CameraUB::GrassLens.x), not here (GRASS-VIS-17).
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCover{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverLight{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverRange{};
@@ -135,7 +135,7 @@ namespace Desert::Graphic::System
         // GRASS-VIS-17: per tile layer, four to a vec4 like the pages, its blades' mean width per MinScreenWidth
         // pixel (cm / px; 0 = no screen-width floor; LandscapeWeightDraw::GrassCoverFloorWidth) - the primitive's
         // half of the floor's distance D. The view's half (GrassFieldLens::PixelsPerUnit, and the Foliage
-        // quality's DistanceScale on GrassCoverRange x / y) is the frame's TerrainUB::GrassLens: D = width x
+        // quality's DistanceScale on GrassCoverRange x / y) is the view block's CameraUB::GrassLens: D = width x
         // PixelsPerUnit in the shader (LandscapeGrassCoverAt). Nothing in this row follows the lens or the render
         // width, so a zoom or a resolution change neither re-uploads it nor rebuilds the tile's ray tracing row
         // (LandscapeRayTracing compares the row) - UE's view uniforms apart from the primitive's scene data.

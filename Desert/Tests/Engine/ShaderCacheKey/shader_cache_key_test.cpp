@@ -1652,7 +1652,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 {
     // The terrain pass records EVERY draw of a frame before the GPU executes any of them, and a
     // material's descriptors are written at most once per frame — so anything per-terrain that lives
-    // in the shared TerrainUB is read by the GPU as the LAST terrain's values, for every terrain. That
+    // in a shared uniform block is read by the GPU as the LAST terrain's values, for every terrain. That
     // was live: on a two-terrain scene both drew with one Model/size/seed. The fix is the same
     // transport the parameters already use (MaterialParamRow.hpp): per-draw data is a row of
     // `TerrainInstances[]`, named by the push-constant index. This test pins the SPLIT — the relation
@@ -1686,17 +1686,15 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     ASSERT_NE( setIt, data.ShaderDescriptorSets.end() );
     const auto& set = setIt->second;
 
-    // The shared half: TerrainUB holds ONLY what every terrain of a frame agrees on — View +
-    // Projection + the view's unjittered ViewProjection / PrevViewProjection (TAA1 velocity) + its
-    // JitteredViewProjection (the forward lights' contact-shadow march) and its inverse, the view's PreExposure
-    // and its grass field lens (GRASS-VIS-17, TerrainRenderer.cpp TerrainUB): 6*64 + 2*16 = 416 bytes. The sun is
-    // the scene's DirectionLightsUB, as every lit program reads it, not a copy in this block. This is a size
-    // relation, not a spot value: putting any per-terrain field back (Model was the first to be forgotten here)
-    // grows the block past 416 and fails this line before it fails on screen.
+    // The shared half is the VIEW BLOCK (GPU-COST-26): binding 0 is the generated CameraUB (Common/CameraUB.glslh,
+    // ShaderProtocols::Camera, 512 bytes - camera_ub_layout_test pins the C++ side), the one place the terrain's
+    // raster reads the view from, as every pass of the view does (UE: View). The pass declares no uniform block of
+    // its own: a per-terrain field has nowhere to go but the TerrainInstances row below, and a terrain-local copy of
+    // the view coming back takes a binding the census below does not count.
     const auto ub = set.UniformBuffers.find( 0 );
-    ASSERT_NE( ub, set.UniformBuffers.end() ) << "TerrainUB left binding 0";
-    EXPECT_EQ( ub->second.Size, 416u )
-         << "TerrainUB is no longer just the shared frame data - a per-draw field moved back in";
+    ASSERT_NE( ub, set.UniformBuffers.end() ) << "the view block left binding 0";
+    EXPECT_EQ( ub->second.Name, "CameraUB" ) << "binding 0 is no longer the view block";
+    EXPECT_EQ( ub->second.Size, 512u ) << "the terrain reads a view block other than ShaderProtocols::Camera";
 
     // The per-draw half: TerrainInstances[] at binding 8, one struct per recorded draw.
     const auto instances = set.StorageBuffers.find( 8 );
@@ -1726,7 +1724,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     // The census, so a binding added or lost anywhere in the two stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
     EXPECT_EQ( bindings.size(), 27u ) << DescribeBindings( bindings );
-    EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
+    EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CameraUB (the view)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
     // Bindings 2-4 held the built-in grass/rock/snow layer textures until LS-16; none may come back.
     for ( const uint32_t retired : { 2u, 3u, 4u } )
@@ -1774,7 +1772,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 //     a block that drifted would read a param at another offset than it was written at, in Deferred only;
 //   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the view's
 //     LOD: the camera's for a cascade, the light's for a point/spot view) and the heightmap — and no Materials[]
-//     row or TerrainUB it is never given.
+//     row or view block it is never given.
 TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
 {
     const auto parse = [&]( const char* file )

@@ -25,7 +25,7 @@ struct TerrainInstance
     vec4 GrassCover[8];
     vec4 GrassCoverLight[8]; // rgb = the blade material's SubsurfaceColor, a = its roughness
     vec4 GrassCoverRange[8]; // x/y = the blades' AUTHORED Start/EndCullDistance (cm; the view's Foliage quality and
-                             // lens scale them in the shader, TerrainUB.GrassLens.x), z = the lowest weight that grows grass,
+                             // lens scale them in the shader, CameraUB.GrassLens.x), z = the lowest weight that grows grass,
                              // w = the blade material's subsurface Opacity (UE's pin; the transmitted light's density)
     // LANDSCAPE DISPLACEMENT (Programs/Terrain/LandscapeDisplacement.glslh; UE 5.4+ landscape Nanite displacement)
     vec4 Displacement;       // x = magnitude (cm), y = center (0..1), z = fade start (cm), w = fade end (cm); x 0 = off
@@ -41,7 +41,7 @@ struct TerrainInstance
     vec4 DiceClip;           // [x0, z0) .. [x1, z1) tile-local LOD-0 cells: the main camera's view footprint; a cell
                              // outside it is undiced (LandscapeDisplacement.glslh LandscapeCellDiceOf)
     vec4 GrassCoverFloorWidth[2]; // per layer, four to a vec4: its blades' mean width per MinScreenWidth pixel
-                                  // (cm / px; 0 = no floor); D = width x TerrainUB.GrassLens.y (GRASS-VIS-17)
+                                  // (cm / px; 0 = no floor); D = width x CameraUB.GrassLens.y (GRASS-VIS-17)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH

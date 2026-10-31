@@ -9,26 +9,15 @@
         In(1) vec3 v_Normal;
 
 
-        // Engine-filled terrain UB (binding 0) — shared frame data only; the per-terrain half (Model,
-        // Params, ground and layer colours) is this draw's TerrainInstances row, see the note above Vertex.
-        Uniform(0) TerrainUB
-        {
-            mat4 View;
-            mat4 Projection;
-            // TAA1: the view's UNJITTERED matrices of this frame and the previous one (Graphic::ViewFrame
-            // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
-            mat4 ViewProjection;
-            mat4 PrevViewProjection;
-            // The JITTERED one, which the scene depth was rasterised with: the contact shadows' march
-            // (Common/ContactShadow.glslh, the forward program's point and spot lights).
-            mat4 JitteredViewProjection;
-            mat4 InvJitteredViewProjection; // its inverse: the march's world positions (CONTACT_SHADOW_INV_VP)
-            vec4 Exposure;   // x = ViewFrame::PreExposure (the forward program's scene-colour write), yzw unused
-            // GRASS-VIS-17: the view's GrassFieldLens (x = DistanceScale, y = PixelsPerUnit, zw unused): the view's
-            // half of the grass far cover's distances (Common/LandscapeGrassCover.glslh LandscapeGrassCoverAt).
-            vec4 GrassLens;
-        }
-        u;
+        // THE VIEW BLOCK (GPU-COST-26): the terrain's raster reads the view where every pass of the view reads it
+        // (UE: the landscape's base pass reads View, FViewUniformShaderParameters) - Common/CameraUB.glslh, set 0
+        // binding 0, generated from ShaderProtocols::Camera and written by SceneFrameBinding::ApplyTo
+        // (TerrainRenderer::ApplySceneFrame). Its unjittered ViewProjection / PrevViewProjection give the velocity,
+        // the jittered pair the forward program's contact-shadow march, CameraPos the eye, PreExposure the forward
+        // program's scene-colour write and GrassLens the far cover's view half (Common/LandscapeGrassCover.glslh) -
+        // the same block the landscape's ray tracing hit reads (TerrainRayHit.glslh). The per-terrain half (Params,
+        // ground and layer colours) is this draw's TerrainInstances row, see the note above Vertex.
+        #include <Common/CameraUB.glslh>
 
         // THE TERRAIN'S VELOCITY (Graphic::kVelocityFormat), written by both programs that write the view's depth
         // (Terrain = forward slot 1, TerrainGBuffer = G-buffer slot 4) so a pixel's depth and motion come from the
@@ -41,7 +30,7 @@
         vec4 TerrainVelocity()
         {
             vec4 world = vec4( v_WorldPos, 1.0 );
-            return DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world, 0.0 );
+            return DesertVelocity( cameraUB.ViewProjection * world, cameraUB.PrevViewProjection * world, 0.0 );
         }
 
         #include <Common/TerrainInstance.glslh>
@@ -157,8 +146,8 @@
                 if ( LandscapeTileIsHole( CurrentTerrain, w0, w1 ) )
                     discard;
             }
-            // Distance to the camera for the far tiling: the view-space length, from the matrix the frame has.
-            dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            // Distance to the camera for the far tiling: from the view block's eye, as the ray tracing hit measures it.
+            dist = length( v_WorldPos - cameraUB.CameraPos );
             return EvaluateLandscapeSurface( CurrentTerrain, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
         }
         TerrainSurface EvaluateTerrainSurface()
@@ -180,9 +169,9 @@
             float          dist;
             TerrainSurface s = EvaluateTerrainSurfaceHere( w0, w1, dist );
             s.Albedo *= tint;
-            // Towards the eye, in world space: the view-space position turned back by the view's rotation.
-            vec3 V = normalize( transpose( mat3( u.View ) ) * -( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
-            const LandscapeGrassCover c = LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist, u.GrassLens );
+            // Towards the eye, in world space.
+            vec3 V = normalize( cameraUB.CameraPos - v_WorldPos );
+            const LandscapeGrassCover c = LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist, cameraUB.GrassLens );
             opacity                     = c.Opacity;
             cover = LandscapeApplyGrassCover( c, V, normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO,
                                               transmission );
