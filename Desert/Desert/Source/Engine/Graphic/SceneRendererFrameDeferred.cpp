@@ -1570,9 +1570,8 @@ namespace Desert::Graphic
              m_AtmosphereLight1 ? std::sin( glm::radians( m_AtmosphereLight1->SourceAngleDegrees ) * 0.5f ) : 0.0f;
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
-        inputs.SceneHash =
-             PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow,
-                                  frame.GrassLens );
+        inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash,
+                                                       cloudShadow, frame.GrassLens );
         inputs.DynamicGeometry = rt.DynamicGeometry;
         // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
         // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made too: a runtime refusal reaches

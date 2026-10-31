@@ -452,13 +452,14 @@ namespace Desert::Graphic
                                                  const VirtualGeometry::VisibilityBufferFrame& visibility,
                                                  const bool                                    postOcclusion )
     {
-        // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material pass).
-        // The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it and writes
-        // none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins whatever order
-        // the draws ran in and no overdraw is shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets): after phase 1's
-        // raster "Grass: Visibility Depth" writes the words' depth WITHOUT the material, so the HZB phase 2 tests
-        // sees the grass; the material runs once, after phase 2 (AddFrameGrassVisibilityResolve) - before, the
-        // phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve Post 1.67 ms).
+        // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material
+        // pass). The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it
+        // and writes none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins
+        // whatever order the draws ran in and no overdraw is shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets):
+        // after phase 1's raster "Grass: Visibility Depth" writes the words' depth WITHOUT the material, so the
+        // HZB phase 2 tests sees the grass; the material runs once, after phase 2 (AddFrameGrassVisibilityResolve)
+        // - before, the phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve
+        // Post 1.67 ms).
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
         if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
             return;
@@ -497,8 +498,7 @@ namespace Desert::Graphic
             return;
         AddRaster(
              graph, "Grass: Visibility Resolve", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
-             RDG::LoadOp::Load(), {},
-             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGrassVisibilityResolveManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
               args = visibility.ResolveArgs]( RDG::PassBuilder& pass )

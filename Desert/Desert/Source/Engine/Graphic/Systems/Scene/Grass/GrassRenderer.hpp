@@ -175,8 +175,9 @@ namespace Desert::Graphic::System
         // a variety generates only when its inputs change (VarietyGpu::GenerateKey); a tested frame's camera list
         // depends on last frame's depth, so the camera cull runs every such frame over the kept instances.
         // GRASS-VIS-6: the full list (the cascades, the TLAS) is culled by the camera's side planes swept along
-        // every directional light @p meshes fitted cascades for this frame (MeshRenderer::DirectionalCasterSweeps),
-        // the camera's own list by the camera's planes; AddFrame runs after MeshRenderer::UpdateCascades.
+        // every directional light @p meshes fitted cascades for this frame
+        // (MeshRenderer::DirectionalCasterSweeps), the camera's own list by the camera's planes; AddFrame runs
+        // after MeshRenderer::UpdateCascades.
         void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing,
                        const GrassOcclusion& occlusion );
 

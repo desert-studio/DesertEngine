@@ -81,7 +81,8 @@ namespace Desert::Editor
                                      FormatMiB( locale, stats.DynamicScratchBytes ) ) );
         // The persistent shader binding tables' writes in the last frame (every view's traces; 0 on a still
         // scene once every frame slot's table holds it).
-        const Graphic::RayTracing::RayTracingSbtWriteCounts sbt = Graphic::RayTracing::RayTracingSbtWrites::LastFrame();
+        const Graphic::RayTracing::RayTracingSbtWriteCounts sbt =
+             Graphic::RayTracing::RayTracingSbtWrites::LastFrame();
         rows.push_back( std::format( "  SBT written: {}/{} records, {}/{} material rows ({} traces)",
                                      Localization::FormatInteger( locale, sbt.Records ),
                                      Localization::FormatInteger( locale, sbt.RecordsTotal ),

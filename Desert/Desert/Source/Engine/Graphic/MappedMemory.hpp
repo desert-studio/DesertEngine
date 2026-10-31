@@ -117,7 +117,7 @@ namespace Desert::Graphic
             live.m_Bytes      = bytes;
             live.m_Size       = size;
             live.m_Unmap      = unmap;
-            live.m_Flush      = flush;
+            live.m_Flush       = flush;
             live.m_Invalidate  = invalidate;
             live.m_FlushRanges = flushRanges;
             live.m_Reason      = nullptr;
@@ -263,7 +263,7 @@ namespace Desert::Graphic
             m_Bytes      = other.m_Bytes;
             m_Size       = other.m_Size;
             m_Unmap      = other.m_Unmap;
-            m_Flush      = other.m_Flush;
+            m_Flush       = other.m_Flush;
             m_Invalidate  = other.m_Invalidate;
             m_FlushRanges = other.m_FlushRanges;
             m_Reason      = other.m_Reason;
@@ -273,7 +273,7 @@ namespace Desert::Graphic
             other.m_Bytes      = nullptr;
             other.m_Size       = 0;
             other.m_Unmap      = nullptr;
-            other.m_Flush      = nullptr;
+            other.m_Flush       = nullptr;
             other.m_Invalidate  = nullptr;
             other.m_FlushRanges = nullptr;
             other.m_Reason      = kMovedOut;
@@ -381,11 +381,13 @@ namespace Desert::Graphic
             if ( mapping.m_Flush != nullptr )
             {
                 if ( mapping.m_FlushRanges == nullptr )
-                    return Common::MakeError<bool>( "a batched write to non-coherent memory was refused: the mapping's "
-                                                    "owner gave no many-range flush" );
+                    return Common::MakeError<bool>(
+                         "a batched write to non-coherent memory was refused: the mapping's "
+                         "owner gave no many-range flush" );
                 if ( m_FlushRanges != nullptr && m_FlushRanges != mapping.m_FlushRanges )
-                    return Common::MakeError<bool>( "a batched write was refused: its mapping is flushed by another "
-                                                    "owner than the batch's other mappings" );
+                    return Common::MakeError<bool>(
+                         "a batched write was refused: its mapping is flushed by another "
+                         "owner than the batch's other mappings" );
             }
 
             const auto copied = mapping.Copy( source, bytes, offset );
@@ -410,7 +412,8 @@ namespace Desert::Graphic
             allocations.reserve( m_Slots.size() );
             for ( const std::size_t slot : m_Slots )
                 allocations.push_back( m_Mappings[slot].m_Allocation );
-            const auto flushed = m_FlushRanges( allocations.data(), m_Offsets.data(), m_Sizes.data(), m_Slots.size() );
+            const auto flushed =
+                 m_FlushRanges( allocations.data(), m_Offsets.data(), m_Sizes.data(), m_Slots.size() );
             m_Slots.clear();
             m_Offsets.clear();
             m_Sizes.clear();
@@ -420,9 +423,9 @@ namespace Desert::Graphic
     private:
         std::vector<MappedMemory> m_Mappings; // indexed by the slot Hold answered; moved on growth, never re-held
         // The ranges awaiting the flush, one entry per write to non-coherent memory: mapping slot, offset, bytes.
-        std::vector<std::size_t>  m_Slots;
-        std::vector<uint64_t>     m_Offsets;
-        std::vector<uint64_t>     m_Sizes;
-        MappedMemory::RangesFn    m_FlushRanges = nullptr; // the owner every recorded range is flushed through
+        std::vector<std::size_t> m_Slots;
+        std::vector<uint64_t>    m_Offsets;
+        std::vector<uint64_t>    m_Sizes;
+        MappedMemory::RangesFn   m_FlushRanges = nullptr; // the owner every recorded range is flushed through
     };
 } // namespace Desert::Graphic

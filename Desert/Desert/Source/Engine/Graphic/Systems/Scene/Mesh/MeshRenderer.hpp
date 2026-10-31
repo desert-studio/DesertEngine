@@ -1206,13 +1206,14 @@ namespace Desert::Graphic::System
                                                 RDG::BufferRef visibility, bool postOcclusion );
         [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
                                                                                bool postOcclusion ) const;
-        // SETUP of "Grass: Visibility Resolve" (the G-buffer LOADed, depth CloserOrEqual and written): one full-screen
-        // triangle per section through its (GrassBlade x VisibilityResolve) cell, drawn by record 0 of
+        // SETUP of "Grass: Visibility Resolve" (the G-buffer LOADed, depth CloserOrEqual and written): one
+        // full-screen triangle per section through its (GrassBlade x VisibilityResolve) cell, drawn by record 0 of
         // @p resolveArgs (VirtualGeometry::VisibilityBuffer), reading @p visibility. ONCE a frame, after phase 2's
         // raster (GRASS-VIS-23): the camera's ids hold both phases' slots, so every word is shaded once.
         void DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
                                                  RDG::BufferRef visibility, RDG::BufferRef resolveArgs );
-        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const;
+        [[nodiscard]] Common::BoolResultStr
+        RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const;
         // SETUP of "Grass: Depth Prepass Post-Occlusion" (GRASS-VIS-13; the G-buffer's depth LOADed, no colour;
         // after "Grass: Post-Occlusion Finalize" wrote phase 2's records, before "Grass: GBuffer Post-Occlusion";
         // UE: the two-pass occlusion's second depth pass, grass HISM by the same rule as every mesh): the G-buffer

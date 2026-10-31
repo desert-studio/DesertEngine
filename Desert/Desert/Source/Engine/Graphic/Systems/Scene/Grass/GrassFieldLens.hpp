@@ -42,11 +42,12 @@ namespace Desert::Graphic::System
         // no screen-width floor (an orthographic lens, no render extent).
         float PixelsPerUnit = 0.0f;
     };
-    // Computed ONCE per scene view (SceneRenderer::OnUpdate -> ViewFrame::GrassLens); every reader takes the frame's.
+    // Computed ONCE per scene view (SceneRenderer::OnUpdate -> ViewFrame::GrassLens); every reader takes the
+    // frame's.
     [[nodiscard]] GrassFieldLens MakeGrassFieldLens( const GrassQuality& quality, const ViewFrame& frame );
 
-    // The lens as ViewFrame::GrassLens / CameraUB::GrassLens carry it: x = DistanceScale, y = PixelsPerUnit, zw = 0.
-    // The one packing, so the writer (SceneRenderer) and a C++ reader (GrassRenderer) cannot swap the two.
+    // The lens as ViewFrame::GrassLens / CameraUB::GrassLens carry it: x = DistanceScale, y = PixelsPerUnit, zw =
+    // 0. The one packing, so the writer (SceneRenderer) and a C++ reader (GrassRenderer) cannot swap the two.
     [[nodiscard]] inline glm::vec4 PackGrassFieldLens( const GrassFieldLens& lens )
     {
         return glm::vec4( lens.DistanceScale, lens.PixelsPerUnit, 0.0f, 0.0f );

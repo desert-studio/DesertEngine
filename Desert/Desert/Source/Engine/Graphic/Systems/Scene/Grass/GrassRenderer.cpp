@@ -798,8 +798,8 @@ namespace Desert::Graphic::System
         // floor and the pixel shader runs about once per covered pixel instead of up to four times (quad
         // overshade of sub-pixel strips; GRASS-VIS-9, GPU-COST-18). 0 - no floor: none authored, an
         // orthographic lens, no render extent.
-        // GrassFloorDistance through the view's lens (ViewFrame::GrassLens, made once per view by SceneRenderer): the
-        // ground's far cover reads its D by the same two (CameraUB::GrassLens).
+        // GrassFloorDistance through the view's lens (ViewFrame::GrassLens, made once per view by SceneRenderer):
+        // the ground's far cover reads its D by the same two (CameraUB::GrassLens).
         const GrassFieldLens fieldLens     = UnpackGrassFieldLens( frame.GrassLens );
         float                floorDistance = 0.0f;
         if ( variety.Blade )
@@ -1028,9 +1028,9 @@ namespace Desert::Graphic::System
                     ++gpu->StableGenerations;
                     m_FrameGenerate.push_back( gpu );
                 }
-                // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every such
-                // frame; by the camera's planes alone it follows the generation's inputs (the planes are among
-                // them), so it is culled when the variety generates.
+                // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
+                // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
+                // among them), so it is culled when the variety generates.
                 if ( testsHzb || ( volumes.List == CameraList::Planes && generates ) )
                     m_FrameCull.push_back( gpu );
                 NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
@@ -1382,10 +1382,11 @@ namespace Desert::Graphic::System
                      const glm::uvec2  groups = SlotGroups( gpu->Capacity );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
                      GrassGeneratePush variety = push;
-                     variety.CellRange = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
-                                                     static_cast<int32_t>( groups.x ), 0, 0 );
+                     variety.CellRange         = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
+                                                             static_cast<int32_t>( groups.x ), 0, 0 );
                      bindings.PushConstants( &variety, sizeof( variety ) );
-                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groups.x, groups.y, 1 );
+                     if ( auto dispatched =
+                               renderer.DispatchCompute( bindings, *m_Generate, groups.x, groups.y, 1 );
                           !dispatched )
                          return dispatched;
                  }

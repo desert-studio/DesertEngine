@@ -315,7 +315,7 @@ namespace Desert::Graphic::API::Vulkan
     VulkanRayTracingPipeline::TableSlot& VulkanRayTracingPipeline::SlotOfThisTrace()
     {
         const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
-        const uint32_t              slots  = std::max( frames.GetMaxFramesInFlight(), 1u );
+        const uint32_t                        slots  = std::max( frames.GetMaxFramesInFlight(), 1u );
         // The ring is sized by the frame count the swapchain fixed; a change re-keys every slot, so the old
         // buffers go through the frame-delayed deletion and the new slots start empty.
         if ( m_Slots.size() != slots )
@@ -474,8 +474,9 @@ namespace Desert::Graphic::API::Vulkan
                     if ( !mapping )
                     {
                         slot.Written.clear(); // what the slot holds is no longer known
-                        return Common::MakeFormattedError( "RayTracingPipeline '{}': the SBT could not be mapped: {}",
-                                                           name, mapping.GetRefusal() );
+                        return Common::MakeFormattedError(
+                             "RayTracingPipeline '{}': the SBT could not be mapped: {}", name,
+                             mapping.GetRefusal() );
                     }
                     mapped = batch.Hold( std::move( mapping ) );
                 }
@@ -523,8 +524,8 @@ namespace Desert::Graphic::API::Vulkan
                     }
                     mapped = batch.Hold( std::move( mapping ) );
                 }
-                if ( const auto wrote = batch.Write( *mapped, table.Rows.data() + r, ( end - r ) * sizeof( glm::vec4 ),
-                                                     r * sizeof( glm::vec4 ) );
+                if ( const auto wrote = batch.Write( *mapped, table.Rows.data() + r,
+                                                     ( end - r ) * sizeof( glm::vec4 ), r * sizeof( glm::vec4 ) );
                      !wrote )
                 {
                     slot.RowsWritten.clear();
@@ -543,9 +544,11 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, flushed.GetError() );
         }
         if ( const auto finished = RayTracing::RayTracingSbtWrites::Add( written ) )
+        {
             LOG_INFO( "[RayTracing] SBT writes, previous frame: {} traces, {}/{} records, {}/{} material rows",
                       finished->Traces, finished->Records, finished->RecordsTotal, finished->Rows,
                       finished->RowsTotal );
+        }
 
         const VkDeviceAddress                 start = slot.Sbt.Address + slot.Base;
         const VkStridedDeviceAddressRegionKHR raygen{ start, raygenStride, raygenStride };

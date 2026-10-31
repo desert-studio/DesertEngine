@@ -1689,8 +1689,8 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     // The shared half is the VIEW BLOCK (GPU-COST-26): binding 0 is the generated CameraUB (Common/CameraUB.glslh,
     // ShaderProtocols::Camera, 512 bytes - camera_ub_layout_test pins the C++ side), the one place the terrain's
     // raster reads the view from, as every pass of the view does (UE: View). The pass declares no uniform block of
-    // its own: a per-terrain field has nowhere to go but the TerrainInstances row below, and a terrain-local copy of
-    // the view coming back takes a binding the census below does not count.
+    // its own: a per-terrain field has nowhere to go but the TerrainInstances row below, and a terrain-local copy
+    // of the view coming back takes a binding the census below does not count.
     const auto ub = set.UniformBuffers.find( 0 );
     ASSERT_NE( ub, set.UniformBuffers.end() ) << "the view block left binding 0";
     EXPECT_EQ( ub->second.Name, "CameraUB" ) << "binding 0 is no longer the view block";

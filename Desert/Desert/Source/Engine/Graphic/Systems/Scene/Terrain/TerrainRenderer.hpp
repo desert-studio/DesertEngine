@@ -315,7 +315,7 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, TerrainLayerInputs> m_LayerInputs;
         std::shared_ptr<Image2D>                            m_EmptyLayerArray; // CreateTerrainEmptyLayerArray
 
-        std::vector<TerrainDrawData> m_Queue;
+        std::vector<TerrainDrawData>      m_Queue;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;

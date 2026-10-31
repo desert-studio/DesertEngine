@@ -652,7 +652,8 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
     EXPECT_NE( ReadFile( terrain / "TerrainGBuffer.shader" ).find( "Out(4) vec4 oVelocity" ), std::string::npos );
     const std::string surface = ReadFile( terrain / "TerrainSurface.glslh" );
     EXPECT_NE(
-         surface.find( "DesertVelocity( cameraUB.ViewProjection * world, cameraUB.PrevViewProjection * world, 0.0 )" ),
+         surface.find(
+              "DesertVelocity( cameraUB.ViewProjection * world, cameraUB.PrevViewProjection * world, 0.0 )" ),
          std::string::npos );
 
     // EXCLUDED: TextSDF, with its reason held true.

@@ -434,7 +434,8 @@ namespace Desert::Graphic::System
         struct FrameInputs
         {
             RDG::BufferRef  Tlas;        // RayTracingSceneFrame::Tlas (Built)
-            // ShaderProtocols::Camera of the frame (CameraUB): the raygen's view and what the hit groups read of it.
+            // ShaderProtocols::Camera of the frame (CameraUB): the raygen's view and what the hit groups read of
+            // it.
             RDG::BufferRef  Camera;
             RDG::BufferRef  GIFrame;     // the GI record (GIFrameUB): sun, sky look
             RDG::BufferRef  PointLights; // FrameTransients Lights.Point / Spot

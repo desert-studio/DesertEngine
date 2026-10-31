@@ -714,9 +714,10 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<bool>(
                  "a pass of host writes was not flushed: the VMA allocator is not initialised" );
         if ( count > std::numeric_limits<uint32_t>::max() )
-            return Common::MakeFormattedError<bool>( "a pass of {} host writes was not flushed: VMA takes at most {} "
-                                                     "ranges in one call",
-                                                     count, std::numeric_limits<uint32_t>::max() );
+            return Common::MakeFormattedError<bool>(
+                 "a pass of {} host writes was not flushed: VMA takes at most {} "
+                 "ranges in one call",
+                 count, std::numeric_limits<uint32_t>::max() );
         std::vector<VmaAllocation> handles;
         handles.reserve( count );
         for ( std::size_t i = 0; i < count; ++i )
@@ -737,7 +738,8 @@ namespace Desert::Graphic::API::Vulkan
                                                                   std::size_t bytes )
     {
         if ( s_VmaAllocator == VK_NULL_HANDLE )
-            return Common::MakeError<bool>( "a host read was not invalidated: the VMA allocator is not initialised" );
+            return Common::MakeError<bool>(
+                 "a host read was not invalidated: the VMA allocator is not initialised" );
         const VkResult invalidated =
              vmaInvalidateAllocation( s_VmaAllocator, static_cast<VmaAllocation>( allocation ),
                                       static_cast<VkDeviceSize>( offset ), static_cast<VkDeviceSize>( bytes ) );

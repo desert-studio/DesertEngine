@@ -61,18 +61,18 @@ namespace Desert::Graphic::VirtualGeometry
         if ( !depthShader )
             return Common::MakeError( "VisibilityBuffer: missing shader 'VisibilityDepth'" );
         GraphicsPipelineSpecification depth;
-        depth.DebugName         = "GrassVisibilityDepth";
-        depth.Shader            = depthShader;
-        depth.TargetLayout      = RenderTargetLayout{ .ColorFormats = {},
-                                                      .DepthFormat  = ViewTargetFormats::kGBufferDepth,
-                                                      .Samples      = 1 };
+        depth.DebugName    = "GrassVisibilityDepth";
+        depth.Shader       = depthShader;
+        depth.TargetLayout = RenderTargetLayout{
+             .ColorFormats = {}, .DepthFormat = ViewTargetFormats::kGBufferDepth, .Samples = 1 };
         depth.DepthTestEnabled  = true;
         depth.DepthCompareOp    = DepthCompare::CloserOrEqual;
         depth.DepthWriteEnabled = true;
         depth.CullMode          = CullMode::None;
         const auto depthMade    = GraphicsPipeline::Create( depth );
         if ( !depthMade )
-            return Common::MakeError( std::format( "VisibilityBuffer: the depth pass: {}", depthMade.GetError() ) );
+            return Common::MakeError(
+                 std::format( "VisibilityBuffer: the depth pass: {}", depthMade.GetError() ) );
         m_Depth = depthMade.GetValue();
 
         m_ResolveArgs =

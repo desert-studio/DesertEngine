@@ -65,11 +65,12 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // THE VIEW IS THE VIEW BLOCK'S (GPU-COST-26; UE: the landscape's base pass reads FViewUniformShaderParameters
-        // like every pass of the view): the surface programs read their matrices, the eye, PreExposure and the grass
-        // field lens from CameraUB (Common/CameraUB.glslh, ShaderProtocols::MakeCameraUB of this frame), written by
-        // SceneFrameBinding::ApplyTo in ApplySceneFrame. The pass keeps no copy of the view: everything per-terrain
-        // rides as a TerrainInstance row (TerrainBatch.hpp).
+        // THE VIEW IS THE VIEW BLOCK'S (GPU-COST-26; UE: the landscape's base pass reads
+        // FViewUniformShaderParameters like every pass of the view): the surface programs read their matrices, the
+        // eye, PreExposure and the grass field lens from CameraUB (Common/CameraUB.glslh,
+        // ShaderProtocols::MakeCameraUB of this frame), written by SceneFrameBinding::ApplyTo in ApplySceneFrame.
+        // The pass keeps no copy of the view: everything per-terrain rides as a TerrainInstance row
+        // (TerrainBatch.hpp).
 
         // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
         // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
@@ -110,10 +111,9 @@ namespace Desert::Graphic::System
                                                   c % World::Landscape::kLandscapeWeightmapChannels )] =
                      t.Weights.GrassCoverFloorWidth[c];
             for ( size_t c = 0; c < t.Weights.GrassCoverWiden.size(); ++c )
-                instance.GrassCoverWiden[c / World::Landscape::kLandscapeWeightmapChannels]
-                                        [static_cast<glm::length_t>(
-                                             c % World::Landscape::kLandscapeWeightmapChannels )] =
-                     t.Weights.GrassCoverWiden[c];
+                instance.GrassCoverWiden[c /
+                                         World::Landscape::kLandscapeWeightmapChannels][static_cast<glm::length_t>(
+                     c % World::Landscape::kLandscapeWeightmapChannels )] = t.Weights.GrassCoverWiden[c];
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
@@ -744,11 +744,11 @@ namespace Desert::Graphic::System
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
             {
-                // The depth-only programs (the casters, the view's depth prepass) have no Materials[] row block (no
-                // Properties block): for them the slot is optional.
+                // The depth-only programs (the casters, the view's depth prepass) have no Materials[] row block
+                // (no Properties block): for them the slot is optional.
                 const bool shadowProgram = material != surface;
-                auto*      rows          = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
-                                                         : material->Get<StorageBufferProperty>( kMaterialRowBlock );
+                auto*      rows = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
+                                                : material->Get<StorageBufferProperty>( kMaterialRowBlock );
                 if ( rows )
                     if ( !group.ParamRows.empty() )
                         rows->SetRawData( group.ParamRows.data(),
@@ -771,8 +771,8 @@ namespace Desert::Graphic::System
         // local shadow at all), at the same point of the frame the meshes' forward materials take them.
         // Deferred: the G-buffer program takes the groups ITS layout declares from the same applier -- the world's
         // parameters (the snow layer, Common/WeatherSnow.glslh, is a surface property written into the G-buffer).
-        // Both programs take the Camera group here: the view block (CameraUB) is the only place the terrain's raster
-        // reads the view from - its matrices, the eye, PreExposure and the grass field lens (GPU-COST-26).
+        // Both programs take the Camera group here: the view block (CameraUB) is the only place the terrain's
+        // raster reads the view from - its matrices, the eye, PreExposure and the grass field lens (GPU-COST-26).
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {

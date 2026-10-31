@@ -88,15 +88,17 @@ namespace Desert::Graphic::API::Vulkan
             HostBuffer             Rows;
             VkDeviceSize           SbtCapacity = 0; // table bytes the buffer holds after Base
             VkDeviceSize           RowCapacity = 0; // row bytes the buffer holds
-            VkDeviceSize           Base        = 0; // the table's start: Sbt.Address rounded up to the base alignment
-            std::vector<uint8_t>   Written;         // the table as written, from its start
-            std::vector<glm::vec4> RowsWritten;     // the rows as written
+            VkDeviceSize           Base = 0;    // the table's start: Sbt.Address rounded up to the base alignment
+            std::vector<uint8_t>   Written;     // the table as written, from its start
+            std::vector<glm::vec4> RowsWritten; // the rows as written
         };
-        // The slot of this trace: m_Slots[frame slot][n-th trace of this pipeline in the frame], created on demand.
+        // The slot of this trace: m_Slots[frame slot][n-th trace of this pipeline in the frame], created on
+        // demand.
         [[nodiscard]] TableSlot& SlotOfThisTrace();
         // Grows @p slot to hold @p sbtBytes of table and @p rowBytes of rows; a grown buffer starts empty (its
         // Written / RowsWritten cleared, so the trace writes it whole).
-        [[nodiscard]] Common::BoolResultStr Reserve( TableSlot& slot, VkDeviceSize sbtBytes, VkDeviceSize rowBytes );
+        [[nodiscard]] Common::BoolResultStr Reserve( TableSlot& slot, VkDeviceSize sbtBytes,
+                                                     VkDeviceSize rowBytes );
 
         RayTracingPipelineSpecification     m_Specification;
         std::vector<DescriptorSetLayoutRef> m_SetLayouts;
@@ -112,8 +114,8 @@ namespace Desert::Graphic::API::Vulkan
         PFN_vkCmdTraceRaysKHR m_CmdTraceRays    = nullptr;
         std::mutex                          m_SlotsMutex; // a pipeline may be traced from two graphs' recordings
         std::vector<std::vector<TableSlot>> m_Slots;      // [frame slot][trace in the frame]
-        uint64_t                            m_SlotsFrame      = UINT64_MAX; // absolute frame of m_TracesInFrame
-        uint32_t                            m_TracesInFrame   = 0;
-        std::vector<uint8_t>                m_Table;          // this trace's table, built before the compare
+        uint64_t                            m_SlotsFrame    = UINT64_MAX; // absolute frame of m_TracesInFrame
+        uint32_t                            m_TracesInFrame = 0;
+        std::vector<uint8_t>                m_Table; // this trace's table, built before the compare
     };
 } // namespace Desert::Graphic::API::Vulkan
