@@ -165,6 +165,10 @@ namespace
         void FlushUpdates() override
         {
         }
+        Common::BoolResultStr PrepareViewResources( const Graphic::MaterialExecutor& ) override
+        {
+            return Common::MakeSuccess( true );
+        }
         uint32_t UniformApplies = 0;
     };
 
