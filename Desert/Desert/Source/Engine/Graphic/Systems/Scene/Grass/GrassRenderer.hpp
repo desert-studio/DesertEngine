@@ -9,6 +9,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassBladeRayTracing.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassFieldLens.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryLayout.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -91,17 +92,13 @@ namespace Desert::Graphic::System
         float    MinScreenWidth = 1.5f; // render pixels; 0 = no floor (Assets::Serialization::GrassBlade)
     };
 
-    // THE VIEW'S FOLIAGE QUALITY (GRASS-DENSITY; UE sg.FoliageQuality: grass.DensityScale multiplies every
-    // variety's GrassDensity, grass.CullDistanceScale its Start and End cull distances), from the Foliage
-    // scalability group (Scalability.json; SceneRenderer::BeginScene -> GrassRenderer::SetQuality). Fractions:
-    // 1 = the asset as authored. A machine's quality, never a scene's or an asset's: the asset states the
-    // density and the distances, the level only scales them.
-    struct GrassQuality
-    {
-        float DensityScale      = 1.0f; // Foliage.GrassDensityScalePercent / 100, 0.1..1
-        float CullDistanceScale = 1.0f; // Foliage.GrassCullDistanceScalePercent / 100, 0.1..4
-        [[nodiscard]] bool operator==( const GrassQuality& ) const = default;
-    };
+    // The generator reads at most this many of a blade's cards (GrassParamsGpu::CardWidths, two vec4s).
+    inline constexpr size_t kGrassBladeMaxCards = 8u;
+
+    // The mean blade's width (cm) at the ScaleX range's middle @p scaleX: the mean of its first
+    // kGrassBladeMaxCards cards' widths (Height x du / dv) - the width the screen-width floor's distance is
+    // measured by.
+    [[nodiscard]] float GrassBladeMeanWidth( const GrassBladeDraw& blade, glm::vec2 scaleX );
 
     struct GrassSectionDraw
     {
