@@ -2028,8 +2028,9 @@ namespace Desert::Graphic::System
         // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. Also the default
         // surface's (Static|Instanced|Skinned x Forward) cells' DESERT_LOCAL_SHADOW_VSM permutation: the
         // renderer-owned twins (ForwardVsmTwin). A Shader Override draw (no `.demat`) is OverrideProgramVariants'.
-        // And every (kInstanceIdsPaths x kInstanceIdsPasses) cell of each material in SurfaceInstanceIdsVariant (alone,
-        // over the G-buffer's equal-depth and over the forward virtual shadow map's permutation): the id-list draws.
+        // And every (kInstanceIdsPaths x kInstanceIdsPasses) cell of each material in SurfaceInstanceIdsVariant
+        // (alone, over the G-buffer's equal-depth and over the forward virtual shadow map's permutation): the
+        // id-list draws.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
              MaterialProgramVariants( const Runtime::MaterialService& materials,
                                       const Runtime::ShaderService&   shaders,

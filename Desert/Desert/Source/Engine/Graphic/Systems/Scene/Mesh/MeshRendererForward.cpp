@@ -822,9 +822,10 @@ namespace Desert::Graphic::System
                     variants.push_back( { cell.GetValue(), std::move( permutation ) } );
             }
             // The cells a GPU-instanced id list is drawn through (kInstanceIdsPaths x kInstanceIdsPasses: the
-            // camera's list and a cascade's own one, BuildGpuInstancedDraws / BuildGpuInstancedShadowDraws), each in
-            // SurfaceInstanceIdsVariant; the G-buffer one also over the equal-depth permutation (an early-Z admitted
-            // template, as above), the forward one also over the virtual shadow map's (ForwardVirtualCell).
+            // camera's list and a cascade's own one, BuildGpuInstancedDraws / BuildGpuInstancedShadowDraws), each
+            // in SurfaceInstanceIdsVariant; the G-buffer one also over the equal-depth permutation (an early-Z
+            // admitted template, as above), the forward one also over the virtual shadow map's
+            // (ForwardVirtualCell).
             for ( const MeshVertexPath path : kInstanceIdsPaths )
                 for ( const MeshPass pass : kInstanceIdsPasses )
                 {
