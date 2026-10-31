@@ -50,7 +50,7 @@ Shader "TerrainRayHit"
                 // origin view is the one whose blades are thinned out. The payload has no shading model, so the
                 // cover's transmitted light is the raster's alone.
                 vec3 transmission;
-                LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance ), -gl_WorldRayDirectionEXT,
+                LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance, row.GrassLens ), -gl_WorldRayDirectionEXT,
                                           Ng, s.Albedo, s.N, s.Roughness, s.AO, transmission );
 
                 payload.HitT      = gl_HitTEXT;

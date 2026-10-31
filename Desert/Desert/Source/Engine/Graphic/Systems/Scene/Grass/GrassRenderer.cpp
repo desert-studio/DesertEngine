@@ -695,8 +695,8 @@ namespace Desert::Graphic::System
             }
             else
             {
-                gpu.CascadeIds       = ShaderResources::StorageBuffer::Create( "GrassCascadeIds", 16u, 8, true );
-                gpu.CascadeArgs      = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", 16u, 9, true );
+                gpu.CascadeIds  = ShaderResources::StorageBuffer::Create( "GrassCascadeIds", 16u, 8, true );
+                gpu.CascadeArgs = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", 16u, 9, true );
             }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
             if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;

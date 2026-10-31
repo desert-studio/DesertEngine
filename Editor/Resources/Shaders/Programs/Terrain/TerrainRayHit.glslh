@@ -13,7 +13,7 @@
 
 // The tile's hit-group row. C++ twin: Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp LandscapeRayHitRow
 // (kLandscapeRayHitRowSlots: TerrainInstance's slots, the Tint, the sampling slots, the material's 18 value slots,
-// the eight inputs' map slots, the view origin).
+// the eight inputs' map slots, the view origin, the view's grass field lens).
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer LandscapeRayHitRowRef
 {
     TerrainInstance   Tile;         // the raster's TerrainInstances row of the tile this frame
@@ -23,6 +23,7 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
     LandscapeMaterial MaterialValues; // the material's values the raster drew the tile with (the Material block's)
     uvec4             LayerMaps[8]; // input k's maps' bindless slots: x albedo, y normal, z ARM, w height (0 = none)
     vec4              ViewOrigin;   // xyz = the camera the raster drew the tile for (cm): the far tiling's distance
+    vec4              GrassLens;    // the raster's TerrainUB::GrassLens this frame (LandscapeGrassCoverAt)
 };
 
 // The row of the hit being shaded, for LandscapeLayerMapSample (set by the closest hit before it evaluates).

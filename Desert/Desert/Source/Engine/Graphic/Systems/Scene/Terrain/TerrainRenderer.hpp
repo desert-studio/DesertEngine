@@ -325,7 +325,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D>                            m_EmptyLayerArray; // CreateTerrainEmptyLayerArray
 
         std::vector<TerrainDrawData> m_Queue;
-        GrassQuality                 m_GrassQuality;
+        GrassQuality                      m_GrassQuality;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;

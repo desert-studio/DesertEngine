@@ -462,8 +462,8 @@ namespace Desert::Graphic::System
             // (the prepasses, the G-buffer, forward, the grass visibility raster and resolve) draw; the cascades
             // and the TLAS keep Instances / Refs, every kept instance, so what the camera cannot see still casts
             // and reflects. Null: the camera draws Instances too. GPU-COST-22: the list holds IDS, one uint per
-            // slot naming its row of Instances (GpuInstanceRefs::Ids); the camera's cells read Instances through it
-            // (kSurfaceInstanceIdsDefine).
+            // slot naming its row of Instances (GpuInstanceRefs::Ids); the camera's cells read Instances through
+            // it (kSurfaceInstanceIdsDefine).
             std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
@@ -472,13 +472,13 @@ namespace Desert::Graphic::System
             // With CameraIds: phase 2's (the instances this frame's HZB found visible after last frame's held
             // them back), CameraIds through records of their own, drawn only by the post-occlusion passes.
             const GpuInstanceRefs* PostRefs = nullptr;
-            // GPU-COST-21, THE CASCADES' OWN LISTS (UE: each shadow view culls its instances by its own volume): for
-            // every cascade view whose bit CascadeMask sets, CascadeIds through CascadeRefs holds the ids (rows of
-            // Instances, GPU-COST-22) of the instances
-            // inside that cascade's caster box (CascadeCasterBoxSet), its records one copy of Refs' layout of
-            // CascadeArgBytes, the k-th set bit's at k x CascadeArgBytes; that cascade draws them
-            // (BuildGpuInstancedShadowDraws) through its kSurfaceInstanceIdsDefine caster cell. A view without its
-            // bit, or CascadeRefs null, draws Instances / Refs directly.
+            // GPU-COST-21, THE CASCADES' OWN LISTS (UE: each shadow view culls its instances by its own volume):
+            // for every cascade view whose bit CascadeMask sets, CascadeIds through CascadeRefs holds the ids
+            // (rows of Instances, GPU-COST-22) of the instances inside that cascade's caster box
+            // (CascadeCasterBoxSet), its records one copy of Refs' layout of CascadeArgBytes, the k-th set bit's
+            // at k x CascadeArgBytes; that cascade draws them (BuildGpuInstancedShadowDraws) through its
+            // kSurfaceInstanceIdsDefine caster cell. A view without its bit, or CascadeRefs null, draws Instances
+            // / Refs directly.
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;
             uint32_t                                        CascadeMask     = 0;

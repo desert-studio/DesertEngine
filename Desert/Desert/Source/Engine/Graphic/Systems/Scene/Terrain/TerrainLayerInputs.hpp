@@ -122,5 +122,8 @@ namespace Desert::Graphic::System
         std::array<glm::uvec4, World::Landscape::kLandscapeMaxWeightLayers> LayerMaps{};
         /// The camera the raster drew the tile for (xyz, cm): the far tiling's distance is measured from it.
         glm::vec4 ViewOrigin{ 0.0f };
+        /// The view's grass field lens (TerrainUB::GrassLens: x DistanceScale, y PixelsPerUnit): the hit group
+        /// lays the grass far cover through the same lens as the raster (Common/LandscapeGrassCover.glslh).
+        glm::vec4 GrassLens{ 0.0f };
     };
 } // namespace Desert::Graphic::System

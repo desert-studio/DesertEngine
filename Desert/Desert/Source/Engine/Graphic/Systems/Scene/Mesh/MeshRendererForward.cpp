@@ -655,7 +655,8 @@ namespace Desert::Graphic::System
 
     DataDrivenMaterial* MeshRenderer::ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
                                                           const MeshVertexPath path, const MeshPass pass,
-                                                          const std::optional<uint32_t> view, const bool instanceIds )
+                                                          const std::optional<uint32_t> view,
+                                                          const bool                    instanceIds )
     {
         if ( !m_ForwardVirtualLocal || pass != MeshPass::Forward || cell == nullptr )
             return cell;
@@ -673,7 +674,8 @@ namespace Desert::Graphic::System
         Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
         if ( permutation.IsDefault() )
             return cell;
-        // GPU-COST-22: a GPU-instanced list of ids keeps its define, last (MeshRendererGpuInstanced.cpp WithInstanceIds).
+        // GPU-COST-22: a GPU-instanced list of ids keeps its define, last (MeshRendererGpuInstanced.cpp
+        // WithInstanceIds).
         if ( instanceIds )
         {
             permutation.Defines.emplace_back( kSurfaceInstanceIdsDefine );

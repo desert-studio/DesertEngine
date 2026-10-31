@@ -1688,14 +1688,14 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 
     // The shared half: TerrainUB holds ONLY what every terrain of a frame agrees on — View +
     // Projection + the view's unjittered ViewProjection / PrevViewProjection (TAA1 velocity) + its
-    // JitteredViewProjection (the forward lights' contact-shadow march), 5*64 = 320 bytes. The sun is the scene's
-    // DirectionLightsUB, as every lit program reads it, not a copy in this block.
-    // This is a size relation, not a spot
-    // value: putting any per-terrain field back (Model was the first to be forgotten here) grows the
-    // block past 320 and fails this line before it fails on screen.
+    // JitteredViewProjection (the forward lights' contact-shadow march) and its inverse, the view's PreExposure
+    // and its grass field lens (GRASS-VIS-17, TerrainRenderer.cpp TerrainUB): 6*64 + 2*16 = 416 bytes. The sun is
+    // the scene's DirectionLightsUB, as every lit program reads it, not a copy in this block. This is a size
+    // relation, not a spot value: putting any per-terrain field back (Model was the first to be forgotten here)
+    // grows the block past 416 and fails this line before it fails on screen.
     const auto ub = set.UniformBuffers.find( 0 );
     ASSERT_NE( ub, set.UniformBuffers.end() ) << "TerrainUB left binding 0";
-    EXPECT_EQ( ub->second.Size, 320u )
+    EXPECT_EQ( ub->second.Size, 416u )
          << "TerrainUB is no longer just the shared frame data - a per-draw field moved back in";
 
     // The per-draw half: TerrainInstances[] at binding 8, one struct per recorded draw.

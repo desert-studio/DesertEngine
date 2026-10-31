@@ -173,7 +173,8 @@ namespace Desert::Graphic::System
                 if ( parent == nullptr || !materials->Owns( parent ) )
                     return nullptr;
                 return materials->GetViewVariant( parent, gpu.Path, MeshPass::GBuffer, viewOf( MeshPass::GBuffer ),
-                                                  WithInstanceIds( SurfaceDepthEqualVariant(), cameraList ), this );
+                                                  WithInstanceIds( SurfaceDepthEqualVariant(), cameraList ),
+                                                  this );
             };
             const uint32_t      view = viewOf( pass );
             DataDrivenMaterial* cell = prepassed ? depthEqualCell() : cellOf( pass );
@@ -317,8 +318,8 @@ namespace Desert::Graphic::System
             // The cell BuildGpuInstancedDraws draws the section with: the camera's list is read through its ids.
             const bool          cameraList = gpu.CameraIds != nullptr && gpu.CameraRefs != nullptr;
             DataDrivenMaterial* cell       = ForwardVirtualCell(
-                 materials->GetViewVariant( parent, gpu.Path, of, view, WithInstanceIds( {}, cameraList ), this ), parent,
-                 gpu.Path, of, view, cameraList );
+                 materials->GetViewVariant( parent, gpu.Path, of, view, WithInstanceIds( {}, cameraList ), this ),
+                 parent, gpu.Path, of, view, cameraList );
             if ( cell == nullptr )
                 return false;
             GraphicsPipeline* const pipeline = CullPermutation(
@@ -459,21 +460,20 @@ namespace Desert::Graphic::System
                                                                          std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) )
                                                          : 0u );
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-                list.Add( { .Pipeline           = pipeline,
-                            .Mesh               = gpu.Mesh,
-                            .Transform          = glm::mat4( 1.0f ),
-                            .Material           = caster->GetMaterialExecutor(),
-                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
-                            .IndirectArgs       = refs.Args,
-                            .IndirectInstances  = refs.Instances,
-                            .IndirectIds        = refs.Ids,
-                            // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
-                            // own list is its copy of the records.
-                            .IndirectArgsOffset = listBytes + LevelArgsOffset( gpu, level + shadow.Set ),
-                            .Push               = DrawPushFields{}
-                                         .Transform( glm::mat4( 1.0f ) )
-                                         .MaterialIndex( row )
-                                         .Wind( wind ) } );
+                list.Add(
+                     { .Pipeline          = pipeline,
+                       .Mesh              = gpu.Mesh,
+                       .Transform         = glm::mat4( 1.0f ),
+                       .Material          = caster->GetMaterialExecutor(),
+                       .HiddenSubmeshMask = gpu.HiddenSubmeshes,
+                       .IndirectArgs      = refs.Args,
+                       .IndirectInstances = refs.Instances,
+                       .IndirectIds       = refs.Ids,
+                       // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
+                       // own list is its copy of the records.
+                       .IndirectArgsOffset = listBytes + LevelArgsOffset( gpu, level + shadow.Set ),
+                       .Push =
+                            DrawPushFields{}.Transform( glm::mat4( 1.0f ) ).MaterialIndex( row ).Wind( wind ) } );
         }
         return pending;
     }

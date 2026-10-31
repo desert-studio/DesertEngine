@@ -515,7 +515,8 @@ namespace Desert::Graphic::System
             }
             // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
-            // GPU-COST-22: several lists (the camera's, a cascade's, phase 2's) read one Instances through their ids.
+            // GPU-COST-22: several lists (the camera's, a cascade's, phase 2's) read one Instances through their
+            // ids.
             std::vector<RDG::BufferRef> read;
             const auto                  readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
             {
