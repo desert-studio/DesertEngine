@@ -12,6 +12,10 @@
 // Drawn counts (GRASS-VIS-7, GrassRenderer::GetDrawnCounts): after the written mark, Feedback holds the full list's
 // drawn count, the camera's phase-1 drawn count (the full list's when the camera has no list of its own) and phase
 // 2's appended count (0 until the post mode writes it), read back with the bucket counts FramesInFlight frames later.
+// The cascades' lists (GPU-COST-21, Mode.w = the cascade views that have one, list k the k-th set bit): each list's
+// copy of Args' layout in CascadeArgs gets its records and counts the same way, and Feedback, after those three
+// counts, one drawn count per cascade VIEW (0 for a view without a list), so the read-back names the cascade
+// whatever lists a later frame has.
 Shader "GrassFinalize"
 {
     Compute
@@ -39,11 +43,20 @@ Shader "GrassFinalize"
             uint PostArguments[]; // Args' layout: the phase-2 draws
         };
 
+        Buffer(4) CascadeArgs
+        {
+            uint CascadeArguments[]; // per cascade list one copy of Args' layout (GrassGenerate.shader CascadeArgs)
+        };
+
+        // The cascade views Feedback counts (GrassRenderer kGrassCascadeLists, SceneResources::kMaxCascadeViews).
+        const uint kCascadeViews = 8u;
+
         // Mirrors Graphic::System::GrassFinalizePush (GrassRenderer.cpp).
         PushConstant PushConstants
         {
             uvec4 Mode; // x = 0 after the generation, 1 after phase 2; y = 1 when the camera's list was generated;
-                        // z = 1: a blade's records, sets of one record per bucket (record s draws bucket s % count)
+                        // z = 1: a blade's records, sets of one record per bucket (record s draws bucket s % count);
+                        // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
         };
 
         // The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its
@@ -111,6 +124,37 @@ Shader "GrassFinalize"
             FeedbackData[buckets + 3u] = drawn;
         }
 
+        // Each cascade list's records and counts as Args', its drawn count into Feedback by the view it is for.
+        void FinalizeCascades( uint buckets, uint records )
+        {
+            for ( uint v = 0u; v < kCascadeViews; ++v )
+                FeedbackData[buckets + 4u + v] = 0u;
+            uint words = 4u + records * 5u + buckets * 4u;
+            uint mask  = Mode.w;
+            for ( uint k = 0u; mask != 0u; ++k )
+            {
+                uint view = uint( findLSB( mask ) );
+                mask &= mask - 1u;
+                uint base  = k * words;
+                uint table = base + 4u + records * 5u;
+                for ( uint s = 0u; s < records; ++s )
+                {
+                    uint at = table + BucketOfRecord( s, records, buckets ) * 4u;
+                    CascadeArguments[base + 4u + s * 5u + 1u] = min( CascadeArguments[at], CascadeArguments[at + 2u] );
+                    CascadeArguments[base + 4u + s * 5u + 4u] = CascadeArguments[at + 1u];
+                }
+                uint drawn = 0u;
+                for ( uint b = 0u; b < buckets; ++b )
+                {
+                    uint at = table + b * 4u;
+                    drawn += min( CascadeArguments[at], CascadeArguments[at + 2u] );
+                    CascadeArguments[at] = 0u;
+                }
+                CascadeArguments[base + 3u]          = drawn;
+                FeedbackData[buckets + 4u + view] = drawn;
+            }
+        }
+
         void main()
         {
             if ( Mode.x == 1u )
@@ -142,6 +186,7 @@ Shader "GrassFinalize"
             FeedbackData[buckets + 2u] = Mode.y != 0u ? CameraArguments[3] : drawn;
             FeedbackData[buckets + 3u] = 0u;
             Arguments[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
+            FinalizeCascades( buckets, records );
         }
     }
 }

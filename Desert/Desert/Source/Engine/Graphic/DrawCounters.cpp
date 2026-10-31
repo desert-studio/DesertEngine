@@ -7,6 +7,7 @@
 // rot unnoticed) while leaving nothing for the linker to pull in.
 #if DESERT_DEV_INSTRUMENTS
 
+#include <algorithm>
 #include <array>
 
 namespace Desert::Graphic
@@ -75,11 +76,14 @@ namespace Desert::Graphic
         return pass < kCountedMeshPasses ? g_PassFinished[pass] : MeshPassDrawCounters{};
     }
 
-    void DrawCounter::RecordGrass( const uint32_t full, const uint32_t camera, const uint32_t post )
+    void DrawCounter::RecordGrass( const uint32_t full, const uint32_t camera, const uint32_t post,
+                                   const std::span<const uint32_t> cascades )
     {
         g_GrassRecording.Full += full;
         g_GrassRecording.Camera += camera;
         g_GrassRecording.Post += post;
+        for ( std::size_t v = 0; v < std::min( cascades.size(), g_GrassRecording.Cascades.size() ); ++v )
+            g_GrassRecording.Cascades[v] += cascades[v];
         ++g_GrassRecording.Varieties;
     }
 

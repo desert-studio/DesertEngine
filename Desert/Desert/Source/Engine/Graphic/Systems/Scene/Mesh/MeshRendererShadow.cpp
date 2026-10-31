@@ -444,6 +444,26 @@ namespace Desert::Graphic::System
         return sweeps;
     }
 
+    MeshRenderer::CascadeCasterBoxes MeshRenderer::CascadeCasterBoxSet() const
+    {
+        CascadeCasterBoxes boxes{};
+        for ( uint32_t slot = 0; slot < kDirectionalShadowSlots; ++slot )
+        {
+            const DirectionalShadowSlot& state = m_DirectionalShadow[slot];
+            // DirectionalShadows' count: the cascades this slot's layers hold and its receivers sample.
+            const uint32_t count = slot < m_CascadeSlots ? std::min( state.Fitted, m_Shadow.CascadeCount ) : 0u;
+            if ( !state.CastShadows )
+                continue;
+            for ( uint32_t c = 0; c < count; ++c )
+            {
+                const uint32_t view = slot * kMaxCascades + c;
+                boxes.Live |= 1u << view;
+                boxes.ViewProj[view] = m_CascadeCasterVP[view];
+            }
+        }
+        return boxes;
+    }
+
     SceneResources::DirectionalShadowViews MeshRenderer::DirectionalShadows() const
     {
         SceneResources::DirectionalShadowViews views{};
