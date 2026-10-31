@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/EntityValue.hpp>
+#include <Engine/Libraries/DeformationLibrary.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec3.hpp>
@@ -211,5 +212,14 @@ namespace Desert::Libraries
              ScriptCallable, ScriptName( "cameraRay" ),
              Tooltip( "The active camera's eye ray (looking down -Z from the origin when there is no camera)." ) )
         static WorldRay CameraRay();
+
+        /// The script source of the world's DeformationWorld (Engine/World/Deformation). Mechanism only: what the
+        /// contact looks like is the named stamp asset's; what the surface does with it is the physical material's
+        /// (DEFORM-RESPONSE). Defined in DeformationLibrary.cpp.
+        FUNCTION( ScriptCallable, ScriptName( "deform" ),
+                  Tooltip( "Presses a DeformStamp into the world's deformation field at a point: "
+                           "World.deform{ Stamp = name, At = vector(x, y, z), Params = { Radius = cm, ... } }. "
+                           "Ok, or false and the reason." ) )
+        static Common::BoolResultStr Deform( const DeformCall& call );
     };
 } // namespace Desert::Libraries

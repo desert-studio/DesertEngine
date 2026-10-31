@@ -15,7 +15,7 @@ namespace Desert::Libraries
     /// default).
     struct DeformCall
     {
-        REFLECT()
+        REFLECT( ScriptStruct )
 
         PROPERTY( Tooltip( "The DeformStamp shader's name (its file stem), e.g. \"DS_CircleRim\"." ) )
         std::string Stamp;
@@ -23,19 +23,5 @@ namespace Desert::Libraries
         glm::vec3 At = { 0.0f, 0.0f, 0.0f };
         PROPERTY( Tooltip( "The stamp's typed inputs." ) )
         World::DeformStampParams Params;
-    };
-
-    /// World.deform: the script source of the world's DeformationWorld (Engine/World/Deformation). Mechanism only:
-    /// what the contact looks like is the named stamp asset's; what the surface does with it is the physical
-    /// material's (DEFORM-RESPONSE).
-    struct DeformationLibrary
-    {
-        REFLECT( ScriptName( "World" ) )
-
-        FUNCTION( ScriptCallable, ScriptName( "deform" ),
-                  Tooltip( "Presses a DeformStamp into the world's deformation field at a point: "
-                           "World.deform{ Stamp = name, At = vector(x, y, z), Params = { Radius = cm, ... } }. "
-                           "Ok, or false and the reason." ) )
-        static Common::BoolResultStr Deform( const DeformCall& call );
     };
 } // namespace Desert::Libraries

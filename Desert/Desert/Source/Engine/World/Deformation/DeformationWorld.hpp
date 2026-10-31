@@ -30,7 +30,7 @@ namespace Desert::World
     /// same names). UE's analogue is a Niagara user parameter block: data a stamp's graph may read, not behaviour.
     struct DeformStampParams
     {
-        REFLECT()
+        REFLECT( ScriptStruct )
 
         PROPERTY( Units( "cm" ), Tooltip( "Footprint radius: the stamp's local space spans [-1, 1] over this." ) )
         float Radius = 15.0f;
