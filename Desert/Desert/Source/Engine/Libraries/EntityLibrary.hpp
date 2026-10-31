@@ -218,7 +218,7 @@ namespace Desert::Libraries
         /// (DEFORM-RESPONSE). Defined in DeformationLibrary.cpp.
         FUNCTION( ScriptCallable, ScriptName( "deform" ),
                   Tooltip( "Presses a DeformStamp into the world's deformation field at a point: "
-                           "World.deform{ Stamp = name, At = vector(x, y, z), Params = { Radius = cm, ... } }. "
+                           "World.deform{ Stamp = name, At = vector.create(x, y, z), Params = { Radius = cm, ... } }. "
                            "Ok, or false and the reason." ) )
         static Common::BoolResultStr Deform( const DeformCall& call );
     };

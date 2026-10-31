@@ -7,7 +7,7 @@
 Дано run View "View mode: Deformation Field"
 Дано --subject viewport set Camera.Position 0,600,900
 Дано --subject viewport set Camera.Direction 0,-0.6,-1
-Когда lua "for i = 0, 2 do World.deform{ Stamp = 'DS_CircleRim', At = vector(-150 + i * 150, 0, 0), Params = { Radius = 30 } } end"
+Когда lua "for i = 0, 2 do World.deform{ Stamp = 'DS_CircleRim', At = vector.create(-150 + i * 150, 0, 0), Params = { Radius = 30 } } end"
 Тогда-вид 1_stamp three round prints in a row on the ground in front of the camera, 1.5 m apart, each a blue sink ringed by a red rim; nothing else coloured; editor.log errors 0
 Когда --subject viewport set Camera.Position 3000,600,900
 Когда --subject viewport set Camera.Direction -1,-0.2,-0.35

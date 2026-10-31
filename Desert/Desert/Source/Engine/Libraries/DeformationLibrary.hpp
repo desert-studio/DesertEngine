@@ -10,7 +10,7 @@
 
 namespace Desert::Libraries
 {
-    /// The one argument of World.deform: `World.deform{ Stamp = "DS_CircleRim", At = vector(x, y, z),
+    /// The one argument of World.deform: `World.deform{ Stamp = "DS_CircleRim", At = vector.create(x, y, z),
     /// Params = { Radius = 20, Pressure = 1 } }` (a table, so a call names what it sets and leaves the rest
     /// default).
     struct DeformCall
