@@ -37,6 +37,7 @@ using Desert::EngineContext;
 using Desert::Engine::FrameManager;
 using Desert::Graphic::ImageCube;
 using Desert::Graphic::MaterialBackend;
+using Desert::Graphic::MaterialExecutor;
 using Desert::Graphic::MaterialProperty;
 using Desert::Graphic::TextureCubeProperty;
 
