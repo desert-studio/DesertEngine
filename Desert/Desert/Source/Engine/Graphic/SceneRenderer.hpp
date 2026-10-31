@@ -1376,6 +1376,11 @@ namespace Desert::Graphic
         // @p postOcclusion (AddFrameGrassPostOcclusion): the two nodes over the grass's phase-2 records.
         void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                                       const VirtualGeometry::VisibilityBufferFrame& visibility, bool postOcclusion );
+        // GRASS-VIS-23: the ONE material pass over the visibility buffer, after both phases' rasters (UE Nanite's
+        // base pass after the post pass): every word - phase 1's and phase 2's - shaded once into the G-buffer.
+        void AddFrameGrassVisibilityResolve( RDG::Builder& graph, FrameTextures& textures,
+                                             System::MeshRenderer*                         meshRenderer,
+                                             const VirtualGeometry::VisibilityBufferFrame& visibility );
         // GRASS-VIS phase 2, after AddFrameDrawBinsPostOcclusion built this frame's furthest HZB: the grass's
         // "Grass: Post-Occlusion" re-test (GrassRenderer::AddFramePostOcclusion), then "Grass: GBuffer
         // Post-Occlusion" and, with @p visibility, the visibility raster and resolve over phase 2's records.

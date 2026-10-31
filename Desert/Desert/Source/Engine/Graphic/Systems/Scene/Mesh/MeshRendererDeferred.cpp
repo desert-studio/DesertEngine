@@ -506,17 +506,16 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
                                                            const RDG::BufferRef visibility,
-                                                           const RDG::BufferRef resolveArgs, const bool postOcclusion )
+                                                           const RDG::BufferRef resolveArgs )
     {
-        MeshRendererDetail::MeshDrawList& list =
-             postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws;
+        MeshRendererDetail::MeshDrawList& list = m_GrassVisibilityResolveDraws;
         list.Clear();
         m_GrassResolveArgs = resolveArgs;
         if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !resolveArgs.IsValid() ||
              !m_InstancedVisibilityResolvePipeline )
             return;
         BuildGpuInstancedDraws( list, m_InstancedVisibilityResolvePipeline.get(), MeshPass::VisibilityResolve,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false );
         list.Declare( pass, view,
                                                [visibility]( RDG::BindingBlockBuilder&         block,
                                                              const RDG::ShaderBindingLayout& layout )
@@ -528,10 +527,9 @@ namespace Desert::Graphic::System
                                                } );
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
-                                                                            const bool postOcclusion ) const
+    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const
     {
-        return ( postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws ).Record( context );
+        return m_GrassVisibilityResolveDraws.Record( context );
     }
 
     void MeshRenderer::DeclareGrassDepthPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )

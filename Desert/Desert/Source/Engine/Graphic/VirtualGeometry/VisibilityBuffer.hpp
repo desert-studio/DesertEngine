@@ -15,11 +15,14 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class ComputePipeline;
+    class GraphicsPipeline;
 }
 
 namespace Desert::Graphic::RDG
 {
     class Builder;
+    class PassBuilder;
+    class PassContext;
 }
 
 // GRASS-VIS: THE OWNER OF A VIEW'S VISIBILITY BUFFER (UE 5 Nanite's VisBuffer64 and its InitVisBuffer clear). One
@@ -30,7 +33,8 @@ namespace Desert::Graphic::RDG
 // variety drawn through the mesh renderer's indirect path, so its record ({3, 1, 0, 0, 0}: the blade strip's first
 // three indices, which Vertex_GrassBlade.glslh's resolve branch turns into a full-screen triangle) lives in a
 // GpuInstanceArgs-shaped buffer (header + one record per submesh; records past the first are zero and hidden by
-// the draw's submesh mask).
+// the draw's submesh mask). And it owns "Grass: Visibility Depth" (UE Nanite's EmitDepthTargets): the words' depth
+// written into the G-buffer depth without the material, between phase 1's raster and the HZB phase 2 tests.
 namespace Desert::Graphic::VirtualGeometry
 {
     // This frame's graph handles of the buffer and the resolve's arguments.
@@ -55,7 +59,7 @@ namespace Desert::Graphic::VirtualGeometry
         [[nodiscard]] Common::BoolResultStr Initialize();
         [[nodiscard]] bool                  IsInitialized() const
         {
-            return m_Clear != nullptr && m_ResolveArgs != nullptr;
+            return m_Clear != nullptr && m_Depth != nullptr && m_ResolveArgs != nullptr;
         }
 
         // Registers the buffer (resized to @p width x @p height pixels) and the resolve's arguments in @p graph
@@ -63,9 +67,17 @@ namespace Desert::Graphic::VirtualGeometry
         [[nodiscard]] Common::ResultStr<VisibilityBufferFrame> AddFrame( RDG::Builder& graph, uint32_t width,
                                                                          uint32_t height );
 
+        // SETUP of "Grass: Visibility Depth" (a raster node on the G-buffer depth alone, LOADed): its one block,
+        // @p words read by the fragment stage (Programs/VirtualGeometry/VisibilityDepth.shader).
+        void DeclareDepthBindings( RDG::PassBuilder& pass, RDG::BufferRef words ) const;
+        // Inside that node's render pass: the full-screen triangle that writes each drawn word's depth.
+        [[nodiscard]] Common::BoolResultStr RecordDepth( const RDG::PassContext& context ) const;
+
     private:
         std::shared_ptr<ComputePipeline>                m_Clear;
         mutable ShaderBindingLayoutCache                m_ClearLayout;
+        std::shared_ptr<GraphicsPipeline>               m_Depth;
+        mutable ShaderBindingLayoutCache                m_DepthLayout;
         std::shared_ptr<ShaderResources::StorageBuffer> m_Words;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveArgs;
         RDG::ExternalBuffer                             m_WordsImport;
