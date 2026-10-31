@@ -674,13 +674,9 @@ namespace Desert::Graphic::System
         Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
         if ( permutation.IsDefault() )
             return cell;
-        // GPU-COST-22: a GPU-instanced list of ids keeps its define, last (MeshRendererGpuInstanced.cpp
-        // WithInstanceIds).
+        // A GPU-instanced list of ids keeps its define, last (SurfaceInstanceIdsVariant, as the cook lists it).
         if ( instanceIds )
-        {
-            permutation.Defines.emplace_back( kSurfaceInstanceIdsDefine );
-            permutation.ShippedByCook = true;
-        }
+            permutation = SurfaceInstanceIdsVariant( std::move( permutation ) );
         return view ? materials->GetViewVariant( built, path, pass, *view, permutation, this )
                     : materials->GetVariant( built, path, pass, permutation );
     }
@@ -825,6 +821,38 @@ namespace Desert::Graphic::System
                 if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
                     variants.push_back( { cell.GetValue(), std::move( permutation ) } );
             }
+            // The cells a GPU-instanced id list is drawn through (kInstanceIdsPaths x kInstanceIdsPasses: the
+            // camera's list and a cascade's own one, BuildGpuInstancedDraws / BuildGpuInstancedShadowDraws), each in
+            // SurfaceInstanceIdsVariant; the G-buffer one also over the equal-depth permutation (an early-Z admitted
+            // template, as above), the forward one also over the virtual shadow map's (ForwardVirtualCell).
+            for ( const MeshVertexPath path : kInstanceIdsPaths )
+                for ( const MeshPass pass : kInstanceIdsPasses )
+                {
+                    const auto cell = materials.CellShaderNameOf( handle, path, pass );
+                    if ( !cell )
+                        continue;
+                    const auto program = shaders.GetByName( cell.GetValue() );
+                    if ( program == nullptr )
+                        continue;
+                    std::vector<Core::ShaderVariant> under{ Core::ShaderVariant{} };
+                    if ( pass == MeshPass::GBuffer )
+                    {
+                        const Core::Formats::SurfaceBlendMode blend = program->GetProgramMeta().Blend;
+                        if ( blend == Core::Formats::SurfaceBlendMode::Masked ||
+                             blend == Core::Formats::SurfaceBlendMode::Opaque )
+                            under.push_back( SurfaceDepthEqualVariant() );
+                    }
+                    if ( pass == MeshPass::Forward )
+                        if ( Core::ShaderVariant vsm = ForwardShadowMaskVariant( *program, false, false, true );
+                             !vsm.IsDefault() )
+                            under.push_back( std::move( vsm ) );
+                    for ( Core::ShaderVariant& base : under )
+                    {
+                        Core::ShaderVariant permutation = SurfaceInstanceIdsVariant( std::move( base ) );
+                        if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                            variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+                    }
+                }
             // The water cell (`Usage WaterMesh` templates only): WaterRenderer draws it as itself or, under
             // VirtualMaps, through its DESERT_LOCAL_SHADOW_VSM permutation
             // (WaterRenderer::VirtualLocalProgramFor).

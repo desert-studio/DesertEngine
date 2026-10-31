@@ -2002,6 +2002,25 @@ namespace Desert::Graphic::System
         // (kSurfaceDepthEqualDefine: equal depth test, no clip; DepthEqualCell, BuildGpuInstancedDraws), asked by
         // the draws and by the cook (MaterialProgramVariants) from this one function.
         [[nodiscard]] static Core::ShaderVariant SurfaceDepthEqualVariant();
+        // THE PERMUTATION a GPU-instanced section's cell draws a list of ids in (GPU-COST-22: the camera's list,
+        // GpuInstanceRefs::Ids, or a cascade's own list; kSurfaceInstanceIdsDefine, the GpuInstanceIds block at
+        // binding 18): @p permutation with that define appended LAST, ShippedByCook. The one spelling of it -
+        // the draws (BuildGpuInstancedDraws, GrassVisibilityReady, BuildGpuInstancedShadowDraws), the forward
+        // VSM permutation of such a cell (ForwardVirtualCell) and the cook (MaterialProgramVariants) all build
+        // it here, so the cooked hash is the acquired one (UE: a permutation declared once, the cook compiling
+        // exactly what ShouldCompilePermutation admits).
+        [[nodiscard]] static Core::ShaderVariant SurfaceInstanceIdsVariant( Core::ShaderVariant permutation = {} );
+        // THE CELLS an id list is drawn through (UE ShouldCompilePermutation for the instance-id permutation):
+        // the GPU-instanced paths, under every pass a camera list draws in (the geometry pass of either render
+        // path: Forward, GBuffer, the Depth prepass; the grass visibility raster and its resolve) and the
+        // cascade's ShadowDepth. MaterialProgramVariants cooks SurfaceInstanceIdsVariant for each such cell of a
+        // `.demat` (plus its G-buffer DepthEqual and forward VSM compositions); a draw asking for one outside
+        // these is named by PackageCook's census (ShaderService::ShippedByCookRequests).
+        static constexpr MeshVertexPath kInstanceIdsPaths[]  = { MeshVertexPath::Instanced,
+                                                                 MeshVertexPath::GrassBlade };
+        static constexpr MeshPass       kInstanceIdsPasses[] = {
+             MeshPass::Forward,    MeshPass::GBuffer,           MeshPass::Depth,
+             MeshPass::Visibility, MeshPass::VisibilityResolve, MeshPass::ShadowDepth };
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
@@ -2009,6 +2028,8 @@ namespace Desert::Graphic::System
         // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. Also the default
         // surface's (Static|Instanced|Skinned x Forward) cells' DESERT_LOCAL_SHADOW_VSM permutation: the
         // renderer-owned twins (ForwardVsmTwin). A Shader Override draw (no `.demat`) is OverrideProgramVariants'.
+        // And every (kInstanceIdsPaths x kInstanceIdsPasses) cell of each material in SurfaceInstanceIdsVariant (alone,
+        // over the G-buffer's equal-depth and over the forward virtual shadow map's permutation): the id-list draws.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
              MaterialProgramVariants( const Runtime::MaterialService& materials,
                                       const Runtime::ShaderService&   shaders,
