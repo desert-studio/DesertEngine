@@ -655,7 +655,7 @@ namespace Desert::Graphic::System
 
     DataDrivenMaterial* MeshRenderer::ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
                                                           const MeshVertexPath path, const MeshPass pass,
-                                                          const std::optional<uint32_t> view )
+                                                          const std::optional<uint32_t> view, const bool instanceIds )
     {
         if ( !m_ForwardVirtualLocal || pass != MeshPass::Forward || cell == nullptr )
             return cell;
@@ -670,9 +670,15 @@ namespace Desert::Graphic::System
         const auto program = Runtime::ResourceRegistry::GetShaderService()->GetByName( cell->GetShaderName() );
         if ( program == nullptr )
             return cell; // the sibling is a registered cell (CreateSurfaceMaterial); nothing to ask otherwise
-        const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
+        Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
         if ( permutation.IsDefault() )
             return cell;
+        // GPU-COST-22: a GPU-instanced list of ids keeps its define, last (MeshRendererGpuInstanced.cpp WithInstanceIds).
+        if ( instanceIds )
+        {
+            permutation.Defines.emplace_back( kSurfaceInstanceIdsDefine );
+            permutation.ShippedByCook = true;
+        }
         return view ? materials->GetViewVariant( built, path, pass, *view, permutation, this )
                     : materials->GetVariant( built, path, pass, permutation );
     }

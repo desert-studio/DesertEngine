@@ -347,6 +347,11 @@ namespace Desert::Graphic
     // The G-buffer cell of a Masked section the masked depth prepass drew (Mesh/Surface/Pass_GBuffer.glslh): drawn
     // with an equal depth test, it does not repeat the clip (MeshRenderer::BuildGpuInstancedDraws).
     inline constexpr std::string_view kSurfaceDepthEqualDefine = "DESERT_SURFACE_DEPTH_EQUAL";
+    // GPU-COST-22: the Instanced / GrassBlade cell of a GPU-instanced section drawn through a list of ids
+    // (GpuInstanceRefs::Ids; Mesh/Surface/Vertex_Instanced.glslh, Vertex_GrassBlade.glslh,
+    // Pass_VisibilityResolve.glslh): the instance index names a slot of GpuInstanceIds, the slot the row of
+    // InstanceTransforms (MeshRenderer::BuildGpuInstancedDraws / BuildGpuInstancedShadowDraws).
+    inline constexpr std::string_view kSurfaceInstanceIdsDefine = "DESERT_SURFACE_INSTANCE_IDS";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";

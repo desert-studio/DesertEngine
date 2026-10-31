@@ -24,10 +24,15 @@
 // OCCLUSION PER VIEW (GRASS-VIS; UE Nanite / the GPU instance cull: two-phase HZB occlusion, the shadow views and the
 // ray-traced scene culled by their own frusta, never by the camera's depth). Instances / Args hold every kept
 // instance: the cascades and the TLAS draw them, so grass the camera cannot see still casts and reflects. When the
-// view binds an HZB (Hzb.w = 1) the camera's own list, CameraInstances / CameraArgs (the same bucket table), gets
+// view binds an HZB (Hzb.w = 1) the camera's own list, CameraIds / CameraArgs (the same bucket table), gets
 // only those the previous frame's furthest HZB does not hide (Common/GpuCullTests.glslh GpuCull_IsOccludedByHzb,
 // the instance cull's test, through that frame's ViewProjection); a hidden one becomes a candidate (its sphere and
-// its row of Instances). Phase 2 (Hzb.w = 2, one thread per candidate slot, after this frame's furthest HZB is
+// its row of Instances). THE LISTS HOLD IDS (GPU-COST-22; UE GPU Scene: an instance's data lies once in
+// InstanceSceneData, each view's culling writes the ids of its visible instances, InstanceIdBuffer): an instance is
+// written ONCE, into its row of Instances; the camera's list and every cascade's hold that row (one uint each), and
+// the vertex stage reads Instances through the id (DESERT_SURFACE_INSTANCE_IDS, Vertex_Instanced.glslh /
+// Vertex_GrassBlade.glslh). A list's slot keeps the list's own bucket table, so the slot picks the draw record and
+// the strip level, the id the instance. Phase 2 (Hzb.w = 2, one thread per candidate slot, after this frame's furthest HZB is
 // built from the phase-1 depth) re-tests the candidates through this frame's ViewProjection and appends the ones
 // now visible to the camera list after phase 1's; GrassFinalize's post mode writes their draw records (PostArgs);
 // a frame whose own HZB was not built (Hzb.z = 0 in phase 2) appends every candidate untested, so a missing HZB
@@ -96,12 +101,13 @@ Shader "GrassGenerate"
         // Phase 1: the previous frame's furthest HZB of the view; phase 2: this frame's (neutral: none tested).
         Uniform(4) texture2D GrassHzbTexture;
 
-        // The camera's list (Hzb.w != 0): the same layout as Instances / Args, then per bucket four words -
+        // The camera's list (Hzb.w != 0): per slot the instance's row of Instances (GPU-COST-22), the bucket
+        // table and records of Args, then per bucket four words -
         // the candidates appended, the candidates of this frame and phase 1's drawn count (both frozen by
         // GrassFinalize), and phase 2's appended count (GrassRenderer.cpp kPhaseWords).
-        Buffer(5) CameraInstances
+        Buffer(5) CameraIds
         {
-            mat4 GrassCameraInstancesData[];
+            uint GrassCameraIdsData[];
         };
 
         Buffer(6) CameraArgs
@@ -118,11 +124,12 @@ Shader "GrassGenerate"
 
         // THE CASCADES' LISTS (GPU-COST-21; UE: every shadow view culls its casters by its own volume): per live
         // cascade view a list of the instances inside that cascade's caster box, the same records and bucket table
-        // as Args, list k's copy at k x Cascades.y words, its buckets at k x capacity in CascadeInstances. The
+        // as Args, list k's copy at k x Cascades.y words, its buckets at k x capacity in CascadeIds (per slot the
+        // instance's row of Instances, GPU-COST-22). The
         // cascade draws its list instead of the full one (MeshRenderer::BuildGpuInstancedShadowDraws).
-        Buffer(8) CascadeInstances
+        Buffer(8) CascadeIds
         {
-            mat4 GrassCascadeInstancesData[];
+            uint GrassCascadeIdsData[];
         };
 
         Buffer(9) CascadeArgs
@@ -276,8 +283,7 @@ Shader "GrassGenerate"
                 uint index = CameraArguments[phase + 2u] + atomicAdd( CameraArguments[phase + 3u], 1u );
                 if ( index >= Arguments[table + 2u] )
                     return;
-                GrassCameraInstancesData[first + index] =
-                     GrassInstancesData[GrassCandidatesData[2u * slot + 1u].x];
+                GrassCameraIdsData[first + index] = GrassCandidatesData[2u * slot + 1u].x;
                 return;
             }
         }
@@ -547,7 +553,7 @@ Shader "GrassGenerate"
                     uint at   = k * p.Cascades.y + table;
                     uint slot = atomicAdd( CascadeArguments[at], 1u );
                     if ( slot < CascadeArguments[at + 2u] )
-                        GrassCascadeInstancesData[CascadeArguments[at + 1u] + slot] = instance;
+                        GrassCascadeIdsData[CascadeArguments[at + 1u] + slot] = index;
                 }
             }
 
@@ -560,7 +566,7 @@ Shader "GrassGenerate"
             {
                 uint seen = atomicAdd( CameraArguments[table], 1u );
                 if ( seen < Arguments[table + 2u] )
-                    GrassCameraInstancesData[first + seen] = instance;
+                    GrassCameraIdsData[first + seen] = index;
                 return;
             }
             uint candidate = atomicAdd( CameraArguments[p.Buckets.y + p.Buckets.x * 4u + bucket * 4u], 1u );
