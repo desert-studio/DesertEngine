@@ -821,11 +821,7 @@ namespace Desert::Graphic::System
                                                  glm::vec4( 0.0f ) );
             claimed->Index = registry.SyncMaterialRow( key, row, revision );
         }
-        const uint32_t index = claimed->Index;
-        if ( index >= m_RowSurfaces.size() )
-            m_RowSurfaces.resize( index + 1 );
-        m_RowSurfaces[index] = { material, instance };
-        return index;
+        return claimed->Index;
     }
 
     std::pair<MeshRenderer::FrameMaterialRow*, bool>
@@ -899,9 +895,9 @@ namespace Desert::Graphic::System
         if ( !m_DrawCommandCache )
             m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
                  [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive,
-                         const Desert::Mesh&, uint32_t,
+                         const Desert::Mesh&, const uint32_t                             submesh,
                          const uint32_t materialRow ) -> GpuDriven::PassPipelineResolution
-                 { return ResolveBinnedPipeline( pass, primitive, materialRow ); },
+                 { return ResolveBinnedPipeline( pass, primitive, submesh, materialRow ); },
                  [this]( const GpuDriven::MeshPass pass, const GraphicsPipeline& group ) -> const GraphicsPipeline*
                  { return ResolveVirtualGeometryPipeline( pass, group ); } );
         // Answers resolved before a recompile, a wireframe toggle or a shadow method change are stale: a reload
@@ -912,7 +908,7 @@ namespace Desert::Graphic::System
         const bool virtualShadow = m_SceneRenderer != nullptr && m_SceneRenderer->SunShadowIsVirtual();
         // The re-resolution runs AFTER this frame's feed reached the cache (below): a held primitive's material
         // row may name an instance freed since its last feed (a re-imported mesh's materials), and only this
-        // frame's rows (m_RowSurfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
+        // frame's records (their surfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
         // instance.
         bool reresolve = false;
         if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
@@ -945,7 +941,8 @@ namespace Desert::Graphic::System
                                                    const Desert::Mesh* mesh, const MeshVertexPath path,
                                                    const uint32_t firstInstance, const uint32_t instanceCount,
                                                    const uint64_t hidden, const uint32_t row,
-                                                   const bool generic = false, const bool genericProgram = false )
+                                                   const RowSurface surface, const bool generic = false,
+                                                   const bool genericProgram = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -968,6 +965,7 @@ namespace Desert::Graphic::System
                 f.Flags             = scene.Primitive( primitive ).Flags;
                 f.HiddenSubmeshMask = ~0ull;
                 f.MaterialRows.assign( submeshes, row );
+                f.Surfaces.assign( submeshes, surface );
             }
             // A primitive shared by a generic record and a batched one (one per entity slot) takes the generic's
             // rules: it cannot be half binned through two vertex contracts.
@@ -976,14 +974,18 @@ namespace Desert::Graphic::System
             f.HiddenSubmeshMask &= hidden;
             for ( size_t s = 0; s < submeshes && s < 64; ++s )
                 if ( ( hidden & ( 1ull << s ) ) == 0 )
+                {
                     f.MaterialRows[s] = row;
+                    f.Surfaces[s]     = surface;
+                }
         };
         for ( const auto& data : m_StaticQueue )
-            if ( data.MaterialSlots &&
-                 MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ).Surface !=
-                      nullptr )
-                claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Static, data.GpuInstance, 1,
-                       data.HiddenSubmeshes, data.MaterialRow );
+            if ( data.MaterialSlots )
+                if ( const auto slot =
+                          MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+                     slot.Surface != nullptr )
+                    claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Static, data.GpuInstance, 1,
+                           data.HiddenSubmeshes, data.MaterialRow, RowSurface{ slot.Surface, slot.Instance } );
         for ( size_t f = 0; f < m_InstancedQueue.size() && f < rows.FieldPrimitives.size(); ++f )
         {
             const auto& data = m_InstancedQueue[f];
@@ -994,7 +996,8 @@ namespace Desert::Graphic::System
                 continue;
             if ( const auto row = FindMaterialRow( mat, data.Material.get(), true ) )
                 claim( rows.FieldPrimitives[f], data.Mesh, MeshVertexPath::Instanced, rows.FieldInstances[f],
-                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row );
+                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row,
+                       RowSurface{ mat, data.Material.get() } );
         }
         // The CPU ISM loops find an entry's primitive here (CpuWalkHidden): the queue's order is the rows' order.
         m_FieldPrimitives.assign( rows.FieldPrimitives.begin(), rows.FieldPrimitives.end() );
@@ -1003,7 +1006,7 @@ namespace Desert::Graphic::System
                 if ( section.Material != nullptr && section.Instance != nullptr )
                     if ( const auto row = FindMaterialRow( section.Material, section.Instance, true ) )
                         claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Skinned, data.GpuInstance, 1,
-                               section.HiddenSubmeshes, *row );
+                               section.HiddenSubmeshes, *row, RowSurface{ section.Material, section.Instance } );
 
         // The generic queue (Shader Override and custom-program slot draws), as UE caches every mesh batch a pass
         // processor accepts: a Shader Override naming a SURFACE template draws in the G-buffer through its
@@ -1024,7 +1027,7 @@ namespace Desert::Graphic::System
                      TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
                           .has_value();
                 claim( g.GpuPrimitive, g.Mesh, MeshVertexPath::Static, g.GpuInstance, 1, ~g.VisibleSubmeshMask,
-                       *g.MaterialRow, true, !surfaceOverride );
+                       *g.MaterialRow, g.MaterialSurface, true, !surfaceOverride );
             }
         }
 
@@ -1390,7 +1393,7 @@ namespace Desert::Graphic::System
 
     GpuDriven::PassPipelineResolution
     MeshRenderer::ResolveBinnedPipeline( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive,
-                                         const uint32_t materialRow )
+                                         const uint32_t submesh, [[maybe_unused]] const uint32_t materialRow )
     {
         using GpuDriven::BinFallback;
         const auto fallback = []( const BinFallback reason )
@@ -1406,10 +1409,11 @@ namespace Desert::Graphic::System
         if ( pass == GpuDriven::MeshPass::VirtualShadow && !m_BinnedVirtualShadow )
             return {};
         const BinnedPrimitiveFeed* const feed = BinnedFeedOf( primitive );
-        if ( feed == nullptr || materialRow >= m_RowSurfaces.size() ||
-             m_RowSurfaces[materialRow].Surface == nullptr )
+        // The submesh's surface as its record claimed it (BinnedPrimitiveFeed::Surfaces): a row index alone is
+        // ambiguous across templates (each template's rows count in its own stride).
+        if ( feed == nullptr || submesh >= feed->Surfaces.size() || feed->Surfaces[submesh].Surface == nullptr )
             return fallback( BinFallback::NoMaterialRow );
-        const RowSurface&                            row = m_RowSurfaces[materialRow];
+        const RowSurface&                            row = feed->Surfaces[submesh];
         const std::array<const GraphicsPipeline*, 3> casterStates{
              m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get() };
         // The virtual shadow map's caster states (EnsureVirtualShadowPipelines: no attachment, depth clamp), its
@@ -1767,11 +1771,6 @@ namespace Desert::Graphic::System
         // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
         // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
         BeginMaterialRowSync();
-        // Every row's surface is forgotten with it and named again only by this frame's registrations (UE drops a
-        // primitive's cached draw commands when it leaves the scene): a row no queued draw registers names a
-        // template or instance that may be freed since (a re-imported mesh's materials), and resolving it read a
-        // dangling instance.
-        std::fill( m_RowSurfaces.begin(), m_RowSurfaces.end(), RowSurface{} );
         for ( auto& data : m_StaticQueue )
         {
             if ( !data.MaterialSlots )

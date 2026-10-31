@@ -14,7 +14,9 @@ namespace Desert::Graphic
         SetAutoExposureEnabled( params.AutoExposure ? 1.0f : 0.0f );
         SetChromaticBloom( params.ChromaticBloom );
         SetWhitePoint( params.WhitePoint );
-        SetTonemapOperator( static_cast<float>( static_cast<int>( params.Operator ) ) );
+        // 2 = the buffer visualization (SceneComposite.shader): not a Core::TonemapOperator a scene can author.
+        SetTonemapOperator( params.VisualizeBuffer ? 2.0f
+                                                   : static_cast<float>( static_cast<int>( params.Operator ) ) );
         SetLightShaftTintIntensity( glm::vec4( params.LightShaftTint, params.LightShaftIntensity ) );
         SetLensFlareTintIntensity( glm::vec4( params.LensFlareTint, params.LensFlareIntensity ) );
         SetInvPreExposure( 1.0f / params.PreExposure );

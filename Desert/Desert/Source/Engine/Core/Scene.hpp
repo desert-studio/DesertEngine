@@ -164,6 +164,10 @@ namespace Desert::Core
         }
 
         void Clear();
+        // THE DEVICE IS IDLE (the caller waited): no frame in flight reads the renderers Clear parked (surface
+        // cache, reflection captures), so they go now instead of frames-in-flight later - the world teardown
+        // before the next world builds its own (SceneWorkspace::ReleaseActiveWorld).
+        void ReleaseParkedRenderers();
 
         // Which world this object holds now: a fresh NextSceneGeneration() at construction and at every Clear()
         // (a scene load / reload / new scene). Two values are equal iff they are the same world, whatever the

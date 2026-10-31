@@ -1,0 +1,15 @@
+# BISTRO-FOLIAGE-HALO: dark speckled halo on the facade around the Bistro cypresses (FOLIAGE-PROOF 4_bistro_ivy).
+# Isolation: same camera, one view mode per frame — which pass carries the speckles.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Тогда-вид 1_lit wall around the cypresses is even, no dark speckles along the crown outline
+Дано run View "View mode: Ambient Occlusion"
+Тогда-вид 2_ao AO on the wall around the cypress crowns: no speckled dark ring
+Дано run View "View mode: Indirect Lighting (GI)"
+Тогда-вид 3_gi indirect lighting on the wall around the crowns: no speckled dark ring
+Дано run View "View mode: Shadow Factor"
+Тогда-вид 4_shadow shadow factor on the wall around the crowns: no speckled dark ring
+Дано run View "View mode: Reflections"
+Тогда-вид 5_refl reflections on the wall around the crowns: no speckled dark ring

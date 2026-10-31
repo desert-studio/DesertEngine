@@ -85,6 +85,17 @@ namespace Desert::Graphic
                mode == DeferredDebugMode::ShadingModel || mode == DeferredDebugMode::SunShadowReceive;
     }
 
+    // A DISPLAY-REFERRED BUFFER VIEW (UE VMI_VisualizeBuffer): the composite writes a stored value or a heat-map
+    // colour (DeferredLighting.shader debug channels 1-5, 7, 9-11), not radiance, so the tonemap shows it as is -
+    // no eye adaptation, manual exposure, bloom or tonemap curve (UE draws the buffer visualization after the
+    // tonemapper and turns eye adaptation off for it). Without this a physically lit scene (sun 100 000 lx, auto
+    // exposure EV100 9..15) multiplied the 0..1 channel by ~1/4000 and every buffer view was black (GP1 p8).
+    [[nodiscard]] constexpr bool IsDisplayReferredView( const DeferredDebugMode mode )
+    {
+        return IsGBufferView( mode ) || mode == DeferredDebugMode::LightComplexity ||
+               mode == DeferredDebugMode::MaterialComplexity;
+    }
+
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
     // property of the world.
     //
@@ -173,6 +184,14 @@ namespace Desert::Graphic
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
         VirtualGeometryView VirtualGeometry = VirtualGeometryView::Off;
+
+        // The sky, the cloud layer and the height fog are not part of the picture: a G-buffer view shows the
+        // stored surface value, the wireframe view the edges over a dark background (UE VMI_Wireframe: the
+        // atmosphere, fog and cloud show flags off). The environment still lights what a lit view would show.
+        [[nodiscard]] bool HidesAtmosphere() const
+        {
+            return WireframeMode || IsGBufferView( DeferredDebug );
+        }
 
         // The view modes are ONE choice: every channel off, so the one the caller sets next is the only one
         // on. Shared by the View Mode dropdown and the palette's "View mode: ..." entries, so the two cannot

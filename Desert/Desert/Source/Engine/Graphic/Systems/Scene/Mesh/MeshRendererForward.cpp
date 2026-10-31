@@ -119,6 +119,7 @@ namespace Desert::Graphic::System
         for ( auto& g : m_GenericQueue )
         {
             g.MaterialRow.reset();
+            g.MaterialSurface = {};
             if ( g.Mesh == nullptr )
                 continue;
             if ( g.SlotMaterial != nullptr )
@@ -127,7 +128,10 @@ namespace Desert::Graphic::System
                 // the asset's (the key the static queue and the card capture name for it too). Its program
                 // variants (MaterialService::GetVariant) are built from the same asset and read the same row.
                 if ( const auto* const slot = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial ) )
-                    g.MaterialRow = RegisterMaterialRow( registry, slot, nullptr, true );
+                {
+                    g.MaterialRow     = RegisterMaterialRow( registry, slot, nullptr, true );
+                    g.MaterialSurface = { slot, nullptr };
+                }
                 continue;
             }
             // A Shader Override draw owns no material: several entities share one per (template x texture set),
@@ -150,11 +154,6 @@ namespace Desert::Graphic::System
             if ( fresh )
             {
                 claimed->Index = registry.SyncMaterialRow( key, shared->GetParamRow() );
-                // The row's surface, as RegisterMaterialRow records it: what ResolveBinnedPipeline turns the row
-                // back into a cell with.
-                if ( claimed->Index >= m_RowSurfaces.size() )
-                    m_RowSurfaces.resize( claimed->Index + 1 );
-                m_RowSurfaces[claimed->Index] = { shared.get(), nullptr };
             }
             else
             {
@@ -167,7 +166,8 @@ namespace Desert::Graphic::System
                                "values).",
                                g.Entity, g.MotionPart, g.ShaderName );
             }
-            g.MaterialRow = claimed->Index;
+            g.MaterialRow     = claimed->Index;
+            g.MaterialSurface = { shared.get(), nullptr };
         }
     }
 

@@ -13,7 +13,8 @@
 namespace Desert::Editor::Render
 {
     // Draws the scene's UI canvas with the engine's own 2D batcher (Render2D) instead of ImGui — a
-    // UI-phase pass into the scene HDR target, composited on top via a load pass. Installed like the
+    // UI-phase pass onto the display-referred final image after the post chain (UE: Slate/UMG over the final
+    // image), composited on top via a load pass. Installed like the
     // grid, through the Editor Pass API (Scene::RegisterExtensionPass). This is the migration vehicle:
     // it starts with flat-colour panels and grows toward full parity, after which the ImGui UI overlay
     // is retired.

@@ -1655,6 +1655,25 @@ namespace Desert::Migration
                     ++cloudTypesRaised;
                     continue;
                 }
+                if ( stated && stated.GetValue() == 7u )
+                {
+                    const auto raised = Desert::Migration::MigrateCloudTypeV7ToV8( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CLTY 7 -> 8: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CLTY 7 -> "
+                        << Desert::Assets::kCloudTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++cloudTypesRaised;
+                    continue;
+                }
             }
             // WTHP 1 -> 2 (WTH-OVERCAST-2): each cloud type row states {Guid, Path}, the header its Dependencies.
             // The GUID is the type file's own header GUID; the path is relative to the preset's assets root.

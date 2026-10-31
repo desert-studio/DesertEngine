@@ -44,7 +44,9 @@ namespace Desert::Editor::Render
         const ::Desert::Graphic::SceneRenderer* view = scene->GetSceneRenderer();
         if ( view == nullptr )
             return Common::MakeError( "EditorUIPass: the scene has no view to draw its UI for" );
-        if ( const auto result = m_Render2D.Init( scene->GetTargetFramebuffer(), view->GetLedgerInstance() );
+        // The canvas draws on the display-referred final image after the post chain (RDG::ExtensionPoint::UI): its
+        // pipelines are built against that framebuffer, not the HDR scene target.
+        if ( const auto result = m_Render2D.Init( view->GetDisplayFramebuffer(), view->GetLedgerInstance() );
              !result )
             return Common::MakeError( "EditorUIPass: " + result.GetError() );
 
@@ -66,8 +68,14 @@ namespace Desert::Editor::Render
             if ( !scene || !ctx.Target )
                 return;
 
-            const float w = static_cast<float>( ctx.Target->GetFramebufferWidth() );
-            const float h = static_cast<float>( ctx.Target->GetFramebufferHeight() );
+            // THE CANVAS IS THE NODE'S RENDER AREA (RenderPassDeclaration::TargetExtent), not ctx.Target's size:
+            // the UI draws into the OUTPUT-extent final image. Laid out at the render extent, the canvas filled
+            // only the render-scale corner of the image (87 % screen percentage: 1248x746 of 1435x857). UE: UMG's
+            // root fills the viewport's output size (SConstraintCanvas under the DPI scale), never the scene's
+            // internal resolution.
+            const glm::uvec2 extent = declared.TargetExtent();
+            const float      w      = static_cast<float>( extent.x );
+            const float      h      = static_cast<float>( extent.y );
 
             // Camera view-proj for world-space canvases (screen-space ignores it).
             glm::mat4        vp( 1.0f );

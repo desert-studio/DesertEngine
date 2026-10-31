@@ -78,6 +78,10 @@ namespace Desert::Assets::Serialization
         std::optional<std::vector<float>> LodTriangleRatios;
         /// MeshImportSettings::LodChain.MinTriangles; absent = the default chain's floor.
         std::optional<uint32_t> LodMinTriangles;
+        /// MeshImportSettings::Canopy.ShellCm / ClearTexels; absent = the defaults (40 cm, 2 texels). Written only
+        /// with leaf slots and only when they differ from the default.
+        std::optional<float> CanopyShellCm;
+        std::optional<float> CanopyClearTexels;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.

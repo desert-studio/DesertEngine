@@ -1,0 +1,39 @@
+# WTH-OVERCAST-FLY (p5): the far path's statistics (CloudProceduralClipmap m_FarStatistics) come from the coarsest
+# clip level; the suspicion was that a camera moving less than one level scrolls a PARTIAL slab, whose size fails
+# CloudProceduralFarStatisticsOf's check and zeroes the far sky. The camera flies 2 km along the horizon over the
+# Rain deck in 250 m steps (each long enough for the level's scroll bake to land); the WTH5PROBE log line records
+# each last-level scroll's slab size against a whole level and the presence sum before/after.
+Дано run Scene "Open Scene Clouds_Weather_Rain.desce"
+Дано run View "View mode: Lit"
+Дано run Action "Play from Here"
+Дано advance 1
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,300,0
+Дано --subject viewport set Camera.Direction 1,0.04,0.1
+Дано advance 2
+Тогда-вид 1_fly_start Rain: an even grey sheet down to the horizon
+Когда --subject viewport set Camera.Position 25000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 50000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 75000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 100000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 125000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 150000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 175000,300,0
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 200000,300,0
+Когда advance 2
+Когда advance 2
+Тогда-вид 2_fly_end Rain after 2 km: the far grey sheet at the horizon is the same as in 1_fly_start, no drop into blue

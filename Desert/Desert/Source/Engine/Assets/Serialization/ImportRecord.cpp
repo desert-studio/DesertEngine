@@ -48,7 +48,15 @@ namespace Desert::Assets::Serialization
                   : std::optional<std::vector<float>>( settings.Mesh.LodChain.TriangleRatios ),
              settings.Mesh.LodChain.MinTriangles == Geometry::LODChainSettings{}.MinTriangles
                   ? std::nullopt
-                  : std::optional<uint32_t>( settings.Mesh.LodChain.MinTriangles ) };
+                  : std::optional<uint32_t>( settings.Mesh.LodChain.MinTriangles ),
+             settings.Mesh.Canopy.LeafSlots.empty() ||
+                       settings.Mesh.Canopy.ShellCm == Assets::MeshCanopySettings{}.ShellCm
+                  ? std::nullopt
+                  : std::optional<float>( settings.Mesh.Canopy.ShellCm ),
+             settings.Mesh.Canopy.LeafSlots.empty() ||
+                       settings.Mesh.Canopy.ClearTexels == Assets::MeshCanopySettings{}.ClearTexels
+                  ? std::nullopt
+                  : std::optional<float>( settings.Mesh.Canopy.ClearTexels ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -124,6 +132,16 @@ namespace Desert::Assets::Serialization
             out.Mesh.LodChain.MinTriangles = *text.LodMinTriangles;
         if ( const std::string defect = Geometry::LODChainSettingsDefect( out.Mesh.LodChain ); !defect.empty() )
             return Common::MakeFormattedError<Result>( "import settings' LOD chain {}", defect );
+        if ( ( text.CanopyShellCm || text.CanopyClearTexels ) && !text.CanopyLeafSlots )
+            return Common::MakeError<Result>( "import settings state a canopy shell or clearance but no "
+                                              "CanopyLeafSlots: they describe no crown" );
+        out.Mesh.Canopy.ShellCm     = text.CanopyShellCm.value_or( out.Mesh.Canopy.ShellCm );
+        out.Mesh.Canopy.ClearTexels = text.CanopyClearTexels.value_or( out.Mesh.Canopy.ClearTexels );
+        if ( !Assets::MeshCanopyNumbersValid( out.Mesh.Canopy ) )
+            return Common::MakeFormattedError<Result>(
+                 "import settings state canopy shell {} cm / clearance {} texels, outside [{}, {}] cm / [0, {}]",
+                 out.Mesh.Canopy.ShellCm, out.Mesh.Canopy.ClearTexels, Assets::kMeshCanopyShellMinCm,
+                 Assets::kMeshCanopyShellMaxCm, Assets::kMeshCanopyClearTexelsMax );
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
         out.Mesh.UpAxis       = *axis;

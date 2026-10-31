@@ -128,6 +128,25 @@ namespace Desert::Graphic::System
         void                                DeclareDepthDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderDepthManual( const RDG::PassContext& context );
 
+        // THE WIREFRAME VIEW (DebugViewState::WireframeMode, as MeshRenderer::SetWireframe): the forward base pass
+        // draws through the line-polygon twin of its pipeline, writing its own depth, and the depth prepass draws
+        // no ground. In a player's build the argument is dropped: nothing there can set the flag
+        // (ShippingPipelines).
+        void SetWireframe( [[maybe_unused]] bool enabled )
+        {
+#if DESERT_DEV_INSTRUMENTS
+            m_Wireframe = enabled;
+#endif
+        }
+        [[nodiscard]] bool WireframeView() const
+        {
+#if DESERT_DEV_INSTRUMENTS
+            return m_Wireframe;
+#else
+            return false;
+#endif
+        }
+
         [[nodiscard]] bool CastsShadowThisFrame() const override
         {
             return !m_Queue.empty();
@@ -291,6 +310,15 @@ namespace Desert::Graphic::System
         {
             return m_ForwardVirtual ? m_PipelineVsm : m_Pipeline;
         }
+        // The pipeline the base pass records with: ForwardPipeline(), or under the wireframe view its line-polygon
+        // twin (built on first use from the same spec; a refusal is said once and the solid pipeline draws).
+        [[nodiscard]] GraphicsPipeline* BasePassPipeline();
+#if DESERT_DEV_INSTRUMENTS
+        bool                              m_Wireframe = false;
+        std::shared_ptr<GraphicsPipeline> m_WireframePipeline;    // twin of m_Pipeline
+        std::shared_ptr<GraphicsPipeline> m_WireframeVsmPipeline; // twin of m_PipelineVsm
+        bool                              m_WireframeRefused = false;
+#endif
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;

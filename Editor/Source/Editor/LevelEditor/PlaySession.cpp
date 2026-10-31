@@ -221,6 +221,12 @@ namespace Desert::Editor
                  const std::size_t outgoing = scene->GetAllEntities().size();
                  scene->Clear();
                  phases.Lap( "clear the played scene", outgoing );
+                 // The played world's renderer state (distance-field brick atlas, surface cache, local shadow
+                 // atlas) was queued for deletion by Clear: release it before the snapshot's world builds its
+                 // own, as the opener does (SceneFiles). Without it Stop held both worlds' GPU state at once -
+                 // FIELD_Barn's Stop peaked over the 6 GB cap with DistanceFieldBrickAtlas x2 (FOLIAGE-LOOK-8).
+                 m_Workspace.ReleaseActiveWorld();
+                 phases.Lap( "release the played world's GPU resources, drain deferred deletions", outgoing );
                  const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
                  // NOT A FILE: named "<Play snapshot>" so a failure says which of the two "loading a scene" broke.
                  return serializer.DeserializeFromJson( snapshot, "<Play snapshot>" );
@@ -267,6 +273,7 @@ namespace Desert::Editor
         const auto& scene = m_Workspace.ActiveScene();
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         scene->Clear();
+        m_Workspace.ReleaseActiveWorld(); // as Stop: the old world's GPU state goes before the snapshot loads
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         if ( const auto restored = serializer.DeserializeFromJson( snapshot, "<Play snapshot>" ); !restored )
         {

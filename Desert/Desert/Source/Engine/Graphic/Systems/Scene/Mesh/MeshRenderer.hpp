@@ -530,6 +530,18 @@ namespace Desert::Graphic::System
         //    shader-keyed shared material (SlotMaterial == nullptr, all submeshes).
         //  - v3 per-slot materials: SlotMaterial points at the slot's own DataDrivenMaterial (asset
         //    params already applied) and VisibleSubmeshMask limits the draw to that slot's submeshes.
+        // The (template, instance) a scene material row was registered for: what names a draw's surface, and so
+        // its cell. A row index alone never does: GpuScene::AddMaterialRow counts it in its own template's stride
+        // (each template's shader reads Materials[] as an array of ITS block), so two templates' rows share
+        // indices (FOLIAGE-TRUNK-GLOW). Every record carries its surface next to its row; no table is indexed by
+        // a bare row.
+        struct RowSurface
+        {
+            const DataDrivenMaterial* Surface                               = nullptr;
+            const MaterialInstance*   Instance                              = nullptr;
+            bool                      operator==( const RowSurface& ) const = default;
+        };
+
         struct GenericMeshRenderData
         {
             // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
@@ -578,6 +590,9 @@ namespace Desert::Graphic::System
             // keyed by Entity/MotionPart). nullopt: SyncGpuScene could not shade the record (no compiled program,
             // a domain the mesh path does not draw) and the record is not drawn.
             std::optional<uint32_t> MaterialRow;
+            // The surface MaterialRow was registered for (RegisterGenericRows): the row's template, which picks
+            // the record's binned cell (ResolveBinnedPipeline). Empty while MaterialRow is.
+            RowSurface MaterialSurface;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
@@ -2643,7 +2658,8 @@ namespace Desert::Graphic::System
         // declared; the draw paths only look rows up and lend the table to the recording cell. A row counts for
         // the SyncGpuScene that claimed it (Sync == m_MaterialRowSync); the nodes are kept across syncs (no
         // per-frame map rebuild), and a key no sync claimed since the previous one is dropped at the next
-        // SyncGpuScene.
+        // SyncGpuScene. A row index names no surface by itself (each template counts rows in its own stride):
+        // every record carries its RowSurface next to its row.
         struct FrameMaterialRow
         {
             uint32_t Index = 0;
@@ -2656,14 +2672,6 @@ namespace Desert::Graphic::System
         // the caller's to set). Starts the sync's registrations: BeginMaterialRowSync.
         std::pair<FrameMaterialRow*, bool> ClaimFrameMaterialRow( const GpuDriven::MaterialRowKey& key );
         void                               BeginMaterialRowSync();
-        // The surface and instance each scene material row was registered for (RegisterMaterialRow), indexed by
-        // row: what ResolveBinnedPipeline turns a GpuDrawSlot's MaterialRow back into a cell with.
-        struct RowSurface
-        {
-            const DataDrivenMaterial* Surface  = nullptr;
-            const MaterialInstance*   Instance = nullptr;
-        };
-        std::vector<RowSurface> m_RowSurfaces;
         // What the DrawCommandCache holds per primitive (m_BinnedFeed) and what this sync gathered (scratch): a
         // primitive is re-added only when its entry differs, removed when no record named it.
         struct BinnedPrimitiveFeed
@@ -2671,6 +2679,12 @@ namespace Desert::Graphic::System
             const Desert::Mesh*   Mesh = nullptr;
             MeshGeometryBinding   Geometry;     // a re-upload to a new pool range rebins like a mesh change
             std::vector<uint32_t> MaterialRows; // per submesh
+            // Per submesh: the (template, instance) its row was registered for. A row index is in units of its
+            // own template's stride (GpuScene::AddMaterialRow returns first / slots), so two templates' rows share
+            // indices: the row alone does not name a surface (FOLIAGE-TRUNK-GLOW: a bark section resolved to the
+            // leaves' FoliageSurface cell and read the leaves' row), and a primitive whose rows keep their numbers
+            // while their surfaces change must still be re-added.
+            std::vector<RowSurface> Surfaces;
             uint32_t              FirstInstance     = 0;
             uint32_t              InstanceCount     = 1;
             uint64_t              HiddenSubmeshMask = 0;
@@ -2748,7 +2762,7 @@ namespace Desert::Graphic::System
         // there on the CPU path for that reason (no cell, bound textures, a movable caster in the VSM table).
         GpuDriven::PassPipelineResolution ResolveBinnedPipeline( GpuDriven::MeshPass       pass,
                                                                  GpuDriven::PrimitiveIndex primitive,
-                                                                 uint32_t                  materialRow );
+                                                                 uint32_t submesh, uint32_t materialRow );
         const GraphicsPipeline*           BinnedCellPipeline( const std::string&      cellShader,
                                                               const GraphicsPipeline* passState, bool twoSided );
         // DrawCommandCache's GroupPipelineResolver: @p group's PSO with the `.VirtualGeometry` permutation of its
