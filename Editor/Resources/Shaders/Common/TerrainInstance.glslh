@@ -42,6 +42,8 @@ struct TerrainInstance
                              // outside it is undiced (LandscapeDisplacement.glslh LandscapeCellDiceOf)
     vec4 GrassCoverFloorWidth[2]; // per layer, four to a vec4: its blades' mean width per MinScreenWidth pixel
                                   // (cm / px; 0 = no floor); D = width x CameraUB.GrassLens.y (GRASS-VIS-17)
+    vec4 GrassCoverWiden[2];      // per layer, four to a vec4: the share of its grass leaf area that is blades, whose
+                                  // survivors widen; the rest meshes shrinking out (GPU-COST-29, GrassFieldCoverageOf)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH
