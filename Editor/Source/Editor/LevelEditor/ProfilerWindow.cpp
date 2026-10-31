@@ -248,8 +248,8 @@ namespace Desert::Editor
                                      grass.Cascades[v] );
         LOG_INFO(
              "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
-             "frames in flight late)",
-             grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties );
+             "frames in flight late) generated {} (varieties generated this frame)",
+             grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties, grass.Generated );
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 

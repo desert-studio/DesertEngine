@@ -1208,13 +1208,11 @@ namespace Desert::Graphic::System
                                                                                bool postOcclusion ) const;
         // SETUP of "Grass: Visibility Resolve" (the G-buffer LOADed, depth CloserOrEqual and written): one full-screen
         // triangle per section through its (GrassBlade x VisibilityResolve) cell, drawn by record 0 of
-        // @p resolveArgs (VirtualGeometry::VisibilityBuffer), reading @p visibility. @p postOcclusion: after phase
-        // 2's raster, the sections with phase-2 records resolve again (a phase-1 texel rewrites what it wrote).
+        // @p resolveArgs (VirtualGeometry::VisibilityBuffer), reading @p visibility. ONCE a frame, after phase 2's
+        // raster (GRASS-VIS-23): the camera's ids hold both phases' slots, so every word is shaded once.
         void DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
-                                                 RDG::BufferRef visibility, RDG::BufferRef resolveArgs,
-                                                 bool postOcclusion );
-        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
-                                                                                bool postOcclusion ) const;
+                                                 RDG::BufferRef visibility, RDG::BufferRef resolveArgs );
+        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const;
         // SETUP of "Grass: Depth Prepass Post-Occlusion" (GRASS-VIS-13; the G-buffer's depth LOADed, no colour;
         // after "Grass: Post-Occlusion Finalize" wrote phase 2's records, before "Grass: GBuffer Post-Occlusion";
         // UE: the two-pass occlusion's second depth pass, grass HISM by the same rule as every mesh): the G-buffer
@@ -1886,9 +1884,8 @@ namespace Desert::Graphic::System
         std::vector<uint32_t>            m_GrassVisibilitySections;
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
-        // GRASS-VIS phase 2: "Grass: Visibility Raster / Resolve Post-Occlusion", "Grass: GBuffer Post-Occlusion".
+        // GRASS-VIS phase 2: "Grass: Visibility Raster Post-Occlusion", "Grass: GBuffer Post-Occlusion".
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterPostDraws;
-        MeshRendererDetail::MeshDrawList m_GrassVisibilityResolvePostDraws;
         MeshRendererDetail::MeshDrawList m_GrassGBufferPostDraws;
         MeshRendererDetail::MeshDrawList m_GrassDepthPostDraws; // "Grass: Depth Prepass Post-Occlusion"
         RDG::BufferRef                   m_GrassResolveArgs{};

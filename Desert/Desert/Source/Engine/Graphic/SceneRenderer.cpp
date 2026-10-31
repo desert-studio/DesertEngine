@@ -2322,6 +2322,8 @@ namespace Desert::Graphic
             DESERT_PROFILE_PHASE( addPhases, "Add passes: Post-occlusion + depth" );
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
+            if ( grassVisibility.IsValid() )
+                AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, grassVisibility );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
             // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which

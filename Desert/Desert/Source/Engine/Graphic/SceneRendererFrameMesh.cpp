@@ -455,9 +455,11 @@ namespace Desert::Graphic
         // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material pass).
         // The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it and writes
         // none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins whatever order
-        // the draws ran in and no overdraw is shaded. The resolve LOADs the G-buffer and writes each won texel
-        // once, with the word's depth, so the HZB built next and every later pass see the grass as before.
-        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
+        // the draws ran in and no overdraw is shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets): after phase 1's
+        // raster "Grass: Visibility Depth" writes the words' depth WITHOUT the material, so the HZB phase 2 tests
+        // sees the grass; the material runs once, after phase 2 (AddFrameGrassVisibilityResolve) - before, the
+        // phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve Post 1.67 ms).
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
         if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
             return;
         RasterTargets depthOnly;
@@ -472,14 +474,35 @@ namespace Desert::Graphic
              { return meshRenderer->RenderGrassVisibilityRasterManual( context, postOcclusion ); },
              [meshRenderer, view, words = visibility.Words, postOcclusion]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, postOcclusion ); } );
+        if ( postOcclusion )
+            return;
         AddRaster(
-             graph, postOcclusion ? "Grass: Visibility Resolve Post-Occlusion" : "Grass: Visibility Resolve",
-             *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
-             [meshRenderer, postOcclusion]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderGrassVisibilityResolveManual( context, postOcclusion ); },
-             [meshRenderer, view, words = visibility.Words, args = visibility.ResolveArgs,
-              postOcclusion]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, postOcclusion ); } );
+             graph, "Grass: Visibility Depth", depthOnly, {}, RDG::LoadOp::Load(), {},
+             [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return m_GrassVisibility.RecordDepth( context ); },
+             [this, words = visibility.Words]( RDG::PassBuilder& pass )
+             { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+    }
+
+    void SceneRenderer::AddFrameGrassVisibilityResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                        System::MeshRenderer*                         meshRenderer,
+                                                        const VirtualGeometry::VisibilityBufferFrame& visibility )
+    {
+        // One full-screen triangle per blade section over the camera's list: phase 2 appended its slots to the
+        // same ids (GrassGenerate PostOcclusion), so phase 1's draws name every word's row. The G-buffer depth
+        // holds the phase-1 words' depth ("Grass: Visibility Depth") and phase 2's meshes; the resolve writes each
+        // word's own depth CloserOrEqual, so a phase-2 mesh in front keeps its texel.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
+        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+            return;
+        AddRaster(
+             graph, "Grass: Visibility Resolve", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGrassVisibilityResolveManual( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
+              args = visibility.ResolveArgs]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args ); } );
     }
 
     void SceneRenderer::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,

@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -21,6 +22,11 @@ namespace Desert::Graphic::VirtualGeometry
     {
         // The slot name "VirtualGeometry: Visibility Clear" binds, spelled once (RDGShaderParameters.hpp).
         struct VisibilityClearShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
+        };
+        // ... and the one "Grass: Visibility Depth" binds (VisibilityDepth.shader's fragment stage).
+        struct VisibilityDepthShaderParameters
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
         };
@@ -47,6 +53,27 @@ namespace Desert::Graphic::VirtualGeometry
         if ( !made )
             return Common::MakeError( std::format( "VisibilityBuffer: {}", made.GetError() ) );
         m_Clear = made.GetValue();
+
+        // "Grass: Visibility Depth": the G-buffer depth alone (single-sample DEPTH32F, the target of the raster
+        // it follows), tested CloserOrEqual and written; no colour, no blending, both faces of the full-screen
+        // triangle.
+        const auto depthShader = shaders->GetByName( "VisibilityDepth" );
+        if ( !depthShader )
+            return Common::MakeError( "VisibilityBuffer: missing shader 'VisibilityDepth'" );
+        GraphicsPipelineSpecification depth;
+        depth.DebugName         = "GrassVisibilityDepth";
+        depth.Shader            = depthShader;
+        depth.TargetLayout      = RenderTargetLayout{ .ColorFormats = {},
+                                                      .DepthFormat  = ViewTargetFormats::kGBufferDepth,
+                                                      .Samples      = 1 };
+        depth.DepthTestEnabled  = true;
+        depth.DepthCompareOp    = DepthCompare::CloserOrEqual;
+        depth.DepthWriteEnabled = true;
+        depth.CullMode          = CullMode::None;
+        const auto depthMade    = GraphicsPipeline::Create( depth );
+        if ( !depthMade )
+            return Common::MakeError( std::format( "VisibilityBuffer: the depth pass: {}", depthMade.GetError() ) );
+        m_Depth = depthMade.GetValue();
 
         m_ResolveArgs =
              ShaderResources::StorageBuffer::Create( "VisibilityResolveArgs", kResolveArgBytes, 0, true );
@@ -127,5 +154,21 @@ namespace Desert::Graphic::VirtualGeometry
                  return Renderer::DispatchCompute( bindings, *m_Clear, groupsX, groupsY, 1 );
              } );
         return Common::MakeSuccess( frame );
+    }
+
+    void VisibilityBuffer::DeclareDepthBindings( RDG::PassBuilder& pass, const RDG::BufferRef words ) const
+    {
+        if ( !m_Depth || !words.IsValid() )
+            return;
+        pass.Bindings( m_DepthLayout.Get( m_Depth->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+             .Storage( VisibilityDepthShaderParameters::Visibility, words, RDG::Access::StorageRead );
+    }
+
+    Common::BoolResultStr VisibilityBuffer::RecordDepth( const RDG::PassContext& context ) const
+    {
+        if ( !m_Depth )
+            return Common::MakeError( "Grass: Visibility Depth recorded without its pipeline" );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Depth, nullptr );
     }
 } // namespace Desert::Graphic::VirtualGeometry
