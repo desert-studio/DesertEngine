@@ -40,6 +40,8 @@
 #include <Mesh/DirectLighting.glslh>
 // Where a local light's visibility ray stops: on its emitter sphere (LightSourceSphereAxisReach).
 #include <Common/LightSourceSampling.glslh>
+// The ray-traced roughness floor (kDesertRayMinRoughness) a hit's own material is lit with.
+#include <Common/RayTracingPayload.glslh>
 
 // The albedo of a hit the view does not see and no card holds (no material on a distance-field surface):
 // photographic middle grey, 0.18 linear.
@@ -116,7 +118,7 @@ vec3 GIHitLightResponse( GIHitSurface surface, vec3 N, vec3 V, vec3 L, vec3 radi
     if ( !surface.Specular )
         return surface.BaseColor * ( 1.0 / PI ) * radiance * max( dot( N, L ), 0.0 );
     const vec3 F0 = mix( vec3( 0.04 ), surface.BaseColor, surface.Metallic );
-    return EvaluateDirectLight( L, radiance, V, N, F0, surface.Metallic, max( surface.Roughness, 0.04 ),
+    return EvaluateDirectLight( L, radiance, V, N, F0, surface.Metallic, max( surface.Roughness, kDesertRayMinRoughness ),
                                 surface.BaseColor );
 }
 

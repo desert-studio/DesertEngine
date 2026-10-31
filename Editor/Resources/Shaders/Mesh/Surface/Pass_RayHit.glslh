@@ -74,7 +74,7 @@ void main()
     payload.HitT          = gl_HitTEXT;
     payload.BaseColor     = s.BaseColor;
     payload.Metallic      = s.Metallic;
-    payload.Roughness     = max( s.Roughness, 0.04 );
+    payload.Roughness     = max( s.Roughness, kDesertRayMinRoughness );
     payload.Emissive      = s.Emissive;
     // DesertSurfaceInput already turned a back face toward the ray (the raster two-sided rule); a one-sided
     // surface hit from behind is shaded from that side, as UE's hit shaders do.
