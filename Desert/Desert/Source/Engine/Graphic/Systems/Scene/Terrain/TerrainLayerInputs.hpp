@@ -120,7 +120,7 @@ namespace Desert::Graphic::System
         /// the layer arrays copied slice by slice (TerrainLayerInputs::Sources), so a hit reads the raster's
         /// pixels. Zero exactly where the input's slice of that kind is -1 (TerrainInstance::InputSlices).
         std::array<glm::uvec4, World::Landscape::kLandscapeMaxWeightLayers> LayerMaps{};
-        // No view data: the camera and the grass lens are the frame's ray tracing view block
-        // (RayTracing::RayTracingViewBlock), one per frame, not one per tile.
+        // No view data: the camera and the grass lens are the frame's view block (ShaderProtocols::Camera,
+        // CameraUB), one per frame, not one per tile.
     };
 } // namespace Desert::Graphic::System

@@ -40,7 +40,6 @@ namespace
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct TerrainShaderParameters
     {
-        DESERT_SHADER_PARAMETER( UniformBuffer, TerrainUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
         DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVertexPool );
     };
@@ -66,38 +65,11 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // Matches the "TerrainUB" block (binding 0) in the Terrain shader stages. Engine-filled, and
-        // SHARED FRAME DATA ONLY — written once per frame, before any terrain records. Everything
-        // per-terrain rides as a TerrainInstance row (TerrainBatch.hpp): this block has one GPU copy
-        // per frame, so a per-terrain field kept here is read by the GPU as the LAST terrain's value,
-        // for every terrain of the frame.
-        struct TerrainUB
-        {
-            glm::mat4 View;
-            glm::mat4 Projection;
-            // TAA1: the view's unjittered matrices of this frame and the previous one (ViewFrame), for the
-            // velocity the terrain writes (TerrainSurface.glslh TerrainVelocity).
-            glm::mat4 ViewProjection;
-            glm::mat4 PrevViewProjection;
-            // The jittered one the scene depth was rasterised with: the forward program's contact-shadow march
-            // (Common/ContactShadow.glslh, its point and spot lights).
-            glm::mat4 JitteredViewProjection;
-            glm::mat4
-                 InvJitteredViewProjection; // its inverse: the march's world positions (CONTACT_SHADOW_INV_VP)
-            // x = ViewFrame::PreExposure: the forward program writes its lit colour into the scene colour
-            // multiplied by it (the G-buffer program does not: the deferred composite applies it). yzw unused.
-            glm::vec4 Exposure;
-            // GRASS-VIS-17: THE VIEW'S HALF OF THE GRASS FIELD'S DISTANCES (GrassFieldLens of this frame's camera,
-            // the view the blades are grown for): x = DistanceScale (grass.CullDistanceScale x DrawDistanceScale,
-            // on TerrainInstance::GrassCoverRange x / y), y = PixelsPerUnit (on TerrainInstance::
-            // GrassCoverFloorWidth: the floor's D), zw unused. View data, as UE's FViewUniformShaderParameters
-            // hold the lens and the scalability scales: the tile rows keep only what the tile states, so a zoom
-            // or a render-width change touches this block and no row (LandscapeGrassCover.glslh).
-            glm::vec4 GrassLens;
-        };
-        static_assert( sizeof( TerrainUB ) == 6 * sizeof( glm::mat4 ) + 2 * sizeof( glm::vec4 ) &&
-                            offsetof( TerrainUB, Exposure ) == 384 && offsetof( TerrainUB, GrassLens ) == 400,
-                       "TerrainUB moved - the TerrainUB block in TerrainSurface.glslh no longer agrees" );
+        // THE VIEW IS THE VIEW BLOCK'S (GPU-COST-26; UE: the landscape's base pass reads FViewUniformShaderParameters
+        // like every pass of the view): the surface programs read their matrices, the eye, PreExposure and the grass
+        // field lens from CameraUB (Common/CameraUB.glslh, ShaderProtocols::MakeCameraUB of this frame), written by
+        // SceneFrameBinding::ApplyTo in ApplySceneFrame. The pass keeps no copy of the view: everything per-terrain
+        // rides as a TerrainInstance row (TerrainBatch.hpp).
 
         // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
         // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
@@ -129,7 +101,8 @@ namespace Desert::Graphic::System
             instance.GrassCoverLight = t.Weights.GrassCoverLight;
             // The far cover's distances as the tile states them (GRASS-VIS-17): the authored Start /
             // EndCullDistance and the floor's width per pixel. The view's half - the Foliage quality and the lens
-            // - is TerrainUB::GrassLens, applied in the shader, so this row does not follow the camera's lens.
+            // - is the view block's CameraUB::GrassLens, applied in the shader, so this row does not follow the
+            // camera's lens.
             instance.GrassCoverRange = t.Weights.GrassCoverRange;
             for ( size_t c = 0; c < t.Weights.GrassCoverFloorWidth.size(); ++c )
                 instance.GrassCoverFloorWidth[c / World::Landscape::kLandscapeWeightmapChannels]
@@ -562,12 +535,6 @@ namespace Desert::Graphic::System
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
-        // The view's grass field lens (GRASS-VIS-17): TerrainUB::GrassLens for the raster, and the same vec4 in
-        // the frame's ray tracing view block for the hit group (GetFrameGrassLens, GRASS-VIS-19) - never in a
-        // tile's TerrainInstance row nor in its hit row.
-        const GrassFieldLens fieldLens = MakeGrassFieldLens( m_GrassQuality, frame );
-        const glm::vec4      grassLens( fieldLens.DistanceScale, fieldLens.PixelsPerUnit, 0.0f, 0.0f );
-        m_FrameGrassLens = grassLens;
         if ( m_Queue.empty() )
             return;
 
@@ -762,18 +729,9 @@ namespace Desert::Graphic::System
             m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
         }
 
-        // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
-        // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's)
-        TerrainUB ub{};
-        ub.View                      = frame.View;
-        ub.Projection                = frame.Projection;
-        ub.ViewProjection            = frame.ViewProjection;
-        ub.PrevViewProjection        = frame.PrevViewProjection;
-        ub.JitteredViewProjection    = frame.JitteredViewProjection;
-        ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
-        ub.Exposure                  = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
-        ub.GrassLens                 = grassLens;
-
+        // ── Upload every group's material rows, still before any draw ───────────────────────────────────
+        // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
+        // block goes on in ApplySceneFrame)
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
@@ -781,22 +739,11 @@ namespace Desert::Graphic::System
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
             {
-                // The depth-only programs (the casters, the view's depth prepass) have no TerrainUB (their vertices
-                // are the pushed matrix's, the LOD rides in the row) and no Materials[] row block (no Properties
-                // block): for them both slots are optional.
+                // The depth-only programs (the casters, the view's depth prepass) have no Materials[] row block (no
+                // Properties block): for them the slot is optional.
                 const bool shadowProgram = material != surface;
-                auto*      terrainUB =
-                     shadowProgram ? material->Find<UniformBufferProperty>( TerrainShaderParameters::TerrainUB )
-                                        : material->Get<UniformBufferProperty>( TerrainShaderParameters::TerrainUB );
-                if ( terrainUB )
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
-                    // bytes
-                    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-                    terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
-                // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
-
-                auto* rows = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
-                                           : material->Get<StorageBufferProperty>( kMaterialRowBlock );
+                auto*      rows          = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
+                                                         : material->Get<StorageBufferProperty>( kMaterialRowBlock );
                 if ( rows )
                     if ( !group.ParamRows.empty() )
                         rows->SetRawData( group.ParamRows.data(),
@@ -819,6 +766,8 @@ namespace Desert::Graphic::System
         // local shadow at all), at the same point of the frame the meshes' forward materials take them.
         // Deferred: the G-buffer program takes the groups ITS layout declares from the same applier -- the world's
         // parameters (the snow layer, Common/WeatherSnow.glslh, is a surface property written into the G-buffer).
+        // Both programs take the Camera group here: the view block (CameraUB) is the only place the terrain's raster
+        // reads the view from - its matrices, the eye, PreExposure and the grass field lens (GPU-COST-26).
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {

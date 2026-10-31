@@ -18,7 +18,6 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingView.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/View/PassHistory.hpp>
@@ -435,9 +434,8 @@ namespace Desert::Graphic::System
         struct FrameInputs
         {
             RDG::BufferRef  Tlas;        // RayTracingSceneFrame::Tlas (Built)
-            RDG::BufferRef  Camera;      // ShaderProtocols::Camera of the frame (CameraUB)
-            // The frame's RayTracingViewUB (SceneRenderer::AddFrameRayTracingView): what the hit groups read of the view.
-            RDG::BufferRef  RayTracingView;
+            // ShaderProtocols::Camera of the frame (CameraUB): the raygen's view and what the hit groups read of it.
+            RDG::BufferRef  Camera;
             RDG::BufferRef  GIFrame;     // the GI record (GIFrameUB): sun, sky look
             RDG::BufferRef  PointLights; // FrameTransients Lights.Point / Spot
             RDG::BufferRef  SpotLights;
@@ -1691,8 +1689,6 @@ namespace Desert::Graphic::System
                               .Storage( PathTracingTraceShaderParameters::NrcTraceParamsUB, nrc->Params, kR );
                      block
                           .Uniform( PathTracingTraceShaderParameters::CameraUB, inputs.Camera )
-                          .Uniform( RayTracing::RayTracingViewShaderParameters::RayTracingViewUB,
-                                    inputs.RayTracingView )
                           .AccelerationStructure( PathTracingTraceShaderParameters::SceneTlas, inputs.Tlas )
                           .Storage( PathTracingTraceShaderParameters::AccumulationTexture, accumulation.Radiance,
                                     RDG::Access::StorageWrite )

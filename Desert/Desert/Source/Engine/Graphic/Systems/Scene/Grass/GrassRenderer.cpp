@@ -786,8 +786,9 @@ namespace Desert::Graphic::System
         // floor and the pixel shader runs about once per covered pixel instead of up to four times (quad
         // overshade of sub-pixel strips; GRASS-VIS-9, GPU-COST-18). 0 - no floor: none authored, an
         // orthographic lens, no render extent.
-        // GrassFloorDistance through MakeGrassFieldLens: the ground's far cover reads its D by the same two.
-        const GrassFieldLens fieldLens     = MakeGrassFieldLens( m_Quality, frame );
+        // GrassFloorDistance through the view's lens (ViewFrame::GrassLens, made once per view by SceneRenderer): the
+        // ground's far cover reads its D by the same two (CameraUB::GrassLens).
+        const GrassFieldLens fieldLens     = UnpackGrassFieldLens( frame.GrassLens );
         float                floorDistance = 0.0f;
         if ( variety.Blade )
             floorDistance = GrassFloorDistance( meanBladeWidth, variety.Blade->MinScreenWidth, fieldLens );

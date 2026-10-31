@@ -249,6 +249,13 @@ namespace Desert::Graphic
         // splits itself (Mesh/Surface/CasterWindLayer.glslh): xyz the main camera's origin (world cm), w
         // Shadows.WindAnimationDistance (cm) - the caster cull view's LodOrigin. 0 for every other view.
         glm::vec4 CasterWindOrigin{ 0.0f };
+        // SCENE VIEWS ONLY: the view's grass field lens (System::MakeGrassFieldLens of the Foliage quality through
+        // this frame's camera and render extent: x DistanceScale, y PixelsPerUnit). Written once by the frame's
+        // owner right after the view resolved its frame (SceneRenderer::OnUpdate); the landscape's far grass cover
+        // is laid through it by the raster and by a ray tracing hit (both CameraUB::GrassLens), the grass generator
+        // takes its screen-width floor from it (GrassRenderer::PrepareVariety, System::UnpackGrassFieldLens).
+        // 0 for every other view (a light view, a still preview frame).
+        glm::vec4 GrassLens{ 0.0f };
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

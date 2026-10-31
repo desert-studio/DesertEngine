@@ -227,23 +227,6 @@ namespace Desert::Core
     inline constexpr uint32_t kSsrFrontLayerDepthBinding  = 1u;
 
     /**
-     * THE RAY TRACING VIEW BLOCK (GRASS-VIS-19, Common/RayTracingView.glslh `RayTracingViewUB`; UE: the View uniform
-     * buffer every ray tracing shader of a view reads): what a hit group needs of the VIEW - the camera the raster
-     * drew for and the view's grass field lens - once per frame, never copied into every primitive's shader-record
-     * row. Every ray generation that traces into hit groups (PathTracer/PathTracing, SSR/HitLighting) declares it,
-     * so a hit cell may read it (VulkanRayTracingPipeline: a hit cell reads only the program's bindings); bound by
-     * name (Graphic::RayTracing::RayTracingViewShaderParameters, SceneRenderer::AddFrameRayTracingView).
-     *
-     * SET 1, binding 2: set 0 of the traced SSR permutation and of the path tracer has no slot outside every shared
-     * range (above), set 1 is a program's own set, and SSR's front layer holds its 0 and 1 in the same program.
-     */
-    inline constexpr uint32_t kRayTracingViewSet     = 1u;
-    inline constexpr uint32_t kRayTracingViewBinding = 2u;
-    static_assert( kRayTracingViewSet == kSsrFrontLayerSet && kRayTracingViewBinding > kSsrFrontLayerNormalBinding &&
-                        kRayTracingViewBinding > kSsrFrontLayerDepthBinding,
-                   "the ray tracing view block shares SSR's set 1 above the front layer's two slots" );
-
-    /**
      * THE TABLE SHADERS READ: every slot above, by its C++ name, as Generated/SceneBindings.glslh hands it to GLSL
      * (`#define kSceneFogVolumeBinding 48`; Graphic::ShaderProtocols::SceneBindingsGlsl, served by the shader
      * includer and hashed by the cache key like every generated protocol include - there is no file on disk to
@@ -310,8 +293,6 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerSet ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerNormalBinding ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerDepthBinding ),
-         DESERT_SCENE_BINDING_ROW( kRayTracingViewSet ),
-         DESERT_SCENE_BINDING_ROW( kRayTracingViewBinding ),
     };
 #undef DESERT_SCENE_BINDING_ROW
 

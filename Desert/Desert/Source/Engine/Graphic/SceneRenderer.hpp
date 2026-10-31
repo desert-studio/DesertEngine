@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Graphic/Systems/RayTracing/RayTracingView.hpp>
 #include <unordered_set>
 
 #include <Engine/Graphic/VirtualGeometry/VisibilityBuffer.hpp>
@@ -1013,7 +1012,6 @@ namespace Desert::Graphic
             RDG::BufferRef                                        GIFrame;
             std::optional<GlobalIllumination::RadianceCacheFrame> RadianceCache;
             RDG::BufferRef InstanceSurfaceCacheRows; // AddFrameInstanceSurfaceCacheRows
-            RDG::BufferRef RayTracingView;           // AddFrameRayTracingView
         };
         TracedFrameShared m_TracedFrameShared;
         // The view's irradiance field gather (GIMethod::ProbeVolume: the radiance cache read per pixel, no screen
@@ -1520,11 +1518,6 @@ namespace Desert::Graphic
         // surface template and effective row (RayTracingHitGroupTable.hpp). An error: no default surface, or the
         // two sides of the per-segment table disagree.
         [[nodiscard]] Common::BoolResultStr BuildReflectionHitGroups();
-        // GRAPH BUILD: this frame's ray tracing view block (RayTracing::RayTracingViewBlock, RayTracingViewUB) - the
-        // camera and the view's grass field lens every hit group reads - made by its first reader and kept in
-        // m_TracedFrameShared, so a frame uploads it once whichever ray generations trace (GRASS-VIS-19).
-        [[nodiscard]] RDG::BufferRef AddFrameRayTracingView( RDG::Builder& graph, const ViewFrame& frame );
-        [[nodiscard]] RayTracing::RayTracingViewBlock FrameRayTracingView( const ViewFrame& frame );
         // This frame's TLAS custom index (GPU-scene row) -> surface cache instance-table row (contract B3), the
         // hardware tracer's GIInstanceSurfaceCacheRows: made by the first reader of the frame, kept in
         // m_TracedFrameShared. Invalid with no surface cache or no TLAS.
@@ -2004,6 +1997,9 @@ namespace Desert::Graphic
         int   m_ContactShadowSteps                  = 12;
         // Shading.Parallax*Steps, read in BeginScene; every view's frame carries them (ViewFrame::Parallax).
         ParallaxQuality m_ParallaxQuality;
+        // Foliage.GrassCullDistanceScalePercent (and the density), read in BeginScene; the scene view's frame
+        // carries the lens it makes (ViewFrame::GrassLens, OnUpdate).
+        System::GrassQuality m_GrassQuality;
         float m_SunContactShadowLength              = 0.0f;
         bool  m_SunContactShadowLengthInWorldSpace  = false;
         float m_SunContactShadowCastingIntensity    = 1.0f;

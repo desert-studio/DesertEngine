@@ -137,12 +137,12 @@ Shader "Terrain"
 
     // ── The split every stage below repeats ─────────────────────────────────────────────────────────
     //
-    // TerrainUB (binding 0) holds ONLY what every terrain of a frame shares: View, Projection and the
-    // sun. Everything per-tile — its frame, sizes, layer modes — is a row of TerrainInstances[]
+    // The view is the view block's (Common/CameraUB.glslh, binding 0, TerrainSurface.glslh): the pass keeps no copy
+    // of it. Everything per-tile — its frame, sizes, layer modes — is a row of TerrainInstances[]
     // (binding 8), named per draw by the SAME push-constant index that names the material param row.
     //
     // WHY: the terrain pass records every draw of a frame before the GPU executes any of them, and a
-    // material's uniform buffer has one copy per frame — so per-terrain fields kept in TerrainUB were
+    // material's uniform buffer has one copy per frame — so per-terrain fields kept in a uniform block were
     // read as the LAST terrain's values by every terrain (two terrains drew as one). A push constant is
     // snapshotted at record time, so a row named by it cannot be clobbered by the next draw's setup —
     // the exact argument that already moved the material params to Materials[] (MaterialParamRow.hpp).
@@ -226,8 +226,8 @@ Shader "Terrain"
         #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
         #include <ShadingModels/ShadingModelContract.glslh>
         #define CONTACT_SHADOW_DEPTH        SceneDepthTexture
-        #define CONTACT_SHADOW_VP           u.JitteredViewProjection
-        #define CONTACT_SHADOW_INV_VP       u.InvJitteredViewProjection
+        #define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+        #define CONTACT_SHADOW_INV_VP       cameraUB.InvJitteredViewProjection
         #define CONTACT_SHADOW_SHADING_WORD SceneShadingWordTexture
         #include <Common/ContactShadow.glslh>
         // The point and spot lights with their shadows (Mesh/ForwardLocalLights.glslh: the light buffers 4/6/16,
@@ -294,8 +294,8 @@ Shader "Terrain"
             vec3 N           = s.N;
             const int  model = cover > 0.0 ? SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE : SHADING_MODEL_INDEX_DEFAULT_LIT;
 
-            // The eye from the view matrix (rigid: its inverse rotation is its transpose).
-            const vec3          eye     = -transpose( mat3( u.View ) ) * u.View[3].xyz;
+            // The eye: the view block's (CameraUB).
+            const vec3          eye     = cameraUB.CameraPos;
             const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, s.Roughness,
                                                              0.5 ); // UE's default Specular, as TerrainGBuffer packs
             const vec3          sss     = sqrt( clamp( transmission, 0.0, 1.0 ) );
@@ -331,7 +331,7 @@ Shader "Terrain"
                                                        gl_FragCoord.xy, payload );
 
             // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite and the forward mesh pass.
-            o_Color   = vec4( ( light + ambient ) * u.Exposure.x, 1.0 );
+            o_Color   = vec4( ( light + ambient ) * cameraUB.PreExposure, 1.0 );
             oVelocity = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }

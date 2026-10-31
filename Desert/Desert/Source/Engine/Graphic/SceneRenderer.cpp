@@ -1180,9 +1180,8 @@ namespace Desert::Graphic
             if ( const auto grass = m_RenderSystems.find( "GrassSystem" ); grass != m_RenderSystems.end() )
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 UNIQUE_GET_AS( System::GrassRenderer, grass->second )->SetQuality( grassQuality );
-            if ( const auto terrain = m_RenderSystems.find( "TerrainSystem" ); terrain != m_RenderSystems.end() )
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                UNIQUE_GET_AS( System::TerrainRenderer, terrain->second )->SetGrassQuality( grassQuality );
+            // The ground's far cover reads the lens through the view's frame (ViewFrame::GrassLens, OnUpdate).
+            m_GrassQuality = grassQuality;
         }
         m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
         m_VirtualShadowQuality = System::VirtualShadowMapQuality{
@@ -1703,8 +1702,13 @@ namespace Desert::Graphic
                        begun.GetError() );
             return;
         }
-        m_CameraCutPending     = false;
-        const ViewFrame& frame = begun.GetValue();
+        m_CameraCutPending = false;
+        // THE VIEW'S GRASS FIELD LENS (ViewFrame::GrassLens): the Foliage quality through this frame's camera and
+        // render extent, written once here: the view block (CameraUB) carries it to the landscape's raster and to its
+        // ray tracing hits, and the grass generator reads it from this frame (GrassRenderer::PrepareVariety).
+        ViewFrame viewFrame = begun.GetValue();
+        viewFrame.GrassLens = System::PackGrassFieldLens( System::MakeGrassFieldLens( m_GrassQuality, viewFrame ) );
+        const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
