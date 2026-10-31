@@ -26,8 +26,8 @@ vec3 MegaLightsDiffuseReflectance(vec3 albedo, float metallic)
 	return max(albedo * (1.0 - metallic), vec3(1e-3));
 }
 
-// @p roughness: GBufferB.a floored as the composite floors it (0.04); @p N / @p V: the unit world normal and the
-// unit direction toward the eye.
+// @p roughness: GBufferB.a floored as the composite floors it (kDesertMinRoughness); @p N / @p V: the unit world
+// normal and the unit direction toward the eye.
 vec3 MegaLightsSpecularReflectance(vec3 albedo, float metallic, float roughness, vec3 N, vec3 V)
 {
 	const float NoV = clamp(dot(N, V), 1e-4, 1.0);

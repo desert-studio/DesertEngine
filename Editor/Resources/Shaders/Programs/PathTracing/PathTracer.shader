@@ -190,7 +190,7 @@ Shader "PathTracer"
                 PathTracingMaterial m;
                 m.BaseColor = payload.BaseColor;
                 m.Metallic  = payload.Metallic;
-                m.Roughness = max(payload.Roughness, kDesertRayMinRoughness);
+                m.Roughness = max(payload.Roughness, kDesertMinRoughness);
                 m.F0        = mix(vec3(0.04), m.BaseColor, m.Metallic);
                 // Choose the lobes by their share of the reflected energy at this view (UE picks lobes by their
                 // estimated albedo, PathTracingMaterialSampling.ush).

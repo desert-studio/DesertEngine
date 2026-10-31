@@ -250,7 +250,7 @@ Shader "DeferredLighting"
         		vec3  nF0  = mix(Fdielectric, na.rgb, na.a);
 
         		indirect += EvaluateBounceSample(worldPos, N, nPos, normalize(nb.rgb), na.rgb, nF0, na.a,
-        		                                 max(nb.a, 0.04), sunL, sunRadiance);
+        		                                 max(nb.a, kDesertMinRoughness), sunL, sunRadiance);
         	}
         	return indirect / float(SAMPLES);
         }
@@ -425,7 +425,7 @@ Shader "DeferredLighting"
         	vec3  albedo    = ga.rgb;
         	float metallic  = ga.a;
         	vec3  normal    = gb.rgb;
-        	float roughness = max(gb.a, 0.04);
+        	float roughness = max(gb.a, kDesertMinRoughness);
         	vec3  worldPos  = ReconstructWorldPosition(v_TexCoord, texture(GBufferDepthTexture, v_TexCoord).r,
         	                                           InverseJitteredViewProjection);
 
