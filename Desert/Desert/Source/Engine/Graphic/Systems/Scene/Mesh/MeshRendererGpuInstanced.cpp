@@ -47,13 +47,29 @@ namespace Desert::Graphic::System
         // GRASS-VIS: view keys of the post-occlusion draws' instances, apart from phase 1's of the same cell view.
         constexpr uint32_t kGpuInstancedPostViewOffset = 0x04000000u;
 
-        // The producer's buffers into the cell: @p instances (the section's full list, or the camera's), and a
-        // blade's shape (MeshPathOwnBinding).
+        // GPU-COST-22: the permutation of a GPU-instanced section's cell that draws a list of ids (@p ids: the
+        // camera's or a cascade's, GpuInstanceRefs::Ids) - @p permutation plus kSurfaceInstanceIdsDefine, always
+        // last, so every asker spells the same defines; @p ids false: @p permutation as it is.
+        Core::ShaderVariant WithInstanceIds( Core::ShaderVariant permutation, const bool ids )
+        {
+            if ( !ids )
+                return permutation;
+            permutation.Defines.emplace_back( kSurfaceInstanceIdsDefine );
+            permutation.ShippedByCook = true;
+            return permutation;
+        }
+
+        // The producer's buffers into the cell: the section's one Instances, @p ids (the drawn list's ids, the
+        // kSurfaceInstanceIdsDefine cell's GpuInstanceIds; null: the full list, drawn directly), and a blade's
+        // shape (MeshPathOwnBinding).
         void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu,
-                                      const std::shared_ptr<ShaderResources::StorageBuffer>& instances )
+                                      const std::shared_ptr<ShaderResources::StorageBuffer>& ids )
         {
             if ( auto* sb = cell.Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
-                sb->SetBuffer( instances );
+                sb->SetBuffer( gpu.Instances );
+            if ( ids )
+                if ( auto* sb = cell.Get<StorageBufferProperty>( kGpuInstanceIdsBlock ) )
+                    sb->SetBuffer( ids );
             if ( gpu.Path == MeshVertexPath::GrassBlade )
                 if ( auto* sb = cell.Get<StorageBufferProperty>( kGrassBladeShapeBlock ) )
                     sb->SetBuffer( gpu.BladeShape );
@@ -103,8 +119,8 @@ namespace Desert::Graphic::System
             if ( gpu.WorldBounds && frustum && !frustum->Intersects( *gpu.WorldBounds ) )
                 continue;
             // OCCLUSION PER VIEW (GRASS-VIS): the camera passes draw the camera's list when the producer made one
-            // (GpuInstancedRenderData::CameraInstances); the post-occlusion passes draw only phase 2's records of it.
-            const bool cameraList = gpu.CameraInstances != nullptr && gpu.CameraRefs != nullptr;
+            // (GpuInstancedRenderData::CameraIds); the post-occlusion passes draw only phase 2's records of it.
+            const bool cameraList = gpu.CameraIds != nullptr && gpu.CameraRefs != nullptr;
             if ( postOcclusion && ( !cameraList || gpu.PostRefs == nullptr ) )
                 continue;
             const GpuInstanceRefs& refs     = cameraList ? *gpu.CameraRefs : *gpu.Refs;
@@ -144,8 +160,9 @@ namespace Desert::Graphic::System
             {
                 if ( parent == nullptr || !materials->Owns( parent ) )
                     return nullptr;
-                return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ), this ),
-                                           parent, gpu.Path, of, viewOf( of ) );
+                return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ),
+                                                                      WithInstanceIds( {}, cameraList ), this ),
+                                           parent, gpu.Path, of, viewOf( of ), cameraList );
             };
             // The G-buffer cell of a section the masked prepass drew: the clip-less equal-depth permutation.
             const auto depthEqualCell = [&]() -> DataDrivenMaterial*
@@ -153,7 +170,7 @@ namespace Desert::Graphic::System
                 if ( parent == nullptr || !materials->Owns( parent ) )
                     return nullptr;
                 return materials->GetViewVariant( parent, gpu.Path, MeshPass::GBuffer, viewOf( MeshPass::GBuffer ),
-                                                  SurfaceDepthEqualVariant(), this );
+                                                  WithInstanceIds( SurfaceDepthEqualVariant(), cameraList ), this );
             };
             const uint32_t      view = viewOf( pass );
             DataDrivenMaterial* cell = prepassed ? depthEqualCell() : cellOf( pass );
@@ -225,7 +242,7 @@ namespace Desert::Graphic::System
             auto& instance = m_GpuInstancedInstances[postOcclusion ? view + kGpuInstancedPostViewOffset : view];
             if ( !instance || instance->GetParentMaterial() != cell )
                 instance = cell->CreateInstance( "GpuInstanced" );
-            BindGpuInstancedBuffers( *cell, gpu, cameraList ? gpu.CameraInstances : gpu.Instances );
+            BindGpuInstancedBuffers( *cell, gpu, cameraList ? gpu.CameraIds : nullptr );
             // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.
             const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
             if ( !materialRow || !LendMaterialTable( *cell ) )
@@ -251,6 +268,7 @@ namespace Desert::Graphic::System
                             .HiddenSubmeshMask  = SubmeshMask( ~uint64_t{ 1 } ),
                             .IndirectArgs       = m_GrassResolveArgs,
                             .IndirectInstances  = refs.Instances,
+                            .IndirectIds        = refs.Ids,
                             .IndirectArgsOffset = GpuInstanceArgsOffset( 0 ),
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
@@ -268,6 +286,7 @@ namespace Desert::Graphic::System
                             .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
                             .IndirectArgs       = drawArgs,
                             .IndirectInstances  = refs.Instances,
+                            .IndirectIds        = refs.Ids,
                             .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
@@ -292,8 +311,11 @@ namespace Desert::Graphic::System
             if ( carrier == nullptr )
                 return false;
             const uint32_t      view = kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of );
-            DataDrivenMaterial* cell = ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, view, this ),
-                                                           parent, gpu.Path, of, view );
+            // The cell BuildGpuInstancedDraws draws the section with: the camera's list is read through its ids.
+            const bool          cameraList = gpu.CameraIds != nullptr && gpu.CameraRefs != nullptr;
+            DataDrivenMaterial* cell       = ForwardVirtualCell(
+                 materials->GetViewVariant( parent, gpu.Path, of, view, WithInstanceIds( {}, cameraList ), this ), parent,
+                 gpu.Path, of, view, cameraList );
             if ( cell == nullptr )
                 return false;
             GraphicsPipeline* const pipeline = CullPermutation(
@@ -385,9 +407,14 @@ namespace Desert::Graphic::System
             const uint32_t view      = kGpuInstancedViewBase + layerBase + gpu.Key * kCascadeViews + c;
             // Its own (Instanced x ShadowDepth) cell, masked or not: the shared instanced caster's transforms are
             // the CPU-batched ISMs'.
+            // The cascade's own list when the producer keeps one for it (GPU-COST-21: the instances inside its
+            // caster box, UE's per-shadow-view instance cull), read through its ids (GPU-COST-22), else the full
+            // list (GRASS-VIS): either way the light sees what the camera's depth hides.
+            const bool          ownList = gpu.CascadeRefs != nullptr && ( gpu.CascadeMask & ( 1u << c ) ) != 0u;
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
-                      ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view, this )
+                      ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view,
+                                                   WithInstanceIds( {}, ownList ), this )
                       : nullptr;
             if ( caster == nullptr )
             {
@@ -406,11 +433,7 @@ namespace Desert::Graphic::System
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality, CasterWindOrigin() );
-            // The cascade's own list when the producer keeps one for it (GPU-COST-21: the instances inside its
-            // caster box, UE's per-shadow-view instance cull), else the full list (GRASS-VIS): either way the light
-            // sees what the camera's depth hides.
-            const bool ownList = gpu.CascadeRefs != nullptr && ( gpu.CascadeMask & ( 1u << c ) ) != 0u;
-            BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeInstances : gpu.Instances );
+            BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =
                  ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *
@@ -440,6 +463,7 @@ namespace Desert::Graphic::System
                             .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
                             .IndirectArgs       = refs.Args,
                             .IndirectInstances  = refs.Instances,
+                            .IndirectIds        = refs.Ids,
                             // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
                             // own list is its copy of the records.
                             .IndirectArgsOffset = listBytes + LevelArgsOffset( gpu, level + shadow.Set ),

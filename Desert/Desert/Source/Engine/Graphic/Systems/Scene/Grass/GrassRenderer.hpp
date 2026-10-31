@@ -273,28 +273,28 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
-            // GRASS-VIS, the camera's list (List not None: CameraInstances / CameraArgs sized like Instances / Args;
+            // GRASS-VIS, the camera's list (List not None: CameraIds / CameraArgs sized like Instances / Args;
             // PlanesAndHzb: Candidates / PostArgs too; otherwise one-word stand-ins the passes bind and never touch):
-            // CameraInstances / CameraArgs the instances inside the camera's planes that last frame's HZB does not
+            // CameraIds / CameraArgs the instances inside the camera's planes that last frame's HZB does not
             // hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw records.
             CameraList                                      List = CameraList::None;
-            std::shared_ptr<ShaderResources::StorageBuffer> CameraInstances;
+            std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
             std::shared_ptr<ShaderResources::StorageBuffer> Candidates;
             std::shared_ptr<ShaderResources::StorageBuffer> PostArgs;
-            RDG::ExternalBuffer CameraInstancesImport, CameraArgsImport, CandidatesImport, PostArgsImport;
+            RDG::ExternalBuffer CameraIdsImport, CameraArgsImport, CandidatesImport, PostArgsImport;
             GpuInstanceRefs     CameraRefs; // phase 1's draws
-            GpuInstanceRefs     PostRefs;   // phase 2's: CameraInstances through PostArgs
+            GpuInstanceRefs     PostRefs;   // phase 2's: CameraIds through PostArgs
             RDG::BufferRef      CandidatesRef;
             // GPU-COST-21, THE CASCADES' LISTS (UE: each shadow view culls its instances by its own volume): per
             // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster box,
-            // CascadeInstances list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
+            // CascadeIds list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
             // per list, its bucket firsts moved by k x Capacity. No live view: one-word stand-ins the passes bind.
             uint32_t                                        CascadeMask     = 0;
             uint32_t                                        CascadeArgWords = 0;
-            std::shared_ptr<ShaderResources::StorageBuffer> CascadeInstances;
+            std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeArgs;
-            RDG::ExternalBuffer                             CascadeInstancesImport, CascadeArgsImport;
+            RDG::ExternalBuffer                             CascadeIdsImport, CascadeArgsImport;
             GpuInstanceRefs                                 CascadeRefs;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;

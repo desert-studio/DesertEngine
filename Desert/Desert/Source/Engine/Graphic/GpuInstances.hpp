@@ -17,6 +17,11 @@ namespace Desert::Graphic
     {
         RDG::BufferRef Instances; // mat4 per instance, read by the vertex stage as InstanceTransforms
         RDG::BufferRef Args;      // GpuInstanceArgs header + one indexed-indirect record per submesh
+        // GPU-COST-22 (UE GPU Scene: a view's culled list is ids into InstanceSceneData, InstanceIdBuffer): when
+        // valid, one uint per drawn slot - the row of Instances that slot draws - read by the vertex stage as
+        // GpuInstanceIds (cells in the kSurfaceInstanceIdsDefine permutation); the records' firstInstance and the
+        // instance index count slots of this list. Invalid: the slot IS the row (Instances drawn directly).
+        RDG::BufferRef Ids{};
     };
 
     // The argument buffer: a 16-byte header (bucket count, total capacity, submesh count, last drawn count), one

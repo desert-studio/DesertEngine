@@ -38,6 +38,8 @@ namespace Desert::Graphic
     // shape.
     inline constexpr RDG::StorageBufferParameter kInstanceTransformsBlock{ "InstanceTransforms" };
     inline constexpr RDG::StorageBufferParameter kGrassBladeShapeBlock{ "GrassBladeShape" };
+    // GPU-COST-22: a GPU-instanced list's ids (GpuInstanceRefs::Ids), in the kSurfaceInstanceIdsDefine cells only.
+    inline constexpr RDG::StorageBufferParameter kGpuInstanceIdsBlock{ "GpuInstanceIds" };
 
     // The bits of the push field PrimitiveFlags (Common/MaterialTransport.glslh, DESERT_PRIMITIVE_FLAG_*): what a
     // G-buffer draw carries about its primitive into the shading word. A set bit is the NON-default, so a draw

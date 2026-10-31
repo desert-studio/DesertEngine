@@ -30,6 +30,19 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
 };
+#ifdef DESERT_SURFACE_INSTANCE_IDS
+// The camera's list or a cascade's (GPU-COST-22, Graphic::kSurfaceInstanceIdsDefine; UE GPU Scene's InstanceIdBuffer):
+// per slot the row of InstanceTransforms it draws (Programs/Grass/GrassGenerate.shader CameraIds / CascadeIds), so a
+// blade's matrix lies once however many views draw it. The slot (gl_InstanceIndex) still picks the record, the strip
+// level (BladeLevelSegments) and the raster-stream row; the id picks the blade.
+layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
+{
+    uint instanceIds[];
+};
+#define GRASS_BLADE_ROW( slot ) instanceIds[slot]
+#else
+#define GRASS_BLADE_ROW( slot ) ( slot )
+#endif
 
 // The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
 #include <Mesh/Surface/GrassBlade.glslh>
@@ -70,9 +83,9 @@ void main()
     v_VisibilityRow = Blade.Visibility.x + uint( gl_InstanceIndex );
 #endif
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
-    mat4             model  = transforms[gl_InstanceIndex];
+    mat4             model  = transforms[GRASS_BLADE_ROW( uint( gl_InstanceIndex ) )];
 #else
-    const mat4       model  = transforms[gl_InstanceIndex];
+    const mat4       model  = transforms[GRASS_BLADE_ROW( uint( gl_InstanceIndex ) )];
 #endif
     const float      side   = a_Position.x;
     const float      t      = a_Position.y;

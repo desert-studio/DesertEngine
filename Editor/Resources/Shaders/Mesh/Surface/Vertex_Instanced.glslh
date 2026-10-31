@@ -70,6 +70,16 @@ layout( std430, binding = kVsmInstanceRemapBinding ) restrict readonly buffer Vs
     uint InstanceRemap[];
 };
 #define DESERT_INSTANCE_INDEX InstanceRemap[gl_InstanceIndex]
+#elif defined( DESERT_SURFACE_INSTANCE_IDS ) && !defined( DESERT_SURFACE_BINNED )
+// A GPU-instanced list of ids (GPU-COST-22, Graphic::kSurfaceInstanceIdsDefine; UE GPU Scene's InstanceIdBuffer): the
+// landscape grass's camera list or a cascade's holds, per slot, the row of InstanceTransforms it draws, so an
+// instance's transform lies once in the producer's buffer however many views draw it (Programs/Grass/
+// GrassGenerate.shader CameraIds / CascadeIds). gl_InstanceIndex is the slot (the records count slots).
+layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
+{
+    uint instanceIds[];
+};
+#define DESERT_INSTANCE_INDEX instanceIds[gl_InstanceIndex]
 #else
 #define DESERT_INSTANCE_INDEX gl_InstanceIndex
 #endif

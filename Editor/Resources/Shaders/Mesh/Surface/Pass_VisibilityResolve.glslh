@@ -15,6 +15,14 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
 };
+#ifdef DESERT_SURFACE_INSTANCE_IDS
+// The camera's list of ids (GPU-COST-22, as Vertex_GrassBlade.glslh): a row names a SLOT of it (the raster wrote
+// Visibility.x + its instance index), the slot the blade's row of InstanceTransforms.
+layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
+{
+    uint instanceIds[];
+};
+#endif
 #include <Mesh/Surface/GrassBlade.glslh>
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
@@ -49,10 +57,15 @@ void main()
     if ( row < Blade.Visibility.x )
         discard;
     const uint instance = row - Blade.Visibility.x;
+#ifdef DESERT_SURFACE_INSTANCE_IDS
+    if ( instance >= uint( instanceIds.length() ) )
+        discard;
+    const mat4 model    = transforms[instanceIds[instance]];
+#else
     if ( instance >= uint( transforms.length() ) )
         discard;
-
     const mat4 model    = transforms[instance];
+#endif
     const uint segments = BladeLevelSegments( Blade, instance );
     vec2       corner[3];
     BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );

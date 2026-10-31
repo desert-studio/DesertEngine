@@ -512,15 +512,22 @@ namespace Desert::Graphic::System
             }
             // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
+            // GPU-COST-22: several lists (the camera's, a cascade's, phase 2's) read one Instances through their ids.
             std::vector<RDG::BufferRef> read;
+            const auto                  readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
+            {
+                if ( !buffer.IsValid() || std::find( read.begin(), read.end(), buffer ) != read.end() )
+                    return;
+                read.push_back( buffer );
+                declaration.Read( buffer, access );
+            };
             for ( const MeshDrawCommand& command : m_Commands )
             {
-                if ( !command.IndirectArgs.IsValid() ||
-                     std::find( read.begin(), read.end(), command.IndirectArgs ) != read.end() )
+                if ( !command.IndirectArgs.IsValid() )
                     continue;
-                read.push_back( command.IndirectArgs );
-                declaration.Read( command.IndirectArgs, RDG::Access::IndirectArgs );
-                declaration.Read( command.IndirectInstances, RDG::Access::StorageRead );
+                readOnce( command.IndirectArgs, RDG::Access::IndirectArgs );
+                readOnce( command.IndirectInstances, RDG::Access::StorageRead );
+                readOnce( command.IndirectIds, RDG::Access::StorageRead );
             }
         }
 

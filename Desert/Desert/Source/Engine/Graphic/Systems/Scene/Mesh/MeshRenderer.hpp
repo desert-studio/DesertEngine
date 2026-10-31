@@ -102,6 +102,8 @@ namespace Desert::Graphic::System
             // the node declares the reads of it and of Instances (the transforms its material binds).
             RDG::BufferRef IndirectArgs{};
             RDG::BufferRef IndirectInstances{};
+            // GPU-COST-22: the drawn list's ids into IndirectInstances (GpuInstanceRefs::Ids); invalid: none.
+            RDG::BufferRef IndirectIds{};
             // Where this draw's records begin in IndirectArgs: after the header, or a later level's group of
             // records (one per submesh) when the producer draws a LOD chain (GpuInstancedRenderData::Levels).
             uint64_t IndirectArgsOffset = kGpuInstanceArgsHeaderBytes;
@@ -448,21 +450,25 @@ namespace Desert::Graphic::System
             // list - the instances the producer's HZB test left visible to the main view - which the camera passes
             // (the prepasses, the G-buffer, forward, the grass visibility raster and resolve) draw; the cascades
             // and the TLAS keep Instances / Refs, every kept instance, so what the camera cannot see still casts
-            // and reflects. Null: the camera draws Instances too.
-            std::shared_ptr<ShaderResources::StorageBuffer> CameraInstances;
+            // and reflects. Null: the camera draws Instances too. GPU-COST-22: the list holds IDS, one uint per
+            // slot naming its row of Instances (GpuInstanceRefs::Ids); the camera's cells read Instances through it
+            // (kSurfaceInstanceIdsDefine).
+            std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
-            const GpuInstanceRefs* CameraRefs = nullptr; // with CameraInstances: phase 1's camera draws
-            // With CameraInstances: phase 2's (the instances this frame's HZB found visible after last frame's held
-            // them back), CameraInstances through records of their own, drawn only by the post-occlusion passes.
+            const GpuInstanceRefs* CameraRefs = nullptr; // with CameraIds: phase 1's camera draws
+            // With CameraIds: phase 2's (the instances this frame's HZB found visible after last frame's held
+            // them back), CameraIds through records of their own, drawn only by the post-occlusion passes.
             const GpuInstanceRefs* PostRefs = nullptr;
             // GPU-COST-21, THE CASCADES' OWN LISTS (UE: each shadow view culls its instances by its own volume): for
-            // every cascade view whose bit CascadeMask sets, CascadeInstances through CascadeRefs holds the instances
+            // every cascade view whose bit CascadeMask sets, CascadeIds through CascadeRefs holds the ids (rows of
+            // Instances, GPU-COST-22) of the instances
             // inside that cascade's caster box (CascadeCasterBoxSet), its records one copy of Refs' layout of
             // CascadeArgBytes, the k-th set bit's at k x CascadeArgBytes; that cascade draws them
-            // (BuildGpuInstancedShadowDraws). A view without its bit, or CascadeRefs null, draws Instances / Refs.
-            std::shared_ptr<ShaderResources::StorageBuffer> CascadeInstances;
+            // (BuildGpuInstancedShadowDraws) through its kSurfaceInstanceIdsDefine caster cell. A view without its
+            // bit, or CascadeRefs null, draws Instances / Refs directly.
+            std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;
             uint32_t                                        CascadeMask     = 0;
             uint32_t                                        CascadeArgBytes = 0;
@@ -1920,7 +1926,8 @@ namespace Desert::Graphic::System
         // permutation.
         [[nodiscard]] DataDrivenMaterial* ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
                                                               MeshVertexPath path, MeshPass pass,
-                                                              std::optional<uint32_t> view = std::nullopt );
+                                                              std::optional<uint32_t> view        = std::nullopt,
+                                                              bool                    instanceIds = false );
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
