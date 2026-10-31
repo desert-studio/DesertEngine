@@ -24,6 +24,7 @@
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
 
 #include <filesystem>
