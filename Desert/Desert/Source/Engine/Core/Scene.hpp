@@ -27,6 +27,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Subsystems/WorldSubsystems.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/World/Deformation/DeformationWorld.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
 #include <glm/glm.hpp>
@@ -420,6 +421,16 @@ namespace Desert::Core
         [[nodiscard]] const WorldParameterInstance& GetWorldParameters() const
         {
             return m_WorldParameters;
+        }
+        // The world's deformation service (DEFORM-FIELD, Engine/World/Deformation): the contact log every
+        // deformation field of this world reads (World.deform submits into it).
+        [[nodiscard]] World::DeformationWorld& GetDeformation()
+        {
+            return m_Deformation;
+        }
+        [[nodiscard]] const World::DeformationWorld& GetDeformation() const
+        {
+            return m_Deformation;
         }
         // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
         // the instance then holds no parameters, so no material reads a stale value.
@@ -905,6 +916,7 @@ namespace Desert::Core
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
         WorldParameterInstance        m_WorldParameters;
+        World::DeformationWorld       m_Deformation;
         WeatherState                  m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate

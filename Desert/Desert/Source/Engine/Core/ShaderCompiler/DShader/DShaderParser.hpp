@@ -411,6 +411,8 @@ namespace Desert::Core::Preprocess
         // the two words) — and so no Particle fragment, which is legal only under that line. Boot skips a
         // fragment from the program prebuild on this answer; a false positive only builds a map later.
         static bool MayDeclareParticle( std::string_view source );
+        // Cheap precheck: false = the text certainly declares no `Domain DeformStamp` (so no Stamp fragment).
+        static bool MayDeclareStamp( std::string_view source );
 
         // Cheap precheck for the shader map key, which must not parse: false = the text certainly declares
         // no `Surface { ... }` block. A false positive only hashes the surface headers needlessly.

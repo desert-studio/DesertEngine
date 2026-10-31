@@ -2011,6 +2011,12 @@ namespace Desert::Core::Preprocess
         return MayDeclareDomain( source, "particle" );
     }
 
+    bool DShaderParser::MayDeclareStamp( const std::string_view source )
+    {
+        // A Stamp block is legal only under `Domain DeformStamp`.
+        return MayDeclareDomain( source, "deformstamp" );
+    }
+
     bool DShaderParser::MayDeclareGenericProgram( const std::string_view source )
     {
         // A generic program is a `Domain Surface` program without a Surface block (the parse's genericProgram);
@@ -2145,6 +2151,7 @@ namespace Desert::Core::Preprocess
         std::optional<RawBlock> surfaceBlock;
         uint32_t                surfaceLine        = 0;
         uint32_t                particleLine       = 0;
+        uint32_t                stampLine          = 0;
         uint32_t                surfaceSettingLine = 0;
         uint32_t                responsiveLine     = 0; // the `ResponsiveAA` line, refused on an opaque blend
         std::string             shadingModelName; // `ShadingModel <Name>`; empty = DefaultLit
@@ -2224,6 +2231,8 @@ namespace Desert::Core::Preprocess
                     result.Meta.Domain = ShaderDomain::UI;
                 else if ( v == "particle" )
                     result.Meta.Domain = ShaderDomain::Particle;
+                else if ( v == "deformstamp" )
+                    result.Meta.Domain = ShaderDomain::DeformStamp;
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };
@@ -2332,6 +2341,33 @@ namespace Desert::Core::Preprocess
                 }
                 particleLine               = line;
                 result.Meta.ParticleSource = std::move( particle.Content );
+            }
+            // THE THIRD PROGRAM FRAGMENT (DEFORM-FIELD): a deformation stamp's shape, compiled INTO the field's
+            // stamp program. Same rules as the medium and the particle fragment, for the same reasons.
+            else if ( lower == "stamp" )
+            {
+                if ( !result.Meta.StampSource.empty() )
+                {
+                    err = { line, "duplicate Stamp block" };
+                    return fail();
+                }
+                RawBlock stamp;
+                if ( !ReadBlock( c, stamp.Content, stamp.StartLine, err ) )
+                    return fail();
+                if ( stamp.Content.find( "#version" ) != std::string::npos )
+                {
+                    err = { stamp.StartLine, "a Stamp block must not declare #version — it is compiled INTO the "
+                                             "deformation field's stamp program, which has already emitted one" };
+                    return fail();
+                }
+                if ( stamp.Content.find_first_not_of( " \t\r\n" ) == std::string::npos )
+                {
+                    err = { stamp.StartLine, "a Stamp block must not be empty — a contact naming it would "
+                                             "silently deform nothing" };
+                    return fail();
+                }
+                stampLine               = line;
+                result.Meta.StampSource = std::move( stamp.Content );
             }
             else if ( lower == "surface" )
             {
@@ -2774,6 +2810,29 @@ namespace Desert::Core::Preprocess
         {
             err = { c.Line, "'Domain Particle' needs a Particle { ... } block — the domain is a fragment, not "
                             "a program" };
+            return fail();
+        }
+
+        // A Stamp fragment and its domain come together, and nothing else beside them (DEFORM-FIELD).
+        if ( !result.Meta.StampSource.empty() )
+        {
+            if ( result.Meta.Domain != ShaderDomain::DeformStamp )
+            {
+                err = { stampLine, "a Stamp block needs 'Domain DeformStamp'" };
+                return fail();
+            }
+            if ( !defaultPass.Blocks.empty() || !namedPasses.empty() || !result.Meta.MediumSource.empty() ||
+                 !result.Meta.ParticleSource.empty() )
+            {
+                err = { stampLine, "a Stamp fragment must not also declare stage, Pass, Medium or Particle "
+                                   "blocks — it is compiled into the deformation field's stamp program" };
+                return fail();
+            }
+        }
+        else if ( result.Meta.Domain == ShaderDomain::DeformStamp )
+        {
+            err = { c.Line, "'Domain DeformStamp' needs a Stamp { ... } block — the domain is a fragment, not a "
+                            "program" };
             return fail();
         }
 

@@ -212,8 +212,11 @@ namespace Desert::Core::Formats
         PostProcess,
         Volume,  // participating media marched by a compute pass (the volumetric cloud layer)
         UI,      // the fill of a 2D UI element, rasterized by the Render2D batcher
-        Particle // a VFX fragment (a stack module or a compiled emitter stack), compiled INTO a simulation
-                 // program; never drawn and never assigned to a renderable
+        Particle,   // a VFX fragment (a stack module or a compiled emitter stack), compiled INTO a simulation
+                    // program; never drawn and never assigned to a renderable
+        DeformStamp // the shape of a surface-deformation stamp (DEFORM-FIELD): a `Stamp { ... }` fragment compiled
+                    // INTO the deformation field's stamp program (Programs/Deformation/DeformStampApply.shader);
+                    // never drawn and never assigned to a renderable
     };
 
     // The enum's own spelling, for diagnostics. It lives beside the enum so a domain added above cannot
@@ -244,6 +247,8 @@ namespace Desert::Core::Formats
                 return "UI";
             case ShaderDomain::Particle:
                 return "Particle";
+            case ShaderDomain::DeformStamp:
+                return "DeformStamp";
         }
         return "Unspecified";
     }
@@ -426,6 +431,13 @@ namespace Desert::Core::Formats
         // no stages of its own: the simulation program includes it. Empty for every other program.
         std::string ParticleSource;
 
+        // THE BODY OF A `Stamp { ... }` BLOCK — the third program fragment, in `Domain DeformStamp` (DEFORM-FIELD):
+        // the authored shape of a deformation stamp, a definition of DeformStampEvaluate (the contract is
+        // Deformation/DeformStampContract.glslh). Compiled INTO DeformStampApply as the substitution for
+        // Deformation/DeformStampBody.glslh, exactly as a medium is into the cloud programs. Empty for every other
+        // program.
+        std::string StampSource;
+
         MaterialLayoutBindings LayoutBindings;
 
         // The `BlendMode` of a `Domain Surface` template (Opaque for every other program).
@@ -452,7 +464,7 @@ namespace Desert::Core::Formats
         // stage is compiled for it.
         [[nodiscard]] bool IsFragmentProgram() const
         {
-            return IsMediumProgram() || !ParticleSource.empty();
+            return IsMediumProgram() || !ParticleSource.empty() || !StampSource.empty();
         }
 
         bool HasParams() const

@@ -39,6 +39,18 @@ namespace
         return { std::move( parsed.GetValue().Meta.MediumSource ), std::move( parsed.GetValue().Meta.Params ) };
     }
 
+    /// The body of a `Domain DeformStamp` file's Stamp block, or empty (the same result-returning parse as MediumOf).
+    std::string StampOf( const std::string& source )
+    {
+        if ( source.empty() || !Desert::Core::Preprocess::DShaderParser::MayDeclareStamp( source ) ||
+             !Desert::Core::Preprocess::DShaderParser::IsDShader( source ) )
+            return {};
+        auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
+        if ( !parsed.IsSuccess() )
+            return {};
+        return std::move( parsed.GetValue().Meta.StampSource );
+    }
+
     bool IsParticleFragment( const std::string& source )
     {
         if ( source.empty() || !Desert::Core::Preprocess::DShaderParser::MayDeclareParticle( source ) ||
@@ -106,6 +118,20 @@ namespace Desert::Runtime
             LOG_INFO( "[ShaderService] '{}' is a Particle fragment; it compiles into the particle simulation "
                       "rather than into a program of its own.",
                       name );
+            return BOOLSUCCESS;
+        }
+
+        // A DEFORM STAMP IS SOURCE TOO (DEFORM-FIELD): the shape of a deformation stamp, compiled into the field's
+        // stamp program as the substitution for Deformation/DeformStampBody.glslh. Found by NAME (World.deform
+        // names its stamp), never built as a program of its own.
+        if ( std::string stamp = StampOf( shaderAsset->GetShaderContent() ); !stamp.empty() )
+        {
+            const auto name         = shaderAsset->GetMetadata().Filepath.stem().string();
+            m_NameToHandleMap[name] = shaderAsset->GetMetadata().Handle;
+            LOG_INFO( "[ShaderService] '{}' is a DeformStamp ({} bytes of authored source); it compiles into "
+                      "the deformation field's stamp program rather than into one of its own.",
+                      name, stamp.size() );
+            m_Stamps[name] = std::move( stamp );
             return BOOLSUCCESS;
         }
 
@@ -413,6 +439,12 @@ namespace Desert::Runtime
         return {};
     }
 
+    std::string ShaderService::StampSourceOf( const std::string& name ) const
+    {
+        const auto it = m_Stamps.find( name );
+        return it != m_Stamps.end() ? it->second : std::string{};
+    }
+
     std::vector<std::string> ShaderService::MediumSources() const
     {
         std::vector<std::string> sources;
@@ -500,6 +532,7 @@ namespace Desert::Runtime
         m_NameToHandleMap.clear();
         m_ShaderAssets.clear();
         m_Media.clear();
+        m_Stamps.clear();
         m_WarnedNotAMedium.clear();
         m_Refusals.clear();
         m_FileGenerations.clear();

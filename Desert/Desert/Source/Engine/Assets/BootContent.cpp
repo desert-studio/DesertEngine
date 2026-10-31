@@ -77,7 +77,8 @@ namespace Desert::Assets
         {
             const std::string& source = shader->GetShaderContent();
             if ( Core::Preprocess::DShaderParser::MayDeclareMedium( source ) ||
-                 Core::Preprocess::DShaderParser::MayDeclareParticle( source ) )
+                 Core::Preprocess::DShaderParser::MayDeclareParticle( source ) ||
+                 Core::Preprocess::DShaderParser::MayDeclareStamp( source ) )
                 continue;
             const auto& path = shader->GetMetadata().Filepath;
             programs.push_back( { source, path, {}, {}, path.stem().string() } );

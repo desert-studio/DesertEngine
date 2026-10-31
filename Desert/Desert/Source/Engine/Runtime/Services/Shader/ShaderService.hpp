@@ -87,6 +87,13 @@ namespace Desert::Runtime
          *         that warning, and this is asked every frame.
          */
         std::string MediumSourceOf( const Assets::AssetHandle& handle );
+
+        /**
+         * @brief The authored `Stamp { ... }` body of the DeformStamp shader named @p name (its file stem), the
+         *        bytes the deformation field substitutes for Deformation/DeformStampBody.glslh in DeformStampApply
+         *        (Graphic/Deformation/DeformationFieldRenderer). Empty when no such stamp is registered.
+         */
+        [[nodiscard]] std::string StampSourceOf( const std::string& name ) const;
         /// The source of every registered Volume medium (what MediumSourceOf answers for each), for the package
         /// cook (PackageCook CookShaderVariants: CloudMediumProgramVariants of each).
         [[nodiscard]] std::vector<std::string> MediumSources() const;
@@ -235,6 +242,10 @@ namespace Desert::Runtime
             std::vector<Core::Formats::ShaderParam> Properties;
         };
         std::unordered_map<Assets::AssetHandle, MediumEntry> m_Media;
+
+        /// The authored body of every registered DeformStamp fragment, by stamp NAME (the file's stem): copied at
+        /// registration for the reason the medium's text is (the eviction sweep).
+        std::unordered_map<std::string, std::string> m_Stamps;
 
         /// Handles already reported as naming something that is not a medium, so the refusal is said once
         /// per handle rather than once per frame.
