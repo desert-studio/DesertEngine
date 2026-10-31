@@ -35,12 +35,7 @@ namespace Desert::ShaderResources::API::Vulkan
 
     Common::BoolResultStr MappedBufferCopy::Read( void* destination, uint32_t size, uint32_t offset )
     {
-        if ( const VkResult invalidated = vmaInvalidateAllocation(
-                  Desert::Graphic::API::Vulkan::VulkanAllocator::GetVMAAllocator(), m_Allocation, offset, size );
-             invalidated != VK_SUCCESS )
-            return Common::MakeFormattedError<bool>(
-                 "the host view of {} byte(s) at {} was not invalidated (VkResult {})", size, offset,
-                 static_cast<int>( invalidated ) );
+        // ReadInto invalidates the range it reads when the memory is not coherent (MappedMemory.hpp).
         return m_Mapping.ReadInto( destination, size, offset );
     }
 

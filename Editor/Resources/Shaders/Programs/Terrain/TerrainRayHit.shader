@@ -43,14 +43,14 @@ Shader "TerrainRayHit"
                     Ng = -Ng;
                 LandscapeRayHitConeLod( Ng );
 
-                const float    viewDistance = distance( position, row.ViewOrigin.xyz );
+                const float    viewDistance = distance( position, RayTracingViewOrigin.xyz );
                 TerrainSurface s = EvaluateLandscapeSurface( tile, row.MaterialValues, position, Ng, viewDistance, w0, w1 );
                 s.Albedo *= row.Tint.rgb;
                 // The grass field's far cover as the raster lays it (GRASS-FIELD), seen along the ray: the ray's
                 // origin view is the one whose blades are thinned out. The payload has no shading model, so the
                 // cover's transmitted light is the raster's alone.
                 vec3 transmission;
-                LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance, row.GrassLens ), -gl_WorldRayDirectionEXT,
+                LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance, RayTracingGrassLens ), -gl_WorldRayDirectionEXT,
                                           Ng, s.Albedo, s.N, s.Roughness, s.AO, transmission );
 
                 payload.HitT      = gl_HitTEXT;

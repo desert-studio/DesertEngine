@@ -1,6 +1,7 @@
 #include "RenderMethodsOverlay.hpp"
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSbtWrites.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -78,6 +79,15 @@ namespace Desert::Editor
         rows.push_back( std::format( "  Scratch: TLAS {}, dynamic BLAS {}",
                                      FormatMiB( locale, stats.TlasScratchBytes ),
                                      FormatMiB( locale, stats.DynamicScratchBytes ) ) );
+        // The persistent shader binding tables' writes in the last frame (every view's traces; 0 on a still
+        // scene once every frame slot's table holds it).
+        const Graphic::RayTracing::RayTracingSbtWriteCounts sbt = Graphic::RayTracing::RayTracingSbtWrites::LastFrame();
+        rows.push_back( std::format( "  SBT written: {}/{} records, {}/{} material rows ({} traces)",
+                                     Localization::FormatInteger( locale, sbt.Records ),
+                                     Localization::FormatInteger( locale, sbt.RecordsTotal ),
+                                     Localization::FormatInteger( locale, sbt.Rows ),
+                                     Localization::FormatInteger( locale, sbt.RowsTotal ),
+                                     Localization::FormatInteger( locale, sbt.Traces ) ) );
         // The budget entries, from the ledger rows (the view's own; the scene's shared, counted once for the
         // scene).
         rows.push_back( std::format(
