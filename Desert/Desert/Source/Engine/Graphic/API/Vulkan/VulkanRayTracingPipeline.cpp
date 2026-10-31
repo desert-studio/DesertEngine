@@ -452,8 +452,12 @@ namespace Desert::Graphic::API::Vulkan
         };
         RayTracing::RayTracingSbtWriteCounts written;
         written.RecordsTotal = static_cast<uint32_t>( recordCount );
+        // ONE FLUSH FOR THE PASS: the batch holds the table's and the rows' mappings, every run below is copied
+        // without its own flush, and the batch's Flush() makes all of them visible in one vmaFlushAllocations
+        // (no call at all on coherent memory) before the mappings are released.
+        MappedWriteBatch batch;
         {
-            std::optional<MappedMemory> mapped;
+            std::optional<std::size_t> mapped;
             for ( std::size_t r = 0; r < recordCount; )
             {
                 if ( !recordDirty( r ) )
@@ -466,18 +470,19 @@ namespace Desert::Graphic::API::Vulkan
                     ++end;
                 if ( !mapped )
                 {
-                    mapped.emplace( Allocator().MapMemory( slot.Sbt.Allocation ) );
-                    if ( !*mapped )
+                    MappedMemory mapping = Allocator().MapMemory( slot.Sbt.Allocation );
+                    if ( !mapping )
                     {
                         slot.Written.clear(); // what the slot holds is no longer known
                         return Common::MakeFormattedError( "RayTracingPipeline '{}': the SBT could not be mapped: {}",
-                                                           name, mapped->GetRefusal() );
+                                                           name, mapping.GetRefusal() );
                     }
+                    mapped = batch.Hold( std::move( mapping ) );
                 }
                 const std::size_t from = recordBegin( r );
                 const std::size_t to   = recordBegin( end );
-                if ( const auto wrote = mapped->Write( m_Table.data() + from, to - from,
-                                                       static_cast<std::size_t>( slot.Base ) + from );
+                if ( const auto wrote = batch.Write( *mapped, m_Table.data() + from, to - from,
+                                                     static_cast<std::size_t>( slot.Base ) + from );
                      !wrote )
                 {
                     slot.Written.clear();
@@ -495,7 +500,7 @@ namespace Desert::Graphic::API::Vulkan
             const auto        rowDirty = [&]( std::size_t r )
             { return slot.RowsWritten.size() <= r || slot.RowsWritten[r] != table.Rows[r]; };
             written.RowsTotal = static_cast<uint32_t>( rowCount );
-            std::optional<MappedMemory> mapped;
+            std::optional<std::size_t> mapped;
             for ( std::size_t r = 0; r < rowCount; )
             {
                 if ( !rowDirty( r ) )
@@ -508,17 +513,18 @@ namespace Desert::Graphic::API::Vulkan
                     ++end;
                 if ( !mapped )
                 {
-                    mapped.emplace( Allocator().MapMemory( slot.Rows.Allocation ) );
-                    if ( !*mapped )
+                    MappedMemory mapping = Allocator().MapMemory( slot.Rows.Allocation );
+                    if ( !mapping )
                     {
                         slot.RowsWritten.clear();
                         return Common::MakeFormattedError( "RayTracingPipeline '{}': the material rows could "
                                                            "not be mapped: {}",
-                                                           name, mapped->GetRefusal() );
+                                                           name, mapping.GetRefusal() );
                     }
+                    mapped = batch.Hold( std::move( mapping ) );
                 }
-                if ( const auto wrote = mapped->Write( table.Rows.data() + r, ( end - r ) * sizeof( glm::vec4 ),
-                                                       r * sizeof( glm::vec4 ) );
+                if ( const auto wrote = batch.Write( *mapped, table.Rows.data() + r, ( end - r ) * sizeof( glm::vec4 ),
+                                                     r * sizeof( glm::vec4 ) );
                      !wrote )
                 {
                     slot.RowsWritten.clear();
@@ -528,6 +534,13 @@ namespace Desert::Graphic::API::Vulkan
                 r = end;
             }
             slot.RowsWritten.assign( table.Rows.begin(), table.Rows.end() );
+        }
+        if ( const auto flushed = batch.Flush(); !flushed )
+        {
+            // Written into the mappings but not known to have reached the device: neither copy is trusted.
+            slot.Written.clear();
+            slot.RowsWritten.clear();
+            return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, flushed.GetError() );
         }
         if ( const auto finished = RayTracing::RayTracingSbtWrites::Add( written ) )
             LOG_INFO( "[RayTracing] SBT writes, previous frame: {} traces, {}/{} records, {}/{} material rows",

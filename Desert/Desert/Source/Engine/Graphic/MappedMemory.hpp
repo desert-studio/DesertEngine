@@ -8,6 +8,7 @@
 #include <cstring>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -63,6 +64,12 @@ namespace Desert::Graphic
     // they are null and nothing is called. Per transfer rather than at unmap, because the uniform and
     // storage copies stay mapped for their whole life and are never unmapped between frames (UE VulkanRHI:
     // FlushMappedMemoryRanges on unlock of a non-coherent range; VMA aligns the range to nonCoherentAtomSize).
+    //
+    // A PASS OF MANY WRITES FLUSHES ONCE: MappedWriteBatch (below) holds the mappings of one write pass,
+    // records the ranges its writes touched instead of flushing each, and flushes them all in one call
+    // into the owner (vmaFlushAllocations) — see there.
+    class MappedWriteBatch;
+
     class MappedMemory
     {
     public:
@@ -72,6 +79,12 @@ namespace Desert::Graphic
         /// How the owner of non-coherent memory flushes a range the host wrote, or invalidates a range the
         /// host is about to read: [@p offset, @p offset + @p bytes) of @p allocation, while it is mapped.
         using RangeFn = Common::BoolResultStr ( * )( void* allocation, std::size_t offset, std::size_t bytes );
+
+        /// How the owner of non-coherent memory flushes @p count ranges the host wrote, in ONE call: range i is
+        /// [@p offsets[i], @p offsets[i] + @p sizes[i]) of @p allocations[i], each mapped. MappedWriteBatch's
+        /// flush; 64-bit offsets and sizes because that is what the device takes (VkDeviceSize).
+        using RangesFn = Common::BoolResultStr ( * )( void* const* allocations, const uint64_t* offsets,
+                                                      const uint64_t* sizes, std::size_t count );
 
         /// An unmapped mapping that refuses everything. The default state is a refusal rather than an
         /// empty success: §1.4 of the contract — "not ready" and "nothing to do" must not be one value.
@@ -89,10 +102,12 @@ namespace Desert::Graphic
             return refused;
         }
 
-        /// A live mapping of @p size bytes at @p bytes, released through @p unmap( @p allocation ). @p flush
-        /// and @p invalidate are null for coherent memory and set for memory that is not (see above).
+        /// A live mapping of @p size bytes at @p bytes, released through @p unmap( @p allocation ). @p flush,
+        /// @p invalidate and @p flushRanges are null for coherent memory and set for memory that is not (see
+        /// above); @p flushRanges is the many-range flush a MappedWriteBatch ends its pass with.
         static MappedMemory Live( void* allocation, uint8_t* bytes, std::size_t size, UnmapFn unmap,
-                                  RangeFn flush = nullptr, RangeFn invalidate = nullptr )
+                                  RangeFn flush = nullptr, RangeFn invalidate = nullptr,
+                                  RangesFn flushRanges = nullptr )
         {
             if ( bytes == nullptr )
                 return Refused( "the mapping reported success and handed back no address" );
@@ -103,8 +118,9 @@ namespace Desert::Graphic
             live.m_Size       = size;
             live.m_Unmap      = unmap;
             live.m_Flush      = flush;
-            live.m_Invalidate = invalidate;
-            live.m_Reason     = nullptr;
+            live.m_Invalidate  = invalidate;
+            live.m_FlushRanges = flushRanges;
+            live.m_Reason      = nullptr;
             return live;
         }
 
@@ -166,16 +182,9 @@ namespace Desert::Graphic
         /// mapping is not live or the range does not fit.
         NO_DISCARD Common::BoolResultStr Write( const void* source, std::size_t bytes, std::size_t offset = 0 )
         {
-            if ( source == nullptr && bytes != 0 )
-                return Common::MakeError<bool>( "a mapped write was given a null source" );
-
-            const auto room = Admits( bytes, offset, "write" );
-            if ( !room.IsSuccess() )
-                return room;
-
-            if ( bytes == 0 )
-                return Common::MakeSuccess( true );
-            std::memcpy( m_Bytes + offset, source, bytes );
+            const auto copied = Copy( source, bytes, offset );
+            if ( !copied.IsSuccess() || bytes == 0 )
+                return copied;
             return Flushed( offset, bytes );
         }
 
@@ -230,8 +239,9 @@ namespace Desert::Graphic
             m_Bytes      = nullptr;
             m_Size       = 0;
             m_Unmap      = nullptr;
-            m_Flush      = nullptr;
-            m_Invalidate = nullptr;
+            m_Flush       = nullptr;
+            m_Invalidate  = nullptr;
+            m_FlushRanges = nullptr;
             if ( wasLive )
             {
                 m_Refusal.clear();
@@ -240,6 +250,9 @@ namespace Desert::Graphic
         }
 
     private:
+        // The batch writes through Copy and flushes what it recorded in one call; nothing else may skip the flush.
+        friend class MappedWriteBatch;
+
         static constexpr const char* kNeverAttempted = "the mapping was never attempted";
         static constexpr const char* kReleased       = "the mapping has already been released";
         static constexpr const char* kMovedOut       = "the mapping was moved out of this object";
@@ -251,8 +264,9 @@ namespace Desert::Graphic
             m_Size       = other.m_Size;
             m_Unmap      = other.m_Unmap;
             m_Flush      = other.m_Flush;
-            m_Invalidate = other.m_Invalidate;
-            m_Reason     = other.m_Reason;
+            m_Invalidate  = other.m_Invalidate;
+            m_FlushRanges = other.m_FlushRanges;
+            m_Reason      = other.m_Reason;
             m_Refusal    = std::move( other.m_Refusal );
 
             other.m_Allocation = nullptr;
@@ -260,8 +274,9 @@ namespace Desert::Graphic
             other.m_Size       = 0;
             other.m_Unmap      = nullptr;
             other.m_Flush      = nullptr;
-            other.m_Invalidate = nullptr;
-            other.m_Reason     = kMovedOut;
+            other.m_Invalidate  = nullptr;
+            other.m_FlushRanges = nullptr;
+            other.m_Reason      = kMovedOut;
             other.m_Refusal.clear();
         }
 
@@ -280,6 +295,22 @@ namespace Desert::Graphic
             return Common::MakeSuccess( true );
         }
 
+        // The copy half of Write, without the flush: the bytes land in the mapping and the caller answers for
+        // making them visible — Write by flushing the range at once, MappedWriteBatch by recording it.
+        Common::BoolResultStr Copy( const void* source, std::size_t bytes, std::size_t offset )
+        {
+            if ( source == nullptr && bytes != 0 )
+                return Common::MakeError<bool>( "a mapped write was given a null source" );
+
+            const auto room = Admits( bytes, offset, "write" );
+            if ( !room.IsSuccess() )
+                return room;
+
+            if ( bytes != 0 )
+                std::memcpy( m_Bytes + offset, source, bytes );
+            return Common::MakeSuccess( true );
+        }
+
         // The range a write has just touched, made visible to the device; nothing to do on coherent memory.
         Common::BoolResultStr Flushed( std::size_t offset, std::size_t bytes ) const
         {
@@ -288,16 +319,110 @@ namespace Desert::Graphic
             return m_Flush( m_Allocation, offset, bytes );
         }
 
-        void*       m_Allocation = nullptr;
-        uint8_t*    m_Bytes      = nullptr;
-        std::size_t m_Size       = 0;
-        UnmapFn     m_Unmap      = nullptr;
-        RangeFn     m_Flush      = nullptr; // null: coherent memory, a write needs no flush
-        RangeFn     m_Invalidate = nullptr; // null: coherent memory, a read needs no invalidate
+        void*       m_Allocation  = nullptr;
+        uint8_t*    m_Bytes       = nullptr;
+        std::size_t m_Size        = 0;
+        UnmapFn     m_Unmap       = nullptr;
+        RangeFn     m_Flush       = nullptr; // null: coherent memory, a write needs no flush
+        RangeFn     m_Invalidate  = nullptr; // null: coherent memory, a read needs no invalidate
+        RangesFn    m_FlushRanges = nullptr; // null: coherent memory, a batch of writes needs no flush
         // The standing reason, or null while the mapping is live. A pointer rather than a string so that
         // a successful map costs no allocation at all (see GetRefusal).
         const char* m_Reason = kNeverAttempted;
         // The reason that had to be built — the driver's own words. Empty unless one was given.
         std::string m_Refusal;
+    };
+
+    // ONE WRITE PASS, ONE FLUSH. A pass that writes many disjoint ranges — the shader binding table's runs of
+    // changed records and the material rows' runs of changed rows, every trace — would flush each range with
+    // its own driver call if it went through MappedMemory::Write. The batch HOLDS the pass's mappings, copies
+    // each write without flushing, records the range only when the memory is not coherent, and Flush() hands
+    // every recorded range of every held mapping to the owner in one call (vmaFlushAllocations; UE VulkanRHI
+    // and VMA flush a set of written ranges with one vkFlushMappedMemoryRanges the same way). On coherent memory
+    // nothing is recorded and Flush() calls nothing.
+    //
+    // WHY THE BATCH OWNS THE MAPPINGS. A flush is only defined while the memory is mapped, so the ranges must be
+    // flushed before any mapping they name is released. Holding the mappings makes that the class's own order:
+    // the destructor flushes what is still pending, then the members unmap. Flush() is the call that REPORTS;
+    // the destructor's flush is the backstop for a pass that left early (its error path already answered) and
+    // its failure is noted by the owner's hook (device loss) — it is never the path a finished pass relies on.
+    class MappedWriteBatch
+    {
+    public:
+        MappedWriteBatch() = default;
+
+        ~MappedWriteBatch()
+        {
+            (void)Flush();
+        }
+
+        MappedWriteBatch( const MappedWriteBatch& )            = delete;
+        MappedWriteBatch& operator=( const MappedWriteBatch& ) = delete;
+        MappedWriteBatch( MappedWriteBatch&& )                 = delete;
+        MappedWriteBatch& operator=( MappedWriteBatch&& )      = delete;
+
+        /// Keeps @p mapping until the pass ends and answers the slot its writes name. A refused mapping is held
+        /// as what it is: every write through its slot refuses with the mapping's own reason.
+        std::size_t Hold( MappedMemory&& mapping )
+        {
+            m_Mappings.push_back( std::move( mapping ) );
+            return m_Mappings.size() - 1u;
+        }
+
+        /// @p bytes from @p source into the mapping held at @p slot, at @p offset — the bounds and refusals of
+        /// MappedMemory::Write — with the flush left to Flush().
+        NO_DISCARD Common::BoolResultStr Write( std::size_t slot, const void* source, std::size_t bytes,
+                                                std::size_t offset )
+        {
+            if ( slot >= m_Mappings.size() )
+                return Common::MakeFormattedError<bool>( "a batched write named mapping {} of the {} held", slot,
+                                                         m_Mappings.size() );
+            MappedMemory& mapping = m_Mappings[slot];
+            if ( mapping.m_Flush != nullptr )
+            {
+                if ( mapping.m_FlushRanges == nullptr )
+                    return Common::MakeError<bool>( "a batched write to non-coherent memory was refused: the mapping's "
+                                                    "owner gave no many-range flush" );
+                if ( m_FlushRanges != nullptr && m_FlushRanges != mapping.m_FlushRanges )
+                    return Common::MakeError<bool>( "a batched write was refused: its mapping is flushed by another "
+                                                    "owner than the batch's other mappings" );
+            }
+
+            const auto copied = mapping.Copy( source, bytes, offset );
+            if ( !copied.IsSuccess() || bytes == 0 || mapping.m_Flush == nullptr )
+                return copied;
+
+            m_FlushRanges = mapping.m_FlushRanges;
+            m_Slots.push_back( slot );
+            m_Offsets.push_back( static_cast<uint64_t>( offset ) );
+            m_Sizes.push_back( static_cast<uint64_t>( bytes ) );
+            return Common::MakeSuccess( true );
+        }
+
+        /// Every range written since the last flush, made visible to the device in ONE call into the owner; on
+        /// coherent memory nothing was recorded and nothing is called. The held mappings stay mapped.
+        NO_DISCARD Common::BoolResultStr Flush()
+        {
+            if ( m_Slots.empty() )
+                return Common::MakeSuccess( true );
+
+            std::vector<void*> allocations;
+            allocations.reserve( m_Slots.size() );
+            for ( const std::size_t slot : m_Slots )
+                allocations.push_back( m_Mappings[slot].m_Allocation );
+            const auto flushed = m_FlushRanges( allocations.data(), m_Offsets.data(), m_Sizes.data(), m_Slots.size() );
+            m_Slots.clear();
+            m_Offsets.clear();
+            m_Sizes.clear();
+            return flushed;
+        }
+
+    private:
+        std::vector<MappedMemory> m_Mappings; // indexed by the slot Hold answered; moved on growth, never re-held
+        // The ranges awaiting the flush, one entry per write to non-coherent memory: mapping slot, offset, bytes.
+        std::vector<std::size_t>  m_Slots;
+        std::vector<uint64_t>     m_Offsets;
+        std::vector<uint64_t>     m_Sizes;
+        MappedMemory::RangesFn    m_FlushRanges = nullptr; // the owner every recorded range is flushed through
     };
 } // namespace Desert::Graphic

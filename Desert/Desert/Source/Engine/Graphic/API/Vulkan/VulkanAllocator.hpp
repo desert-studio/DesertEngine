@@ -249,6 +249,12 @@ namespace Desert::Graphic::API::Vulkan
         static Common::BoolResultStr InvalidateMappedRange( void* allocation, std::size_t offset,
                                                             std::size_t bytes );
 
+        // THE ONE "THE HOST WROTE THESE RANGES": vmaFlushAllocations over every range a MappedWriteBatch recorded
+        // in one pass — one vkFlushMappedMemoryRanges for the pass instead of one per range. Handed out beside
+        // FlushMappedRange, so only for memory without HOST_COHERENT.
+        static Common::BoolResultStr FlushMappedRanges( void* const* allocations, const uint64_t* offsets,
+                                                        const uint64_t* sizes, std::size_t count );
+
         /// The one body behind ProcessDeletionQueue and DrainDeletionQueue. They differ ONLY in which
         /// queued frames they take, and that is the whole reason they share this: two copies of four
         /// erase loops is where a fifth resource kind gets destroyed on one path and leaked on the other.

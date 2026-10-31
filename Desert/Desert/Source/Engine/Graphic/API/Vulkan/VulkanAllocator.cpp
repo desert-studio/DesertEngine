@@ -11,6 +11,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <array>
+#include <limits>
 #include <mutex>
 #include <string_view>
 
@@ -678,7 +679,8 @@ namespace Desert::Graphic::API::Vulkan
         return MappedMemory::Live( allocation, mappedMemory, static_cast<std::size_t>( info.size ),
                                    &VulkanAllocator::UnmapAllocation,
                                    coherent ? nullptr : &VulkanAllocator::FlushMappedRange,
-                                   coherent ? nullptr : &VulkanAllocator::InvalidateMappedRange );
+                                   coherent ? nullptr : &VulkanAllocator::InvalidateMappedRange,
+                                   coherent ? nullptr : &VulkanAllocator::FlushMappedRanges );
     }
 
     void VulkanAllocator::UnmapAllocation( void* allocation )
@@ -700,6 +702,32 @@ namespace Desert::Graphic::API::Vulkan
             (void)NoteIfDeviceLost( flushed, "vmaFlushAllocation", __FILE__, __LINE__ );
             return Common::MakeFormattedError<bool>(
                  "a host write of {} byte(s) at {} was not flushed to non-coherent memory: {}", bytes, offset,
+                 VkResultToString( flushed ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanAllocator::FlushMappedRanges( void* const* allocations, const uint64_t* offsets,
+                                                              const uint64_t* sizes, std::size_t count )
+    {
+        if ( s_VmaAllocator == VK_NULL_HANDLE )
+            return Common::MakeError<bool>(
+                 "a pass of host writes was not flushed: the VMA allocator is not initialised" );
+        if ( count > std::numeric_limits<uint32_t>::max() )
+            return Common::MakeFormattedError<bool>( "a pass of {} host writes was not flushed: VMA takes at most {} "
+                                                     "ranges in one call",
+                                                     count, std::numeric_limits<uint32_t>::max() );
+        std::vector<VmaAllocation> handles;
+        handles.reserve( count );
+        for ( std::size_t i = 0; i < count; ++i )
+            handles.push_back( static_cast<VmaAllocation>( allocations[i] ) );
+        const VkResult flushed =
+             vmaFlushAllocations( s_VmaAllocator, static_cast<uint32_t>( count ), handles.data(), offsets, sizes );
+        if ( flushed != VK_SUCCESS )
+        {
+            (void)NoteIfDeviceLost( flushed, "vmaFlushAllocations", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>(
+                 "a pass of {} host write(s) was not flushed to non-coherent memory: {}", count,
                  VkResultToString( flushed ) );
         }
         return Common::MakeSuccess( true );
