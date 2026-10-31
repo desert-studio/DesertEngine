@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
@@ -1133,6 +1134,9 @@ namespace Desert::Graphic::API::Vulkan
                  declared.GetValue().Desc->Bytes );
         if ( draw.MaxDrawsPerCall == 0u )
             return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
+        if ( !draw.SplitLabels.empty() && draw.SplitLabels.size() != draw.MaxDraws )
+            return Common::MakeFormattedError( "{}: {} draw split labels for an indirect group of {} records",
+                                               pass, draw.SplitLabels.size(), draw.MaxDraws );
 
         if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material, {} );
              !bound || !bound.GetValue() )
@@ -1153,10 +1157,20 @@ namespace Desert::Graphic::API::Vulkan
         const VkBuffer vkArgs = args.GetValue()->GetBuffer();
         // The mesh pass's issued bins and calls (DrawCounter::LastFrameMeshPass).
         // MaxDraws > 0 here; maxDrawIndirectCount may be 2^32 - 1, so no rounding-up sum.
-        DrawCounter::RecordBins( draw.MaxDraws, ( ( draw.MaxDraws - 1u ) / draw.MaxDrawsPerCall ) + 1u );
-        for ( uint32_t first = 0; first < draw.MaxDraws; first += draw.MaxDrawsPerCall )
+        // Under the mesh draw split every record is its own call inside its own timestamp pair (the bin's row);
+        // otherwise MaxDrawsPerCall records per call, as without the profiler.
+        const uint32_t perCall = draw.SplitLabels.empty() ? draw.MaxDrawsPerCall : 1u;
+        DrawCounter::RecordBins( draw.MaxDraws, ( ( draw.MaxDraws - 1u ) / perCall ) + 1u );
+        for ( uint32_t first = 0; first < draw.MaxDraws; first += perCall )
         {
-            const uint32_t count = std::min( draw.MaxDraws - first, draw.MaxDrawsPerCall );
+            const uint32_t                                      count = std::min( draw.MaxDraws - first, perCall );
+            std::optional<Common::Profiling::GpuDrawSplitScope> bin;
+            if ( !draw.SplitLabels.empty() )
+            {
+                const DrawSplitLabel& label = draw.SplitLabels[first];
+                bin.emplace( pass, label.Mesh, label.Material );
+                bin->Add( 1, label.TrianglesPerInstance, true );
+            }
             vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs,
                                       draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count, draw.Stride );
         }

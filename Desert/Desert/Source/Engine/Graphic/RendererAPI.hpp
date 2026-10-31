@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/DrawSplitLabel.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
@@ -61,6 +62,10 @@ namespace Desert::Graphic
         // a_VisibleRow = gl_InstanceIndex = the record's firstInstance + i, a row of the pass's culled
         // VisibleInstances. 0 = the pipeline reads no stream.
         uint32_t VisibleRows = 0;
+        // THE MESH DRAW SPLIT (DrawSplitLabel): set only while Profiler::MeshDrawSplit is on - then one label
+        // per record (MaxDraws), and each record is its own call bracketed by its own timestamp pair. Empty =
+        // MaxDrawsPerCall records per call, untimed.
+        std::span<const DrawSplitLabel> SplitLabels{};
     };
 
     // One material group of the virtual-geometry raster (VirtualGeometry::RasterBins): ONE non-indexed

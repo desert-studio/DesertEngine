@@ -3,6 +3,7 @@
 #include "Editor/Core/PanelRequests.hpp"
 
 #include <Common/Core/CrashHandler.hpp>
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -49,6 +50,26 @@ namespace Desert::Editor
                        LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
                    return PaletteCommandDone();
                } } );
+    }
+
+    void AppendProfilerDrawSplitCommands( std::vector<PaletteCommand>& commands )
+    {
+        // On top of GPU timing (Profiler::GpuEnabled, --gpu-profile): without it the split records nothing,
+        // and the switch says so instead of answering done to a dump that will hold no row.
+        commands.push_back( { "Profiler", "MeshDrawSplit 1", []() -> Common::BoolResultStr
+                              {
+                                  auto& profiler           = Common::Profiling::Profiler::Get();
+                                  profiler.MeshDrawSplit() = true;
+                                  if ( !profiler.GpuEnabled() || profiler.GetGpuSink() == nullptr )
+                                      LOG_WARN( "[Profiler] MeshDrawSplit is on, but GPU timing is off or has no "
+                                                "timestamp sink: no draw split row until it is on." );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Profiler", "MeshDrawSplit 0", []() -> Common::BoolResultStr
+                              {
+                                  Common::Profiling::Profiler::Get().MeshDrawSplit() = false;
+                                  return PaletteCommandDone();
+                              } } );
     }
 
     void AppendParticleDebuggerCommand( std::vector<PaletteCommand>&                  commands,

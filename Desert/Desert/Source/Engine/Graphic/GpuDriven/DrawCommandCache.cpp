@@ -1,5 +1,7 @@
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 
+#include <Common/Core/DevInstruments.hpp>
+
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -11,6 +13,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -345,6 +348,7 @@ namespace Desert::Graphic::GpuDriven
             const GraphicsPipeline* Pipeline     = nullptr;
             MeshGeometryBinding     Binding;
             uint64_t                Capacity     = 0;
+            DrawSplitLabel          Label; // the bin's mesh draw split row (dev instruments only)
         };
         std::map<BinKey, uint32_t>                                         binOf;
         std::map<std::pair<const GraphicsPipeline*, BindingKey>, uint32_t> groupOf;
@@ -400,7 +404,17 @@ namespace Desert::Graphic::GpuDriven
                             draft.Ordinal          = static_cast<uint32_t>( drafts.size() );
                             draft.Pipeline         = pipeline;
                             draft.Binding          = binding;
-                            drafts.push_back( draft );
+#if DESERT_DEV_INSTRUMENTS
+                            draft.Label = DrawSplitLabel{
+                                 .Mesh =
+                                      std::format( "{} lod {}",
+                                                   submesh.Name.empty() ? std::string_view{ "(unnamed submesh)" }
+                                                                        : std::string_view{ submesh.Name },
+                                                   lod ),
+                                 .Material             = pipeline->GetSpecification().DebugName,
+                                 .TrianglesPerInstance = range.Count / 3u };
+#endif
+                            drafts.push_back( std::move( draft ) );
                         }
                         drafts[it->second].Capacity += record->InstanceCount;
                         slot.Bin = it->second; // the draft's ordinal; remapped to the sorted row below
@@ -444,6 +458,9 @@ namespace Desert::Graphic::GpuDriven
             draft.Row.Capacity     = static_cast<uint32_t>( std::min<uint64_t>( draft.Capacity, UINT32_MAX ) );
             visible += draft.Capacity;
             table.Bins.push_back( draft.Row );
+#if DESERT_DEV_INSTRUMENTS
+            table.BinLabels.push_back( std::move( draft.Label ) );
+#endif
         }
         for ( GpuDrawSlot& slot : table.DrawSlots )
             if ( slot.Bin != kInvalidIndex )

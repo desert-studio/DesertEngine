@@ -175,7 +175,7 @@ namespace Common::Profiling
 
         std::string key;
         key.reserve( pass.size() + mesh.size() + material.size() + 2 );
-        key.append( pass ).append( 1, '' ).append( mesh ).append( 1, '' ).append( material );
+        key.append( pass ).append( 1, '\x1f' ).append( mesh ).append( 1, '\x1f' ).append( material );
 
         std::lock_guard<std::mutex> lock( m_Mutex );
         DrawSplitResult&            group = m_DrawSplitAccum[key];

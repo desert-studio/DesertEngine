@@ -8,6 +8,7 @@
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -22,6 +23,22 @@ namespace Desert::Graphic::API::Vulkan
         // vkGetQueryPoolResults with VK_QUERY_RESULT_WITH_AVAILABILITY_BIT writes two uint64 per query:
         // the value, then a non-zero availability word.
         constexpr uint32_t kWordsPerQuery = 2;
+
+        // The draw split's first pool: groups, two queries each. A field frame records a few hundred mesh x
+        // material runs and GPU bins across its mesh passes; past that the pool grows as the scope pool does.
+        constexpr uint32_t kDrawSplitInitialGroups = 512;
+
+        // The query count a draw pool needs once a frame asked for @p groups groups: unchanged when they fit,
+        // otherwise geometric and rounded to the scope pool's granularity (GpuGrownQueryCount's rule).
+        [[nodiscard]] uint32_t DrawSplitQueryCount( uint32_t current, uint32_t groups )
+        {
+            const uint32_t required = groups * 2;
+            if ( required <= current )
+                return current;
+            const uint32_t geometric = current + current / 2;
+            const uint32_t target    = required > geometric ? required : geometric;
+            return ( target + kGpuQueryGranularity - 1 ) / kGpuQueryGranularity * kGpuQueryGranularity;
+        }
     } // namespace
 
     VulkanGpuProfiler::~VulkanGpuProfiler()
@@ -125,8 +142,12 @@ namespace Desert::Graphic::API::Vulkan
         // in the allocator's queue, which the device teardown drains.
         if ( m_Device != VK_NULL_HANDLE )
             for ( const FrameQueries& frame : m_Frames )
+            {
                 if ( frame.Pool != VK_NULL_HANDLE )
                     vkDestroyQueryPool( m_Device, frame.Pool, nullptr );
+                if ( frame.DrawPool != VK_NULL_HANDLE )
+                    vkDestroyQueryPool( m_Device, frame.DrawPool, nullptr );
+            }
 
         m_Frames.clear();
         m_Active    = false;
@@ -194,11 +215,14 @@ namespace Desert::Graphic::API::Vulkan
         // VulkanRendererAPI::PresentFinalImage() waited on its fence before handing the index back. So this read
         // never blocks, and afterwards nothing still refers to the pool, which is what makes this the one place it
         // may be replaced.
+        ResolveDraws( frame );
         Resolve( frame );
         GrowIfNeeded( frame );
 
         frame.Recorder.Reset( GpuScopeCapacity( frame.QueryCount ) );
         frame.FrameTotalWritten = false;
+        frame.DrawScopes.clear();
+        frame.DrawRequested     = 0;
         m_Recording             = &frame;
 
         // Switched OFF means off: no reset, no writes, not one command in the buffer. The reset is
@@ -214,6 +238,132 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdWriteTimestamp( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.Pool,
                              kGpuFrameTotalQuery );
         frame.FrameTotalWritten = true;
+
+        PrepareDrawPool( frame, commandBuffer );
+    }
+
+    void VulkanGpuProfiler::PrepareDrawPool( FrameQueries& frame, VkCommandBuffer commandBuffer )
+    {
+        frame.DrawWritten = false;
+        if ( !Common::Profiling::Profiler::Get().DrawSplitActive() )
+            return;
+
+        // Created or grown only here, at the frame's start, for the pool this frame index used
+        // MaxFramesInFlight frames ago (ResolveDraws has read it): never in the middle of a frame.
+        const uint32_t wanted = DrawSplitQueryCount( frame.DrawQueryCount,
+                                                     frame.DrawPool == VK_NULL_HANDLE
+                                                          ? std::max( kDrawSplitInitialGroups, m_HighWaterDraws )
+                                                          : m_HighWaterDraws );
+        if ( frame.DrawPool == VK_NULL_HANDLE || wanted != frame.DrawQueryCount )
+        {
+            auto* const pool = CreatePool( wanted );
+            if ( pool == VK_NULL_HANDLE )
+            {
+                LOG_ERROR(
+                     "[GpuProfiler] vkCreateQueryPool failed for the mesh draw split's {} queries; {}.", wanted,
+                     frame.DrawPool == VK_NULL_HANDLE ? "the split stays untimed this frame"
+                                                      : "keeping the old pool, groups past it stay untimed" );
+                if ( frame.DrawPool == VK_NULL_HANDLE )
+                    return;
+            }
+            else
+            {
+                if ( frame.DrawPool != VK_NULL_HANDLE )
+                {
+                    const auto ctx  = EngineContext::GetInstance().GetRendererContext();
+                    auto* allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+                    if ( allocator != nullptr )
+                        allocator->RT_DestroyQueryPool( frame.DrawPool );
+                    else
+                        vkDestroyQueryPool( m_Device, frame.DrawPool, nullptr );
+                    LOG_INFO( "[GpuProfiler] A frame asked for {} mesh draw split groups; draw pool grown from "
+                              "{} to {} queries.",
+                              m_HighWaterDraws, frame.DrawQueryCount, wanted );
+                }
+                frame.DrawPool       = pool;
+                frame.DrawQueryCount = wanted;
+            }
+        }
+
+        vkCmdResetQueryPool( commandBuffer, frame.DrawPool, 0, frame.DrawQueryCount );
+        frame.DrawWritten = true;
+    }
+
+    int32_t VulkanGpuProfiler::BeginDrawScope( std::string_view pass, std::string_view mesh,
+                                               std::string_view material )
+    {
+        if ( !m_Active || m_Recording == nullptr || !m_Recording->DrawWritten ||
+             m_RecordingTarget == VK_NULL_HANDLE )
+            return -1;
+
+        FrameQueries& frame = *m_Recording;
+        ++frame.DrawRequested;
+        const uint32_t index = static_cast<uint32_t>( frame.DrawScopes.size() );
+        if ( ( index + 1 ) * 2 > frame.DrawQueryCount )
+            return -1; // the pool grows to the high-water the next time this frame index begins
+
+        // BeginScope's row prefix: the group reads against its pass's own row of the same view.
+        ViewResources&         active       = ViewResourceRegistry::Active();
+        const bool             frameContext = &active == &ViewResourceRegistry::FrameContext();
+        const std::string_view viewName = frameContext ? std::string_view{} : std::string_view{ active.GetName() };
+
+        frame.DrawScopes.push_back( DrawScope{ .Pass     = GpuViewScopeName( viewName, pass ),
+                                               .Mesh     = std::string( mesh ),
+                                               .Material = std::string( material ) } );
+        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.DrawPool, index * 2 );
+        return static_cast<int32_t>( index );
+    }
+
+    void VulkanGpuProfiler::EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts )
+    {
+        if ( handle < 0 || !m_Active || m_Recording == nullptr || !m_Recording->DrawWritten ||
+             static_cast<size_t>( handle ) >= m_Recording->DrawScopes.size() ||
+             m_RecordingTarget == VK_NULL_HANDLE )
+            return;
+
+        DrawScope& scope = m_Recording->DrawScopes[static_cast<size_t>( handle )];
+        scope.Counts     = counts;
+        scope.Ended      = true;
+        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->DrawPool,
+                             static_cast<uint32_t>( handle ) * 2 + 1 );
+    }
+
+    void VulkanGpuProfiler::ResolveDraws( FrameQueries& frame )
+    {
+        if ( !frame.DrawWritten )
+            return;
+        frame.DrawWritten = false;
+
+        const uint32_t groups = static_cast<uint32_t>( frame.DrawScopes.size() );
+        if ( groups == 0 )
+            return;
+
+        m_ResultScratch.assign( static_cast<size_t>( groups ) * 2 * kWordsPerQuery, 0ull );
+        const VkResult result = vkGetQueryPoolResults(
+             m_Device, frame.DrawPool, 0, groups * 2, m_ResultScratch.size() * sizeof( uint64_t ),
+             m_ResultScratch.data(), sizeof( uint64_t ) * kWordsPerQuery,
+             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT );
+        if ( result != VK_SUCCESS && result != VK_NOT_READY )
+            return;
+
+        auto& profiler = Common::Profiling::Profiler::Get();
+        for ( uint32_t i = 0; i < groups; ++i )
+        {
+            const DrawScope& scope = frame.DrawScopes[i];
+            if ( !scope.Ended )
+                continue; // its end never recorded (a Record that returned early)
+            const size_t beginWord = static_cast<size_t>( i ) * 2 * kWordsPerQuery;
+            const size_t endWord   = beginWord + kWordsPerQuery;
+            if ( m_ResultScratch[beginWord + 1] == 0 || m_ResultScratch[endWord + 1] == 0 )
+                continue; // not available yet: one lost sample, as Resolve's pairMs
+            const uint64_t beginTicks = m_ResultScratch[beginWord];
+            const uint64_t endTicks   = m_ResultScratch[endWord];
+            if ( endTicks < beginTicks )
+                continue; // counter wrapped
+            profiler.AddDrawSplitSample( scope.Pass, scope.Mesh, scope.Material,
+                                         static_cast<double>( endTicks - beginTicks ) * m_PeriodNs * 1e-6,
+                                         scope.Counts );
+        }
     }
 
     void VulkanGpuProfiler::EndFrame()
@@ -229,6 +379,8 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( frame.Recorder.Requested() > m_HighWaterScopes )
             m_HighWaterScopes = frame.Recorder.Requested();
+        if ( frame.DrawRequested > m_HighWaterDraws )
+            m_HighWaterDraws = frame.DrawRequested;
 
         m_Recording = nullptr;
     }

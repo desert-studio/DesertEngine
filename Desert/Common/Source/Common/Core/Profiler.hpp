@@ -282,7 +282,7 @@ namespace Common::Profiling
         bool                                         m_GpuEnabled    = false; // see GpuEnabled()
         bool                                         m_GpuPassScopes = true;
         bool                                         m_MeshDrawSplit = false;
-        std::unordered_map<std::string, DrawSplitResult> m_DrawSplitAccum; // key Pass  Mesh  Material
+        std::unordered_map<std::string, DrawSplitResult> m_DrawSplitAccum; // key Pass \x1f Mesh \x1f Material
         std::vector<DrawSplitResult>                     m_DrawSplitDisplay;
         IGpuProfilerSink*                            m_GpuSink       = nullptr;
     };
@@ -455,3 +455,71 @@ namespace Common::Profiling
 #define DESERT_PROFILE_PHASE_END( VAR ) VAR.End()
 
 #endif // DESERT_DEV_INSTRUMENTS
+
+// THE MESH DRAW SPLIT'S ONE DOOR (DrawSplitCounts), behind the same boundary as the macros: a mesh pass asks
+// MeshDrawSplitOn() once per Record and brackets each draw group with a GpuDrawSplitScope. Under Shipping the
+// question is a constant false and the scope an empty object, so no call reaches Profiler or the sink and the
+// branches that build the labels fold away.
+namespace Common::Profiling
+{
+#if DESERT_DEV_INSTRUMENTS
+    [[nodiscard]] inline bool MeshDrawSplitOn()
+    {
+        return Profiler::Get().DrawSplitActive();
+    }
+
+    // One draw group's timestamp pair: opened by the constructor, closed by the destructor with what Add
+    // counted. Built only when MeshDrawSplitOn() said yes; a sink that refuses (-1) makes it a no-op.
+    class GpuDrawSplitScope
+    {
+    public:
+        GpuDrawSplitScope( std::string_view pass, std::string_view mesh, std::string_view material )
+        {
+            if ( IGpuProfilerSink* sink = Profiler::Get().GetGpuSink() )
+            {
+                m_Sink   = sink;
+                m_Handle = sink->BeginDrawScope( pass, mesh, material );
+            }
+        }
+        ~GpuDrawSplitScope()
+        {
+            if ( m_Sink )
+                m_Sink->EndDrawScope( m_Handle, m_Counts );
+        }
+
+        GpuDrawSplitScope( const GpuDrawSplitScope& )            = delete;
+        GpuDrawSplitScope& operator=( const GpuDrawSplitScope& ) = delete;
+
+        // @p triangles of all instances drawn, or of one when @p perInstance (the GPU owns the instance count).
+        void Add( uint32_t draws, uint64_t triangles, bool perInstance )
+        {
+            m_Counts.Draws += draws;
+            m_Counts.Triangles += triangles;
+            m_Counts.TrianglesPerInstance = m_Counts.TrianglesPerInstance || perInstance;
+        }
+
+    private:
+        IGpuProfilerSink* m_Sink   = nullptr;
+        int32_t           m_Handle = -1;
+        DrawSplitCounts   m_Counts;
+    };
+#else
+    [[nodiscard]] constexpr bool MeshDrawSplitOn()
+    {
+        return false;
+    }
+
+    class GpuDrawSplitScope
+    {
+    public:
+        GpuDrawSplitScope( std::string_view, std::string_view, std::string_view )
+        {
+        }
+        GpuDrawSplitScope( const GpuDrawSplitScope& )            = delete;
+        GpuDrawSplitScope& operator=( const GpuDrawSplitScope& ) = delete;
+        void               Add( uint32_t, uint64_t, bool )
+        {
+        }
+    };
+#endif // DESERT_DEV_INSTRUMENTS
+} // namespace Common::Profiling

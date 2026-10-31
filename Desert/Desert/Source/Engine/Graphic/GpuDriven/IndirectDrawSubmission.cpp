@@ -3,6 +3,8 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <algorithm>
 
 namespace Desert::Graphic::GpuDriven
@@ -55,6 +57,9 @@ namespace Desert::Graphic::GpuDriven
             draw.MaxDrawsPerCall = mode.MaxDrawsPerCall;
             draw.Material        = groupMaterials[group];
             draw.VisibleRows     = draws.VisibleRowEnd;
+            if ( Common::Profiling::MeshDrawSplitOn() && pass.BinLabels.size() == pass.Bins.size() )
+                draw.SplitLabels = std::span<const DrawSplitLabel>( pass.BinLabels )
+                                        .subspan( indirect.FirstBin, indirect.BinCount );
             if ( const Common::BoolResultStr recorded =
                       api.RenderMeshIndirectGroup( *bindings, *pipeline, indirect.Binding, draw );
                  !recorded )

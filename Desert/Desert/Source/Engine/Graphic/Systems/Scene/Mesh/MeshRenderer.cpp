@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <optional>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
@@ -282,6 +283,47 @@ namespace Desert::Graphic::System
 
     namespace MeshRendererDetail
     {
+        namespace
+        {
+            // THE MESH DRAW SPLIT's label of a CPU draw's mesh (Common::Profiling::GpuDrawSplitScope): its first
+            // drawn submesh's name, and how many more submeshes the draw draws.
+            [[nodiscard]] std::string DrawSplitMeshLabel( const MeshDrawCommand& draw )
+            {
+                const std::vector<Submesh>& submeshes = draw.Mesh->GetSubmeshes();
+                std::string                 label;
+                uint32_t                    drawn = 0;
+                for ( size_t si = 0; si < submeshes.size(); ++si )
+                {
+                    if ( draw.HiddenSubmeshMask.Hides( si ) )
+                        continue;
+                    if ( drawn++ == 0 )
+                        label =
+                             submeshes[si].Name.empty() ? std::string( "(unnamed submesh)" ) : submeshes[si].Name;
+                }
+                if ( drawn > 1 )
+                    label += std::format( " +{} submeshes", drawn - 1 );
+                return label;
+            }
+
+            // What a CPU draw adds to its group (DrawSplitCounts): a draw per drawn submesh, and the triangles of
+            // its LOD times its instances - of one instance when the GPU owns the count (@p perInstance).
+            void AddDrawSplitCounts( Common::Profiling::GpuDrawSplitScope& group, const MeshDrawCommand& draw,
+                                     const bool perInstance )
+            {
+                const std::vector<Submesh>& submeshes = draw.Mesh->GetSubmeshes();
+                uint32_t                    draws     = 0;
+                uint64_t                    triangles = 0;
+                for ( size_t si = 0; si < submeshes.size(); ++si )
+                {
+                    if ( draw.HiddenSubmeshMask.Hides( si ) )
+                        continue;
+                    ++draws;
+                    triangles += uint64_t{ SubmeshIndices( submeshes[si], draw.LodLevel ).Count / 3u };
+                }
+                group.Add( draws, perInstance ? triangles : triangles * draw.InstanceCount, perInstance );
+            }
+        } // namespace
+
         void MeshDrawList::Clear()
         {
             m_Commands.clear();
@@ -566,9 +608,29 @@ namespace Desert::Graphic::System
                 blocks.push_back(
                      std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
             std::vector<std::byte> push;
+            // THE MESH DRAW SPLIT (Common::Profiling::GpuDrawSplitScope): one timestamp pair per run of
+            // consecutive draws of one mesh x one material, per GPU bin, per VG group. Asked once; off records
+            // nothing and builds no label.
+            const bool                                          split = Common::Profiling::MeshDrawSplitOn();
+            std::optional<Common::Profiling::GpuDrawSplitScope> drawRun;
+            const Mesh*                                         groupMesh     = nullptr;
+            const MaterialExecutor*                             groupMaterial = nullptr;
             for ( size_t i = 0; i < m_Commands.size(); ++i )
             {
                 const MeshDrawCommand& draw = m_Commands[i];
+                if ( split )
+                {
+                    if ( !drawRun || draw.Mesh != groupMesh || draw.Material != groupMaterial )
+                    {
+                        drawRun.reset();
+                        drawRun.emplace( context.GetPassName(), DrawSplitMeshLabel( draw ),
+                                         draw.Material->GetDubugName() );
+                        groupMesh     = draw.Mesh;
+                        groupMaterial = draw.Material;
+                    }
+                    const bool gpuInstances = draw.IndirectArgs.IsValid() || m_IndirectArguments.IsValid();
+                    AddDrawSplitCounts( *drawRun, draw, gpuInstances );
+                }
                 if ( draw.Viewport )
                     Renderer::GetInstance().SetViewportRegion( draw.Viewport->X, draw.Viewport->Y,
                                                                draw.Viewport->Width, draw.Viewport->Height );
@@ -611,6 +673,7 @@ namespace Desert::Graphic::System
                      !drawn.IsSuccess() )
                     return drawn;
             }
+            drawRun.reset();
             // The GPU-culled bins, after the CPU commands (whatever the CPU lists still draw is what the bins do
             // not hold: MeshRenderer::CpuWalkHidden).
             if ( m_Binned )
@@ -637,6 +700,15 @@ namespace Desert::Graphic::System
                         if ( m_VgGroupBlock[group] >= blocks.size() )
                             continue;
                         const GraphicsPipeline&        pipeline = *vg.GroupPipeline( *m_Binned->Table, group );
+                        // The cluster raster's group: one indirect draw whose triangles only the GPU knows.
+                        std::optional<Common::Profiling::GpuDrawSplitScope> vgGroup;
+                        if ( split )
+                        {
+                            vgGroup.emplace( context.GetPassName(),
+                                             std::format( "VirtualGeometry group {}", group ),
+                                             pipeline.GetSpecification().DebugName );
+                            vgGroup->Add( 1, 0, true );
+                        }
                         const ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
                                                              .ArgsOffset = uint64_t{ group } *
                                                                            VirtualGeometry::kRasterBinsArgsStride,

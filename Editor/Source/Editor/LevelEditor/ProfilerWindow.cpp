@@ -250,6 +250,61 @@ namespace Desert::Editor
              "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
              "frames in flight late) generated {} (varieties generated this frame)",
              grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties, grass.Generated );
+
+        // THE MESH DRAW SPLIT (Profiler::MeshDrawSplit; UE ProfileGPU with r.EmitMeshDrawEvents): per pass, its
+        // most expensive draw groups, the rest folded into one row, and the groups' sum against the pass's own
+        // gpu self - the pairs tile the pass, so the sum reads the split's coverage. Nothing while it is off.
+        const std::vector<::Common::Profiling::DrawSplitResult>& split             = prof.LastDrawSplit();
+        constexpr size_t                                         kDrawSplitTopRows = 20;
+        for ( size_t first = 0; first < split.size(); )
+        {
+            const std::string& pass = split[first].Pass;
+            size_t             end  = first;
+            while ( end < split.size() && split[end].Pass == pass )
+                ++end;
+
+            double sumMs  = 0.0;
+            double restMs = 0.0, restDraws = 0.0, restTriangles = 0.0;
+            bool   restPerInstance = false;
+            for ( size_t i = first; i < end; ++i )
+            {
+                const ::Common::Profiling::DrawSplitResult& group = split[i];
+                sumMs += group.GpuMs;
+                if ( i - first < kDrawSplitTopRows )
+                {
+                    LOG_INFO(
+                         "[Profiler] draw split | {} | {} | {} | gpu {:.3f} ms | draws {:.0f} | tris {:.0f}{}",
+                         pass, group.Mesh, group.Material, group.GpuMs, group.Draws, group.Triangles,
+                         group.TrianglesPerInstance ? "/inst" : "" );
+                    continue;
+                }
+                restMs += group.GpuMs;
+                restDraws += group.Draws;
+                restTriangles += group.Triangles;
+                restPerInstance = restPerInstance || group.TrianglesPerInstance;
+            }
+            const size_t groups = end - first;
+            if ( groups > kDrawSplitTopRows )
+                LOG_INFO( "[Profiler] draw split | {} | (other {} groups) | | gpu {:.3f} ms | draws {:.0f} | tris "
+                          "{:.0f}{}",
+                          pass, groups - kDrawSplitTopRows, restMs, restDraws, restTriangles,
+                          restPerInstance ? "/inst" : "" );
+
+            double passSelfMs = -1.0;
+            for ( const auto& s : prof.LastFrame() )
+                if ( s.Name == pass && s.GpuCalls > 0 )
+                    passSelfMs = s.GpuSelfMs;
+            if ( passSelfMs > 0.0 )
+                LOG_INFO(
+                     "[Profiler] draw split | {} | total {} groups | sum gpu {:.3f} ms of pass gpu self {:.3f} "
+                     "ms ({:.1f} %)",
+                     pass, groups, sumMs, passSelfMs, 100.0 * sumMs / passSelfMs );
+            else
+                LOG_INFO( "[Profiler] draw split | {} | total {} groups | sum gpu {:.3f} ms; the pass has no gpu "
+                          "row of that name",
+                          pass, groups, sumMs );
+            first = end;
+        }
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 

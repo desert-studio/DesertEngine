@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/DrawSplitLabel.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -131,6 +132,8 @@ namespace Desert::Graphic::GpuDriven
         std::vector<GpuPrimitivePassDraws> PrimitiveDraws; // indexed by PrimitiveIndex (high-water mark)
         std::vector<GpuDrawSlot>           DrawSlots;
         std::vector<GpuDrawBin>            Bins; // sorted by IndirectGroup
+        // Parallel to Bins: each bin's mesh draw split label (DrawSplitLabel). Empty under Shipping.
+        std::vector<DrawSplitLabel>             BinLabels;
         std::vector<IndirectGroup>         Groups;
         uint32_t                                VisibleCapacity = 0; // sum of the bins' Capacity
     };
