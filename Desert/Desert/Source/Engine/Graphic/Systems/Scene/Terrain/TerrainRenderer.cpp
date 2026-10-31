@@ -125,8 +125,9 @@ namespace Desert::Graphic::System
                 range.x *= grassLens.DistanceScale;
                 range.y *= grassLens.DistanceScale;
                 instance.GrassCoverRange[c] = range;
-                instance.GrassCoverFloor[c / World::Landscape::kLandscapeWeightmapChannels][static_cast<glm::length_t>(
-                     c % World::Landscape::kLandscapeWeightmapChannels )] =
+                instance.GrassCoverFloor[c / World::Landscape::kLandscapeWeightmapChannels]
+                                        [static_cast<glm::length_t>(
+                                             c % World::Landscape::kLandscapeWeightmapChannels )] =
                      GrassFloorDistance( t.Weights.GrassCoverFloorWidth[c], 1.0f, grassLens );
             }
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
@@ -891,8 +892,8 @@ namespace Desert::Graphic::System
                 // The same layer inputs as the camera's row (resolved above this frame); the shadow program
                 // reads none of them, the row is whole.
                 const TerrainInstance instance = LandscapeInstance(
-                     t, TileLodsOf( l, lightLods ), m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ),
-                     m_GrassLens );
+                     t, TileLodsOf( l, lightLods ),
+                     m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ), m_GrassLens );
 
                 FrameDraw draw;
                 draw.Group = m_FrameDraws[i].Group;

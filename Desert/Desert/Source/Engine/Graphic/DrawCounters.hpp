@@ -43,20 +43,20 @@ namespace Desert::Graphic
     // GRASS-VIS-7: the grass instances the GPU drew (GrassFinalize's drawn counts, read back without a wait
     // FramesInFlight frames after their generation, UE's GPU-culling stats the same way), summed over every view
     // and variety a GrassRenderer::AddFrame of the frame drew. Full: the list the cascades and the TLAS draw (the
-    // camera's side planes swept along the shadowed suns); Camera: the camera's phase-1 list (the full list's count
-    // when the camera has no list of its own); Post: phase 2's appended (UE two-phase occlusion), 0 without one.
-    // Cascades (GPU-COST-21): per cascade VIEW (slot x 4 + cascade, MeshRenderer's view index) the instances its
-    // own list drew - those inside its caster box - 0 for a view that drew none.
+    // camera's side planes swept along the shadowed suns); Camera: the camera's phase-1 list (the full list's
+    // count when the camera has no list of its own); Post: phase 2's appended (UE two-phase occlusion), 0 without
+    // one. Cascades (GPU-COST-21): per cascade VIEW (slot x 4 + cascade, MeshRenderer's view index) the instances
+    // its own list drew - those inside its caster box - 0 for a view that drew none.
     struct GrassDrawCounters
     {
         // MeshRenderer::kCascadeViews (static_assert in GrassRenderer.cpp; this header stays include-free).
         static constexpr uint32_t kCascadeViews = 8;
 
-        uint64_t                                Full      = 0;
-        uint64_t                                Camera    = 0;
-        uint64_t                                Post      = 0;
-        std::array<uint64_t, kCascadeViews>     Cascades{};
-        uint32_t                                Varieties = 0; ///< the varieties whose counts had come back
+        uint64_t                            Full   = 0;
+        uint64_t                            Camera = 0;
+        uint64_t                            Post   = 0;
+        std::array<uint64_t, kCascadeViews> Cascades{};
+        uint32_t                            Varieties = 0; ///< the varieties whose counts had come back
     };
 
     // THE SNAPSHOT IS OF THE FRAME THAT FINISHED, never of the one being recorded. A HUD reading the live
@@ -99,7 +99,8 @@ namespace Desert::Graphic
         /// The finished frame's counters of @p pass (every view's draws of it summed).
         [[nodiscard]] static MeshPassDrawCounters LastFrameMeshPass( uint32_t pass );
         /// One grass variety's read-back drawn counts (GrassRenderer::AddFrame; GrassDrawCounters).
-        static void RecordGrass( uint32_t full, uint32_t camera, uint32_t post, std::span<const uint32_t> cascades );
+        static void RecordGrass( uint32_t full, uint32_t camera, uint32_t post,
+                                 std::span<const uint32_t> cascades );
         /// The finished frame's grass counts.
         [[nodiscard]] static GrassDrawCounters LastFrameGrass();
 #else

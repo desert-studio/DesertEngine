@@ -141,10 +141,9 @@ namespace Desert::Graphic::System
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert(
-         sizeof( TerrainInstance ) == 65 * sizeof( glm::vec4 ),
-         "TerrainInstance must stay sixty-five 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
-         "reads these offsets" );
+    static_assert( sizeof( TerrainInstance ) == 65 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay sixty-five 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+                   "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
               offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
@@ -199,7 +198,8 @@ namespace Desert::Graphic::System
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverLight{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverRange{};
         // GRASS-VIS-16: per tile layer, its blades' mean width per MinScreenWidth pixel (cm / px; 0 = no
-        // screen-width floor) - the view-independent half of the floor's distance (TerrainInstance::GrassCoverFloor).
+        // screen-width floor) - the view-independent half of the floor's distance
+        // (TerrainInstance::GrassCoverFloor).
         std::array<float, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverFloorWidth{};
     };
 

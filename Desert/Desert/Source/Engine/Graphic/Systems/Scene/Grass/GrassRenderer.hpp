@@ -231,8 +231,9 @@ namespace Desert::Graphic::System
             glm::vec4  Camera[4]{};
             bool       Swept = false; // Full is wider than Camera: the cells and capacity leave the lens's wedge
             CameraList List  = CameraList::None;
-            // GPU-COST-21: the cascade views this frame draws (bit v: view v, MeshRenderer::CascadeCasterBoxSet) and
-            // their caster boxes, list k's six planes (the k-th set bit's) at 6k (GrassGenerate.shader CascadePlanes).
+            // GPU-COST-21: the cascade views this frame draws (bit v: view v, MeshRenderer::CascadeCasterBoxSet)
+            // and their caster boxes, list k's six planes (the k-th set bit's) at 6k (GrassGenerate.shader
+            // CascadePlanes).
             uint32_t  CascadeMask = 0;
             glm::vec4 CascadePlanes[kGrassCascadeLists * 6u]{};
         };
@@ -285,9 +286,10 @@ namespace Desert::Graphic::System
             GpuInstanceRefs     PostRefs;   // phase 2's: CameraInstances through PostArgs
             RDG::BufferRef      CandidatesRef;
             // GPU-COST-21, THE CASCADES' LISTS (UE: each shadow view culls its instances by its own volume): per
-            // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster box,
-            // CascadeInstances list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
-            // per list, its bucket firsts moved by k x Capacity. No live view: one-word stand-ins the passes bind.
+            // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster
+            // box, CascadeInstances list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords
+            // words) per list, its bucket firsts moved by k x Capacity. No live view: one-word stand-ins the
+            // passes bind.
             uint32_t                                        CascadeMask     = 0;
             uint32_t                                        CascadeArgWords = 0;
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeInstances;

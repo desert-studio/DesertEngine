@@ -468,10 +468,10 @@ namespace Desert::Graphic::System
             // With CameraInstances: phase 2's (the instances this frame's HZB found visible after last frame's held
             // them back), CameraInstances through records of their own, drawn only by the post-occlusion passes.
             const GpuInstanceRefs* PostRefs = nullptr;
-            // GPU-COST-21, THE CASCADES' OWN LISTS (UE: each shadow view culls its instances by its own volume): for
-            // every cascade view whose bit CascadeMask sets, CascadeInstances through CascadeRefs holds the instances
-            // inside that cascade's caster box (CascadeCasterBoxSet), its records one copy of Refs' layout of
-            // CascadeArgBytes, the k-th set bit's at k x CascadeArgBytes; that cascade draws them
+            // GPU-COST-21, THE CASCADES' OWN LISTS (UE: each shadow view culls its instances by its own volume):
+            // for every cascade view whose bit CascadeMask sets, CascadeInstances through CascadeRefs holds the
+            // instances inside that cascade's caster box (CascadeCasterBoxSet), its records one copy of Refs'
+            // layout of CascadeArgBytes, the k-th set bit's at k x CascadeArgBytes; that cascade draws them
             // (BuildGpuInstancedShadowDraws). A view without its bit, or CascadeRefs null, draws Instances / Refs.
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeInstances;
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;
@@ -1576,10 +1576,10 @@ namespace Desert::Graphic::System
         DirectionalCasterSweeps() const;
 
         // THE CASCADE VIEWS THIS FRAME DRAWS AND THE BOX EACH CULLS ITS CASTERS BY (GPU-COST-21; after
-        // UpdateCascades): bit v of Live for every cascade view v DirectionalShadows counts (a held slot whose light
-        // casts, a cascade below its fitted count), ViewProj[v] its caster matrix (m_CascadeCasterVP - the one the
-        // casters draw with and BuildShadowCascadeDraws culls the static casters by: the slice's box pulled back
-        // towards the light). What a GPU producer builds each cascade's own caster list by
+        // UpdateCascades): bit v of Live for every cascade view v DirectionalShadows counts (a held slot whose
+        // light casts, a cascade below its fitted count), ViewProj[v] its caster matrix (m_CascadeCasterVP - the
+        // one the casters draw with and BuildShadowCascadeDraws culls the static casters by: the slice's box
+        // pulled back towards the light). What a GPU producer builds each cascade's own caster list by
         // (GpuInstancedRenderData::CascadeMask; UE: every shadow view culls its instances by its own volume).
         struct CascadeCasterBoxes
         {

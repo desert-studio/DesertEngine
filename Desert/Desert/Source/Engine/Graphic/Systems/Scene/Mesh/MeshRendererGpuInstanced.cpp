@@ -410,15 +410,15 @@ namespace Desert::Graphic::System
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality, CasterWindOrigin() );
             // The cascade's own list when the producer keeps one for it (GPU-COST-21: the instances inside its
-            // caster box, UE's per-shadow-view instance cull), else the full list (GRASS-VIS): either way the light
-            // sees what the camera's depth hides.
+            // caster box, UE's per-shadow-view instance cull), else the full list (GRASS-VIS): either way the
+            // light sees what the camera's depth hides.
             const bool ownList = gpu.CascadeRefs != nullptr && ( gpu.CascadeMask & ( 1u << c ) ) != 0u;
             BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeInstances : gpu.Instances );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =
                  ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *
                                 gpu.CascadeArgBytes
-                         : 0u;
+                                 : 0u;
             // The section's row is the scene material table's (SyncGpuScene), read by its masked caster cell.
             const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
             if ( !materialRow || !LendMaterialTable( *caster ) )
@@ -436,20 +436,19 @@ namespace Desert::Graphic::System
                                                                          std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) )
                                                          : 0u );
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-                list.Add( { .Pipeline           = pipeline,
-                            .Mesh               = gpu.Mesh,
-                            .Transform          = glm::mat4( 1.0f ),
-                            .Material           = caster->GetMaterialExecutor(),
-                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
-                            .IndirectArgs       = refs.Args,
-                            .IndirectInstances  = refs.Instances,
-                            // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
-                            // own list is its copy of the records.
-                            .IndirectArgsOffset = listBytes + LevelArgsOffset( gpu, level + shadow.Set ),
-                            .Push               = DrawPushFields{}
-                                         .Transform( glm::mat4( 1.0f ) )
-                                         .MaterialIndex( row )
-                                         .Wind( wind ) } );
+                list.Add(
+                     { .Pipeline          = pipeline,
+                       .Mesh              = gpu.Mesh,
+                       .Transform         = glm::mat4( 1.0f ),
+                       .Material          = caster->GetMaterialExecutor(),
+                       .HiddenSubmeshMask = gpu.HiddenSubmeshes,
+                       .IndirectArgs      = refs.Args,
+                       .IndirectInstances = refs.Instances,
+                       // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
+                       // own list is its copy of the records.
+                       .IndirectArgsOffset = listBytes + LevelArgsOffset( gpu, level + shadow.Set ),
+                       .Push =
+                            DrawPushFields{}.Transform( glm::mat4( 1.0f ) ).MaterialIndex( row ).Wind( wind ) } );
         }
         return pending;
     }

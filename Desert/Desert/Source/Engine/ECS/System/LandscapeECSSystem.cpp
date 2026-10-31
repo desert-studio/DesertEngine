@@ -757,7 +757,8 @@ namespace Desert::ECS
                         // The screen-width floor's view-independent half (GrassRenderer measures the same mean
                         // blade, GrassBladeMeanWidth, and the view's pixels per unit, GrassFloorDistance).
                         if ( variety.Blade && variety.Blade->MinScreenWidth > 0.0f )
-                            if ( const float width = Graphic::System::GrassBladeMeanWidth( *variety.Blade, p.ScaleX );
+                            if ( const float width =
+                                      Graphic::System::GrassBladeMeanWidth( *variety.Blade, p.ScaleX );
                                  width > 0.0f )
                             {
                                 sum.FloorLai += lai;

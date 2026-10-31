@@ -328,7 +328,7 @@ namespace Desert::Graphic::System
         // This frame's camera's grass distances (PrepareFrame, MakeGrassFieldLens): every row of the frame - the
         // camera's and the lights' - carries the far cover through the camera's view, the one the blades are
         // grown for.
-        GrassFieldLens               m_GrassLens;
+        GrassFieldLens                    m_GrassLens;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;

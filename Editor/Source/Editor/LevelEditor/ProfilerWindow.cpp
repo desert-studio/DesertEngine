@@ -236,16 +236,20 @@ namespace Desert::Editor
                   drawCounters.Draws, drawCounters.Instances );
         // GRASS-VIS-7: the grass culling read as numbers (Graphic::GrassDrawCounters): camera below full is the
         // shadow casters the camera does not draw, post the instances phase 2 brought back from last frame's HZB.
-        // GPU-COST-21: and per cascade view (sun cascades 0..3, then the second shadowed light's) the instances its
-        // own list drew - inside its caster box - against the full list each one drew before.
+        // GPU-COST-21: and per cascade view (sun cascades 0..3, then the second shadowed light's) the instances
+        // its own list drew - inside its caster box - against the full list each one drew before.
         const Graphic::GrassDrawCounters grass = Graphic::DrawCounter::LastFrameGrass();
-        std::string cascades;
+        std::string                      cascades;
         for ( std::size_t v = 0; v < grass.Cascades.size(); ++v )
-            cascades += std::format( "{}{}", v == 0 ? "" : v == grass.Cascades.size() / 2 ? " | " : " ",
+            cascades += std::format( "{}{}",
+                                     v == 0                           ? ""
+                                     : v == grass.Cascades.size() / 2 ? " | "
+                                                                      : " ",
                                      grass.Cascades[v] );
-        LOG_INFO( "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
-                  "frames in flight late)",
-                  grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties );
+        LOG_INFO(
+             "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
+             "frames in flight late)",
+             grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties );
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 
