@@ -240,6 +240,15 @@ namespace Desert::Graphic::API::Vulkan
         // lives in Engine/Graphic and must not know Vulkan — can hold its address.
         static void UnmapAllocation( void* allocation );
 
+        // THE ONE "THE HOST WROTE THIS RANGE" AND "THE HOST WILL READ THIS RANGE": vmaFlushAllocation /
+        // vmaInvalidateAllocation over [offset, offset + bytes) of a mapped allocation (VMA aligns the range to
+        // nonCoherentAtomSize). MapMemory hands them to the MappedMemory only for memory WITHOUT
+        // HOST_COHERENT, so every Write/Fill/ReadInto on a non-coherent heap goes through them and a coherent
+        // heap never calls them. Private for the reason UnmapAllocation is: only a live mapping may flush.
+        static Common::BoolResultStr FlushMappedRange( void* allocation, std::size_t offset, std::size_t bytes );
+        static Common::BoolResultStr InvalidateMappedRange( void* allocation, std::size_t offset,
+                                                            std::size_t bytes );
+
         /// The one body behind ProcessDeletionQueue and DrainDeletionQueue. They differ ONLY in which
         /// queued frames they take, and that is the whole reason they share this: two copies of four
         /// erase loops is where a fifth resource kind gets destroyed on one path and leaked on the other.

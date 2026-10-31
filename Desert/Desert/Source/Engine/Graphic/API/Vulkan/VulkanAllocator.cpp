@@ -194,6 +194,8 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<VkBuffer>( allocated.GetError() );
         const VmaAllocation allocation = allocated.GetValue();
         {
+            // Fill flushes what it wrote on a non-coherent heap, while the allocation is still mapped (a
+            // flush after the unmap is outside the mapping vkFlushMappedMemoryRanges requires).
             MappedMemory mapped = MapMemory( allocation );
             if ( const auto filled = mapped.Fill( 0, kBytes ); !filled.IsSuccess() )
             {
@@ -202,14 +204,6 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeFormattedError<VkBuffer>( "zeroing the zero buffer failed: {}",
                                                              filled.GetError() );
             }
-        }
-        if ( const VkResult flushed = vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
-             flushed != VK_SUCCESS )
-        {
-            m_Ledger.Release( LedgerKey( allocation ) );
-            vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
-            return Common::MakeFormattedError<VkBuffer>( "flushing the zero buffer failed: {}",
-                                                         VkResultToString( flushed ) );
         }
         m_ZeroBuffer           = buffer;
         m_ZeroBufferAllocation = allocation;
@@ -266,17 +260,11 @@ namespace Desert::Graphic::API::Vulkan
             vmaGetAllocationMemoryProperties( s_VmaAllocator, allocation, &props );
             if ( ( props & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0 )
             {
+                // Fill flushes the poisoned range itself on a non-coherent heap.
                 MappedMemory mapped = MapMemory( allocation );
                 if ( auto filled = mapped.Fill( 0xCD, mapped.GetSize() ); !filled.IsSuccess() )
                 {
                     LOG_WARN( "[VmaAllocator] poisoning '{}' was refused: {}", tag, filled.GetError() );
-                }
-                else if ( const VkResult flushed =
-                               vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
-                          flushed != VK_SUCCESS )
-                {
-                    LOG_WARN( "[VmaAllocator] flushing the poisoned '{}' failed: {}", tag,
-                              VkResultToString( flushed ) );
                 }
             }
         }
@@ -680,14 +668,59 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocationInfo info{};
         vmaGetAllocationInfo( s_VmaAllocator, allocation, &info );
 
+        // THE HEAP DECIDES WHETHER A TRANSFER MUST FLUSH. Without HOST_COHERENT a host write stays in the
+        // CPU's caches until flushed and a host read can see stale lines until invalidated; with it, both
+        // hooks stay null and no transfer calls into VMA.
+        VkMemoryPropertyFlags properties = 0;
+        vmaGetAllocationMemoryProperties( s_VmaAllocator, allocation, &properties );
+        const bool coherent = ( properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT ) != 0;
+
         return MappedMemory::Live( allocation, mappedMemory, static_cast<std::size_t>( info.size ),
-                                   &VulkanAllocator::UnmapAllocation );
+                                   &VulkanAllocator::UnmapAllocation,
+                                   coherent ? nullptr : &VulkanAllocator::FlushMappedRange,
+                                   coherent ? nullptr : &VulkanAllocator::InvalidateMappedRange );
     }
 
     void VulkanAllocator::UnmapAllocation( void* allocation )
     {
         if ( s_VmaAllocator != VK_NULL_HANDLE )
             vmaUnmapMemory( s_VmaAllocator, static_cast<VmaAllocation>( allocation ) );
+    }
+
+    Common::BoolResultStr VulkanAllocator::FlushMappedRange( void* allocation, std::size_t offset,
+                                                             std::size_t bytes )
+    {
+        if ( s_VmaAllocator == VK_NULL_HANDLE )
+            return Common::MakeError<bool>( "a host write was not flushed: the VMA allocator is not initialised" );
+        const VkResult flushed =
+             vmaFlushAllocation( s_VmaAllocator, static_cast<VmaAllocation>( allocation ),
+                                 static_cast<VkDeviceSize>( offset ), static_cast<VkDeviceSize>( bytes ) );
+        if ( flushed != VK_SUCCESS )
+        {
+            (void)NoteIfDeviceLost( flushed, "vmaFlushAllocation", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>(
+                 "a host write of {} byte(s) at {} was not flushed to non-coherent memory: {}", bytes, offset,
+                 VkResultToString( flushed ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanAllocator::InvalidateMappedRange( void* allocation, std::size_t offset,
+                                                                  std::size_t bytes )
+    {
+        if ( s_VmaAllocator == VK_NULL_HANDLE )
+            return Common::MakeError<bool>( "a host read was not invalidated: the VMA allocator is not initialised" );
+        const VkResult invalidated =
+             vmaInvalidateAllocation( s_VmaAllocator, static_cast<VmaAllocation>( allocation ),
+                                      static_cast<VkDeviceSize>( offset ), static_cast<VkDeviceSize>( bytes ) );
+        if ( invalidated != VK_SUCCESS )
+        {
+            (void)NoteIfDeviceLost( invalidated, "vmaInvalidateAllocation", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>(
+                 "a host read of {} byte(s) at {} was not invalidated on non-coherent memory: {}", bytes, offset,
+                 VkResultToString( invalidated ) );
+        }
+        return Common::MakeSuccess( true );
     }
 
     void VulkanAllocator::ProcessDeletionQueue()

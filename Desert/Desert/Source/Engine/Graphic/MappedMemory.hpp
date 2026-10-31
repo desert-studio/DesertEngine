@@ -53,11 +53,25 @@ namespace Desert::Graphic
     // does: the contract is about the engine, the implementation happens to be Vulkan's. The unmap is a
     // function pointer supplied by whoever made the mapping, so `Engine/Graphic` stays free of VMA and the
     // suite that proves the guarantees needs neither a device nor a driver to run.
+    //
+    // A WRITE REACHES THE DEVICE, A READ SEES THE DEVICE — ON ANY HEAP. Host-visible memory without
+    // HOST_COHERENT keeps what the host wrote in the CPU's caches until the range is flushed, and keeps
+    // stale lines over what the device wrote until it is invalidated; unmapping does neither (vmaUnmapMemory
+    // flushes nothing). So the transfer that touched the bytes is the one that answers for them: `Write` and
+    // `Fill` flush exactly the range they wrote, `ReadInto` invalidates exactly the range it reads, and the
+    // owner of the memory supplies both hooks only when the allocation is NOT coherent — on coherent memory
+    // they are null and nothing is called. Per transfer rather than at unmap, because the uniform and
+    // storage copies stay mapped for their whole life and are never unmapped between frames (UE VulkanRHI:
+    // FlushMappedMemoryRanges on unlock of a non-coherent range; VMA aligns the range to nonCoherentAtomSize).
     class MappedMemory
     {
     public:
         /// How the owner of the memory releases it. Receives the opaque allocation handle given to Live().
         using UnmapFn = void ( * )( void* allocation );
+
+        /// How the owner of non-coherent memory flushes a range the host wrote, or invalidates a range the
+        /// host is about to read: [@p offset, @p offset + @p bytes) of @p allocation, while it is mapped.
+        using RangeFn = Common::BoolResultStr ( * )( void* allocation, std::size_t offset, std::size_t bytes );
 
         /// An unmapped mapping that refuses everything. The default state is a refusal rather than an
         /// empty success: §1.4 of the contract — "not ready" and "nothing to do" must not be one value.
@@ -75,8 +89,10 @@ namespace Desert::Graphic
             return refused;
         }
 
-        /// A live mapping of @p size bytes at @p bytes, released through @p unmap( @p allocation ).
-        static MappedMemory Live( void* allocation, uint8_t* bytes, std::size_t size, UnmapFn unmap )
+        /// A live mapping of @p size bytes at @p bytes, released through @p unmap( @p allocation ). @p flush
+        /// and @p invalidate are null for coherent memory and set for memory that is not (see above).
+        static MappedMemory Live( void* allocation, uint8_t* bytes, std::size_t size, UnmapFn unmap,
+                                  RangeFn flush = nullptr, RangeFn invalidate = nullptr )
         {
             if ( bytes == nullptr )
                 return Refused( "the mapping reported success and handed back no address" );
@@ -86,6 +102,8 @@ namespace Desert::Graphic
             live.m_Bytes      = bytes;
             live.m_Size       = size;
             live.m_Unmap      = unmap;
+            live.m_Flush      = flush;
+            live.m_Invalidate = invalidate;
             live.m_Reason     = nullptr;
             return live;
         }
@@ -155,9 +173,10 @@ namespace Desert::Graphic
             if ( !room.IsSuccess() )
                 return room;
 
-            if ( bytes != 0 )
-                std::memcpy( m_Bytes + offset, source, bytes );
-            return Common::MakeSuccess( true );
+            if ( bytes == 0 )
+                return Common::MakeSuccess( true );
+            std::memcpy( m_Bytes + offset, source, bytes );
+            return Flushed( offset, bytes );
         }
 
         /// @p bytes out of the mapping at @p offset into @p destination. The readback direction — the
@@ -173,8 +192,15 @@ namespace Desert::Graphic
             if ( !room.IsSuccess() )
                 return room;
 
-            if ( bytes != 0 )
-                std::memcpy( destination, m_Bytes + offset, bytes );
+            if ( bytes == 0 )
+                return Common::MakeSuccess( true );
+            if ( m_Invalidate != nullptr )
+            {
+                const auto invalidated = m_Invalidate( m_Allocation, offset, bytes );
+                if ( !invalidated.IsSuccess() )
+                    return invalidated;
+            }
+            std::memcpy( destination, m_Bytes + offset, bytes );
             return Common::MakeSuccess( true );
         }
 
@@ -185,9 +211,10 @@ namespace Desert::Graphic
             if ( !room.IsSuccess() )
                 return room;
 
-            if ( bytes != 0 )
-                std::memset( m_Bytes + offset, value, bytes );
-            return Common::MakeSuccess( true );
+            if ( bytes == 0 )
+                return Common::MakeSuccess( true );
+            std::memset( m_Bytes + offset, value, bytes );
+            return Flushed( offset, bytes );
         }
 
         /// Release early. Idempotent, and the destructor's own path — a mapping that has been unmapped
@@ -203,6 +230,8 @@ namespace Desert::Graphic
             m_Bytes      = nullptr;
             m_Size       = 0;
             m_Unmap      = nullptr;
+            m_Flush      = nullptr;
+            m_Invalidate = nullptr;
             if ( wasLive )
             {
                 m_Refusal.clear();
@@ -221,6 +250,8 @@ namespace Desert::Graphic
             m_Bytes      = other.m_Bytes;
             m_Size       = other.m_Size;
             m_Unmap      = other.m_Unmap;
+            m_Flush      = other.m_Flush;
+            m_Invalidate = other.m_Invalidate;
             m_Reason     = other.m_Reason;
             m_Refusal    = std::move( other.m_Refusal );
 
@@ -228,6 +259,8 @@ namespace Desert::Graphic
             other.m_Bytes      = nullptr;
             other.m_Size       = 0;
             other.m_Unmap      = nullptr;
+            other.m_Flush      = nullptr;
+            other.m_Invalidate = nullptr;
             other.m_Reason     = kMovedOut;
             other.m_Refusal.clear();
         }
@@ -247,10 +280,20 @@ namespace Desert::Graphic
             return Common::MakeSuccess( true );
         }
 
+        // The range a write has just touched, made visible to the device; nothing to do on coherent memory.
+        Common::BoolResultStr Flushed( std::size_t offset, std::size_t bytes ) const
+        {
+            if ( m_Flush == nullptr )
+                return Common::MakeSuccess( true );
+            return m_Flush( m_Allocation, offset, bytes );
+        }
+
         void*       m_Allocation = nullptr;
         uint8_t*    m_Bytes      = nullptr;
         std::size_t m_Size       = 0;
         UnmapFn     m_Unmap      = nullptr;
+        RangeFn     m_Flush      = nullptr; // null: coherent memory, a write needs no flush
+        RangeFn     m_Invalidate = nullptr; // null: coherent memory, a read needs no invalidate
         // The standing reason, or null while the mapping is live. A pointer rather than a string so that
         // a successful map costs no allocation at all (see GetRefusal).
         const char* m_Reason = kNeverAttempted;

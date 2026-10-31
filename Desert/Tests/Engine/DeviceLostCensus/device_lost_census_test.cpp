@@ -210,8 +210,10 @@ namespace
     constexpr DroppedResult k_Census[] = {
          // ---- returns void: nothing to check, listed for completeness -------------------------------
          { "VulkanAllocator.cpp", "vmaUnmapMemory", 1, "void" },
-         // WPV1: the debug-only poisoning asks whether a new buffer is host-visible before mapping it.
-         { "VulkanAllocator.cpp", "vmaGetAllocationMemoryProperties", 1, "void" },
+         // TWO SITES: WPV1's debug-only poisoning asks whether a new buffer is host-visible before mapping
+         // it; GRASS-VIS-21's MapMemory asks whether the mapped memory is HOST_COHERENT (if not, every
+         // Write/Fill flushes and every ReadInto invalidates its range).
+         { "VulkanAllocator.cpp", "vmaGetAllocationMemoryProperties", 2, "void" },
          // TWO SITES, AND THEY ANSWER DIFFERENT QUESTIONS — the count is derived from both, not bumped.
          //   1. Г7-C, in MapMemory: the mapping's SIZE, so MappedMemory can refuse a write that runs off
          //      the end of it.
