@@ -316,9 +316,10 @@ namespace Desert::Graphic::System
             // in the service's cache; a ticket the service moved past is asked again by FinishVariant itself. A job
             // that skipped (no holder when it ran - not this one, which held it) leaves Built empty: asked again.
             const Core::ShaderVariant& variant = compile->Ticket.Request.Variant;
-            AdoptLookup( key, compile->Name, variant,
-                         compile->Job->Built ? shaders->FinishVariant( compile->Ticket, *compile->Job->Built )
-                                             : shaders->BeginVariant( "ParticleSimulate", variant ) );
+            const auto                 answer  = compile->Job->Built
+                                                      ? shaders->FinishVariant( compile->Ticket, *compile->Job->Built )
+                                                      : shaders->BeginVariant( "ParticleSimulate", variant );
+            AdoptLookup( key, compile->Name, variant, answer );
         }
     }
 

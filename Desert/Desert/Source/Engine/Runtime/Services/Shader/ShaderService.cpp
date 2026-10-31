@@ -389,11 +389,12 @@ namespace Desert::Runtime
             // nothing the header did not already say: the doc lists the refusals and the error names which
             // one this is, and since NN-RUNTIME-6 the reason travels in the Result, so the caller that marks
             // a path refused or falls back says WHY in its own log or report instead of a line nobody pairs.
-            return refused( std::format( "Variant {} of '{}' has no compiled stages - the source did not compile or "
-                                         "reflect: {}",
-                                         ticket.Key, ticket.Name,
-                                         program ? std::string( program->GetCompileError() ) : built.GetError() ),
-                            true );
+            const std::string why = program ? std::string( program->GetCompileError() ) : built.GetError();
+            return refused(
+                 std::format( "Variant {} of '{}' has no compiled stages - the source did not compile or "
+                              "reflect: {}",
+                              ticket.Key, ticket.Name, why ),
+                 true );
         }
 
         m_Refusals.erase( ticket.Key ); // it compiles now: a later refusal is a new one, and is reported
