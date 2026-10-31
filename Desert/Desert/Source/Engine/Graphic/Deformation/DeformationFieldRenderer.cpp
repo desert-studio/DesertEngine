@@ -196,7 +196,6 @@ namespace Desert::Graphic::Deformation
                                                const ::Desert::World::DeformationWorld& world, const glm::vec3& viewPosition,
                                                const bool wanted )
     {
-        using Result = Common::ResultStr<std::optional<DeformationFieldFrame>>;
         // Another world behind this view (a scene was opened): its log restarts; what the field holds is not its.
         if ( world.NextSequence() < m_Applied )
         {
@@ -208,7 +207,7 @@ namespace Desert::Graphic::Deformation
         if ( !m_ClearPipeline )
         {
             if ( !pending && !wanted )
-                return Result( std::optional<DeformationFieldFrame>{} ); // never deformed: zero cost
+                return Common::MakeSuccess( std::optional<DeformationFieldFrame>{} ); // never deformed: zero cost
             if ( const auto initialized = Initialize(); !initialized )
                 return Common::MakeError<std::optional<DeformationFieldFrame>>( initialized.GetError() );
         }
@@ -261,7 +260,7 @@ namespace Desert::Graphic::Deformation
                  } );
         }
         if ( !pending )
-            return Result( std::optional<DeformationFieldFrame>{ frame } );
+            return Common::MakeSuccess( std::optional<DeformationFieldFrame>{ frame } );
 
         // THE NEW CONTACTS, in submission order, cut into batches that name the same stamp.
         uint64_t                                missed   = 0;
@@ -346,7 +345,7 @@ namespace Desert::Graphic::Deformation
             begin = end;
         }
         if ( dispatches.empty() )
-            return Result( std::optional<DeformationFieldFrame>{ frame } );
+            return Common::MakeSuccess( std::optional<DeformationFieldFrame>{ frame } );
 
         if ( auto r = Upload( *m_StampBuffer, stamps, "contacts" ); !r )
             return Common::MakeError<std::optional<DeformationFieldFrame>>( r.GetError() );
@@ -392,7 +391,7 @@ namespace Desert::Graphic::Deformation
                                                        count );
                  } );
         }
-        return Result( std::optional<DeformationFieldFrame>{ frame } );
+        return Common::MakeSuccess( std::optional<DeformationFieldFrame>{ frame } );
     }
 
     Common::BoolResultStr
