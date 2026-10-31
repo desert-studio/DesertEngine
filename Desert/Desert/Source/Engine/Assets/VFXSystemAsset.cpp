@@ -80,8 +80,9 @@ namespace Desert::Assets
 
     Common::BoolResultStr VFXSystemAsset::Unload()
     {
-        // An edit lives only here until it is saved: dropping it is losing the person's work, not freeing memory.
-        if ( HasUnsavedEdits() )
+        // An edit lives only here (or in its window) until it is saved: dropping it is losing the person's work,
+        // not freeing memory.
+        if ( !IsReloadableFromFile() )
             return Common::MakeFormattedError<bool>( "VFX system '{}' has unsaved edits; it stays loaded",
                                                      m_Metadata.Filepath.string() );
         m_Data   = std::make_shared<const Serialization::VFXSystemData>();

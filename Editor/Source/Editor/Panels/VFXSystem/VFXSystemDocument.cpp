@@ -274,6 +274,9 @@ namespace Desert::Editor
     VFXSystemDocument::~VFXSystemDocument()
     {
         CommandHistory::Get().DropFor( &m_Working );
+        // The buffer the asset was told about goes with the window.
+        if ( m_Asset )
+            m_Asset->SetUnsubmittedEdits( false );
     }
 
     bool VFXSystemDocument::IsSubjectAlive() const
@@ -314,19 +317,29 @@ namespace Desert::Editor
             // Replaced from outside the window (Revert, the file read again): that is the system now. The
             // history's steps were edits of what was replaced, so they go with it - unless the data is the same
             // (the re-read of what this window just saved).
-            m_Synced = m_Asset->Snapshot();
-            if ( *m_Synced != m_Working )
-            {
-                CommandHistory::Get().DropFor( &m_Working );
-                m_Working = *m_Synced;
-                m_GestureBefore.reset();
-            }
+            AdoptAssetData();
             return;
         }
-        if ( *m_Synced == m_Working || !S::ValidateVFXSystemData( m_Working ) )
-            return;
-        m_Asset->Edit( m_Working );
+        // A state the format refuses stays in the window alone - and the asset is told it is held, so a file
+        // changed on disk is not read over it (UE: the package is dirty from the buffer's first change).
+        if ( *m_Synced != m_Working && S::ValidateVFXSystemData( m_Working ) )
+        {
+            m_Asset->Edit( m_Working );
+            m_Synced = m_Asset->Snapshot();
+        }
+        m_Asset->SetUnsubmittedEdits( *m_Synced != m_Working );
+    }
+
+    void VFXSystemDocument::AdoptAssetData()
+    {
         m_Synced = m_Asset->Snapshot();
+        if ( *m_Synced != m_Working )
+        {
+            CommandHistory::Get().DropFor( &m_Working );
+            m_Working = *m_Synced;
+            m_GestureBefore.reset();
+        }
+        m_Asset->SetUnsubmittedEdits( false );
     }
 
     ISubjectDocument::DiskState VFXSystemDocument::GetDiskState() const
@@ -348,7 +361,9 @@ namespace Desert::Editor
             return false;
         }
         m_Refusal.clear();
-        SyncWithAsset();
+        // Adopted even when the read left the asset's snapshot as it was (a clean asset, the window alone holding
+        // a state the format refuses): SyncWithAsset would keep that state, and Revert would not revert.
+        AdoptAssetData();
         return true;
     }
 

@@ -117,6 +117,8 @@ namespace Desert::Editor
         // edit buffer; a valid m_Working the asset does not hold yet becomes the asset's data (VFXSystemAsset::Edit).
         // An invalid intermediate state of a held drag stays in the window until the gesture's Commit decides.
         void SyncWithAsset();
+        // The asset's data becomes the window's (history dropped unless equal); nothing is left unsubmitted.
+        void AdoptAssetData();
         void EnsurePreview();
         void DrawSystemColumn();
         void DrawStackColumn();

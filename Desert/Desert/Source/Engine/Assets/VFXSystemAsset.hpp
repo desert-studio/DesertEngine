@@ -62,11 +62,25 @@ namespace Desert::Assets
         /// Writes the held data to the asset's file; afterwards HasUnsavedEdits is false.
         Common::BoolResultStr SaveEdits();
 
-        /// A file re-read cannot rebuild an asset holding unsaved edits: the edit is the only copy (UE: a dirty
-        /// package is not reloaded from disk behind the user's back). Unload refuses for the same reason.
+        /// A WINDOW HOLDS AN EDIT THE ASSET HAS NOT TAKEN: the `.dfx` window's buffer differs from the asset's
+        /// data because the format refuses it so far (a held drag mid-way, a half-made change). UE marks the
+        /// package dirty from the first change of the editor's buffer; here the window reports it on every sync,
+        /// and the asset counts it as an edit for a file re-read, Unload and the changed-on-disk question.
+        void SetUnsubmittedEdits( bool held )
+        {
+            m_UnsubmittedEdits = held;
+        }
+        [[nodiscard]] bool HasUnsubmittedEdits() const
+        {
+            return m_UnsubmittedEdits;
+        }
+
+        /// A file re-read cannot rebuild an asset holding unsaved edits - its own or a window's not yet taken:
+        /// the edit is the only copy (UE: a dirty package is not reloaded from disk behind the user's back).
+        /// Unload refuses for the same reason.
         [[nodiscard]] bool IsReloadableFromFile() const override
         {
-            return !HasUnsavedEdits();
+            return !HasUnsavedEdits() && !m_UnsubmittedEdits;
         }
 
         /// THE FILE CHANGED ON DISK WHILE THE ASSET HELD UNSAVED EDITS (UE: the "file changed on disk" question
@@ -79,7 +93,7 @@ namespace Desert::Assets
         }
         [[nodiscard]] bool ChangedOnDiskWhileEdited() const
         {
-            return m_ChangedOnDisk && HasUnsavedEdits();
+            return m_ChangedOnDisk && !IsReloadableFromFile();
         }
         void KeepEdits()
         {
@@ -110,6 +124,8 @@ namespace Desert::Assets
         std::shared_ptr<const Serialization::VFXSystemData> m_OnDisk = m_Data;
         bool                                                 m_Ready  = false;
         bool                                                 m_ChangedOnDisk = false;
+        // Set by the `.dfx` window (SetUnsubmittedEdits); never written to the file.
+        bool                                                 m_UnsubmittedEdits = false;
 
         static inline std::atomic<uint64_t> s_EditSerial{ 1 };
     };
