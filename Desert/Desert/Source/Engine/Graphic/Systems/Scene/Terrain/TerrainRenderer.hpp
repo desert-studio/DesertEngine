@@ -166,8 +166,9 @@ namespace Desert::Graphic::System
             m_Queue.push_back( data );
         }
         // The Foliage quality the grass field is grown under (GrassRenderer::SetQuality, the same value): the
-        // ground's far cover reads the blades' distances through it (GrassFieldLens, TerrainInstance::
-        // GrassCoverRange / GrassCoverFloor), so on every quality level it takes over where the blades thin.
+        // ground's far cover reads the blades' distances through it (GrassFieldLens in the frame's TerrainUB::
+        // GrassLens, over TerrainInstance::GrassCoverRange / GrassCoverFloorWidth), so on every quality level it
+        // takes over where the blades thin.
         void SetGrassQuality( const GrassQuality& quality )
         {
             m_GrassQuality = quality;
@@ -325,10 +326,6 @@ namespace Desert::Graphic::System
 
         std::vector<TerrainDrawData> m_Queue;
         GrassQuality                 m_GrassQuality;
-        // This frame's camera's grass distances (PrepareFrame, MakeGrassFieldLens): every row of the frame - the
-        // camera's and the lights' - carries the far cover through the camera's view, the one the blades are
-        // grown for.
-        GrassFieldLens                    m_GrassLens;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
