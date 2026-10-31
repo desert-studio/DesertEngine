@@ -24,6 +24,9 @@
             mat4 JitteredViewProjection;
             mat4 InvJitteredViewProjection; // its inverse: the march's world positions (CONTACT_SHADOW_INV_VP)
             vec4 Exposure;   // x = ViewFrame::PreExposure (the forward program's scene-colour write), yzw unused
+            // GRASS-VIS-17: the view's GrassFieldLens (x = DistanceScale, y = PixelsPerUnit, zw unused): the view's
+            // half of the grass far cover's distances (Common/LandscapeGrassCover.glslh LandscapeGrassCoverAt).
+            vec4 GrassLens;
         }
         u;
 
@@ -179,7 +182,7 @@
             s.Albedo *= tint;
             // Towards the eye, in world space: the view-space position turned back by the view's rotation.
             vec3 V = normalize( transpose( mat3( u.View ) ) * -( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
-            const LandscapeGrassCover c = LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist );
+            const LandscapeGrassCover c = LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist, u.GrassLens );
             opacity                     = c.Opacity;
             cover = LandscapeApplyGrassCover( c, V, normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO,
                                               transmission );

@@ -2,7 +2,7 @@
 
 // The grass field's per-view distances (GRASS-VIS-16): the Foliage quality and the lens that turn a grass
 // variety's authored Start / EndCullDistance and its screen-width floor into this view's - one statement read by
-// the grass generator (GrassRenderer) and by the ground's far cover (TerrainRenderer -> TerrainInstance).
+// the grass generator (GrassRenderer) and by the ground's far cover (TerrainRenderer -> TerrainUB::GrassLens).
 
 namespace Desert::Graphic
 {
@@ -25,8 +25,9 @@ namespace Desert::Graphic::System
 
     // THE GRASS FIELD'S DISTANCES THROUGH ONE VIEW (GRASS-VIS-16): what turns a variety's authored distances into
     // the ones its blades are thinned by in this view. Read by the generator's parameters (GrassRenderer::
-    // PrepareVariety: the screen-width floor's D) and by the ground's far cover (TerrainRenderer:
-    // TerrainInstance::GrassCoverRange x / y and GrassCoverFloor), so the cover takes over from the same min(S,
+    // PrepareVariety: the screen-width floor's D) and by the ground's far cover (TerrainRenderer: the frame's
+    // TerrainUB::GrassLens over TerrainInstance::GrassCoverRange x / y and GrassCoverFloorWidth - view data, never
+    // the tile's row, GRASS-VIS-17), so the cover takes over from the same min(S,
     // D) the blades and their cascades thin from (GpuInstanceBladeShadowLod::StartCull) - under the same Foliage
     // quality and the same lens.
     struct GrassFieldLens

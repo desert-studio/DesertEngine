@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <bit>
 #include <chrono>
@@ -86,14 +87,24 @@ namespace Desert::Graphic::System
             // x = ViewFrame::PreExposure: the forward program writes its lit colour into the scene colour
             // multiplied by it (the G-buffer program does not: the deferred composite applies it). yzw unused.
             glm::vec4 Exposure;
+            // GRASS-VIS-17: THE VIEW'S HALF OF THE GRASS FIELD'S DISTANCES (GrassFieldLens of this frame's camera,
+            // the view the blades are grown for): x = DistanceScale (grass.CullDistanceScale x DrawDistanceScale,
+            // on TerrainInstance::GrassCoverRange x / y), y = PixelsPerUnit (on TerrainInstance::
+            // GrassCoverFloorWidth: the floor's D), zw unused. View data, as UE's FViewUniformShaderParameters
+            // hold the lens and the scalability scales: the tile rows keep only what the tile states, so a zoom
+            // or a render-width change touches this block and no row (LandscapeGrassCover.glslh).
+            glm::vec4 GrassLens;
         };
+        static_assert( sizeof( TerrainUB ) == 6 * sizeof( glm::mat4 ) + 2 * sizeof( glm::vec4 ) &&
+                            offsetof( TerrainUB, Exposure ) == 384 && offsetof( TerrainUB, GrassLens ) == 400,
+                       "TerrainUB moved - the TerrainUB block in TerrainSurface.glslh no longer agrees" );
 
         // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
         // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
         // half is the tile's LandscapeTileLods; the grid it is drawn with is the floor of its own LOD, and
         // every vertex morphs from there by its blended one (LandscapeLod.glslh).
         TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod,
-                                           const TerrainLayerInputs& layers, const GrassFieldLens& grassLens )
+                                           const TerrainLayerInputs& layers )
         {
             const LandscapeTileDraw& l = t.Landscape;
 
@@ -116,20 +127,15 @@ namespace Desert::Graphic::System
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
             instance.GrassCover      = t.Weights.GrassCover;
             instance.GrassCoverLight = t.Weights.GrassCoverLight;
-            // The far cover's distances through the view the blades are grown for (GRASS-VIS-16): Start /
-            // EndCullDistance under the Foliage quality and the lens, and the screen-width floor's D - the cover
-            // thins from the blades' own min(S, D) (GrassFieldShare.glslh), not from the authored S.
-            for ( size_t c = 0; c < t.Weights.GrassCoverRange.size(); ++c )
-            {
-                glm::vec4 range = t.Weights.GrassCoverRange[c];
-                range.x *= grassLens.DistanceScale;
-                range.y *= grassLens.DistanceScale;
-                instance.GrassCoverRange[c] = range;
-                instance.GrassCoverFloor[c / World::Landscape::kLandscapeWeightmapChannels]
-                                        [static_cast<glm::length_t>(
-                                             c % World::Landscape::kLandscapeWeightmapChannels )] =
-                     GrassFloorDistance( t.Weights.GrassCoverFloorWidth[c], 1.0f, grassLens );
-            }
+            // The far cover's distances as the tile states them (GRASS-VIS-17): the authored Start /
+            // EndCullDistance and the floor's width per pixel. The view's half - the Foliage quality and the lens
+            // - is TerrainUB::GrassLens, applied in the shader, so this row does not follow the camera's lens.
+            instance.GrassCoverRange = t.Weights.GrassCoverRange;
+            for ( size_t c = 0; c < t.Weights.GrassCoverFloorWidth.size(); ++c )
+                instance.GrassCoverFloorWidth[c / World::Landscape::kLandscapeWeightmapChannels]
+                                             [static_cast<glm::length_t>(
+                                                  c % World::Landscape::kLandscapeWeightmapChannels )] =
+                     t.Weights.GrassCoverFloorWidth[c];
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
@@ -558,7 +564,6 @@ namespace Desert::Graphic::System
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
-        m_GrassLens        = MakeGrassFieldLens( m_GrassQuality, frame );
         if ( m_Queue.empty() )
             return;
 
@@ -714,8 +719,7 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            TerrainInstance instance =
-                 LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers, m_GrassLens );
+            TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
             const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
             ApplyLandscapeDisplacement(
                  instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
@@ -764,6 +768,8 @@ namespace Desert::Graphic::System
         ub.JitteredViewProjection    = frame.JitteredViewProjection;
         ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
         ub.Exposure                  = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
+        const GrassFieldLens grassLens = MakeGrassFieldLens( m_GrassQuality, frame );
+        ub.GrassLens                   = glm::vec4( grassLens.DistanceScale, grassLens.PixelsPerUnit, 0.0f, 0.0f );
 
         for ( const auto& group : m_FrameGroups )
         {
@@ -891,9 +897,9 @@ namespace Desert::Graphic::System
                 FrameGroup&           group    = m_FrameGroups[m_FrameDraws[i].Group];
                 // The same layer inputs as the camera's row (resolved above this frame); the shadow program
                 // reads none of them, the row is whole.
-                const TerrainInstance instance = LandscapeInstance(
-                     t, TileLodsOf( l, lightLods ),
-                     m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ), m_GrassLens );
+                const TerrainInstance instance =
+                     LandscapeInstance( t, TileLodsOf( l, lightLods ),
+                                        m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ) );
 
                 FrameDraw draw;
                 draw.Group = m_FrameDraws[i].Group;
