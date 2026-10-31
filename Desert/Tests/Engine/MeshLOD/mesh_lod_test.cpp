@@ -22,8 +22,10 @@ using Desert::Geometry::UnbakedLODChain;
 
 namespace
 {
-    // The sizes every mesh without authored ones draws with, for the four-level chains these tests build.
-    const std::vector<float> kAutoSizes = Desert::Geometry::ResolveLODScreenSizes( 4, std::nullopt );
+    // The sizes a mesh without authored ones draws with, for the four-level chains these tests build: the
+    // progression alone (no triangles for the density rule, LODDensityScreenSize, to move a level by).
+    const std::vector<float> kAutoSizes =
+         Desert::Geometry::ResolveLODScreenSizes( std::vector<uint32_t>( 4, 0u ), std::nullopt );
 
     // An N*N-quad grid on the XY plane -> 2*N*N triangles, submesh-local 0-based indices. Big enough (>8 tris)
     // that meshopt actually simplifies.
