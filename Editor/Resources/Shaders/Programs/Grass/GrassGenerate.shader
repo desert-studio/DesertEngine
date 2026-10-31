@@ -5,8 +5,8 @@
 // every camera position; its seed is a hash of the cell. An instance is kept when its bilinear layer weight lies in
 // AllowedDensityRange and beats the cell's random draw (UE's RandomStream.GetFraction), when it is inside the view's
 // side planes, and - past StartCullDistance - when its fade draw beats the distance share: (Start / d)^2, a blade's
-// screen area (GRASS-DENSITY), times UE's fade to zero at EndCullDistance - and a kept one widens by that share and
-// lowers over the band's last fifth, UE's
+// screen area (GRASS-DENSITY), times UE's fade to zero at EndCullDistance - and a kept blade widens by that share and
+// lowers over the band's last fifth, a kept mesh shrinks to nothing before its draw drops it (GPU-COST-29), UE's
 // (and past the distance D where its mean blade stands MinScreenWidth pixels wide, (D / d)^2 kept and each card
 // lifted to that width - GRASS-WIDTH, no sub-pixel strip),
 // PerInstanceFadeAmount as its grass materials spend it (scale to nothing at EndCullDistance), so the field thins and
@@ -401,12 +401,22 @@ Shader "GrassGenerate"
             else
                 scale = vec3( mix( p.ScaleX.x, p.ScaleX.y, rx ), mix( p.ScaleZ.x, p.ScaleZ.y, rz ),
                               mix( p.ScaleX.x, p.ScaleX.y, rx ) );
-            // Coverage kept through the thinning (GoT / UE-style distance thinning; GrassFieldShare): a survivor
-            // stands for the 1/share blades dropped around it, so its width grows by 1/sqrt(share) - at its own
-            // height the field keeps sqrt(share) of its covered area, and the ground's far cover takes on the rest
-            // (LandscapeGrassCover, GrassFieldCoverage); the height drops only over the last 20 % of the range.
-            scale.x *= field.Widen;
-            scale.z *= field.Widen;
+            // Coverage kept through the thinning (GoT / UE-style distance thinning; GrassFieldShare): a BLADE
+            // survivor stands for the 1/share blades dropped around it, so its width grows by 1/sqrt(share) - at its
+            // own height the field keeps sqrt(share) of its covered area, and the ground's far cover takes on the
+            // rest (LandscapeGrassCover, GrassFieldCoverage); the height drops only over the last 20 % of the range.
+            // A MESH survivor's cards cost their pixels, so it keeps its size and shrinks uniformly to nothing over
+            // the last stretch before its own draw drops it - at EndCullDistance too (GPU-COST-29; UE grass HISM:
+            // no survivor growth, PerInstanceFadeAmount / scale to zero; GrassMeshShrink, GrassMeshCoverage): its
+            // card overdraw falls with distance as the field thins, and the cover takes on what it leaves.
+            if ( blade )
+            {
+                scale.x *= field.Widen;
+                scale.z *= field.Widen;
+                scale.y *= field.Height;
+            }
+            else
+                scale *= GrassMeshShrink( field, fade );
             // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
             // narrowest card's: the sphere tests take the widest the instance can become.
             float floorBound = 0.0;
@@ -417,7 +427,6 @@ Shader "GrassGenerate"
                     narrowest = min( narrowest, p.CardWidths[i / 4u][i % 4u] );
                 floorBound = p.Lean.w * distance / max( narrowest, 1.0e-3 );
             }
-            scale.y *= field.Height;
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
             // bounding sphere; the camera's own list also inside the camera's.

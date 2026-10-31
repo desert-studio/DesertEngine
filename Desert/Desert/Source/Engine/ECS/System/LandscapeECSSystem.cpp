@@ -335,6 +335,7 @@ namespace Desert::ECS
                             weights.GrassCoverLight[c] = layer->second.Light;
                             weights.GrassCoverRange[c] = layer->second.Range;
                             weights.GrassCoverFloorWidth[c] = layer->second.FloorWidth;
+                            weights.GrassCoverWiden[c]      = layer->second.WidenShare;
                         }
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
@@ -439,6 +440,8 @@ namespace Desert::ECS
             // GRASS-VIS-16: the leaf area of the varieties with a screen-width floor, and its weighted sum of
             // their mean blade width per MinScreenWidth pixel.
             float     FloorLai = 0.0f, FloorWidth = 0.0f;
+            // GPU-COST-29: the leaf area of the blade varieties, whose survivors widen (GrassFieldShare.glslh).
+            float     WidenLai = 0.0f;
             glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
         };
         std::vector<CoverSum> coverSums( grassLayers.size() );
@@ -754,6 +757,8 @@ namespace Desert::ECS
                         sum.Start += lai * v.StartCullDistance;
                         sum.End += lai * v.EndCullDistance;
                         sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
+                        if ( blade )
+                            sum.WidenLai += lai;
                         // The screen-width floor's view-independent half (GrassRenderer measures the same mean
                         // blade, GrassBladeMeanWidth, and the view's pixels per unit, GrassFloorDistance).
                         if ( variety.Blade && variety.Blade->MinScreenWidth > 0.0f )
@@ -793,6 +798,7 @@ namespace Desert::ECS
             c.Range             = glm::vec4( sum.Start / sum.Lai, sum.End / sum.Lai, sum.MinWeight,
                                                 sum.Opacity / sum.ColourLai );
             c.FloorWidth        = sum.FloorLai > 0.0f ? sum.FloorWidth / sum.FloorLai : 0.0f;
+            c.WidenShare        = sum.WidenLai / sum.Lai;
         }
         if ( !draw.Varieties.empty() )
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );

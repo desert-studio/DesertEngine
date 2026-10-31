@@ -1717,7 +1717,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
             const auto& block = compiler.get_type( resource.base_type_id );
             ASSERT_FALSE( block.member_types.empty() );
             const uint32_t stride = compiler.type_struct_member_array_stride( block, 0 );
-            EXPECT_EQ( stride, 1040u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
+            EXPECT_EQ( stride, 1072u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
             found = true;
         }
         EXPECT_TRUE( found ) << "the vertex stage no longer reads TerrainInstances";

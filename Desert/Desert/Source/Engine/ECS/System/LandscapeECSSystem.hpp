@@ -149,6 +149,9 @@ namespace Desert::ECS
             // GRASS-VIS-16: the blades' mean width per MinScreenWidth pixel (cm / px; 0 = no screen-width floor),
             // the view-independent half of the floor's distance D (Graphic::System::GrassFloorDistance).
             float FloorWidth = 0.0f;
+            // GPU-COST-29: the share of the layer's leaf area that is blades, whose survivors widen; the rest is
+            // meshes, which shrink out instead (GrassFieldShare.glslh GrassFieldCoverageOf).
+            float WidenShare = 1.0f;
         };
         std::unordered_map<uint64_t, std::unordered_map<std::string, GrassCoverValues>> m_GrassCover;
 
