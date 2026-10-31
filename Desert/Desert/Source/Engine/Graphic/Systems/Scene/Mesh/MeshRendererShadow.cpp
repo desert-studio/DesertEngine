@@ -2,7 +2,9 @@
 #include "MeshRendererInternal.hpp"
 
 #include <Common/Core/GlslAsCpp.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 #include <format>
 #include <unordered_set>
@@ -1054,14 +1056,27 @@ namespace Desert::Graphic::System
     GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
                                                           const MeshPass pass )
     {
-        const auto& name = caster.GetShaderName();
-        if ( const auto found = m_MaskedCasterPipelines.find( name ); found != m_MaskedCasterPipelines.end() )
+        // GPU-COST-30 (UE FShaderParameterBindings: a draw binds what ITS compiled permutation declares): the
+        // pipeline is built over the program the cell material was made from. A permutation of the cell
+        // (ShaderService::AcquireVariant: the instance-id list's GpuInstanceIds at binding 18, the forward VSM
+        // define) has a layout of its own that the registered default program of the same name lacks, so the
+        // name alone is not the key: name # variant hash, as ShaderService keys a variant.
+        const auto& name    = caster.GetShaderName();
+        const auto  program = caster.GetMaterialExecutor()->GetShader();
+        if ( !program )
+        {
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: its material holds no program", name );
+            return nullptr;
+        }
+        const std::string key =
+             std::format( "{}#{:016x}", name, static_cast<unsigned long long>( program->GetVariant().Hash() ) );
+        if ( const auto found = m_MaskedCasterPipelines.find( key ); found != m_MaskedCasterPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
-        auto& slot = m_MaskedCasterPipelines[name];
+        auto& slot = m_MaskedCasterPipelines[key];
 
         // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or
         // the virtual map's render area) — only the program differs, which is the whole difference between an
-        // opaque and a masked caster. The cell's name names its pass, so the name alone keys the pipeline.
+        // opaque and a masked caster. The cell's name names its pass, its variant hash the permutation.
         const CasterPipelines casters =
              CasterPipelinesOf( pass == MeshPass::VirtualShadowDepth ? kVsmViewBase : 0u );
         const GraphicsPipeline* shared = nullptr;
@@ -1078,16 +1093,14 @@ namespace Desert::Graphic::System
                 shared = casters.Static;
                 break;
         }
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
-        if ( shared == nullptr || !shader )
+        if ( shared == nullptr )
         {
-            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name,
-                       !shader ? "no such shader is registered" : "the path has no shared caster pipeline" );
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: the path has no shared caster pipeline", key );
             return nullptr;
         }
         GraphicsPipelineSpecification spec = shared->GetSpecification();
-        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", name );
-        spec.Shader                        = shader;
+        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", key );
+        spec.Shader                        = program;
         const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
         {
