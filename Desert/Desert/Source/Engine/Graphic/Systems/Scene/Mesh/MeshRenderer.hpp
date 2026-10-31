@@ -2035,10 +2035,9 @@ namespace Desert::Graphic::System
         // (Runtime::LandscapeGrassTypeService::InstanceIdListMaterials - UE's ShouldCompilePermutation over the
         // material's usage), not for every `.demat`.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
-             MaterialProgramVariants( const Runtime::MaterialService& materials,
-                                      const Runtime::ShaderService&   shaders,
-                                      std::span<const ::Common::AssetHandle> handles,
-                                      std::span<const ::Common::AssetHandle> instanceIdHandles );
+        MaterialProgramVariants( const Runtime::MaterialService& materials, const Runtime::ShaderService& shaders,
+                                 std::span<const ::Common::AssetHandle> handles,
+                                 std::span<const ::Common::AssetHandle> instanceIdHandles );
         // The permutations a Shader Override draw (MaterialComponent::ShaderName, no `.demat`) can select: each
         // named program BuildGenericDraws shades forward, under every ForwardShadowMaskVariant (sun only, local
         // only, both), defaults omitted. A surface template's override is drawn through its (Static x GBuffer)

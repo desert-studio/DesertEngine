@@ -760,11 +760,9 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    std::vector<Core::CookedProgramVariant>
-    MeshRenderer::MaterialProgramVariants( const Runtime::MaterialService& materials,
-                                           const Runtime::ShaderService&   shaders,
-                                           std::span<const ::Common::AssetHandle> handles,
-                                           std::span<const ::Common::AssetHandle> instanceIdHandles )
+    std::vector<Core::CookedProgramVariant> MeshRenderer::MaterialProgramVariants(
+         const Runtime::MaterialService& materials, const Runtime::ShaderService& shaders,
+         std::span<const ::Common::AssetHandle> handles, std::span<const ::Common::AssetHandle> instanceIdHandles )
     {
         std::vector<Core::CookedProgramVariant> variants;
         std::set<std::pair<std::string, uint64_t>> listed; // materials sharing a template share its cell
