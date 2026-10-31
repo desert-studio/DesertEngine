@@ -10,6 +10,8 @@ Line format (one step per line, `#` comments; the first comment is the title):
   Когда|When  <DesertCtl args…>           the action under test, same form
   Тогда|Then  <frame> <what it shows…>    capture the whole editor to <frame>.png
   Тогда-вид|Then-view <frame> <text…>     same, the 3D viewport only
+  Когда-файл|When-file touch <path>      bump the file's mtime (path relative to the .deproj folder): an edit made
+                                          outside the editor, picked up by the asset hot-reload poll
   Ожидать|Expect …                        RESERVED until the owner turns tests back on (today the proof is frames)
   Проект|Project <x.deproj> [editor args…] BEFORE any step: the project the editor opens (UE's `UnrealEditor
                                           <x.uproject> <Map>`) and its launch args, e.g. `--scene Content/Scenes/A.desce`.
@@ -35,6 +37,7 @@ WIN = os.name == "nt"
 GIVEN = {"дано", "given", "когда", "when"}
 THEN = {"тогда": "shot-window", "then": "shot-window", "тогда-вид": "shot-viewport", "then-view": "shot-viewport"}
 EXPECT = {"ожидать", "expect"}
+FILESTEP = {"когда-файл", "when-file"}
 PROJECT = {"проект", "project"}
 
 
@@ -161,11 +164,23 @@ def main():
                 continue
             index.append(f"{name}.png\t{text.strip()}")
             frames += 1
+        elif key in FILESTEP:
+            words = shlex.split(rest)
+            if len(words) != 2 or words[0] != "touch":
+                fail = f"line {n}: «{kw}» takes `touch <path relative to the .deproj folder>`"
+                continue
+            path = os.path.join(os.path.dirname(proj), words[1])
+            if not os.path.isfile(path):
+                fail = f"line {n}: {path} does not exist"
+                continue
+            stamp = max(time.time(), os.path.getmtime(path) + 2.0)  # a stamp the watcher must see as new
+            os.utime(path, (stamp, stamp))
+            time.sleep(1.5)  # > 2 x AssetHotReload poll interval (0.7 s): the poll is wall-clock, no ctl wait exists
         elif key in EXPECT:
             fail = f"line {n}: «Ожидать» is reserved until tests are back (owner 10-22: proof = frames)"
             continue
         else:
-            fail = f"line {n}: unknown keyword «{kw}» (Дано/Когда/Тогда/Тогда-вид)"
+            fail = f"line {n}: unknown keyword «{kw}» (Дано/Когда/Когда-файл/Тогда/Тогда-вид)"
             continue
         steps += 1
 
