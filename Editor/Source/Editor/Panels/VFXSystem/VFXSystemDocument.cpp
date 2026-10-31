@@ -16,8 +16,6 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -267,8 +265,9 @@ namespace Desert::Editor
                 return;
             }
         }
+        m_Asset   = asset;
         m_Working = asset->GetData();
-        m_Saved   = m_Working;
+        m_Synced  = asset->Snapshot();
         m_Loaded  = true;
     }
 
@@ -291,7 +290,8 @@ namespace Desert::Editor
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
         m_PreviewLive = true;
-        // The preview scene's own VFXComponent plays the system the VFXSystemService holds for this handle.
+        // The preview scene's own VFXComponent names the asset, as a level placement does: it plays the asset's
+        // data, edits included (VFXSystemService hands out the asset's current snapshot).
         // Framed by the enabled emitters' boxes (VFXSystemExtent); a system with none frames the default box.
         m_Preview->SetVFXSystem( Assets::AssetHandle( Subject().Owner ),
                                  S::VFXSystemExtent( m_Working ).value_or( S::VFXBounds{} ) );
@@ -301,12 +301,62 @@ namespace Desert::Editor
     {
         m_Preview.reset();
         m_UIHelper.reset();
-        m_Played.reset();
+        m_Replayed.reset();
         m_PreviewLive = false;
+    }
+
+    void VFXSystemDocument::SyncWithAsset()
+    {
+        if ( !m_Loaded || !m_Asset )
+            return;
+        if ( m_Asset->Snapshot() != m_Synced )
+        {
+            // Replaced from outside the window (Revert, the file read again): that is the system now. The
+            // history's steps were edits of what was replaced, so they go with it - unless the data is the same
+            // (the re-read of what this window just saved).
+            m_Synced = m_Asset->Snapshot();
+            if ( *m_Synced != m_Working )
+            {
+                CommandHistory::Get().DropFor( &m_Working );
+                m_Working = *m_Synced;
+                m_GestureBefore.reset();
+            }
+            return;
+        }
+        if ( *m_Synced == m_Working || !S::ValidateVFXSystemData( m_Working ) )
+            return;
+        m_Asset->Edit( m_Working );
+        m_Synced = m_Asset->Snapshot();
+    }
+
+    ISubjectDocument::DiskState VFXSystemDocument::GetDiskState() const
+    {
+        if ( !m_Loaded || !m_Asset )
+            return DiskState::Untracked;
+        return m_Asset->HasUnsavedEdits() || m_Working != *m_Synced ? DiskState::Dirty : DiskState::Clean;
+    }
+
+    bool VFXSystemDocument::DiscardEdits()
+    {
+        if ( GetDiskState() != DiskState::Dirty )
+            return false;
+        if ( auto read = m_Asset->LoadFromFile(); !read )
+        {
+            m_Refusal = std::format( "Revert: {}", read.GetError() );
+            LOG_ERROR( "[VFX] '{}' was not reverted: {}", m_Asset->GetMetadata().Filepath.string(),
+                       read.GetError() );
+            return false;
+        }
+        m_Refusal.clear();
+        SyncWithAsset();
+        return true;
     }
 
     void VFXSystemDocument::OnPreUpdate()
     {
+        // Every frame, drawn or not: a control-socket `set` or an undo reaches the asset (and every scene) here.
+        SyncWithAsset();
+
         // The slot is claimed only once the window has been drawn (StaticMeshViewerDocument::OnPreUpdate).
         if ( !m_DrewThisFrame )
             return;
@@ -315,14 +365,12 @@ namespace Desert::Editor
         EnsurePreview();
         if ( !m_Preview || m_ViewSize.x == 0u || m_ViewSize.y == 0u )
             return;
-        // An edit, an undo or a redo changed the working copy: the preview plays a fresh copy of it (a new pointer
-        // restarts every emitter). Compared by value, so whatever route changed m_Working is seen. The effects
-        // clock starts over too and replays to the transport's time, so a paused frame shows the edit at the same
-        // t.
-        if ( !m_Played || *m_Played != m_Working )
+        // The asset took an edit (or was reverted): the preview's transport replays from zero to its time, so
+        // the picture at t stays a function of t (12e) - a paused frame shows the edit at the same t. Level
+        // placements are not restarted: a value edit reaches their live particles in place.
+        if ( m_Replayed != m_Synced )
         {
-            m_Played = std::make_shared<const Assets::Serialization::VFXSystemData>( m_Working );
-            m_Preview->SetVFXWorkingCopy( m_Played );
+            m_Replayed = m_Synced;
             m_Preview->RestartVFX();
         }
 
@@ -360,6 +408,11 @@ namespace Desert::Editor
                      m_Preview->RestartVFX();
              },
              []() { return false; } );
+        toolbar.AddButton(
+             ICON_MDI_UNDO_VARIANT, "Revert",
+             "Discard the unsaved edits: the system is read from its file again, in this window and in every scene",
+             [this]() { DiscardEdits(); }, []() { return false; },
+             [this]() { return GetDiskState() == DiskState::Dirty; } );
     }
 
     double VFXSystemDocument::PlaybackEnd() const
@@ -917,33 +970,22 @@ namespace Desert::Editor
 
     bool VFXSystemDocument::SaveDocument()
     {
-        if ( !m_Loaded || m_Assets == nullptr )
+        if ( !m_Loaded || !m_Asset )
             return false;
-        const Assets::AssetHandle handle( Subject().Owner );
-        const auto*               meta = m_Assets->FindMetadataByHandle( handle );
-        if ( meta == nullptr )
+        SyncWithAsset();
+        if ( m_Working != *m_Synced )
         {
-            m_Refusal = "Save: the system asset is no longer held by the asset manager";
+            // Only a state the format refuses stays in the window alone (SyncWithAsset): it is not written.
+            m_Refusal = "Save: the system as edited is not valid; finish or undo the edit first";
             return false;
         }
-        if ( auto saved = Assets::VFXSystemAsset::Save( meta->Filepath, m_Working ); !saved )
+        if ( auto saved = m_Asset->SaveEdits(); !saved )
         {
             m_Refusal = std::format( "Save: {}", saved.GetError() );
-            LOG_ERROR( "[VFX] '{}' was not saved: {}", meta->Filepath.string(), saved.GetError() );
+            LOG_ERROR( "[VFX] '{}' was not saved: {}", m_Asset->GetMetadata().Filepath.string(), saved.GetError() );
             return false;
         }
-        m_Saved = m_Working;
         m_Refusal.clear();
-        // The held asset re-reads what was written and the service drops its copy, so every level effect playing
-        // this system restarts with the saved data, and the next open reads it.
-        if ( const auto asset = m_Assets->FindByHandle<Assets::VFXSystemAsset>( handle ) )
-        {
-            if ( auto reloaded = asset->LoadFromFile(); !reloaded )
-                LOG_ERROR( "[VFX] '{}' was saved but would not be read back: {}", meta->Filepath.string(),
-                           reloaded.GetError() );
-        }
-        if ( auto* systems = Runtime::ResourceRegistry::GetVFXSystemService() )
-            systems->Refresh( handle );
         return true;
     }
 

@@ -1,0 +1,23 @@
+# VFX-INPLACE (card VFX-PRESETS2, owner 10-13 variant B): the .dfx window edits the AssetManager's asset in place. The
+# Starter scene's Campfire placement and the window's preview both name VFX/Campfire.dfx; a value edit in the window
+# reaches both with no program compile (editor.log: no "[VFX] stack ... compiles its host program" and no "rebuilds
+# its" line after the set), a structural edit (a module removed) rebuilds the emitters once, Revert reads the file
+# back into the asset and both return to the saved look. Nothing is saved: the file stays as it is.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run View "View mode: Lit"
+Дано run Open "VFX/Campfire.dfx"
+Дано set Transport.Playing 0
+Дано set Transport.Time 1.5
+Когда state
+Тогда-вид 0_before the preview shows the saved Campfire flames; the level viewport behind shows the Starter Campfire with the same flames
+Когда set Flames.ParticleUpdate.SizeOverLife.Scale.Keys 0,3,1,3,0,0
+Когда state
+Тогда 1_value_log editor.log after the set has no "compiles its host program" and no "rebuilds its" line; the window tab shows Campfire.dfx* (dirty)
+Тогда-вид 1_value the preview flames are about three times larger; the level Campfire's flames grew the same way without restarting (the fire did not blink out)
+Когда run Document "Campfire: Remove Flames.ParticleUpdate.ColorOverLife"
+Когда state
+Тогда 2_struct_log editor.log has exactly one "[VFX] entity ... rebuilds its ... emitter(s): the system's structure changed" line per placement (preview and level) for this edit, and at most one "compiles its host program" line for the new stack key
+Тогда-вид 2_struct both the preview and the level Campfire lose the orange-to-transparent fade (flames stay the spawn colour), alike
+Когда run Document "Discard edits"
+Когда state
+Тогда-вид 3_revert after Revert the preview and the level Campfire both show the saved flames again (frame 0_before), the tab title has no "*"

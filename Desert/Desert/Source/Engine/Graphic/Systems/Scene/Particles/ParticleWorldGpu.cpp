@@ -177,6 +177,8 @@ namespace Desert::Graphic::System
         auto*                             shaders = Runtime::ResourceRegistry::GetShaderService();
         if ( shaders == nullptr )
             return nullptr;
+        // The one line a program compile writes: an in-place value edit never reaches here (PatchEmitterValues).
+        LOG_INFO( "[VFX] stack {} compiles its host program", name );
         Core::ShaderVariant variant;
         variant.VirtualSources.push_back( { "Generated/VFXEmitterStack.glslh", hostSource } );
         auto acquired = shaders->AcquireVariant( "ParticleSimulate", variant );
@@ -236,6 +238,7 @@ namespace Desert::Graphic::System
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
+        gpu.Compiled     = compiled.GetValue();
         gpu.UserRows.clear();
         for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); ++s )
             if ( const VFX::VFXParamSlot& slot = compiled.GetValue().Slots[s];
@@ -266,6 +269,39 @@ namespace Desert::Graphic::System
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
+    }
+
+    void ParticleWorldGpu::PatchEmitterValues( ParticleEmitterGpu&                         gpu,
+                                               const Assets::Serialization::VFXSystemData& system,
+                                               const std::size_t index, const uint32_t entityId )
+    {
+        if ( gpu.Capacity == 0 || !gpu.Pipeline )
+            return; // disabled or refused at build time: the same structure is still disabled or refused
+        const auto& emitter = system.Emitters[index];
+        const auto  refuse  = [&]( const std::string& why )
+        {
+            LOG_ERROR( "[VFX] entity {} emitter {} '{}' does not simulate: {}", entityId, index, emitter.Name,
+                       why );
+            gpu.Capacity = 0;
+            gpu.Pipeline = nullptr;
+        };
+        const auto curves = VFX::BuildCurveAtlas( system );
+        if ( !curves.IsSuccess() )
+            return refuse( curves.GetError() );
+        auto params = VFX::BuildEmitterParams( gpu.Compiled, system, index, curves.GetValue() );
+        if ( !params.IsSuccess() )
+            return refuse( params.GetError() );
+        gpu.ParamRows = std::move( params.GetValue() );
+        if ( gpu.ParamRows.empty() )
+            gpu.ParamRows.emplace_back( 0.0f );
+        const std::size_t curveFloats = gpu.CurveFloats.size();
+        gpu.CurveFloats               = curves.GetValue().Floats;
+        if ( gpu.CurveFloats.empty() )
+            gpu.CurveFloats.push_back( 0.0f );
+        // A curve that gained or lost keys changes the atlas's length, not the program that reads it.
+        if ( gpu.CurveFloats.size() != curveFloats )
+            gpu.Curves = ShaderResources::StorageBuffer::Create(
+                 "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
     }
 
     void ParticleWorldGpu::FillDebugStats( VFX::VFXDebugStats& stats ) const
@@ -541,10 +577,26 @@ namespace Desert::Graphic::System
 
                  const auto         entityId = static_cast<uint32_t>( entity );
                  ParticleSystemGpu& system   = m_Systems[entityId];
-                 if ( system.System != instances->System )
+                 if ( system.System != instances->System && system.System &&
+                      system.Generation == instances->Generation &&
+                      system.Emitters.size() == instances->System->Emitters.size() )
+                 {
+                     // The same structure with other values (VFXWorld's rule, SameStructure): the parameter rows
+                     // are filled again and every particle lives on - no program is generated or compiled.
+                     system.System = instances->System;
+                     for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                         PatchEmitterValues( system.Emitters[k], *instances->System, k, entityId );
+                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
+                     ApplyPointSets( system, vfx.Data.PointSets, entityId );
+                 }
+                 else if ( system.System != instances->System )
                  {
                      // A new system for this entity: every emitter is compiled again (programs are shared by key).
-                     system.System = instances->System;
+                     if ( system.System )
+                         LOG_INFO( "[VFX] entity {} rebuilds its {} emitter(s): the system's structure changed",
+                                   entityId, instances->System->Emitters.size() );
+                     system.System     = instances->System;
+                     system.Generation = instances->Generation;
                      system.Emitters.clear();
                      system.Emitters.resize( instances->System->Emitters.size() );
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )

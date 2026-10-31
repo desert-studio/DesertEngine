@@ -198,6 +198,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
         ParticleDrawLayoutGpu                           DrawColumns;
         std::vector<glm::vec4>                          ParamRows;
+        // The stack BuildEmitter compiled (its parameter slots): what an in-place value edit re-fills ParamRows
+        // from without generating or compiling anything (PatchEmitterValues).
+        VFX::VFXCompiledEmitter                         Compiled;
         // The ParamRows a User.* binding fills (row, user parameter name): the placement's overrides replace
         // these rows, every other row is the stack's own.
         std::vector<std::pair<uint32_t, std::string>> UserRows;
@@ -286,6 +289,9 @@ namespace Desert::Graphic::System
     struct ParticleSystemGpu
     {
         std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
+        // The VFX::SystemInstance::Generation the emitters were built for: a new System under the same Generation
+        // moved values only (PatchEmitterValues), a new Generation rebuilds every emitter.
+        std::uint64_t                                               Generation = 0;
         std::vector<ParticleEmitterGpu>                             Emitters;
         // The VFXComponent overrides the emitters' User rows were last filled from (UE OverrideParameters).
         std::vector<ECS::VFXUserOverride> Overrides;
@@ -377,6 +383,11 @@ namespace Desert::Graphic::System
         // Compiles emitter @p index of @p system into @p gpu (program, columns, parameters, curves).
         void BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
                            std::size_t index, uint32_t entityId );
+        // VFX-PRESETS2: emitter @p index of @p system moved values only (same Generation): its parameter rows and
+        // curve atlas are filled again from the stack compiled at build time - the program, the columns and the
+        // live particles stay. A value the stack refuses sits the emitter out, as a build would.
+        static void PatchEmitterValues( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
+                                        std::size_t index, uint32_t entityId );
         // Fills every emitter's User rows of @p system from the placement's @p overrides (else the defaults).
         static void ApplyUserOverrides( ParticleSystemGpu& system, const std::vector<ECS::VFXUserOverride>& overrides,
                                         uint32_t entityId );

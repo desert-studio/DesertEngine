@@ -894,7 +894,6 @@ namespace Desert::Editor
         auto& vfx             = m_Effect.GetComponent<ECS::VFXComponent>();
         vfx.Data.System       = system;
         vfx.Data.AutoActivate = true;
-        vfx.EditedSystem.reset(); // a newly named system plays the asset until SetVFXWorkingCopy says otherwise
         vfx.RequestRestart    = true;
         // On the floor's top (the floor entity sits at y = -50, ApplySetup).
         const glm::vec3 origin( 0.0f, -50.0f, 0.0f );
@@ -936,12 +935,6 @@ namespace Desert::Editor
     double PreviewViewport::GetVFXStepSeconds() const
     {
         return m_Scene->GetVFXWorld().GetClock().GetSettings().StepSeconds;
-    }
-
-    void PreviewViewport::SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working )
-    {
-        if ( m_Effect )
-            m_Effect.GetComponent<ECS::VFXComponent>().EditedSystem = std::move( working );
     }
 
     void PreviewViewport::InvalidatePipelines( const void* shader )

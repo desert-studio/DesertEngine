@@ -6,6 +6,8 @@
 #include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 #include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/VFXModuleAsset.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -41,6 +43,44 @@ namespace Desert::VFX
             for ( std::size_t k = 0; k < system.Runs.size() && k < system.System->Emitters.size(); ++k )
                 total += system.Runs[k] ? system.System->Emitters[k].Capacity : 0u;
             return total;
+        }
+
+        // Every emitter's compiled stack Key; 0 for one that does not compile (the render side's build refuses
+        // it, with its reason).
+        std::vector<std::uint64_t> StackKeysOf( const Assets::Serialization::VFXSystemData& data )
+        {
+            std::vector<std::uint64_t> keys( data.Emitters.size(), 0u );
+            for ( std::size_t k = 0; k < keys.size(); ++k )
+                if ( const auto compiled = CompileEmitterStack( data, k, Assets::RegistryVFXModuleResolver{} );
+                     compiled.IsSuccess() )
+                    keys[k] = compiled.GetValue().Key;
+            return keys;
+        }
+
+        // THE ONE RULE for "the edit moved values only" (VFX-PRESETS2): the same emitters with the same pool
+        // slices, renderers and compiled stacks (@p keys against the keys of the last start-over), the same User
+        // parameter rows and the same seed. What may differ is what the parameter buffer, the curve atlas and the
+        // spawn plans carry - those are re-read in place.
+        bool SameStructure( const SystemInstance& system, const Assets::Serialization::VFXSystemData& data,
+                            const std::vector<std::uint64_t>& keys )
+        {
+            const Assets::Serialization::VFXSystemData& old = *system.System;
+            if ( old.Seed != data.Seed || old.Emitters.size() != data.Emitters.size() ||
+                 old.UserParams.size() != data.UserParams.size() || keys != system.StackKeys )
+                return false;
+            for ( std::size_t u = 0; u < data.UserParams.size(); ++u )
+                if ( old.UserParams[u].Name != data.UserParams[u].Name ||
+                     old.UserParams[u].Type != data.UserParams[u].Type )
+                    return false;
+            for ( std::size_t k = 0; k < data.Emitters.size(); ++k )
+            {
+                const auto& was = old.Emitters[k];
+                const auto& now = data.Emitters[k];
+                if ( was.Name != now.Name || was.Enabled != now.Enabled || was.Space != now.Space ||
+                     was.Capacity != now.Capacity || was.Renderers != now.Renderers )
+                    return false;
+            }
+            return true;
         }
     } // namespace
 
@@ -197,6 +237,7 @@ namespace Desert::VFX
         const double                         tickSeconds = static_cast<double>( m_Plan.StepCount ) * stepSeconds;
 
         Runtime::VFXSystemService* systems = Runtime::ResourceRegistry::GetVFXSystemService();
+        std::unordered_map<const Assets::Serialization::VFXSystemData*, std::vector<std::uint64_t>> stackKeys;
         auto                       view    = registry.view<ECS::VFXComponent, ECS::UUIDComponent>();
         view.each(
              [&]( entt::entity entity, ECS::VFXComponent& vfx, const ECS::UUIDComponent& id )
@@ -205,25 +246,59 @@ namespace Desert::VFX
                      return; // an empty slot plays nothing
                  // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
                  // service, naming the handle.
-                 // The editor's working copy, when the component carries one, is what plays (VFX-12).
-                 std::shared_ptr<const Assets::Serialization::VFXSystemData> data = vfx.EditedSystem;
-                 if ( !data )
-                 {
-                     const auto resolved = systems->Get( vfx.Data.System );
-                     if ( !resolved.IsSuccess() || !resolved.GetValue() )
-                         return;
-                     data = resolved.GetValue();
-                 }
+                 const auto resolved = systems->Get( vfx.Data.System );
+                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
+                     return;
+                 const std::shared_ptr<const Assets::Serialization::VFXSystemData> data = resolved.GetValue();
 
-                 const std::uint64_t uuid   = id.UUID;
-                 SystemInstance&     system = m_Systems[uuid];
+                 const std::uint64_t        uuid   = id.UUID;
+                 SystemInstance&            system = m_Systems[uuid];
+                 std::vector<std::uint64_t> keys;
+                 // The plans read the system's numbers and the placement's overrides again; the instances keep their
+                 // age and carried fractions (a value edit, a SetVariable mid-flight: the next spawns change).
+                 const auto replan = [&]
+                 {
+                     for ( std::size_t k = 0; k < system.Plans.size(); ++k )
+                     {
+                         auto plan = CompileSpawnPlan( *data, k, system.Overrides );
+                         if ( !plan.IsSuccess() )
+                         {
+                             LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
+                                        data->Emitters[k].Name, plan.GetError() );
+                             system.Runs[k] = false;
+                         }
+                         else
+                         {
+                             system.Plans[k] = plan.GetValue();
+                             system.Runs[k]  = data->Emitters[k].Enabled;
+                         }
+                     }
+                 };
                  if ( system.System != data )
+                 {
+                     // Once per new pointer per tick, however many placements play it.
+                     auto memo = stackKeys.find( data.get() );
+                     if ( memo == stackKeys.end() )
+                         memo = stackKeys.emplace( data.get(), StackKeysOf( *data ) ).first;
+                     keys = memo->second;
+                 }
+                 if ( system.System != data && system.System && SameStructure( system, *data, keys ) )
+                 {
+                     // Values only (the `.dfx` window's in-place edit): the plans read the new numbers, every
+                     // instance keeps its age and carried fractions, the render side re-uploads its parameters.
+                     system.System    = data;
+                     system.Overrides = vfx.Data.Overrides;
+                     replan();
+                 }
+                 else if ( system.System != data )
                  {
                      const bool firstSight = !system.System;
                      // A new system (first sight, renamed, reloaded): every emitter starts over from its plan,
                      // and so does its scalability state.
                      const std::size_t count = data->Emitters.size();
                      system.System           = data;
+                     system.Generation       = ++m_LastGeneration;
+                     system.StackKeys        = std::move( keys );
                      system.Plans.assign( count, {} );
                      system.Runs.assign( count, false );
                      system.Emitters.assign( count, {} );
@@ -261,21 +336,7 @@ namespace Desert::VFX
                      // The placement's User values moved (Details, VFX.setVariable): the plans read them again;
                      // the instances keep their age and carried fractions.
                      system.Overrides = vfx.Data.Overrides;
-                     for ( std::size_t k = 0; k < system.Plans.size(); ++k )
-                     {
-                         auto plan = CompileSpawnPlan( *data, k, system.Overrides );
-                         if ( !plan.IsSuccess() )
-                         {
-                             LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
-                                        data->Emitters[k].Name, plan.GetError() );
-                             system.Runs[k] = false;
-                         }
-                         else
-                         {
-                             system.Plans[k] = plan.GetValue();
-                             system.Runs[k]  = data->Emitters[k].Enabled;
-                         }
-                     }
+                     replan();
                  }
                  system.Seen   = true;
                  system.Entity = entity;

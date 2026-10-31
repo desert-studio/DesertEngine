@@ -8,6 +8,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <filesystem>
+#include <utility>
 
 namespace Desert::Assets
 {
@@ -55,18 +56,47 @@ namespace Desert::Assets
             return Common::MakeFormattedError<bool>( "VFX system '{}' is not usable: {}", path,
                                                      parsed.GetError() );
         }
-        m_Data = parsed.ExtractValue();
-        if ( m_Data.Header )
-            if ( const auto guid = Common::Content::AssetGuidFromText( m_Data.Header->Guid ); guid )
+        m_Data   = std::make_shared<const Serialization::VFXSystemData>( parsed.ExtractValue() );
+        m_OnDisk = m_Data;
+        if ( m_Data->Header )
+            if ( const auto guid = Common::Content::AssetGuidFromText( m_Data->Header->Guid ); guid )
                 m_Guid = guid.GetValue();
         m_Ready = true;
+        s_EditSerial.fetch_add( 1, std::memory_order_acq_rel );
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VFXSystemAsset::Unload()
     {
-        m_Data  = Serialization::VFXSystemData{};
-        m_Ready = false;
+        // An edit lives only here until it is saved: dropping it is losing the person's work, not freeing memory.
+        if ( HasUnsavedEdits() )
+            return Common::MakeFormattedError<bool>( "VFX system '{}' has unsaved edits; it stays loaded",
+                                                     m_Metadata.Filepath.string() );
+        m_Data   = std::make_shared<const Serialization::VFXSystemData>();
+        m_OnDisk = m_Data;
+        m_Ready  = false;
+        return BOOLSUCCESS;
+    }
+
+    void VFXSystemAsset::Edit( Serialization::VFXSystemData data )
+    {
+        m_Data = std::make_shared<const Serialization::VFXSystemData>( std::move( data ) );
+        s_EditSerial.fetch_add( 1, std::memory_order_acq_rel );
+    }
+
+    bool VFXSystemAsset::HasUnsavedEdits() const
+    {
+        return m_Ready && m_Data != m_OnDisk && *m_Data != *m_OnDisk;
+    }
+
+    Common::BoolResultStr VFXSystemAsset::SaveEdits()
+    {
+        if ( !m_Ready )
+            return Common::MakeFormattedError<bool>( "VFX system '{}' is not loaded; there is nothing to save",
+                                                     m_Metadata.Filepath.string() );
+        if ( auto saved = Save( m_Metadata.Filepath, *m_Data ); !saved )
+            return saved;
+        m_OnDisk = m_Data;
         return BOOLSUCCESS;
     }
 

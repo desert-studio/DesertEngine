@@ -2136,12 +2136,6 @@ namespace Desert::ECS
         // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
 
-        // The VFX System editor's working copy (UE: the Niagara editor previews its own copy of the system, not
-        // the asset): when set, this component plays it instead of what Data.System names. Set only on the
-        // preview scene's effect, never on a level's; a new pointer is a new system - every emitter starts over.
-        // Transient - not reflected.
-        std::shared_ptr<const Assets::Serialization::VFXSystemData> EditedSystem;
-
         // Set by a Level Sequence's VFX track (LevelSequenceEntityHost::DriveEffect); nullopt = the effect runs on
         // the world's time as authored. While set, this instance's age is the sequence's - the scene's delta and
         // AutoActivate do not move it. The Sequencer preview gives it back on Restore. Transient - not reflected.
