@@ -1259,7 +1259,7 @@ namespace Desert::Editor
                 // UE ProfileGPU from a live session: the one writer of the per-pass table, the same call a
                 // headless --shot ends with (ShotDirector::EndFrame), so both runs log identical rows. The table
                 // goes to editor.log; the reply only says it was written.
-                ProfilerWindow::DumpProfilerToLog();
+                ProfilerWindow::DumpProfilerToLog( m_Workspace.PrimaryRenderer() );
                 return Control::Response::Success( request.Id );
             }
 
@@ -1708,9 +1708,7 @@ namespace Desert::Editor
                                                          .Coarse    = light.Coarse,
                                                          .Receivers = light.Receivers } );
             }
-            // GpuDriven::MeshPass order (DrawCounters.hpp kCountedMeshPasses).
-            static constexpr std::array<const char*, Graphic::kCountedMeshPasses> kMeshPassNames{
-                 "depthPrepass", "gbuffer", "forward", "shadowCascade", "virtualShadow" };
+            // GpuDriven::MeshPass order (DrawCounters.hpp kCountedMeshPasses), named by MeshPassStateName.
             static_assert( Graphic::kCountedMeshPasses == Graphic::GpuDriven::kMeshPassCount );
             const Graphic::GpuDriven::DrawCommandCache* const cache =
                  m_Workspace.PrimaryRenderer() != nullptr ? m_Workspace.PrimaryRenderer()->GetDrawCommandCache()
@@ -1719,7 +1717,8 @@ namespace Desert::Editor
             for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
             {
                 const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
-                Control::MeshPassDrawSnapshot       item{ .Name          = kMeshPassNames[pass],
+                Control::MeshPassDrawSnapshot       item{ .Name          = Graphic::GpuDriven::MeshPassStateName(
+                                                               static_cast<Graphic::GpuDriven::MeshPass>( pass ) ),
                                                           .CpuDraws      = counted.CpuDraws,
                                                           .IndirectCalls = counted.IndirectCalls,
                                                           .BinsIssued    = counted.BinsIssued };

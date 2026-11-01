@@ -14,6 +14,11 @@ namespace Desert::Engine
     class Application;
 }
 
+namespace Desert::Graphic
+{
+    class SceneRenderer;
+}
+
 namespace Desert::Editor
 {
     class PlaySession;
@@ -40,7 +45,10 @@ namespace Desert::Editor
         void DrawEngineStats( float rightMargin );
         void DrawProfilerWindow();
         /// The profiler's CPU+GPU table as log lines — the panel's button and --gpu-profile share it.
-        static void DumpProfilerToLog();
+        /// @p renderer: the view whose draw bins and mesh passes the DrawBins / MeshPasses lines read (the
+        /// workspace's primary renderer; null = those lines say none). A parameter, not m_Workspace: the
+        /// dump is static, called by the shot director, the control channel and the palette.
+        static void DumpProfilerToLog( const Graphic::SceneRenderer* renderer );
         /// --flight: times the previous frame's row and appends this frame's (Editor/Core/FlightRules.hpp).
         /// @p counted is whether the capture counts this frame; an uncounted one is a Settling row.
         void RecordFlightFrame( bool counted );

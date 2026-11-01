@@ -52,7 +52,7 @@ namespace Desert::Editor
                } } );
     }
 
-    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands, void ( *dumpToLog )() )
+    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands, std::function<void()> dumpToLog )
     {
         const auto enable = []( const bool on ) -> Common::BoolResultStr
         {

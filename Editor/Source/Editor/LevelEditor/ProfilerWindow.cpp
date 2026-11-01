@@ -11,6 +11,7 @@
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -105,7 +106,7 @@ namespace Desert::Editor
         return true;
     }
 
-    void ProfilerWindow::DumpProfilerToLog()
+    void ProfilerWindow::DumpProfilerToLog( const Graphic::SceneRenderer* const renderer )
     {
         auto& prof = ::Common::Profiling::Profiler::Get();
 
@@ -256,12 +257,46 @@ namespace Desert::Editor
         // frames in flight late), per culled view: drawn = phase 1 (in view, not held back by last frame's HZB) +
         // phase 2 (found visible in this frame's), against the frustum-only count (drawn + occluded).
         std::string binViews;
-        if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer(); renderer != nullptr )
+        if ( renderer != nullptr )
             for ( const Graphic::GpuDriven::CullPhaseViewCount& view : renderer->GetDrawBinPhaseCounts() )
                 binViews += std::format( " {} {}+{}/{}", view.Name, view.Phase1, view.Phase2,
                                          view.Phase1 + view.Phase2 + view.Occluded );
         LOG_INFO( "[Profiler] DrawBins{} (instances drawn phase 1 + phase 2 / in view without occlusion)",
                   binViews.empty() ? " none" : binViews );
+        // GPU-CULL-2: per mesh pass how its draws were issued - the numbers of DesertCtl `state views.meshPasses`
+        // (ControlService) from the same two sources, so a scenario reads them from the profile dump: bins = bin
+        // records issued this frame (every view of the pass, a culled-empty bin included) / bins the draw command
+        // cache holds; cpu = per-submesh draws the CPU lists issued in the pass; fallback = per BinFallback reason
+        // the submeshes drawn in the pass that stay on the CPU path (once per primitive x submesh), the reason a
+        // static mesh or ISM is not GPU-culled (no HZB occlusion on the CPU path).
+        static_assert( Graphic::kCountedMeshPasses == Graphic::GpuDriven::kMeshPassCount );
+        const Graphic::GpuDriven::DrawCommandCache* const cache =
+             renderer != nullptr ? renderer->GetDrawCommandCache() : nullptr;
+        std::string meshPasses;
+        for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
+        {
+            const auto                          meshPass = static_cast<Graphic::GpuDriven::MeshPass>( pass );
+            const Graphic::MeshPassDrawCounters counted  = Graphic::DrawCounter::LastFrameMeshPass( pass );
+            uint32_t                            cached   = 0;
+            std::string                         fallbacks;
+            if ( cache != nullptr )
+            {
+                const Graphic::GpuDriven::PassDrawTable& table = cache->Pass( meshPass );
+                cached = static_cast<uint32_t>( table.Bins.size() );
+                for ( uint32_t reason = 0; reason < Graphic::GpuDriven::kBinFallbackCount; ++reason )
+                    if ( table.Fallbacks[reason] > 0u )
+                        fallbacks += std::format(
+                             "{}{}={}", fallbacks.empty() ? "" : " ",
+                             Graphic::GpuDriven::BinFallbackName( static_cast<Graphic::GpuDriven::BinFallback>( reason ) ),
+                             table.Fallbacks[reason] );
+            }
+            meshPasses += std::format( " {} bins {}/{} cpu {} fallback({})",
+                                       Graphic::GpuDriven::MeshPassStateName( meshPass ), counted.BinsIssued, cached,
+                                       counted.CpuDraws, fallbacks );
+        }
+        LOG_INFO( "[Profiler] MeshPasses{} (per pass: bin records issued / bins cached, cpu draws, "
+                  "fallback(reason=submeshes left on the CPU path){})",
+                  meshPasses, cache != nullptr ? "" : "; no draw command cache" );
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 
@@ -325,7 +360,7 @@ namespace Desert::Editor
         }
         ImGui::SameLine();
         if ( ImGui::Button( "Dump to Log" ) )
-            DumpProfilerToLog();
+            DumpProfilerToLog( m_Workspace.PrimaryRenderer() );
         if ( const Graphic::GrassDrawCounters grass = Graphic::DrawCounter::LastFrameGrass(); grass.Varieties > 0u )
             ImGui::Text( "Grass drawn: full %llu  camera %llu  post %llu",
                          static_cast<unsigned long long>( grass.Full ),

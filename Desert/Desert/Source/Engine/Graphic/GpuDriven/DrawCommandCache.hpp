@@ -74,6 +74,9 @@ namespace Desert::Graphic::GpuDriven
         Count
     };
     inline constexpr uint32_t kMeshPassCount = static_cast<uint32_t>( MeshPass::Count );
+    // The pass's name where its counts are read: DesertCtl `state views.meshPasses` (ControlService) and the
+    // profile dump's `[Profiler] MeshPasses` line (ProfilerWindow) - one table, so the two never disagree.
+    [[nodiscard]] const char* MeshPassStateName( MeshPass pass );
 
     // The shadow passes draw only kCastsShadow primitives (UE bCastShadow on the shadow-depth pass processor).
     [[nodiscard]] constexpr bool IsShadowPass( const MeshPass pass )

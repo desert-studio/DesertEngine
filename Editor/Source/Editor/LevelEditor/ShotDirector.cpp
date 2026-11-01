@@ -361,7 +361,7 @@ namespace Desert::Editor
         if ( !CountRenderedFrame( frame.Recorded ) )
             return std::nullopt;
         if ( shot.GpuProfile )
-            ProfilerWindow::DumpProfilerToLog();
+            ProfilerWindow::DumpProfilerToLog( m_Workspace.PrimaryRenderer() );
         if ( shot.FlightRoute && !profiler.FinishFlight() )
             MarkFailed();
         return Finish();
