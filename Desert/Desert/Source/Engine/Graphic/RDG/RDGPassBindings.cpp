@@ -207,6 +207,11 @@ namespace Desert::Graphic::RDG
         return m_Context;
     }
 
+    BindingBlockRef PassBindings::GetBlock() const
+    {
+        return m_Block;
+    }
+
     std::span<const BoundTexture> PassBindings::GetTextures() const
     {
         return m_Textures;
@@ -433,7 +438,8 @@ namespace Desert::Graphic::RDG
         return m_Ref;
     }
 
-    PassBindings::PassBindings( const PassContext& context, BindingBlockRef block ) : m_Context( context )
+    PassBindings::PassBindings( const PassContext& context, BindingBlockRef block )
+         : m_Context( context ), m_Block( block )
     {
         const auto& passes = context.m_Builder.m_Passes;
         if ( block.Pass != context.m_Pass || block.Block >= passes[block.Pass].Blocks.size() )

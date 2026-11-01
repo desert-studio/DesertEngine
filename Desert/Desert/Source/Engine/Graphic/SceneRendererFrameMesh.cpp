@@ -587,7 +587,11 @@ namespace Desert::Graphic
              graph, "TerrainGBuffer", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return terrain->RenderGBufferManual( context ); },
-             [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareGBufferDraws( pass ); } );
+             [terrain]( RDG::PassBuilder& pass )
+             {
+                 DESERT_PROFILE_SCOPE( "Terrain: GBuffer setup" );
+                 terrain->DeclareGBufferDraws( pass );
+             } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 

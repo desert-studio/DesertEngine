@@ -27,10 +27,13 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <chrono>
 #include <format>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Desert::Runtime
 {
@@ -71,13 +74,114 @@ namespace Desert::Runtime
         }
     } // namespace
 
+    AssetHotReload::~AssetHotReload()
+    {
+        if ( m_ProbeInFlight.valid() )
+            m_ProbeInFlight.wait();
+    }
+
     void AssetHotReload::Tick( const Common::Timestep& ts, Assets::AssetManager& assetManager,
                                Core::Scene* scene )
     {
         m_Accum += ts.GetSeconds();
+
+        if ( m_ProbeInFlight.valid() )
+        {
+            if ( m_ProbeInFlight.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                return;
+            m_Probe = m_ProbeInFlight.get();
+            ApplyProbe( assetManager, scene );
+            m_Probe = {};
+            return;
+        }
+
         if ( m_Accum < kPollInterval )
             return;
         m_Accum = 0.0f;
+        LaunchProbe( assetManager );
+    }
+
+    namespace
+    {
+        template <typename TAsset>
+        void AppendLoadedPaths( Assets::AssetManager& assetManager, std::vector<std::filesystem::path>& out )
+        {
+            for ( const auto& [handle, asset] : assetManager.FindAllByType<TAsset>() )
+                if ( asset )
+                    out.push_back( asset->GetMetadata().Filepath );
+        }
+    } // namespace
+
+    void AssetHotReload::LaunchProbe( Assets::AssetManager& assetManager )
+    {
+        // THE SAME SET THE APPLY WALKS: every asset type a Poll* below reloads, by the path it reloads from.
+        std::vector<std::filesystem::path> watched;
+        AppendLoadedPaths<Assets::SurfaceMaterialAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::CloudNoiseVolumeAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::CloudTypeAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::CloudModellingVolumeAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::UIThemeAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::LandscapeLayerInfoAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::LandscapeGrassTypeAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::PrefabAsset>( assetManager, watched );
+        AppendLoadedPaths<Assets::VFXEffectTypeAsset>( assetManager, watched );
+        std::vector<std::filesystem::path> shaders;
+        AppendLoadedPaths<Assets::ShaderAsset>( assetManager, shaders );
+
+        m_ProbeInFlight = Common::JobSystem::Get().Async(
+             [this, watched = std::move( watched ), shaders = std::move( shaders )]() mutable
+             { return RunProbe( std::move( watched ), std::move( shaders ) ); } );
+    }
+
+    AssetHotReload::Probe AssetHotReload::RunProbe( std::vector<std::filesystem::path> watched,
+                                                    std::vector<std::filesystem::path> shaders )
+    {
+        Probe                           probe;
+        std::unordered_set<std::string> observed;
+        // Every distinct file is asked of the watch ONCE per probe: a header shared by forty programs is
+        // changed for all forty, not for whichever program happened to observe it first. No short-circuit
+        // anywhere: a file first observed after an edit is a baseline and the edit is lost.
+        const auto observe = [this, &probe, &observed]( const std::filesystem::path& file )
+        {
+            std::string key = WatchKey( file );
+            if ( !observed.insert( key ).second )
+                return;
+            if ( m_Watch.Observe( key, file ) == Common::Utils::WriteWatch::Seen::Changed )
+                probe.Changed.emplace( std::move( key ), file );
+        };
+
+        for ( const auto& file : watched )
+            observe( file );
+
+        // A shader is its .shader file AND every .glslh that file pulls in, transitively: Core::ShaderSourceFiles,
+        // the same closure the SPIR-V cache key hashes, walked over the FILE (an unloaded asset holds no text).
+        for ( const auto& shader : shaders )
+        {
+            auto files = Core::ShaderSourceFiles( shader );
+            for ( const auto& file : files )
+                observe( file );
+            probe.ShaderFiles.emplace( WatchKey( shader ), std::move( files ) );
+        }
+
+        for ( const auto& file : Common::Utils::FileSystem::ListFilesRecursive(
+                   std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ) /
+                   Core::ShadingModels::kShadingModelDirectory ) )
+        {
+            if ( file.extension() != Core::ShadingModels::kShadingModelExtension )
+                continue;
+            observe( file );
+            probe.ShadingModelFiles.push_back( file );
+        }
+        return probe;
+    }
+
+    void AssetHotReload::ApplyProbe( Assets::AssetManager& assetManager, Core::Scene* scene )
+    {
+        // The registry row follows the bytes, once per changed file: a rewritten header may state another GUID,
+        // other edges or another size, and the pickers read the row, not the object this apply is about to
+        // reload.
+        for ( const auto& [key, path] : m_Probe.Changed )
+            Assets::ContentRegistry::Update( path );
 
         PollMaterials( assetManager, scene );
         PollShaders( assetManager );
@@ -449,17 +553,17 @@ namespace Desert::Runtime
         }
     }
 
-    bool AssetHotReload::TouchWatched( const std::filesystem::path& path )
+    std::string AssetHotReload::WatchKey( const std::filesystem::path& path )
     {
-        // Missing leaves the in-memory version alone; First is a baseline, not an edit. A same-size rewrite
-        // inside one tick of the file system's clock is Changed too: the watch hashes a racy stamp's content.
-        const bool changed =
-             m_Watch.Observe( path.generic_string(), path ) == Common::Utils::WriteWatch::Seen::Changed;
-        // The registry row follows the bytes: a rewritten header may state another GUID, other edges or
-        // another size, and the pickers read the row, not the object this poll is about to reload.
-        if ( changed )
-            Assets::ContentRegistry::Update( path );
-        return changed;
+        return path.lexically_normal().generic_string();
+    }
+
+    bool AssetHotReload::TouchWatched( const std::filesystem::path& path ) const
+    {
+        // Missing leaves the in-memory version alone; First is a baseline, not an edit; a same-size rewrite
+        // inside one tick of the file system's clock is Changed too (the watch hashes a racy stamp's content).
+        // All of it was decided by the probe; this only reads its answer.
+        return m_Probe.Changed.contains( WatchKey( path ) );
     }
 
     void AssetHotReload::PollShaders( Assets::AssetManager& assetManager )
@@ -475,11 +579,8 @@ namespace Desert::Runtime
         bool shadingModelsReloaded = false;
         {
             bool manifestChanged = false;
-            for ( const auto& file : Common::Utils::FileSystem::ListFilesRecursive(
-                       std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ) /
-                       Core::ShadingModels::kShadingModelDirectory ) )
-                if ( file.extension() == Core::ShadingModels::kShadingModelExtension )
-                    manifestChanged = TouchWatched( file ) || manifestChanged;
+            for ( const auto& file : m_Probe.ShadingModelFiles )
+                manifestChanged = manifestChanged || TouchWatched( file );
             if ( manifestChanged && !m_FirstScan )
             {
                 if ( const auto reloaded = Core::ShadingModels::ReloadShaderRootShadingModels(); !reloaded )
@@ -494,37 +595,26 @@ namespace Desert::Runtime
             }
         }
 
-        std::unordered_map<std::string, bool> observedThisPoll;
-        const auto changedThisPoll = [this, &observedThisPoll]( const std::filesystem::path& file )
-        {
-            const auto [it, first] =
-                 observedThisPoll.try_emplace( file.lexically_normal().generic_string(), false );
-            if ( first )
-                it->second = TouchWatched( file );
-            return it->second;
-        };
-
         for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !asset )
                 continue;
             const auto& path = asset->GetMetadata().Filepath;
 
-            // A shader is its .shader file AND every .glslh that file pulls in, transitively —
-            // Core::ShaderSourceFiles, the same closure the SPIR-V cache key hashes, walked over the FILE (an
-            // unloaded asset holds no text). Every file is asked of the watch once per poll: a header shared by
-            // forty programs is changed for all forty, not for whichever program happened to observe it first. No
-            // short-circuit — every file of every program has to be observed, or a file first seen after an edit
-            // is a baseline and the edit is lost.
+            // Its files, as the probe walked them (RunProbe); a shader loaded after the probe's snapshot is not
+            // in it, and the next probe takes its baseline.
+            const auto files = m_Probe.ShaderFiles.find( WatchKey( path ) );
+            if ( files == m_Probe.ShaderFiles.end() )
+                continue;
             bool changed = false;
-            for ( const auto& file : Core::ShaderSourceFiles( path ) )
-                changed = changedThisPoll( file ) || changed;
+            for ( const auto& file : files->second )
+                changed = changed || TouchWatched( file );
 
             if ( shadingModelsReloaded && !changed )
             {
                 // Also a program whose surface template resolves a model to an index in C++, not in GLSL.
                 changed = Core::Preprocess::DShaderParser::MayDeclareSurface( Core::ShaderFileText( path ) );
-                for ( const auto& file : Core::ShaderSourceFiles( path ) )
+                for ( const auto& file : files->second )
                     changed = changed || file.generic_string().ends_with( Core::ShadingModels::kGeneratedInclude );
             }
 

@@ -1449,6 +1449,47 @@ namespace Desert::Graphic::System
     // in here cannot land without either this line or a split that is a task of its own. Named in Г26's
     // report as debt rather than hidden.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    std::size_t MeshRenderer::IsmViewCullKeyHash::operator()( const IsmViewCullKey& key ) const noexcept
+    {
+        const std::size_t h = std::hash<const void*>{}( key.Transforms );
+        return h ^ ( std::hash<const void*>{}( key.Mesh ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u ) );
+    }
+
+    const MeshRenderer::IsmViewCull& MeshRenderer::CachedIsmViewCull( const InstancedMeshRenderData& ism,
+                                                                      const Core::Frustum&           frustum,
+                                                                      const Geometry::LODView&       view )
+    {
+        const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+        std::array<glm::vec4, 6> planes{};
+        for ( std::size_t p = 0; p < planes.size(); ++p )
+        {
+            const Core::Frustum::Plane& plane = frustum.GetPlane( static_cast<Core::FrustumPlane>( p ) );
+            planes[p]                         = glm::vec4( plane.Normal, plane.Distance );
+        }
+        const float               pad      = WindBoundsPad( ism.Wind );
+        const std::vector<float>& lodSizes = ism.Mesh->GetLODScreenSizes();
+        IsmViewCull&              entry    = m_IsmViewCulls[IsmViewCullKey{ ism.Transforms.get(), ism.Mesh }];
+        entry.Generation                   = m_IsmViewCullGeneration;
+        const bool same = entry.Snapshot == ism.Transforms && entry.LocalBounds.Min == localBounds.Min &&
+                          entry.LocalBounds.Max == localBounds.Max && entry.Planes == planes &&
+                          entry.Cull.Min == ism.CullDistance.Min && entry.Cull.Max == ism.CullDistance.Max &&
+                          entry.BoundsPad == pad && entry.View.Origin == view.Origin &&
+                          entry.View.Projection == view.Projection && entry.LodScreenSizes == lodSizes;
+        if ( same )
+            return entry;
+        DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
+        entry.Snapshot       = ism.Transforms;
+        entry.LocalBounds    = localBounds;
+        entry.Planes         = planes;
+        entry.Cull           = ism.CullDistance;
+        entry.BoundsPad      = pad;
+        entry.View           = view;
+        entry.LodScreenSizes = lodSizes;
+        CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, view, view,
+                             lodSizes, entry.Visible, entry.Levels );
+        return entry;
+    }
+
     void MeshRenderer::BuildStaticDraws( MeshDrawList& list )
     {
         // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
@@ -1526,27 +1567,33 @@ namespace Desert::Graphic::System
             const auto found = walked.find( obj );
             return found != walked.end() ? found->second : SubmeshMask{ obj->HiddenSubmeshes };
         };
-        for ( const auto& data : m_StaticQueue )
+        // The CPU walk of the queue, timed as one row (GPU-COST-37: Add passes' split).
         {
-            if ( data.Mesh == nullptr || !data.MaterialSlots )
-                continue;
+            DESERT_PROFILE_SCOPE( "Mesh: Static walk" );
+            for ( const auto& data : m_StaticQueue )
+            {
+                if ( data.Mesh == nullptr || !data.MaterialSlots )
+                    continue;
 
-            // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
-            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
-            // work.
-            const std::optional<SubmeshMask> walk =
-                 CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
-            if ( !walk )
-                continue;
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
-                continue;
-            if ( !( *walk == SubmeshMask{ data.HiddenSubmeshes } ) )
-                walked.emplace( &data, *walk );
+                // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it
+                // and the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no
+                // culling work.
+                const std::optional<SubmeshMask> walk =
+                     CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
+                if ( !walk )
+                    continue;
+                if ( !IsVisibleInView( frustum, data.Transform,
+                                       Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                    continue;
+                if ( !( *walk == SubmeshMask{ data.HiddenSubmeshes } ) )
+                    walked.emplace( &data, *walk );
 
-            // The entry's section slot drives its batch (one entry per section material, made at submit by
-            // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
-            if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
-                groupFor( slot.Surface ).push_back( &data );
+                // The entry's section slot drives its batch (one entry per section material, made at submit by
+                // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked
+                // out).
+                if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
+                    groupFor( slot.Surface ).push_back( &data );
+            }
         }
 
         // Accumulators for the auto-instanced path (shared across ALL material groups). The shared instanced
@@ -2092,6 +2139,7 @@ namespace Desert::Graphic::System
         if ( instancingOn )
         {
             // The deferred halves count into one total (DeclareGBufferDraws zeroes it; the prepass does not count).
+            DESERT_PROFILE_SCOPE( "Mesh: ISM draws" );
             if ( m_DeferredHalf == DeferredPrepassHalf::None )
                 m_IsmInstancesDrawn = 0;
             for ( const auto& ism : m_InstancedQueue )
@@ -2142,17 +2190,16 @@ namespace Desert::Graphic::System
                 //
                 // Only the visible transforms are appended, so the slice named by firstInstance is exactly
                 // the instances that survived: nothing downstream needs to know culling happened.
-                const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-
+                //
                 // Visible instances and their levels, gathered in ONE pass over the component's array.
                 // The LOD question is per instance for the same reason the visibility question is: the
                 // batch is one entity but forty thousand placements, and the near ones and the far ones
                 // of a single ISM are not the same object to a renderer.
-                auto& visible = m_ScratchIsmVisible;
-                auto& levels  = m_ScratchLodLevels;
+                // Walked once per change of its inputs, not once per pass per frame (CachedIsmViewCull).
                 const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
-                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, mainView,
-                                     mainView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                const IsmViewCull&            culled  = CachedIsmViewCull( ism, frustum, mainView );
+                const std::vector<glm::mat4>& visible = culled.Visible;
+                const std::vector<uint32_t>&  levels  = culled.Levels;
                 if ( m_DeferredHalf != DeferredPrepassHalf::Depth )
                     m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
@@ -2250,8 +2297,11 @@ namespace Desert::Graphic::System
         // once, in the Rest half's plain G-buffer state.
         if ( instancingOn &&
              ( m_DeferredHalf == DeferredPrepassHalf::None || m_DeferredHalf == DeferredPrepassHalf::Rest ) )
+        {
+            DESERT_PROFILE_SCOPE( "Mesh: GPU-instanced draws" );
             BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState,
                                     companion ? &*companion : nullptr, false );
+        }
     }
 
     MeshRenderer::StaticPassCells MeshRenderer::StaticCellsOf( const MeshPass pass, const bool depthEqual )

@@ -629,6 +629,41 @@ namespace Desert::Graphic::API::Vulkan
         {
             return bindings.GetPushConstants().empty() ? other : bindings.GetPushConstants();
         }
+
+        // The material's written slots (@p material) copied from the material's own set into @p sets' set 0, the
+        // sets WriteRdgPassSets wrote for one exec; nothing to copy when it wrote none.
+        Common::BoolResultStr CopyMaterialSlots( const std::vector<VkDescriptorSet>&        sets,
+                                                 const std::vector<DescriptorSetLayoutRef>& layouts,
+                                                 const VulkanMaterialBackend::WrittenSlots& material,
+                                                 std::string_view                           pass )
+        {
+            if ( material.Bindings.empty() )
+                return Common::MakeSuccess( true );
+            if ( sets.empty() )
+                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not",
+                                                   pass );
+            std::vector<VkCopyDescriptorSet> copies;
+            copies.reserve( material.Bindings.size() );
+            for ( const uint32_t binding : material.Bindings )
+            {
+                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( *layouts[0], binding );
+                if ( entry == nullptr )
+                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
+                                                       pass, binding );
+                VkCopyDescriptorSet copy{};
+                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+                copy.srcSet          = material.Set;
+                copy.srcBinding      = binding;
+                copy.dstSet          = sets[0];
+                copy.dstBinding      = binding;
+                copy.descriptorCount = entry->descriptorCount;
+                copies.push_back( copy );
+            }
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
+            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
+            return Common::MakeSuccess( true );
+        }
     } // namespace
 
     RDG::ShaderBindingLayout VulkanRendererAPI::GetBindingLayout( const Shader& shader ) const
@@ -1287,41 +1322,41 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         const ShaderResource::ReflectionData& reflection = shader->GetReflectionData();
-        const auto resolved = ResolveRdgPassBindings( reflection, shader->GetName(), bindings, other );
-        if ( !resolved )
-            return Common::MakeError( resolved.GetError() );
         const std::vector<DescriptorSetLayoutRef>& layouts = graphics->GetLayouts();
-        const auto sets = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass );
-        if ( !sets )
-            return Common::MakeError( sets.GetError() );
-
-        // The material's written slots are copied into this exec's set 0 from the material's own set.
-        if ( !materialSlots.Bindings.empty() )
+        // GPU-COST-36: the sets an earlier draw of this pass exec wrote from the same block, shader, layout and
+        // material are bound again (VulkanRdgPassSetMemo); only the first draw of the combination resolves,
+        // allocates, writes and copies.
+        const Common::ResultStr<VulkanRdgPassSetMemo*> memo = VulkanRdgBackend::SetMemoOf( context );
+        if ( !memo )
+            return Common::MakeError( memo.GetError() );
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): the shader's and material's addresses are
+        // the memo's identities, compared and never turned back into pointers
+        const VulkanRdgPassSetMemo::Key key{ .Block            = bindings.GetBlock(),
+                                             .Shader           = reinterpret_cast<std::uintptr_t>( shader ),
+                                             .Layout           = graphics->GetVkPipelineLayout(),
+                                             .Material         = reinterpret_cast<std::uintptr_t>( material ),
+                                             .MaterialSet      = materialSlots.Set,
+                                             .MaterialBindings = materialSlots.Bindings,
+                                             .MaterialPush     = other.PushConstants,
+                                             .BlockPushBytes   = bindings.GetPushConstants().size() };
+        // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+        const std::vector<VkDescriptorSet>* kept = memo.GetValue()->Find( key );
+        if ( kept == nullptr )
         {
-            if ( sets.GetValue().empty() )
-                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not",
-                                                   pass );
-            std::vector<VkCopyDescriptorSet> copies;
-            copies.reserve( materialSlots.Bindings.size() );
-            for ( const uint32_t binding : materialSlots.Bindings )
-            {
-                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( *layouts[0], binding );
-                if ( entry == nullptr )
-                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
-                                                       pass, binding );
-                VkCopyDescriptorSet copy{};
-                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-                copy.srcSet          = materialSlots.Set;
-                copy.srcBinding      = binding;
-                copy.dstSet          = sets.GetValue()[0];
-                copy.dstBinding      = binding;
-                copy.descriptorCount = entry->descriptorCount;
-                copies.push_back( copy );
-            }
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                   ->GetVulkanLogicalDevice();
-            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
+            const auto resolved = ResolveRdgPassBindings( reflection, shader->GetName(), bindings, other );
+            if ( !resolved )
+                return Common::MakeError( resolved.GetError() );
+            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass );
+            if ( !written )
+                return Common::MakeError( written.GetError() );
+            if ( const Common::BoolResultStr copied =
+                      CopyMaterialSlots( written.GetValue(), layouts, materialSlots, pass );
+                 !copied )
+                return copied;
+            memo.GetValue()->Keep( key, written.ExtractValue() );
+            kept = memo.GetValue()->Find( key );
         }
+        const std::vector<VkDescriptorSet>& sets = *kept;
 
         // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
         // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
@@ -1330,10 +1365,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( !BindGraphicsPipeline( &pipeline ) )
             return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
                                                pass, pipeline.GetSpecification().DebugName );
-        if ( !sets.GetValue().empty() )
+        if ( !sets.empty() )
             vkCmdBindDescriptorSets(
                  cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, graphics->GetVkPipelineLayout(), 0,
-                 static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
+                 static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
         // Stages and size are the pipeline LAYOUT's range (VulkanPipeline::GetPushConstantRange), not the shader's
         // current reflection: the two part ways when the shader is re-reflected while this pipeline keeps its
         // layout.

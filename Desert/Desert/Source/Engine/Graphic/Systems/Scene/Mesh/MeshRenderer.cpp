@@ -229,6 +229,10 @@ namespace Desert::Graphic::System
         m_GenericQueue.clear();
         m_InstancedQueue.clear();
         m_GpuInstancedQueue.clear();
+        // The ISM view culls no pass asked for this frame: their field left the scene or took a new snapshot.
+        std::erase_if( m_IsmViewCulls, [this]( const auto& entry )
+                       { return entry.second.Generation != m_IsmViewCullGeneration; } );
+        ++m_IsmViewCullGeneration;
     }
 
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
