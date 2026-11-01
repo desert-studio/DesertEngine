@@ -252,6 +252,23 @@ Shader "CloudTemporalResolve"
         // weights in full. One pixel: below it the history is read inside its own texel's footprint.
         const float kMovingHistoryPixels = 1.0f;
 
+        // WHERE THE WIND CARRIED A CLOUD POINT FROM since the history's frame, as a displacement in planet-centred
+        // kilometres from @p planetKm (the point now). The field is sampled at (x, altitude, z) minus the wind
+        // offset (Common/CloudField.glslh, CloudSampleProceduralField), so a feature at field coordinate f now
+        // was at f - WindStepKm then: x and z shift by the step, the altitude |P| by its y, and the planet's
+        // y follows from the new radius. Written as the DIFFERENCE of y^2 rather than as the new point, because
+        // planet-centred y is ~6400 km and float32 holds it to half a metre — rebuilding the point would move
+        // a still history by that much with no wind at all, while this is exactly zero at a zero step.
+        vec3 CloudWindStepBackKm(vec3 planetKm, vec3 windStepKm)
+        {
+            float radiusKm = length(planetKm);
+            float dySq     = windStepKm.x * (2.0f * planetKm.x - windStepKm.x) +
+                         windStepKm.z * (2.0f * planetKm.z - windStepKm.z) -
+                         windStepKm.y * (2.0f * radiusKm - windStepKm.y);
+            float dy       = dySq / (planetKm.y + sqrt(max(planetKm.y * planetKm.y + dySq, 0.0f)));
+            return vec3(-windStepKm.x, dy, -windStepKm.z);
+        }
+
         // Half a texel in, on both axes. This engine's samplers are REPEAT, so a uv inside [0,1] but
         // within half a texel of the border still gathers from the OPPOSITE edge of the image — a bright
         // fringe along one side that no amount of staring at the march explains.
@@ -438,11 +455,19 @@ Shader "CloudTemporalResolve"
 
             if (HistoryValid > 0.5f)
             {
-                // THE SINGLE FRONT SURFACE. The guide's .x is where this ray first met material, or the
-                // end of its search when it met none; either way it is a real distance, so the point
-                // below is always on the ray and never a sentinel projected into the previous frame.
-                vec3 frontWorld = CameraPosition +
-                                  rayDir * (traceGuide.x * CLOUD_WORLD_UNITS_PER_KM);
+                // THE SINGLE FRONT SURFACE. The guide's .x is the ray's transmittance-weighted mean distance
+                // (Unreal's tAP, CloudRaymarch.shader), or the end of its search when it met no cloud; either
+                // way it is a real distance, so the point below is always on the ray and never a sentinel
+                // projected into the previous frame.
+                //
+                // AND WHERE THAT POINT WAS WHEN THE HISTORY WAS TRACED. Unreal reprojects by the camera alone,
+                // so a still camera reads a still history while the wind carries the cloud past it: at the
+                // still weight the edge lags ~0.4 s and trails. The point is moved back by the wind's step
+                // since the history's frame (CloudResolveParams.WindStepKm, zero without wind), so the history
+                // is read where this piece of cloud was rather than where the air now is.
+                vec3 frontPlanetKm = CloudPlanetOriginKm(CameraPosition, layer.PlanetRadiusKm) + rayDir * traceGuide.x;
+                vec3 frontWorld    = CameraPosition + rayDir * (traceGuide.x * CLOUD_WORLD_UNITS_PER_KM) +
+                                  CloudWindStepBackKm(frontPlanetKm, WindStepKm) * CLOUD_WORLD_UNITS_PER_KM;
 
                 vec4 prevClip = PreviousViewProjection * vec4(frontWorld, 1.0f);
 

@@ -120,11 +120,12 @@ namespace Desert::Graphic
              m_PreviousExtent.Width != halfExtent.Width || m_PreviousExtent.Height != halfExtent.Height )
             return {};
         return { graph.RegisterExternal( previous[0], "Clouds.History.Previous" ),
-                 graph.RegisterExternal( previous[1], "Clouds.HistoryGuide.Previous" ) };
+                 graph.RegisterExternal( previous[1], "Clouds.HistoryGuide.Previous" ), m_PreviousWindOffsetKm };
     }
 
     VolumetricCloudHistory::Refs VolumetricCloudHistory::CreateCurrent( RDG::Builder&    graph,
-                                                                        const ViewExtent halfExtent )
+                                                                        const ViewExtent halfExtent,
+                                                                        const glm::vec3& windOffsetKm )
     {
         // The other slot: what it held is two frames old and nothing registers it any more. Emptied first, so a
         // frame whose extraction does not happen leaves no stale image in it.
@@ -132,11 +133,12 @@ namespace Desert::Graphic
         next                                      = {};
         const RDG::TextureDesc desc               = Desc( halfExtent );
         const Refs             current{ graph.CreateTexture( desc, "Clouds.History" ),
-                            graph.CreateTexture( desc, "Clouds.HistoryGuide" ) };
+                            graph.CreateTexture( desc, "Clouds.HistoryGuide" ), windOffsetKm };
         graph.Extract( current.Scatter, next[0], RDG::Access::SampledCompute );
         graph.Extract( current.Guide, next[1], RDG::Access::SampledCompute );
-        m_CurrentExtent = halfExtent;
-        m_Created       = true;
+        m_CurrentExtent       = halfExtent;
+        m_CurrentWindOffsetKm = windOffsetKm;
+        m_Created             = true;
         m_WriterPass    = UINT32_MAX;
         return current;
     }
@@ -161,8 +163,9 @@ namespace Desert::Graphic
             return;
         }
         m_PreviousSlot   = next;
-        m_PreviousExtent = m_CurrentExtent;
-        m_HasPrevious    = true;
+        m_PreviousExtent       = m_CurrentExtent;
+        m_PreviousWindOffsetKm = m_CurrentWindOffsetKm;
+        m_HasPrevious          = true;
     }
 
     void VolumetricCloudHistory::Reset()
@@ -174,6 +177,8 @@ namespace Desert::Graphic
         m_HasPrevious    = false;
         m_Created        = false;
         m_WriterPass     = UINT32_MAX;
+        m_PreviousWindOffsetKm = glm::vec3( 0.0f );
+        m_CurrentWindOffsetKm  = glm::vec3( 0.0f );
     }
 
     uint64_t VolumetricCloudHistory::HeldBytes() const

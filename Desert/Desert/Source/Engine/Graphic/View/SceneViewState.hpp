@@ -145,6 +145,9 @@ namespace Desert::Graphic
         {
             RDG::TextureRef Scatter; // premultiplied radiance .rgb, transmittance .a
             RDG::TextureRef Guide;   // .x cloud front distance, .y scene distance (km)
+            // The cloud field's wind offset the pair is traced under (CloudGpuPayload::Wind, km): what the resolve
+            // subtracts from this frame's to reproject a front the wind has carried (CloudResolveParams::WindStepKm).
+            glm::vec3 WindOffsetKm{ 0.0f };
         };
 
         // One texture of the pair at @p halfExtent: ViewTargetFormats::kCloudTrace (RGBA16F), storage + sampled.
@@ -156,7 +159,8 @@ namespace Desert::Graphic
         [[nodiscard]] Refs RegisterPrevious( RDG::Builder& graph, ViewExtent halfExtent );
         // This frame's pair: two transients of @p graph ("Clouds.History", "Clouds.HistoryGuide") extracted into
         // the view for the next frame. At most one call per graph.
-        [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent halfExtent );
+        // @p windOffsetKm: the field's wind offset this frame's march traces under, kept with the pair.
+        [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent halfExtent, const glm::vec3& windOffsetKm );
         // The AddPass index of the resolve that writes the pair (Builder::GetPassCount() before its AddPass),
         // whose loss EndFrame checks. Not called -> the pair counts as unwritten.
         void SetWriterPass( uint32_t writerPass );
@@ -179,6 +183,8 @@ namespace Desert::Graphic
         bool                                               m_HasPrevious  = false;
         bool                                               m_Created      = false; // CreateCurrent ran this frame
         uint32_t                                           m_WriterPass   = UINT32_MAX;
+        glm::vec3                                          m_PreviousWindOffsetKm{ 0.0f };
+        glm::vec3                                          m_CurrentWindOffsetKm{ 0.0f };
     };
 
     // ---- THE VIEW'S SCREEN PROBE GATHER HISTORY (UE: FSceneViewState::Lumen.ScreenProbeGatherState) ---------

@@ -778,12 +778,17 @@ Shader "CloudRaymarch"
             float aerialWeightedT = 0.0f;
             float aerialWeightSum = 0.0f;
 
-            // The guide's cloud channel: the distance of the FIRST sample that had any material in it.
-            // Negative means "not found yet" — a distance can never be negative here, so the sentinel
-            // cannot collide with an answer. It is resolved to a real distance after the loop, on every
-            // path, because the composite compares this number across four texels and a sentinel that
-            // leaked out of one of them would read as a silhouette where there is none.
-            float cloudFrontKm = -1.0f;
+            // The guide's cloud channel is THE SAME WEIGHTED MEAN, Unreal's tAP (VolumetricCloud.usf:1228-1230,
+            // :1493), resolved after the loop. It was the distance of the FIRST sample with any material, and on
+            // a thin wisp that is one sample of one realisation of the start-offset dither: every fourth frame the
+            // owned pixel's front jumped between "found at the wisp" and "end of the search" behind it, and the
+            // reprojection and the composite's edge filter jumped with it (SKY-FLICKER-3). The mean moves only as
+            // much as the transmittance it is weighted by.
+            //
+            // "NO CLOUD" BELOW 1 % OPACITY, Unreal's threshold (:1731, `GrayScaleTransmittance > 0.99`): a ray that
+            // kept more than this of its light reports the end of its own search, as one that met nothing does,
+            // so a trace of haze is not a silhouette for the readers that judge edges by this channel.
+            const float kCloudFrontClearTransmittance = 0.99f;
 
             // The two-tier state. `emptyRun` counts CONSECUTIVE fine samples that found no profile; after
             // enough of them the march decides it has left the cloud and returns to coarse steps.
@@ -858,12 +863,6 @@ Shader "CloudRaymarch"
 
                     if (density > 0.0f)
                     {
-                        // Recorded at the first hit and never again: the front of the cloud, not its
-                        // middle. Placed before the lighting so an early break on transmittance still
-                        // leaves the guide with the distance the ray actually met material at.
-                        if (cloudFrontKm < 0.0f)
-                            cloudFrontKm = t;
-
                         // The winning species' own opacity, per sample — through the MEDIUM, so a
                         // material that authors its own extinction is obeyed here and, identically, on
                         // the shadow ray, the shadow map and the occlusion volume. See the note in
@@ -961,7 +960,8 @@ Shader "CloudRaymarch"
                         luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * stepKm;
 
                         // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
-                        // able to contribute, not how much is left after it.
+                        // able to contribute, not how much is left after it. Also the guide's front (above),
+                        // and placed before the break below so a ray stopped on transmittance keeps it.
                         aerialWeightedT += t * transmittance;
                         aerialWeightSum += transmittance;
 
@@ -1016,8 +1016,13 @@ Shader "CloudRaymarch"
             // A large sentinel would do the same job here but not at the horizon, where a whole
             // neighbourhood of empty rays must agree with each other exactly enough to stay coherent —
             // and half precision has no room for a sentinel that is both huge and finite.
-            imageStore(CloudGuideTexture, coord,
-                       vec4(cloudFrontKm < 0.0f ? segment.y : cloudFrontKm, sceneKm, 0.0f, 0.0f));
+            //
+            // The front is the transmittance-weighted mean distance (tAP above), UNSCALED: the aerial
+            // perspective's view-distance dial (CloudAerialMeanDistanceKm) is an art direction of the haze and
+            // says nothing about where the cloud is.
+            bool  cloudMet     = aerialWeightSum > 0.0f && transmittance <= kCloudFrontClearTransmittance;
+            float cloudFrontKm = cloudMet ? aerialWeightedT / aerialWeightSum : segment.y;
+            imageStore(CloudGuideTexture, coord, vec4(cloudFrontKm, sceneKm, 0.0f, 0.0f));
         }
     }
 }

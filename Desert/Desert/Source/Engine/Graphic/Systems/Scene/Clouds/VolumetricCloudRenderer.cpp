@@ -2361,6 +2361,10 @@ namespace Desert::Graphic::System
         resolve.SubPixelOffset =
              glm::ivec2( static_cast<int32_t>( subPixel.X ), static_cast<int32_t>( subPixel.Y ) );
         resolve.CloudReach = glm::vec2( payload.March.z, payload.Phase.w );
+        // The wind's step since the frame the history was traced in, from the march's own payload value: the
+        // resolve reprojects each front from where the wind carried it (CloudTemporalResolve.shader).
+        const glm::vec3 windOffsetKm( payload.Wind.x, payload.Wind.y, payload.Wind.z );
+        resolve.WindStepKm = historyReadable ? windOffsetKm - previous.WindOffsetKm : glm::vec3( 0.0f );
         // BUILD TIME, like the trace's upload: the resolve node exists only when it lands.
         const auto resolveParams =
              m_ResolveParamsBuffer->SetData( &resolve, static_cast<uint32_t>( sizeof( resolve ) ) );
@@ -2392,7 +2396,7 @@ namespace Desert::Graphic::System
              FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
         // This frame's pair, written by the resolve and read by the upsample: transients of this graph that the
         // view extracts for the next frame.
-        const VolumetricCloudHistory::Refs current = history.CreateCurrent( graph, halfExtent );
+        const VolumetricCloudHistory::Refs current = history.CreateCurrent( graph, halfExtent, windOffsetKm );
         // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
         RenderPassDeclaration::BlockDeclaration resolveBlock =
