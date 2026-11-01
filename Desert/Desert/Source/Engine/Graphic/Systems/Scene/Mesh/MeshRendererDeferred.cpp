@@ -20,6 +20,7 @@ namespace Desert::Graphic::System
         // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
         // redraw follows on the deferred path.
         m_GeometryPass = MeshPass::GBuffer;
+        DESERT_PROFILE_SCOPE( "Mesh: GBuffer setup" );
         // THE DEFERRED EARLY-Z PAIRING (UE r.EarlyZPass; DeferredPrepassHalf): when "Deferred: Masked Depth
         // Prepass" drew this frame's groups, the G-buffer draws them EQUAL through their DepthEqual cells (the Equal
         // half) and every other one as before (the Rest half), each half one call of the same builders.
@@ -50,7 +51,10 @@ namespace Desert::Graphic::System
         else
             AttachBinned( m_GBufferDraws, GpuDriven::MeshPass::GBuffer, kBinnedMainView );
         m_EarlyZGBufferIssue.reset();
-        m_GBufferDraws.Declare( pass, view );
+        {
+            DESERT_PROFILE_SCOPE( "Mesh: GBuffer declare" );
+            m_GBufferDraws.Declare( pass, view );
+        }
         // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
         // pass reads them after "SkinCache: Skin" wrote them.
         for ( const RDG::BufferRef& streams : m_SkinCacheReads )
@@ -89,6 +93,7 @@ namespace Desert::Graphic::System
         // The CPU-walked statics (per object, auto-batched, ISMs) and skinned meshes EarlyZAdmits: the Depth half of
         // the pairing, through the forward prepass's (path x Depth) states (the G-buffer's depth format), with both
         // halves' readiness folded and recorded for "Deferred: GBuffer" (m_PrepassCellDraws).
+        DESERT_PROFILE_SCOPE( "Mesh: Masked depth setup" );
         if ( m_StaticDepthPipeline && m_StaticGBufferEqualPipeline )
         {
             const ViewFrame* const frame = m_SceneRenderer->GetViewFrame();
@@ -107,7 +112,10 @@ namespace Desert::Graphic::System
         // The GPU-driven G-buffer bins EarlyZAdmitsCell: the same cull's records through their depth twins
         // (DeclareEarlyZBins), the G-buffer then drawing them through their equal twins.
         DeclareEarlyZBins();
-        m_MaskedDepthDraws.Declare( pass, view );
+        {
+            DESERT_PROFILE_SCOPE( "Mesh: Masked depth declare" );
+            m_MaskedDepthDraws.Declare( pass, view );
+        }
         // The skin cache's streams the (Skinned x Depth) cell fetches by address (Vertex_Skinned.glslh).
         for ( const RDG::BufferRef& streams : m_SkinCacheReads )
             pass.Read( streams, RDG::Access::StorageRead );

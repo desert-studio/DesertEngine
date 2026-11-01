@@ -2975,6 +2975,47 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
+        // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
+        // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
+        // do not). The key is the field's immutable transforms snapshot (MeshECSSystem replaces it on a revision
+        // change, never edits it; held, so its address is not reused while the entry lives) and its mesh; every
+        // other input CollectIsmInstances reads is stored by value and compared: the mesh's local box and LOD
+        // screen sizes (an edited mesh keeps its address), the view frustum's six planes, the field's cull
+        // distance, the wind's bounds pad (the only part of the wind the cull reads) and the LOD view. Equal
+        // inputs give the same instances and levels bit for bit, so a hit draws byte for byte what a rebuild
+        // draws. Shared by every pass that walks the main view in the frame (the masked depth prepass, both
+        // G-buffer halves, the forward base pass) and by the next frames while nothing moved. An entry no pass
+        // asked for during a frame is dropped by ClearQueues (the field left the scene or changed snapshot).
+        struct IsmViewCullKey
+        {
+            const std::vector<glm::mat4>* Transforms                                = nullptr;
+            const Desert::Mesh*           Mesh                                      = nullptr;
+            bool                          operator==( const IsmViewCullKey& ) const = default;
+        };
+        struct IsmViewCullKeyHash
+        {
+            [[nodiscard]] std::size_t operator()( const IsmViewCullKey& key ) const noexcept;
+        };
+        struct IsmViewCull
+        {
+            std::shared_ptr<const std::vector<glm::mat4>> Snapshot; // the key's transforms, held
+            Common::Math::AABB                            LocalBounds{};
+            std::array<glm::vec4, 6>                      Planes{}; // (normal, distance) per Core::FrustumPlane
+            InstanceCullDistance                          Cull{};
+            float                                         BoundsPad = 0.0f;
+            Geometry::LODView                             View{};
+            std::vector<float>                            LodScreenSizes;
+            std::vector<glm::mat4>                        Visible;
+            std::vector<uint32_t>                         Levels;
+            uint64_t                                      Generation = 0; // the last frame a pass asked for it
+        };
+        std::unordered_map<IsmViewCullKey, IsmViewCull, IsmViewCullKeyHash> m_IsmViewCulls;
+        uint64_t                                                            m_IsmViewCullGeneration = 0;
+        // ISM @p ism's instances the main view @p frustum / @p view keeps, and the level of each
+        // (CollectIsmInstances with the view as both the cull and the LOD view), from m_IsmViewCulls when every
+        // input is the cached entry's, else collected into it.
+        const IsmViewCull& CachedIsmViewCull( const InstancedMeshRenderData& ism, const Core::Frustum& frustum,
+                                              const Geometry::LODView& view );
         uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
