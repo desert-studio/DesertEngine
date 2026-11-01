@@ -200,7 +200,8 @@ TEST( PrefabVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 TEST( PrefabVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 {
     const std::string message =
-         RefusePrefabVersion( "Assets/Prefabs/Old.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion );
+         RefusePrefabVersion( "Assets/Prefabs/Old.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion,
+                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion );
 
     // The file.
     EXPECT_TRUE( Mentions( message, "Assets/Prefabs/Old.deprefab" ) ) << message;
@@ -217,7 +218,8 @@ TEST( PrefabVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand 
 
 TEST( PrefabVersionGate, TheRefusalSaysNothingWasLoaded )
 {
-    const std::string message = RefusePrefabVersion( "Old.deprefab", 1, 0, Desert::Core::kWorldPartitionVersion );
+    const std::string message = RefusePrefabVersion( "Old.deprefab", 1, 0, Desert::Core::kWorldPartitionVersion,
+                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion );
     EXPECT_TRUE( Mentions( message, "NOTHING WAS LOADED" ) ) << message;
 }
 
@@ -226,11 +228,13 @@ TEST( PrefabVersionGate, TheRefusalSaysNothingWasLoaded )
 TEST( PrefabVersionGate, TheTreeOverloadReportsTheSameVersionsTheTreeCarries )
 {
     EXPECT_EQ( RefusePrefabVersion( "P.deprefab", At( 3, 0 ) ),
-               RefusePrefabVersion( "P.deprefab", 3, 0, Desert::Core::kWorldPartitionVersion ) );
+               RefusePrefabVersion( "P.deprefab", 3, 0, Desert::Core::kWorldPartitionVersion,
+                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion ) );
 
     PrefabData neither; // both absent
     EXPECT_EQ( RefusePrefabVersion( "P.deprefab", neither ),
-               RefusePrefabVersion( "P.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion ) );
+               RefusePrefabVersion( "P.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion,
+                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion ) );
 }
 
 // ---------------------------------------------------------------------------------------------------

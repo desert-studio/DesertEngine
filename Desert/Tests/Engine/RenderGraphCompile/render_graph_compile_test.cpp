@@ -5271,6 +5271,15 @@ namespace
                                        SamplerDesc::LinearClamp() } );
             return *this;
         }
+
+        CollectedBlock& Storage( Desert::Graphic::RDG::StorageTextureParameter parameter, TextureRef texture,
+                                 Access access )
+        {
+            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageTexture,
+                                       ResourceKind::Texture, texture.Index, access, SubresourceRange::All(),
+                                       std::nullopt } );
+            return *this;
+        }
     };
 
     Desert::Graphic::SceneViewInputs DistinctSceneViewInputs()

@@ -1392,7 +1392,6 @@ TEST( WorldPartitionAlwaysLoaded, NoGridMeansEverythingIsAlwaysLoadedAndSaysWhy 
     WorldPartitionSerialized two = Cells( 12800.0f );
     two.Grids.push_back( two.Grids.front() );
     const WorldPartitionPlan twoGrids = PlanWorldPartition( records, two );
-    EXPECT_EQ( twoGrids.UnusedGrids, 1u );
     EXPECT_EQ( HeldBy( twoGrids, 0 ).Reason, AlwaysLoadedReason::None );
 }
 

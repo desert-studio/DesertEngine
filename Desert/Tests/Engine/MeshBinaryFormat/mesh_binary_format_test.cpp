@@ -605,8 +605,11 @@ TEST( MeshBinaryFormat, TheRetiredJsonFormIsRefusedByNameAndTheMessageNamesTheRe
     // WHAT REPLACES IT IS NOT "it fails". A stale cook is not a corrupt file and must not read like
     // one: the reader has to say WHICH file, WHY, and WHAT TO RUN. That is the difference between a
     // user re-cooking in ten seconds and a user filing a corruption report.
+    // A legacy JSON cook as the retired writer produced it. MeshAssetData itself is no longer JSON-
+    // reflectable (cluster records hold fixed arrays laid out for the binary form), so the old shape is
+    // spelled out here rather than written from a populated struct.
     const Ser::MeshAssetData source = FullyPopulated();
-    const std::string        asJson = Common::Json::Write( source );
+    const std::string asJson = R"({"Version":4,"Submeshes":[{"Name":"Body","Vertices":[],"Indices":[]}]})";
 
     ASSERT_FALSE( Ser::LooksLikeMeshBinary( asJson ) );
 
