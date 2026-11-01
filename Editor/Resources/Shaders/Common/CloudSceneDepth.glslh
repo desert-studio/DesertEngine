@@ -49,3 +49,63 @@ float CloudFootprintFarthestDepth(ivec2 halfCoord, ivec2 halfSize)
             farthest = min(farthest, texelFetch(SceneDepthTexture, ivec2(x, y), 0).r);
     return farthest;
 }
+
+// ---- GEOMETRY IN FRONT OF THE LAYER CUTS NOTHING (SKY-FLICKER) ------------------------------------------------
+//
+// A footprint whose farthest surface is no farther than the first point the march would sample hides ALL of the
+// layer from every pixel of the block: each of them is at most that far, and CloudUpsample.shader removes from a
+// pixel every texel whose cloud front (never nearer than that first point) is at or behind the pixel's surface.
+// Cutting such a ray at the leaf therefore buys those pixels nothing — and costs the block its history. Under
+// the TAA jitter a block at a crown, a roof or a fence edge is wholly covered on some frames and partly open on
+// others; the cut made its trace and its scene distance swing between "clear, at the leaf" and "the cloud, at
+// the far plane", the resolve threw the history away on every swing, and the sky pixels of the block and of the
+// blocks beside it showed a fresh, often edge-mixed trace on exactly those frames.
+//
+// So such a footprint is OCCLUDED: the march spends nothing on it and marks its texel as holding no sample
+// (guide .z = 1), and the march and the resolve both give it the far plane as its scene distance — the
+// distance it would have been cut at with the geometry gone, which is the one that does not swing. The resolve
+// then keeps the block's cloud from its history (or from its open neighbours) instead of replacing it, and the
+// block's own pixels still receive no cloud from the upsample's front test. Geometry FARTHER than the first
+// march point — a slope inside the layer, a mountain behind a cloud — still cuts the ray where it stands.
+//
+// Unreal traces to the far end of the footprint's depth range as well (VolumetricCloud.usf,
+// SceneDepthMinAndMaxTexture) but cuts at it whatever it is, so a wholly covered block holds "no cloud" there
+// too; it leans on TAA for the swing. Deciding by the layer's own segment removes the swing instead.
+//
+// The three helpers below are the march's classification, written once for CloudRaymarch.shader and
+// CloudTemporalResolve.shader, which must agree on it bit for bit on the pixel the frame traced. They require
+// Common/CloudGeometry.glslh (CloudLayer, CloudLayerIntersect, CLOUD_WORLD_UNITS_PER_KM).
+
+// Planet-centre-relative kilometres for a camera at @p cameraWorld (centimetres): the frame in which both
+// shells are centred on the origin.
+vec3 CloudPlanetOriginKm(vec3 cameraWorld, float planetRadiusKm)
+{
+    vec3 cameraKm = cameraWorld * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+    return vec3(cameraKm.x, cameraKm.y + planetRadiusKm, cameraKm.z);
+}
+
+// The segment the march samples along @p rayDir: the layer's chord (y <= x when there is none), started no
+// nearer than the authored tracing start and run no farther past it than the authored view distance. The
+// distance limit is measured FROM THE LAYER ENTRY, Unreal's DistanceFromCloudLayerEntryPoint mode, because a
+// limit measured from the camera would cut the layer short at a fixed radius and put a circular edge in the sky.
+vec2 CloudMarchSegment(CloudLayer layer, vec3 originKm, vec3 rayDir, float tracingStartKm, float maxViewKm)
+{
+    vec2 segment = CloudLayerIntersect(layer, originKm, rayDir);
+    segment.x    = max(segment.x, tracingStartKm);
+    segment.y    = min(segment.y, segment.x + max(maxViewKm, 0.0f));
+    return segment;
+}
+
+// Whether the march samples anything along @p segment at all: the entry lies inside the authored reach and the
+// segment is not empty. Both refusals answer "clear" whatever the geometry is.
+bool CloudMarchHasWork(vec2 segment, float tracingStartMaxKm)
+{
+    return segment.x <= max(tracingStartMaxKm, 0.0f) && segment.y > segment.x;
+}
+
+// The rule above: geometry in the whole footprint (@p farthestDepth > 0, reversed-Z), at @p geomKm no farther
+// than the march's first point, on a ray the march would sample.
+bool CloudFootprintOccluded(float farthestDepth, float geomKm, vec2 segment, bool hasWork)
+{
+    return hasWork && farthestDepth > 0.0f && geomKm <= segment.x;
+}

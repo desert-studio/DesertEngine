@@ -62,7 +62,8 @@ Shader "CloudUpsample"
         Uniform(2) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, GlobalFilterSampler)
 
-        // InverseViewProjection (the JITTERED inverse, matching the depth it un-projects) and CameraPosition.
+        // InverseViewProjection (the march's UNJITTERED inverse; un-projecting the jittered depth through it moves
+        // the distance by a few parts in ten thousand) and CameraPosition.
         #include <Common/CloudResolveParams.glslh>
 
         LocalSize(8, 8, 1);

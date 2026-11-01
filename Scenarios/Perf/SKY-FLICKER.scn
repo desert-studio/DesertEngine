@@ -1,0 +1,31 @@
+# SKY-FLICKER: everything in front of the clouds flickers at moments under a STILL camera (owner, FIELD_Barn and
+# Bistro: "листва все еще моментами мерцает", "и не только листва, все что на фоне облаков").
+# Cause (VolumetricCloudRenderer.cpp, CloudTemporalResolve.shader): the cloud march traced through the JITTERED
+# inverse (TAA1-VIEW e1f461f31) while its temporal resolve reprojects through the UNJITTERED previous matrix, so at
+# a still camera every history read landed up to a quarter half-res texel off, the bilinear history guide mixed a
+# leaf's distance with the sky's, the 2 km disocclusion test dropped the history along every silhouette on most
+# jitter frames, and a fresh / edge-mixed trace showed there instead; and a footprint wholly covered by a leaf on
+# one jitter frame and open on the next swung its trace between "clear at the leaf" and "cloud at the far plane".
+# Fix: unjittered cloud view (UE HackRemoveTemporalAAProjectionJitter) + geometry in front of the layer cuts nothing
+# (Common/CloudSceneDepth.glslh, CloudFootprintOccluded).
+# Same project line and still air as FPS-FIELD-BARN (default machine settings, no machine.json overrides); the view
+# is FOLIAGE-CLOUD-FLICKER's: grass blades, canopy and fence edges over the cloud layer. 300 warm frames, then
+# eight shots on eight consecutive frames.
+# MEASURE (lead, pixel diff, not thumbnails): edge band = pixels within 8 px of an object/sky boundary (scene depth
+# 0 on one side; or, from the frames alone, |Sobel| of 8_h's luma above 0.1 dilated by 8 px). For k = 2..8 the
+# mean over the band of |frame k - frame k-1| (all channels, /255): record it on the BEFORE build (dev 94a6eea4b)
+# and on task/SKY-FLICKER.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,40,2500
+Дано --subject viewport set Camera.Direction 0.15,0.25,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Тогда-вид 1_a still camera at 0.4 m looking up: grass blades, canopy and fence edges over the clouds, crisp; editor.log 0 VUID
+Тогда-вид 2_b the next frame: in the 8 px band around every object/sky edge the mean |2_b - 1_a| <= 1/255 (before the fix: record the value)
+Тогда-вид 3_c the next frame: band mean |3_c - 2_b| <= 1/255
+Тогда-вид 4_d the next frame: band mean |4_d - 3_c| <= 1/255
+Тогда-вид 5_e the next frame: band mean |5_e - 4_d| <= 1/255
+Тогда-вид 6_f the next frame: band mean |6_f - 5_e| <= 1/255
+Тогда-вид 7_g the next frame: band mean |7_g - 6_f| <= 1/255
+Тогда-вид 8_h the next frame: band mean |8_h - 7_g| <= 1/255; the clouds behind the blades the same shape and brightness as in 1_a (no cloud lost or gained at any edge)

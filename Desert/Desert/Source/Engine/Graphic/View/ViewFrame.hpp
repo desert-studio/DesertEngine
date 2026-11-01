@@ -154,8 +154,13 @@ namespace Desert::Graphic
     //
     // WHICH MATRIX A PASS USES (the rule a reviewer checks):
     //   * rasterising scene geometry into the depth/GBuffer/forward targets: JitteredViewProjection;
-    //   * reconstructing a world position from that depth (lighting, SSAO, SSR, GI, fog, clouds' depth test):
+    //   * reconstructing a world position from that depth (lighting, SSAO, SSR, GI, fog):
     //     InvJitteredViewProjection — the depth was written jittered;
+    //   * the volumetric clouds (march, temporal resolve, upsample): InvViewProjection, UNJITTERED — Unreal's
+    //     HackRemoveTemporalAAProjectionJitter for the volumetric render target. The layer walks its own
+    //     sub-pixels and reprojects its own history through PrevViewProjection; a TAA jitter in its rays is an
+    //     offset that reprojection never undoes (SKY-FLICKER). Its depth test un-projects the jittered depth
+    //     through this matrix: the distance moves by a few parts in ten thousand;
     //   * reprojecting into the previous frame (velocity, TAA, SSR/GI/cloud temporal reuse): world position ->
     //     PrevViewProjection (UNJITTERED), compared with the current UNJITTERED ViewProjection. Velocity therefore
     //     carries motion only, never the jitter, and a still camera over a still scene has velocity exactly 0;

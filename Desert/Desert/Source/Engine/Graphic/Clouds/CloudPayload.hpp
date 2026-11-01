@@ -410,26 +410,39 @@ namespace Desert::Graphic
      */
     struct CloudResolveParams
     {
-        glm::mat4 InverseViewProjection; // clip -> world, THIS frame; rebuilds the pixel's ray
+        // clip -> world, THIS frame, UNJITTERED (ViewFrame::InvViewProjection): rebuilds the pixel's ray. The
+        // march traces through the same matrix (VolumetricCloudRenderer, SKY-FLICKER), so at a still camera
+        // the reprojection through PrevViewProjection lands on this very texel.
+        glm::mat4 InverseViewProjection;
         // world -> clip, the PREVIOUS frame. Composed with the inverse above this is Unreal's
         // ClipToPrevClip; it is factored into two matrices here because the reprojected point is found by
         // walking the ray to the guide's cloud front distance, which is not a clip-space operation.
-        glm::mat4  PrevViewProjection;
+        glm::mat4 PrevViewProjection;
+        // THE MARCH'S SHELL, CloudGpuPayload::Layer copied from the very payload the march was given this frame
+        // (x planet radius, y bottom altitude, z thickness, w max view distance; km). The resolve classifies
+        // each pixel's ray exactly as the march does (Common/CloudSceneDepth.glslh, CloudFootprintOccluded),
+        // which takes the layer's segment along the ray.
+        glm::vec4  CloudShell;
         glm::vec3  CameraPosition; // world units (centimetres)
         float      HistoryValid;   // 1 when the history targets hold a real previous frame, 0 otherwise
         glm::ivec2 SubPixelOffset; // this frame's traced sub-pixel, the same pair the march was given
+        // The march's reach along the ray, from the same payload: x the tracing start (CloudGpuPayload::March.z),
+        // y the tracing start's maximum (CloudGpuPayload::Phase.w); km.
+        glm::vec2 CloudReach;
     };
 
     static_assert( offsetof( CloudResolveParams, InverseViewProjection ) == 0 );
     static_assert( offsetof( CloudResolveParams, PrevViewProjection ) == 64 );
-    static_assert( offsetof( CloudResolveParams, CameraPosition ) == 128 );
-    static_assert( offsetof( CloudResolveParams, HistoryValid ) == 140 );
-    static_assert( offsetof( CloudResolveParams, SubPixelOffset ) == 144 );
-    // 152, not 160. std430 rounds a block's STRIDE up to a multiple of 16, but a stride only exists for an
-    // array of blocks and this is a single one — the shader never reads past the last member, so the
-    // buffer is created at exactly the struct's size and the eight bytes of tail padding are not
-    // allocated. Pinned here so that inserting a member and quietly changing the size is a build error.
-    static_assert( sizeof( CloudResolveParams ) == 152,
+    static_assert( offsetof( CloudResolveParams, CloudShell ) == 128 );
+    static_assert( offsetof( CloudResolveParams, CameraPosition ) == 144 );
+    static_assert( offsetof( CloudResolveParams, HistoryValid ) == 156 );
+    static_assert( offsetof( CloudResolveParams, SubPixelOffset ) == 160 );
+    static_assert( offsetof( CloudResolveParams, CloudReach ) == 168 );
+    // 176, a multiple of 16 by the layout itself. std430 rounds a block's STRIDE up to a multiple of 16, but a
+    // stride only exists for an array of blocks and this is a single one — the shader never reads past the last
+    // member, so the buffer is created at exactly the struct's size. Pinned here so that inserting a member and
+    // quietly changing the size is a build error.
+    static_assert( sizeof( CloudResolveParams ) == 176,
                    "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
                    "exactly these members, in this "
                    "order, at these offsets." );
