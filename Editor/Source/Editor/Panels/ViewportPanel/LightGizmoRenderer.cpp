@@ -1,5 +1,6 @@
 #include <Editor/Core/GizmoIdScope.hpp>
 #include "LightGizmoRenderer.hpp"
+#include <Common/Core/Profiler.hpp>
 #include "Tools/PlayerStartGizmoMath.hpp"
 #include <Editor/Panels/ViewportPanel/BoneOverlay.hpp>
 #include <Editor/Core/GizmoState.hpp>
@@ -209,14 +210,38 @@ namespace Desert::Editor
 
         m_LightIconHovered = false; // recomputed by the icon renderers below (gates scene picking)
 
-        RenderPointLights( camera, width, height, xpos, ypos );
-        RenderSpotLights( camera, width, height, xpos, ypos );
-        RenderDirectionLights( camera, width, height );
-        RenderCameras( camera, width, height, xpos, ypos );
-        RenderSpawnIcons( camera, width, height );
-        RenderTextIcons( camera, width, height );
-        RenderLandscapeRamp( camera, width, height );
-        RenderLandscapeSplines( camera, width, height );
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Point lights" );
+            RenderPointLights( camera, width, height, xpos, ypos );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Spot lights" );
+            RenderSpotLights( camera, width, height, xpos, ypos );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Direction lights" );
+            RenderDirectionLights( camera, width, height );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Cameras" );
+            RenderCameras( camera, width, height, xpos, ypos );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Spawn icons" );
+            RenderSpawnIcons( camera, width, height );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Text icons" );
+            RenderTextIcons( camera, width, height );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Landscape ramp" );
+            RenderLandscapeRamp( camera, width, height );
+        }
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Landscape splines" );
+            RenderLandscapeSplines( camera, width, height );
+        }
 
         // Collider wireframes moved to EditorColliderPass (true 3D, depth-tested) via the Editor Pass API.
 
@@ -230,7 +255,10 @@ namespace Desert::Editor
         }
 
         // Rig placement overlay (Convert-to-Skinned) — draws the bones being placed on a static mesh.
-        RenderRigBuilder( camera, width, height );
+        {
+            DESERT_PROFILE_PASS( "Editor icons: Rig builder" );
+            RenderRigBuilder( camera, width, height );
+        }
 
         // Control Rig overlay — the caller ControlManipulator never had. Gated by the MODE rather than by
         // the selection alone: a character with a rig is a character you usually want to see UNRIGGED while

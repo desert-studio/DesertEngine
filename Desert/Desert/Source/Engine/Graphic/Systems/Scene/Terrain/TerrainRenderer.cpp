@@ -136,12 +136,12 @@ namespace Desert::Graphic::System
                                          const std::optional<glm::vec2>& slab, uint32_t viewHeight,
                                          int dicingRate )
         {
-            const auto read = [&]( const std::string& name )
-            {
-                return MaterialBinder::ReadRowParam( surface.GetMaterialLayout(), surface.GetParamRow(), name )
-                     .value_or( glm::vec4( 0.0f ) )
-                     .x;
-            };
+            // The row ONCE (CPU-FRAME-4): GetParamRow rewrites every texture slot of the row from the material's
+            // texture properties on each call, and this reads 23 values of it per tile.
+            const auto& layout = surface.GetMaterialLayout();
+            const auto& row    = surface.GetParamRow();
+            const auto  read   = [&]( const std::string& name )
+            { return MaterialBinder::ReadRowParam( layout, row, name ).value_or( glm::vec4( 0.0f ) ).x; };
             for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
             {
                 const std::string layer                                            = std::format( "Layer{}", k );
@@ -254,10 +254,13 @@ namespace Desert::Graphic::System
         TerrainFrameMaterial FrameMaterialOf( const DataDrivenMaterial& surface, const TerrainLayerInputs& layers )
         {
             std::string missing;
-            const auto  read = [&]( const std::string& name ) -> glm::vec4
+            // The row ONCE (CPU-FRAME-4): GetParamRow rewrites every texture slot of the row from the material's
+            // texture properties on each call, and this reads 41 values of it per tile.
+            const auto& layout = surface.GetMaterialLayout();
+            const auto& row    = surface.GetParamRow();
+            const auto  read   = [&]( const std::string& name ) -> glm::vec4
             {
-                const std::optional<glm::vec4> value =
-                     MaterialBinder::ReadRowParam( surface.GetMaterialLayout(), surface.GetParamRow(), name );
+                const std::optional<glm::vec4> value = MaterialBinder::ReadRowParam( layout, row, name );
                 if ( !value )
                     missing += ( missing.empty() ? "" : ", " ) + name;
                 return value.value_or( glm::vec4( 0.0f ) );
@@ -586,9 +589,12 @@ namespace Desert::Graphic::System
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         TileLodMap tileLods;
-        for ( const auto& t : m_Queue )
-            tileLods[KeyOf( t.Landscape, 0, 0 )] =
-                 TileLod( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
+        {
+            DESERT_PROFILE_PASS( "Terrain: Tile LODs" );
+            for ( const auto& t : m_Queue )
+                tileLods[KeyOf( t.Landscape, 0, 0 )] =
+                     TileLod( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
+        }
 
         // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
         // lowest and highest sample of its tiles within the across-edge reach of the ring diced 2 - no finer ring
@@ -642,11 +648,15 @@ namespace Desert::Graphic::System
             if ( !m_EmptyLayerArray )
                 m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
             if ( layerKeysThisFrame.insert( layerKey ).second )
+            {
+                DESERT_PROFILE_PASS( "Terrain: Layer inputs" );
                 UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
                                           "landscape material " + layerKey, m_EmptyLayerArray, layers );
+            }
 
             if ( inserted )
             {
+                DESERT_PROFILE_PASS( "Terrain: Group textures" );
                 m_FrameGroups.push_back( { it->first, {}, {} } );
 
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
@@ -697,16 +707,22 @@ namespace Desert::Graphic::System
             FrameGroup&         group   = m_FrameGroups[it->second];
             DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
 
-            surface->ApplyDefaults();
-            for ( const auto& [name, value] : t.Overrides.Params )
-                surface->SetParamRaw( name, value );
+            {
+                DESERT_PROFILE_PASS( "Terrain: Tile params" );
+                surface->ApplyDefaults();
+                for ( const auto& [name, value] : t.Overrides.Params )
+                    surface->SetParamRaw( name, value );
+            }
 
             TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
             const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
-            ApplyLandscapeDisplacement(
-                 instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
-                 slab != diceSlabs.end() ? std::optional<glm::vec2>( slab->second ) : std::nullopt, viewHeight,
-                 dicingRate );
+            {
+                DESERT_PROFILE_PASS( "Terrain: Displacement" );
+                ApplyLandscapeDisplacement(
+                     instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
+                     slab != diceSlabs.end() ? std::optional<glm::vec2>( slab->second ) : std::nullopt, viewHeight,
+                     dicingRate );
+            }
             // The tile's displaced sub-vertices, evaluated once this frame (AddDicePoolPass) for every view's
             // draw.
             if ( const uint32_t pooled = LandscapeDicePoolVertexCount(
@@ -733,16 +749,21 @@ namespace Desert::Graphic::System
                                                           static_cast<uint32_t>( instance.Params.w ), instance );
             m_FrameDraws.push_back( draw );
 
-            group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
-                                    surface->GetParamRow().end() );
+            // One GetParamRow (it rewrites the row's texture slots on every call).
+            const auto& paramRow = surface->GetParamRow();
+            group.ParamRows.insert( group.ParamRows.end(), paramRow.begin(), paramRow.end() );
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
-            m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
+            {
+                DESERT_PROFILE_PASS( "Terrain: Frame material" );
+                m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
+            }
         }
 
         // ── Upload every group's material rows, still before any draw ───────────────────────────────────
         // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
         // block goes on in ApplySceneFrame)
+        DESERT_PROFILE_PASS( "Terrain: Upload rows" );
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
