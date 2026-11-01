@@ -23,6 +23,9 @@ namespace Desert::Editor
     // skinned alike - a LOD only selects a subset of the index buffer, the skin weights ride on the kept
     // vertices. Submeshes that already carry LODs (folded from authored source models) are kept. @p chain is the
     // mesh's MeshImportSettings::LodChain: each level's triangle share and the floor (Geometry::LODChainTargets).
+    // A static mesh's levels may add vertices (a thinned crown's inflated leaf cards, Geometry::LODAddedVertex):
+    // they are inserted right behind their submesh's own (its VertexCount and box grow, later submeshes move
+    // back), copies of their source vertex in every stream.
     void BakeMeshLODs( Assets::Serialization::MeshAssetData& data, const Geometry::LODChainSettings& chain );
 
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );

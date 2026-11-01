@@ -35,7 +35,10 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         17; // 17: MeshBinary v8 container (each section states its LOD chain as cooked, LodPolicy None = LOD 0
+         18; // 18: generated levels reduce solid parts within a 1-pixel error budget and thin leaf-card elements
+             // with their area preserved (inflated corners added behind the submesh) - no level folds a crown's
+             // cards or a fence's rails away (GPU-COST-34);
+             // 17: MeshBinary v8 container (each section states its LOD chain as cooked, LodPolicy None = LOD 0
              // only, nothing generated on load - GPU-COST-9); 16: the generated LOD chain runs to a few dozen
              // triangles (Geometry::LODChainSettings, eight levels with LOD 0 - was three ratios ending at 10 %,
              // GPU-COST-5); 15: canopy top surface = the highest leaf per cell, not dilated (a tall round crown's

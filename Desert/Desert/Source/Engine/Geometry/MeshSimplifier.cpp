@@ -57,7 +57,11 @@ namespace Desert::Geometry
         // an attribute discontinuity and keeps each surviving corner on a wedge of its own side, as UE's QEM
         // collapses positions and lets the wedges ride along. Prune removes a disconnected part whole once it
         // is the cheapest thing left, so a mesh of many small shells still reaches its triangle target.
-        static constexpr unsigned kOptions = meshopt_SimplifyPermissive | meshopt_SimplifyPrune;
+        // ErrorClamped keeps the attribute share of the metric on the position scale (as ClusterDag.cpp reduces), so
+        // targetError is a geometric budget - a generated level's pixel budget (MeshLOD.hpp kLODMaxPixelError) -
+        // and a UV chart border priced at weight 0.5 cannot stop a level at its first collapse.
+        static constexpr unsigned kOptions =
+             meshopt_SimplifyPermissive | meshopt_SimplifyPrune | meshopt_SimplifyErrorClamped;
 
         std::vector<uint32_t> lod( indices.size() );
         float                 error = 0.0f;

@@ -32,10 +32,9 @@ namespace Desert::Geometry
 
     // positions: tightly-packed xyz per vertex (vertexCount * 3 floats). attributes: null, or
     // kSimplifyAttributeCount floats per vertex (normal xyz, uv). targetRatio in (0,1]; targetError is the
-    // max allowed relative error (the simplifier stops early if it would exceed it); a ratio LOD passes
-    // kNoErrorLimit, as UE reduces to a percent of triangles with no deviation cap. Returns the original
-    // indices unchanged for degenerate input.
-    constexpr float kNoErrorLimit = 3.0e38f;
+    // max allowed relative error (the simplifier stops early if it would exceed it); a generated LOD level passes
+    // its pixel budget (MeshLOD.hpp kLODMaxPixelError) - with no cap a percent-of-triangles target folded every
+    // leaf card and fence rail away (GPU-COST-34). Returns the original indices unchanged for degenerate input.
     SimplifyResult  SimplifyMesh( const float* positions, std::size_t vertexCount,
                                   const std::vector<uint32_t>& indices, float targetRatio,
                                   float targetError = 0.05f, const float* attributes = nullptr );
