@@ -288,6 +288,11 @@ namespace Desert::Graphic::System
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs     PostRefs;   // phase 2's: CameraIds through PostArgs
             RDG::BufferRef      CandidatesRef;
+            // GRASS-CULL-1: the camera cull's and phase 2's indirect dispatches, GrassFinalize's from the GPU's
+            // counts (GrassRenderer.cpp kCullDispatchBytes, GrassFinalize.shader CullDispatch).
+            std::shared_ptr<ShaderResources::StorageBuffer> CullDispatch;
+            RDG::ExternalBuffer                             CullDispatchImport;
+            RDG::BufferRef                                  CullDispatchRef;
             // GPU-COST-21, THE CASCADES' LISTS (UE: each shadow view culls its instances by its own volume): per
             // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster
             // box, CascadeIds list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
