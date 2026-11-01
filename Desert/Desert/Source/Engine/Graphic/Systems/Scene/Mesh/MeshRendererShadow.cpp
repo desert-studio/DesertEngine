@@ -1234,10 +1234,9 @@ namespace Desert::Graphic::System
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
         // THE CPU WALK of this view (CpuWalkHidden, the one rule of every view pass): a VSM level (its VG-only
-        // raster), a sun cascade's static layer (its bins and their cluster raster: a VG primitive is walked for
-        // every submesh the raster does not draw - a refused cut or carrier leaves it whole to the walk), a sun
-        // cascade's movable layer (its bins; no cluster raster), or a view with neither (a local light):
-        // everything. Empty: the walk draws none of the record.
+        // raster), a sun cascade's static or movable layer (its bins and their cluster raster: a VG primitive is
+        // walked for every submesh the raster does not draw - a refused cut or carrier leaves it whole to the
+        // walk), or a view with neither (a local light): everything. Empty: the walk draws none of the record.
         const ClusterWalkView walkView = IsVirtualShadowView( c ) ? VirtualShadowWalkView()
                                          : binnedLayer ? BinnedWalkView( GpuDriven::MeshPass::ShadowCascade, c )
                                                        : UnbinnedWalkView( GpuDriven::MeshPass::ShadowCascade );

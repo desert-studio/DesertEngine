@@ -1280,7 +1280,8 @@ namespace Desert::Graphic
         // pipeline), or nothing: the size FramePrevHzb and the draw bins' phase 1 test the history against.
         [[nodiscard]] std::optional<glm::uvec2> FrameHzbSize( RDG::Builder& graph, FrameTextures& textures );
         // VIRT-GEOM, right after AddFrameDrawBins: one "VirtualGeometry: Cluster Cut" + raster binning per cut
-        // view of the draw bins (FrameDrawBins::CutViewOf: each drawn cascade's static layer, then the main view)
+        // view of the draw bins (FrameDrawBins::CutViewOf: each drawn cascade layer, static and movable, then the
+        // main view)
         // over the VG candidates phase 1
         // appended (m_FrameDrawBins->VgCandidates), at Scalability ViewDistance.VirtualGeometryMaxPixelsPerEdge,
         // attached to each view's phase-1 issue (MeshRenderer::SetFrameVirtualGeometry); the main cut kept in
@@ -2118,8 +2119,9 @@ namespace Desert::Graphic
             // THE CUT VIEWS (UE: Nanite cuts only the views declared to it): per cull view (Views order), the
             // cluster-cut view its VG instances append as (VirtualGeometryCandidateInput::CutViewOf, numbered in
             // that order from 0), GpuDriven::kInvalidIndex = it takes no cut and bins them like any other
-            // instance. The main view is cut view 0 and each drawn cascade's static layer one; a cascade's movable
-            // layer takes none (MeshRendererShadow: "its bins; no cluster raster").
+            // instance. The main view is cut view 0 and each drawn cascade layer one - its static layer and its
+            // movable layer (the swaying VG instances, cut with the wind's reach: ClusterCut.shader); the deferred
+            // depth prepass view takes none (DepthPrepassView).
             std::vector<uint32_t> CutViewOf;
             // The VG candidates phase 1 appended per cut view (CutViewOf); invalid Rows = none this frame.
             // VgVisibleCapacity: one view's exact cluster bound (each candidate instance x its DAGs'

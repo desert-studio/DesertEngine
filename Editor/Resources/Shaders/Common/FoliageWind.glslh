@@ -8,13 +8,22 @@
 //
 // windA = (dir.x, dir.z, Strength cm, Height cm), windB = (Speed Hz, Seconds, 0, 0), pushed at offset 80
 // (Graphic::kInstancedWindPushOffset). Strength 0 = no offset, which every non-foliage instance pushes.
+#ifndef DESERT_FOLIAGE_WIND_GLSLH
+#define DESERT_FOLIAGE_WIND_GLSLH
+
+// The height mask FoliageWindOffset scales Strength by: the vertex's MESH-local height over Height, clamped to
+// [0, 1] and squared - 0 at and below the root, 1 from Height up, never falling as the height grows.
+float FoliageWindHeightMask(float localY, float height)
+{
+    float mask = clamp(localY / height, 0.0, 1.0);
+    return mask * mask;
+}
 
 vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4 windB)
 {
     if (windA.z <= 0.0)
         return vec3(0.0);
-    float mask = clamp(localPosition.y / windA.w, 0.0, 1.0);
-    mask *= mask;
+    float mask = FoliageWindHeightMask(localPosition.y, windA.w);
     float phase  = instanceOrigin.x * 0.0123 + instanceOrigin.z * 0.0171;
     float t      = 6.2831853 * windB.x * windB.y;
     float sway   = 0.65 * sin(t + phase) + 0.35 * sin(2.3 * t + 1.7 * phase);
@@ -27,3 +36,19 @@ vec3 InstancedWorldPosition(mat4 model, vec3 localPosition, vec4 windA, vec4 win
 {
     return vec3(model * vec4(localPosition, 1.0)) + FoliageWindOffset(localPosition, vec3(model[3]), windA, windB);
 }
+
+// THE WIND'S REACH over a mesh-local box whose top is at @p localTop (cm): the largest horizontal distance
+// FoliageWindOffset moves a vertex of it - @p pad (the row's WindBoundsPad = Strength of a swaying row, the bound of
+// the whole mesh) times the height mask at the top (the mask never falls with height, the sway term lies in [0, 1]).
+// No Height (<= 0): the whole pad. What the cluster cut grows a node / cluster box by (ClusterCut.shader; UE grows
+// every cluster of a WPO primitive by its one MaxWPODisplacement - here a trunk's low clusters grow by ~nothing).
+float FoliageWindReach(float localTop, float height, float pad)
+{
+    if (!(pad > 0.0))
+        return 0.0;
+    if (!(height > 0.0))
+        return pad;
+    return pad * FoliageWindHeightMask(localTop, height);
+}
+
+#endif

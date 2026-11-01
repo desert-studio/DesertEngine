@@ -323,7 +323,7 @@ namespace Desert::Graphic
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
-                    bins.CutViewOf.push_back( cutViews++ ); // the static layer draws the cascade's clusters
+                    bins.CutViewOf.push_back( cutViews++ ); // the still casters' clusters, into the cache
                 }
                 if ( meshes->CascadeMovableBinsDrawn( view ) )
                 {
@@ -333,9 +333,12 @@ namespace Desert::Graphic
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
                     viewKeys.push_back( System::MeshRenderer::CascadeMovableView( view ) );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}Movable", c ) );
-                    // No cluster raster on the movable layer: its VG movers draw from its bins (CpuWalkHidden's
-                    // SubmeshesBinned rule), as every other mover does.
-                    bins.CutViewOf.push_back( GpuDriven::kInvalidIndex );
+                    // The movable layer cuts its VG movers too (UE Nanite: a World Position Offset caster goes
+                    // through the cluster cull of the cached CSM's / VSM's dynamic layer, its bounds grown by
+                    // MaxWPODisplacement): the swaying ISM instances near the camera are cut by the cascade's
+                    // texels, every node / cluster box grown by the wind's reach at its height
+                    // (ClusterCut.shader), instead of drawing their whole LOD mesh from the bins.
+                    bins.CutViewOf.push_back( cutViews++ );
                 }
             }
         }
@@ -772,9 +775,10 @@ namespace Desert::Graphic
         m_ClusterCutCounts->BeginFrame( frame.FrameIndex );
 
         // One cut per cut view of the draw bins (FrameDrawBins::CutViewOf): the main view (cut view 0), then each
-        // drawn cascade's static layer; a view with no cut view (a cascade's movable layer) bins its VG instances. Each cut selects LOD in ITS OWN pixels (UE: shadow LOD by the shadow view's
-        // resolution): the main view through its perspective LodProjection, a cascade by its own world size per
-        // texel (orthographic). The cascades' instance bins keep the main camera's mesh LOD (MakeCullView).
+        // drawn cascade layer (static, movable); a view with no cut view (the deferred depth prepass) bins its VG
+        // instances. Each cut selects LOD in ITS OWN pixels (UE: shadow LOD by the shadow view's resolution): the
+        // main view through its perspective LodProjection, a cascade layer by its cascade's world size per texel
+        // (orthographic). The cascades' instance bins keep the main camera's mesh LOD (MakeCullView).
         const VirtualGeometry::ClusterCandidates candidates{
              .Rows            = bins.VgCandidates.Rows,
              .Count           = bins.VgCandidates.Count,
@@ -797,14 +801,17 @@ namespace Desert::Graphic
                              .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
                              .Lod              = VirtualGeometry::ClusterLodMeasure::Perspective(
                                   frame.Split.Render.Height, bins.Views[v].View.LodProjection ) } );
-            // A cut cascade's view key is kDirectionalShadowSun x kMaxCascades + its cascade (its static layer,
-            // AddFrameDrawBins); any other key on a cut view is a broken marking.
-            const uint32_t key   = bins.ViewKeys[v];
+            // A cut cascade layer's view key (AddFrameDrawBins): its static layer kDirectionalShadowSun x
+            // kMaxCascades + its cascade, its movable layer MeshRenderer::CascadeMovableView of that; both select
+            // LOD by the cascade's texels. Any other key on a cut view is a broken marking.
+            const uint32_t key         = bins.ViewKeys[v];
+            const uint32_t movableBase = System::MeshRenderer::CascadeMovableView( 0u );
+            const uint32_t cascadeKey  = key >= movableBase ? key - movableBase : key;
             const uint32_t first = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades;
-            if ( key < first || key - first >= System::MeshRenderer::kMaxCascades )
+            if ( cascadeKey < first || cascadeKey - first >= System::MeshRenderer::kMaxCascades )
                 return Common::MakeError<Result>(
-                     std::format( "VirtualGeometry: cut view {} (key {}) is not a sun cascade", v, key ) );
-            const float worldPerTexel = sun.CascadeWorldPerTexel[static_cast<glm::length_t>( key - first )];
+                     std::format( "VirtualGeometry: cut view {} (key {}) is not a sun cascade layer", v, key ) );
+            const float worldPerTexel = sun.CascadeWorldPerTexel[static_cast<glm::length_t>( cascadeKey - first )];
             return Common::MakeSuccess(
                  Result{ .Instance         = bins.Views[v],
                          .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
@@ -826,8 +833,9 @@ namespace Desert::Graphic
                  "primitives are drawn by their own submeshes" );
             return;
         }
-        // Shadow cascades: the cascade's static layer draws the clusters (only drawn cascades are cull views; the
-        // marking, not the index, says which cull view is a cut view). Views.front() is the main view, cut below.
+        // Shadow cascades: each drawn layer draws its own clusters - the static layer the still casters' into the
+        // cache, the movable layer the movers' over it (only drawn layers are cull views; the marking, not the
+        // index, says which cull view is a cut view). Views.front() is the main view, cut below.
         bool cascadesCut = true;
         for ( size_t v = 1; v < bins.Views.size(); ++v )
         {

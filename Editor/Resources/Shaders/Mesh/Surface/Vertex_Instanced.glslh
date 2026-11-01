@@ -119,7 +119,9 @@ void main()
     const DesertMeshDraw    draw           = vg.Draw;
     const GpuScenePrimitive row            = gpuScene.Primitives[draw.Primitive];
     const mat4              model          = draw.World;
-    const vec4              windA          = GpuScene_WindA( row );
+    // The cut's rest pose (a caster view past the shadow wind distance, ClusterCut's CutFrame.RestPose): no wind,
+    // as the binned cell below - the cut grew such a cluster's box by nothing.
+    const vec4              windA          = draw.RestPose ? vec4( 0.0 ) : GpuScene_WindA( row );
     const vec4              windB          = GpuScene_WindB( row, false );
 #elif defined( DESERT_SURFACE_BINNED )
     const DesertMeshDraw    draw  = DesertResolveMeshDraw();

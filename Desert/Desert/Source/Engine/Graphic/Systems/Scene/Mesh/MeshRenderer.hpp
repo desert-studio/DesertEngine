@@ -816,8 +816,8 @@ namespace Desert::Graphic::System
         //    AddVirtualShadowRasterPasses made before the levels' walks). A refused cut, a refused carrier, a
         //    twin-less group or a submesh with no candidate DAG: walked, so the clusters it would have drawn are
         //    drawn by the mesh's own submeshes;
-        //  - any other record of a binned view - a VG primitive of a view that takes no cut (a cascade's movable
-        //    layer, the deferred depth prepass) included: its instances are in the view's bins - empty when the
+        //  - any other record of a binned view - a VG primitive of a view that takes no cut (the deferred depth
+        //    prepass) included: its instances are in the view's bins - empty when the
         //    bins hold every shown submesh (DrawCommandCache::SubmeshesBinned), else @p hidden;
         //  - a view with neither (a local light, a refused bins issue): @p hidden.
         // The words past the first 64 submeshes are interned in m_ClusterWalkWords (kept until the next

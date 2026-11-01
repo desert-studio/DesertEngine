@@ -48,6 +48,7 @@ Shader "ClusterCut"
         #include <Common/VirtualGeometry.glslh>
         #include <Common/GpuCullTests.glslh>
         #include <Common/VirtualShadowMap.glslh>
+        #include <Common/FoliageWind.glslh>
 
         ReadBuffer(0) ClusterCutPrimitives
         {
@@ -178,8 +179,11 @@ Shader "ClusterCut"
             float WorldScale;
             // The primitive's wind pad (GpuScenePrimitive.LocalBoundsCenter.w, InstanceCull's WindExpandedBounds):
             // a swaying ISM's vertices move horizontally by up to it (Mesh/Surface/Vertex_Instanced.glslh), so every
-            // node / cluster box grows by it (UE: Nanite's max world position offset displacement). 0 = still.
+            // node / cluster box grows by the wind's reach at its top (FoliageWindReach of WindPad and WindHeight,
+            // the row's Wind.w; UE: Nanite's MaxWPODisplacement, one value for every cluster). 0 = still, and a
+            // rest-pose candidate (RestPose: drawn with no wind).
             float WindPad;
+            float WindHeight;
             vec3  Origin;
             float LodScale;
             float Tau;
@@ -238,8 +242,10 @@ Shader "ClusterCut"
             vec3 boxMin;
             vec3 boxMax;
             VgWorldBox( center, extent, f.World, boxMin, boxMax );
-            boxMin -= vec3( f.WindPad, 0.0, f.WindPad );
-            boxMax += vec3( f.WindPad, 0.0, f.WindPad );
+            // The wind moves the box's vertices horizontally by up to its reach at the box's mesh-local top.
+            const float reach = FoliageWindReach( center.y + extent.y, f.WindHeight, f.WindPad );
+            boxMin -= vec3( reach, 0.0, reach );
+            boxMax += vec3( reach, 0.0, reach );
             if ( !GpuCull_FrustumIntersects( view, boxMin, boxMax ) )
                 return false;
             // A VSM level: only over a page drawn this frame (the rest of the level keeps its cached depth).
@@ -367,7 +373,6 @@ Shader "ClusterCut"
             f.World = GpuScene_UnpackAffine( primitive.LocalToWorld ) * GpuScene_InstanceToPrimitive( instance ) *
                       SubmeshTransforms[DrawSlots[slot].SubmeshTransform];
             f.WorldScale   = VgMaxScale( f.World );
-            f.WindPad      = primitive.LocalBoundsCenter.w;
             f.Origin       = view.LodOrigin.xyz;
             f.LodScale     = ViewLods[localView].x;
             f.Tau          = ViewLods[localView].y;
@@ -380,6 +385,9 @@ Shader "ClusterCut"
             const mat4 instanceWorld =
                  GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
             f.RestPose = GpuCull_CastsRestPose( view, primitive, instanceWorld );
+            // A rest-pose candidate is drawn with no wind (Vertex_Instanced.glslh): its boxes grow by nothing.
+            f.WindPad    = f.RestPose ? 0.0 : primitive.LocalBoundsCenter.w;
+            f.WindHeight = primitive.Wind.w;
             return true;
         }
 
