@@ -210,10 +210,14 @@ namespace Desert::Editor
         uint32_t               segments = 0;
         for ( const auto& s : prof.LastFrame() )
         {
-            if ( !std::string_view( s.Name ).starts_with( asyncPrefix ) )
+            // A segment of a view carries the view's name first ("scene view #1 | RDG Async: .."): matched after
+            // it (GpuAsyncSegmentLabelStart, the backend's rule), the view kept in front of the label.
+            const std::string_view name  = s.Name;
+            const size_t           label = ::Common::Profiling::GpuAsyncSegmentLabelStart( name );
+            if ( label == std::string_view::npos )
                 continue;
-            asyncLine += std::format( " [{} {:.3f} ms]", std::string_view( s.Name ).substr( asyncPrefix.size() ),
-                                      s.GpuMs );
+            asyncLine += std::format( " [{}{} {:.3f} ms]", name.substr( 0, label - asyncPrefix.size() ),
+                                      name.substr( label ), s.GpuMs );
             asyncMs += s.GpuMs;
             ++segments;
         }

@@ -557,14 +557,8 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<int32_t>   asyncSegments;
         // A segment row of a view carries the view's name first ("scene view #1 | RDG Async: ..",
         // GpuViewScopeName): the prefix is matched on the scope's own name, after the view's.
-        const std::string_view segmentPrefix = Common::Profiling::kGpuAsyncSegmentScopePrefix;
-        const auto             isSegment     = [&]( std::string_view name )
-        {
-            const size_t viewEnd = name.find( " | " );
-            return name.starts_with( segmentPrefix ) ||
-                   ( viewEnd != std::string_view::npos &&
-                     name.substr( viewEnd + 3 ).starts_with( segmentPrefix ) );
-        };
+        const auto isSegment = []( std::string_view name )
+        { return Common::Profiling::GpuAsyncSegmentLabelStart( name ) != std::string_view::npos; };
         for ( size_t i = 0; i < scopeCount; ++i )
         {
             m_Intervals[i]   = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );

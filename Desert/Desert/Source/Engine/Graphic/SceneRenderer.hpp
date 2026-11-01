@@ -2104,6 +2104,9 @@ namespace Desert::Graphic
         // light (the moon) that casts its own cascades. Last frame's, to redraw the static caches after a gap in
         // which nothing drew them.
         bool m_FrameCascades          = true;
+        // This frame's clouds were added between the screen probes' fork and join (SceneRenderer.cpp, after the
+        // traced GI), not after the opaque scene. Reset at the graph head.
+        bool m_FrameCloudsTraced = false;
         bool m_CascadesDrawnLastFrame = false;
         // Last frame's FURTHEST HZB of the main view, phase 1's occlusion input (registered only when its size is
         // this frame's depth size): written by the draw bins' phase 2 (AddFrameDrawBinsPostOcclusion), or by the

@@ -1785,6 +1785,11 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         AddFrameSkyLight( graph, textures );
+        // The per-view sky LUTs (Sky-View, aerial perspective) right after the cached pair they sample, ahead of
+        // every reader (UE RenderSkyAtmosphereLookUpTables, before the base pass): the sky behind the scene, the
+        // clouds wherever they are added, the fog, the translucency - all read this frame's LUTs.
+        AddFrameSkyAtmosphereLuts( graph, textures );
+        m_FrameCloudsTraced = false;
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
@@ -2410,6 +2415,29 @@ namespace Desert::Graphic
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
                 AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                // THE CLOUDS BETWEEN THE SCREEN PROBES' FORK AND THEIR JOIN (UE: the volumetric render target
+                // traced before the lights while Lumen's gather runs on the async queue). The march, its temporal
+                // resolve and its upsample read the sky LUTs (the graph head), the cloud shadow map and the scene
+                // depth - nothing the async runs write - so the graphics queue traces them while the probes
+                // gather, ahead of the reflections and the composite, which wait on the runs they read
+                // (RDGCompile FindAsyncRuns: the join at the first consumer). Here only when the depth they march
+                // against is already final (otherwise after the opaque scene, below): a single-sample target (no
+                // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
+                // depth), no glass section and no water surface (it writes its own depth).
+                {
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                    const auto* waterSurface = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+                    const bool  depthFinal =
+                         m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
+                         ( meshRenderer == nullptr || ( meshRenderer->GetGenericQueue().empty() &&
+                                                        !meshRenderer->TranslucentSectionsVisible() ) ) &&
+                         ( waterSurface == nullptr || !waterSurface->HasDraws() );
+                    if ( depthFinal && !m_DebugView.HidesAtmosphere() )
+                    {
+                        AddFrameVolumetricClouds( graph, textures, frame );
+                        m_FrameCloudsTraced = true;
+                    }
+                }
                 // The pending capture's cube, measured by this view's GI (the radiance cache this frame's update
                 // just wrote) or, without traced GI, by the sky's irradiance - before the composite that reads it.
                 AddFrameReflectionCaptureUpdate( graph, textures, RadianceCacheRuns() );
@@ -2539,17 +2567,17 @@ namespace Desert::Graphic
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
         // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
-        // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); a path-traced frame
-        // added none, so its sky LUTs are added here. A G-buffer or wireframe view (HidesAtmosphere) composites no
-        // cloud layer.
+        // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); the sky LUTs are the
+        // graph head's. A G-buffer or wireframe view (HidesAtmosphere) composites no cloud layer. The clouds come
+        // here when the deferred lighting did not trace them between the probes' fork and join
+        // (m_FrameCloudsTraced): the depth they march against is final only after the water and the forward draws.
         if ( !pathTraced && !m_DebugView.HidesAtmosphere() )
-            AddFrameVolumetricClouds( graph, textures, frame );
-        else
         {
-            if ( pathTraced )
-                AddFrameSkyAtmosphereLuts( graph, textures );
-            AddFrameCloudSkyOcclusion( graph, textures );
+            if ( !m_FrameCloudsTraced )
+                AddFrameVolumetricClouds( graph, textures, frame );
         }
+        else
+            AddFrameCloudSkyOcclusion( graph, textures );
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.

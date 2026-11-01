@@ -278,7 +278,6 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         AddFrameSceneDepthResolve( graph, textures );
-        AddFrameSkyAtmosphereLuts( graph, textures );
         AddFrameVolumetricFog( graph, textures, frame );
         AddFrameAtmosphericFog( graph, textures );
     }
