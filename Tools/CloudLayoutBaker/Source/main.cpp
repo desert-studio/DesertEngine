@@ -34,7 +34,7 @@
 // alpha.
 //
 // GPU-FREE and ASSET-LAYER-FREE; the only filesystem it touches is the picture it decodes and the one
-// write, which goes through Common's write primitive. See the premake file for why that is checked
+// write, which goes through Common's write primitive. See its CMakeLists.txt for why that is checked
 // rather than hoped for.
 
 #include <ToolMain.hpp>

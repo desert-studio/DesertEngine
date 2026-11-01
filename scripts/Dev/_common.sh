@@ -3,9 +3,13 @@
 # Logs live under build/DevLogs (ignored by git, one copy per worktree) so parallel agents never share them.
 
 DEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# premake writes the workspace Makefile and every <Project>.make here (BuildScripts/Workspace.lua `location`), never
-# at the root; paths inside them are relative to this directory, so make always runs with `-C "$DEV_PROJECTS"`.
-DEV_PROJECTS="$DEV_ROOT/build/Projects"
+# The host's configure preset (CMakePresets.json) and its build tree. Ninja Multi-Config: one tree holds Debug, Release
+# and Shipping, each with its own build-<Config>.ninja; the dev scripts build and run Debug.
+case "$(uname -s)" in
+    Darwin) DEV_PRESET="macos-clang-ninja" ;;
+    *)      DEV_PRESET="windows-msvc-ninja" ;;
+esac
+DEV_BUILD="$DEV_ROOT/build/cmake/$DEV_PRESET"
 
 # dev_logdir <name> — creates and prints build/DevLogs/<name>-<timestamp>
 dev_logdir() {
@@ -35,17 +39,40 @@ dev_help() {
     sed -n '2,/^[^#]/p' "$1" | sed -n '/^#/s/^# \{0,1\}//p'
 }
 
-# A merge can add sources to a project without touching its premake5.lua (files are globbed): after the AF7 merge
-# Common.make listed none of TextAssetHeader.cpp and every link failed. Regenerate the makefiles when a premake
-# script or the set of tracked sources changed since they were written. $1 = log dir; $2... = extra premake options
-# (suite.sh --dev-suites passes --dev-suites=A,B). The options are part of the stamp: a generation with them differs
-# from one without, so the next plain call regenerates and DevTests leaves the workspace again.
-dev_regen_makefiles() {
-    local logdir="$1"; shift
-    local sums; sums="$(git -C "$DEV_ROOT" ls-files '*.cpp' '*.mm' '*.c' 'premake5.lua' '*/premake5.lua' 'BuildScripts/*.lua' | md5) $*"
-    [ "$sums" = "$(cat "$DEV_ROOT/build/DevLogs/.sources.md5" 2>/dev/null)" ] && \
-        [ -z "$(find "$DEV_ROOT" -maxdepth 4 \( -name premake5.lua -o -path '*/BuildScripts/*.lua' \) -newer "$DEV_PROJECTS/Common.make" 2>/dev/null | head -1)" ] && return 0
-    (cd "$DEV_ROOT" && CI=true premake5 gmake "$@") >"$logdir/premake.log" 2>&1 ||
-        { echo "premake5 gmake $* FAILED; log $logdir/premake.log"; tail -3 "$logdir/premake.log"; return 1; }
-    mkdir -p "$DEV_ROOT/build/DevLogs" && echo "$sums" >"$DEV_ROOT/build/DevLogs/.sources.md5"
+# dev_configure <log dir> [A,B,...] — configure the host preset once; again only when the DevTests suite list changes.
+# A merge that adds or removes sources needs nothing here: every source glob is CONFIGURE_DEPENDS, so the next build
+# re-globs and re-configures by itself. The suite list (suite.sh --dev-suites) is the one input a build cannot see,
+# so it is compared with the cache: a plain call after a --dev-suites one configures DevTests out again.
+dev_configure() {
+    local logdir="$1" suites="${2:-}" current
+    current="$(sed -n 's/^DESERT_DEV_SUITES:STRING=//p' "$DEV_BUILD/CMakeCache.txt" 2>/dev/null)"
+    [ -f "$DEV_BUILD/build.ninja" ] && [ "$current" = "$suites" ] && return 0
+    (cd "$DEV_ROOT" && cmake --preset "$DEV_PRESET" -DDESERT_DEV_SUITES="$suites") >"$logdir/configure.log" 2>&1 ||
+        { echo "cmake --preset $DEV_PRESET FAILED; log $logdir/configure.log"; tail -3 "$logdir/configure.log"; return 1; }
+}
+
+# dev_has_target <name> — the Debug build defines that target (a runner, a tool, Editor).
+dev_has_target() {
+    grep -q "^build $1: phony" "$DEV_BUILD/build-Debug.ninja" 2>/dev/null
+}
+
+# dev_up_to_date <name> — Ninja, asked in dry run, has nothing left to do for the target: it is newer than every object,
+# library and generated file it depends on. The build's own dependency graph answers, not a timestamp guess.
+dev_up_to_date() {
+    ninja -C "$DEV_BUILD" -f build-Debug.ninja -n "$1" 2>/dev/null | grep -q '^ninja: no work to do'
+}
+
+# dev_build <log> <target...> — build the Debug targets (and what they link) with the compiler cache, after any other
+# build on this machine finished: two parallel builds share the CPU and both slow down by more than they gain.
+dev_build() {
+    local log="$1"; shift
+    local args=() t
+    for t in "$@"; do args+=(--target "$t"); done
+    if command -v pgrep >/dev/null 2>&1; then
+        while pgrep -x ninja >/dev/null; do sleep 10; done
+    fi
+    # BASEDIR = the directory holding every worktree, so two trees' identical compiles share one cache entry.
+    export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1
+    export CCACHE_BASEDIR="${CCACHE_BASEDIR:-$(dirname "$DEV_ROOT")}"
+    cmake --build "$DEV_BUILD" --config Debug -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
 }

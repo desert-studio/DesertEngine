@@ -4,7 +4,7 @@
 // Engine/Plugins/Runtime/MeshModelingToolset/Source/ModelingComponentsEditorOnly/Public/Operations/SubdividePoly.h:15-133
 // and Private/Operations/SubdividePoly.cpp:1-1466, adapted: UE Core as std/glm, namespace Desert::Geometry, no
 // UENUM/UE_API; a failure is returned by name (Failure()) instead of an ensure + false. The refiner is the same
-// OpenSubdiv 3.6 Far::TopologyRefiner UE uses (ThirdParty/OpenSubdiv, BuildScripts/ThirdParty/OpenSubdiv.lua).
+// OpenSubdiv 3.6 Far::TopologyRefiner UE uses (ThirdParty/OpenSubdiv, cmake/ThirdParty/OpenSubdiv.cmake).
 // NOT ported: skin weights, bones, morph targets and weight layers (the attribute set here has none of them),
 // ESubdivisionOutputNormals::None and ESubdivisionOutputUVs (UVs are always interpolated: ToRenderMesh refuses a
 // triangle with no normal, and a mesh that loses its UVs cannot be textured again without a separate unwrap), and

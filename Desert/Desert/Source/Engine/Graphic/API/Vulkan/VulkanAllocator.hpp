@@ -2,6 +2,8 @@
 
 #include <unordered_map>
 
+#include <Common/Core/Singleton.hpp>
+
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -229,6 +231,10 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] Common::ResultStr<VkBuffer> RT_ZeroBuffer();
 
         static VmaAllocator& GetVMAAllocator();
+
+        /// The running renderer's allocator (EngineContext's renderer context, cast to Vulkan): the one accessor
+        /// a Vulkan source reaches it through.
+        static VulkanAllocator& Current();
 
         VulkanAllocator() = default;
 

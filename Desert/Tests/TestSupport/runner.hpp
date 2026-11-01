@@ -33,7 +33,7 @@
 //     namespace { const Desert::TestSupport::AdoptedTestSource kShared{
 //     "desert-shared/Tests/project_format_test.cpp" }; }
 //
-// The runner premake compiles the adopted file next to the suite's own. A source adopted by two suites
+// The runner target compiles the adopted file next to the suite's own. A source adopted by two suites
 // aborts the runner at startup, as two child entry points do.
 //
 // SET-UP THAT BELONGS TO ONE SUITE. Before BUILD1 a suite's own main did what its tests needed first (a

@@ -30,33 +30,22 @@ MANIFEST=build/TestManifest.txt
 # also runs the same check standalone on named suites.
 source "$(dirname "$0")/tree_leaks.sh"
 export -f run_one dev_capped unit_bin unit_suite
-dev_regen_makefiles "$LOG" || exit 2
-# A suite deleted on this branch keeps its old .make (premake never removes one), and the build below stops on
-# "No rule to make target" — LODFold did this in five trees on 09-26. A test makefile that the regeneration did not
-# rewrite names a suite the workspace Makefile no longer lists: park it (never delete) so the list below is what
-# premake made.
-projects=" $(grep -m1 '^PROJECTS' "$DEV_PROJECTS/Makefile" 2>/dev/null | sed 's/^PROJECTS *:= *//') "
-if [ "$projects" != "  " ]; then
-    for mk in $(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null); do
-        name=$(basename "$mk" .make)
-        [[ "$projects" == *" $name "* ]] || { mkdir -p build/stale-make; mv "$mk" build/stale-make/; echo "handoff_check: parked stale $mk"; }
-    done
-fi
+dev_configure "$LOG" || exit 2
 # (0) Build every suite first, in one make: after a merge 200+ binaries predate libCommon.a and a new suite has no
 # binary at all, and an agent that fixed that by hand spent a whole second pass (~45 min) per branch, five times on
-# 09-25. make rebuilds only what is out of date, so on a fresh tree this is seconds. HANDOFF_NO_BUILD=1 skips it.
+# 09-25. Ninja rebuilds only what is out of date, so on a fresh tree this is seconds. HANDOFF_NO_BUILD=1 skips it.
 if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
     # suite.sh maps every manifest suite to its runner and builds each runner once.
-    [ -s "$MANIFEST" ] || { echo "handoff_check: $MANIFEST is missing or empty after premake"; exit 1; }
+    [ -s "$MANIFEST" ] || { echo "handoff_check: $MANIFEST is missing or empty after configure"; exit 1; }
     if ! awk '{ print $2 }' "$MANIFEST" | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
         echo "handoff_check: building the runners FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
     fi
     # (0b) the Editor too: suites compile a fraction of the Editor's sources, and on 09-26 two batches each passed
     # every suite while together they broke the Editor build (AV1d changed PreviewViewport::Draw, AV1e called the
     # old one). HANDOFF_NO_EDITOR=1 skips it.
-    if [ -z "${HANDOFF_NO_EDITOR:-}" ] && [ -f "$DEV_PROJECTS/Editor.make" ]; then
-        if ! "$HOME/.claude/tools/build_quiet.sh" "$PWD" "$LOG/editor.log" Editor >/dev/null 2>&1; then
-            echo "handoff_check: building the Editor FAILED; log $LOG/editor.log"; grep -m5 "error:" "$LOG/editor.log"; exit 1
+    if [ -z "${HANDOFF_NO_EDITOR:-}" ] && dev_has_target Editor; then
+        if ! dev_build "$LOG/editor.log" Editor; then
+            echo "handoff_check: building the Editor FAILED; log $LOG/editor.log"; grep -m5 "error" "$LOG/editor.log"; exit 1
         fi
     fi
 fi
@@ -64,26 +53,25 @@ tree_state >"$LOG/tree.before"
 bins=()
 for t in "$BIN"/*; do
     [ -f "$t" ] && [ -x "$t" ] || continue
-    # A runner (or a pre-runner suite binary) that premake no longer makes is parked (never deleted), not run:
+    # A runner (or a pre-runner suite binary) that the build no longer defines is parked (never deleted), not run:
     # AUTO1's handoff ran CookedFixtureWhitelist (deleted by AF8b2) and reported it red.
-    if [ -f "$DEV_PROJECTS/Makefile" ] && [ ! -f "$DEV_PROJECTS/$(basename "$t").make" ]; then
+    if [ -f "$DEV_BUILD/build-Debug.ninja" ] && ! dev_has_target "$(basename "$t")"; then
         mkdir -p build/stale-bin; mv "$t" build/stale-bin/; echo "handoff_check: parked orphan binary $t"; continue
     fi
     bins+=("$t")
 done
 passed=0; red=(); stale=(); units=()
-# (f) never built: a runner whose makefile exists but whose binary does not is not "not run", it is untested code.
+# (f) never built: a runner the manifest names but whose binary does not exist is not "not run", it is untested code.
 # The AF7 branch passed 146/146 in a tree that had built 146 of 332 suites; ModelingToolTarget no longer compiled.
-for mk in $(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null); do
-    name=$(basename "$mk" .make)
-    [ -x "$BIN/$name" ] || stale+=("$name<never built")
+for name in $(awk '{ print $1 }' "$MANIFEST" | sort -u); do
+    dev_has_target "$name" && { [ -x "$BIN/$name" ] || stale+=("$name<never built"); }
 done
 # The units: every manifest entry whose runner is built. A missing runner is already "never built" above; an entry
-# naming an executable no makefile produces is red, not skipped.
+# naming an executable the build does not define is red, not skipped.
 while read -r exe suite; do
     [ -n "${suite:-}" ] || continue
     if [ -x "$BIN/$exe" ]; then units+=("$BIN/$exe:$suite")
-    elif [ ! -f "$DEV_PROJECTS/$exe.make" ]; then red+=("$suite: the manifest names $exe, which no makefile builds"); fi
+    elif ! dev_has_target "$exe"; then red+=("$suite: the manifest names $exe, which the build does not define"); fi
 done <"$MANIFEST"
 total=${#units[@]}
 [ "$total" -gt 0 ] && printf '%s\n' "${units[@]}" | xargs -P "${HANDOFF_JOBS:-4}" -I{} bash -c 'run_one "$1" "$2"' _ {} "$LOG"
@@ -103,18 +91,11 @@ for u in "${units[@]:+${units[@]}}"; do
         stale+=("$(basename "$(unit_bin "$u")")<HEAD commit (BuildVersion)")
     fi
 done
-# (e) stale: each runner must be newer than its own objects and every library it links (Debug LDDEPS).
+# (e) stale: each runner must be up to date with its objects, the libraries it links and the generated files they
+# compile — asked of Ninja in dry run, which walks the build's own dependency graph.
 for t in "${bins[@]:+${bins[@]}}"; do
-    name=$(basename "$t")
-    newest=$(ls -t "build/Tests/Intermediates/Debug/Debug/$name"/*.o 2>/dev/null | head -1)
-    if [ -n "$newest" ] && [ "$newest" -nt "$t" ]; then stale+=("$name<$(basename "$newest")"); continue; fi
-    [ -f "$DEV_PROJECTS/$name.make" ] || continue
-    for lib in $(awk '/^ifeq \(\$\(config\),debug\)/{d=1} /^ifeq \(\$\(config\),release\)/{d=0}
-                      d && /^LDDEPS \+=/{for(i=3;i<=NF;i++)print $i}' "$DEV_PROJECTS/$name.make"); do
-        # LDDEPS is relative to the makefile's directory, not to the root this script runs in.
-        case "$lib" in /*) ;; *) lib="$DEV_PROJECTS/$lib" ;; esac
-        if [ -f "$lib" ] && [ "$lib" -nt "$t" ]; then stale+=("$name<$(basename "$lib")"); break; fi
-    done
+    name=$(basename "$t" .exe)
+    dev_up_to_date "$name" || stale+=("$name<out of date (ninja -n $name)")
 done
 # (h) the suites must leave the checkout as they found it; a new entry is traced to the suite that wrote it.
 trace_leaks "$LOG" "${units[@]:+${units[@]}}" || fail=1

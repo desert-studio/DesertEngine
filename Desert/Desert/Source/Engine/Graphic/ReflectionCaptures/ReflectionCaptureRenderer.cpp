@@ -68,7 +68,7 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t kGroupSize = 8u;
+        constexpr uint32_t kCaptureGroupSize = 8u;
 
         // THE SIX FACE VIEWS, in the order the assemble shader names them (FacePositiveXTexture .. FaceNegativeZTexture). The up
         // vectors are any that are not parallel to the axis: the assemble projects through each view's own matrix,
@@ -133,7 +133,7 @@ namespace Desert::Graphic
 
         [[nodiscard]] uint32_t GroupCount( uint32_t texels )
         {
-            return ( std::max( texels, 1u ) + kGroupSize - 1u ) / kGroupSize;
+            return ( std::max( texels, 1u ) + kCaptureGroupSize - 1u ) / kCaptureGroupSize;
         }
 
         void HashBytes( uint64_t& hash, const void* data, size_t bytes )

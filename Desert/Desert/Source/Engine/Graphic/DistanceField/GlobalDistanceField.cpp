@@ -5,6 +5,7 @@
 // per level that has bricks to rewrite.
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
 
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -30,11 +31,6 @@
 
 namespace Desert::Graphic::DistanceField
 {
-    namespace DFShared
-    {
-#include <Common/DistanceFieldShared.glslh>
-    } // namespace DFShared
-
     static_assert( DFShared::GDF_NUM_CLIPMAPS == kGlobalDistanceFieldClipmaps );
 
     namespace

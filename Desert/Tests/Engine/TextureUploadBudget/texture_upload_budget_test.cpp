@@ -44,7 +44,7 @@ namespace
         fs::path prefix = ".";
         for ( int up = 0; up < 6; ++up )
         {
-            if ( std::ifstream( ( prefix / "Desert/Desert/premake5.lua" ).string() ) )
+            if ( std::ifstream( ( prefix / "Desert/Desert/CMakeLists.txt" ).string() ) )
                 return prefix;
             prefix /= "..";
         }

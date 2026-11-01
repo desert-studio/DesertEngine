@@ -38,7 +38,7 @@ namespace Desert::Editor
             }
         }
 
-        void DrawStatus( const std::string& status, const bool isError )
+        void DrawParametersStatus( const std::string& status, const bool isError )
         {
             if ( status.empty() )
                 return;
@@ -91,7 +91,7 @@ namespace Desert::Editor
         // No ImGui::Begin: the editor's panel loop wraps OnUIRender in this panel's window.
         if ( m_Path.empty() )
         {
-            DrawStatus( m_Status, true );
+            DrawParametersStatus( m_Status, true );
             return;
         }
         Data& data = *m_Data;
@@ -175,7 +175,7 @@ namespace Desert::Editor
         ImGui::Separator();
         if ( ImGui::Button( "Save" ) )
             (void)SaveDocument();
-        DrawStatus( m_Status, m_StatusIsError );
+        DrawParametersStatus( m_Status, m_StatusIsError );
 
         (void)m_Edits.Observe( Owner(), ImGui::IsAnyItemActive() );
     }

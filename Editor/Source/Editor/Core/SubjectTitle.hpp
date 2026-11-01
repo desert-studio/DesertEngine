@@ -10,7 +10,7 @@
 //
 // WHAT MADE THAT COST SOMETHING. An anonymous namespace is per translation unit, so the copies were
 // invisible until the Windows CI job started compiling Editor as MSBuild unity files
-// (BuildScripts/UnityBuild.lua): two of them landing in one group is a redefinition. Three copies were
+// (cmake/DesertWorkspace.cmake): two of them landing in one group is a redefinition. Three copies were
 // already carried on that file's opt-out list for exactly this, and the fourth failed the first Windows
 // run with --unity (36260237438, StaticMeshViewerDocument.cpp(27) C2084). Opting each one out as it
 // surfaces is a list that grows with the grouping, and the grouping moves every time the list does --

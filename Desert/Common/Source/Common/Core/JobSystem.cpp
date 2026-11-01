@@ -7,7 +7,7 @@
 // Optick is on the shipping link line and contributes nothing to it, because after the two guards below
 // no translation unit in this engine references a single Optick symbol — the profiling macros are empty
 // (Common/Core/Profiler.hpp) and these are the only other two uses in the tree. That absence is not
-// asserted by reading premake; scripts/CI/ShippingSymbols.sh reads the linked binary.
+// asserted by reading the build scripts; scripts/CI/ShippingSymbols.sh reads the linked binary.
 #include <optick.h>
 
 #include <algorithm>

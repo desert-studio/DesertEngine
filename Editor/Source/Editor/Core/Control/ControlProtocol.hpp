@@ -354,10 +354,11 @@ namespace Desert::Editor::Control
             auto read = ReadOptionalInt( fields, key );
             if ( !read )
                 return Common::MakeFormattedError<int64_t>( "'{}': {}", op, read.GetError() );
-            if ( !read.GetValue().has_value() )
+            const auto& stated = read.GetValue();
+            if ( !stated.has_value() )
                 return Common::MakeFormattedError<int64_t>(
                      "'{}' requires '{}' and the request does not state it.", op, key );
-            return Common::MakeSuccess( int64_t{ *read.GetValue() } );
+            return Common::MakeSuccess( int64_t{ *stated } );
         }
 
         /// An array-of-strings field, or empty. Anything in the array that is not a string is DROPPED

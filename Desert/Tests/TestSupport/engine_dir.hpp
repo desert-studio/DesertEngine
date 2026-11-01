@@ -4,7 +4,7 @@
 // — the shader root and the shading models in it, fonts, icons, the engine content — against the engine directory,
 // which a host sets once with Common::Constants::Path::SetEngineDir (the editor from its executable's position or
 // --engine-dir). A suite is a host: it sets the directory the build baked in (DESERT_TEST_ENGINE_DIR, an absolute
-// path from Desert/Tests/premake5.lua) and never moves the working directory. A suite built without the define
+// path from Desert/Tests/CMakeLists.txt) and never moves the working directory. A suite built without the define
 // does not compile — there is no guessed root.
 
 #include <Common/Core/Constants.hpp>

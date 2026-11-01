@@ -1,5 +1,5 @@
 // UIMockup - draws one editor-UI mockup with the editor's theme and fonts, either to a PNG (--out) or in an
-// interactive window. See Tools/UIMockup/premake5.lua for the command line.
+// interactive window. The command line is parsed in main() below.
 
 #include "Mockup.hpp"
 

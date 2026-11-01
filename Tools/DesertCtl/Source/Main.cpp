@@ -27,7 +27,7 @@
 
 // The transport, and ONLY the transport: the same header the editor's end of this channel uses, so that
 // what the platforms spell differently is written once rather than once per end. Header-only; the reply is
-// read through the JSON facade, whose one source this tool compiles in (Tools/DesertCtl/premake5.lua).
+// read through the JSON facade, whose one source this tool compiles in (Tools/DesertCtl/CMakeLists.txt).
 #include <Common/Core/LocalSocket.hpp>
 #include <Common/Json/Json.hpp>
 

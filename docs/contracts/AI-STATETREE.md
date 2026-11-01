@@ -119,4 +119,4 @@ EDITOR) → (MOVE ∥ SIGHT) → HEAR → DEBUG.
 - **Q7** Server only, enforced at registration; a client sees only the replicated result.
 - **Q8** A separate trace channel Sight: glass lets sight through; foliage blocks it only with a flag on the foliage type (`BlocksSight`, default false, dense = true).
 
-Module: Engine/AI is in module Engine today (catch-all row of BuildScripts/DesertModules.lua). A separate AI module (UE AIModule / StateTreeModule) is the correct layering and is done in AI-ST-ASSET together with its build.
+Module: Engine/AI is in module Engine today (catch-all row of cmake/DesertModuleTable.cmake). A separate AI module (UE AIModule / StateTreeModule) is the correct layering and is done in AI-ST-ASSET together with its build.

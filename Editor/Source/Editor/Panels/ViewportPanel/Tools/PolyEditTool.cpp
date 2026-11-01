@@ -41,7 +41,7 @@ namespace Desert::Editor::Tools
 
         // The selected entity's tool target mesh (its EditableMesh or its asset lifted) + its world transform;
         // a primitive has none, and the tool does nothing to it.
-        std::optional<EditTarget> GetTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        std::optional<EditTarget> GetEditTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             if ( static_cast<uint64_t>( id ) == 0 )
                 return std::nullopt;
@@ -103,7 +103,7 @@ namespace Desert::Editor::Tools
 
     bool PolyEditTool::PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
     {
-        const auto target = GetTarget( scene, m_Entity );
+        const auto target = GetEditTarget( scene, m_Entity );
         if ( !target )
             return false;
         if ( !target->Target.Mesh )
@@ -183,7 +183,7 @@ namespace Desert::Editor::Tools
             ClearSelection();
         }
 
-        const auto target = GetTarget( scene, m_Entity );
+        const auto target = GetEditTarget( scene, m_Entity );
 
         ImDrawList* dl = ::ImGui::GetWindowDrawList();
         if ( !target )

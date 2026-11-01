@@ -98,7 +98,7 @@ namespace Desert::Graphic
         }
         // What the post chain reads after the temporal resolve (TemporalAA's output is the same).
         constexpr auto        kOutputFormat = Core::Formats::ImageFormat::RGBA16F;
-        constexpr const char* kOutputName   = "DLSS.Output";
+        constexpr const char* kDlssOutputName = "DLSS.Output";
 
         // The quality modes below 100 %, best first.
         constexpr std::array kUpscaleModes{ Streamline::DlssMode::UltraQuality, Streamline::DlssMode::Quality,
@@ -587,7 +587,7 @@ namespace Desert::Graphic
         RDG::TextureDesc outputDesc;
         outputDesc.Size              = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
         outputDesc.Format            = kOutputFormat;
-        const RDG::TextureRef output = graph.CreateTexture( outputDesc, kOutputName );
+        const RDG::TextureRef output = graph.CreateTexture( outputDesc, kDlssOutputName );
 
         Guides guides;
         if ( rr )

@@ -21,7 +21,7 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t kGroupSize = 8; // every TSR shader: LocalSize(8, 8, 1)
+        constexpr uint32_t kTsrGroupSize = 8; // every TSR shader: LocalSize(8, 8, 1)
 
         constexpr const char* kClearPrevTextures   = "TSRClearPrevTextures";
         constexpr const char* kDilateVelocity      = "TSRDilateVelocity";
@@ -42,7 +42,7 @@ namespace Desert::Graphic
         constexpr uint32_t kThinGeometryTileOutput = 10;
         // TSR.RejectShading's output tile per side (TSRRejectShading.shader kTile): 8 lanes write 8x8, or 6x6 with
         // thin geometry, whose lerp-clamped history box costs one more apron from the same 16x16 load.
-        constexpr uint32_t kRejectShadingTile             = kGroupSize;
+        constexpr uint32_t kRejectShadingTile             = kTsrGroupSize;
         constexpr uint32_t kRejectShadingThinGeometryTile = 6;
 
         constexpr const char* kColorHistory         = "TSR.History.Color";
@@ -793,8 +793,8 @@ namespace Desert::Graphic
         }
 
         // The record-time half of every pass: the pipeline of (shader, defines), dispatched over @p extent.
-        const auto dispatch = [this]( const char* shader, std::string defines, RDG::Extent3D extent,
-                                      uint32_t tile = kGroupSize )
+        const auto dispatch =
+             [this]( const char* shader, std::string defines, RDG::Extent3D extent, uint32_t tile = kTsrGroupSize )
         {
             return [this, shader, defines = std::move( defines ), extent,
                     tile]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1117,8 +1117,8 @@ namespace Desert::Graphic
                      return Common::MakeError( pipelineError );
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::GetInstance().DispatchCompute(
-                      bindings, *pipeline, ( render.Width + kGroupSize - 1 ) / kGroupSize,
-                      ( render.Height + kGroupSize - 1 ) / kGroupSize, 1 );
+                      bindings, *pipeline, ( render.Width + kTsrGroupSize - 1 ) / kTsrGroupSize,
+                      ( render.Height + kTsrGroupSize - 1 ) / kTsrGroupSize, 1 );
              } );
         return Common::MakeSuccess( luma );
     }
