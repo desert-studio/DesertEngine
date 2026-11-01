@@ -74,6 +74,10 @@ namespace Desert::Graphic
         // UE's Local Exposure visualisation (PostProcessVisualizeLocalExposure.cpp): the tonemap draws each pixel's
         // local exposure (green = lifted, red = pulled down, grey = 1) over the scene's luminance. Post only.
         LocalExposure = 19,
+        // The deformation field around the view (DEFORM-FIELD; Graphic/Deformation/DeformationFieldRenderer): each
+        // surface pixel's world X, Z looked up in the clipmap - blue = sink, red = rim over a grey metre checker
+        // (lighter where level 0 answers). Drawn after the temporal resolve, every path.
+        DeformationField = 20,
     };
 
     // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel, and

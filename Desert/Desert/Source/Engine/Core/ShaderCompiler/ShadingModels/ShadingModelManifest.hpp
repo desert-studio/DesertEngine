@@ -115,7 +115,7 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 10> kShadingWordFields{ {
+    inline constexpr std::array<ShadingWordField, 11> kShadingWordFields{ {
          { "INDEX", 0, 4 },              // shading-model index, 0..15
          { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
          { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
@@ -124,6 +124,8 @@ namespace Desert::Core::ShadingModels
                                          // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
          { "NO_CONTACT_SHADOW", 25, 1 }, // set = the primitive casts no contact shadow (UE !bCastContactShadow,
                                          // the push PrimitiveFlags); 0, the clear value, casts
+         { "LANDSCAPE", 26, 1 },         // set = the landscape's own surface (TerrainGBuffer.shader), not what
+                                         // stands on it; 0, the clear value, not ground
          { "PAYLOAD2", 32, 8 },          // CustomData2, unorm8 (.y)
          { "PAYLOAD3", 40, 8 },          // CustomData3, unorm8 (.y)
          { "SPECULAR", 48, 8 },          // UE's Specular pin, unorm8 (.y): F0 = 0.08 x Specular

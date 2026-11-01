@@ -1,0 +1,7 @@
+// THE SEAM a DeformStamp asset replaces (Deformation/DeformStampContract.glslh). These bytes are the SHIPPED body:
+// the field's own program (DeformStampApply, default variant) runs only the scroll clear, which never calls the
+// stamp, so the shipped body is the identity - a contact never reaches it, because every contact names its stamp
+// asset and is applied by that asset's variant (Graphic/Deformation/DeformationFieldRenderer.cpp).
+void DeformStampEvaluate(in DeformStampInputs i, inout DeformStampOutputs o)
+{
+}

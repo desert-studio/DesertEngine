@@ -1,0 +1,71 @@
+// THE CONTRACT OF A DEFORMATION STAMP (DEFORM-FIELD; Notion Вики DEFORM-ARCH). A `Domain DeformStamp` shader asset
+// authors ONE function,
+//
+//     void DeformStampEvaluate(in DeformStampInputs i, inout DeformStampOutputs o)
+//
+// in its `Stamp { ... }` block; the deformation field compiles it INTO Programs/Deformation/DeformStampApply.shader
+// as the bytes of Deformation/DeformStampBody.glslh (Engine/Core/ShaderCompiler/ShaderVariant.hpp), exactly as a
+// cloud material's medium is compiled into the cloud programs. The function is called once per field texel the
+// contact can reach, in the order the contacts were submitted; it says what THIS contact does to that texel, and
+// the field (DeformStampApply) combines it with what the texel already holds:
+//
+//   Sink        cm, <= 0   the deepest press is kept (min). A press deeper than the texel held flattens the rim
+//                          that was there (the material under the foot is the material that was pushed up).
+//   Rim         cm, >= 0   material pushed up: accumulates, saturating at DEFORM_RIM_MAX_CM.
+//   Compaction  [0, 1]     kept at its maximum (the surface's response reads it: darker, smoother sand/snow).
+//   Flatten     [0, 1]     grass/foliage flattening, kept at its maximum; FlattenDirection is the direction of
+//                          the strongest flatten (world X, Z, unit).
+//   Wetness     [0, 1]     kept at its maximum.
+//
+// The inputs are DeformStampParams (Engine/World/Deformation/DeformationWorld.hpp, the same names), plus where the
+// texel is: Local is the texel centre in the stamp's own frame, divided by Radius - +Y along Heading (0 = world +Z),
+// +X to its right - so a stamp authored over [-1, 1] scales and turns with the contact. A stamp writes only where
+// both |Local.x| and |Local.y| are <= DEFORM_STAMP_REACH: the CPU bins a contact into the field's tiles by that
+// square (Graphic/Deformation/DeformationFieldRenderer.cpp kStampReach), so a shape that reaches farther is cut.
+//
+// Units: centimetres, cm/s, kg (World units = centimetres project-wide).
+#ifndef DEFORM_STAMP_CONTRACT_GLSLH
+#define DEFORM_STAMP_CONTRACT_GLSLH
+
+#define DEFORM_STAMP_REACH 2.0
+#define DEFORM_RIM_MAX_CM 50.0
+
+struct DeformStampInputs
+{
+    vec2  Local;         // texel centre in the stamp's frame / Radius (+Y = heading)
+    vec2  WorldXZ;       // texel centre, world X, Z (cm)
+    float Radius;        // cm
+    float Pressure;      // 1 = the stamp's authored depth
+    float Speed;         // cm/s
+    vec2  SlipVector;    // cm, world X, Z
+    float Heading;       // rad around world up, 0 = +Z
+    float Mass;          // kg
+    vec3  ContactNormal; // world
+    float Age;           // s
+    float Seed;
+    float TexelSize;     // cm: the size of the level's texel being written
+};
+
+struct DeformStampOutputs
+{
+    float Sink;
+    float Rim;
+    float Compaction;
+    float Flatten;
+    vec2  FlattenDirection;
+    float Wetness;
+};
+
+DeformStampOutputs DeformStampOutputsNone()
+{
+    DeformStampOutputs o;
+    o.Sink             = 0.0;
+    o.Rim              = 0.0;
+    o.Compaction       = 0.0;
+    o.Flatten          = 0.0;
+    o.FlattenDirection = vec2(0.0, 1.0);
+    o.Wetness          = 0.0;
+    return o;
+}
+
+#endif // DEFORM_STAMP_CONTRACT_GLSLH

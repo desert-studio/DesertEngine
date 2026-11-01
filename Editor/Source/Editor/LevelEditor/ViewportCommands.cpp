@@ -189,13 +189,14 @@ namespace Desert::Editor
             { "View mode: Velocity", Graphic::DeferredDebugMode::Velocity },
             { "View mode: Light Grid (World)", Graphic::DeferredDebugMode::LightGridWorld },
             { "View mode: Global Distance Field", Graphic::DeferredDebugMode::GlobalDistanceField },
+            { "View mode: Deformation Field", Graphic::DeferredDebugMode::DeformationField },
             { "View mode: Surface Cache Atlas", Graphic::DeferredDebugMode::SurfaceCacheAtlas },
             { "View mode: Lumen Scene (Cards)", Graphic::DeferredDebugMode::SurfaceCacheScene },
             { "View mode: Lumen Scene (Lit)", Graphic::DeferredDebugMode::SurfaceCacheSceneLit },
             { "View mode: Reflections", Graphic::DeferredDebugMode::Reflections },
             { "View mode: Local Exposure", Graphic::DeferredDebugMode::LocalExposure },
         };
-        static_assert( std::size( kBufferViews ) == static_cast<size_t>( Graphic::DeferredDebugMode::LocalExposure ),
+        static_assert( std::size( kBufferViews ) == static_cast<size_t>( Graphic::DeferredDebugMode::DeformationField ),
                        "a DeferredDebugMode without a View mode command cannot be photographed over the channel" );
         for ( const auto& row : kBufferViews )
         {

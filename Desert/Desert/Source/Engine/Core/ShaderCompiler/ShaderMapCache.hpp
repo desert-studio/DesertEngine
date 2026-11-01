@@ -49,7 +49,8 @@ namespace Desert::Core
     // ElementIndex (LANDSCAPE-MAT-2) on top of 11; ShaderProgramMeta::Height (POM, SurfaceHeight) on top of 11.
     // 13: both 12s together. 14: SurfaceOpacityMask::DitherParam (FOLIAGE-ALPHA-MIPS).
     // 15: ShaderProgramMeta::ShadingModel (GDT-2: the renderer names a section's shading model).
-    inline constexpr uint32_t kShaderMapFormatVersion = 15;
+    // 16: ShaderProgramMeta::StampSource (DEFORM-FIELD: the DeformStamp domain names its stamp fragment).
+    inline constexpr uint32_t kShaderMapFormatVersion = 16;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
