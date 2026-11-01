@@ -280,8 +280,9 @@ namespace Desert::Graphic::GpuDriven
                     }
                     else
                     {
-                        // WindExpandedBounds: the wind moves vertices horizontally by up to the row's pad.
-                        const float pad = primitive.LocalBoundsCenter.w;
+                        // WindExpandedBounds: the wind moves vertices horizontally by up to the row's pad; a
+                        // rest-pose instance (drawn with no wind) by nothing - InstanceCull.shader's WorldBox.
+                        const float pad = restPose ? 0.0f : primitive.LocalBoundsCenter.w;
                         box             = Geometry::TransformBounds( world, localBox );
                         box.Min -= glm::vec3( pad, 0.0f, pad );
                         box.Max += glm::vec3( pad, 0.0f, pad );

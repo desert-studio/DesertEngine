@@ -971,28 +971,43 @@ namespace Desert::Graphic
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
         const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
         const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
+        // Each level twice, as a cached cascade's two layers (UE: the VSM's static and dynamic cache, a WPO
+        // instance in the dynamic one): cut view l = level l's still casters (kCasterStaticLayer, a swaying
+        // instance past the shadow wind distance among them in its rest pose) against the static mask (pages whose
+        // cached layer is redrawn); cut view kLevels + l = its movers (kCasterMovableLayer: the swaying instances)
+        // against the drawn mask (every page drawn this frame: its merged layer) - VirtualShadowMapFrame::DirtyMask
+        // row LevelCount + l. The raster decodes the level and the layer from the cut view (Common/
+        // VirtualShadowMap.glslh VsmCutViewLevel / VsmCutViewLayer).
+        constexpr uint32_t                    kLevels = System::kVsmClipmapLevelCount;
         std::vector<GpuDriven::CullViewInput> views;
-        views.reserve( System::kVsmClipmapLevelCount );
-        for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
+        views.reserve( 2u * kLevels );
+        for ( uint32_t cutView = 0; cutView < 2u * kLevels; ++cutView )
         {
-            const glm::mat4& vp = pages.LevelViewProjection[level];
+            const bool       movers = cutView >= kLevels;
+            const uint32_t   level  = movers ? cutView - kLevels : cutView;
+            const glm::mat4& vp     = pages.LevelViewProjection[level];
             Core::Frustum    frustum( vp, glm::mat4( 1.0f ) );
             frustum.Open( Core::PLANE_FAR );
+            const uint32_t layer = movers ? GpuDriven::CullViewFlags::kCasterMovableLayer
+                                          : GpuDriven::CullViewFlags::kCasterStaticLayer;
             GpuDriven::CullViewInput input =
                  MakeCullView( GpuDriven::MeshPass::VirtualShadow, vp, vp, frustum, lod, lensScale, windDistance,
                                GpuDriven::CullViewFlags::kShadowCaster | GpuDriven::CullViewFlags::kOrthographic |
-                                    GpuDriven::CullViewFlags::kVsmPageMask | lodFlag );
-            input.View.VsmLevel = level;
+                                    GpuDriven::CullViewFlags::kVsmPageMask | lodFlag | layer );
+            input.View.VsmLevel = movers ? pages.LevelCount + level : level;
             input.VsmDirtyMask  = pages.DirtyMask;
             views.push_back( input );
         }
+        std::vector<uint32_t> cutViewOf( views.size() ); // cull view v = cut view v
+        for ( uint32_t v = 0; v < static_cast<uint32_t>( cutViewOf.size() ); ++v )
+            cutViewOf[v] = v;
 
         // The levels' VG candidates: one more instance cull over the levels, appending only: no table is handed
         // (the VirtualShadow bins are not issued - the levels' CPU walk draws the other casters - so culling them
         // would be work nobody reads).
         auto vgTables =
              MakeVirtualGeometryCandidates( graph, *meshes, *meshes->GetGpuScene(), bins.Scene.PrimitiveCount,
-                                            static_cast<uint32_t>( views.size() ) );
+                                            cutViewOf );
         if ( !vgTables )
         {
             logOnce( vgTables.GetError() );
@@ -1019,7 +1034,7 @@ namespace Desert::Graphic
              // dispatch's budget (kMaxVisibleClustersPerCut, UE
              // MaxVisibleClusters; past it counted as overflow).
                      .VisibleCapacity = static_cast<uint32_t>( std::min<uint64_t>(
-                  uint64_t{ vgTables.GetValue().VisibleCapacity } * System::kVsmClipmapLevelCount,
+                  uint64_t{ vgTables.GetValue().VisibleCapacity } * uint64_t{ views.size() },
                   VirtualGeometry::kMaxVisibleClustersPerCut ) ),
                      .Layout          = VirtualGeometry::ClusterCandidateLayout::PerCutView,
                      .CutViews        = appended.CutViews };
@@ -1035,11 +1050,12 @@ namespace Desert::Graphic
         const GpuDriven::PassDrawTable& passTable  = meshes->GetDrawCommandCache()->Passes()[tableIndex];
         std::vector<VirtualGeometry::ClusterCullView> cutViews;
         cutViews.reserve( views.size() );
-        for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
-            cutViews.push_back( { .Instance         = views[level],
+        // Both layers of a level select LOD by its texel.
+        for ( uint32_t cutView = 0; cutView < static_cast<uint32_t>( views.size() ); ++cutView )
+            cutViews.push_back( { .Instance         = views[cutView],
                                   .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
                                   .Lod              = VirtualGeometry::ClusterLodMeasure::OrthographicTexel(
-                                       pages.LevelTexelWorld[level] ) } );
+                                       pages.LevelTexelWorld[cutView % kLevels] ) } );
         const auto cut = m_VirtualGeometry->AddClusterCull(
              graph, GpuDriven::CullPhase::Main, bins.Scene, vgMeshes, passTable, bins.Upload.Passes[tableIndex],
              bins.Upload.SubmeshTransforms, candidates, cutViews, 0u, bins.NeutralHzb );
@@ -1050,7 +1066,7 @@ namespace Desert::Graphic
         }
         const auto rasterBins = m_VirtualGeometry->AddRasterBinning(
              graph, bins.Scene, vgMeshes, passTable, bins.Upload.Passes[tableIndex], cut.GetValue(),
-             System::kVsmClipmapLevelCount );
+             static_cast<uint32_t>( views.size() ) );
         if ( !rasterBins )
         {
             m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(),

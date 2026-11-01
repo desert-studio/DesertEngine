@@ -1515,11 +1515,13 @@ namespace Desert::Graphic::System
                 // cell. Its bins are not issued yet - the levels' CPU walk draws every non-cluster caster through
                 // its per-page remap ("VSM: Cull Casters"); the table is what the clusters of every level are
                 // binned into and rastered by ("VSM: Raster VirtualGeometry",
-                // MeshRenderer::SetVirtualShadowGeometry). A movable caster (skinned, swaying) stays out of it:
-                // the cluster raster draws rest-pose geometry into cached pages, so its clusters would cast the
-                // unanimated shape; the CPU walk redraws it.
-                if ( path == MeshVertexPath::Skinned ||
-                     ( feed->Flags & GpuDriven::PrimitiveFlags::kMovableCaster ) != 0 )
+                // MeshRenderer::SetVirtualShadowGeometry). A swaying field is in it, as in the cascades' table
+                // (UE Nanite: a WPO instance goes through the VSM's cluster cull, its bounds grown by
+                // MaxWPODisplacement): each level's movers' cut view cuts its swaying instances and the raster
+                // bends them by the wind into the merged layer, the still cut its rest-pose instances into the
+                // cached layer (SceneRenderer::AddFrameVirtualGeometryShadowPages). A skinned caster stays out:
+                // its path has no clusters, the CPU walk draws its pose.
+                if ( path == MeshVertexPath::Skinned )
                     return fallback( BinFallback::MovableCaster );
                 const auto defaultCell =
                      MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::VirtualShadowDepth );

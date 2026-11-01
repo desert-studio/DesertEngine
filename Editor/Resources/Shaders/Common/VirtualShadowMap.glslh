@@ -47,6 +47,18 @@
 // whose static layer is redrawn, or the movers into the merged layer of every drawn page.
 #define VSM_LAYER_STATIC  0u
 #define VSM_LAYER_MOVABLE 1u
+
+// THE CLUSTER RASTER'S CUT VIEWS ("VSM: Raster VirtualGeometry", SceneRenderer::AddFrameVirtualGeometryShadowPages):
+// clipmap level l's still casters are cut view l (VSM_LAYER_STATIC), its movers - the swaying instances, bent by the
+// wind - cut view @p clipmapLevels + l (VSM_LAYER_MOVABLE). @p clipmapLevels is Frame.Lod.y.
+uint VsmCutViewLevel( uint cutView, uint clipmapLevels )
+{
+    return cutView >= clipmapLevels ? cutView - clipmapLevels : cutView;
+}
+uint VsmCutViewLayer( uint cutView, uint clipmapLevels )
+{
+    return cutView >= clipmapLevels ? VSM_LAYER_MOVABLE : VSM_LAYER_STATIC;
+}
 #define VSM_FLAG_MARK_KINDS ( VSM_FLAG_COARSE | VSM_FLAG_RECEIVER )
 // THE COARSE MIP of a local light's views (UE MarkCoarsePagesLocal): 2 x 2 pages of 128 texels per view, mapped for
 // every shadowed light every frame (never finer than the light's finest drawn mip, VsmLocalLight.Views.w). A reader
