@@ -299,9 +299,12 @@ namespace Desert::Graphic
     struct CloudPush
     {
         glm::mat4 InverseViewProjection;
-        // xyz = camera position in world units; w = the frame index, which decides the dither pattern.
-        // It is here rather than in the parameter block because it changes every frame while the block
-        // changes only when the artist does something.
+        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceSubPixelCount:
+        // how many times the sub-pixel walk has visited every half-res pixel, which advances the march's
+        // start-offset sequence once per trace OF A PIXEL rather than once per frame (CloudRaymarch.shader,
+        // CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is here rather than in
+        // the parameter block because it changes every few frames while the block changes only when the
+        // artist does something.
         glm::vec4 CameraPosition;
         // x, y = the sub-pixel this frame traces inside its 2x2 block of HALF-resolution pixels, each 0
         //        or 1. This is the projection jitter: the march reconstructs its ray through the HALF-res

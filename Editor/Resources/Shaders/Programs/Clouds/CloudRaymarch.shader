@@ -353,7 +353,7 @@ Shader "CloudRaymarch"
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
-            vec4 CameraPosition; // xyz = camera position in world units, w = frame index
+            vec4 CameraPosition; // xyz = camera position in world units, w = trace cycle (CloudMarchStartOffset)
             // xy = this frame's sub-pixel inside the 2x2 block of HALF-resolution pixels each quarter-res
             //      texel covers, each 0 or 1. zw = the HALF-resolution grid's size in pixels, which this
             //      pass cannot derive: imageSize() reports the quarter-res target it writes, and the two
@@ -474,6 +474,39 @@ Shader "CloudRaymarch"
 
             float full = CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
             return mix(full, nearFar, coverage);
+        }
+
+        // THE MARCH'S START OFFSET, in [0, 1) of a fine step — Unreal's
+        // `t = TMin + BlueNoiseScalar(FullResPixelCoord, View.StateFrameIndexMod8) * StepT`
+        // (VolumetricCloud.usf:797-805, whose own note reads "Blue noise works best" over the white Rand3DPCG16
+        // it replaced). The offset this replaces was that white hash: every trace of a pixel drew an
+        // independent offset, so the reconstruction's history held one realization at a time and each new
+        // trace replaced it by an unrelated one — the noise of the cloud itself over the whole sky
+        // (SKY-FLICKER-2). It is low-discrepancy on all three axes the reconstruction averages over:
+        //
+        //   * IN SPACE, on the grid this frame traces: interleaved gradient noise (Jimenez 2014, the pattern of
+        //     UE's InterleavedGradientNoise and of this engine's contact-shadow dither) over the QUARTER-res
+        //     texel, so the four texels a not-owned pixel's bilinear estimate blends hold four well spread
+        //     offsets and their errors cancel rather than add;
+        //   * IN THE BLOCK: the 2x2 ordered-dither rank of the half-res sub-pixel the ray goes through
+        //     ({0, 2; 3, 1}, the table the sub-pixel walk itself is, Graphic::CloudTraceSubPixel) in quarters,
+        //     so the four half-res pixels one quarter-res texel stands for sit in four different quarters of
+        //     the step;
+        //   * IN TIME, per pixel: the golden-ratio (R1) sequence over @p traceCycle, the number of times this
+        //     pixel has been traced (Graphic::CloudPush::CameraPosition.w), so successive traces of one pixel
+        //     fill the step evenly and any run of them averages to the step's mean. Unreal walks its 128x128x64
+        //     texture by the frame index mod 8 through a four-frame sub-pixel walk, so each of its pixels sees
+        //     only two of the eight slices; counting traces rather than frames is what gives every trace of a
+        //     pixel a new value.
+        //
+        // In integers for the temporal term: 0x9E3779B9 is 2^32 / phi, and the top 24 bits of the product are
+        // the R1 value exactly at any cycle count, where a float `fract(cycle * 0.618)` loses its low bits.
+        float CloudMarchStartOffset(ivec2 traceCoord, ivec2 subPixel, uint traceCycle)
+        {
+            float spatial  = fract(52.9829189f * fract(dot(vec2(traceCoord), vec2(0.06711056f, 0.00583715f))));
+            uint  rank     = subPixel.y == 0 ? uint(subPixel.x) * 2u : 3u - uint(subPixel.x) * 2u;
+            float temporal = float((traceCycle * 0x9E3779B9u) >> 8u) * (1.0f / 16777216.0f);
+            return fract(spatial + float(rank) * 0.25f + temporal);
         }
 
         void main()
@@ -609,16 +642,10 @@ Shader "CloudRaymarch"
             // line up. Without it the uniform schedule draws the layer as a set of concentric shells —
             // the banding is the step planes themselves, seen edge-on.
             //
-            // The hash includes the frame index, so the pattern moves and the eye integrates it. That is
-            // the whole reason a still frame of this pass is NOT a valid check of it: a fixed camera and a
-            // fixed frame index show one realization of the dither, not what the viewer sees.
-            // Hashed on the HALF-res pixel, not on the quarter-res texel: two frames of the same block
-            // trace different half-res pixels, so hashing halfCoord gives them different start offsets as
-            // well as different rays. Hashing coord would give the whole 2x2 block one offset per frame,
-            // and the temporal reconstruction would then average four samples that share their bias.
-            uint  jitterHash = CloudHashCell(uint(halfCoord.x), uint(halfCoord.y),
-                                             uint(CameraPosition.w), 0x51ED270Bu);
-            float jitter     = float(jitterHash & 0xFFFFu) * (1.0f / 65536.0f);
+            // The offset moves from trace to trace, so the reconstruction integrates it; a still frame of
+            // this pass is therefore NOT a valid check of it — it shows one realization of the dither, not
+            // what the viewer sees. Spatio-temporal low-discrepancy, not white (CloudMarchStartOffset).
+            float jitter = CloudMarchStartOffset(coord, ivec2(CloudTraceParams.xy), uint(CameraPosition.w));
 
             CloudFieldParams params = CloudUnpackFieldParams();
 

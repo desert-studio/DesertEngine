@@ -2199,6 +2199,10 @@ namespace Desert::Graphic::System
         // only ask about the volume this frame leaves behind.
         m_SkyOcclusionValid = skyOcclusionReady;
 
+        // The trace cycle, not the frame: the march's start offset advances once per trace of a pixel
+        // (CloudPush::CameraPosition), and the walk visits each pixel once every kCloudTraceSubPixelCount frames.
+        const uint32_t traceCycle = ( m_FrameIndex / kCloudTraceSubPixelCount ) & 0xFFFFFFu;
+
         CloudPush push{};
         // THE UNJITTERED INVERSE (SKY-FLICKER) — Unreal's VolumetricCloudRendering.cpp, which builds the
         // volumetric render target's view with ViewMatrices.HackRemoveTemporalAAProjectionJitter() ("We jitter
@@ -2213,7 +2217,7 @@ namespace Desert::Graphic::System
         // this matrix moves the point sideways by under half a pixel, which changes its DISTANCE — the only
         // thing the march takes from it — by a few parts in ten thousand.
         push.InverseViewProjection = frame.InvViewProjection;
-        push.CameraPosition = glm::vec4( frame.CameraPosition, static_cast<float>( m_FrameIndex & 0xFFFFu ) );
+        push.CameraPosition = glm::vec4( frame.CameraPosition, static_cast<float>( traceCycle ) );
         push.Trace          = glm::vec4( static_cast<float>( subPixel.X ), static_cast<float>( subPixel.Y ),
                                          static_cast<float>( m_HalfWidth ), static_cast<float>( m_HalfHeight ) );
         // THE GATES ARE "WAS IT WRITTEN", not "was it asked for". A layer whose flag is on but whose volume

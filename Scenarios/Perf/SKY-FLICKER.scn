@@ -15,17 +15,29 @@
 # 0 on one side; or, from the frames alone, |Sobel| of 8_h's luma above 0.1 dilated by 8 px). For k = 2..8 the
 # mean over the band of |frame k - frame k-1| (all channels, /255): record it on the BEFORE build (dev 94a6eea4b)
 # and on task/SKY-FLICKER.
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+# SKY-FLICKER-2: the cloud itself flickered over the whole sky, not only at edges. The march's start offset was a
+# white hash per frame and the resolve kept 75 % of every new trace, so each half-res pixel jumped by one fresh
+# realization of the dither every fourth frame; the TAA's variance clip (3x3 of a smooth upsample) let the jump
+# through. Fix: spatio-temporal low-discrepancy start offset (IGN x 2x2 rank x golden ratio per trace, UE
+# BlueNoiseScalar), and on a still history the owned trace blends at 1-(1-0.04)^4 = 0.15 (the TAA's own time
+# constant) while a not-owned pixel keeps the history whole with its front (UE ReprojRGBA / ReprojDepthData).
+# MEASURE (lead): sky mean = mean |frame k - frame k-1| over every pixel with scene depth 0 (or, from the frames,
+# luma above the 1_a sky's 5th percentile outside the edge band); record it on task/SKY-FLICKER 7ad033aec and
+# on task/SKY-FLICKER-2, for k = 2..8. Brightness: the sky's SIGNED mean luma of 8_h within 1/255 of the same
+# frame on task/SKY-FLICKER (the new value is an average of the same dither, so a shift would be a defect).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,40,2500
 Дано --subject viewport set Camera.Direction 0.15,0.25,-1
 Дано set 8180000000000004 WindSourceData.Speed 0
 Когда frames 300
+Когда profile-dump
+Тогда [log] the [Profiler] per-pass table carries "Clouds: March"; its GPU ms is not above the task/SKY-FLICKER 7ad033aec run of this scenario
 Тогда-вид 1_a still camera at 0.4 m looking up: grass blades, canopy and fence edges over the clouds, crisp; editor.log 0 VUID
-Тогда-вид 2_b the next frame: in the 8 px band around every object/sky edge the mean |2_b - 1_a| <= 1/255 (before the fix: record the value)
+Тогда-вид 2_b the next frame: in the 8 px band around every object/sky edge the mean |2_b - 1_a| <= 1/255; over the whole cloudy sky (not only the band) the mean |2_b - 1_a| below the task/SKY-FLICKER 7ad033aec value
 Тогда-вид 3_c the next frame: band mean |3_c - 2_b| <= 1/255
 Тогда-вид 4_d the next frame: band mean |4_d - 3_c| <= 1/255
 Тогда-вид 5_e the next frame: band mean |5_e - 4_d| <= 1/255
 Тогда-вид 6_f the next frame: band mean |6_f - 5_e| <= 1/255
 Тогда-вид 7_g the next frame: band mean |7_g - 6_f| <= 1/255
-Тогда-вид 8_h the next frame: band mean |8_h - 7_g| <= 1/255; the clouds behind the blades the same shape and brightness as in 1_a (no cloud lost or gained at any edge)
+Тогда-вид 8_h the next frame: band mean |8_h - 7_g| <= 1/255; the clouds behind the blades the same shape and brightness as in 1_a (no cloud lost or gained at any edge, no new banding in the cloud bodies); editor.log 0 VUID

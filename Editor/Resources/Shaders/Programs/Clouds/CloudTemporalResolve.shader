@@ -22,7 +22,8 @@ Shader "CloudTemporalResolve"
         //      world point with the previous frame's view-projection — Unreal's ClipToPrevClip, factored
         //      so the walk can happen in world space — and read the reconstruction of the frame before.
         //      This frame's sample is then blended into it, by kOwnedSampleWeight for case 1 and by the
-        //      much smaller kNewSampleWeight otherwise; see those constants for why the two differ.
+        //      much smaller kNewSampleWeight otherwise, each lowered toward its still-history weight as the
+        //      reprojection's displacement falls to zero; see those constants for why the four differ.
         //
         //   3. NO HISTORY TO READ — the first frame after the targets were allocated, or a reprojection
         //      that lands off screen or behind the previous eye. Take the bilinear reconstruction of the
@@ -213,8 +214,43 @@ Shader "CloudTemporalResolve"
         // Setting kOwnedSampleWeight to 1 is the pure hand-over-the-new-sample scheme, and it still
         // improves on the pass this replaces; it just improves half as much. The numbers are in the
         // report and the constant is here so the choice can be re-measured rather than re-argued.
+        //
+        // THESE TWO ARE THE WEIGHTS OF A MOVING HISTORY — one reprojected by kMovingHistoryPixels or more.
+        // Both costs they trade against are costs of RESAMPLING: a history read between texel centres is a
+        // bilinear blur of itself, compounded every frame it is kept, and a not-owned pixel drifts from the
+        // truth between the frames that own it. A history that did not move has neither — it is read at its
+        // own texel centre and is exactly the pixel it was — so it takes the still weights below, and the
+        // reprojection's own displacement blends between the two (UE's TAA does the same with its current
+        // frame weight: TemporalAA.shader, kCurrentWeight raised toward kMovingCurrentWeight by the motion).
         const float kOwnedSampleWeight = 0.75f;
         const float kNewSampleWeight   = 0.06f;
+
+        // THE WEIGHT OF AN OWNED SAMPLE ON A STILL HISTORY: the same time constant UE's TAA averages a still
+        // pixel over, 1 - (1 - 0.04)^4 — r.TemporalAA.CurrentFrameWeight (TemporalAA.shader kCurrentWeight)
+        // compounded over the four frames between two traces of one pixel (Graphic::kCloudTraceSubPixelCount).
+        //
+        // WHY THIS PASS AND NOT THE TAA. The TAA cannot average this layer's noise: its history is clipped to
+        // the 3x3 full-resolution neighbourhood's variance, and that neighbourhood is the bilinear upsample of
+        // ONE or two half-res pixels — spatially smooth, so its box is tight, while the pixel it upsamples
+        // jumps every fourth frame by the trace's dither. The clip then throws the TAA history away and the
+        // jump reaches the screen, in the sky and in every edge in front of it ("и не только листва, все что
+        // на фоне облаков", SKY-FLICKER-2). Unreal hands the new sample over whole (weight 1,
+        // VolumetricRenderTarget.usf:454-458) because TSR, not its legacy TAA, integrates behind it.
+        //
+        // The march's start offset is low-discrepancy per pixel over its traces (CloudRaymarch.shader,
+        // CloudMarchStartOffset), so this average converges on the step's mean — the shape and brightness of
+        // a single trace's expectation, with the dither's swing gone — rather than on one realization.
+        const float kStillOwnedSampleWeight = 0.15f;
+
+        // A not-owned pixel on a still history keeps the history whole — Unreal's ReprojRGBA
+        // (VolumetricRenderTarget.usf:461-487). The bilinear estimate it would otherwise take in is a blur of
+        // the quarter-res trace whose footprint walks with the sub-pixel cycle: at a still camera it adds that
+        // walk and that blur to every pixel and nothing a still history needs.
+        const float kStillNewSampleWeight = 0.0f;
+
+        // The reprojection displacement, in half-res pixels, at and above which a history takes the moving
+        // weights in full. One pixel: below it the history is read inside its own texel's footprint.
+        const float kMovingHistoryPixels = 1.0f;
 
         // Half a texel in, on both axes. This engine's samplers are REPEAT, so a uv inside [0,1] but
         // within half a texel of the border still gathers from the OPPOSITE edge of the image — a bright
@@ -377,8 +413,6 @@ Shader "CloudTemporalResolve"
             bool newSampleHere = traceSampled &&
                                  (owned || abs(traceGuideHere.y - ownSceneKm) <= kDisocclusionKm);
 
-            float newWeight = owned ? kOwnedSampleWeight : kNewSampleWeight;
-
             // Every rejection below leaves this value in place: a history that was read and found to
             // describe a different surface is answered with THIS frame's sample. That is Unreal's rule
             // too — a failed disocclusion test there sets bUseNewSample — and it is the reason there is no
@@ -398,7 +432,8 @@ Shader "CloudTemporalResolve"
             bool historyRead = false;
 
             // The front distance the output guide carries. It follows the RADIANCE: a pixel that keeps its
-            // history because this frame's sample belongs to another surface keeps that history's front.
+            // history because this frame's sample belongs to another surface keeps that history's front, and
+            // so does a not-owned pixel whose radiance is mostly that history (below).
             float frontKm = traceGuide.x;
 
             if (HistoryValid > 0.5f)
@@ -440,7 +475,22 @@ Shader "CloudTemporalResolve"
                             estimate = true;
                             if (newSampleHere)
                             {
-                                resolved = mix(history, traceScatter, newWeight);
+                                // How far the history moved to get here, in half-res pixels: 0 at a still
+                                // camera, where the history is read at its own texel centre and is exact.
+                                float moving    = clamp(length((prevUv - uv) * vec2(size)) / kMovingHistoryPixels,
+                                                        0.0f, 1.0f);
+                                float newWeight = owned ? mix(kStillOwnedSampleWeight, kOwnedSampleWeight, moving)
+                                                        : mix(kStillNewSampleWeight, kNewSampleWeight, moving);
+                                resolved        = mix(history, traceScatter, newWeight);
+
+                                // The front follows the radiance: a not-owned pixel's is the history's at any
+                                // motion (Unreal's ReprojDepthData, VolumetricRenderTarget.usf:465), because at
+                                // most kNewSampleWeight of it is this frame's. The traced texel's front belongs
+                                // to whichever sub-pixel the walk is on and to this trace's dither, so carrying
+                                // it put a new distance under every pixel of the block every frame, and the
+                                // composite's edge filter (CloudUpsample.shader) re-weighed them every frame.
+                                if (!owned)
+                                    frontKm = historyGuide.x;
                             }
                             else
                             {
