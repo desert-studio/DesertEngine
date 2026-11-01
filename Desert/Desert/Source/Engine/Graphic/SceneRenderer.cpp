@@ -1841,15 +1841,17 @@ namespace Desert::Graphic
         // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw.
-        // GRASS-VIS: with the grass visibility buffer the generation keeps the instances last frame's furthest HZB
-        // hides out of the CAMERA's list (the cascades and the TLAS draw every one; phase 2 re-tests them after
-        // this frame's HZB, AddFrameGrassPostOcclusion), so it is this graph's first reader of that HZB
+        // GPU-CULL (UE: every HISM, the grass's included, is occlusion-culled per view whatever draws it): on the
+        // deferred path the generation keeps the instances last frame's furthest HZB hides out of the CAMERA's
+        // list (the cascades and the TLAS draw every one; phase 2 re-tests them after this frame's HZB,
+        // AddFrameGrassPostOcclusion, and draws the found ones through the visibility buffer or their cells), with
+        // the grass visibility buffer or without it - so it is this graph's first reader of that HZB
         // (FramePrevHzb, reset here for the frame).
         m_FramePrevHzb = {};
         if ( !m_ViewProfile.SceneCapture )
         {
             System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
-            if ( m_GrassVisibilityBuffer && m_RenderPath == Core::RenderPath::Deferred )
+            if ( m_RenderPath == Core::RenderPath::Deferred )
             {
                 if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
                 {

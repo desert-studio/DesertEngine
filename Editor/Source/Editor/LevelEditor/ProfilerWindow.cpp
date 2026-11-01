@@ -11,6 +11,8 @@
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <ImGui/imgui.h>
 
@@ -250,6 +252,16 @@ namespace Desert::Editor
              "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
              "frames in flight late) generated {} (varieties generated this frame)",
              grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties, grass.Generated );
+        // GPU-CULL: the binned meshes' two-phase occlusion read as numbers (SceneRenderer::GetDrawBinPhaseCounts,
+        // frames in flight late), per culled view: drawn = phase 1 (in view, not held back by last frame's HZB) +
+        // phase 2 (found visible in this frame's), against the frustum-only count (drawn + occluded).
+        std::string binViews;
+        if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer(); renderer != nullptr )
+            for ( const Graphic::GpuDriven::CullPhaseViewCount& view : renderer->GetDrawBinPhaseCounts() )
+                binViews += std::format( " {} {}+{}/{}", view.Name, view.Phase1, view.Phase2,
+                                         view.Phase1 + view.Phase2 + view.Occluded );
+        LOG_INFO( "[Profiler] DrawBins{} (instances drawn phase 1 + phase 2 / in view without occlusion)",
+                  binViews.empty() ? " none" : binViews );
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 

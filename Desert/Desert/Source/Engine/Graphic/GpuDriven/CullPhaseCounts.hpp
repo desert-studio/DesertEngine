@@ -26,6 +26,9 @@ namespace Desert::Graphic::GpuDriven
         std::string Name;
         uint32_t    Phase1 = 0;
         uint32_t    Phase2 = 0;
+        // In view, held back by last frame's HZB and not found visible in this frame's: what the occlusion took
+        // out (Phase1 + Phase2 + Occluded = the frustum-only count).
+        uint32_t Occluded = 0;
     };
 
     class CullPhaseCounts

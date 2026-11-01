@@ -74,6 +74,8 @@ namespace Desert::Graphic::GpuDriven
                     ++count.Phase2;
                 else if ( ( word & CullVisibility::kInView ) != 0u && ( word & CullVisibility::kOccluded ) == 0u )
                     ++count.Phase1;
+                else if ( ( word & CullVisibility::kInView ) != 0u )
+                    ++count.Occluded;
             }
         }
         m_Last = std::move( counts );
