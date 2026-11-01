@@ -68,6 +68,18 @@ namespace Desert::Graphic::API::Vulkan
         Reload();
     }
 
+    VulkanShader::VulkanShader( const Assets::Asset<Assets::ShaderAsset>& asset, const ShaderVariant& variant,
+                                const std::string& passName, const Core::ShaderMap& built )
+         : m_ShaderAsset( asset ), m_PassName( passName ), m_Variant( variant )
+    {
+        m_ShaderPath = asset->GetMetadata().Filepath;
+        m_ShaderName = m_ShaderPath.stem().string();
+        if ( !m_PassName.empty() )
+            m_ShaderName = std::format( "{}/{}", m_ShaderName, m_PassName );
+
+        (void)AdoptShaderMap( built ); // a refusal is kept in m_CompileError (IsCompiled / GetCompileError)
+    }
+
     VulkanShader::~VulkanShader()
     {
         auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
@@ -92,15 +104,20 @@ namespace Desert::Graphic::API::Vulkan
             m_CompileError = built.GetError();
             return Common::MakeError( built.GetError() );
         }
+        return AdoptShaderMap( built.GetValue() );
+    }
+
+    Common::BoolResultStr VulkanShader::AdoptShaderMap( const Core::ShaderMap& built )
+    {
         // A program the build answered with no stage at all is not "compiled with nothing to do": nothing would
         // ever draw or dispatch through it. Refused by name here, so the reason is not an empty stage list.
-        if ( built.GetValue().Stages.empty() )
+        if ( built.Stages.empty() )
         {
             m_CompileError = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
             return Common::MakeError( m_CompileError );
         }
-        m_ProgramMeta = built.GetValue().Meta;
-        auto rebuilt  = BuildFromSpirv( built.GetValue().Stages );
+        m_ProgramMeta = built.Meta;
+        auto rebuilt  = BuildFromSpirv( built.Stages );
         if ( rebuilt )
         {
             m_CompileError.clear();

@@ -27,4 +27,23 @@ namespace Desert::Graphic
         return shader;
     }
 
+    std::shared_ptr<Shader> Shader::CreateFromShaderMap( const Assets::Asset<Assets::ShaderAsset>& asset,
+                                                         const ShaderVariant& variant, const std::string& passName,
+                                                         const Core::ShaderMap& built )
+    {
+        std::shared_ptr<Shader> shader = nullptr;
+        switch ( RendererAPI::GetAPIType() )
+        {
+            case RendererAPIType::Vulkan:
+            {
+                shader = std::make_shared<API::Vulkan::VulkanShader>( asset, variant, passName, built );
+            }
+            case RendererAPIType::None:
+                break;
+        }
+
+        DESERT_VERIFY( shader );
+        return shader;
+    }
+
 } // namespace Desert::Graphic

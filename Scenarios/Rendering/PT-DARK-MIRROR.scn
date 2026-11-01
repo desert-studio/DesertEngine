@@ -1,0 +1,19 @@
+# PT-DARK-MIRROR: the path-traced frame has the HWRT frame's brightness and the planters by the cafe door are rough, as in HWRT.
+# 10-21/10-22 symptom: bush_pt mean 10 vs HW 89, door_pt mean 0.00/255; the planter read as a mirror. Causes, both already in dev:
+#   dark   - PathTracerResolve wrote sum/count raw while the tonemap divides by ViewFrame::PreExposure (5-9x on Bistro, so the
+#            auto-exposure sat on its clamp): 563acd02b (resolve x PreExposure, UE PathTracingCompositingPixelShader.usf).
+#   mirror - the 9x under-exposed diffuse left only the sky's GGX highlights visible, and the hit group read the stored UV
+#            raw while the raster flips V: BaseColor/Roughness/Metallic were sampled from the mirrored atlas place in PT
+#            (0a9d69f6c, one UV convention Common/MeshTextureCoord.glslh for raster, hit group and ray-query alpha test).
+# The material at a PT hit is the same surface function and hit group every ray tracing pass uses
+# (Mesh/Surface/Pass_RayHit.glslh -> payload -> PathTracer.shader PathTracingMaterialOf); no PT-only material read.
+# Headless shots as C:/aftmp/moped/shot_gi_lvl.sh: F:/BistroFoliageProj, B16_Bistro_Street_mac, camera -2000,650,100 look 1300,-570,-46,
+# Quality levels Cinematic, PathTracing.Denoiser default.
+Дано F:/BistroFoliageProj, GI_Bistro_Day (B16_Bistro_Street_mac), Lit, the camera above, default machine settings (no Exposure override).
+Когда GlobalIllumination.Method 4, Reflections.Method 4 (HardwareTraced); shoot after 90 frames.
+Тогда 0_day_hw the HWRT reference; 0 errors / 0 VUID in engine_log
+Когда GlobalIllumination.Method 6, Reflections.Method 5 (PathTraced); shoot after 120 frames.
+Тогда [log] 0 VUID; "Created PathTracerResolve VulkanPipeline" in engine_log; no "[SceneRenderer] ... the path tracer refused the frame"; the last "[PreExposure] read-back" measured within x0.5..x2 of 0_day_hw's (not the histogram floor 0.000122)
+Тогда [frame] 1_day_pt: mean luminance within x0.5..x2 of 0_day_hw; the two terracotta planters at the cafe door are matte (no sharp image of the sky or the facade on them, highlight as broad as in 0_day_hw)
+Дано GI_Bistro_Night (B16 night scene), same camera and settings.
+Тогда [frame] 2_night_hw / 3_night_pt: mean luminance of 3_night_pt within x0.5..x2 of 2_night_hw (p11 10-26: 37.5 vs 38.0)

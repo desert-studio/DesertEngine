@@ -2658,7 +2658,8 @@ namespace Desert::Graphic::System
         // declared; the draw paths only look rows up and lend the table to the recording cell. A row counts for
         // the SyncGpuScene that claimed it (Sync == m_MaterialRowSync); the nodes are kept across syncs (no
         // per-frame map rebuild), and a key no sync claimed since the previous one is dropped at the next
-        // SyncGpuScene.
+        // SyncGpuScene. A row index names no surface by itself (each template counts rows in its own stride):
+        // every record carries its RowSurface next to its row.
         struct FrameMaterialRow
         {
             uint32_t Index = 0;

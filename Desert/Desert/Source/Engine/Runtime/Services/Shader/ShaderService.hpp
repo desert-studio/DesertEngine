@@ -1,9 +1,11 @@
 #pragma once
 
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <unordered_set>
 
 namespace Desert::Runtime
@@ -44,6 +46,39 @@ namespace Desert::Runtime
          */
         Common::ResultStr<std::shared_ptr<Graphic::Shader>>
         AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant );
+
+        /**
+         * THE SAME QUESTION IN THREE STEPS, for a caller that must not stall a frame on a compile
+         * (VFX-PRESETS2-4; UE FShaderCompilingManager: the job compiles, the game thread adopts the result).
+         *
+         *  1. BeginVariant (the service's thread): every refusal AcquireVariant gives, then either the program
+         *     (Ready: cached and alive) or a ticket (Compile) carrying a COPY of everything the compile reads.
+         *  2. Core::BuildShaderMap( ticket.Request ) on any thread: it reads the ticket alone, never this service,
+         *     its maps or the asset (ShaderMapBuild.hpp: device-free, safe on a worker).
+         *  3. FinishVariant (the service's thread again): the device half, the cache entry and the refusal record,
+         *     exactly as AcquireVariant makes them. A ticket the service moved past while it was compiled (a
+         *     ForgetRefusalsOf / ForgetRefusalsOfProgram / Clear since BeginVariant: the source may be another)
+         *     is not adopted: the answer is BeginVariant's again, i.e. a fresh ticket or the program.
+         *
+         * AcquireVariant is these three steps on one thread, so the two paths cannot disagree.
+         */
+        struct VariantCompile
+        {
+            std::string            Key;        ///< "<name>#<hash>", as m_Variants is keyed
+            std::string            Name;       ///< the name asked for (a program or "<Shader>/<Pass>")
+            std::string            Program;    ///< the registered program the name resolved to
+            Assets::AssetHandle    Handle;     ///< that program's asset
+            Core::ShaderMapRequest Request;    ///< the compile's whole input, copied
+            std::uint64_t          Generation; ///< m_RecompileGeneration when the ticket was written
+        };
+        struct VariantLookup
+        {
+            std::shared_ptr<Graphic::Shader> Ready;   ///< set: the program, nothing to compile
+            std::optional<VariantCompile>    Compile; ///< set: build Compile->Request, then FinishVariant
+        };
+        Common::ResultStr<VariantLookup> BeginVariant( const std::string& name, const Graphic::ShaderVariant& variant );
+        Common::ResultStr<VariantLookup> FinishVariant( const VariantCompile&                       ticket,
+                                                        const Common::ResultStr<Core::ShaderMap>& built );
 
         /**
          * @brief Whether the caller holding AcquireVariant's refusal of (@p name, @p variant) is the one to

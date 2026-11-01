@@ -172,7 +172,7 @@ struct SurfaceOutput
 {
     vec3  BaseColor; // linear
     float Metallic;
-    float Roughness; // the pass clamps it to 0.04 so the GGX lobe stays finite
+    float Roughness; // the pass clamps it to kDesertMinRoughness so the GGX lobe stays finite
     // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular (0.5, the default, = 4 %). It reaches the
     // model through the shading word's 8-bit field (deferred) or quantized the same way (forward).
     float Specular;

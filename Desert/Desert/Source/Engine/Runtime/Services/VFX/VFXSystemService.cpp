@@ -21,7 +21,7 @@ namespace Desert::Runtime
     void VFXSystemService::Adopt( const Assets::AssetHandle&                   handle,
                                   const Assets::Asset<Assets::VFXSystemAsset>& asset )
     {
-        m_Ready[handle] = std::make_shared<const Assets::Serialization::VFXSystemData>( asset->GetData() );
+        m_Ready[handle] = Ready{ asset->Snapshot(), asset->Snapshot() };
     }
 
     void VFXSystemService::Request( const Assets::AssetHandle& handle )
@@ -74,8 +74,9 @@ namespace Desert::Runtime
                 modules.insert( Common::Content::AssetGuidToText( *row.Guid ) );
         if ( modules.empty() )
             return;
-        for ( auto& [handle, system] : m_Ready )
+        for ( auto& [handle, ready] : m_Ready )
         {
+            System& system = ready.Issued;
             if ( !system || !system->Header )
                 continue;
             const auto& dependencies = system->Header->Dependencies;
@@ -89,8 +90,28 @@ namespace Desert::Runtime
         }
     }
 
+    void VFXSystemService::FollowAssetEdits()
+    {
+        const uint64_t serial = Assets::VFXSystemAsset::EditSerial();
+        if ( serial == m_EditSerial )
+            return;
+        m_EditSerial         = serial;
+        const auto assetsPtr = m_Assets.lock();
+        if ( !assetsPtr )
+            return;
+        for ( auto& [handle, ready] : m_Ready )
+        {
+            const auto asset = assetsPtr->FindByHandle<Assets::VFXSystemAsset>( handle );
+            // Not held, or unloaded by the eviction sweep: the snapshot handed out stays what plays.
+            if ( !asset || !asset->IsReadyForUse() || asset->Snapshot() == ready.Adopted )
+                continue;
+            ready = Ready{ asset->Snapshot(), asset->Snapshot() };
+        }
+    }
+
     Common::ResultStr<VFXSystemService::System> VFXSystemService::Get( const Assets::AssetHandle& handle )
     {
+        FollowAssetEdits();
         ReissueOnModuleWrites();
         Request( handle );
         if ( const auto failed = m_Failed.find( handle ); failed != m_Failed.end() )
@@ -98,7 +119,7 @@ namespace Desert::Runtime
         const auto found = m_Ready.find( handle );
         if ( found == m_Ready.end() )
             return Common::MakeSuccess( System{} );
-        return Common::MakeSuccess( found->second );
+        return Common::MakeSuccess( found->second.Issued );
     }
 
     Common::ResultStr<Assets::Asset<Assets::VFXEffectTypeAsset>>
@@ -142,16 +163,10 @@ namespace Desert::Runtime
         return Common::MakeSuccess( named );
     }
 
-    void VFXSystemService::Refresh( const Assets::AssetHandle& handle )
-    {
-        m_Requests.erase( handle );
-        m_Ready.erase( handle );
-        m_Failed.erase( handle );
-    }
-
     void VFXSystemService::Clear()
     {
         m_ModuleSerial = 0;
+        m_EditSerial   = 0;
         m_Requests.clear();
         m_Ready.clear();
         m_Failed.clear();

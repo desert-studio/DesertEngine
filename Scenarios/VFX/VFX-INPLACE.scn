@@ -1,0 +1,36 @@
+# VFX-INPLACE (card VFX-PRESETS2, owner 10-13 variant B): the .dfx window edits the AssetManager's asset in place. The
+# Starter scene's Campfire placement and the window's preview both name VFX/Campfire.dfx; a value edit in the window
+# reaches both with no program compile (editor.log: no "[VFX] stack ... compiles its host program" and no "rebuilds
+# its" line after the set), a structural edit (a module removed) compiles its program on the job system (VFX-PRESETS2-4: the old flames play
+# until it lands, no hitch) and then rebuilds the emitters once, Revert reads the file
+# back into the asset and both return to the saved look. Nothing is saved: the file stays as it is.
+# VFX-PRESETS2-6: the file changed on disk while the asset holds the value edit is NOT read over it (UE: a dirty
+# package is never reloaded behind the user's back) - the window asks Reload / Keep, Keep leaves the edit dirty.
+# «Когда-файл touch <path>» is a play_scenario keyword (path relative to the .deproj's folder): it moves the file's
+# mtime, then waits past AssetHotReload's poll. NOT in play_scenario yet - REMAINDER-VFX-PRESETS2-6.md has it.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run View "View mode: Lit"
+Дано run Open "VFX/Campfire.dfx"
+Дано set Transport.Playing 0
+Дано set Transport.Time 1.5
+Когда state
+Тогда-вид 0_before the preview shows the saved Campfire flames; the level viewport behind shows the Starter Campfire with the same flames
+Когда set Flames.ParticleUpdate.SizeOverLife.Scale.Keys 0,3,1,3,0,0
+Когда state
+Тогда 1_value_log editor.log after the set has no "compiles its host program" and no "rebuilds its" line; the window tab shows Campfire.dfx* (dirty)
+Тогда-вид 1_value the preview flames are about three times larger; the level Campfire's flames grew the same way without restarting (the fire did not blink out)
+Когда-файл touch Content/VFX/Campfire.dfx
+Когда state
+Тогда 1b_disk_log editor.log after the touch: exactly one "[HotReload] VFX system '...VFX/Campfire.dfx' changed on disk, unsaved edits kept" line and no "[HotReload] VFX system ... reloaded" line; the window shows the orange "The file changed on disk while this system has unsaved edits" row with Reload / Keep; the tab is still Campfire.dfx*
+Тогда-вид 1b_disk the preview and the level Campfire still show the three-times-larger flames of 1_value, not the saved look of 0_before
+Когда run Document "Campfire: Keep edits over changed file"
+Когда state
+Тогда 1c_keep the orange row is gone, the tab is still Campfire.dfx*; editor.log has one "keeps its unsaved edits over the file changed on disk" line and still no "reloaded" line
+Когда run Document "Campfire: Remove Flames.ParticleUpdate.ColorOverLife"
+Когда state
+Когда state
+Тогда 2_struct_log editor.log for this edit: exactly one "[VFX] stack ... compiles its host program (background)" line for the new stack key and no "compiles its host program" line without "(background)"; then exactly one "[VFX] entity ... rebuilds its ... emitter(s): the system's structure changed" line per placement (preview and level); no frame longer than 100 ms between the Remove and the rebuild lines; no VUID
+Тогда-вид 2_struct both the preview and the level Campfire lose the orange-to-transparent fade (flames stay the spawn colour), alike
+Когда run Document "Discard edits"
+Когда state
+Тогда-вид 3_revert after Revert the preview and the level Campfire both show the saved flames again (frame 0_before), the tab title has no "*"

@@ -24,6 +24,7 @@
 namespace Desert::Assets
 {
     class AssetManager;
+    class VFXSystemAsset;
 }
 
 namespace Desert::Editor
@@ -166,6 +167,7 @@ namespace Desert::Editor
         // for closing; false for Cancel, for a Save that wrote nothing, and when no question was pending.
         bool AnswerCloseQuestion( const SubjectId& subject, UnsavedCloseChoice choice );
         void DrawCloseQuestionPopup();
+        void DrawUnsavedAssetQuestionPopup(); // m_UnsavedAssetQuestions' front, once no document question is up
         // Every open document, queued for closing. One implementation behind Window ▸ Close All Documents
         // and behind the palette entry of the same name — the menu item used to carry the loop itself, and
         // a second copy of it in the palette would be two answers to "what does Close All close".
@@ -342,6 +344,15 @@ namespace Desert::Editor
         // AskCloseAll raised the questions: run this once the last one is answered (UE: the editor's exit
         // waits on the asset editors' close requests).
         std::function<void()> m_AfterCloseQuestions;
+        // UE's Save Content list on exit: VFX systems edited in place (the `.dfx` window edits the asset) whose
+        // window is gone - the editor closed it itself (view memory) - while the asset still holds unsaved
+        // edits. AskCloseAll asks about each after the open documents; same three answers.
+        std::vector<std::shared_ptr<Assets::VFXSystemAsset>> m_UnsavedAssetQuestions;
+        void AnswerUnsavedAssetQuestion( UnsavedCloseChoice choice );
+        // The exit waits on both question lists; the last answer runs m_AfterCloseQuestions.
+        void FinishExitIfAnswered();
+        // A Cancel (or a Save that wrote nothing) keeps the editor open: the exit's remaining questions go.
+        void AbandonExit();
         // The window to bring forward on the next frame (by its ImGui name); cleared when drawn. ONE slot for
         // the whole editor, owned by DockLayout (FocusSlot) and shared with the tool panels, so a later
         // focus request replaces an earlier one whether either names a panel or a document.

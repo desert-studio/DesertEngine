@@ -212,6 +212,26 @@ namespace Desert::Runtime
     Common::ResultStr<std::shared_ptr<Graphic::Shader>>
     ShaderService::AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant )
     {
+        auto lookup = BeginVariant( name, variant );
+        // One thread: nothing can move the service between the steps, so this runs once; it is a loop only
+        // because FinishVariant's answer has BeginVariant's shape.
+        while ( lookup.IsSuccess() && lookup.GetValue().Compile )
+        {
+            const VariantCompile ticket = *lookup.GetValue().Compile;
+            lookup                      = FinishVariant( ticket, Core::BuildShaderMap( ticket.Request ) );
+        }
+        if ( !lookup.IsSuccess() )
+            return Common::MakeError<std::shared_ptr<Graphic::Shader>>( lookup.GetError() );
+        return Common::MakeSuccess( lookup.GetValue().Ready );
+    }
+
+    Common::ResultStr<ShaderService::VariantLookup>
+    ShaderService::BeginVariant( const std::string& name, const Graphic::ShaderVariant& variant )
+    {
+        const auto refused = [this]( const std::string& key, Refusal refusal )
+        {
+            return Common::MakeError<VariantLookup>( Refuse( key, std::move( refusal ) ).GetError() );
+        };
         const std::string key =
              std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
 
@@ -220,7 +240,7 @@ namespace Desert::Runtime
         // material picking whichever it was handed.
         if ( variant.IsDefault() )
         {
-            return Refuse( key,
+            return refused( key,
                            { .Program = name,
                              .Reason  = std::format(
                                   "AcquireVariant('{}') was asked for the DEFAULT variant. That is GetByName's "
@@ -251,7 +271,7 @@ namespace Desert::Runtime
         const auto handleIt = m_NameToHandleMap.find( programName );
         if ( handleIt == m_NameToHandleMap.end() )
         {
-            return Refuse( key, { .Program = programName,
+            return refused( key, { .Program = programName,
                                   .Reason  = std::format(
                                        "AcquireVariant: no program or pass named '{}' is registered.", name ) } );
         }
@@ -262,13 +282,13 @@ namespace Desert::Runtime
         // A STANDING COMPILE REFUSAL IS THE ANSWER until the file is re-read (ForgetRefusalsOf): the same bytes
         // under the same variant fail the same way, and recompiling them every frame that asks is the cost of a
         // glslang run per frame for a sentence the caller was already given.
-        if ( const auto refused = m_Refusals.find( key ); refused != m_Refusals.end() && refused->second.Compile )
-            return Common::MakeError<std::shared_ptr<Graphic::Shader>>( refused->second.Reason );
+        if ( const auto standing = m_Refusals.find( key ); standing != m_Refusals.end() && standing->second.Compile )
+            return Common::MakeError<VariantLookup>( standing->second.Reason );
 
         if ( const auto it = m_Variants.find( key ); it != m_Variants.end() )
         {
             if ( auto live = it->second.Program.lock() )
-                return Common::MakeSuccess( std::move( live ) );
+                return Common::MakeSuccess( VariantLookup{ .Ready = std::move( live ) } );
             m_Variants.erase( it ); // the last holder let it go; build a fresh one below
         }
 
@@ -276,7 +296,7 @@ namespace Desert::Runtime
         auto       asset   = assetIt != m_ShaderAssets.end() ? assetIt->second.lock() : nullptr;
         if ( !asset )
         {
-            return Refuse(
+            return refused(
                  key, { .Handle  = handleIt->second,
                         .Program = programName,
                         .Reason  = std::format( "AcquireVariant('{}'): the shader asset behind that name is gone.",
@@ -294,7 +314,7 @@ namespace Desert::Runtime
         {
             if ( const auto loaded = asset->Load(); !loaded )
             {
-                return Refuse(
+                return refused(
                      key, { .Handle  = handleIt->second,
                             .Program = programName,
                             .Reason  = std::format( "AcquireVariant('{}'): the shader's source had been released "
@@ -303,9 +323,54 @@ namespace Desert::Runtime
             }
         }
 
-        auto program = Graphic::Shader::Create( asset, variant, passName );
-        program->ClaimOwnership( Graphic::ResourceOwner::AssetService, handleIt->second );
-        if ( !program->IsCompiled() )
+        // The compile's whole input, copied: the job reads this and nothing else (VariantCompile).
+        const auto&                  path = asset->GetMetadata().Filepath;
+        std::string                  shown = path.stem().string();
+        if ( !passName.empty() )
+            shown = std::format( "{}/{}", shown, passName );
+        return Common::MakeSuccess( VariantLookup{
+             .Compile = VariantCompile{ .Key        = key,
+                                        .Name       = name,
+                                        .Program    = programName,
+                                        .Handle     = handleIt->second,
+                                        .Request    = { asset->GetShaderContent(), path, passName, variant, shown },
+                                        .Generation = m_RecompileGeneration } } );
+    }
+
+    Common::ResultStr<ShaderService::VariantLookup>
+    ShaderService::FinishVariant( const VariantCompile& ticket, const Common::ResultStr<Core::ShaderMap>& built )
+    {
+        // Moved past while it compiled: the file or the program may have been re-read since the copy was taken,
+        // and adopting the old text's map would be the stale program the refusal reset was there to drop.
+        if ( ticket.Generation != m_RecompileGeneration )
+            return BeginVariant( ticket.Name, ticket.Request.Variant );
+
+        // A finish for the same key may have landed first (two callers, one key): its program is the answer.
+        if ( const auto it = m_Variants.find( ticket.Key ); it != m_Variants.end() )
+            if ( auto live = it->second.Program.lock() )
+                return Common::MakeSuccess( VariantLookup{ .Ready = std::move( live ) } );
+
+        const auto refused = [&]( const std::string& reason, const bool compile )
+        {
+            return Common::MakeError<VariantLookup>(
+                 Refuse( ticket.Key,
+                         { .Handle = ticket.Handle, .Program = ticket.Program, .Reason = reason, .Compile = compile } )
+                      .GetError() );
+        };
+        const auto assetIt = m_ShaderAssets.find( ticket.Handle );
+        auto       asset   = assetIt != m_ShaderAssets.end() ? assetIt->second.lock() : nullptr;
+        if ( !asset )
+            return refused( std::format( "AcquireVariant('{}'): the shader asset behind that name is gone.", ticket.Name ),
+                            false );
+
+        std::shared_ptr<Graphic::Shader> program;
+        if ( built.IsSuccess() )
+        {
+            program = Graphic::Shader::CreateFromShaderMap( asset, ticket.Request.Variant, ticket.Request.PassName,
+                                                            built.GetValue() );
+            program->ClaimOwnership( Graphic::ResourceOwner::AssetService, ticket.Handle );
+        }
+        if ( !program || !program->IsCompiled() )
         {
             // A REFUSAL, NOT A RESULT — and it used to be handed back with a comment saying "the caller
             // decides whether to draw with the default instead". No caller decided. Both of them
@@ -324,17 +389,17 @@ namespace Desert::Runtime
             // nothing the header did not already say: the doc lists the refusals and the error names which
             // one this is, and since NN-RUNTIME-6 the reason travels in the Result, so the caller that marks
             // a path refused or falls back says WHY in its own log or report instead of a line nobody pairs.
-            return Refuse( key, { .Handle  = handleIt->second,
-                                  .Program = programName,
-                                  .Reason  = std::format( "Variant {} of '{}' has no compiled stages - the source "
-                                                           "did not compile or reflect: {}",
-                                                          key, name, program->GetCompileError() ),
-                                  .Compile = true } );
+            const std::string why = program ? std::string( program->GetCompileError() ) : built.GetError();
+            return refused(
+                 std::format( "Variant {} of '{}' has no compiled stages - the source did not compile or "
+                              "reflect: {}",
+                              ticket.Key, ticket.Name, why ),
+                 true );
         }
 
-        m_Refusals.erase( key ); // it compiles now: a later refusal is a new one, and is reported
-        m_Variants[key] = VariantEntry{ handleIt->second, program };
-        return Common::MakeSuccess( std::move( program ) );
+        m_Refusals.erase( ticket.Key ); // it compiles now: a later refusal is a new one, and is reported
+        m_Variants[ticket.Key] = VariantEntry{ ticket.Handle, program };
+        return Common::MakeSuccess( VariantLookup{ .Ready = std::move( program ) } );
     }
 
     Common::ResultStr<std::shared_ptr<Graphic::Shader>> ShaderService::Refuse( const std::string& key,
