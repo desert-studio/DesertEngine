@@ -28,16 +28,20 @@
 // ALandscapeProxy::UpdateGrass, and only its instances are culled per view each frame): the generation (Hzb.w = 0,
 // one thread per cell) writes Instances, Args and the cascades' lists, and runs only when its inputs change
 // (GrassRenderer VarietyGpu::GenerateKey). The camera's own list, CameraIds / CameraArgs (the same bucket table), is
-// a separate pass over those kept instances (CameraCull, one thread per instance slot): Hzb.w = 3 by the camera's
-// side planes, Hzb.w = 1 by them and the previous frame's furthest HZB (Common/GpuCullTests.glslh
-// GpuCull_IsOccludedByHzb, the instance cull's test, through that frame's ViewProjection) - every frame, since it
-// depends on last frame's depth; a hidden one becomes a candidate (its sphere and its row of Instances).
+// a separate pass over those kept instances (CameraCull, one thread per KEPT instance, dispatched indirect by the
+// kept count - GrassFinalize CullDispatch; GRASS-CULL-1, UE InstanceCulling: the cull's cost follows the instances,
+// not the buffers' capacity): Hzb.w = 3 by the camera's side planes, Hzb.w = 1 by them and the previous frame's
+// furthest HZB (Common/GpuCullTests.glslh GpuCull_IsOccludedByHzb, the instance cull's test, through that frame's
+// ViewProjection) - every frame, since it depends on last frame's depth; a hidden one becomes a candidate (its
+// sphere and its row of Instances). Both lists are appended to with one atomic per subgroup and counter
+// (WaveAppend).
 // THE LISTS HOLD IDS (GPU-COST-22; UE GPU Scene: an instance's data lies once in
 // InstanceSceneData, each view's culling writes the ids of its visible instances, InstanceIdBuffer): an instance is
 // written ONCE, into its row of Instances; the camera's list and every cascade's hold that row (one uint each), and
 // the vertex stage reads Instances through the id (DESERT_SURFACE_INSTANCE_IDS, Vertex_Instanced.glslh /
 // Vertex_GrassBlade.glslh). A list's slot keeps the list's own bucket table, so the slot picks the draw record and
-// the strip level, the id the instance. Phase 2 (Hzb.w = 2, one thread per candidate slot, after this frame's furthest HZB is
+// the strip level, the id the instance. Phase 2 (Hzb.w = 2, one thread per candidate, dispatched indirect by the
+// candidates the camera cull appended - GrassFinalize CullDispatch -, after this frame's furthest HZB is
 // built from the phase-1 depth) re-tests the candidates through this frame's ViewProjection and appends the ones
 // now visible to the camera list after phase 1's; GrassFinalize's post mode writes their draw records (PostArgs);
 // a frame whose own HZB was not built (Hzb.z = 0 in phase 2) appends every candidate untested, so a missing HZB
@@ -51,6 +55,10 @@ Shader "GrassGenerate"
 {
     Compute
     {
+        // WaveAppend: one atomic per subgroup and counter (subgroupBallot / subgroupElect / subgroupBroadcastFirst).
+        #extension GL_KHR_shader_subgroup_basic : require
+        #extension GL_KHR_shader_subgroup_ballot : require
+
         LocalSize(8, 8, 1);
 
         #include <Common/GpuCullTests.glslh>
@@ -147,8 +155,8 @@ Shader "GrassGenerate"
         PushConstant PushConstants
         {
             ivec4 CellRange;         // the generation: x, y = the first cell (world grid index), z, w = cells
-                                     // along x, z (the lens footprint's box); the camera cull and phase 2: x =
-                                     // instance slots (the capacity), y = groups along x
+                                     // along x, z (the lens footprint's box); the camera cull and phase 2 read
+                                     // none (their threads are GrassFinalize CullDispatch's groups)
             mat4  HzbViewProjection; // unjittered, what GrassHzbTexture was built through (phase 1 the previous frame's)
             uvec4 Hzb;               // xy = GrassHzbTexture's mip-0 size, z = its mip count (0 in phase 2: none
                                      // built this frame, every candidate is visible), w = the mode: 0 the
@@ -262,106 +270,148 @@ Shader "GrassGenerate"
             return clamp( k * k * ( s / s2 ) * ( authored2 / max( d2, 1.0 ) ), p.ScaleZ.w, 1.0 );
         }
 
-        // Phase 2: one thread per instance slot of the camera's list. A slot holding one of this frame's candidates
-        // (below its bucket's frozen candidate count) whose sphere this frame's furthest HZB no longer hides appends
-        // its instance after phase 1's drawn ones.
-        void PostOcclusion( GrassParams p )
+        // THE WAVE'S APPEND (GRASS-CULL-1; UE InstanceCulling: one atomic per wave and list): every invocation that
+        // calls it takes one entry of the counter at word @p at of CameraArguments. The subgroup's invocations that
+        // name the same counter add their number with ONE atomicAdd and each takes its rank among them, instead of
+        // one atomic per instance on a bucket's two counters. One round per distinct counter among the callers -
+        // a subgroup spans a bucket boundary at most once, and its instances split into the visible and the hidden.
+        // Returns the entry's index: the counter before the subgroup's add, plus the rank.
+        uint WaveAppend( uint at )
         {
-            uint slot = ( gl_WorkGroupID.y * uint( CellRange.y ) + gl_WorkGroupID.x ) * 64u + gl_LocalInvocationIndex;
-            if ( slot >= uint( CellRange.x ) )
-                return;
-            uint phases = p.Buckets.y + p.Buckets.x * 4u;
-            for ( uint b = 0u; b < p.Buckets.x; ++b )
+            uint index = 0u;
+            for ( ;; )
             {
-                uint table = p.Buckets.y + b * 4u;
-                uint first = Arguments[table + 1u];
-                if ( slot < first || slot >= first + Arguments[table + 2u] )
-                    continue;
-                uint phase = phases + b * 4u;
-                if ( slot - first >= CameraArguments[phase + 1u] )
-                    return;
-                vec4        sphere = uintBitsToFloat( GrassCandidatesData[2u * slot] );
-                GpuCullView view;
-                view.HzbExtent = uvec4( Hzb.xyz, 0u );
-                if ( Hzb.z != 0u &&
-                     GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
-                                              sphere.xyz - vec3( sphere.w ), sphere.xyz + vec3( sphere.w ) ) )
-                    return;
-                uint index = CameraArguments[phase + 2u] + atomicAdd( CameraArguments[phase + 3u], 1u );
-                if ( index >= Arguments[table + 2u] )
-                    return;
-                GrassCameraIdsData[first + index] = GrassCandidatesData[2u * slot + 1u].x;
-                return;
+                if ( subgroupBroadcastFirst( at ) == at )
+                {
+                    uvec4 ballot = subgroupBallot( true );
+                    uint  base   = 0u;
+                    if ( subgroupElect() )
+                        base = atomicAdd( CameraArguments[at], subgroupBallotBitCount( ballot ) );
+                    index = subgroupBroadcastFirst( base ) + subgroupBallotExclusiveBitCount( ballot );
+                    break;
+                }
             }
+            return index;
         }
 
-        // The camera cull (Hzb.w 1 / 3): one thread per instance slot of Instances. A slot below its bucket's kept
-        // count (the generation's, left in Args until the next one) holds a kept instance; its bounding sphere -
-        // from its transform: the bounds centre along its up axis, the bounds radius at its largest axis scale plus
-        // a mesh's sway - inside the camera's side planes enters the camera's list in the same bucket, or, hidden by
-        // the previous frame's furthest HZB (Hzb.w = 1), becomes phase 2's candidate.
-        void CameraCull( GrassParams p )
+        // The thread's index in a camera cull or phase-2 dispatch: GrassFinalize CullDispatch's groups (64 threads
+        // each), wrapped along y.
+        uint CullThread()
         {
-            uint slot = ( gl_WorkGroupID.y * uint( CellRange.y ) + gl_WorkGroupID.x ) * 64u + gl_LocalInvocationIndex;
-            if ( slot >= uint( CellRange.x ) )
-                return;
-            for ( uint b = 0u; b < p.Buckets.x; ++b )
+            return ( gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x ) * 64u + gl_LocalInvocationIndex;
+        }
+
+        // Phase 2: one thread per candidate this frame's camera cull appended, bucket after bucket (each bucket's
+        // frozen candidate count, GrassFinalize FinalizeCamera; the dispatch is their sum, CullDispatchData[1]). A
+        // candidate whose sphere this frame's furthest HZB no longer hides appends its instance after phase 1's
+        // drawn ones.
+        void PostOcclusion()
+        {
+            uint t       = CullThread();
+            uint buckets = GrassParamsData[0].Buckets.x;
+            uint tables  = GrassParamsData[0].Buckets.y;
+            uint phases  = tables + buckets * 4u;
+            uint b       = 0u;
+            for ( ; b < buckets; ++b )
             {
-                uint table    = p.Buckets.y + b * 4u;
-                uint first    = Arguments[table + 1u];
-                uint capacity = Arguments[table + 2u];
-                if ( slot < first || slot >= first + capacity )
-                    continue;
-                if ( slot - first >= min( Arguments[table], capacity ) )
-                    return;
-                mat4  instance = GrassInstancesData[slot];
-                float scale    = max( length( instance[0].xyz ),
-                                      max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
-                float radius   = p.Range.w * scale + uintBitsToFloat( p.Cascades.z );
-                vec3  centre   = instance[3].xyz + p.ScaleY.z * instance[1].xyz;
-                for ( int i = 0; i < 4; ++i )
-                    if ( dot( p.CameraPlanes[i].xyz, centre ) + p.CameraPlanes[i].w < -radius )
-                        return;
-                bool hidden = false;
-                if ( Hzb.w == 1u )
-                {
-                    GpuCullView view;
-                    view.HzbExtent = uvec4( Hzb.xyz, 0u );
-                    hidden = GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
-                                                      centre - vec3( radius ), centre + vec3( radius ) );
-                }
-                if ( !hidden )
-                {
-                    uint seen = atomicAdd( CameraArguments[table], 1u );
-                    if ( seen < capacity )
-                        GrassCameraIdsData[first + seen] = slot;
-                    return;
-                }
-                uint candidate = atomicAdd( CameraArguments[p.Buckets.y + p.Buckets.x * 4u + b * 4u], 1u );
-                if ( candidate < capacity )
-                {
-                    GrassCandidatesData[2u * ( first + candidate )]      = floatBitsToUint( vec4( centre, radius ) );
-                    GrassCandidatesData[2u * ( first + candidate ) + 1u] = uvec4( slot, 0u, 0u, 0u );
-                }
-                return;
+                uint frozen = CameraArguments[phases + b * 4u + 1u];
+                if ( t < frozen )
+                    break;
+                t -= frozen;
             }
+            if ( b == buckets )
+                return;
+            uint        table  = tables + b * 4u;
+            uint        phase  = phases + b * 4u;
+            uint        first  = Arguments[table + 1u];
+            uint        slot   = first + t;
+            vec4        sphere = uintBitsToFloat( GrassCandidatesData[2u * slot] );
+            GpuCullView view;
+            view.HzbExtent = uvec4( Hzb.xyz, 0u );
+            if ( Hzb.z != 0u &&
+                 GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
+                                          sphere.xyz - vec3( sphere.w ), sphere.xyz + vec3( sphere.w ) ) )
+                return;
+            uint index = CameraArguments[phase + 2u] + WaveAppend( phase + 3u );
+            if ( index < Arguments[table + 2u] )
+                GrassCameraIdsData[first + index] = GrassCandidatesData[2u * slot + 1u].x;
+        }
+
+        // The camera cull (Hzb.w 1 / 3): one thread per kept instance, bucket after bucket (each bucket's kept
+        // count - the generation's, left in Args until the next one; the dispatch is their sum, GrassFinalize
+        // CullDispatchData[0]). Its bounding sphere - from its transform: the bounds centre along its up axis, the
+        // bounds radius at its largest axis scale plus a mesh's sway - inside the camera's side planes enters the
+        // camera's list in the same bucket, or, hidden by the previous frame's furthest HZB (Hzb.w = 1), becomes
+        // phase 2's candidate. Both cull modes read the params where they use them and never copy GrassParams: a
+        // copy holds the arrays the generation indexes (CascadePlanes, CardWidths) in each thread's local memory.
+        void CameraCull()
+        {
+            uint t       = CullThread();
+            uint buckets = GrassParamsData[0].Buckets.x;
+            uint tables  = GrassParamsData[0].Buckets.y;
+            uint b       = 0u;
+            for ( ; b < buckets; ++b )
+            {
+                uint kept = min( Arguments[tables + b * 4u], Arguments[tables + b * 4u + 2u] );
+                if ( t < kept )
+                    break;
+                t -= kept;
+            }
+            if ( b == buckets )
+                return;
+            uint  table    = tables + b * 4u;
+            uint  first    = Arguments[table + 1u];
+            uint  capacity = Arguments[table + 2u];
+            uint  slot     = first + t;
+            mat4  instance = GrassInstancesData[slot];
+            float scale    = max( length( instance[0].xyz ), max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
+            float radius   = GrassParamsData[0].Range.w * scale + uintBitsToFloat( GrassParamsData[0].Cascades.z );
+            vec3  centre   = instance[3].xyz + GrassParamsData[0].ScaleY.z * instance[1].xyz;
+            for ( int i = 0; i < 4; ++i )
+            {
+                vec4 plane = GrassParamsData[0].CameraPlanes[i];
+                if ( dot( plane.xyz, centre ) + plane.w < -radius )
+                    return;
+            }
+            bool hidden = false;
+            if ( Hzb.w == 1u )
+            {
+                GpuCullView view;
+                view.HzbExtent = uvec4( Hzb.xyz, 0u );
+                hidden = GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
+                                                  centre - vec3( radius ), centre + vec3( radius ) );
+            }
+            // The bucket's count in the camera's list, or its candidate count (its first phase word).
+            uint at    = hidden ? tables + buckets * 4u + b * 4u : table;
+            uint index = WaveAppend( at );
+            if ( index >= capacity )
+                return;
+            if ( hidden )
+            {
+                GrassCandidatesData[2u * ( first + index )]      = floatBitsToUint( vec4( centre, radius ) );
+                GrassCandidatesData[2u * ( first + index ) + 1u] = uvec4( slot, 0u, 0u, 0u );
+            }
+            else
+                GrassCameraIdsData[first + index] = slot;
         }
 
         void main()
         {
-            GrassParams p = GrassParamsData[0];
             if ( Hzb.w == 2u )
             {
-                PostOcclusion( p );
+                PostOcclusion();
                 return;
             }
             if ( Hzb.w == 1u || Hzb.w == 3u )
             {
-                CameraCull( p );
+                CameraCull();
                 return;
             }
             if ( gl_GlobalInvocationID.x >= uint( CellRange.z ) || gl_GlobalInvocationID.y >= uint( CellRange.w ) )
                 return;
+            // The generation's own copy of the params, past the cull modes' branches (GRASS-CULL-1): at the top of
+            // main every cull thread made it too.
+            GrassParams p = GrassParamsData[0];
             ivec2 cell  = CellRange.xy + ivec2( gl_GlobalInvocationID.xy );
             uint  state = Hash( uint( cell.x ) * 0x8da6b343u ^ uint( cell.y ) * 0xd8163841u ^ p.Info.w );
             // The lens share's draw (below): a hash of its own, so the share does not reshuffle the cell's jitter,

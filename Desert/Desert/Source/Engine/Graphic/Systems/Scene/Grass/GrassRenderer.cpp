@@ -63,18 +63,15 @@ namespace Desert::Graphic::System
         static_assert( kGrassIdBytes == 4u && sizeof( glm::mat4 ) == 64u,
                        "GrassGenerate.shader: uint GrassCameraIdsData[] / GrassCascadeIdsData[], mat4 "
                        "GrassInstancesData[]" );
-        // GrassGenerate's camera cull and phase 2 run one thread per instance slot (64 a group); their groups wrap
-        // at this many along x.
-        constexpr uint32_t kSlotGroupsX = 1024u;
-
-        // The groups of a per-slot GrassGenerate dispatch over @p capacity slots: along x (at most kSlotGroupsX)
-        // and y (GrassGeneratePush::CellRange.y names the x count).
-        glm::uvec2 SlotGroups( const uint32_t capacity )
-        {
-            const uint32_t groups  = ( std::max( capacity, 1u ) + 63u ) / 64u;
-            const uint32_t groupsX = std::min( groups, kSlotGroupsX );
-            return { groupsX, ( groups + groupsX - 1u ) / groupsX };
-        }
+        // GRASS-CULL-1 (UE InstanceCulling: the cull dispatches indirect by the GPU's own counts): GrassGenerate's
+        // camera cull and phase 2 run one thread per kept instance / per candidate, as many groups as GrassFinalize
+        // wrote into the variety's CullDispatch (GrassFinalize.shader CullDispatch: two VkDispatchIndirectCommand,
+        // each padded to a uvec4) - the camera cull's at 0 after the generation, phase 2's at kPostDispatchOffset
+        // after the camera cull. The CPU never reads them.
+        constexpr uint32_t kPostDispatchOffset = 16u;
+        constexpr uint32_t kCullDispatchBytes  = 2u * kPostDispatchOffset;
+        static_assert( kPostDispatchOffset >= 3u * sizeof( uint32_t ) && kPostDispatchOffset % 4u == 0u,
+                       "GrassFinalize.shader CullDispatchData[1]: a VkDispatchIndirectCommand on a uvec4" );
 
         // Mirrors GrassGenerate's GrassParams (std430).
         struct GrassParamsGpu
@@ -228,7 +225,7 @@ namespace Desert::Graphic::System
         // GrassGenerate's push block, std430 (Programs/Grass/GrassGenerate.shader PushConstants).
         struct GrassGeneratePush
         {
-            glm::ivec4 CellRange{ 0 }; // phase 2: x = candidate slots, y = groups along x
+            glm::ivec4 CellRange{ 0 }; // the generation's cells (the camera cull and phase 2 read none)
             glm::mat4  HzbViewProjection{ 1.0f };
             glm::uvec4 Hzb{ 0u }; // xy = mip-0 size, z = mip count, w = the phase (0 untested, 1, 2)
         };
@@ -242,6 +239,7 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, CameraArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, PostArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, CascadeArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CullDispatch );
         };
 
         // GrassFinalize's push block (Programs/Grass/GrassFinalize.shader PushConstants).
@@ -710,6 +708,16 @@ namespace Desert::Graphic::System
                 gpu.CascadeIds  = ShaderResources::StorageBuffer::Create( "GrassCascadeIds", 16u, 8, true );
                 gpu.CascadeArgs = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", 16u, 9, true );
             }
+            // GRASS-CULL-1: the cull's indirect dispatches (kCullDispatchBytes), no groups until the generation
+            // this new buffer forces (FrameKey) writes the camera cull's.
+            gpu.CullDispatch = ShaderResources::StorageBuffer::Create( "GrassCullDispatch", kCullDispatchBytes, 5, true );
+            const std::array<uint32_t, kCullDispatchBytes / 4u> noGroups{ 0u, 1u, 1u, 0u, 0u, 1u, 1u, 0u };
+            if ( const auto wrote = gpu.CullDispatch->SetData( noGroups.data(), kCullDispatchBytes );
+                 !wrote.IsSuccess() )
+            {
+                LOG_ERROR( "[Grass] the cull's dispatch arguments were not written: {}", wrote.GetError() );
+                return nullptr;
+            }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
             if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
                  !gpu.Feedback || gpu.Feedback->GetSize() != feedbackBytes )
@@ -885,8 +893,8 @@ namespace Desert::Graphic::System
         gpu.FrameKey.push_back( gpu.Capacity );
         for ( const void* buffer :
               { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ),
-                static_cast<const void*>( gpu.CascadeIds.get() ),
-                static_cast<const void*>( gpu.CascadeArgs.get() ) } )
+                static_cast<const void*>( gpu.CascadeIds.get() ), static_cast<const void*>( gpu.CascadeArgs.get() ),
+                static_cast<const void*>( gpu.CullDispatch.get() ) } )
         {
             const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
             gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
@@ -983,7 +991,8 @@ namespace Desert::Graphic::System
                                                      std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
                                                      std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
                                                      std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
-                                                     std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport } } )
+                                                     std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
+                                                     std::pair{ &gpu->CullDispatch, &gpu->CullDispatchImport } } )
                     if ( imported )
                         imported = Renderer::ImportBuffer( *buffer, *into );
                 if ( !imported )
@@ -1006,6 +1015,7 @@ namespace Desert::Graphic::System
                 gpu->CascadeRefs.Instances = gpu->Refs.Instances;
                 gpu->CascadeRefs.Ids       = graph.RegisterExternal( gpu->CascadeIdsImport, "GrassCascadeIds" );
                 gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
+                gpu->CullDispatchRef  = graph.RegisterExternal( gpu->CullDispatchImport, "GrassCullDispatch" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
                 if ( gpu->Drawn )
@@ -1115,6 +1125,8 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageRead )
                               .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
                                         RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::CullDispatch, gpu->CullDispatchRef,
+                                        RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
                  },
                  [this]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1206,6 +1218,8 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
                                         RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::CullDispatch, gpu->CullDispatchRef,
+                                        RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
                  },
                  [this, cameraList = volumes.List != CameraList::None]( RDG::PassContext& context )
@@ -1243,6 +1257,7 @@ namespace Desert::Graphic::System
                  {
                      const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
                      for ( const VarietyGpu* gpu : m_FrameCull )
+                     {
                          pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
                               .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef,
                                         RDG::Access::StorageRead )
@@ -1267,21 +1282,18 @@ namespace Desert::Graphic::System
                               .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
                                         RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
+                         pass.Read( gpu->CullDispatchRef, RDG::Access::IndirectArgs );
+                     }
                  },
                  [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     auto& renderer = Renderer::GetInstance();
                      for ( uint32_t i = 0; i < m_FrameCull.size(); ++i )
                      {
-                         const VarietyGpu* gpu    = m_FrameCull[i];
-                         const glm::uvec2  groups = SlotGroups( gpu->Capacity );
+                         // One thread per kept instance: the groups the generation's Finalize wrote.
                          RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                         GrassGeneratePush variety = push;
-                         variety.CellRange         = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
-                                                                 static_cast<int32_t>( groups.x ), 0, 0 );
-                         bindings.PushConstants( &variety, sizeof( variety ) );
-                         if ( auto dispatched =
-                                   renderer.DispatchCompute( bindings, *m_Generate, groups.x, groups.y, 1 );
+                         bindings.PushConstants( &push, sizeof( push ) );
+                         if ( auto dispatched = Renderer::DispatchComputeIndirect(
+                                   bindings, *m_Generate, m_FrameCull[i]->CullDispatchRef, 0u );
                               !dispatched )
                              return dispatched;
                      }
@@ -1305,6 +1317,8 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageRead )
                               .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
                                         RDG::Access::StorageRead )
+                              .Storage( GrassFinalizeShaderParameters::CullDispatch, gpu->CullDispatchRef,
+                                        RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
                  },
                  [this]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1349,6 +1363,7 @@ namespace Desert::Graphic::System
              {
                  const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
                  for ( const VarietyGpu* gpu : m_FrameCull )
+                 {
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
                           .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
                           .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
@@ -1371,22 +1386,18 @@ namespace Desert::Graphic::System
                           .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
                                     RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
+                     pass.Read( gpu->CullDispatchRef, RDG::Access::IndirectArgs );
+                 }
              },
              [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 auto& renderer = Renderer::GetInstance();
                  for ( uint32_t i = 0; i < m_FrameCull.size(); ++i )
                  {
-                     const VarietyGpu* gpu = m_FrameCull[i];
-                     // One thread per instance slot of the camera's list: a group is 64 threads (8 x 8).
-                     const glm::uvec2  groups = SlotGroups( gpu->Capacity );
+                     // One thread per candidate: the groups the Camera Cull Finalize wrote.
                      RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                     GrassGeneratePush variety = push;
-                     variety.CellRange         = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
-                                                             static_cast<int32_t>( groups.x ), 0, 0 );
-                     bindings.PushConstants( &variety, sizeof( variety ) );
-                     if ( auto dispatched =
-                               renderer.DispatchCompute( bindings, *m_Generate, groups.x, groups.y, 1 );
+                     bindings.PushConstants( &push, sizeof( push ) );
+                     if ( auto dispatched = Renderer::DispatchComputeIndirect(
+                               bindings, *m_Generate, m_FrameCull[i]->CullDispatchRef, kPostDispatchOffset );
                           !dispatched )
                          return dispatched;
                  }
@@ -1408,6 +1419,8 @@ namespace Desert::Graphic::System
                           .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
                                     RDG::Access::StorageWrite )
                           .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                    RDG::Access::StorageRead )
+                          .Storage( GrassFinalizeShaderParameters::CullDispatch, gpu->CullDispatchRef,
                                     RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
              },

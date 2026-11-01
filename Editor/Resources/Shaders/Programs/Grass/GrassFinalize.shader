@@ -50,8 +50,32 @@ Shader "GrassFinalize"
             uint CascadeArguments[]; // per cascade list one copy of Args' layout (GrassGenerate.shader CascadeArgs)
         };
 
+        // THE CULL'S DISPATCHES (GRASS-CULL-1; UE InstanceCulling: the cull dispatches indirect by the GPU's own
+        // count, never by a buffer's capacity, and the CPU never reads it): [0] the camera cull's groups (x, y, z)
+        // over the kept instances, written after the generation (Mode.x = 0; the kept counts stay until the next
+        // one); [1] phase 2's over this frame's candidates, written after the camera cull (Mode.x = 3). GrassRenderer
+        // kCullDispatchBytes / kPostDispatchOffset.
+        Buffer(5) CullDispatch
+        {
+            uvec4 CullDispatchData[];
+        };
+
         // The cascade views Feedback counts (GrassRenderer kGrassCascadeLists, SceneResources::kMaxCascadeViews).
         const uint kCascadeViews = 8u;
+
+        // GrassGenerate's group (LocalSize 8 x 8) and the groups along x a dispatch wraps at (Vulkan's guaranteed
+        // maxComputeWorkGroupCount[0]); GrassGenerate.shader CullThread linearises them back.
+        const uint kCullGroupThreads = 64u;
+        const uint kCullGroupsX      = 65535u;
+
+        // The groups that give each of @p threads one thread (x, y, z; w unused): one row up to kCullGroupsX
+        // groups, past it as few rows as fit, so fewer groups than rows run idle. None for none.
+        uvec4 CullGroups( uint threads )
+        {
+            uint groups = ( threads + kCullGroupThreads - 1u ) / kCullGroupThreads;
+            uint rows   = max( 1u, ( groups + kCullGroupsX - 1u ) / kCullGroupsX );
+            return uvec4( ( groups + rows - 1u ) / rows, rows, 1u, 0u );
+        }
 
         // Mirrors Graphic::System::GrassFinalizePush (GrassRenderer.cpp).
         PushConstant PushConstants
@@ -72,8 +96,9 @@ Shader "GrassFinalize"
             return min( s / max( 1u, records / buckets ), buckets - 1u );
         }
 
-        // Phase 1's camera records, and the phase words frozen for phase 2.
-        void FinalizeCamera()
+        // Phase 1's camera records, and the phase words frozen for phase 2; returns the candidates frozen (phase
+        // 2's threads).
+        uint FinalizeCamera()
         {
             uint buckets = CameraArguments[0];
             uint records = CameraArguments[2];
@@ -86,7 +111,8 @@ Shader "GrassFinalize"
                 CameraArguments[4u + s * 5u + 1u] = min( CameraArguments[at], CameraArguments[at + 2u] );
                 CameraArguments[4u + s * 5u + 4u] = CameraArguments[at + 1u];
             }
-            uint drawn = 0u;
+            uint drawn      = 0u;
+            uint candidates = 0u;
             for ( uint b = 0u; b < buckets; ++b )
             {
                 uint at    = table + b * 4u;
@@ -94,12 +120,14 @@ Shader "GrassFinalize"
                 uint seen  = min( CameraArguments[at], CameraArguments[at + 2u] );
                 drawn += seen;
                 CameraArguments[phase + 1u] = min( CameraArguments[phase], CameraArguments[at + 2u] );
+                candidates += CameraArguments[phase + 1u];
                 CameraArguments[phase]      = 0u;
                 CameraArguments[phase + 2u] = seen;
                 CameraArguments[phase + 3u] = 0u;
                 CameraArguments[at]         = 0u;
             }
             CameraArguments[3] = drawn;
+            return candidates;
         }
 
         // Phase 2's records: each bucket's appended count, within what phase 1 left of its capacity, after phase
@@ -175,8 +203,8 @@ Shader "GrassFinalize"
             }
             if ( Mode.x == 3u )
             {
-                FinalizeCamera();
-                uint cameraBuckets                = CameraArguments[0];
+                CullDispatchData[1]              = CullGroups( FinalizeCamera() );
+                uint cameraBuckets               = CameraArguments[0];
                 FeedbackData[cameraBuckets + 2u] = CameraArguments[3];
                 FeedbackData[cameraBuckets + 3u] = 0u;
                 return;
@@ -205,6 +233,7 @@ Shader "GrassFinalize"
                 FeedbackData[buckets + 3u] = 0u;
             }
             Arguments[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
+            CullDispatchData[0] = CullGroups( drawn ); // every later frame's camera cull, until the next generation
             FinalizeCascades( buckets, records );
         }
     }
