@@ -1,4 +1,5 @@
 #include "VFXOverviewOverlay.hpp"
+#include <Common/Core/Profiler.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
@@ -1803,7 +1804,10 @@ namespace Desert::Editor
 
     void ViewportPanel::OnUIRender()
     {
-        UpdateAsyncLoads(); // spawn any meshes whose background cook just finished (+ progress bar)
+        {
+            DESERT_PROFILE_PASS( "Viewport: Async loads" );
+            UpdateAsyncLoads(); // spawn any meshes whose background cook just finished (+ progress bar)
+        }
 
         const auto mainCamera = ViewCamera();
         if ( !mainCamera )
@@ -1816,7 +1820,10 @@ namespace Desert::Editor
         // Godot-style: one compact toolbar ROW above the image (mode, transform tools, snap,
         // contextual skeleton toggle, camera gear on the right). Nothing floats over the scene
         // pixels anymore, so the picture is clean and picking never fights an overlay window.
-        DrawViewportToolbar();
+        {
+            DESERT_PROFILE_PASS( "Viewport: Toolbar" );
+            DrawViewportToolbar();
+        }
 
         // The viewport rect is whatever remains BELOW the toolbar row.
         const ImVec2 mousePos   = ::ImGui::GetMousePos();
@@ -1895,7 +1902,10 @@ namespace Desert::Editor
 
         // Render scene
         const auto finalImage = m_Scene->GetFinalImage( ViewIndex() );
-        m_UIHelper->Image( finalImage, { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        {
+            DESERT_PROFILE_PASS( "Viewport: Scene image" );
+            m_UIHelper->Image( finalImage, { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        }
         // The image's own pixel size travels with the rect: shot-viewport writes this image, so a drag aimed
         // in its pixels maps back through it, not through the display's framebuffer scale.
         Control::PointerInjection::PublishTarget(
@@ -2012,7 +2022,10 @@ namespace Desert::Editor
             else
             {
                 pv.Enabled = false;
-                DrawUIInScene();
+                {
+                    DESERT_PROFILE_PASS( "Viewport: UI in scene" );
+                    DrawUIInScene();
+                }
             }
         }
 
@@ -2093,7 +2106,10 @@ namespace Desert::Editor
             // second manipulator fighting it for the same click.
             else if ( m_Gizmo.IsActive() && !selectedIsUI && !Core::ActiveAuthoringContext().ShowsControls() )
             {
-                m_Gizmo.RenderObject( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
+                {
+                    DESERT_PROFILE_PASS( "Viewport: Object gizmo" );
+                    m_Gizmo.RenderObject( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
+                }
             }
         }
 
@@ -2270,9 +2286,12 @@ namespace Desert::Editor
         // Editor gizmos (light/camera icons + frustums) are authoring aids — hide them in Play/Paused so the
         // running game view is clean. Simulate In Editor keeps them: it is the editor's view of a running world.
         if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit || m_Scene->IsSimulating() )
+        {
+            DESERT_PROFILE_PASS( "Viewport: Editor icons" );
             m_LightGizmoRenderer->Render( ViewCamera(), m_ViewportData.Size.x, m_ViewportData.Size.y,
                                           m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
                                           m_AuthoringOwner, m_Authoring );
+        }
 
         // ── WHICH PANE IS THIS ────────────────────────────────────────────────────────────────────
         //
@@ -2302,13 +2321,19 @@ namespace Desert::Editor
             }
         }
 
-        DrawPilotOverlay();
+        {
+            DESERT_PROFILE_PASS( "Viewport: Pilot overlay" );
+            DrawPilotOverlay();
+        }
 
         // Corner XYZ orientation triad — a 3D aid, so hide it in 2D UI mode (like Unity's 2D scene view).
         // THE MODEL THE GRID NOW FOLLOWS: the mode decides what it draws at the moment it draws it and
         // stores the decision nowhere, so no save can find it and no call site can forget to fence it.
         if ( !m_Modes.UI2D )
-            DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
+            {
+                DESERT_PROFILE_PASS( "Viewport: View axis" );
+                DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
+            }
 
         // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
         // Beside it, what this view's TLAS holds (drawn only on a frame that traced rays).
