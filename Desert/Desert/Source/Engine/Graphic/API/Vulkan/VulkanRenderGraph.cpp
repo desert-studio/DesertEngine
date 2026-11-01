@@ -1147,6 +1147,63 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( commandBuffer );
     }
 
+    Common::ResultStr<VulkanRdgPassSetMemo*> VulkanRdgBackend::SetMemoOf( const RDG::PassContext& context )
+    {
+        RDG::IBackend& backend = context.GetBackend();
+        if ( backend.GetKind() != RDG::BackendKind::Vulkan )
+            return Common::MakeFormattedError<VulkanRdgPassSetMemo*>(
+                 "pass '{}' is not recorded by the Vulkan backend", context.GetPassName() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): GetKind() == Vulkan names this exact
+        // type
+        return Common::MakeSuccess( &static_cast<VulkanRdgBackend&>( backend ).m_PassSets );
+    }
+
+    bool VulkanRdgPassSetMemo::Matches( const Entry& entry, const Key& key )
+    {
+        return entry.Block.Pass == key.Block.Pass && entry.Block.Block == key.Block.Block &&
+               entry.Shader == key.Shader && entry.Layout == key.Layout && entry.Material == key.Material &&
+               entry.MaterialSet == key.MaterialSet && entry.MaterialPush == key.MaterialPush &&
+               entry.BlockPushBytes == key.BlockPushBytes &&
+               std::equal( entry.MaterialBindings.begin(), entry.MaterialBindings.end(), key.MaterialBindings.begin(),
+                           key.MaterialBindings.end() );
+    }
+
+    const std::vector<VkDescriptorSet>* VulkanRdgPassSetMemo::Find( const Key& key ) const
+    {
+        if ( m_LastHit < m_Entries.size() && Matches( m_Entries[m_LastHit], key ) )
+            return &m_Entries[m_LastHit].Sets;
+        for ( size_t index = 0; index < m_Entries.size(); ++index )
+        {
+            if ( Matches( m_Entries[index], key ) )
+            {
+                m_LastHit = index;
+                return &m_Entries[index].Sets;
+            }
+        }
+        return nullptr;
+    }
+
+    void VulkanRdgPassSetMemo::Keep( const Key& key, std::vector<VkDescriptorSet> sets )
+    {
+        m_LastHit = m_Entries.size();
+        Entry entry{ .Block          = key.Block,
+                     .Shader         = key.Shader,
+                     .Layout         = key.Layout,
+                     .Material       = key.Material,
+                     .MaterialSet    = key.MaterialSet,
+                     .MaterialPush   = key.MaterialPush,
+                     .BlockPushBytes = key.BlockPushBytes,
+                     .Sets           = std::move( sets ) };
+        entry.MaterialBindings.assign( key.MaterialBindings.begin(), key.MaterialBindings.end() );
+        m_Entries.push_back( std::move( entry ) );
+    }
+
+    void VulkanRdgPassSetMemo::Clear()
+    {
+        m_Entries.clear();
+        m_LastHit = 0;
+    }
+
     Common::BoolResultStr VulkanRdgBackend::BeginFrame( uint32_t slot, const VulkanRdgQueueSet& queues,
                                                         VulkanRdgTransientAllocator& transients,
                                                         VulkanRdgPassDescriptors&    descriptors )
@@ -1405,6 +1462,7 @@ namespace Desert::Graphic::API::Vulkan
     // THE one place a pass is labelled and timed: every graph pass gets both, and no pass records its own.
     void VulkanRdgBackend::BeginPass( const RDG::CompiledPass& pass )
     {
+        m_PassSets.Clear();
         if ( m_Device.CmdBeginLabel != nullptr )
         {
             VkDebugUtilsLabelEXT label{};
@@ -1421,6 +1479,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::EndPass( const RDG::CompiledPass& )
     {
+        m_PassSets.Clear();
         if ( !m_ProfilerScopes.empty() )
         {
             if ( m_Device.Profiler != nullptr )

@@ -21,6 +21,7 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <span>
 #include <string_view>
 #include <tuple>
 #include <vector>
@@ -413,6 +414,62 @@ namespace Desert::Graphic::API::Vulkan
         bool                   m_AccelerationStructures = false;
     };
 
+    // THE PASS'S BOUND SETS (GPU-COST-36; UE FMeshDrawShaderBindings: a mesh draw command's descriptor bindings
+    // are built once with the command, and every draw of it only binds them). Before, every draw of a pass
+    // resolved its block against the shader, allocated a fresh set per descriptor set of the pipeline layout,
+    // wrote every entry and copied the material's slots in (VulkanRendererAPI::BindGraphicsPassState) - the same
+    // descriptors for every draw of one (block, shader, layout, material): hundreds of draws of a few blocks.
+    // The memo keeps, for the ONE pass exec between VulkanRdgBackend::BeginPass and EndPass, the sets one such
+    // combination was written into; a later draw of the same combination binds them. A set is written before its
+    // first bind and never after it, so every draw that binds it reads the same descriptors it would have had in a
+    // set of its own. Never kept across passes: a pass's blocks name only its own resources, and the pool the sets
+    // came from is reset with the frame slot.
+    class VulkanRdgPassSetMemo
+    {
+    public:
+        // What the sets were written from. Block: the pass's declared block (RDG::PassBindings::GetBlock); Shader and
+        // Layout: the recording pipeline's (the reflection the block was resolved against, the set layouts the sets
+        // were allocated for); Material and MaterialSet / MaterialBindings: the material whose written slots were
+        // copied into set 0 (0 / empty for none); MaterialPush and BlockPushBytes: the push-constant routes the
+        // resolution checked. Shader and Material are addresses compared as identities, never dereferenced.
+        struct Key
+        {
+            RDG::BindingBlockRef      Block;
+            std::uintptr_t            Shader         = 0;
+            VkPipelineLayout          Layout         = VK_NULL_HANDLE;
+            std::uintptr_t            Material       = 0;
+            VkDescriptorSet           MaterialSet    = VK_NULL_HANDLE;
+            std::span<const uint32_t> MaterialBindings;
+            bool                      MaterialPush   = false;
+            size_t                    BlockPushBytes = 0;
+        };
+
+        // The sets written for @p key in this pass exec, or null.
+        [[nodiscard]] const std::vector<VkDescriptorSet>* Find( const Key& key ) const;
+        // The sets just written for @p key (its MaterialBindings are copied).
+        void Keep( const Key& key, std::vector<VkDescriptorSet> sets );
+        // A pass exec begins or ends: nothing written for another pass is bound by this one.
+        void Clear();
+
+    private:
+        struct Entry
+        {
+            RDG::BindingBlockRef         Block;
+            std::uintptr_t               Shader         = 0;
+            VkPipelineLayout             Layout         = VK_NULL_HANDLE;
+            std::uintptr_t               Material       = 0;
+            VkDescriptorSet              MaterialSet    = VK_NULL_HANDLE;
+            std::vector<uint32_t>        MaterialBindings;
+            bool                         MaterialPush   = false;
+            size_t                       BlockPushBytes = 0;
+            std::vector<VkDescriptorSet> Sets;
+        };
+        [[nodiscard]] static bool Matches( const Entry& entry, const Key& key );
+
+        std::vector<Entry> m_Entries;
+        mutable size_t     m_LastHit = 0; // consecutive draws of one block hit the same entry
+    };
+
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,
     // asked of a temporary image / buffer that never gets memory, cached per description and usage.
     class VulkanRdgMemoryRequirements final : public RDG::IMemoryRequirementsProvider
@@ -502,6 +559,8 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VulkanRdgSubmission> TakeSubmissions();
         // A(3): the per-frame descriptor sets an exec lambda binds transients with.
         static Common::ResultStr<VulkanRdgPassDescriptors*> DescriptorsOf( const RDG::PassContext& context );
+        // The memo of the sets the running pass exec wrote (VulkanRdgPassSetMemo); cleared by BeginPass / EndPass.
+        static Common::ResultStr<VulkanRdgPassSetMemo*> SetMemoOf( const RDG::PassContext& context );
 
         // The allocator BeginFrame bound: every Execute follows a BeginFrame, so a call before the first one
         // is a programming error and aborts.
@@ -546,6 +605,7 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgQueueSet*     m_Queues      = nullptr;
         VulkanRdgTransientAllocator* m_Transients  = nullptr;
         VulkanRdgPassDescriptors*    m_Descriptors = nullptr;
+        VulkanRdgPassSetMemo         m_PassSets; // the running pass exec's (BeginPass .. EndPass)
         std::string                  m_GraphName; // the graph between BeginGraph and EndGraph / AbandonGraph
         // The graph holds the shared transient heaps after an earlier graph
         // (VulkanRdgTransientAllocator::ReserveGraphHeaps): its first command buffer opens with a memory barrier.

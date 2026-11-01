@@ -157,6 +157,10 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] std::span<const BoundTexture> GetTextures() const;
         [[nodiscard]] std::span<const BoundBuffer>  GetBuffers() const;
         [[nodiscard]] std::span<const std::byte>    GetPushConstants() const;
+        // The declared block this one was opened from. Within one exec of one pass, two PassBindings of the same
+        // block resolve to the same entries (the constructor reads only the block and the context), so a backend
+        // may key what it builds from them by it (VulkanRdgBackend's pass set memo).
+        [[nodiscard]] BindingBlockRef GetBlock() const;
 
     private:
         // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that
@@ -170,6 +174,7 @@ namespace Desert::Graphic::RDG
         void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
 
         const PassContext&        m_Context;
+        BindingBlockRef           m_Block;
         std::vector<BoundTexture> m_Textures;
         std::vector<BoundBuffer>  m_Buffers;
         std::vector<std::byte>    m_PushConstants;
