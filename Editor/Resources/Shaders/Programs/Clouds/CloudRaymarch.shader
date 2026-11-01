@@ -353,7 +353,7 @@ Shader "CloudRaymarch"
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
-            vec4 CameraPosition; // xyz = camera position in world units, w = frame index
+            vec4 CameraPosition; // xyz = camera position in world units, w = trace cycle (CloudMarchStartOffset)
             // xy = this frame's sub-pixel inside the 2x2 block of HALF-resolution pixels each quarter-res
             //      texel covers, each 0 or 1. zw = the HALF-resolution grid's size in pixels, which this
             //      pass cannot derive: imageSize() reports the quarter-res target it writes, and the two
@@ -474,6 +474,39 @@ Shader "CloudRaymarch"
 
             float full = CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
             return mix(full, nearFar, coverage);
+        }
+
+        // THE MARCH'S START OFFSET, in [0, 1) of a fine step — Unreal's
+        // `t = TMin + BlueNoiseScalar(FullResPixelCoord, View.StateFrameIndexMod8) * StepT`
+        // (VolumetricCloud.usf:797-805, whose own note reads "Blue noise works best" over the white Rand3DPCG16
+        // it replaced). The offset this replaces was that white hash: every trace of a pixel drew an
+        // independent offset, so the reconstruction's history held one realization at a time and each new
+        // trace replaced it by an unrelated one — the noise of the cloud itself over the whole sky
+        // (SKY-FLICKER-2). It is low-discrepancy on all three axes the reconstruction averages over:
+        //
+        //   * IN SPACE, on the grid this frame traces: interleaved gradient noise (Jimenez 2014, the pattern of
+        //     UE's InterleavedGradientNoise and of this engine's contact-shadow dither) over the QUARTER-res
+        //     texel, so the four texels a not-owned pixel's bilinear estimate blends hold four well spread
+        //     offsets and their errors cancel rather than add;
+        //   * IN THE BLOCK: the 2x2 ordered-dither rank of the half-res sub-pixel the ray goes through
+        //     ({0, 2; 3, 1}, the table the sub-pixel walk itself is, Graphic::CloudTraceSubPixel) in quarters,
+        //     so the four half-res pixels one quarter-res texel stands for sit in four different quarters of
+        //     the step;
+        //   * IN TIME, per pixel: the golden-ratio (R1) sequence over @p traceCycle, the number of times this
+        //     pixel has been traced (Graphic::CloudPush::CameraPosition.w), so successive traces of one pixel
+        //     fill the step evenly and any run of them averages to the step's mean. Unreal walks its 128x128x64
+        //     texture by the frame index mod 8 through a four-frame sub-pixel walk, so each of its pixels sees
+        //     only two of the eight slices; counting traces rather than frames is what gives every trace of a
+        //     pixel a new value.
+        //
+        // In integers for the temporal term: 0x9E3779B9 is 2^32 / phi, and the top 24 bits of the product are
+        // the R1 value exactly at any cycle count, where a float `fract(cycle * 0.618)` loses its low bits.
+        float CloudMarchStartOffset(ivec2 traceCoord, ivec2 subPixel, uint traceCycle)
+        {
+            float spatial  = fract(52.9829189f * fract(dot(vec2(traceCoord), vec2(0.06711056f, 0.00583715f))));
+            uint  rank     = subPixel.y == 0 ? uint(subPixel.x) * 2u : 3u - uint(subPixel.x) * 2u;
+            float temporal = float((traceCycle * 0x9E3779B9u) >> 8u) * (1.0f / 16777216.0f);
+            return fract(spatial + float(rank) * 0.25f + temporal);
         }
 
         void main()
@@ -609,16 +642,10 @@ Shader "CloudRaymarch"
             // line up. Without it the uniform schedule draws the layer as a set of concentric shells —
             // the banding is the step planes themselves, seen edge-on.
             //
-            // The hash includes the frame index, so the pattern moves and the eye integrates it. That is
-            // the whole reason a still frame of this pass is NOT a valid check of it: a fixed camera and a
-            // fixed frame index show one realization of the dither, not what the viewer sees.
-            // Hashed on the HALF-res pixel, not on the quarter-res texel: two frames of the same block
-            // trace different half-res pixels, so hashing halfCoord gives them different start offsets as
-            // well as different rays. Hashing coord would give the whole 2x2 block one offset per frame,
-            // and the temporal reconstruction would then average four samples that share their bias.
-            uint  jitterHash = CloudHashCell(uint(halfCoord.x), uint(halfCoord.y),
-                                             uint(CameraPosition.w), 0x51ED270Bu);
-            float jitter     = float(jitterHash & 0xFFFFu) * (1.0f / 65536.0f);
+            // The offset moves from trace to trace, so the reconstruction integrates it; a still frame of
+            // this pass is therefore NOT a valid check of it — it shows one realization of the dither, not
+            // what the viewer sees. Spatio-temporal low-discrepancy, not white (CloudMarchStartOffset).
+            float jitter = CloudMarchStartOffset(coord, ivec2(CloudTraceParams.xy), uint(CameraPosition.w));
 
             CloudFieldParams params = CloudUnpackFieldParams();
 
@@ -751,12 +778,17 @@ Shader "CloudRaymarch"
             float aerialWeightedT = 0.0f;
             float aerialWeightSum = 0.0f;
 
-            // The guide's cloud channel: the distance of the FIRST sample that had any material in it.
-            // Negative means "not found yet" — a distance can never be negative here, so the sentinel
-            // cannot collide with an answer. It is resolved to a real distance after the loop, on every
-            // path, because the composite compares this number across four texels and a sentinel that
-            // leaked out of one of them would read as a silhouette where there is none.
-            float cloudFrontKm = -1.0f;
+            // The guide's cloud channel is THE SAME WEIGHTED MEAN, Unreal's tAP (VolumetricCloud.usf:1228-1230,
+            // :1493), resolved after the loop. It was the distance of the FIRST sample with any material, and on
+            // a thin wisp that is one sample of one realisation of the start-offset dither: every fourth frame the
+            // owned pixel's front jumped between "found at the wisp" and "end of the search" behind it, and the
+            // reprojection and the composite's edge filter jumped with it (SKY-FLICKER-3). The mean moves only as
+            // much as the transmittance it is weighted by.
+            //
+            // "NO CLOUD" BELOW 1 % OPACITY, Unreal's threshold (:1731, `GrayScaleTransmittance > 0.99`): a ray that
+            // kept more than this of its light reports the end of its own search, as one that met nothing does,
+            // so a trace of haze is not a silhouette for the readers that judge edges by this channel.
+            const float kCloudFrontClearTransmittance = 0.99f;
 
             // The two-tier state. `emptyRun` counts CONSECUTIVE fine samples that found no profile; after
             // enough of them the march decides it has left the cloud and returns to coarse steps.
@@ -831,12 +863,6 @@ Shader "CloudRaymarch"
 
                     if (density > 0.0f)
                     {
-                        // Recorded at the first hit and never again: the front of the cloud, not its
-                        // middle. Placed before the lighting so an early break on transmittance still
-                        // leaves the guide with the distance the ray actually met material at.
-                        if (cloudFrontKm < 0.0f)
-                            cloudFrontKm = t;
-
                         // The winning species' own opacity, per sample — through the MEDIUM, so a
                         // material that authors its own extinction is obeyed here and, identically, on
                         // the shadow ray, the shadow map and the occlusion volume. See the note in
@@ -934,7 +960,8 @@ Shader "CloudRaymarch"
                         luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * stepKm;
 
                         // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
-                        // able to contribute, not how much is left after it.
+                        // able to contribute, not how much is left after it. Also the guide's front (above),
+                        // and placed before the break below so a ray stopped on transmittance keeps it.
                         aerialWeightedT += t * transmittance;
                         aerialWeightSum += transmittance;
 
@@ -989,8 +1016,13 @@ Shader "CloudRaymarch"
             // A large sentinel would do the same job here but not at the horizon, where a whole
             // neighbourhood of empty rays must agree with each other exactly enough to stay coherent —
             // and half precision has no room for a sentinel that is both huge and finite.
-            imageStore(CloudGuideTexture, coord,
-                       vec4(cloudFrontKm < 0.0f ? segment.y : cloudFrontKm, sceneKm, 0.0f, 0.0f));
+            //
+            // The front is the transmittance-weighted mean distance (tAP above), UNSCALED: the aerial
+            // perspective's view-distance dial (CloudAerialMeanDistanceKm) is an art direction of the haze and
+            // says nothing about where the cloud is.
+            bool  cloudMet     = aerialWeightSum > 0.0f && transmittance <= kCloudFrontClearTransmittance;
+            float cloudFrontKm = cloudMet ? aerialWeightedT / aerialWeightSum : segment.y;
+            imageStore(CloudGuideTexture, coord, vec4(cloudFrontKm, sceneKm, 0.0f, 0.0f));
         }
     }
 }

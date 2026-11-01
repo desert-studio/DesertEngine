@@ -299,9 +299,12 @@ namespace Desert::Graphic
     struct CloudPush
     {
         glm::mat4 InverseViewProjection;
-        // xyz = camera position in world units; w = the frame index, which decides the dither pattern.
-        // It is here rather than in the parameter block because it changes every frame while the block
-        // changes only when the artist does something.
+        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceSubPixelCount:
+        // how many times the sub-pixel walk has visited every half-res pixel, which advances the march's
+        // start-offset sequence once per trace OF A PIXEL rather than once per frame (CloudRaymarch.shader,
+        // CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is here rather than in
+        // the parameter block because it changes every few frames while the block changes only when the
+        // artist does something.
         glm::vec4 CameraPosition;
         // x, y = the sub-pixel this frame traces inside its 2x2 block of HALF-resolution pixels, each 0
         //        or 1. This is the projection jitter: the march reconstructs its ray through the HALF-res
@@ -429,6 +432,10 @@ namespace Desert::Graphic
         // The march's reach along the ray, from the same payload: x the tracing start (CloudGpuPayload::March.z),
         // y the tracing start's maximum (CloudGpuPayload::Phase.w); km.
         glm::vec2 CloudReach;
+        // THE WIND'S STEP SINCE THE HISTORY: this frame's CloudGpuPayload::Wind minus the one the view's previous
+        // pair was traced under (VolumetricCloudHistory::Refs::WindOffsetKm), km in the field's frame. The resolve
+        // reprojects each front from where the wind carried it from; zero when there is no history to read.
+        glm::vec3 WindStepKm;
     };
 
     static_assert( offsetof( CloudResolveParams, InverseViewProjection ) == 0 );
@@ -438,11 +445,12 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudResolveParams, HistoryValid ) == 156 );
     static_assert( offsetof( CloudResolveParams, SubPixelOffset ) == 160 );
     static_assert( offsetof( CloudResolveParams, CloudReach ) == 168 );
-    // 176, a multiple of 16 by the layout itself. std430 rounds a block's STRIDE up to a multiple of 16, but a
+    static_assert( offsetof( CloudResolveParams, WindStepKm ) == 176 );
+    // 188: the vec3 starts on its 16-byte std430 boundary and nothing follows it. std430 rounds a block's STRIDE up to a multiple of 16, but a
     // stride only exists for an array of blocks and this is a single one — the shader never reads past the last
     // member, so the buffer is created at exactly the struct's size. Pinned here so that inserting a member and
     // quietly changing the size is a build error.
-    static_assert( sizeof( CloudResolveParams ) == 176,
+    static_assert( sizeof( CloudResolveParams ) == 188,
                    "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
                    "exactly these members, in this "
                    "order, at these offsets." );

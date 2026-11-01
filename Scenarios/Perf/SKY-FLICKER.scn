@@ -15,17 +15,42 @@
 # 0 on one side; or, from the frames alone, |Sobel| of 8_h's luma above 0.1 dilated by 8 px). For k = 2..8 the
 # mean over the band of |frame k - frame k-1| (all channels, /255): record it on the BEFORE build (dev 94a6eea4b)
 # and on task/SKY-FLICKER.
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+# SKY-FLICKER-2: the cloud itself flickered over the whole sky, not only at edges. The march's start offset was a
+# white hash per frame and the resolve kept 75 % of every new trace, so each half-res pixel jumped by one fresh
+# realization of the dither every fourth frame; the TAA's variance clip (3x3 of a smooth upsample) let the jump
+# through. Fix: spatio-temporal low-discrepancy start offset (IGN x 2x2 rank x golden ratio per trace, UE
+# BlueNoiseScalar), and on a still history the owned trace blends at 1-(1-0.04)^4 = 0.15 (the TAA's own time
+# constant) while a not-owned pixel keeps the history whole with its front (UE ReprojRGBA / ReprojDepthData).
+# MEASURE (lead): sky mean = mean |frame k - frame k-1| over every pixel with scene depth 0 (or, from the frames,
+# luma above the 1_a sky's 5th percentile outside the edge band); record it on task/SKY-FLICKER 7ad033aec and
+# on task/SKY-FLICKER-2, for k = 2..8. Brightness: the sky's SIGNED mean luma of 8_h within 1/255 of the same
+# frame on task/SKY-FLICKER (the new value is an average of the same dither, so a shift would be a defect).
+# SKY-FLICKER-3: the owned trace's front was the FIRST sample with material, so on a thin wisp it jumped every fourth
+# frame between "found" and "end of search", and the reprojection followed only the camera, so a cloud carried by the
+# wind lagged its still history (~0.4 s at the 0.15 weight). Fix: the front is UE's tAP (transmittance-weighted mean
+# distance, "no cloud" when T > 0.99), and the history is reprojected from where the wind carried the front from
+# (this frame's wind offset minus the one the history was traced with, per view). The camera stood UNDER the ground
+# (y = 40 cm below the FIELD_Barn terrain): it is now at 1.7 m, looking along the horizon, over grass and clouds.
+# MEASURE (lead): edge band as above. [2_b]: the count of band pixels with |2_b - 1_a| > 8/255 below the
+# task/SKY-FLICKER-2 ec14eb13e run. [2_wind] (the wind on): the frames 1_wind/2_wind show no trail and no double
+# edge at the cloud silhouettes; "Clouds: March" GPU ms not above ec14eb13e; 0 VUID.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
 Дано run View "View mode: Lit"
-Дано --subject viewport set Camera.Position 0,40,2500
-Дано --subject viewport set Camera.Direction 0.15,0.25,-1
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,0.05,-1
 Дано set 8180000000000004 WindSourceData.Speed 0
 Когда frames 300
-Тогда-вид 1_a still camera at 0.4 m looking up: grass blades, canopy and fence edges over the clouds, crisp; editor.log 0 VUID
-Тогда-вид 2_b the next frame: in the 8 px band around every object/sky edge the mean |2_b - 1_a| <= 1/255 (before the fix: record the value)
+Когда profile-dump
+Тогда [log] the [Profiler] per-pass table carries "Clouds: March"; its GPU ms is not above the task/SKY-FLICKER-2 ec14eb13e run of this scenario
+Тогда-вид 1_a still camera at 1.7 m along the horizon: grass blades, canopy and fence edges over the clouds, crisp; editor.log 0 VUID
+Тогда-вид 2_b the next frame: in the 8 px band around every grass/object-cloud edge fewer pixels with |2_b - 1_a| > 8/255 than on the task/SKY-FLICKER-2 ec14eb13e run, band mean <= 1/255; the clouds the same shape and brightness as there
 Тогда-вид 3_c the next frame: band mean |3_c - 2_b| <= 1/255
 Тогда-вид 4_d the next frame: band mean |4_d - 3_c| <= 1/255
 Тогда-вид 5_e the next frame: band mean |5_e - 4_d| <= 1/255
 Тогда-вид 6_f the next frame: band mean |6_f - 5_e| <= 1/255
 Тогда-вид 7_g the next frame: band mean |7_g - 6_f| <= 1/255
-Тогда-вид 8_h the next frame: band mean |8_h - 7_g| <= 1/255; the clouds behind the blades the same shape and brightness as in 1_a (no cloud lost or gained at any edge)
+Тогда-вид 8_h the next frame: band mean |8_h - 7_g| <= 1/255; the clouds behind the blades the same shape and brightness as in 1_a (no cloud lost or gained at any edge, no new banding in the cloud bodies); editor.log 0 VUID
+Когда set 8180000000000004 WindSourceData.Speed 20
+Когда frames 120
+Тогда-вид 1_wind still camera, the wind on (20): the clouds drift; their silhouettes crisp, no trail behind a cloud and no doubled edge; grass edges over them steady
+Тогда-вид 2_wind the next frame: the same - no trail, no double edge at any cloud silhouette, the bodies the shape and brightness of 1_wind shifted by the drift; editor.log 0 VUID
