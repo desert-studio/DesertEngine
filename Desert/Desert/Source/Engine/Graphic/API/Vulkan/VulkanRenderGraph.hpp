@@ -627,6 +627,16 @@ namespace Desert::Graphic::API::Vulkan
         // The prologue segment's row (fork releases at the graph start), -1 when none is open.
         int32_t     m_PrologueScope = -1;
         std::string m_SegmentScopeName;
+        // THE GRAPHICS QUEUE BETWEEN TWO OF ITS SUBMISSIONS (UE "stat gpu": a queue's Wait row beside its Busy
+        // rows), -1 when none is open: opened at the end of a graphics segment that another graphics command
+        // buffer of the graph follows, closed as that buffer starts recording. Its span is the graphics queue idle
+        // across the submission boundary - the semaphore wait on an async run's join when the next buffer waits on
+        // one, else the resubmission after a fork - which is otherwise the largest unnamed stretch of the graphics
+        // timeline.
+        int32_t     m_QueueBoundaryScope = -1;
+        std::string m_QueueBoundaryScopeName;
+        void        OpenQueueBoundaryScope( const RDG::PipeSegment& ending );
+        void        CloseQueueBoundaryScope();
         // Per graph name, the async segment line last logged (Execute): a new "[RDG] ... async compute segments"
         // line only when a graph's segments change.
         std::map<std::string, std::string> m_AsyncSegmentsLogged;

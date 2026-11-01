@@ -34,6 +34,9 @@ namespace Desert::Graphic
     //   3. A PARENT IS IN THE SAME VIEW. Scopes of different views interleave in one list, but nesting is
     //      tracked per view (the ActiveViewScope's target at BeginScope), so the preview's
     //      "VolumetricClouds" can never be charged to the viewport's open "SceneRenderer::OnUpdate".
+    //      And in the same QUEUE: a scope is a stretch of its own queue's timeline, so an async compute
+    //      segment recorded while a graphics scope is open (the graphics queue's wait across that segment,
+    //      VulkanRdgBackend) is that queue's root, never subtracted from the graphics scope's self time.
     //
     //   4. SELF TIMES PARTITION THE ROOT. Passes nest — the cloud march sits inside "Clouds:
     //      ExecuteInFrame" inside "VolumetricClouds" — so adding up the inclusive times counts the same
@@ -152,8 +155,8 @@ namespace Desert::Graphic
         // one row of one count, not "x2" at twice its time (FPS-MAC: "Clouds: ShadowMap" / "Sky: SkyViewLut").
         [[nodiscard]] int32_t Begin( std::string name, const void* owner )
         {
-            const uint32_t stackIndex = StackOf( owner );
-            auto&          stack      = m_Stacks[stackIndex].second;
+            const uint32_t stackIndex = StackOf( owner, m_Queue );
+            auto&          stack      = m_Stacks[stackIndex].Open;
             if ( !stack.empty() && m_Scopes[static_cast<size_t>( stack.back() )].Name == name )
                 return -1;
             ++m_Requested;
@@ -173,7 +176,7 @@ namespace Desert::Graphic
         {
             if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
                 return;
-            auto& stack = m_Stacks[m_Scopes[static_cast<size_t>( index )].Stack].second;
+            auto& stack = m_Stacks[m_Scopes[static_cast<size_t>( index )].Stack].Open;
             if ( !stack.empty() && stack.back() == index )
                 stack.pop_back();
         }
@@ -195,21 +198,29 @@ namespace Desert::Graphic
         }
 
     private:
-        uint32_t StackOf( const void* owner )
+        // One stack per (view, queue): see 3. above.
+        uint32_t StackOf( const void* owner, Common::Profiling::GpuQueue queue )
         {
             // Linear: a frame has a handful of views, and a hash map would allocate every frame.
             for ( uint32_t i = 0; i < m_Stacks.size(); ++i )
-                if ( m_Stacks[i].first == owner )
+                if ( m_Stacks[i].Owner == owner && m_Stacks[i].Queue == queue )
                     return i;
-            m_Stacks.emplace_back( owner, std::vector<int32_t>{} );
+            m_Stacks.push_back( OwnerStack{ owner, queue, {} } );
             return static_cast<uint32_t>( m_Stacks.size() - 1 );
         }
+
+        struct OwnerStack
+        {
+            const void*                 Owner = nullptr;
+            Common::Profiling::GpuQueue Queue = Common::Profiling::GpuQueue::Graphics;
+            std::vector<int32_t>        Open;
+        };
 
         Common::Profiling::GpuQueue                               m_Queue = Common::Profiling::GpuQueue::Graphics;
         uint32_t                                                  m_Capacity  = 0;
         uint32_t                                                  m_Requested = 0;
         std::vector<Scope>                                        m_Scopes;
-        std::vector<std::pair<const void*, std::vector<int32_t>>> m_Stacks;
+        std::vector<OwnerStack>                                   m_Stacks;
     };
 
     // Turn inclusive per-scope times into EXCLUSIVE ones by subtracting each scope's direct children.

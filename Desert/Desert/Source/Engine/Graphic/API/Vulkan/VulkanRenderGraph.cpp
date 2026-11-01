@@ -1784,6 +1784,7 @@ namespace Desert::Graphic::API::Vulkan
             RecordBarriers( finalBarriers );
             EndGraphCommandsScope( scope );
         }
+        CloseQueueBoundaryScope();
         Release();
         m_Segments.EndGraph();
         m_Result = nullptr;
@@ -1802,7 +1803,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_PrologueScope >= 0 )
             EndGraphCommandsScope( m_PrologueScope );
         m_PrologueScope = -1;
-        m_Result        = nullptr;
+        CloseQueueBoundaryScope();
+        m_Result = nullptr;
         Release();
         m_Segments.AbandonGraph();
         SetRecording( VK_NULL_HANDLE );
@@ -1834,6 +1836,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( !begun )
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
+        // The graphics queue's boundary row ends at the head of its next command buffer (OpenQueueBoundaryScope).
+        if ( segment.OnPipe == RDG::Pipe::Graphics )
+            CloseQueueBoundaryScope();
         // Every scope from here to EndPipeSegment is on this segment's queue: the profiler keeps one timeline
         // per queue, and an async pass tiled against the graphics bracket would hide the graphics remainder.
         if ( m_Device.Profiler != nullptr )
@@ -1859,6 +1864,46 @@ namespace Desert::Graphic::API::Vulkan
             m_SegmentScope     = m_Device.Profiler->BeginScope( m_SegmentScopeName.c_str() );
         }
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::OpenQueueBoundaryScope( const RDG::PipeSegment& ending )
+    {
+        CloseQueueBoundaryScope();
+        if ( m_Device.Profiler == nullptr || m_Result == nullptr )
+            return;
+        const std::vector<RDG::PipeSegment>& segments = m_Result->Segments;
+        size_t                               at       = segments.size();
+        for ( size_t i = 0; i < segments.size(); ++i )
+            if ( segments[i].OnPipe == ending.OnPipe && segments[i].FirstPosition == ending.FirstPosition &&
+                 segments[i].LastPosition == ending.LastPosition )
+                at = i;
+        if ( at + 1 >= segments.size() )
+            return; // the graph's last segment: the final barriers record into it, no boundary follows
+        const RDG::PipeSegment* nextGraphics = nullptr;
+        for ( size_t i = at + 1; i < segments.size() && nextGraphics == nullptr; ++i )
+            if ( segments[i].OnPipe == RDG::Pipe::Graphics )
+                nextGraphics = &segments[i];
+        const auto passName = [&]( uint32_t position ) -> std::string_view
+        {
+            return position < m_Result->Passes.size() ? std::string_view( m_Result->Passes[position].Name )
+                                                      : std::string_view( "graph start" );
+        };
+        if ( nextGraphics == nullptr ) // only async segments follow: the tail waits on their graph-end joins
+            m_QueueBoundaryScopeName = "RDG Wait: graphics queue on async compute at the graph end";
+        else if ( !nextGraphics->WaitSyncs.empty() )
+            m_QueueBoundaryScopeName = std::format( "RDG Wait: graphics queue on async compute before '{}'",
+                                                    passName( nextGraphics->FirstPosition ) );
+        else
+            m_QueueBoundaryScopeName =
+                 std::format( "RDG Resubmit: graphics queue after '{}'", passName( ending.LastPosition ) );
+        m_QueueBoundaryScope = m_Device.Profiler->BeginScope( m_QueueBoundaryScopeName.c_str() );
+    }
+
+    void VulkanRdgBackend::CloseQueueBoundaryScope()
+    {
+        if ( m_QueueBoundaryScope >= 0 && m_Device.Profiler != nullptr )
+            m_Device.Profiler->EndScope( m_QueueBoundaryScope );
+        m_QueueBoundaryScope = -1;
     }
 
     void VulkanRdgBackend::RecordSharedHeapBarrier( VkCommandBuffer commandBuffer )
@@ -1894,8 +1939,14 @@ namespace Desert::Graphic::API::Vulkan
         // segment says otherwise.
         if ( m_Device.Profiler != nullptr )
             m_Device.Profiler->SetQueue( Common::Profiling::GpuQueue::Graphics );
+        // Still recording into this graphics segment's buffer: the boundary row opens at its end.
+        if ( segment.OnPipe == RDG::Pipe::Graphics )
+            OpenQueueBoundaryScope( segment );
         const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
+        // An async segment after which the recorder opened the graph's graphics tail: the tail's head ends it.
+        if ( segment.OnPipe != RDG::Pipe::Graphics && next && next.GetValue() != VK_NULL_HANDLE )
+            CloseQueueBoundaryScope();
         if ( !next )
             return Common::MakeError( next.GetError() );
         return Common::MakeSuccess( true );
