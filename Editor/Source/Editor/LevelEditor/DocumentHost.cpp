@@ -489,10 +489,14 @@ namespace Desert::Editor
         {
             // As a document's Don't Save: the file's content is put back, nothing is written.
             if ( auto read = asset->LoadFromFile(); !read )
+            {
                 LOG_WARN( "'{}': exiting without saving; the file could not be read back: {}", path,
                           read.GetError() );
+            }
             else
+            {
                 LOG_INFO( "'{}': exiting without saving its edits", path );
+            }
         }
         else
         {
