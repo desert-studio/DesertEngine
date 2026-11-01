@@ -22,6 +22,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -64,6 +65,20 @@ namespace Common::Profiling
     // graphics queue. Its time is NOT on the graphics timeline, so a reader adding self times up against the
     // frame bracket has to tell these rows apart; the backend that writes it and the dump that reads it share it.
     inline constexpr const char* kGpuAsyncSegmentScopePrefix = "RDG Async: ";
+
+    // Where an async segment row's label starts in @p name: after "RDG Async: ", or after
+    // "<view> | RDG Async: " for a segment recorded inside a view (GpuViewScopeName puts the view's name first).
+    // npos: not an async segment row. The backend's per-queue remainder and the dump's async line both ask it.
+    [[nodiscard]] inline size_t GpuAsyncSegmentLabelStart( std::string_view name )
+    {
+        const std::string_view prefix = kGpuAsyncSegmentScopePrefix;
+        if ( name.starts_with( prefix ) )
+            return prefix.size();
+        const size_t viewEnd = name.find( " | " );
+        if ( viewEnd != std::string_view::npos && name.substr( viewEnd + 3 ).starts_with( prefix ) )
+            return viewEnd + 3 + prefix.size();
+        return std::string_view::npos;
+    }
 
     // UNACCOUNTED, PER QUEUE (UE "stat gpu": the Unaccounted row). The backend publishes, every frame:
     //   - graphics: the GPU frame bracket minus the UNION of the graphics-queue scopes inside it - device work
