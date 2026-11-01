@@ -164,6 +164,8 @@ namespace Desert::Editor
                                  AppendGpuProfileCommands( out, [&workspace]
                                                            { ProfilerWindow::DumpProfilerToLog( workspace.PrimaryRenderer() ); } );
                              } );
+        m_Commands.Register( "Profiler (mesh draw split)",
+                             []( Out& out ) { AppendProfilerDrawSplitCommands( out ); } );
         m_Commands.Register( "Debug (particles)", [&workspace]( Out& out )
                              { AppendParticleDebuggerCommand( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Scene (view layout)",

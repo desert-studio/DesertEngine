@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // THE WHOLE CLASS IS THE INSTRUMENT, so the whole class is behind the boundary — there is no useful
@@ -90,13 +91,35 @@ namespace Desert::Graphic::API::Vulkan
         void    EndScope( int32_t handle ) override;
         void    SetQueue( Common::Profiling::GpuQueue queue ) override;
 
+        int32_t BeginDrawScope( std::string_view pass, std::string_view mesh, std::string_view material ) override;
+        void    EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts ) override;
+
     private:
+        // One draw group of the split as recorded: its labels (copied - read MaxFramesInFlight frames later)
+        // and what the CPU counted while it recorded.
+        struct DrawScope
+        {
+            std::string                        Pass;
+            std::string                        Mesh;
+            std::string                        Material;
+            Common::Profiling::DrawSplitCounts Counts;
+            bool                               Ended = false;
+        };
+
         struct FrameQueries
         {
             VkQueryPool      Pool       = VK_NULL_HANDLE;
             uint32_t         QueryCount = 0;
             GpuScopeRecorder Recorder;
             bool             FrameTotalWritten = false; // queries 0/1 were written and not yet resolved
+
+            // THE MESH DRAW SPLIT's own pool (Profiler::MeshDrawSplit): group i = queries 2i / 2i+1. Created
+            // the first frame the split is on, never while it is off - off costs no pool, reset or query.
+            VkQueryPool            DrawPool       = VK_NULL_HANDLE;
+            uint32_t               DrawQueryCount = 0;
+            std::vector<DrawScope> DrawScopes;            // the groups that got a pair this frame, in order
+            uint32_t               DrawRequested = 0;     // groups asked for, timed or not (the high-water)
+            bool                   DrawWritten   = false; // the pool was reset this frame and not yet resolved
         };
 
         [[nodiscard]] VkQueryPool CreatePool( uint32_t queryCount ) const;
@@ -104,6 +127,8 @@ namespace Desert::Graphic::API::Vulkan
         // is recording into that pool and its previous contents have been resolved.
         void GrowIfNeeded( FrameQueries& frame );
         void Resolve( FrameQueries& frame );
+        void PrepareDrawPool( FrameQueries& frame, VkCommandBuffer commandBuffer );
+        void ResolveDraws( FrameQueries& frame );
         // The Unaccounted rows (Profiler.hpp, kGpuUnaccountedGraphicsScope): what of each queue's timeline no
         // scope covered, and the named gaps of the graphics one. Reads m_ResultScratch as Resolve left it.
         void PublishUnaccounted( const std::vector<GpuScopeRecorder::Scope>& scopes );
@@ -119,6 +144,7 @@ namespace Desert::Graphic::API::Vulkan
         /// The most scopes any single frame has asked for, refused ones included. Every frame's pool is
         /// grown to fit it on that frame's next turn.
         uint32_t m_HighWaterScopes = 0;
+        uint32_t m_HighWaterDraws  = 0; // the most draw-split groups one frame asked for
 
         /// The frame recording right now; null between EndFrame and BeginFrame, which is how a scope
         /// entered outside recording knows to do nothing.

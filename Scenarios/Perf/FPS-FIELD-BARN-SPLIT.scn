@@ -1,0 +1,33 @@
+# FPS-FIELD-BARN-SPLIT: FPS-FIELD-BARN with the mesh draw split on (FPS-MEASURE-10; UE ProfileGPU + r.EmitMeshDrawEvents 1):
+# each profile-dump table is followed by "[Profiler] draw split | <pass> | <mesh> | <material> | gpu X ms | draws N | tris T"
+# rows, top 20 per pass by gpu, then the pass total against its own gpu self. The project has no console-variable
+# system: the profiler switch is the palette command Profiler."MeshDrawSplit 1" (Profiler::MeshDrawSplit).
+# [log] 1_foliage_low: draw split rows for "Deferred: Masked Depth Prepass" and "Deferred: GBuffer"; each pass's
+# row sum within 15 % of its gpu self; 0 VUID. FPS-FIELD-BARN.scn (no split): no "draw split" line.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run Profiler "MeshDrawSplit 1"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_static FIELD_Barn at 1.7 m, still air: field, barn, trees and sky drawn, nothing black or missing; [Profiler] table A (GPU: Frame Total, Clouds: ShadowMap, Clouds: ShadowMapHero on int/fps, Clouds: SkyOcclusion, MeshRenderer::* / Mesh: *) follows in editor.log
+Когда set 8180000000000003 PostProcessVolumeData.Settings.GrassVisibilityBuffer true
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_static_vis the same still-air view with the PPV's GrassVisibilityBuffer on (GRASS-VIS): the frame matches 1_static - mean |diff| <= 2/255 (pixel diff, not thumbnails); editor.log 0 VUID, no "GrassVisibilityBuffer refused", no "no grass visibility buffer"; [Profiler] table A2 has "Grass: Visibility Raster" and "Grass: Visibility Resolve", and its "Deferred: GBuffer" + "Deferred: Masked Depth Prepass" gpu ms is below table A's; the "[Profiler] Grass" line after table A2 ends "generated 0" (GRASS-VIS-24: the still camera generates no variety once the frames in flight hold the counts), table A2 has "Grass: Camera Cull", and its "Grass: Generate" gpu ms is 0 or below 2.87
+Когда set 8180000000000003 PostProcessVolumeData.Settings.GrassVisibilityBuffer false
+Когда run Quality "Quality: Foliage Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_foliage_low the still-air view at Foliage Low: the same field, the grass visibly sparser and ending nearer the camera, barn, trees and sky as in 1_static; editor.log 0 VUID; [Profiler] table F-Low follows, its "GPU: Frame Total" below table F-Epic's
+Когда run Quality "Quality: Foliage Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_foliage_epic the still-air view at Foliage Epic: the frame matches 1_static - mean |diff| <= 2/255 (pixel diff, not thumbnails); editor.log 0 VUID; [Profiler] table F-Epic follows, its "GPU: Frame Total" above table F-Low's
+Когда set 8180000000000004 WindSourceData.Speed 1500
+Когда run Action Simulate
+Когда frames 300
+Когда profile-dump
+Тогда-вид 2_wind the same view under Simulate with the scene's wind: the same field, grass and crowns bent along the wind, clouds moved; [Profiler] table B with the same rows as A follows in editor.log
