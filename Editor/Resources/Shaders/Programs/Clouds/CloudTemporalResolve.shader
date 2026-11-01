@@ -230,6 +230,53 @@ Shader "CloudTemporalResolve"
             return !any(isnan(v)) && !any(isinf(v));
         }
 
+        // A NOT-OWNED PIXEL'S ESTIMATE: the bilinear reconstruction of the quarter-res trace at @p uv, radiance
+        // and guide together, over the texels that hold a SAMPLE. A texel whose footprint was occluded in front
+        // of the layer (Common/CloudSceneDepth.glslh: guide .z = 1) holds "clear" only because nothing was
+        // marched for it; a plain bilinear would blend that clear into every sky pixel beside a crown, a roof or
+        // a fence, by a weight that walks with the trace's sub-pixel cycle. Its weight goes to the other texels
+        // instead. With no such texel in the footprint this IS the plain bilinear, read through the sampler as
+        // before; with nothing but such texels it is that plain bilinear too, and @p sampled is false.
+        void TraceFiltered(vec2 uv, ivec2 traceSize, out vec4 scatter, out vec2 guide, out bool sampled)
+        {
+            vec2  texel = uv * vec2(traceSize) - vec2(0.5f, 0.5f);
+            vec2  f     = texel - floor(texel);
+            ivec2 base  = ivec2(floor(texel));
+            ivec2 last  = traceSize - ivec2(1, 1);
+
+            vec4  sampledScatter = vec4(0.0f);
+            vec2  sampledGuide   = vec2(0.0f);
+            float sampledWeight  = 0.0f;
+            bool  anyOccluded    = false;
+            for (int i = 0; i < 4; ++i)
+            {
+                ivec2 offset = ivec2(i & 1, i >> 1);
+                ivec2 p      = clamp(base + offset, ivec2(0, 0), last);
+                vec4  g      = texelFetch(CloudTraceGuideTexture, p, 0);
+                if (g.z >= 0.5f)
+                {
+                    anyOccluded = true;
+                    continue;
+                }
+                float w = (offset.x == 1 ? f.x : 1.0f - f.x) * (offset.y == 1 ? f.y : 1.0f - f.y);
+                sampledScatter += w * texelFetch(CloudTraceTexture, p, 0);
+                sampledGuide += w * g.xy;
+                sampledWeight += w;
+            }
+
+            sampled = sampledWeight > 1e-4f;
+            if (anyOccluded && sampled)
+            {
+                scatter = sampledScatter / sampledWeight;
+                guide   = sampledGuide / sampledWeight;
+            }
+            else
+            {
+                scatter = texture(CloudTraceTexture, uv);
+                guide   = texture(CloudTraceGuideTexture, uv).xy;
+            }
+        }
+
         void main()
         {
             ivec2 size  = imageSize(ReconstructedScatterTexture);
@@ -262,14 +309,28 @@ Shader "CloudTemporalResolve"
             // Case 1 for the RADIANCE: the pixel this frame traced gets the exact texel, fetched rather
             // than filtered. The other three of the block have no sample of their own this frame, so the
             // bilinear reconstruction of the quarter-res grid is all that exists for them.
-            vec4 traceScatter = owned ? texelFetch(CloudTraceTexture, traceCoord, 0) : texture(CloudTraceTexture, traceUv);
-
+            //
             // THE GUIDE IS LOADED FOR EVERY PIXEL, owned or not — Unreal's :286 and :391, and see the
             // header for why filtering it is harmful rather than merely approximate. The block's four
             // pixels therefore share one distance, which is exactly what its readers want: a distance that
             // agrees with its neighbours costs the composite nothing, while a bilinear blend of the two
             // sides of a silhouette agrees with neither and fires the edge path along the whole silhouette.
+            // Its .z says whether the texel holds a sample at all (Common/CloudSceneDepth.glslh).
             vec4 traceGuide = texelFetch(CloudTraceGuideTexture, traceCoord, 0);
+
+            vec4 traceScatter;
+            vec2 traceGuideHere; // the guide over the same footprint as traceScatter (.x front, .y cut)
+            bool traceSampled;   // whether traceScatter comes from a texel that holds a sample
+            if (owned)
+            {
+                traceScatter   = texelFetch(CloudTraceTexture, traceCoord, 0);
+                traceGuideHere = traceGuide.xy;
+                traceSampled   = traceGuide.z < 0.5f;
+            }
+            else
+            {
+                TraceFiltered(traceUv, traceSize, traceScatter, traceGuideHere, traceSampled);
+            }
 
             // The pixel's ray, from this frame's inverse view-projection. REVERSED-Z, like everything
             // else in this engine (Core/Projection.hpp): 1 is the near plane and 0 the far one.
@@ -287,22 +348,34 @@ Shader "CloudTemporalResolve"
             // surface where something was. Same depth rule too — the farthest surface of the full-res block,
             // Common/CloudSceneDepth.glslh — so on the pixel this frame owns the two agree exactly.
             float deviceDepth = CloudFootprintFarthestDepth(coord, size);
-
-            float ownSceneKm = length(farP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            float farKm       = length(farP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            float geomKm      = farKm;
             if (deviceDepth > 0.0f)
             {
                 vec4 geomH = InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
                 vec3 geomP = geomH.xyz / max(geomH.w, 1e-9f);
-                ownSceneKm = length(geomP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+                geomKm     = length(geomP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
             }
+
+            // AND THE MARCH'S CLASSIFICATION OF THE RAY, by its own expression and the payload it was given
+            // (CloudShell, CloudReach): a footprint wholly in front of the layer is OCCLUDED, its scene distance
+            // is the far plane, and this frame has no sample of it (Common/CloudSceneDepth.glslh). On the pixel
+            // the frame traced the two decisions are the same computation on the same bits.
+            CloudLayer layer    = CloudMakeLayer(CloudShell.x, CloudShell.y, CloudShell.z);
+            vec2       segment  = CloudMarchSegment(layer, CloudPlanetOriginKm(CameraPosition, layer.PlanetRadiusKm),
+                                                    rayDir, CloudReach.x, CloudShell.w);
+            bool       occluded = CloudFootprintOccluded(deviceDepth, geomKm, segment,
+                                                         CloudMarchHasWork(segment, CloudReach.y));
+            float ownSceneKm = occluded ? farKm : geomKm;
 
             // WHETHER THIS FRAME'S SAMPLE DESCRIBES THIS PIXEL'S SURFACE. The owned pixel's does by
             // construction. The other three take the BILINEAR reconstruction of the trace, so they are
             // judged by the guide filtered over the same footprint: a footprint that reaches across a
             // silhouette averages the near and far distances into one that matches neither, and its
             // radiance is that same mixture — blending it in is the leak that crawled along every edge.
-            bool newSampleHere = owned ||
-                                 abs(texture(CloudTraceGuideTexture, traceUv).y - ownSceneKm) <= kDisocclusionKm;
+            // A texel that holds no sample (occluded in front of the layer) describes nothing.
+            bool newSampleHere = traceSampled &&
+                                 (owned || abs(traceGuideHere.y - ownSceneKm) <= kDisocclusionKm);
 
             float newWeight = owned ? kOwnedSampleWeight : kNewSampleWeight;
 
@@ -311,7 +384,14 @@ Shader "CloudTemporalResolve"
             // too — a failed disocclusion test there sets bUseNewSample — and it is the reason there is no
             // search here: a neighbour that passes validation belongs to a different surface, and the
             // smear it produces follows the camera.
-            vec4 resolved = traceScatter;
+            //
+            // EXCEPT ON AN OCCLUDED PIXEL WITH NO SAMPLE OF ITS OWN: there this frame has nothing to say, and the
+            // value held is "no cloud", which its guide below marks as the occluder's (SKY-FLICKER).
+            bool frameEstimate = newSampleHere || !occluded;
+            vec4 resolved      = frameEstimate ? traceScatter : vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+            // Whether `resolved` estimates the cloud at all: this frame's sample or an accepted history.
+            bool estimate = frameEstimate;
 
             // Whether there was a history to read AT ALL, which is a different question from whether it
             // was accepted. Only the first sends the pixel down case 3.
@@ -357,6 +437,7 @@ Shader "CloudTemporalResolve"
 
                         if (finite && sameSurface)
                         {
+                            estimate = true;
                             if (newSampleHere)
                             {
                                 resolved = mix(history, traceScatter, newWeight);
@@ -380,7 +461,7 @@ Shader "CloudTemporalResolve"
             // exact texel in both, which is strictly better than a filter and is what Unreal's
             // bUseNewSample branch does as well.
             if (!historyRead && !owned)
-                frontKm = texture(CloudTraceGuideTexture, traceUv).x;
+                frontKm = traceGuideHere.x;
 
             // The guide always describes THIS frame, whichever branch the radiance came from: it is what
             // the composite measures edges with and what next frame's disocclusion test compares against,
@@ -389,7 +470,13 @@ Shader "CloudTemporalResolve"
             // produces a number describing nothing, which the composite would then read as an edge.
             // .y is this pixel's own scene distance on every branch, which is what keeps it from flipping
             // with the jitter cycle; .x is the front of whichever sample the radiance came from.
-            imageStore(ReconstructedGuideTexture, coord, vec4(frontKm, ownSceneKm, 0.0f, 0.0f));
+            //
+            // A pixel that holds NO ESTIMATE (occluded, no sample, no history) holds "no cloud" and says so the
+            // way an occluded texel always did: both channels at its occluder. Its own pixels then take no cloud
+            // from it (front at the surface) and a sky pixel beside it weighs it out (cut far from the sky);
+            // next frame's resolve rejects it as history, since its .y is not the far plane this pixel reports.
+            vec2 heldGuide = estimate ? vec2(frontKm, ownSceneKm) : vec2(geomKm, geomKm);
+            imageStore(ReconstructedGuideTexture, coord, vec4(heldGuide, 0.0f, 0.0f));
 
             // Transmittance is clamped both ways because it multiplies the scene behind the cloud: a
             // value above 1 brightens what is BEHIND it, which reads as a glowing rectangle and is very

@@ -11,9 +11,11 @@
 // minimum. The camera and the frame state would not fit.
 layout(std430, binding = 6) readonly buffer CloudResolveBuffer
 {
-    mat4  InverseViewProjection; // clip -> world, this frame
-    mat4  PreviousViewProjection;    // world -> clip, the previous frame
+    mat4  InverseViewProjection; // clip -> world, this frame, UNJITTERED (the march's own matrix)
+    mat4  PreviousViewProjection;    // world -> clip, the previous frame, unjittered
+    vec4  CloudShell;            // the march's CloudLayerGeometry: x planet radius, y bottom, z thickness, w max view (km)
     vec3  CameraPosition;        // world units (centimetres)
     float HistoryValid;          // 1 when the history targets hold a real previous frame
     ivec2 SubPixelOffset;        // this frame's traced sub-pixel, {0,1} x {0,1}
+    vec2  CloudReach;            // the march's x CloudMarch.z (tracing start), y CloudPhase.w (its maximum), km
 };

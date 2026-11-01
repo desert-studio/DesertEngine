@@ -2200,9 +2200,19 @@ namespace Desert::Graphic::System
         m_SkyOcclusionValid = skyOcclusionReady;
 
         CloudPush push{};
-        // The jittered inverse: the march's depth test reads the scene depth rasterised with the jittered matrix,
-        // and its ray directions jitter with the geometry they are resolved together with (ViewFrame.hpp).
-        push.InverseViewProjection = frame.InvJitteredViewProjection;
+        // THE UNJITTERED INVERSE (SKY-FLICKER) — Unreal's VolumetricCloudRendering.cpp, which builds the
+        // volumetric render target's view with ViewMatrices.HackRemoveTemporalAAProjectionJitter() ("We jitter
+        // and reconstruct the volumetric view before TAA so we do not want any of its jitter"): this layer's
+        // sub-pixel walk is its own (Trace below), and its temporal reconstruction reprojects through the
+        // UNJITTERED PrevViewProjection. Tracing through the jittered inverse put this frame's TAA jitter into
+        // every ray and none of it into the reprojection, so at a still camera the history was read up to a
+        // quarter of a texel off its own position, the bilinear history guide mixed a leaf's distance with the
+        // sky's, the disocclusion test threw the history away along every silhouette on most frames of the
+        // jitter sequence, and each such frame showed a fresh trace there instead: the edges of everything in
+        // front of the clouds flickered. The scene depth is still the jittered raster; un-projecting it through
+        // this matrix moves the point sideways by under half a pixel, which changes its DISTANCE — the only
+        // thing the march takes from it — by a few parts in ten thousand.
+        push.InverseViewProjection = frame.InvViewProjection;
         push.CameraPosition = glm::vec4( frame.CameraPosition, static_cast<float>( m_FrameIndex & 0xFFFFu ) );
         push.Trace          = glm::vec4( static_cast<float>( subPixel.X ), static_cast<float>( subPixel.Y ),
                                          static_cast<float>( m_HalfWidth ), static_cast<float>( m_HalfHeight ) );
@@ -2339,10 +2349,14 @@ namespace Desert::Graphic::System
         CloudResolveParams resolve{};
         resolve.InverseViewProjection = push.InverseViewProjection;
         resolve.PrevViewProjection    = frame.PrevViewProjection;
-        resolve.CameraPosition        = frame.CameraPosition;
-        resolve.HistoryValid          = historyReadable ? 1.0f : 0.0f;
+        // The march's shell and reach, from the payload uploaded to it above: the resolve classifies each ray
+        // (occluded in front of the layer or not) by the march's own expression and bits.
+        resolve.CloudShell     = payload.Layer;
+        resolve.CameraPosition = frame.CameraPosition;
+        resolve.HistoryValid   = historyReadable ? 1.0f : 0.0f;
         resolve.SubPixelOffset =
              glm::ivec2( static_cast<int32_t>( subPixel.X ), static_cast<int32_t>( subPixel.Y ) );
+        resolve.CloudReach = glm::vec2( payload.March.z, payload.Phase.w );
         // BUILD TIME, like the trace's upload: the resolve node exists only when it lands.
         const auto resolveParams =
              m_ResolveParamsBuffer->SetData( &resolve, static_cast<uint32_t>( sizeof( resolve ) ) );
@@ -2420,8 +2434,9 @@ namespace Desert::Graphic::System
 
         // S2b -- THE FULL-RESOLUTION UPSAMPLE (CloudUpsample.shader): every pixel of the target compares the
         // half-res reconstruction against its OWN scene depth, which the raster composite cannot sample (it draws
-        // with that depth attached). The same parameter block as the resolve -- the jittered inverse that matches
-        // the depth, and the camera -- uploaded once above for both readers.
+        // with that depth attached). The same parameter block as the resolve -- the march's unjittered inverse,
+        // which un-projects the jittered depth to within a few parts in ten thousand of its distance, and the
+        // camera -- uploaded once above for both readers.
         const uint32_t         fullWidth  = target->GetFramebufferWidth();
         const uint32_t         fullHeight = target->GetFramebufferHeight();
         const RDG::TextureDesc upsampledDesc{ .Size   = RDG::Extent3D{ .Width = fullWidth, .Height = fullHeight },

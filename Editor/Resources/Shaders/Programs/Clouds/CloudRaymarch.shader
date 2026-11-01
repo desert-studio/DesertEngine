@@ -116,8 +116,11 @@ Shader "CloudRaymarch"
         // Each quarter-res texel stands for a 2x2 block of half-resolution pixels, and each frame traces
         // ONE of the four — CloudTraceParams.xy says which. The offset is applied to the RAY, not to the
         // store: the texel is written where it always was, but the ray it holds passes through the
-        // half-res pixel the frame owns. That is Unreal's HackAddTemporalAAProjectionJitter, minus the
-        // half that removes an existing TAA jitter, because this engine has none to remove.
+        // half-res pixel the frame owns. That is Unreal's HackAddTemporalAAProjectionJitter, and the half
+        // before it, HackRemoveTemporalAAProjectionJitter, is the matrix: InverseViewProjection is the
+        // view's UNJITTERED inverse (VolumetricCloudRenderer, ViewFrame::InvViewProjection). This layer walks
+        // its own sub-pixels and reprojects its own history through the unjittered previous matrix; a TAA
+        // jitter in its rays is an offset its history never undoes (SKY-FLICKER).
         //
         // Four frames therefore cover every half-res pixel exactly once, and the reconstruction is what
         // turns four quarter-res traces into one half-res image instead of one blurred one.
@@ -505,10 +508,13 @@ Shader "CloudRaymarch"
             CloudLayer layer = CloudUnpackLayer();
 
             // Planet-centre-relative kilometres: the frame in which both shells are centred on the origin.
-            vec3 cameraKm = CameraPosition.xyz * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
-            vec3 originKm = vec3(cameraKm.x, cameraKm.y + layer.PlanetRadiusKm, cameraKm.z);
+            vec3 originKm = CloudPlanetOriginKm(CameraPosition.xyz, layer.PlanetRadiusKm);
 
-            vec2 segment = CloudLayerIntersect(layer, originKm, rayDir);
+            // The layer's chord with the authored limits — where tracing starts, and how far along the segment
+            // it may run — one expression with the resolve, which classifies the same ray
+            // (Common/CloudSceneDepth.glslh, CloudMarchSegment).
+            vec2 segment = CloudMarchSegment(layer, originKm, rayDir, CloudMarch.z, CloudLayerGeometry.w);
+            bool hasWork = CloudMarchHasWork(segment, CloudPhase.w);
 
             // Geometry occludes the layer. The depth target is full resolution and the ray belongs to a
             // HALF-resolution pixel, so the depth is fetched through halfCoord and not through the
@@ -526,7 +532,8 @@ Shader "CloudRaymarch"
             // geometry. A sky pixel's ray is still cut somewhere — at the far plane — and giving it that
             // real distance rather than a sentinel is what lets the composite's coherence test see an
             // unbroken sky as unbroken instead of as a discontinuity against every silhouette in it.
-            float sceneKm = length(farP - CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            float farKm  = length(farP - CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            float geomKm = farKm;
 
             // `> 0` IS THE GEOMETRY TEST under reversed-Z: a sky pixel stores 0, the far plane. Written as
             // `< 1` it would be true for every pixel including the sky, and every ray would be cut at the
@@ -535,17 +542,24 @@ Shader "CloudRaymarch"
             {
                 vec4 geomH = InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
                 vec3 geomP = geomH.xyz / max(geomH.w, 1e-9f);
-                float geomKm = length(geomP - CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
-                sceneKm   = geomKm;
-                segment.y = min(segment.y, geomKm);
+                geomKm     = length(geomP - CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
             }
 
-            // The authored limits: where tracing starts, and how far along the segment it may run. The
-            // distance is measured FROM THE LAYER ENTRY, not from the camera — Unreal's
-            // DistanceFromCloudLayerEntryPoint mode — because a limit measured from the camera would cut
-            // the layer short at a fixed radius and put a visible circular edge in the sky.
-            segment.x = max(segment.x, CloudMarch.z);
-            segment.y = min(segment.y, segment.x + max(CloudLayerGeometry.w, 0.0f));
+            // GEOMETRY IN FRONT OF THE LAYER CUTS NOTHING (Common/CloudSceneDepth.glslh): a footprint wholly
+            // nearer than the first march point holds no sample this frame. Nothing is marched for it, the
+            // texel says so in the guide's .z, its .x is that first point (the nearest the cloud can be, a real
+            // distance on the ray for the resolve's reprojection) and its .y the far plane — the scene distance
+            // the resolve gives the same pixel, so the block's history survives the TAA jitter uncovering it.
+            if (CloudFootprintOccluded(deviceDepth, geomKm, segment, hasWork))
+            {
+                imageStore(CloudScatterTexture, coord, vec4(0.0f, 0.0f, 0.0f, 1.0f));
+                imageStore(CloudGuideTexture, coord, vec4(segment.x, farKm, 1.0f, 0.0f));
+                return;
+            }
+
+            // Farther geometry cuts the ray where it stands.
+            float sceneKm = geomKm;
+            segment.y     = min(segment.y, geomKm);
 
             // A ray whose entry is beyond the cutoff is not traced at all. It bounds the cost of the
             // grazing rays that cost the most and show the least, and it is the second line of defence
