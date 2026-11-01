@@ -28,6 +28,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor
@@ -37,8 +38,25 @@ namespace Desert::Editor
     void BakeMeshLODs( Ser::MeshAssetData& data, const Geometry::LODChainSettings& chain )
     {
         const size_t vertexCount = data.IsSkinned ? data.SkinnedVertices.size() : data.StaticVertices.size();
-        for ( auto& sm : data.Submeshes )
+
+        // A level's inflated leaf cards (Geometry::LODAddedVertex) are vertices behind their submesh's own, so a
+        // submesh may add them only when its vertex range is its alone: a static mesh whose submeshes' ranges do
+        // not overlap. A skinned mesh uploads no LOD chain and adds none (its added corners would need skin
+        // weights of their own); its parts are all reduced by error.
+        bool disjoint = !data.IsSkinned;
         {
+            std::vector<std::pair<uint32_t, uint32_t>> ranges;
+            for ( const auto& sm : data.Submeshes )
+                ranges.emplace_back( sm.VertexOffset, sm.VertexOffset + sm.VertexCount );
+            std::sort( ranges.begin(), ranges.end() );
+            for ( size_t i = 1; i < ranges.size(); ++i )
+                disjoint = disjoint && ranges[i].first >= ranges[i - 1].second;
+        }
+
+        std::vector<std::vector<Geometry::LODAddedVertex>> added( data.Submeshes.size() );
+        for ( size_t s = 0; s < data.Submeshes.size(); ++s )
+        {
+            auto& sm = data.Submeshes[s];
             if ( !sm.LODs.empty() )
                 continue; // authored LODs already folded in -> don't regenerate
 
@@ -76,8 +94,8 @@ namespace Desert::Editor
                 localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
             }
 
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris,
-                                                             chain, attrs.data() );
+            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain,
+                                                             attrs.data(), disjoint ? &added[s] : nullptr );
             sm.LODs.clear();
             sm.LODs.reserve( levels.size() );
             for ( const auto& lvl : levels )
@@ -89,6 +107,82 @@ namespace Desert::Editor
                 sm.LODs.push_back( std::move( tris ) );
             }
         }
+
+        // THE ADDED VERTICES GO RIGHT BEHIND THEIR SUBMESH'S OWN: every index is submesh-local, so a level's index
+        // N + i (N the submesh's old vertex count) names its i-th added vertex once the submesh's range grows by
+        // them, and every later submesh's range moves back by what was inserted before it. Each added vertex is
+        // a copy of its source - normal, UV, tangent, colour, UV1, morph deltas - at its inflated position, and
+        // the submesh's box grows to hold it.
+        size_t totalAdded = 0;
+        for ( const auto& list : added )
+            totalAdded += list.size();
+        if ( totalAdded == 0 )
+            return;
+
+        std::vector<size_t> order( data.Submeshes.size() );
+        for ( size_t s = 0; s < order.size(); ++s )
+            order[s] = s;
+        std::sort( order.begin(), order.end(), [&]( size_t a, size_t b )
+                   { return data.Submeshes[a].VertexOffset < data.Submeshes[b].VertexOffset; } );
+
+        const bool hasColors = data.Colors.size() == vertexCount;
+        const bool hasUV1    = data.UV1.size() == vertexCount;
+        std::vector<Ser::StaticVertexData>  vertices;
+        std::vector<std::array<uint8_t, 4>> colors;
+        std::vector<glm::vec2>              uv1;
+        std::vector<Ser::MorphTargetData>   morphs = data.MorphTargets;
+        vertices.reserve( vertexCount + totalAdded );
+        for ( auto& morph : morphs )
+        {
+            morph.DeltaPositions.clear();
+            morph.DeltaNormals.clear();
+        }
+        const auto copyVertex = [&]( const size_t from )
+        {
+            vertices.push_back( data.StaticVertices[from] );
+            if ( hasColors )
+                colors.push_back( data.Colors[from] );
+            if ( hasUV1 )
+                uv1.push_back( data.UV1[from] );
+            for ( size_t m = 0; m < morphs.size(); ++m )
+            {
+                const auto& source = data.MorphTargets[m];
+                if ( from < source.DeltaPositions.size() )
+                    morphs[m].DeltaPositions.push_back( source.DeltaPositions[from] );
+                if ( from < source.DeltaNormals.size() )
+                    morphs[m].DeltaNormals.push_back( source.DeltaNormals[from] );
+            }
+        };
+
+        size_t next = 0; // the next old vertex to copy
+        for ( const size_t s : order )
+        {
+            auto&        sm  = data.Submeshes[s];
+            const size_t oldOffset = sm.VertexOffset;
+            const size_t end       = oldOffset + sm.VertexCount;
+            for ( ; next < oldOffset; ++next )
+                copyVertex( next );
+            sm.VertexOffset = static_cast<uint32_t>( vertices.size() );
+            for ( ; next < end; ++next )
+                copyVertex( next );
+            for ( const Geometry::LODAddedVertex& corner : added[s] )
+            {
+                copyVertex( oldOffset + corner.Source );
+                vertices.back().Position = corner.Position;
+                sm.BoundingBox.Min       = glm::min( sm.BoundingBox.Min, corner.Position );
+                sm.BoundingBox.Max       = glm::max( sm.BoundingBox.Max, corner.Position );
+            }
+            sm.VertexCount += static_cast<uint32_t>( added[s].size() );
+        }
+        for ( ; next < vertexCount; ++next )
+            copyVertex( next );
+
+        data.StaticVertices = std::move( vertices );
+        if ( hasColors )
+            data.Colors = std::move( colors );
+        if ( hasUV1 )
+            data.UV1 = std::move( uv1 );
+        data.MorphTargets = std::move( morphs );
     }
 
     // VIRT-GEOM: each submesh's cluster LOD DAG (Geometry/ClusterDag.hpp) and, when @p cutLods, the discrete LOD
