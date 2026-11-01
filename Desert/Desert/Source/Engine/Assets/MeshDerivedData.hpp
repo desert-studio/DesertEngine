@@ -35,14 +35,17 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         18; // 18: generated levels reduce solid parts within a 1-pixel error budget and thin leaf-card elements
+         19; // 19: the merge of 18 and dev's 16 (canopy snow numbers in UV1 together with the error-budget levels);
+             // 18: generated levels reduce solid parts within a 1-pixel error budget and thin leaf-card elements
              // with their area preserved (inflated corners added behind the submesh) - no level folds a crown's
              // cards or a fence's rails away (GPU-COST-34);
              // 17: MeshBinary v8 container (each section states its LOD chain as cooked, LodPolicy None = LOD 0
              // only, nothing generated on load - GPU-COST-9); 16: the generated LOD chain runs to a few dozen
              // triangles (Geometry::LODChainSettings, eight levels with LOD 0 - was three ratios ending at 10 %,
-             // GPU-COST-5); 15: canopy top surface = the highest leaf per cell, not dilated (a tall round crown's
-             // leaves read ~1 m under a dilated top, all sheltered - FIELD-WINTER p12); 14: canopy leaf cards
+             // GPU-COST-5); 16 (FIELD-WINTER-3, parallel): canopy leaf vertices carry the crown's snow numbers in
+             // UV1 (shelter weight from the mesh's Canopy.ShellCm, Canopy.ClearTexels); 15: canopy top surface =
+             // the highest leaf per cell, not dilated (a tall round crown's leaves read ~1 m under a dilated top,
+             // all sheltered - FIELD-WINTER p12); 14: canopy leaf cards
              // (MeshImportSettings::Canopy: crown normal + depth in COLOR_0.a); 13: MeshBinary v7 container
              // (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG); 12: MeshBinary v6 container
              // (displacement streams); 11: M23 LOD reduction and MikkTSpace tangent frames together; 10: UV weighs

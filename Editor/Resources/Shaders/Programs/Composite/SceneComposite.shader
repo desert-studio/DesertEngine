@@ -38,7 +38,7 @@ Shader "SceneComposite"
             float AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
             float ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
             float WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
-            float TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, otherwise extended Reinhard
+            float TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, < 1.5 extended Reinhard, 2 = buffer visualization
             float InversePreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
             vec4  LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
@@ -97,6 +97,16 @@ Shader "SceneComposite"
 
         void main()
         {
+            // THE BUFFER VISUALIZATION (operator 2, MaterialTonemap::Params::VisualizeBuffer; UE VMI_VisualizeBuffer):
+            // the composite wrote a stored value or a heat colour pre-exposed, so undoing the pre-exposure leaves it
+            // as authored - no eye adaptation, exposure, effects or curve, which turned it black in a lit scene.
+            if (TonemapOperator > 1.5)
+            {
+                vec3 stored = clamp(texture(GeometryTexture, v_TexCoord).rgb * InversePreExposure, 0.0, 1.0);
+                oColor      = vec4(LinearToSrgb(stored), 1.0);
+                return;
+            }
+
             // Auto-exposure: scale so the adapted average luminance maps to the key value; else manual exposure.
             float exposure = Exposure;
             if (AutoExposureEnabled > 0.5)

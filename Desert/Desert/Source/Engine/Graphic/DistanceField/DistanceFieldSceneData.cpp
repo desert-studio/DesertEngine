@@ -162,6 +162,15 @@ namespace Desert::Graphic::DistanceField
     }
     DistanceFieldSceneData::~DistanceFieldSceneData() = default;
 
+    void DistanceFieldSceneData::AdoptPool( DistanceFieldSceneData& previous )
+    {
+        if ( previous.m_PoolMiB == 0 )
+            return; // the old world never sized a pool: the first frame sizes this one
+        static_cast<void>( SetPoolMiB( previous.m_PoolMiB ) );
+        m_Atlas          = std::move( previous.m_Atlas );
+        m_PoolGeneration = previous.m_PoolGeneration + 1;
+    }
+
     bool DistanceFieldSceneData::SetPoolMiB( const uint32_t poolMiB )
     {
         if ( poolMiB == m_PoolMiB )

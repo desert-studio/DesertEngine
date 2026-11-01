@@ -345,6 +345,19 @@ float DesertCanopyDepthCm( const vec4 vertexColor )
               : 0.0;
 }
 
+// THE CROWN'S SNOW NUMBERS (FIELD-WINTER-3), the mesh's import settings (MeshCanopySettings ShellCm, ClearTexels)
+// baked per canopy vertex into UV1 by the mesh build (MeshDeriver BakeCanopy), so no shader states them:
+//   .x = the leaf's SHELTER weight, 1 - smoothstep( ShellCm, 2 ShellCm, depth ): 1 in the crown's outer shell, 0
+//        deep inside, where the leaves above hold the snow;
+//   .y = the crown's CLEARANCE over its own peak in the view's precipitation-map texels.
+// @p uv1 is SurfaceInput.UV1, which the vertex stage passed through DesertMeshTextureUV (v flipped for sampling):
+// the stored v is flipped back here. Only a canopy vertex carries them: any other vertex reads (1, 0).
+vec2 DesertCanopySnowData( const vec4 vertexColor, const vec2 uv1 )
+{
+    return DesertIsCanopyVertex( vertexColor ) ? vec2( clamp( uv1.x, 0.0, 1.0 ), max( 1.0 - uv1.y, 0.0 ) )
+                                               : vec2( 1.0, 0.0 );
+}
+
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,

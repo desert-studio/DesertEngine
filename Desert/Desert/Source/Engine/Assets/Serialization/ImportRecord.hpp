@@ -73,6 +73,10 @@ namespace Desert::Assets::Serialization
         /// MeshImportSettings::Canopy.LeafSlots, the material slot names whose sections are the crown's leaf
         /// cards; absent = no canopy.
         std::optional<std::vector<std::string>> CanopyLeafSlots;
+        /// MeshImportSettings::Canopy.ShellCm / ClearTexels; absent = the defaults (40 cm, 2 texels). Written only
+        /// with leaf slots and only when they differ from the default.
+        std::optional<float> CanopyShellCm;
+        std::optional<float> CanopyClearTexels;
         /// MeshImportSettings::LodChain.TriangleRatios, each generated level's share of LOD 0's triangles (LOD 1
         /// first); absent = the default chain's (Geometry::LODChainSettings{}).
         std::optional<std::vector<float>> LodTriangleRatios;

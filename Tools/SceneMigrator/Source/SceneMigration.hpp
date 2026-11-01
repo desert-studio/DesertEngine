@@ -1087,6 +1087,11 @@ namespace Desert::Migration
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
 
+    // The v8 text of a v7 `.decloudtype`: every v7 value kept, `Shape.FillDensity` written as the default
+    // type's 0.35 (WTH-OVERCAST p4: the bake's former fill ceiling), the header's GUID kept. A file that does
+    // not state CLTY 7 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateCloudTypeV7ToV8( const std::string& text );
+
     // The v6 text of a v5 `.demat`: every texture stored under a shipped schema's GLSL spelling (`u_NormalTexture`)
     // renamed to the parameter name its shader now declares (`NormalTexture`); everything else and the header's
     // GUID kept. A file that does not state MATL 5, or a `u_` texture no shipped schema declared, is an error

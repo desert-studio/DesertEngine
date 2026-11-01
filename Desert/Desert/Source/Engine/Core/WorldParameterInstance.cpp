@@ -4,6 +4,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <bit>
 #include <cmath>
 #include <format>
 
@@ -51,13 +52,15 @@ namespace Desert::Core
                 continue;
             // The layer's id under the row's own key (the shaders' dispatcher reads it), then each texture the
             // layer samples as a Texture value of its own: the layer's look rides the world's bindless table.
+            // The id travels as BITS in .x (Common/SurfaceLayer.glslh DesertSurfaceLayerSelected:
+            // floatBitsToUint), like a texture's bindless handle: an identifier is not a number to round (a float
+            // id rounded odd ids >= 2^23 to the next, SNOW-LAYER p14). The table copies the value as it is
+            // (BuildWorldParameterTable).
             const SurfaceLayerSource layer    = resolveLayer ? resolveLayer( row.Layer ) : SurfaceLayerSource{};
             const size_t             layerRow = m_Values.size() - 1;
-            m_Values.back().Value             = glm::vec4(
-                 layer.Name.empty()
-                      ? 0.0f
-                      : static_cast<float>( Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name ) ),
-                 0.0f, 0.0f, 0.0f );
+            const uint32_t           layerId =
+                 layer.Name.empty() ? 0u : Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name );
+            m_Values.back().Value = glm::vec4( std::bit_cast<float>( layerId ), 0.0f, 0.0f, 0.0f );
             std::string handles;
             for ( const std::string& texture : layer.Textures )
             {
@@ -71,7 +74,7 @@ namespace Desert::Core
             // the world now draws and whether each of its textures resolved (0 = the texture service did not know
             // the path, and that texture's samples read as absent until the next adoption).
             LOG_INFO( "[WorldParameters] '{}' adopts surface layer '{}' (id {:#x}, from '{}'), {} texture(s):{}",
-                      row.Name, layer.Name, static_cast<uint32_t>( m_Values[layerRow].Value.x ), row.Layer,
+                      row.Name, layer.Name, std::bit_cast<uint32_t>( m_Values[layerRow].Value.x ), row.Layer,
                       layer.Textures.size(), handles );
         }
     }

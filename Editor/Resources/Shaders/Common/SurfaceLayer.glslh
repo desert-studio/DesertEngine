@@ -49,10 +49,13 @@ bool DesertWorldTexture( const uint key, out BindlessTexture t )
     return v.w > 0.5;
 }
 
-// The layer the world names (ShaderGraph::SurfaceLayerId of its graph's name; 0 = none).
+// The layer the world names (ShaderGraph::SurfaceLayerId of its graph's name; 0 = none). The id travels as the
+// BITS of .x (WorldParameterInstance writes std::bit_cast<float>( id )), like DesertWorldTexture's bindless handle:
+// an identifier is not a number to convert (a float id with `+ 0.5` rounded every odd id at or above 2^23 to the
+// next one, and M_SnowLayer 0x99f35f never drew).
 uint DesertSurfaceLayerSelected()
 {
-    return uint( DesertWorldParameter( kDesertSurfaceLayerKey ).x + 0.5 );
+    return floatBitsToUint( DesertWorldParameter( kDesertSurfaceLayerKey ).x );
 }
 
 DesertSurfaceLayerOutput DesertSurfaceLayerNone()

@@ -69,6 +69,12 @@ namespace Desert::Assets
         for ( const float ratio : settings.Import.LodChain.TriangleRatios )
             PutU32( out, std::bit_cast<uint32_t>( ratio ) );
         PutU32( out, settings.Import.LodChain.MinTriangles );
+        if ( !settings.Import.Canopy.LeafSlots.empty() )
+        {
+            // The crown's snow numbers, baked per leaf vertex (UV1): a mesh without a canopy keeps its key.
+            PutU32( out, std::bit_cast<uint32_t>( settings.Import.Canopy.ShellCm ) );
+            PutU32( out, std::bit_cast<uint32_t>( settings.Import.Canopy.ClearTexels ) );
+        }
         PutU32( out, settings.BuilderVersion );
         return out;
     }

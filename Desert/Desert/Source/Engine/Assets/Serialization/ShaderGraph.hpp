@@ -78,8 +78,10 @@ namespace Desert::Assets::Serialization::ShaderGraph
         SurfaceLayer = 3,
     };
 
-    /// A surface layer's id as the world parameter carries it: the low 24 bits of its graph name's FNV-1a, so the
-    /// float the table stores holds it exactly. The dispatcher in Generated/SurfaceLayers.glslh compares the same.
+    /// A surface layer's id as the world parameter carries it (as the BITS of the value's .x,
+    /// WorldParameterInstance): the low 24 bits of its graph name's FNV-1a, odd. The dispatcher in
+    /// Generated/SurfaceLayers.glslh compares the same; the width stays 24 bits so the ids the generated file
+    /// states do not move.
     [[nodiscard]] constexpr uint32_t SurfaceLayerId( const std::string_view graphName )
     {
         uint32_t hash = 2166136261u;

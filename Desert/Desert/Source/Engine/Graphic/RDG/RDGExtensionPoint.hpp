@@ -23,7 +23,8 @@ namespace Desert::Graphic::RDG
         AfterTranslucency, // after the last translucent pass (particles), before the temporal resolve; the pass
                            // draws into the render-extent scene target, jittered like the scene under it
         Overlay,           // after the temporal resolve and the engine's debug lines: unjittered, output extent
-        UI,                // after the overlays and the backdrop blur the UI samples, before the post chain
+        UI,                // after the post chain and the AA, on the display-referred final image (UE: Slate/UMG
+                           // over the final image): no exposure, tonemap, bloom or buffer view reaches it
     };
 
     [[nodiscard]] constexpr std::string_view ToString( const ExtensionPoint point )

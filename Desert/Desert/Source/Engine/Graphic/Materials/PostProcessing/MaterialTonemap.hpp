@@ -37,6 +37,9 @@ namespace Desert::Graphic
             // HDR-OUTPUT: Graphic::CurrentDisplayOutput() — the output transform's target.
             Common::Scalability::DisplayOutput DisplayOutput   = Common::Scalability::DisplayOutput::SDR_sRGB;
             float                              DisplayHeadroom = 1.0f;
+            // A display-referred buffer view (Graphic::IsDisplayReferredView): the scene colour, un-pre-exposed,
+            // is the picture - SceneComposite's operator 2 skips exposure, the effects and the curve.
+            bool VisualizeBuffer = false;
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,

@@ -3,6 +3,7 @@
 #include "Editor/Core/PanelRequests.hpp"
 
 #include <Common/Core/CrashHandler.hpp>
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -49,6 +50,33 @@ namespace Desert::Editor
                        LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
                    return PaletteCommandDone();
                } } );
+    }
+
+    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands, void ( *dumpToLog )() )
+    {
+        const auto enable = []( const bool on ) -> Common::BoolResultStr
+        {
+            auto& profiler = Common::Profiling::Profiler::Get();
+            if ( on && !profiler.GetGpuSink() )
+                return Common::MakeError<bool>(
+                     "this device reports no GPU timestamps; there is nothing to time." );
+            profiler.GpuEnabled()    = on;
+            profiler.GpuPassScopes() = on;
+            return PaletteCommandDone();
+        };
+        commands.push_back( { "Debug", "GPU profiling: On", [enable] { return enable( true ); } } );
+        commands.push_back( { "Debug", "GPU profiling: Off", [enable] { return enable( false ); } } );
+        // The profiler's own table (ProfilerWindow::DumpProfilerToLog, the panel's button and --gpu-profile): one
+        // [Profiler] row per pass with cpu / gpu inclusive / gpu self ms, averaged over the published window.
+        commands.push_back( { "Debug", "Log GPU pass timings", [dumpToLog]() -> Common::BoolResultStr
+                              {
+                                  if ( !Common::Profiling::Profiler::Get().GpuEnabled() )
+                                      return Common::MakeError<bool>(
+                                           "GPU profiling is off: run Debug.GPU profiling: On and let one "
+                                           "averaging window pass first." );
+                                  dumpToLog();
+                                  return PaletteCommandDone();
+                              } } );
     }
 
     void AppendParticleDebuggerCommand( std::vector<PaletteCommand>&                  commands,

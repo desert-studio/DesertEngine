@@ -30,27 +30,27 @@
 // (SurfaceTypes.glslh DesertCanopyDepthCm), and the lookup is lifted by that depth: the card reads the occlusion at
 // the crown's surface above it - what OTHER casters hold over the crown - and the canopy normal decides how much of
 // the volume faces the sky (the crown's underside faces down and stays bare). Any other vertex: no lift.
-// The lift also clears the crown's own peak inside the map's footprint by kDesertCanopyClearTexels: the baked top
-// surface is the crown's highest leaf per 25 cm cell, the map's texel is wider, so a card on the crown's flank read
-// the peak beside it as its roof (FIELD-WINTER p9: snow in specks on the near tree, not a layer).
-const float kDesertCanopyClearTexels = 2.0;
+// The lift also clears the crown's own peak inside the map's footprint by the mesh's clearance texels
+// (MeshCanopySettings::ClearTexels, DesertCanopySnowData .y): the baked top surface is the crown's highest leaf per
+// 25 cm cell, the map's texel is wider, so a card on the crown's flank read the peak beside it as its roof
+// (FIELD-WINTER p9: snow in specks on the near tree, not a layer).
 float DesertCanopyLift( SurfaceInput i, const float texel )
 {
     // The depth is the mesh's cm, the lift is world cm: a tree placed at scale 3 hangs its leaves three times deeper
     // (FIELD-WINTER p11: Tree 1 at scale 3, lifted by its mesh depth, read its own crown as its roof - all green).
     return DesertIsCanopyVertex( i.VertexColor )
-              ? DesertCanopyDepthCm( i.VertexColor ) * i.ObjectScaleUp + kDesertCanopyClearTexels * texel
+              ? DesertCanopyDepthCm( i.VertexColor ) * i.ObjectScaleUp +
+                     DesertCanopySnowData( i.VertexColor, i.UV1 ).y * texel
               : 0.0;
 }
 
-// Snow lies on the crown's OUTER SHELL: a leaf deeper than kDesertCanopyShellCm under the crown's top surface is
-// sheltered by the leaves above it (they hold the snow), so its weight falls to 0 over the next shell - the crown's
-// inside stays green. The shell is the crown's, in the mesh's cm like the bake's top shell (MeshDeriver
-// kCanopyShellCm): it grows with the tree's scale. Only a canopy vertex has a depth; any other surface: 1.
-const float kDesertCanopyShellCm = 40.0;
+// Snow lies on the crown's OUTER SHELL: a leaf deeper than the mesh's shell (MeshCanopySettings::ShellCm) under the
+// crown's top surface is sheltered by the leaves above it (they hold the snow), so its weight falls to 0 over the
+// next shell - the crown's inside stays green. The weight is baked per leaf vertex by the mesh build in the mesh's
+// cm (it grows with the tree's scale), DesertCanopySnowData .x; any other surface: 1.
 float DesertCanopyShelter( SurfaceInput i )
 {
-    return 1.0 - smoothstep( kDesertCanopyShellCm, 2.0 * kDesertCanopyShellCm, DesertCanopyDepthCm( i.VertexColor ) );
+    return DesertCanopySnowData( i.VertexColor, i.UV1 ).x;
 }
 
 float DesertRainOcclusion( SurfaceInput i )

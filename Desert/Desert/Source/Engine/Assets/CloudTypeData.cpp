@@ -68,6 +68,8 @@ namespace Desert::Assets
              // HUMILIS field's; at 1 km under the shipped density the measured lumps sat on the volume's
              // floor (73 %, LatticePeak --bodies) and every cloud was a pile of equal spheres.
              /* BodyDiameterKm      */ 3.00f,
+             // WTH-OVERCAST p4: the congestus fill the KeptCover calibration was measured at.
+             /* FillDensity         */ 0.35f,
         };
         return kDefault;
     }
@@ -198,6 +200,10 @@ namespace Desert::Assets
         // A body is drawn from the exponential law around this mean. Under a fifth of a kilometre it is
         // narrower than one voxel of the shipped volume (0.1875 km); over 8 km it is a patch, not a body.
         if ( auto r = InRange( "BodyDiameterKm", shape.BodyDiameterKm, 0.2f, 8.0f ); !r )
+            return r;
+
+        // A density, not a multiplier: 1 is a fill as dense as a body's plateau, 0 a type of bodies only.
+        if ( auto r = InRange( "FillDensity", shape.FillDensity, 0.0f, 1.0f ); !r )
             return r;
 
         return BOOLSUCCESS;

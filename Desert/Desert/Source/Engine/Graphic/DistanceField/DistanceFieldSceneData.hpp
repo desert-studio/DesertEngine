@@ -143,6 +143,13 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] Common::BoolResultStr BeginViewFrame( uint64_t frame, uint32_t poolMiB,
                                                             const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields );
 
+        // THE NEXT WORLD TAKES THE POOL OVER (Scene::Clear, the device idle): the brick atlas is sized by the
+        // project's pool, not by the world, so the new world's scene data keeps @p previous's allocation with
+        // nothing resident in it (as SetPoolMiB drops a pool's residents) instead of freeing 384 MiB and
+        // allocating the same 384 MiB again - UE keeps such pools across worlds too (pooled render targets).
+        // The generation moves on, so a view rewrites what it composited from the old world's bricks.
+        void AdoptPool( DistanceFieldSceneData& previous );
+
         // Bumped whenever the pool was re-created: a view rewrites everything it composited from the old atlas.
         [[nodiscard]] uint64_t GetPoolGeneration() const
         {

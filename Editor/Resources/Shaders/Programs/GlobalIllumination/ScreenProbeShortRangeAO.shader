@@ -5,9 +5,10 @@
 //   trace     each one marched through the scene depth in SR_AO_STEPS linear steps, out to SR_AO_MAX_SCREEN_FRACTION
 //             of the screen (UE r.Lumen.ScreenProbeGather.ShortRangeAO.MaxScreenTraceFraction): the occluders
 //             between the pixel and the probes, which a probe one 16-pixel tile away cannot see. A step is occluded
-//             when it passes behind the depth buffer by less than SR_AO_FOREGROUND_REJECT of its own distance (UE
-//             ForegroundSampleRejectDistanceFraction: a surface much nearer the camera is in front of the ray, not
-//             around it);
+//             when it passes behind the depth buffer AND the surface it passes behind lies within the ray's reach of
+//             the shaded point (UE's foreground sample rejection: a surface nearer the camera than the AO radius is
+//             IN FRONT of the ray, not around it — a cypress a metre before a wall is not a contact occluder of the
+//             wall, and counting it drew a speckled dark ring along every crown, BISTRO-FOLIAGE-HALO);
 //   output    xyz = the bent normal (the mean of the unoccluded directions, normalised; the normal when none is),
 //             w = the unoccluded share (cosine-weighted by the sampling).
 // The integrate reads it as UE's ScreenProbeIntegrateCS does with SHORT_RANGE_AO: the diffuse irradiance is the
@@ -45,8 +46,6 @@ Shader "ScreenProbeShortRangeAO"
         #define SR_AO_STEPS 8
         // UE r.Lumen.ScreenProbeGather.ShortRangeAO.MaxScreenTraceFraction.
         #define SR_AO_MAX_SCREEN_FRACTION 0.02
-        // UE r.Lumen.ScreenProbeGather.ShortRangeAO.ForegroundSampleRejectDistanceFraction.
-        #define SR_AO_FOREGROUND_REJECT 0.3
         // The ray leaves the surface by this share of its distance to the camera (the depth buffer's own precision
         // and the normal map's tilt off the geometric plane), and passes behind a surface only past it.
         #define SR_AO_RELATIVE_BIAS 0.002
@@ -133,9 +132,13 @@ Shader "ScreenProbeShortRangeAO"
                     const vec3  scene     = ReconstructWorldPosition( ( vec2( texel ) + 0.5 ) * giFrame.screen.zw,
                                                                       texelFetch( GBufferDepthTexture, texel, 0 ).r,
                                                                       giFrame.invViewProjection );
+                    // An occluder is the depth buffer's surface where the ray passes behind it, and only while that
+                    // surface is within the ray's reach of the shaded point: farther away it is a foreground object
+                    // the short ray passes behind (the gap between a crown and the wall), which the probes' own
+                    // traces occlude, not this contact term. The bound is 3D, so it holds at any depth and angle.
                     const float rayDist   = length( q - camera );
                     const float behind    = rayDist - length( scene - camera );
-                    occluded              = behind > bias && behind < SR_AO_FOREGROUND_REJECT * rayDist;
+                    occluded              = behind > bias && length( scene - origin ) < rayLength;
                 }
                 if ( !occluded )
                 {
