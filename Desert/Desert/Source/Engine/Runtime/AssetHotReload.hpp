@@ -6,8 +6,11 @@
 #include <Engine/Assets/ContentDirectoryWatch.hpp>
 
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -50,12 +53,30 @@ namespace Desert::Runtime
     //             the new code. Renderer-owned specialized pipelines (batched lit, shadows)
     //             still need a restart — logged when they're affected.
     //
-    // Polling (not FS events) keeps it portable (macOS/Windows/Linux) and cheap: one stat()
-    // per watched file per interval, plus a content hash while a file's write time is still racy.
+    // Polling (not FS events) keeps it portable (macOS/Windows/Linux): one stat() per watched file per interval,
+    // plus a content hash while a file's write time is still racy.
+    //
+    // THE STATS RUN OFF THE GAME THREAD (UE: FDirectoryWatcher answers "what changed" on its own thread; the
+    // game thread only applies the changes it is handed). A poll is two halves a frame or more apart:
+    //   1. PROBE, on a JobSystem worker: the game thread hands over the paths of every loaded watched asset;
+    //      the worker walks every .shader's include closure, lists the shading models, and asks the write
+    //      watch about each distinct file once. Two hundred programs over their shared headers are tens of
+    //      thousands of stats — ~80 ms on NTFS — which, on the game thread, was a hitch every 0.7 s.
+    //   2. APPLY, on the game thread, the first frame after the probe is done: the reloads below read the
+    //      probe's answer instead of the disk. An asset loaded after the probe's snapshot is simply not in
+    //      it; the next probe sees it for the first time, which is a baseline exactly as before.
+    // m_Watch is touched only by the probe, and only one probe is ever in flight.
     class AssetHotReload
     {
     public:
-        // Call once per frame. Cheap between poll intervals (just accumulates time).
+        AssetHotReload() = default;
+        // Waits for a probe still in flight: it runs against m_Watch.
+        ~AssetHotReload();
+        AssetHotReload( const AssetHotReload& )            = delete;
+        AssetHotReload& operator=( const AssetHotReload& ) = delete;
+
+        // Call once per frame. Between poll intervals it only accumulates time; at an interval it launches a
+        // probe, and the frame that finds the probe done applies it.
         void Tick( const Common::Timestep& ts, Assets::AssetManager& assetManager, Core::Scene* scene );
 
     private:
@@ -82,14 +103,34 @@ namespace Desert::Runtime
         // re-read in place IS the whole of the reload - the next tick culls and scales by the new levels.
         void PollVFXEffectTypes( Assets::AssetManager& assetManager );
 
-        // Reports whether @p path CHANGED since the last poll (Common::Utils::WriteWatch: a moved stamp, or a
-        // racy stamp over different content). A file seen for the first time returns false: the first
-        // sighting is a baseline, not an edit.
-        bool TouchWatched( const std::filesystem::path& path );
+        // What one probe found. Keys are WatchKey(path).
+        struct Probe
+        {
+            // Every file whose write watch said Changed (a moved stamp, or a racy stamp over different content).
+            std::unordered_map<std::string, std::filesystem::path> Changed;
+            // Each watched .shader's files: itself, then its include closure (Core::ShaderSourceFiles).
+            std::unordered_map<std::string, std::vector<std::filesystem::path>> ShaderFiles;
+            // The .shadingmodel files on disk.
+            std::vector<std::filesystem::path> ShadingModelFiles;
+        };
+
+        // The game-thread half of launching a probe: the paths of every loaded watched asset.
+        void LaunchProbe( Assets::AssetManager& assetManager );
+        // Runs on the worker.
+        Probe RunProbe( std::vector<std::filesystem::path> watched, std::vector<std::filesystem::path> shaders );
+        void  ApplyProbe( Assets::AssetManager& assetManager, Core::Scene* scene );
+
+        static std::string WatchKey( const std::filesystem::path& path );
+
+        // Reports whether @p path CHANGED according to the probe being applied. A file seen for the first time
+        // is not: the first sighting is a baseline, not an edit.
+        bool TouchWatched( const std::filesystem::path& path ) const;
 
         Common::Utils::WriteWatch m_Watch;
         // Files that appeared or went away with no loaded object to report them: their rows follow here.
         Assets::ContentDirectoryWatch m_ContentWatch;
+        std::future<Probe>            m_ProbeInFlight;
+        Probe                         m_Probe; // the one being applied, empty otherwise
         float                         m_Accum       = 0.0f;
         bool                          m_FirstScan   = true;
         static constexpr float        kPollInterval = 0.7f; // seconds
