@@ -2,6 +2,7 @@
 
 #include <Editor/Core/CommandPalette.hpp>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -20,7 +21,7 @@ namespace Desert::Editor
     // (Profiler::GpuEnabled, default off - it taxes the frame), "Debug.Log GPU pass timings" calls @p dumpToLog
     // (the profiler panel's table writer, ProfilerWindow::DumpProfilerToLog): one log row per GPU pass of the last
     // averaging window, so a pass's cost is read from its own row, never from a difference between two frames.
-    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands, void ( *dumpToLog )() );
+    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands, std::function<void()> dumpToLog );
     // "Debug.Particle Debugger" (VFX-16): opens the Particle Debugger panel, so an MCP run_command can show it.
     // "Debug.Particles: Freeze / Unfreeze / Step" are the panel's Freeze checkbox and Step button on the active
     // scene's effects world (UE Niagara Debugger's playback controls), so a scenario can stop the effects at a

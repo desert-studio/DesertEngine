@@ -85,6 +85,26 @@ namespace Desert::Graphic::GpuDriven
         }
     } // namespace
 
+    const char* MeshPassStateName( const MeshPass pass )
+    {
+        switch ( pass )
+        {
+            case MeshPass::DepthPrepass:
+                return "depthPrepass";
+            case MeshPass::GBuffer:
+                return "gbuffer";
+            case MeshPass::Forward:
+                return "forward";
+            case MeshPass::ShadowCascade:
+                return "shadowCascade";
+            case MeshPass::VirtualShadow:
+                return "virtualShadow";
+            case MeshPass::Count:
+                break;
+        }
+        return "Count";
+    }
+
     const char* BinFallbackName( const BinFallback fallback )
     {
         switch ( fallback )
