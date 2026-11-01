@@ -241,8 +241,8 @@ Shader "InstanceCull"
         // The instance's world box (Geometry::TransformBounds of the local box, 8 corners, widened by the wind; or
         // its pose box). Returns true when the primitive has no extent at all (IsVisibleInView: "I do not know where
         // this is" = draw).
-        bool WorldBox( GpuScenePrimitive primitive, GpuSceneInstance instance, mat4 world, out vec3 boxMin,
-                       out vec3 boxMax )
+        bool WorldBox( GpuScenePrimitive primitive, GpuSceneInstance instance, mat4 world, bool restPose,
+                       out vec3 boxMin, out vec3 boxMax )
         {
             if ( ( primitive.Flags & DESERT_GPU_PRIMITIVE_WORLD_BOUNDS ) != 0u &&
                  instance.WorldBoundsRow != DESERT_GPU_INVALID_INDEX )
@@ -272,8 +272,10 @@ Shader "InstanceCull"
                 boxMin       = min( boxMin, w );
                 boxMax       = max( boxMax, w );
             }
-            // WindExpandedBounds: the wind moves vertices horizontally by up to the row's pad.
-            const float pad = primitive.LocalBoundsCenter.w;
+            // WindExpandedBounds: the wind moves vertices horizontally by up to the row's pad; a caster view's
+            // rest-pose instance (@p restPose, GpuCull_CastsRestPose: drawn with no wind) by nothing (UE: no
+            // MaxWPODisplacement where WPO is off).
+            const float pad = restPose ? 0.0 : primitive.LocalBoundsCenter.w;
             boxMin -= vec3( pad, 0.0, pad );
             boxMax += vec3( pad, 0.0, pad );
             return false;
@@ -383,7 +385,7 @@ Shader "InstanceCull"
             }
             vec3       boxMin;
             vec3       boxMax;
-            const bool empty = WorldBox( primitive, instance, world, boxMin, boxMax );
+            const bool empty = WorldBox( primitive, instance, world, restPose, boxMin, boxMax );
             if ( !empty )
             {
                 bool inside = GpuCull_FrustumIntersects( view, boxMin, boxMax );
@@ -435,14 +437,14 @@ Shader "InstanceCull"
             const mat4              world     = GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
             vec3                    boxMin;
             vec3                    boxMax;
-            WorldBox( primitive, instance, world, boxMin, boxMax );
+            const bool              restPose  = GpuCull_CastsRestPose( view, primitive, world );
+            WorldBox( primitive, instance, world, restPose, boxMin, boxMax );
             if ( Params2.w != 0u && GpuCull_IsOccludedByHzb( GpuCullHzbTexture, PointClampSampler, view, view.ViewProjection, boxMin, boxMax ) )
                 return;
             const uint cell = entry.View * Params.y + entry.Instance;
             const uint lod  = Visibility[cell] & DESERT_GPU_CULL_VISIBILITY_LOD_MASK;
             atomicOr( Visibility[cell], DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE );
-            EmitToBins( localView, entry.Instance, instance.Primitive, lod,
-                        GpuCull_CastsRestPose( view, primitive, world ) );
+            EmitToBins( localView, entry.Instance, instance.Primitive, lod, restPose );
         }
 
         void WriteDispatchArgs()

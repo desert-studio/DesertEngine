@@ -33,8 +33,8 @@ layout( std430, binding = kVsmPageTableBinding ) restrict readonly buffer VsmPag
 layout( binding = kVsmPhysicalPoolBinding, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
 // The level this fragment rasterizes and the node's layer: the draw's (VirtualShadowMapFrame::RasterLevel /
 // RasterLevelMovable, x = level index, y = VSM_LAYER_*), unless the includer names the level per primitive first
-// (VSM_RASTER_LEVEL: the cluster raster of every level in one pass, Mesh/Surface/Pass_VirtualShadowDepth.glslh - the
-// clusters are still casters, VSM_LAYER_STATIC).
+// (VSM_RASTER_LEVEL and VSM_RASTER_LAYER: the cluster raster of every level and layer in one pass, from the cluster's
+// cut view, Mesh/Surface/Pass_VirtualShadowDepth.glslh).
 #ifndef VSM_RASTER_LEVEL
 layout( std430, binding = kVsmRasterLevelBinding ) restrict readonly buffer VsmRasterLevel
 {

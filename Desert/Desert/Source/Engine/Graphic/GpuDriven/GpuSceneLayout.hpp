@@ -262,7 +262,8 @@ namespace Desert::Graphic::GpuDriven
         glm::uvec4 HzbExtent{ 0u };            // 320 xy = HZB mip-0 size, z = mip count, w = 0 (no HZB: z = 0)
         uint32_t   Pass      = 0;              // 336 — MeshPass
         uint32_t   Flags     = 0;              // 340 — CullViewFlags
-        uint32_t   VsmLevel  = 0;              // 344 — the clipmap level (kVsmPageMask)
+        uint32_t   VsmLevel  = 0;              // 344 — its row of the frame's page masks (kVsmPageMask): the level
+                                               //     (static mask), LevelCount + level for a movers' layer (drawn)
         uint32_t   ViewIndex = 0;              // 348 — the view's index in the caller's CullViewInput list
     };
     static_assert( sizeof( GpuCullView ) == 352, "std430 twin in Common/GpuScene.glslh" );
