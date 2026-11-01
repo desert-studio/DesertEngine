@@ -611,7 +611,8 @@ namespace Desert::Graphic::System
             return;
         // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The unbinned draws carry the
         // camera and the material row in their own blocks; the binned ones (the DepthPrepass bins, culled by the
-        // "depthPrepass" view) read the GPU scene's primitive rows, the view input bound here.
+        // "depthPrepass" view against this frame's furthest HZB: SceneRenderer::AddFrameDrawBinsPostOcclusion)
+        // read the GPU scene's primitive rows, the view input bound here.
         BuildGenericDraws( m_DepthNormalDraws, GenericSlice::DeferredDepthNormal );
         AttachBinned( m_DepthNormalDraws, GpuDriven::MeshPass::DepthPrepass, kBinnedMainView );
         m_DepthNormalDraws.Declare( pass, view );

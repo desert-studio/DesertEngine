@@ -506,15 +506,17 @@ namespace Desert::Graphic::System
         {
             if ( !view.BinsIssued || !m_DrawCommandCache )
                 return SubmeshMask{ hidden };
-            const auto candidate = m_FrameClusterCandidates.find( primitive );
+            // Only a cut view's cull took its VG instances out of its bins (ClusterWalkView::ClusterCut).
+            const auto candidate =
+                 view.ClusterCut ? m_FrameClusterCandidates.find( primitive ) : m_FrameClusterCandidates.end();
             if ( candidate == m_FrameClusterCandidates.end() )
             {
-                // Not a VG primitive: its instances are in the view's bins.
+                // Not a VG primitive, or a view that takes no cut: its instances are in the view's bins.
                 if ( m_DrawCommandCache->SubmeshesBinned( view.Pass, primitive, hidden ) )
                     return std::nullopt;
                 return SubmeshMask{ hidden };
             }
-            // A VG primitive: in no bin of this view. Hidden from the walk is only what the raster draws.
+            // A VG primitive of a cut view: in no bin of it. Hidden from the walk is only what the raster draws.
             words.assign( ( submeshes + 63u ) / 64u, uint64_t{ 0 } );
             if ( view.RasterCarriers != nullptr )
             {

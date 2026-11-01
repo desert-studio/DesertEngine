@@ -1109,7 +1109,7 @@ namespace Desert::Graphic::System
     bool MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
                                        const GpuDriven::CulledDraws&        culled,
                                        const GpuDriven::DrawCommandBuffers& upload,
-                                       const GpuDriven::GpuSceneBuffers&    scene )
+                                       const GpuDriven::GpuSceneBuffers& scene, const bool clusterCut )
     {
         const auto refuse = [this]( std::string message )
         {
@@ -1152,7 +1152,8 @@ namespace Desert::Graphic::System
             if ( issue.GroupCarriers[group] == nullptr )
                 return refuse( std::move( error ) );
         }
-        m_FrameBinned.push_back( FrameBinnedView{ pass, viewKey, std::move( issue ) } );
+        m_FrameBinned.push_back( FrameBinnedView{
+             .Pass = pass, .ViewKey = viewKey, .Issue = std::move( issue ), .ClusterCut = clusterCut } );
         return true;
     }
 
@@ -1297,6 +1298,7 @@ namespace Desert::Graphic::System
         if ( const FrameBinnedView* binned = FrameBinned( pass, viewKey ) )
         {
             walk.BinsIssued = true;
+            walk.ClusterCut = binned->ClusterCut;
             if ( binned->Issue.VirtualGeometry )
                 walk.RasterCarriers = &binned->Issue.VirtualGeometry->GroupCarriers;
         }

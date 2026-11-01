@@ -732,10 +732,13 @@ namespace Desert::Graphic::System
         // stays on the CPU) when a non-empty group's carrier cannot be made; false without a log for a view that
         // issues no bins (a cascade layer not drawn this frame). The main view's answer is phase 2's precondition
         // (SetFramePostOcclusion), so it is part of the cluster cut's two-pass decision
-        // (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb).
+        // (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb). @p clusterCut: the view's cull appended its VG
+        // instances as cluster-cut candidates (a cut view of SceneRenderer::FrameDrawBins::CutViewOf, the frame
+        // appending candidates), so they are in none of its bins - its CPU walk asks the view's cluster raster
+        // (CpuWalkHidden); false: every instance the view sees, VG or not, is in its bins.
         bool SetFrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled,
-                             const GpuDriven::DrawCommandBuffers& upload,
-                             const GpuDriven::GpuSceneBuffers&    scene );
+                             const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene,
+                             bool clusterCut );
         // TWO-PHASE OCCLUSION, phase 2 (UE FInstanceCullingContext's post pass): the draws of the instances phase
         // 1 held back by last frame's HZB that this frame's HZB finds visible, issued by a second slice of (pass,
         // view) with the same carriers and tables as its phase-1 issue (SetFrameBinned) and @p culled's own
@@ -805,15 +808,17 @@ namespace Desert::Graphic::System
         // cascade's layer, a VSM level; VIRT-GEOM step 26). UE: a primitive the cluster path cannot draw is drawn
         // by its fallback mesh, never lost. Returns the submeshes the CPU walk HIDES (the record's own @p hidden
         // plus what the GPU draws), or empty when the GPU draws every submesh the record shows:
-        //  - a VG primitive in the view (a binned view: InstanceCull took its instances out of the view's bins as
-        //    cluster-cut candidates, m_FrameClusterCandidates; a VSM level: its mesh has uploaded DAG rows): the
+        //  - a VG primitive in a cut view (a binned view whose cull appended cluster-cut candidates,
+        //    ClusterWalkView::ClusterCut: InstanceCull took its instances out of the view's bins,
+        //    m_FrameClusterCandidates; a VSM level: its mesh has uploaded DAG rows): the
         //    walk hides only the submeshes the view's cluster raster DRAWS - a candidate DAG binned into a group
         //    whose `.VirtualGeometry` carrier the issued raster holds (a VSM level: the carriers
         //    AddVirtualShadowRasterPasses made before the levels' walks). A refused cut, a refused carrier, a
         //    twin-less group or a submesh with no candidate DAG: walked, so the clusters it would have drawn are
         //    drawn by the mesh's own submeshes;
-        //  - any other record of a binned view: empty when the bins hold every shown submesh
-        //    (DrawCommandCache::SubmeshesBinned), else @p hidden;
+        //  - any other record of a binned view - a VG primitive of a view that takes no cut (a cascade's movable
+        //    layer, the deferred depth prepass) included: its instances are in the view's bins - empty when the
+        //    bins hold every shown submesh (DrawCommandCache::SubmeshesBinned), else @p hidden;
         //  - a view with neither (a local light, a refused bins issue): @p hidden.
         // The words past the first 64 submeshes are interned in m_ClusterWalkWords (kept until the next
         // ResetVirtualShadowGeometry), so equal masks share one view and their records batch together.
@@ -823,6 +828,9 @@ namespace Desert::Graphic::System
             // The view issues GPU-culled bins this frame (FrameBinned): the main view or a sun cascade's static or
             // movable layer (CascadeMovableView).
             bool BinsIssued = false;
+            // The view is a cluster-cut view of the draw bins (SetFrameBinned's clusterCut): its VG instances are in
+            // none of its bins, only in its cut. False: they are in its bins like any other instance.
+            bool ClusterCut = false;
             // The phase-1 cluster raster's carriers per Table->Groups (BinnedIssue::VirtualGeometry, made by
             // SetFrameVirtualGeometry; a VSM level: AddVirtualShadowRasterPasses, null entries until made); null:
             // no raster this frame (no cut, or the cut / its carriers / its draw list refused).
@@ -840,8 +848,9 @@ namespace Desert::Graphic::System
                                                                 uint64_t                  hidden );
         // THE CLUSTER-CUT CANDIDATES OF THIS FRAME (SceneRenderer::AddFrameDrawBins, after InstanceCull's main
         // phase took them with candidates appended): per primitive, the submeshes whose DAG rows InstanceCull
-        // appends for EVERY cull view (MakeVirtualGeometryCandidates' spans, one bit per submesh, no 64 cap). Such
-        // a primitive's instances reach no bin of any binned view. Forgotten by BeginFrameBins.
+        // appends for EVERY cut view (MakeVirtualGeometryCandidates' spans, one bit per submesh, no 64 cap). Such
+        // a primitive's instances reach no bin of a cut view (ClusterWalkView::ClusterCut); a view that takes no
+        // cut bins them. Forgotten by BeginFrameBins.
         void SetFrameClusterCandidates(
              std::unordered_map<GpuDriven::PrimitiveIndex, std::vector<uint64_t>> submeshes );
         // A new frame of the virtual shadow map's cluster path: drops the last frame's issue, its refusal and
@@ -2706,6 +2715,8 @@ namespace Desert::Graphic::System
             MeshRendererDetail::BinnedIssue Issue;
             // Phase 2's issue (SetFramePostOcclusion): Issue with the post-occlusion cull's draws.
             std::optional<MeshRendererDetail::BinnedIssue> PostOcclusion;
+            // SetFrameBinned's clusterCut: the view's VG instances are cut candidates, in none of its bins.
+            bool ClusterCut = false;
         };
         std::vector<FrameBinnedView> m_FrameBinned;
         // The carriers of the scene blocks a binned group draws with: one material per (cell shader, view), its

@@ -1266,8 +1266,9 @@ namespace Desert::Graphic
         // scene's tables (m_FrameGpuSceneTables, reused by AddFrameGpuCull) and the phase-1 cull of the main view
         // (MeshRenderer::MainViewPass) - against last frame's furthest HZB (m_CullHzbHistory) when the view is the
         // deferred G-buffer and the history is its size and previous frame, else frustum only - and of the sun
-        // cascades whose static layer is drawn (frustum only), each view's culled draws handed to
-        // MeshRenderer::SetFrameBinned. What phase 2 needs is kept in m_FrameDrawBins. A refusal is logged once
+        // cascades' drawn layers (frustum only), each view's culled draws handed to MeshRenderer::SetFrameBinned.
+        // The deferred depth prepass view is not in it: it is culled once against this frame's HZB
+        // (AddFrameDrawBinsPostOcclusion). What phase 2 needs is kept in m_FrameDrawBins. A refusal is logged once
         // per message and leaves every pass on the CPU path.
         void AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // LAST FRAME'S FURTHEST HZB OF THE MAIN VIEW in this graph (m_FramePrevHzb), registered from
@@ -1278,8 +1279,9 @@ namespace Desert::Graphic
         // The main view's G-buffer depth size an HZB is built from this frame (the deferred G-buffer pass, an HZB
         // pipeline), or nothing: the size FramePrevHzb and the draw bins' phase 1 test the history against.
         [[nodiscard]] std::optional<glm::uvec2> FrameHzbSize( RDG::Builder& graph, FrameTextures& textures );
-        // VIRT-GEOM, right after AddFrameDrawBins: one "VirtualGeometry: Cluster Cut" + raster binning per cull
-        // view of the draw bins (each drawn shadow cascade, then the main view) over the VG candidates phase 1
+        // VIRT-GEOM, right after AddFrameDrawBins: one "VirtualGeometry: Cluster Cut" + raster binning per cut
+        // view of the draw bins (FrameDrawBins::CutViewOf: each drawn cascade's static layer, then the main view)
+        // over the VG candidates phase 1
         // appended (m_FrameDrawBins->VgCandidates), at Scalability ViewDistance.VirtualGeometryMaxPixelsPerEdge,
         // attached to each view's phase-1 issue (MeshRenderer::SetFrameVirtualGeometry); the main cut kept in
         // m_FrameVirtualGeometry (what the vg_clusters view draws, the post phase's carry) and every cut's counts
@@ -1304,7 +1306,10 @@ namespace Desert::Graphic
         // FInstanceCullingContext's post pass, HZB.cpp): this frame's furthest HZB of that depth, extracted into
         // m_CullHzbHistory for the next frame's phase 1; when phase 1 tested last frame's HZB, the instances it
         // held back re-tested against this one and the visible drawn by "Deferred: GBuffer Post-Occlusion" (same
-        // carriers, their own indirect args). Then the per-view phase counts' readback. No-op without draw bins.
+        // carriers, their own indirect args). Then the deferred depth prepass view (FrameDrawBins::DepthPrepassView;
+        // UE InstanceCulling: a view drawn after this frame's HZB is culled by it in one pass): one main-phase cull
+        // against that HZB (frustum only without it), handed to MeshRenderer::SetFrameBinned before
+        // AddFrameForwardDepthNormal draws it. Then the per-view phase counts' readback. No-op without draw bins.
         void AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                             System::MeshRenderer* meshRenderer, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
@@ -2110,14 +2115,24 @@ namespace Desert::Graphic
             // precondition) AND the post cut not refused (DebugViewState::ForceVirtualGeometryPostCutRefusal).
             // False: the main cut is frustum-only, holds nothing back, and there is no post cut to lose it.
             bool ClusterMainTestsHzb = false;
-            // The VG candidates phase 1 appended for every view (cull view v = cut view v); invalid Rows = none
-            // this frame. VgVisibleCapacity: one view's exact cluster bound (each candidate instance x its DAGs'
+            // THE CUT VIEWS (UE: Nanite cuts only the views declared to it): per cull view (Views order), the
+            // cluster-cut view its VG instances append as (VirtualGeometryCandidateInput::CutViewOf, numbered in
+            // that order from 0), GpuDriven::kInvalidIndex = it takes no cut and bins them like any other
+            // instance. The main view is cut view 0 and each drawn cascade's static layer one; a cascade's movable
+            // layer takes none (MeshRendererShadow: "its bins; no cluster raster").
+            std::vector<uint32_t> CutViewOf;
+            // The VG candidates phase 1 appended per cut view (CutViewOf); invalid Rows = none this frame.
+            // VgVisibleCapacity: one view's exact cluster bound (each candidate instance x its DAGs'
             // ClusterCount).
             GpuDriven::VirtualGeometryCandidateOutput VgCandidates;
             uint32_t                                  VgVisibleCapacity = 0;
             uint32_t                                  VgInstances       = 0;
             // The texture the culls bind where a view has no HZB (System.Black: nothing occluded).
             RDG::TextureRef NeutralHzb{};
+            // The deferred path's depth prepass view ("Deferred: Forward Depth/Normal", the generic programs'
+            // DepthNormal.Binned cells) as AddFrameDrawBins made it - the main camera, frustum only, no cut view -
+            // when its pass has bins; AddFrameDrawBinsPostOcclusion adds this frame's HZB and culls it.
+            std::optional<GpuDriven::CullViewInput> DepthPrepassView;
         };
         std::optional<FrameDrawBins> m_FrameDrawBins;
         // This graph's furthest HZBs of the main view when the draw bins built them: last frame's (registered from
