@@ -502,9 +502,9 @@ namespace Desert::Graphic::System
                         continue;
                     m_GenericPrepassed.insert( &g );
                     // Admitted, so "Deferred: Generic" shades it; its depth and normal come from the DepthPrepass
-                    // bins (the "depthPrepass" cull view, AttachBinned) when they hold every visible submesh - the
-                    // view's CPU walk rule (CpuWalkHidden; a VG candidate is in no bin and no raster here:
-                    // walked).
+                    // bins (the "depthPrepass" cull view against this frame's HZB, AttachBinned) when they hold
+                    // every visible submesh - the view's CPU walk rule (CpuWalkHidden; the view takes no cluster
+                    // cut, so a VG primitive's instances are in its bins like any other).
                     if ( !CpuWalkHidden( BinnedWalkView( GpuDriven::MeshPass::DepthPrepass, kBinnedMainView ),
                                          g.Mesh, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
                         continue;

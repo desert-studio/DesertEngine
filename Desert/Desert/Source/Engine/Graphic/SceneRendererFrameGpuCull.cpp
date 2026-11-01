@@ -74,9 +74,10 @@ namespace Desert::Graphic
         };
 
         // From the static queue and the ISM queue: per primitive row, the DAG rows of every submesh one of its
-        // queue entries shows (one entry per material slot: their union), appended for EVERY cull view of the draw
-        // bins (the main view and the drawn shadow cascades), cull view v as cut view v. Capacity = instances x
-        // DAGs, the rows of EACH cut view's region (InstanceCulling compacts the append per cut view);
+        // queue entries shows (one entry per material slot: their union), appended for EVERY cut view of the draw
+        // bins (@p cutViewOf, FrameDrawBins::CutViewOf: per cull view its cut view, kInvalidIndex = none - the
+        // view bins its VG instances). Capacity = instances x DAGs, the rows of EACH cut view's region
+        // (InstanceCulling compacts the append per cut view);
         // VisibleCapacity = instances x the DAGs' ClusterCount, the bound of ONE view's cut
         // (AddFrameVirtualGeometry cuts each view in its own dispatch; a cut never draws more clusters than its
         // DAG holds), saturated to the cut's budget kMaxVisibleClustersPerCut. Refused when the candidate rows
@@ -84,7 +85,7 @@ namespace Desert::Graphic
         Common::ResultStr<VirtualGeometryCandidateTables>
         MakeVirtualGeometryCandidates( RDG::Builder& graph, System::MeshRenderer& meshes,
                                        const GpuDriven::GpuScene& gpuScene, const uint32_t primitiveRows,
-                                       const uint32_t viewCount )
+                                       const std::span<const uint32_t> cutViewOf )
         {
             using Result                                   = VirtualGeometryCandidateTables;
             const VirtualGeometry::VirtualMeshTable& table = VirtualGeometry::VirtualMeshTable::Get();
@@ -120,8 +121,10 @@ namespace Desert::Graphic
             for ( size_t f = 0; f < fields.size() && f < fieldPrims.size(); ++f )
                 if ( fields[f].Transforms && !fields[f].Transforms->empty() )
                     addSpans( fieldPrims[f], fields[f].Mesh, fields[f].HiddenSubmeshes );
-            Result out;
-            if ( byPrimitive.empty() )
+            Result         out;
+            const auto     cutViews = static_cast<uint32_t>( std::ranges::count_if(
+                 cutViewOf, []( const uint32_t cutView ) { return cutView != GpuDriven::kInvalidIndex; } ) );
+            if ( byPrimitive.empty() || cutViews == 0u )
                 return Common::MakeSuccess( std::move( out ) );
 
             std::vector<glm::uvec2> primitiveDags( primitiveRows, glm::uvec2( 0u ) );
@@ -149,21 +152,16 @@ namespace Desert::Graphic
                     submeshWords[span.Submesh / 64u] |= uint64_t{ 1 } << ( span.Submesh % 64u );
                 }
             }
-            const uint32_t views = std::max( viewCount, 1u );
-            if ( capacity * views > UINT32_MAX )
+            if ( capacity * cutViews > UINT32_MAX )
                 return Common::MakeError<Result>( std::format(
                      "VirtualGeometry: {} drawn VG instances hold {} candidates, past the candidate-row "
                      "index range",
-                     instancesTotal, capacity * views ) );
+                     instancesTotal, capacity * cutViews ) );
             if ( capacity == 0u || visible == 0u )
             {
                 out.CandidateSubmeshes.clear(); // nothing appended: every instance stays in the bins
                 return Common::MakeSuccess( std::move( out ) );
             }
-
-            std::vector<uint32_t> cutViewOf( views, 0u );
-            for ( uint32_t v = 0; v < views; ++v )
-                cutViewOf[v] = v; // cull view v (main = 0, cascades after it: AddFrameDrawBins) is cut view v
 
             const auto upload = [&graph]( const std::string& name, const std::span<const std::byte> bytes )
             {
@@ -174,10 +172,10 @@ namespace Desert::Graphic
             out.Input.PrimitiveDags =
                  upload( "GPUDriven.VgPrimitiveDags", std::as_bytes( std::span( primitiveDags ) ) );
             out.Input.DagEntries    = upload( "GPUDriven.VgDagEntries", std::as_bytes( std::span( entries ) ) );
-            out.Input.CutViewOf     = upload( "GPUDriven.VgCutViewOf", std::as_bytes( std::span( cutViewOf ) ) );
+            out.Input.CutViewOf     = upload( "GPUDriven.VgCutViewOf", std::as_bytes( cutViewOf ) );
             out.Input.PrimitiveRows = primitiveRows;
             out.Input.Capacity      = static_cast<uint32_t>( capacity );
-            out.Input.CutViews      = views;
+            out.Input.CutViews      = cutViews;
             out.Instances           = static_cast<uint32_t>( std::min<uint64_t>( instancesTotal, UINT32_MAX ) );
             // The exact bound, past the cut's budget saturated to it (AddClusterCut caps each dispatch by
             // kMaxVisibleClustersPerCut and counts what does not fit).
@@ -288,22 +286,20 @@ namespace Desert::Graphic
             bins.Views.push_back( mainInput );
             bins.ViewKeys.push_back( System::MeshRenderer::kBinnedMainView );
             bins.ViewNames.emplace_back( mainPass == GpuDriven::MeshPass::GBuffer ? "gbuffer" : "forward" );
+            bins.CutViewOf.push_back( 0u ); // the main view is cut view 0
         }
         std::vector<GpuDriven::CullViewInput>& views    = bins.Views;
         std::vector<uint32_t>&                 viewKeys = bins.ViewKeys;
+        uint32_t                               cutViews = 1u;
         // The deferred path's depth prepass for what the base pass does not draw ("Deferred: Forward
-        // Depth/Normal", the generic programs' DepthNormal.Binned cells): its own view of the main camera, frustum
-        // only - it is drawn once, before this frame's HZB exists, so it has no phase 2. Views.front() stays the
-        // G-buffer view.
+        // Depth/Normal", the generic programs' DepthNormal.Binned cells): its own view of the main camera, NOT one
+        // of phase 1's - it is drawn after the phase-1 G-buffer, so AddFrameDrawBinsPostOcclusion culls it once
+        // against this frame's furthest HZB of that depth. No cut view: its VG instances stay in its bins.
         if ( mainPass == GpuDriven::MeshPass::GBuffer &&
              !meshes->GetDrawCommandCache()->Pass( GpuDriven::MeshPass::DepthPrepass ).Bins.empty() )
-        {
-            views.push_back( MakeCullView( GpuDriven::MeshPass::DepthPrepass, frame.ViewProjection,
-                                           frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale,
-                                           windDistance, lodFlag ) );
-            viewKeys.push_back( System::MeshRenderer::kBinnedMainView );
-            bins.ViewNames.emplace_back( "depthPrepass" );
-        }
+            bins.DepthPrepassView = MakeCullView( GpuDriven::MeshPass::DepthPrepass, frame.ViewProjection,
+                                                  frame.ViewProjection, camera->GetFrustum(), lod, lensScale,
+                                                  windDistance, lodFlag );
         if ( m_FrameCascades )
         {
             const uint32_t cascades = meshes->DirectionalShadows()[SceneResources::kDirectionalShadowSun].Count;
@@ -327,6 +323,7 @@ namespace Desert::Graphic
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
+                    bins.CutViewOf.push_back( cutViews++ ); // the still casters' clusters, into the cache
                 }
                 if ( meshes->CascadeMovableBinsDrawn( view ) )
                 {
@@ -336,15 +333,21 @@ namespace Desert::Graphic
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
                     viewKeys.push_back( System::MeshRenderer::CascadeMovableView( view ) );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}Movable", c ) );
+                    // The movable layer cuts its VG movers too (UE Nanite: a World Position Offset caster goes
+                    // through the cluster cull of the cached CSM's / VSM's dynamic layer, its bounds grown by
+                    // MaxWPODisplacement): the swaying ISM instances near the camera are cut by the cascade's
+                    // texels, every node / cluster box grown by the wind's reach at its height
+                    // (ClusterCut.shader), instead of drawing their whole LOD mesh from the bins.
+                    bins.CutViewOf.push_back( cutViews++ );
                 }
             }
         }
 
-        // VIRT-GEOM: every view's VG candidates ride phase 1 (AddFrameVirtualGeometry cuts them). A refusal is
-        // logged once per message and the frame cuts nothing; the bins draw as before.
+        // VIRT-GEOM: every cut view's VG candidates ride phase 1 (AddFrameVirtualGeometry cuts them). A refusal
+        // is logged once per message and the frame cuts nothing; the bins draw as before.
         VirtualGeometryCandidateTables vgTables;
         if ( auto made = MakeVirtualGeometryCandidates( graph, *meshes, *gpuScene, scene.GetValue().PrimitiveCount,
-                                                        static_cast<uint32_t>( views.size() ) );
+                                                        bins.CutViewOf );
              made )
             vgTables = std::move( made.GetValue() );
         else if ( made.GetError() != m_VirtualGeometryLastError )
@@ -363,12 +366,14 @@ namespace Desert::Graphic
             refuse( culled.GetError() );
             return;
         }
-        bool mainIssued = false;
+        // A cut view's VG instances are candidates, in none of its bins, only when the frame appended some.
+        const bool appendsVg  = vgTables.Input.PrimitiveDags.IsValid();
+        bool       mainIssued = false;
         for ( size_t v = 0; v < views.size(); ++v )
         {
-            const bool issued =
-                 meshes->SetFrameBinned( static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v],
-                                         culled.GetValue().Draws[v], upload.GetValue(), scene.GetValue() );
+            const bool issued = meshes->SetFrameBinned(
+                 static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v], culled.GetValue().Draws[v],
+                 upload.GetValue(), scene.GetValue(), appendsVg && bins.CutViewOf[v] != GpuDriven::kInvalidIndex );
             if ( v == 0u )
                 mainIssued = issued;
         }
@@ -394,9 +399,9 @@ namespace Desert::Graphic
                       m_ViewResources.GetName() );
         m_VirtualGeometryPostRefusalLogged = forcePostRefusal;
         bins.ClusterMainTestsHzb           = bins.MainTestsHzb && mainIssued && !forcePostRefusal;
-        // The primitives InstanceCull just took out of every cull view's bins (only when it appended candidates):
+        // The primitives InstanceCull just took out of every cut view's bins (only when it appended candidates):
         // the CPU walk draws what of them no cluster raster draws (MeshRenderer::CpuWalkHidden).
-        if ( vgTables.Input.PrimitiveDags.IsValid() )
+        if ( appendsVg )
             meshes->SetFrameClusterCandidates( std::move( vgTables.CandidateSubmeshes ) );
         bins.Carry             = culled.GetValue().Carry;
         bins.Upload            = upload.GetValue();
@@ -407,7 +412,10 @@ namespace Desert::Graphic
         // A forward main view has no phase 2 (AddFrameDrawBinsPostOcclusion runs on the deferred path only): its
         // counts are handed here.
         if ( mainPass != GpuDriven::MeshPass::GBuffer )
-            m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, bins.ViewNames, bins.Carry );
+        {
+            const GpuDriven::CullPhaseSource counted{ .ViewNames = bins.ViewNames, .Carry = bins.Carry };
+            m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, std::span( &counted, 1 ) );
+        }
         m_FrameDrawBins = std::move( bins );
         m_DrawBinsLastError.clear();
     }
@@ -427,7 +435,8 @@ namespace Desert::Graphic
             m_DrawBinsLastError = std::move( message );
         };
 
-        // This frame's furthest HZB of the phase-1 depth: phase 2's occlusion input and next frame's phase 1.
+        // This frame's furthest HZB of the phase-1 depth: phase 2's occlusion input, the depth prepass view's,
+        // and next frame's phase 1.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto*      hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
         const bool gbufferView =
@@ -466,9 +475,51 @@ namespace Desert::Graphic
                     AddFrameGBufferPostOcclusion( graph, textures, meshRenderer );
                 }
             }
-            graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
         }
-        m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, bins.ViewNames, bins.Carry );
+
+        // THE DEPTH PREPASS VIEW, CULLED ONCE (UE InstanceCulling: a view drawn after this frame's HZB is culled
+        // by it in one pass, with no phase 2): "Deferred: Forward Depth/Normal" draws after the phase-1 G-buffer,
+        // so an instance the furthest HZB of that depth occludes is behind it (phase 2 only adds occluders). The
+        // main phase tests a view's PrevHzb through its PrevViewProjection - the HZB's own matrix, this frame's
+        // here (InstanceCull.shader's phase-2 test of the same HZB). Without the HZB: the same cull, frustum only.
+        // No VG input: the view is no cut view, its VG instances are in its bins.
+        std::optional<GpuDriven::OcclusionCarry> prepassCarry;
+        if ( bins.DepthPrepassView )
+        {
+            GpuDriven::CullViewInput prepass = *bins.DepthPrepassView;
+            if ( furthest.IsValid() )
+            {
+                const uint32_t width            = depthDesc.GetValue().Size.Width;
+                const uint32_t height           = depthDesc.GetValue().Size.Height;
+                prepass.PrevHzb                 = furthest;
+                prepass.View.PrevViewProjection = prepass.View.ViewProjection;
+                prepass.View.Flags |= GpuDriven::CullViewFlags::kTestHzb;
+                prepass.View.HzbExtent = glm::uvec4(
+                     width, height, static_cast<uint32_t>( std::bit_width( std::max( width, height ) ) ), 0u );
+            }
+            const Common::ResultStr<GpuDriven::MainPhaseResult> culled = m_GpuCull.AddMainPhase(
+                 graph, bins.Scene, meshRenderer->GetDrawCommandCache()->Passes(), bins.Upload.Passes,
+                 std::span( &prepass, 1 ), bins.NeutralHzb, GpuDriven::VirtualGeometryCandidateInput{} );
+            if ( !culled )
+                refuse( std::format( "depth prepass view: {}; its bins are drawn on the CPU path",
+                                     culled.GetError() ) );
+            else if ( meshRenderer->SetFrameBinned( GpuDriven::MeshPass::DepthPrepass,
+                                                    System::MeshRenderer::kBinnedMainView,
+                                                    culled.GetValue().Draws.front(), bins.Upload, bins.Scene,
+                                                    false ) )
+                prepassCarry = culled.GetValue().Carry;
+        }
+        if ( furthest.IsValid() )
+            graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
+
+        // The counts of every binned view: phase 1's, then the depth prepass view's own cull when it issued.
+        const std::string                       prepassName = "depthPrepass";
+        std::vector<GpuDriven::CullPhaseSource> counted{
+             GpuDriven::CullPhaseSource{ .ViewNames = bins.ViewNames, .Carry = bins.Carry } };
+        if ( prepassCarry )
+            counted.push_back(
+                 GpuDriven::CullPhaseSource{ .ViewNames = std::span( &prepassName, 1 ), .Carry = *prepassCarry } );
+        m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, counted );
     }
 
     void SceneRenderer::AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
@@ -723,10 +774,11 @@ namespace Desert::Graphic
             m_ClusterCutCounts = std::make_unique<VirtualGeometry::ClusterCutCounts>();
         m_ClusterCutCounts->BeginFrame( frame.FrameIndex );
 
-        // One cut per cull view of the draw bins (cull view v = cut view v): the main view, then each drawn
-        // shadow cascade. Each cut selects LOD in ITS OWN pixels (UE: shadow LOD by the shadow view's
-        // resolution): the main view through its perspective LodProjection, a cascade by its own world size per
-        // texel (orthographic). The cascades' instance bins keep the main camera's mesh LOD (MakeCullView).
+        // One cut per cut view of the draw bins (FrameDrawBins::CutViewOf): the main view (cut view 0), then each
+        // drawn cascade layer (static, movable); a view with no cut view (the deferred depth prepass) bins its VG
+        // instances. Each cut selects LOD in ITS OWN pixels (UE: shadow LOD by the shadow view's resolution): the
+        // main view through its perspective LodProjection, a cascade layer by its cascade's world size per texel
+        // (orthographic). The cascades' instance bins keep the main camera's mesh LOD (MakeCullView).
         const VirtualGeometry::ClusterCandidates candidates{
              .Rows            = bins.VgCandidates.Rows,
              .Count           = bins.VgCandidates.Count,
@@ -749,13 +801,17 @@ namespace Desert::Graphic
                              .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
                              .Lod              = VirtualGeometry::ClusterLodMeasure::Perspective(
                                   frame.Split.Render.Height, bins.Views[v].View.LodProjection ) } );
-            // A cascade's view key is kDirectionalShadowSun x kMaxCascades + its cascade (AddFrameDrawBins).
-            const uint32_t key   = bins.ViewKeys[v];
+            // A cut cascade layer's view key (AddFrameDrawBins): its static layer kDirectionalShadowSun x
+            // kMaxCascades + its cascade, its movable layer MeshRenderer::CascadeMovableView of that; both select
+            // LOD by the cascade's texels. Any other key on a cut view is a broken marking.
+            const uint32_t key         = bins.ViewKeys[v];
+            const uint32_t movableBase = System::MeshRenderer::CascadeMovableView( 0u );
+            const uint32_t cascadeKey  = key >= movableBase ? key - movableBase : key;
             const uint32_t first = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades;
-            if ( key < first || key - first >= System::MeshRenderer::kMaxCascades )
+            if ( cascadeKey < first || cascadeKey - first >= System::MeshRenderer::kMaxCascades )
                 return Common::MakeError<Result>(
-                     std::format( "VirtualGeometry: cut view {} (key {}) is not a sun cascade", v, key ) );
-            const float worldPerTexel = sun.CascadeWorldPerTexel[static_cast<glm::length_t>( key - first )];
+                     std::format( "VirtualGeometry: cut view {} (key {}) is not a sun cascade layer", v, key ) );
+            const float worldPerTexel = sun.CascadeWorldPerTexel[static_cast<glm::length_t>( cascadeKey - first )];
             return Common::MakeSuccess(
                  Result{ .Instance         = bins.Views[v],
                          .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
@@ -777,10 +833,14 @@ namespace Desert::Graphic
                  "primitives are drawn by their own submeshes" );
             return;
         }
-        // Shadow cascades: the cascade's static layer draws the clusters (only drawn cascades are cull views).
+        // Shadow cascades: each drawn layer draws its own clusters - the static layer the still casters' into the
+        // cache, the movable layer the movers' over it (only drawn layers are cull views; the marking, not the
+        // index, says which cull view is a cut view). Views.front() is the main view, cut below.
         bool cascadesCut = true;
         for ( size_t v = 1; v < bins.Views.size(); ++v )
         {
+            if ( bins.CutViewOf[v] == GpuDriven::kInvalidIndex )
+                continue;
             const auto cascadeView = viewOf( v );
             if ( !cascadeView )
             {
@@ -790,7 +850,7 @@ namespace Desert::Graphic
             }
             const auto cascade = AddVirtualGeometryCut(
                  graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, cascadeView.GetValue(),
-                 static_cast<uint32_t>( v ), bins.ViewKeys[v], GpuDriven::CullPhase::Main,
+                 bins.CutViewOf[v], bins.ViewKeys[v], GpuDriven::CullPhase::Main,
                  VirtualGeometry::ClusterCutKind::ShadowCascade );
             if ( !cascade )
             {
@@ -813,7 +873,8 @@ namespace Desert::Graphic
         const uint32_t pass = view.Instance.View.Pass;
         const auto     culled =
              AddVirtualGeometryCut( graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, view,
-                                    0u, System::MeshRenderer::kBinnedMainView, GpuDriven::CullPhase::Main,
+                                    bins.CutViewOf.front(), System::MeshRenderer::kBinnedMainView,
+                                    GpuDriven::CullPhase::Main,
                                     VirtualGeometry::ClusterCutKind::Main );
         if ( !culled )
         {
