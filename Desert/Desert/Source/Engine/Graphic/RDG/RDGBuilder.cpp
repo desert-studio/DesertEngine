@@ -1316,7 +1316,9 @@ namespace Desert::Graphic::RDG
             };
             for ( const PipeSegment& segment : result.Segments )
             {
-                if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart ||
+                // Graphics segments only: an AsyncCompute segment's GPU timeline (the profiler's queue and its
+                // "RDG Async" row) is set by BeginPipeSegment on the calling thread, after the chunks record.
+                if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart || segment.OnPipe != Pipe::Graphics ||
                      segment.LastPosition - segment.FirstPosition + 1 < kSerialSegment )
                     continue;
                 bool chunkOpen = false;

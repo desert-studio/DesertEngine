@@ -208,6 +208,12 @@ namespace Desert::Graphic
             open.push_back( index );
             return index;
         }
+        // RDG-PARALLEL-3: scope @p index takes @p order (a chunk's scopes, re-stamped as the chunk is replayed).
+        void SetOrder( int32_t index, uint64_t order ) noexcept
+        {
+            if ( index >= 0 && static_cast<size_t>( index ) < m_Scopes.size() )
+                m_Scopes[static_cast<size_t>( index )].Order = order;
+        }
         void EndUnder( int32_t index, std::vector<int32_t>& open )
         {
             if ( !open.empty() && open.back() == index )

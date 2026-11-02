@@ -24,7 +24,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgQueueObjects::VulkanRdgQueueObjects( VkDevice device, uint32_t graphicsFamily,
                                                   std::optional<uint32_t> computeFamily, uint32_t frameSlots )
-         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) )
+         : m_Device( device ), m_Families{ graphicsFamily, computeFamily }, m_Slots( std::max( 1u, frameSlots ) )
     {
         for ( Slot& slot : m_Slots )
         {
@@ -51,6 +51,14 @@ namespace Desert::Graphic::API::Vulkan
                 if ( pipe.Pool != VK_NULL_HANDLE )
                     vkDestroyCommandPool( m_Device, pipe.Pool, nullptr ); // frees its command buffers
             }
+            for ( const std::vector<PipePool>& arenas : slot.Secondary )
+            {
+                for ( const PipePool& arena : arenas )
+                {
+                    if ( arena.Pool != VK_NULL_HANDLE )
+                        vkDestroyCommandPool( m_Device, arena.Pool, nullptr );
+                }
+            }
             for ( VkSemaphore semaphore : slot.Semaphores )
                 vkDestroySemaphore( m_Device, semaphore, nullptr );
         }
@@ -70,8 +78,75 @@ namespace Desert::Graphic::API::Vulkan
                                                        static_cast<int>( reset ) ) );
             pipe.Used = 0;
         }
+        for ( std::vector<PipePool>& arenas : frameSlot.Secondary )
+        {
+            for ( PipePool& arena : arenas )
+            {
+                const VkResult reset = vkResetCommandPool( m_Device, arena.Pool, 0 );
+                if ( reset != VK_SUCCESS )
+                    return Common::MakeError( std::format(
+                         "RDG queue objects: vkResetCommandPool of a chunk arena failed ({})", static_cast<int>( reset ) ) );
+                arena.Used = 0;
+            }
+        }
         frameSlot.SemaphoresUsed = 0;
         return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgQueueObjects::ReserveSecondaryArenas( RDG::Pipe pipe, uint32_t arenas )
+    {
+        const size_t           index  = PipeIndex( pipe );
+        std::vector<PipePool>& pools  = m_Slots[m_Slot].Secondary[index];
+        const auto&            family = m_Families[index];
+        if ( !family )
+            return Common::MakeError(
+                 std::format( "RDG queue objects: no queue family for the {} pipe", PipeName( pipe ) ) );
+        while ( pools.size() < arenas )
+        {
+            VkCommandPoolCreateInfo info{};
+            info.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            info.queueFamilyIndex = *family;
+            info.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+            PipePool       arena;
+            const VkResult created = vkCreateCommandPool( m_Device, &info, nullptr, &arena.Pool );
+            if ( created != VK_SUCCESS )
+                return Common::MakeError( std::format( "RDG queue objects: vkCreateCommandPool of a chunk arena failed ({})",
+                                                       static_cast<int>( created ) ) );
+            pools.push_back( std::move( arena ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<VkCommandBuffer> VulkanRdgQueueObjects::BeginSecondary(
+         RDG::Pipe pipe, uint32_t arena, const VkCommandBufferInheritanceInfo& inheritance,
+         VkCommandBufferUsageFlags usage )
+    {
+        using Out                    = VkCommandBuffer;
+        std::vector<PipePool>& pools = m_Slots[m_Slot].Secondary[PipeIndex( pipe )];
+        if ( arena >= pools.size() )
+            return Common::MakeError<Out>( std::format(
+                 "RDG queue objects: chunk arena {} of the {} pipe was not reserved", arena, PipeName( pipe ) ) );
+        PipePool& pool = pools[arena];
+        if ( pool.Used == pool.Buffers.size() )
+        {
+            VkCommandBufferAllocateInfo allocate{};
+            allocate.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocate.commandPool        = pool.Pool;
+            allocate.level              = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+            allocate.commandBufferCount = 1;
+            VkCommandBuffer buffer      = VK_NULL_HANDLE;
+            if ( vkAllocateCommandBuffers( m_Device, &allocate, &buffer ) != VK_SUCCESS )
+                return Common::MakeError<Out>( "RDG queue objects: vkAllocateCommandBuffers (secondary) failed" );
+            pool.Buffers.push_back( buffer );
+        }
+        VkCommandBuffer          buffer = pool.Buffers[pool.Used++];
+        VkCommandBufferBeginInfo begin{};
+        begin.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags            = usage;
+        begin.pInheritanceInfo = &inheritance;
+        if ( vkBeginCommandBuffer( buffer, &begin ) != VK_SUCCESS )
+            return Common::MakeError<Out>( "RDG queue objects: vkBeginCommandBuffer (secondary) failed" );
+        return Common::MakeSuccess( buffer );
     }
 
     Common::ResultStr<VkCommandBuffer> VulkanRdgQueueObjects::BeginCommandBuffer( RDG::Pipe pipe )

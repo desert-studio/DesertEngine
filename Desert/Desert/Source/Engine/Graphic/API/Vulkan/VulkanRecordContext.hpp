@@ -83,6 +83,10 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<int32_t> GpuScopes;
         uint64_t             GpuOrder     = 0;
         uint32_t             GpuOrderNext = 0;
+        // RDG-PARALLEL-3: every scope this context opened (VulkanGpuProfiler::BeginScope), in opening order. The
+        // dispatching thread re-stamps their order when it replays the chunk (VulkanGpuProfiler::StampChunkOrder),
+        // so the frame's scope order is the replay order - the serial order - not the order chunks were planned.
+        std::vector<int32_t> GpuScopesMade;
 
         void ForgetBoundState()
         {

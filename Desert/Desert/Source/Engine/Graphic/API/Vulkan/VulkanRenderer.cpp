@@ -1635,6 +1635,8 @@ namespace Desert::Graphic::API::Vulkan
         // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
         m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
+        // RDG-PARALLEL-3: a graph chunk's scopes take their order as the chunk is replayed.
+        m_RdgDevice.ChunkOrder = &m_GpuProfiler;
 #endif
         // RDG-CONTRACTS B(3): the graph records into its own segment command buffers, so the frame command
         // buffer is split here: what was recorded before the graph is submitted before the graph.

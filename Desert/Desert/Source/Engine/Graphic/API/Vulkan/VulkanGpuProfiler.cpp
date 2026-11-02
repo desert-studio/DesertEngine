@@ -416,6 +416,8 @@ namespace Desert::Graphic::API::Vulkan
                               : m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
         if ( index < 0 )
             return -1;
+        if ( chunk != nullptr )
+            chunk->GpuScopesMade.push_back( index );
 
         vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( index ) ) );
@@ -455,6 +457,16 @@ namespace Desert::Graphic::API::Vulkan
     {
         const std::lock_guard<std::mutex> lock( m_Lock );
         return m_Recording != nullptr ? m_Recording->Recorder.ReserveOrder( chunks ) : 0;
+    }
+
+    void VulkanGpuProfiler::StampChunkOrder( std::span<const int32_t> scopes )
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( m_Recording == nullptr || scopes.empty() )
+            return;
+        const uint64_t tick = m_Recording->Recorder.ReserveOrder( 1 );
+        for ( size_t k = 0; k < scopes.size(); ++k )
+            m_Recording->Recorder.SetOrder( scopes[k], ( tick << 24 ) | static_cast<uint64_t>( k ) );
     }
 
     void VulkanGpuProfiler::Resolve( FrameQueries& frame )
