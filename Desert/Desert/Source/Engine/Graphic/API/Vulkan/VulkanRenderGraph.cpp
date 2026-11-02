@@ -1622,7 +1622,18 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
                         graph.Result->Passes[segment.LastPosition].Name + ": " +
-                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes]";
+                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes";
+                // The graphics pass that waits for this segment (its join, RDGCompile CutRunsAtConsumers).
+                for ( const RDG::CrossPipeSync& sync : graph.Result->Syncs )
+                {
+                    if ( sync.IsFork || sync.SignalPosition != segment.LastPosition )
+                        continue;
+                    if ( sync.WaitPosition == RDG::CrossPipeSync::kJoinAtGraphEnd )
+                        line += ", joined at the graph end";
+                    else
+                        line += ", joined before '" + graph.Result->Passes[sync.WaitPosition].Name + "'";
+                }
+                line += "]";
             }
             std::string& logged = m_AsyncSegmentsLogged[std::string( graph.Name )];
             if ( line != logged )
@@ -2476,8 +2487,18 @@ namespace Desert::Graphic::API::Vulkan
         // Execute).
         if ( segment.FirstPosition == RDG::CrossPipeSync::kForkAtGraphStart )
             m_PrologueScope = BeginGraphCommandsScope( "fork releases at the graph start" );
-        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
-             m_Device.Profiler != nullptr && m_Result != nullptr &&
+        // A later piece of a run cut at a join (RDGCompile CutRunsAtConsumers) waits on nothing itself, but it
+        // follows the run's first piece on the compute queue: that piece's fork orders it too.
+        bool forked = segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty();
+        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !forked && m_Result != nullptr &&
+             segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
+        {
+            uint32_t runFirst = segment.FirstPosition;
+            while ( runFirst > 0 && m_Result->Passes[runFirst - 1].OnPipe == RDG::Pipe::AsyncCompute )
+                --runFirst;
+            forked = runFirst != segment.FirstPosition && !m_Result->Passes[runFirst].WaitSyncs.empty();
+        }
+        if ( forked && m_Device.Profiler != nullptr && m_Result != nullptr &&
              segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
         {
             m_SegmentScopeName = std::string( Common::Profiling::kGpuAsyncSegmentScopePrefix ) +
