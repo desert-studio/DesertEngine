@@ -47,20 +47,27 @@ namespace Desert::Graphic::System
         // Render pixels per unit of x per unit of depth, |Projection[0][0]| x Render.Width / 2; 0 = the view draws
         // no screen-width floor (an orthographic lens, no render extent).
         float PixelsPerUnit = 0.0f;
+        // GRASS-SHADOW-1, THE FAR LOD'S MEASURE: PixelsPerUnit / the Foliage quality's LodScreenPixels - the
+        // distance (cm) at which a grass instance's bounding radius of 1 cm stands at the far LOD's screen size.
+        // A variety's far LOD distance is its radius x this (GrassRenderer::PrepareVariety, p.Lod.z); the
+        // ground's far cover takes the meshes' far LOD from the same (TerrainInstance::GrassCoverFarLodRadius x
+        // CameraUB::GrassLens.z). 0 = no far LOD (no quality value, an orthographic lens, no render extent).
+        float FarLodScale = 0.0f;
     };
     // Computed ONCE per scene view (SceneRenderer::OnUpdate -> ViewFrame::GrassLens); every reader takes the
     // frame's.
     [[nodiscard]] GrassFieldLens MakeGrassFieldLens( const GrassQuality& quality, const ViewFrame& frame );
 
-    // The lens as ViewFrame::GrassLens / CameraUB::GrassLens carry it: x = DistanceScale, y = PixelsPerUnit, zw =
-    // 0. The one packing, so the writer (SceneRenderer) and a C++ reader (GrassRenderer) cannot swap the two.
+    // The lens as ViewFrame::GrassLens / CameraUB::GrassLens carry it: x = DistanceScale, y = PixelsPerUnit, z =
+    // FarLodScale, w = 0. The one packing, so the writer (SceneRenderer) and a C++ reader (GrassRenderer) cannot
+    // swap them.
     [[nodiscard]] inline glm::vec4 PackGrassFieldLens( const GrassFieldLens& lens )
     {
-        return glm::vec4( lens.DistanceScale, lens.PixelsPerUnit, 0.0f, 0.0f );
+        return glm::vec4( lens.DistanceScale, lens.PixelsPerUnit, lens.FarLodScale, 0.0f );
     }
     [[nodiscard]] inline GrassFieldLens UnpackGrassFieldLens( const glm::vec4& packed )
     {
-        return GrassFieldLens{ .DistanceScale = packed.x, .PixelsPerUnit = packed.y };
+        return GrassFieldLens{ .DistanceScale = packed.x, .PixelsPerUnit = packed.y, .FarLodScale = packed.z };
     }
 
     // The screen-width floor's distance D (GRASS-WIDTH, cm; 0 = none): where a mean blade @p meanWidth cm wide

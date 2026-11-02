@@ -14,7 +14,9 @@
 // The cascades' lists (GPU-COST-21, the row's Info.w = the cascade views that have one, list k the k-th set bit):
 // each list's copy of Args' layout in CascadeArgs gets its records and counts the same way, and Feedback, after
 // those three counts, one drawn count per cascade VIEW (0 for a view without a list), so the read-back names the
-// cascade whatever lists a later frame has.
+// cascade whatever lists a later frame has. A list's bucket holds two parts (GRASS-SHADOW-1, GrassGenerate.shader):
+// its movers from its first slot - the records of the list's copy of Args draw them - and its rest-pose casters from
+// its last slot, counted after the list's rest twin of the records, which draw them; the drawn count is both.
 // GRASS-CULL-2 (UE GPUScene: one table, one dispatch for every primitive): ONE dispatch per pass for all the
 // generating varieties - thread i finalizes row Mode.z + i (and every 64th after it) of the variety table
 // (Common/GrassVarietyRows.glslh), whose buffers it reads and writes by device address. The camera's list is
@@ -54,7 +56,10 @@ Shader "GrassFinalize"
             GrassWords cascade  = GrassWords( VarietyRows[r].CascadeArgs );
             for ( uint v = 0u; v < kCascadeViews; ++v )
                 feedback.Words[buckets + 4u + v] = 0u;
-            uint words = 4u + records * 5u + buckets * 4u;
+            // One list (GrassRenderer VarietyGpu::CascadeArgWords): its copy of Args' layout, the rest twin's
+            // records, one rest count per bucket.
+            uint args  = 4u + records * 5u + buckets * 4u;
+            uint words = args + records * 5u + buckets;
             uint mask  = VarietyRows[r].Info.w;
             for ( uint k = 0u; mask != 0u; ++k )
             {
@@ -62,18 +67,26 @@ Shader "GrassFinalize"
                 mask &= mask - 1u;
                 uint base  = k * words;
                 uint table = base + 4u + records * 5u;
+                uint rests = base + args + records * 5u;
                 for ( uint s = 0u; s < records; ++s )
                 {
-                    uint at = table + GrassBucketOfRecord( s, records, buckets, blade ) * 4u;
-                    cascade.Words[base + 4u + s * 5u + 1u] = min( cascade.Words[at], cascade.Words[at + 2u] );
+                    uint bucket = GrassBucketOfRecord( s, records, buckets, blade );
+                    uint at     = table + bucket * 4u;
+                    uint room   = cascade.Words[at + 2u];
+                    uint rest   = min( cascade.Words[rests + bucket], room );
+                    cascade.Words[base + 4u + s * 5u + 1u] = min( cascade.Words[at], room );
                     cascade.Words[base + 4u + s * 5u + 4u] = cascade.Words[at + 1u];
+                    cascade.Words[base + args + s * 5u + 1u] = rest;
+                    cascade.Words[base + args + s * 5u + 4u] = cascade.Words[at + 1u] + room - rest;
                 }
                 uint drawn = 0u;
                 for ( uint b = 0u; b < buckets; ++b )
                 {
                     uint at = table + b * 4u;
-                    drawn += min( cascade.Words[at], cascade.Words[at + 2u] );
-                    cascade.Words[at] = 0u;
+                    drawn += min( cascade.Words[at], cascade.Words[at + 2u] ) +
+                             min( cascade.Words[rests + b], cascade.Words[at + 2u] );
+                    cascade.Words[at]        = 0u;
+                    cascade.Words[rests + b] = 0u;
                 }
                 cascade.Words[base + 3u]            = drawn;
                 feedback.Words[buckets + 4u + view] = drawn;

@@ -103,12 +103,6 @@ float GrassMeshCoverage( GrassFieldShare s )
     return ( s.Kept + 2.0 * s.Ahead ) / 3.0;
 }
 
-// The coverage of a field whose leaf area is @p widenShare blades (GrassFieldCoverage) and the rest meshes
-// (GrassMeshCoverage): the ground's far cover sums its layer's varieties so (LandscapeGrassCover).
-float GrassFieldCoverageOf( GrassFieldShare s, float widenShare )
-{
-    return mix( GrassMeshCoverage( s ), GrassFieldCoverage( s ), widenShare );
-}
 
 // THE BLADE'S LOD (GPU-FRAME-4; UE grass HISM: an instance's LOD by its screen size; GoT: far blades fewer and
 // wider) - the one choice of a blade instance's level and of its far-LOD share. GrassGenerate makes it once per
@@ -163,6 +157,15 @@ GrassFieldShare GrassMeshFarLod( GrassFieldShare s, float size )
     s.Kept *= GrassFarLodShare( size );
     s.Ahead *= GrassFarLodShare( size / kGrassMeshShrinkReach );
     return s;
+}
+
+// The coverage of a field whose leaf area is @p widenShare blades (GrassFieldCoverage: their far LOD's survivors
+// widen by what it drops, so it covers what it did) and the rest meshes (GrassMeshCoverage) at their far LOD's
+// @p meshSize (GrassMeshFarLod, GRASS-SHADOW-1: the meshes it drops shrink out, and the ground covers for them;
+// 0 = no far LOD): the ground's far cover sums its layer's varieties so (LandscapeGrassCover).
+float GrassFieldCoverageOf( GrassFieldShare s, float widenShare, float meshSize )
+{
+    return mix( GrassMeshCoverage( GrassMeshFarLod( s, meshSize ) ), GrassFieldCoverage( s ), widenShare );
 }
 
 // THE BLADE'S FADE (GPU-FRAME-4; UE grass: PerInstanceFadeAmount, an instance scaled to nothing before its cull) -

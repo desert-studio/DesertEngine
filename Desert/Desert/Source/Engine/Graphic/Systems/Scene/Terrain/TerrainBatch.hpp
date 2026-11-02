@@ -144,6 +144,12 @@ namespace Desert::Graphic::System
         // survivors widen 1 / sqrt(share)); the rest is mesh varieties, whose survivors keep their size and shrink
         // out. The far cover weighs the two coverages by it (GrassFieldShare.glslh GrassFieldCoverageOf).
         std::array<glm::vec4, 2> GrassCoverWiden{};
+        // GRASS-SHADOW-1: per tile layer, four to a vec4, its mesh varieties' bounding radius about the root at
+        // their mean scale (cm, weighted by leaf area; 0 = no mesh variety; LandscapeWeightDraw::
+        // GrassCoverFarLodRadius) - the primitive's half of the meshes' far LOD distance. The view's half is
+        // CameraUB::GrassLens.z (GrassFieldLens::FarLodScale): the cover takes over what the far LOD drops
+        // (GrassFieldShare.glslh GrassMeshFarLod), so the ground past it is as covered as the field it expects.
+        std::array<glm::vec4, 2> GrassCoverFarLodRadius{};
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
@@ -151,8 +157,8 @@ namespace Desert::Graphic::System
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
     static_assert(
-         sizeof( TerrainInstance ) == 67 * sizeof( glm::vec4 ),
-         "TerrainInstance must stay sixty-seven 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         sizeof( TerrainInstance ) == 69 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay sixty-nine 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
          "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
@@ -172,7 +178,8 @@ namespace Desert::Graphic::System
               offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960 &&
               offsetof( TerrainInstance, DicePool ) == 976 && offsetof( TerrainInstance, DiceClip ) == 992 &&
               offsetof( TerrainInstance, GrassCoverFloorWidth ) == 1008 &&
-              offsetof( TerrainInstance, GrassCoverWiden ) == 1040,
+              offsetof( TerrainInstance, GrassCoverWiden ) == 1040 &&
+              offsetof( TerrainInstance, GrassCoverFarLodRadius ) == 1072,
          "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -215,6 +222,10 @@ namespace Desert::Graphic::System
         // GPU-COST-29: per tile layer, the share of its grass leaf area that is blades - survivors that widen -
         // the rest meshes that shrink out (TerrainInstance::GrassCoverWiden).
         std::array<float, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverWiden{};
+        // GRASS-SHADOW-1: per tile layer, its mesh varieties' bounding radius at their mean scale (cm; 0 = no
+        // mesh variety) - the view-independent half of the meshes' far LOD distance
+        // (TerrainInstance::GrassCoverFarLodRadius).
+        std::array<float, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverFarLodRadius{};
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first

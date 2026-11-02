@@ -495,6 +495,13 @@ namespace Desert::Graphic::System
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;
             uint32_t                                        CascadeMask     = 0;
             uint32_t                                        CascadeArgBytes = 0;
+            // GRASS-SHADOW-1, EACH LAYER ITS OWN PART (UE: a cached shadow's static and movable casters are separate
+            // draw lists): non-zero when a cascade's list holds its movers (the ring the shadow wind rule sways,
+            // ShadowWindInnerOf .. ShadowWindDistanceOf) apart from its rest-pose casters - the movers drawn by the
+            // list's records, the rest by their twins CascadeRestShift bytes after them. The static layer then
+            // draws the rest part, the movable layer the movers, each with no per-instance rule in its vertex
+            // stage (GrassGenerate.shader splits, GrassFinalize.shader counts).
+            uint32_t                                        CascadeRestShift = 0;
             // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
             // the producer (RayTracingGpuInstanceSource::Rows).
             uint32_t Capacity = 0;

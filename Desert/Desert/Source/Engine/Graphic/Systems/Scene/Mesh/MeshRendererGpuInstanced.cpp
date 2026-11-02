@@ -637,6 +637,17 @@ namespace Desert::Graphic::System
             // caster box, UE's per-shadow-view instance cull), read through its ids (GPU-COST-22), else the full
             // list (GRASS-VIS): either way the light sees what the camera's depth hides.
             const bool          ownList = gpu.CascadeRefs != nullptr && ( gpu.CascadeMask & ( 1u << c ) ) != 0u;
+            // EACH LAYER ITS OWN PART (GRASS-SHADOW-1; UE: a cached shadow's static and movable casters are separate
+            // draw lists): a list that holds its movers apart from its rest-pose casters (CascadeRestShift, split by
+            // the same rule with the same measures) gives the static layer only the rest part, the movable layer
+            // only the movers and a cascade without the cache both, so no vertex stage runs for an instance its
+            // layer would throw away and the per-instance rule leaves it: the rest part casts with the rest pose's
+            // wind (Strength 0), the movers with the section's.
+            const bool parted       = ownList && gpu.CascadeRestShift != 0u;
+            const bool drawsRecords = !parted || layer != ShadowCasterLayer::Static;
+            const bool drawsTwins   = parted && layer != ShadowCasterLayer::Movable;
+            if ( parted )
+                split = 0u;
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
                       ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view,
@@ -682,21 +693,33 @@ namespace Desert::Graphic::System
                  shadow.ThinFrom > 0.0f ? glm::packHalf2x16( glm::vec2( std::min( shadow.ThinFrom, 65000.0f ),
                                                                          std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) )
                                                          : 0u );
+            InstanceWindPush restWind = wind;
+            restWind.A                = glm::vec4( 0.0f );
+            const auto addPart = [&]( const uint32_t level, const uint64_t shift, const InstanceWindPush& push )
+            {
+                list.Add( { .Pipeline          = pipeline,
+                            .Mesh              = gpu.Mesh,
+                            .Transform         = glm::mat4( 1.0f ),
+                            .Material          = caster->GetMaterialExecutor(),
+                            .HiddenSubmeshMask = gpu.HiddenSubmeshes,
+                            .IndirectArgs      = refs.Args,
+                            .IndirectInstances = refs.Instances,
+                            .IndirectIds       = refs.Ids,
+                            // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
+                            // own list is its copy of the records, its rest part their twins.
+                            .IndirectArgsOffset = listBytes + shift + LevelArgsOffset( gpu, level + shadow.Set ),
+                            .Push               = DrawPushFields{}
+                                                     .Transform( glm::mat4( 1.0f ) )
+                                                     .MaterialIndex( row )
+                                                     .Wind( push ) } );
+            };
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-                list.Add(
-                     { .Pipeline          = pipeline,
-                       .Mesh              = gpu.Mesh,
-                       .Transform         = glm::mat4( 1.0f ),
-                       .Material          = caster->GetMaterialExecutor(),
-                       .HiddenSubmeshMask = gpu.HiddenSubmeshes,
-                       .IndirectArgs      = refs.Args,
-                       .IndirectInstances = refs.Instances,
-                       .IndirectIds       = refs.Ids,
-                       // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
-                       // own list is its copy of the records.
-                       .IndirectArgsOffset = listBytes + LevelArgsOffset( gpu, level + shadow.Set ),
-                       .Push =
-                            DrawPushFields{}.Transform( glm::mat4( 1.0f ) ).MaterialIndex( row ).Wind( wind ) } );
+            {
+                if ( drawsRecords )
+                    addPart( level, 0u, wind );
+                if ( drawsTwins )
+                    addPart( level, gpu.CascadeRestShift, restWind );
+            }
         }
         return pending;
     }
