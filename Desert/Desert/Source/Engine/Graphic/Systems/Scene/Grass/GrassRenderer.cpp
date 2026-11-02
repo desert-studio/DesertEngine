@@ -369,13 +369,22 @@ namespace Desert::Graphic::System
     GrassFieldLens MakeGrassFieldLens( const GrassQuality& quality, const ViewFrame& frame )
     {
         const bool perspective = std::abs( frame.Projection[2][3] ) != 0.0f;
-        return GrassFieldLens{
+        GrassFieldLens lens{
              .DistanceScale = quality.CullDistanceScale *
                               DrawDistanceScale( Geometry::LODView{ frame.CameraPosition, frame.Projection } ),
              .PixelsPerUnit =
                   perspective && frame.Split.Render.Width > 0u
                        ? std::abs( frame.Projection[0][0] ) * 0.5f * static_cast<float>( frame.Split.Render.Width )
                        : 0.0f };
+        if ( quality.LodScreenPixels > 0.0f )
+            lens.FarLodScale = lens.PixelsPerUnit / quality.LodScreenPixels;
+        return lens;
+    }
+
+    float GrassFarLodRadius( const Common::Math::AABB& bounds )
+    {
+        const glm::vec3 centre = ( bounds.Min + bounds.Max ) * 0.5f;
+        return glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
     }
 
     float GrassBladeMeanWidth( const GrassBladeDraw& blade, const glm::vec2 scaleX )
@@ -508,8 +517,7 @@ namespace Desert::Graphic::System
             const Common::Math::AABB bounds = Geometry::LocalBounds( submeshes );
             const glm::vec3          centre = ( bounds.Min + bounds.Max ) * 0.5f;
             boundsHeight                    = centre.y;
-            boundsRadius =
-                 glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
+            boundsRadius                    = GrassFarLodRadius( bounds );
         }
         // THE FAR LOD (GPU-FRAME-4 blades, GPU-FRAME-6 meshes; UE grass HISM: an instance's LOD and its cull by
         // its screen size): the distance at which the variety's bounding radius at scale 1 stands at the Foliage
@@ -521,9 +529,7 @@ namespace Desert::Graphic::System
         // GBuffer, the masked depth prepass and every shadow cascade draw the same. 0 = no far LOD: no quality
         // value, an orthographic lens or no render extent (PixelsPerUnit 0).
         const GrassFieldLens fieldLens      = UnpackGrassFieldLens( frame.GrassLens );
-        float                farLodDistance = 0.0f;
-        if ( m_Quality.LodScreenPixels > 0.0f && fieldLens.PixelsPerUnit > 0.0f )
-            farLodDistance = boundsRadius * fieldLens.PixelsPerUnit / m_Quality.LodScreenPixels;
+        const float          farLodDistance = boundsRadius * fieldLens.FarLodScale;
         // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off;
         // scatter carries the blade up to 2 * Scatter grid cells before that.
         const double moved = variety.Blade

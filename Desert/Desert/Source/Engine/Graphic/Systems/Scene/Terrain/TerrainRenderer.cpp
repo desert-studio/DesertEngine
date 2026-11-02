@@ -116,6 +116,11 @@ namespace Desert::Graphic::System
                 instance.GrassCoverWiden[c /
                                          World::Landscape::kLandscapeWeightmapChannels][static_cast<glm::length_t>(
                      c % World::Landscape::kLandscapeWeightmapChannels )] = t.Weights.GrassCoverWiden[c];
+            for ( size_t c = 0; c < t.Weights.GrassCoverFarLodRadius.size(); ++c )
+                instance.GrassCoverFarLodRadius[c / World::Landscape::kLandscapeWeightmapChannels]
+                                               [static_cast<glm::length_t>(
+                                                    c % World::Landscape::kLandscapeWeightmapChannels )] =
+                     t.Weights.GrassCoverFarLodRadius[c];
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )

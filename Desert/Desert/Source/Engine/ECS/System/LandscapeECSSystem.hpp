@@ -153,6 +153,9 @@ namespace Desert::ECS
             // GPU-COST-29: the share of the layer's leaf area that is blades, whose survivors widen; the rest is
             // meshes, which shrink out instead (GrassFieldShare.glslh GrassFieldCoverageOf).
             float WidenShare = 1.0f;
+            // GRASS-SHADOW-1: the mesh varieties' bounding radius about the root at their mean scale (cm, weighted
+            // by leaf area; 0 = no mesh variety), the view-independent half of their far LOD distance.
+            float FarLodRadius = 0.0f;
         };
         std::unordered_map<uint64_t, std::unordered_map<std::string, GrassCoverValues>> m_GrassCover;
 

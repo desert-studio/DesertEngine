@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -99,6 +100,12 @@ namespace Desert::Graphic::System
     // kGrassBladeMaxCards cards' widths (Height x du / dv) - the width the screen-width floor's distance is
     // measured by.
     [[nodiscard]] float GrassBladeMeanWidth( const GrassBladeDraw& blade, glm::vec2 scaleX );
+
+    // A grass mesh's bounding radius about its root (cm at scale 1, from its local bounds): its bounds' half
+    // diagonal plus the centre's horizontal offset - what the far LOD measures an instance's screen size by
+    // (GrassRenderer::PrepareVariety) and the ground's far cover the meshes' far LOD distance by
+    // (LandscapeECSSystem: TerrainInstance::GrassCoverFarLodRadius).
+    [[nodiscard]] float GrassFarLodRadius( const Common::Math::AABB& bounds );
 
     struct GrassSectionDraw
     {

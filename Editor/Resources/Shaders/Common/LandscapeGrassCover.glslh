@@ -37,7 +37,8 @@ struct LandscapeGrassCover
 
 // The cover at a point of tile @p t with layer weights @p w0 / @p w1, @p viewDistance from the camera, through the
 // view's @p grassLens (GRASS-VIS-17, the frame's GrassFieldLens: x = DistanceScale, the Foliage quality's
-// CullDistanceScale x the lens's DrawDistanceScale; y = PixelsPerUnit, render pixels per unit of x per unit of depth).
+// CullDistanceScale x the lens's DrawDistanceScale; y = PixelsPerUnit, render pixels per unit of x per unit of depth;
+// z = FarLodScale, PixelsPerUnit over the far LOD's LodScreenPixels).
 // The tile row states only the tile's half - the authored distances and the floor's width per pixel - so the row
 // does not change with the lens or the render width; the view's half is applied here.
 LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, float viewDistance, vec4 grassLens )
@@ -61,10 +62,15 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
         // D = the mean blade width per floor pixel x pixels per unit (GrassFloorDistance; 0 without a floor or
         // with an orthographic lens: PixelsPerUnit 0).
         float floorDistance = t.GrassCoverFloorWidth[i / 4][i % 4] * grassLens.y;
+        // The meshes' far LOD (GRASS-SHADOW-1, GrassMeshFarLod): their mean bounding radius x the view's far LOD
+        // measure (GrassFieldLens::FarLodScale) is where it starts, the mean instance's screen size the far LOD
+        // distance over the view distance (GrassGenerate's size; 0 = no far LOD).
+        float farLodDistance = t.GrassCoverFarLodRadius[i / 4][i % 4] * grassLens.z;
+        float meshSize       = farLodDistance > 0.0 ? farLodDistance / max( viewDistance, 1.0 ) : 0.0;
         // The layer's blades widen and its meshes shrink out (GPU-COST-29): their coverages by leaf area.
         float lost = 1.0 - GrassFieldCoverageOf( GrassFieldShareAt( viewDistance, rng.x * grassLens.x,
                                                                     rng.y * grassLens.x, floorDistance ),
-                                                 t.GrassCoverWiden[i / 4][i % 4] );
+                                                 t.GrassCoverWiden[i / 4][i % 4], meshSize );
         float lai  = t.GrassCover[i].a * w * lost;
         c.Albedo += lai * t.GrassCover[i].rgb;
         c.Subsurface += lai * t.GrassCoverLight[i].rgb;
