@@ -239,6 +239,10 @@ namespace Desert::Graphic::SurfaceCache
         void                   FreeMip( CardMip& mip );
         void                   FreeCard( Card& card );
         [[nodiscard]] bool     AllocateMip( CardMip& mip, uint32_t resX, uint32_t resY );
+        // RESOLUTIONS AND ALLOCATION: every card's distance to the nearest of @p viewers and its wanted mips,
+        // nearest first (m_SortedCards), then the low and high mips placed in the atlas. Run by Update only when
+        // what it reads moved (the settle check there).
+        void AllocateCards( std::span<const glm::vec3> viewers );
         [[nodiscard]] uint32_t WantedLongSide( const Card& card ) const;
         [[nodiscard]] uint32_t AllocateRow();
         void                   FreeRow( uint32_t row );
@@ -254,6 +258,19 @@ namespace Desert::Graphic::SurfaceCache
         uint64_t                               m_Frame = 0;
         bool                                   m_RelightAll = false; // InvalidateLighting, consumed by Update
         uint64_t                               m_PlacementRevision = 0; // GetPlacementRevision
+        // THE SETTLED ALLOCATION (SCENE-CACHE-4, Update): moved by every mip allocated or freed and every atlas
+        // reset; what the last AllocateCards measured with (placement revision, budget, capture atlas, viewers),
+        // whether it changed nothing (settled: the same inputs make nothing new), its cards nearest first
+        // (pointers into m_Instances' cards, valid while m_PlacementRevision holds: only an add, move or remove
+        // re-makes or frees a card list) and the cards it could not give their low mip.
+        uint64_t               m_AtlasSerial = 0;
+        bool                   m_Settled     = false;
+        uint64_t               m_SettledPlacement = 0;
+        SurfaceCacheBudget     m_SettledBudget{};
+        uint32_t               m_SettledCaptureAtlas = 0;
+        std::vector<glm::vec3> m_SettledViewers;
+        std::vector<Card*>     m_SortedCards;
+        uint32_t               m_SettledMissing = 0;
         // The B3 table's rows: the count ever handed out and the freed ones, reused lowest first.
         uint32_t              m_RowCount = 0;
         std::vector<uint32_t> m_FreeRows;
