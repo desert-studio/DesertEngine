@@ -612,6 +612,10 @@ namespace Desert::Graphic::System
                 blocks.push_back(
                      std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
             std::vector<std::byte> push;
+            // RDG-PARALLEL-7 (RDG-REC-4): the draws' push fields are placed through one table per cell layout
+            // (DrawPushFields::Place), found by the layout's address: a list draws few cells, and the materials
+            // holding the layouts outlive this record.
+            std::vector<std::pair<const Core::Formats::MaterialLayout*, DrawPushFields::Placement>> placements;
             // THE MESH DRAW SPLIT (Common::Profiling::GpuDrawSplitScope): one timestamp pair per run of
             // consecutive draws of one mesh x one material, per GPU bin, per VG group. Asked once; off records
             // nothing and builds no label.
@@ -644,8 +648,22 @@ namespace Desert::Graphic::System
                 push.assign( materialPush.Size, std::byte{ 0 } );
                 if ( materialPush.Data != nullptr && materialPush.Size != 0u )
                     std::memcpy( push.data(), materialPush.Data, materialPush.Size );
-                if ( auto written = draw.Push.WriteInto( push, draw.Material->GetShader()->GetMaterialLayout() );
-                     !written )
+                const Core::Formats::MaterialLayout& layout    = draw.Material->GetShader()->GetMaterialLayout();
+                const DrawPushFields::Placement*     placement = nullptr;
+                for ( const auto& placed : placements )
+                {
+                    if ( placed.first == &layout )
+                    {
+                        placement = &placed.second;
+                        break;
+                    }
+                }
+                if ( placement == nullptr )
+                {
+                    placements.emplace_back( &layout, DrawPushFields::Place( layout ) );
+                    placement = &placements.back().second;
+                }
+                if ( auto written = draw.Push.WriteInto( push, *placement ); !written )
                     return Common::MakeFormattedError( "{}: draw {} ('{}'): {}", context.GetPassName(), i,
                                                        draw.Material->GetDubugName(), written.GetError() );
                 // A GPU-instanced draw (GpuInstances.hpp): its own argument records, one per submesh of the mesh
