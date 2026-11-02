@@ -120,19 +120,8 @@ namespace Desert::ShaderResources::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr VulkanStorageBuffer::SetData( const void* data, uint32_t size, uint32_t offset )
+    Common::BoolResultStr VulkanStorageBuffer::MakeRoom( const uint32_t size, const uint32_t offset )
     {
-        if ( !m_Built.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "storage buffer '{}' is not usable: {}", m_BufferName,
-                                                     m_Built.GetError() );
-
-        // Asked before anything is written: the persistent path copies into its CPU shadow with memcpy,
-        // which does not refuse a null source the way MappedMemory::Write does (Г7-C).
-        if ( data == nullptr && size != 0 )
-            return Common::MakeFormattedError<bool>( "storage buffer '{}' was given {} byte(s) from a null "
-                                                     "source",
-                                                     m_BufferName, size );
-
         // GROWING IS NOT WRITING. For a PERSISTENT buffer a resize is the GPU simulation state gone, so the
         // decision has a name and lives in one pure function a test can reach without a device.
         switch ( ClassifyBufferWrite( GetSize(), size, offset, m_Lifetime ) )
@@ -141,9 +130,17 @@ namespace Desert::ShaderResources::API::Vulkan
                 break;
 
             case BufferWriteVerdict::Grow:
+                // RDG-PARALLEL-6: never while a pass records. The growth drops every view's copy - the one this
+                // frame's descriptors already point at - and the re-make is a VkBuffer on a recording worker.
+                if ( Desert::Graphic::RDG::RecordingSeal::IsSealed() )
+                    return Common::MakeFormattedError<bool>(
+                         "storage buffer '{}' holds {} bytes and a write of {} at offset {} would grow it while a "
+                         "pass records; the pass reserves it in its setup (StorageBuffer::Reserve) and declares it "
+                         "(PassBuilder::Prepares), so it grows before the graph records",
+                         m_BufferName, GetSize(), size, offset );
                 // Per-frame only (ClassifyBufferWrite never grows a persistent buffer). Nothing is
-                // allocated here: every view's copy is dropped and re-made at the new size by the write
-                // below or by the view's next bind, seeded from the CPU image, which keeps its contents.
+                // allocated here: every view's copy is dropped and re-made at the new size by the next write
+                // or by the view's next bind, seeded from the CPU image, which keeps its contents.
                 // An allocation that cannot be made is refused at that point, with its size.
                 m_PerView->Grow( RequiredBufferSize( size, offset ) );
                 break;
@@ -162,6 +159,50 @@ namespace Desert::ShaderResources::API::Vulkan
                      "storage buffer '{}': a write of {} bytes at offset {} {}", m_BufferName, size, offset,
                      BufferWriteVerdictName( BufferWriteVerdict::RefuseWouldNotFitAnyBuffer ) );
         }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanStorageBuffer::Reserve( const uint32_t size )
+    {
+        if ( !m_Built.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}' is not usable: {}", m_BufferName,
+                                                     m_Built.GetError() );
+        // A reservation is the room a write of @p size bytes at offset 0 needs: the same verdict, the same refusals.
+        return MakeRoom( size, 0 );
+    }
+
+    Common::BoolResultStr VulkanStorageBuffer::PrepareForRecording() const
+    {
+        if ( !m_Built.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}' is not usable: {}", m_BufferName,
+                                                     m_Built.GetError() );
+        if ( IsPersistent() )
+            return BOOLSUCCESS; // one buffer, made at construction
+        IBlockCopy* copy     = nullptr;
+        const auto  resolved = m_PerView->Resolve(
+             EngineContext::GetInstance().GetCurrentFrameIndex(),
+             [this]( std::string_view view, uint32_t frame, std::unique_ptr<IBlockCopy>& made )
+             { return MakeCopy( view, frame, made ); }, copy );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}': {}", m_BufferName, resolved.GetError() );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanStorageBuffer::SetData( const void* data, uint32_t size, uint32_t offset )
+    {
+        if ( !m_Built.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}' is not usable: {}", m_BufferName,
+                                                     m_Built.GetError() );
+
+        // Asked before anything is written: the persistent path copies into its CPU shadow with memcpy,
+        // which does not refuse a null source the way MappedMemory::Write does (Г7-C).
+        if ( data == nullptr && size != 0 )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}' was given {} byte(s) from a null "
+                                                     "source",
+                                                     m_BufferName, size );
+
+        if ( const auto room = MakeRoom( size, offset ); !room.IsSuccess() )
+            return room;
 
         if ( !IsPersistent() )
         {
@@ -176,6 +217,8 @@ namespace Desert::ShaderResources::API::Vulkan
             return BOOLSUCCESS;
         }
 
+        // RDG-PARALLEL-6: the shadow and the mapped bytes as one unit (m_SharedLock).
+        std::scoped_lock lock( m_SharedLock );
         if ( size != 0 )
             std::memcpy( m_SharedImage.data() + offset, data, size );
         const auto wrote = m_Shared->Write( data, size, offset );

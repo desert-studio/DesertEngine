@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace Desert::ShaderResources::API::Vulkan
@@ -38,6 +39,13 @@ namespace Desert::ShaderResources::API::Vulkan
         }
 
         NO_DISCARD uint32_t GetSize() const override;
+
+        // StorageBuffer::Reserve: the setup-side growth (RDG-PARALLEL-6).
+        NO_DISCARD Common::BoolResultStr Reserve( uint32_t size ) override;
+
+        // IRecordPrerequisite: the active view's copy for this frame exists when this returns (per frame), or the
+        // buffer was built (persistent). Sequential, before any pass of the graph records.
+        NO_DISCARD Common::BoolResultStr PrepareForRecording() const override;
 
         // The descriptor for (@p frameIndex x ACTIVE VIEW), with the id of the copy it points at so a set
         // written for a copy that has since been dropped is rewritten (DescriptorCopyRecord). The view is
@@ -83,6 +91,10 @@ namespace Desert::ShaderResources::API::Vulkan
         // persistent, the active view's (lazily made) copy otherwise.
         NO_DISCARD Common::BoolResultStr ActiveCopy( uint32_t frameIndex, MappedBufferCopy*& out );
 
+        // Makes the block hold a write of @p size bytes at @p offset (ShaderResources::ClassifyBufferWrite): fits,
+        // grows (per frame, never under a RecordingSeal), or is refused with the reason. SetData and Reserve.
+        NO_DISCARD Common::BoolResultStr MakeRoom( uint32_t size, uint32_t offset );
+
     private:
         /// This REPLACES the `bool m_Persistent` that used to sit here, rather than sitting beside it. The
         /// growth decision (ShaderResources::ClassifyBufferWrite) is written in this vocabulary, and a bool
@@ -96,6 +108,10 @@ namespace Desert::ShaderResources::API::Vulkan
         // when per-frame; m_SharedImage.size() is the persistent buffer's size.
         std::unique_ptr<MappedBufferCopy> m_Shared;
         std::vector<uint8_t>              m_SharedImage;
+        // RDG-PARALLEL-6: two chunks may write the one persistent buffer in the same frame. The CPU shadow and
+        // the mapped bytes are written as one unit under this lock, so neither holds a torn range and the shadow
+        // always equals what the last write left in the buffer. Its size never changes, so GetSize takes no lock.
+        std::mutex                        m_SharedLock;
 
         // The outcome of building the persistent buffer. The constructor has no channel, and a buffer that
         // failed to build must answer every later question with the CAUSE — see VulkanUniformBuffer.

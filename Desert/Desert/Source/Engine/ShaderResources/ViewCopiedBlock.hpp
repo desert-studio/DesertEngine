@@ -97,7 +97,7 @@ namespace Desert::ShaderResources
         using CopyMaker = std::function<Common::BoolResultStr( std::string_view viewName, uint32_t frameIndex,
                                                                std::unique_ptr<IBlockCopy>& out )>;
 
-        explicit ViewCopiedBlock( uint32_t size ) : m_Contents( size, 0 )
+        explicit ViewCopiedBlock( uint32_t size ) : m_Contents( size, 0 ), m_Size( size )
         {
         }
 
@@ -118,9 +118,12 @@ namespace Desert::ShaderResources
             return m_Key;
         }
 
+        // RDG-PARALLEL-6: read from any thread. A chunk asks the size (ClassifyBufferWrite) while another may be
+        // growing the block under m_Lock, so the answer is a mirror of m_Contents.size(), never the vector itself.
+        // A block only grows between Resets, so a stale answer is smaller, and Write re-checks under the lock.
         [[nodiscard]] uint32_t GetSize() const noexcept
         {
-            return static_cast<uint32_t>( m_Contents.size() );
+            return m_Size.load( std::memory_order_acquire );
         }
 
         // Drops every copy and starts again from zeroes of `size` bytes (a rebuilt buffer).
@@ -129,6 +132,7 @@ namespace Desert::ShaderResources
             std::scoped_lock lock( m_Lock );
             Graphic::ViewResourceRegistry::Forget( m_Key );
             m_Contents.assign( size, 0 );
+            m_Size.store( size, std::memory_order_release );
         }
 
         // Grows the block to `newSize` bytes (a storage buffer a write outgrew). Every copy is dropped —
@@ -140,7 +144,10 @@ namespace Desert::ShaderResources
             std::scoped_lock lock( m_Lock );
             Graphic::ViewResourceRegistry::Forget( m_Key );
             if ( newSize > m_Contents.size() )
+            {
                 m_Contents.resize( newSize, 0 );
+                m_Size.store( newSize, std::memory_order_release );
+            }
         }
 
         // The CPU image new copies are seeded from: the bytes of every write so far, whichever view made it.
@@ -304,6 +311,8 @@ namespace Desert::ShaderResources
 
         Graphic::ViewResourceKey m_Key = Graphic::ViewResourceKey::Allocate();
         std::vector<uint8_t>     m_Contents;
+        // m_Contents.size(), written under m_Lock with it, read without it (GetSize).
+        std::atomic<uint32_t>    m_Size{ 0 };
         // Guards m_Contents and the write of the active copy's bytes (Write), and the make-and-seed of a copy
         // (MakeActive). Taken before any ViewResources lock, never the other way round.
         std::mutex m_Lock;

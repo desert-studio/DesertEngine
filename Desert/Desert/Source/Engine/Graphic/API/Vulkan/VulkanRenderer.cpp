@@ -553,6 +553,9 @@ namespace Desert::Graphic::API::Vulkan
                           std::span<const RdgResolvedEntry> entries, std::string_view pass )
         {
             using Sets = std::vector<VkDescriptorSet>;
+            // RDG-PARALLEL-6 (RDG-REC-3a): every descriptor of these sets goes out in one vkUpdateDescriptorSets
+            // when this returns, before the caller binds them (was one call per descriptor).
+            VulkanRdgPassDescriptors::WriteBatch batch( descriptors );
             Sets sets;
             sets.reserve( layouts.size() );
             // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
@@ -684,13 +687,24 @@ namespace Desert::Graphic::API::Vulkan
             vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
             return Common::MakeSuccess( true );
         }
+
+        // RDG-PARALLEL-6: the shader's slot table (VulkanShader::GetRdgSlots). A shader that was never reflected
+        // has an empty ReflectionData, and the table of an empty reflection is the empty table.
+        const RdgSlotTable& SlotsOf( const VulkanShader& shader )
+        {
+            static const RdgSlotTable kUnreflected;
+            const std::shared_ptr<const RdgSlotTable>& slots = shader.GetRdgSlots();
+            if ( slots )
+                return *slots;
+            return kUnreflected;
+        }
     } // namespace
 
     RDG::ShaderBindingLayout VulkanRendererAPI::GetBindingLayout( const Shader& shader ) const
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         const auto& vulkan = static_cast<const VulkanShader&>( shader );
-        return MakeShaderBindingLayout( vulkan.GetReflectionData(), vulkan.GetName() );
+        return MakeShaderBindingLayout( vulkan.GetReflectionData(), SlotsOf( vulkan ), vulkan.GetName() );
     }
 
     RDG::OtherRouteFill VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
@@ -705,7 +719,7 @@ namespace Desert::Graphic::API::Vulkan
         for ( const uint32_t binding : compute.GetBoundBindings() )
             other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
         other.PushConstants = !compute.GetBoundPushConstants().empty();
-        return MakeOtherRouteFill( shader->GetReflectionData(), other );
+        return MakeOtherRouteFill( SlotsOf( *shader ), other );
     }
 
     Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,
@@ -779,7 +793,8 @@ namespace Desert::Graphic::API::Vulkan
         other.PushConstants = !compute.GetBoundPushConstants().empty();
 
         const auto resolved =
-             ResolveRdgPassBindings( shader->GetReflectionData(), shader->GetName(), bindings, other );
+             ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ), shader->GetName(), bindings,
+                                     other );
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
@@ -836,7 +851,8 @@ namespace Desert::Graphic::API::Vulkan
         // The program's reflection is the pipeline's layout (VulkanRayTracingPipeline::Build): the pass's
         // bindings resolve against it alone, as a compute dispatch's against its program; no setter route.
         const auto resolved =
-             ResolveRdgPassBindings( program->GetReflectionData(), program->GetName(), bindings, RdgOtherRoute{} );
+             ResolveRdgPassBindings( program->GetReflectionData(), SlotsOf( *program ), program->GetName(), bindings,
+                                     RdgOtherRoute{} );
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
@@ -1398,7 +1414,8 @@ namespace Desert::Graphic::API::Vulkan
             // serves builds none.
             for ( const uint32_t binding : materialSlots.Bindings )
                 other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
-            const auto resolved = ResolveRdgPassBindings( reflection, shader->GetName(), bindings, other );
+            const auto resolved =
+                 ResolveRdgPassBindings( reflection, SlotsOf( *shader ), shader->GetName(), bindings, other );
             if ( !resolved )
                 return Common::MakeError( resolved.GetError() );
             auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass );

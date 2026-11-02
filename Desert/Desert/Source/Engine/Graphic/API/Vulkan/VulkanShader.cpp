@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <format>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -267,6 +268,7 @@ namespace Desert::Graphic::API::Vulkan
         m_ShaderModules                  = std::move( modules );
         m_PipelineShaderStageCreateInfos = std::move( stageInfos );
         m_ReflectionData                 = std::move( reflection );
+        m_RdgSlots                       = MakeRdgSlotTable( m_ReflectionData );
         m_MaterialLayout                 = std::move( cell.Layout );
         m_DescriptorSetLayouts           = std::move( layouts );
         return BOOLSUCCESS;

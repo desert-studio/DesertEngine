@@ -11,14 +11,7 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        // A resource slot of the shader as reflection records it: its bucket decides the kind an entry must have.
-        struct ReflectedSlot
-        {
-            RdgSlotKey       Slot;
-            std::string             Name; // "<name>[<element>]" for an element of an arrayed binding
-            std::string_view Bucket;
-            RDG::ShaderResourceKind Kind = RDG::ShaderResourceKind::Texture;
-        };
+        using ReflectedSlot = RdgReflectedSlot;
 
         template <class Map>
         void Collect( std::vector<ReflectedSlot>& out, uint32_t set, const Map& map, std::string_view bucket,
@@ -91,12 +84,42 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+    size_t RdgSlotTable::Find( const std::string_view name ) const
+    {
+        const auto found = std::lower_bound( ByName.begin(), ByName.end(), name,
+                                             [this]( const uint32_t index, const std::string_view key )
+                                             { return std::string_view( Slots[index].Name ) < key; } );
+        if ( found == ByName.end() || Slots[*found].Name != name )
+            return Slots.size();
+        return *found;
+    }
+
+    std::shared_ptr<const RdgSlotTable> MakeRdgSlotTable( const ShaderResource::ReflectionData& reflection )
+    {
+        auto table   = std::make_shared<RdgSlotTable>();
+        table->Slots = CollectSlots( reflection );
+        table->ByName.resize( table->Slots.size() );
+        for ( uint32_t i = 0; i < table->ByName.size(); ++i )
+            table->ByName[i] = i;
+        const std::vector<RdgReflectedSlot>& slots = table->Slots;
+        std::stable_sort( table->ByName.begin(), table->ByName.end(),
+                          [&slots]( const uint32_t a, const uint32_t b ) { return slots[a].Name < slots[b].Name; } );
+        return table;
+    }
+
     RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
                                                       std::string_view                      shaderName )
     {
+        return MakeShaderBindingLayout( reflection, *MakeRdgSlotTable( reflection ), shaderName );
+    }
+
+    RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
+                                                      const RdgSlotTable& slots, std::string_view shaderName )
+    {
         RDG::ShaderBindingLayout layout;
         layout.ShaderName = std::string( shaderName );
-        for ( const ReflectedSlot& slot : CollectSlots( reflection ) )
+        layout.Slots.reserve( slots.Slots.size() );
+        for ( const ReflectedSlot& slot : slots.Slots )
         {
             layout.Slots.push_back( { slot.Name, slot.Kind } );
         }
@@ -107,9 +130,16 @@ namespace Desert::Graphic::API::Vulkan
     RDG::OtherRouteFill MakeOtherRouteFill( const ShaderResource::ReflectionData& reflection,
                                             const RdgOtherRoute&                  other )
     {
+        return MakeOtherRouteFill( *MakeRdgSlotTable( reflection ), other );
+    }
+
+    RDG::OtherRouteFill MakeOtherRouteFill( const RdgSlotTable& slots, const RdgOtherRoute& other )
+    {
         RDG::OtherRouteFill fill;
         fill.PushConstants = other.PushConstants;
-        for ( const ReflectedSlot& slot : CollectSlots( reflection ) )
+        if ( other.Filled.empty() )
+            return fill; // nothing filled by the other route: no slot to name
+        for ( const ReflectedSlot& slot : slots.Slots )
         {
             if ( std::find( other.Filled.begin(), other.Filled.end(), slot.Slot ) != other.Filled.end() )
                 fill.Slots.emplace_back( slot.Name );
@@ -121,6 +151,14 @@ namespace Desert::Graphic::API::Vulkan
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other )
     {
+        return ResolveRdgPassBindings( reflection, *MakeRdgSlotTable( reflection ), shaderName, bindings, other );
+    }
+
+    Common::ResultStr<std::vector<RdgResolvedEntry>>
+    ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, const RdgSlotTable& table,
+                            std::string_view shaderName, const RDG::PassBindings& bindings,
+                            const RdgOtherRoute& other )
+    {
         using Result                = std::vector<RdgResolvedEntry>;
         const std::string_view pass = bindings.GetContext().GetPassName();
 
@@ -128,8 +166,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( !status.IsSuccess() )
             return Common::MakeError<Result>( status.GetError() );
 
-        const std::vector<ReflectedSlot> slots   = CollectSlots( reflection );
-        const auto                       isOther = [&]( const RdgSlotKey& key )
+        const std::vector<ReflectedSlot>& slots   = table.Slots;
+        // Which slots the block filled, by slot index: the completeness check below is one pass over the slots.
+        std::vector<uint8_t>              byBlock( slots.size(), 0 );
+        const auto                        isOther = [&]( const RdgSlotKey& key )
         { return std::find( other.Filled.begin(), other.Filled.end(), key ) != other.Filled.end(); };
 
         Result resolved;
@@ -138,11 +178,11 @@ namespace Desert::Graphic::API::Vulkan
                                 const RDG::BoundTexture* texture,
                                 const RDG::BoundBuffer*  buffer ) -> Common::BoolResultStr
         {
-            const auto slot = std::find_if( slots.begin(), slots.end(),
-                                            [&]( const ReflectedSlot& s ) { return s.Name == name; } );
-            if ( slot == slots.end() )
+            const size_t index = table.Find( name );
+            if ( index == slots.size() )
                 return Common::MakeFormattedError( "{}: '{}' is not a resource of shader '{}'", pass, name,
                                                    shaderName );
+            const ReflectedSlot* const slot = &slots[index];
             if ( slot->Kind != kind )
                 return Common::MakeFormattedError(
                      "{}: '{}' is bound as a {} but shader '{}' declares it a {} (set {} binding {})", pass, name,
@@ -152,6 +192,7 @@ namespace Desert::Graphic::API::Vulkan
                      "{}: '{}' of shader '{}' is filled both by the pass bindings and by the material / pipeline "
                      "setter; a graph resource is bound only through the pass bindings",
                      pass, name, shaderName );
+            byBlock[index] = 1;
             resolved.push_back( RdgResolvedEntry{ slot->Slot, kind, texture, buffer } );
             return Common::MakeSuccess( true );
         };
@@ -170,11 +211,10 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // Every resource slot of the shader is filled by exactly one route: nothing is left to a fallback image.
-        for ( const ReflectedSlot& slot : slots )
+        for ( size_t index = 0; index < slots.size(); ++index )
         {
-            const bool byBlock = std::any_of( resolved.begin(), resolved.end(),
-                                              [&]( const RdgResolvedEntry& e ) { return e.Slot == slot.Slot; } );
-            if ( !byBlock && !isOther( slot.Slot ) )
+            const ReflectedSlot& slot = slots[index];
+            if ( byBlock[index] == 0 && !isOther( slot.Slot ) )
                 return Common::MakeFormattedError<Result>( "{}: {} '{}' (set {} binding {}) of shader '{}' is "
                                                            "filled neither by the pass bindings nor by "
                                                            "the material",
