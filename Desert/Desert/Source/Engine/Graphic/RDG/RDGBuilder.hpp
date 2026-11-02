@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -101,15 +102,19 @@ namespace Desert::Graphic::RDG
     private:
         friend class Builder;
         friend class PassBindings; // PassBindings( context, block ) reads the block this pass declared
-        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass )
-             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass )
+        // @p late: the late substitutions of the run recording this pass (the graph's on the calling thread, a
+        // chunk's on a worker); only this pass's own entries are read, and they were added before its exec.
+        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass,
+                     const std::vector<DefaultSubstitution>& late )
+             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass ), m_Late( late )
         {
         }
 
-        const Builder&       m_Builder;
-        const CompileResult& m_Result;
-        IBackend&            m_Backend;
-        uint32_t             m_Pass;
+        const Builder&                          m_Builder;
+        const CompileResult&                    m_Result;
+        IBackend&                               m_Backend;
+        uint32_t                                m_Pass;
+        const std::vector<DefaultSubstitution>& m_Late;
     };
 
     // Declarations of one pass, handed to its setup lambda. A malformed declaration (wrong resource kind,
@@ -326,6 +331,16 @@ namespace Desert::Graphic::RDG
         // RenderPipeline.AsyncCompute (Scalability). On by default. Off, BeginPass strips PassFlags::AsyncCompute from
         // every pass added AFTER the call, so the graph records them on the graphics queue in AddPass order and logs
         // no demotion (UE FRDGBuilder::OverridePassFlags under r.RDG.AsyncCompute 0). Set it before the first pass.
+        // RDG-PARALLEL-3 (UE r.RDG.ParallelExecute): false records every pass on the calling thread even when the
+        // backend records chunks (Scalability RenderPipeline.ParallelExecute).
+        void SetParallelExecute( bool enabled )
+        {
+            m_ParallelExecute = enabled;
+        }
+        [[nodiscard]] bool GetParallelExecute() const
+        {
+            return m_ParallelExecute;
+        }
         void SetAsyncCompute( bool enabled )
         {
             m_AsyncCompute = enabled;
@@ -428,8 +443,9 @@ namespace Desert::Graphic::RDG
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
             std::vector<DeclaredBindingBlock> Blocks;
-            // PassBuilder::Prepares, in declaration order.
-            std::vector<const IRecordPrerequisite*> Prerequisites;
+            // PassBuilder::Prepares, in declaration order: indices into Builder::m_Prerequisites (one entry per
+            // distinct object of the graph), so Execute prepares each object once, by index.
+            std::vector<uint32_t>             Prerequisites;
             std::string                       DeclarationError;
         };
 
@@ -478,10 +494,15 @@ namespace Desert::Graphic::RDG
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
+        // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
+        // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
+        std::vector<const IRecordPrerequisite*>                  m_Prerequisites;
+        std::unordered_map<const IRecordPrerequisite*, uint32_t> m_PrerequisiteIndex;
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;
         bool                        m_AsyncCompute = true;
+        bool                        m_ParallelExecute = true;
         // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).

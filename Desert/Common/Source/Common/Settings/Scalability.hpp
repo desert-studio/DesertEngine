@@ -381,6 +381,13 @@ namespace Common::Scalability
         // depth-only draw per opaque mesh and saves the G-buffer's overdraw), so only a machine override names it;
         // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
         EarlyZPass,
+        // 0/1: graph passes record on task workers (RDG-PARALLEL-3; UE r.RDG.ParallelExecute): a Graphics segment of
+        // 24+ passes is cut into chunks of about 24 at render pass boundaries, each recorded into secondary command
+        // buffers of its own and replayed in pass order (NeverParallel passes record inline). 0 = every pass records
+        // on the calling thread: the same commands, for a byte-compare and as the rollback. Read by
+        // SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute. Key "RenderPipeline.ParallelExecute": equal at
+        // every level (a CPU recording choice, not a quality step), so only a machine override names it.
+        ParallelExecute,
         // The landscape grass blades' shadow LOD bias (GPU-COST-20; UE r.Shadow LOD bias / grass shadow LOD): each
         // step draws a blade into every cascade as if the cascade's texel were twice as wide - a strip level
         // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->

@@ -188,6 +188,8 @@ namespace Desert::Graphic::API::Vulkan
         // was bound in, by that pass's compatibility key.
         uint32_t                               m_BuiltSamples = 1;
         std::map<RdgRenderPassKey, VkPipeline> m_PassVariants;
+        // RDG-PARALLEL-1: graph chunks bind pipelines on task workers; a variant is looked up and made under it.
+        std::mutex m_PassVariantsLock;
         std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
         PipelineRole                          m_Role = PipelineRole::Engine;
         std::future<void>                     m_Compile;

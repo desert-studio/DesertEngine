@@ -637,7 +637,7 @@ namespace Desert::Graphic
         const RDG::TextureRef normal      = rr ? guides.NormalRoughness : RDG::TextureRef{};
         const bool            traced      = rr && guides.HitDistanceTraced;
         graph.AddPass(
-             DebugName().data(), RDG::PassFlags::Compute,
+             DebugName().data(), RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( color, RDG::Access::SampledCompute );

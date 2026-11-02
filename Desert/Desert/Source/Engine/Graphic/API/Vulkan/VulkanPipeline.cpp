@@ -442,6 +442,7 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
             return base;
+        const std::lock_guard<std::mutex> variants( m_PassVariantsLock );
         if ( const auto found = m_PassVariants.find( openPass ); found != m_PassVariants.end() )
             return found->second;
 

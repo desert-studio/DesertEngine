@@ -32,6 +32,16 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BeginFrameSlot( uint32_t slot );
         // A primary command buffer of the current slot on @p pipe, begun (one-time submit).
         Common::ResultStr<VkCommandBuffer> BeginCommandBuffer( RDG::Pipe pipe );
+        // RDG-PARALLEL-3 (UE: a parallel FRHICommandList per task, each with its own Vulkan command pool): the
+        // secondary command buffers of graph chunks recorded on task workers. One arena per (slot, pipe, chunk
+        // index): a VkCommandPool is externally synchronized, so two workers never share one. Calling thread,
+        // before any worker records: the current slot holds at least @p arenas arenas on @p pipe.
+        Common::BoolResultStr ReserveSecondaryArenas( RDG::Pipe pipe, uint32_t arenas );
+        // On the one worker recording arena @p arena: a secondary of the current slot, begun with @p usage and
+        // @p inheritance (render pass VK_NULL_HANDLE: recorded outside a render pass).
+        Common::ResultStr<VkCommandBuffer> BeginSecondary( RDG::Pipe pipe, uint32_t arena,
+                                                           const VkCommandBufferInheritanceInfo& inheritance,
+                                                           VkCommandBufferUsageFlags             usage );
         // An unused binary semaphore of the current slot (unsignalled: every semaphore handed out in a slot's
         // previous frame was signalled and waited by that frame's submissions, which the fence covered).
         Common::ResultStr<VkSemaphore> AcquireSemaphore();
@@ -50,13 +60,16 @@ namespace Desert::Graphic::API::Vulkan
         struct Slot
         {
             std::array<PipePool, 2>  Pipes; // indexed by RDG::Pipe
+            // RDG-PARALLEL-3: per pipe, the chunk arenas (ReserveSecondaryArenas); grown only on the calling thread.
+            std::array<std::vector<PipePool>, 2> Secondary;
             std::vector<VkSemaphore> Semaphores;
             uint32_t                 SemaphoresUsed = 0;
         };
 
-        VkDevice          m_Device = VK_NULL_HANDLE;
-        std::vector<Slot> m_Slots;
-        uint32_t          m_Slot = 0;
+        VkDevice                               m_Device = VK_NULL_HANDLE;
+        std::array<std::optional<uint32_t>, 2> m_Families; // by RDG::Pipe; no compute family: empty
+        std::vector<Slot>                      m_Slots;
+        uint32_t                               m_Slot = 0;
     };
 
     // RDG-CONTRACTS B(3). The queues the graph records onto and the per-frame-slot objects that sync them.

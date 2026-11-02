@@ -1,5 +1,10 @@
 #pragma once
 
+#include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
+#include <mutex>
+#include <span>
+#include <vector>
+
 #include <vulkan/vulkan.h>
 
 #include <Common/Core/DevInstruments.hpp>
@@ -90,6 +95,13 @@ namespace Desert::Graphic::API::Vulkan
         int32_t BeginScope( const char* name ) override;
         void    EndScope( int32_t handle ) override;
         void    SetQueue( Common::Profiling::GpuQueue queue ) override;
+        // RDG-PARALLEL-1: @p chunks consecutive recording-order ticks for graph chunks about to record in parallel
+        // (VulkanRecordContext::GpuOrder of chunk i = the result + i); 0 outside a recording frame.
+        [[nodiscard]] uint64_t ReserveChunkOrder( uint32_t chunks );
+        // RDG-PARALLEL-3: on the dispatching thread, as a chunk recorded on a worker is replayed (or discarded) in
+        // pass order: @p scopes (VulkanRecordContext::GpuScopesMade) take the next recording-order tick, scope k at
+        // tick << 24 | k, so the [GpuOrder] trace and the scope tree read in the serial order.
+        void StampChunkOrder( std::span<const int32_t> scopes );
 
         int32_t BeginDrawScope( std::string_view pass, std::string_view mesh, std::string_view material ) override;
         void    EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts ) override;
@@ -151,6 +163,16 @@ namespace Desert::Graphic::API::Vulkan
         FrameQueries* m_Recording = nullptr;
         /// The renderer's recording target (see the constructor); VK_NULL_HANDLE while nothing records.
         const VkCommandBuffer& m_RecordingTarget;
+        // RDG-PARALLEL-1: a scope's timestamp goes into the command buffer of the graph chunk bound to the calling
+        // thread (VulkanRecordContext), else into the renderer's target; the scope tree and the frame's queries are
+        // shared by every recording thread, so every scope entry point holds m_Lock.
+        [[nodiscard]] VkCommandBuffer Target() const
+        {
+            const VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
+            return chunk != nullptr ? chunk->CommandBuffer : m_RecordingTarget;
+        }
+        std::mutex            m_Lock;
+        std::vector<uint32_t> m_OrderScratch; // the order trace's scopes sorted by Scope::Order
 
         /// Scratch for vkGetQueryPoolResults: {value, availability} per query, reused every frame.
         std::vector<uint64_t> m_ResultScratch;
