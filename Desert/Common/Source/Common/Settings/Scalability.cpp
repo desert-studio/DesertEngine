@@ -440,6 +440,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",
                Of( EarlyZPassMode::All ), Vis::Advanced },
+             { P::ParallelExecute, G::ViewDistance, "RenderPipeline.ParallelExecute", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
+               "workers into secondary command buffers, replayed in pass order)",
+               1, Vis::Advanced },
              { P::ShadowFoliageLodBias, G::Shadows, "Shadows.FoliageShadowLodBias", 0, 3, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
                "and thinning per cascade, MeshRenderer::BladeShadowSet)",

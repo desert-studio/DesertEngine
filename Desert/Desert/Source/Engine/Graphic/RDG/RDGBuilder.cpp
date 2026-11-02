@@ -1302,7 +1302,7 @@ namespace Desert::Graphic::RDG
         const bool               anyPrepareFailure =
              std::any_of( prepareFailures.begin(), prepareFailures.end(),
                           []( const std::string& failure ) { return !failure.empty(); } );
-        if ( backend.SupportsParallelRecording() && !anyPrepareFailure )
+        if ( m_ParallelExecute && backend.SupportsParallelRecording() && !anyPrepareFailure )
         {
             // UE: r.RDG.ParallelExecute.PassMin / PassMax. A segment shorter than kSerialSegment is not worth a
             // worker hand-off (the ImGui / display encode graphs); a chunk grows to about kChunkPasses passes.

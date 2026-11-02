@@ -331,6 +331,16 @@ namespace Desert::Graphic::RDG
         // RenderPipeline.AsyncCompute (Scalability). On by default. Off, BeginPass strips PassFlags::AsyncCompute from
         // every pass added AFTER the call, so the graph records them on the graphics queue in AddPass order and logs
         // no demotion (UE FRDGBuilder::OverridePassFlags under r.RDG.AsyncCompute 0). Set it before the first pass.
+        // RDG-PARALLEL-3 (UE r.RDG.ParallelExecute): false records every pass on the calling thread even when the
+        // backend records chunks (Scalability RenderPipeline.ParallelExecute).
+        void SetParallelExecute( bool enabled )
+        {
+            m_ParallelExecute = enabled;
+        }
+        [[nodiscard]] bool GetParallelExecute() const
+        {
+            return m_ParallelExecute;
+        }
         void SetAsyncCompute( bool enabled )
         {
             m_AsyncCompute = enabled;
@@ -492,6 +502,7 @@ namespace Desert::Graphic::RDG
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;
         bool                        m_AsyncCompute = true;
+        bool                        m_ParallelExecute = true;
         // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).

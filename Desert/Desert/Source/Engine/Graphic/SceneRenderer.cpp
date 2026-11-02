@@ -1610,6 +1610,7 @@ namespace Desert::Graphic
         // setting or the device says no. The cloud shadow map and the PostOpaque particle chain (it reads the
         // resolved scene depth, AddFrameParticlesPostOpaque) are NOT among them: they are graphics-queue passes.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
+        graph.SetParallelExecute( m_Quality.As<int>( Common::Scalability::Parameter::ParallelExecute ) != 0 );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
