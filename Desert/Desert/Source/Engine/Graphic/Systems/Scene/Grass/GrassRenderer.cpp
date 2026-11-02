@@ -46,7 +46,8 @@ namespace Desert::Graphic::System
         // records, a tile slot's header words, a record's bytes, the feedback words.
         constexpr uint32_t kGrassTileCells         = 32u;
         constexpr uint32_t kGrassTilePageRecords   = 64u;
-        constexpr uint32_t kGrassTileHeaderWords   = 32u;
+        // GRASS-TILE-2: 32 words of the tile, then 16 clusters of 8 words (GrassGenerate.shader kTileClusterWord).
+        constexpr uint32_t kGrassTileHeaderWords   = 32u + 16u * 8u;
         constexpr uint32_t kGrassTileRecordBytes   = 3u * sizeof( glm::uvec4 );
         constexpr uint32_t kGrassTileFeedbackWords = 4u;
         constexpr uint32_t kGrassTileModeInit      = 0u;
@@ -56,10 +57,9 @@ namespace Desert::Graphic::System
         constexpr uint32_t kGrassTileModeWrite     = 4u;
         constexpr uint32_t kGrassTileModeCull      = 5u;
         static_assert( kGrassTileCells % kGrassGroupSize == 0u, "a tile is whole thread groups of cells" );
-        // UE grass.MaxCreatePerFrame: the tiles a variety builds in one frame, nearest first (the rest wait).
-        constexpr uint32_t kGrassTileBuildsPerFrame = 16u;
-        // A new pool's pages per tile slot; it doubles when the build's pages ran out or three quarters are held.
-        constexpr uint32_t kGrassTileFirstPagesPerSlot = 2u;
+        // UE grass.MaxCreatePerFrame: the tiles a variety builds in one frame, nearest first (the rest wait). A
+        // build is two passes of one thread per cell; the view settles within N / 64 frames of N tiles.
+        constexpr uint32_t kGrassTileBuildsPerFrame = 64u;
 
         // A tile's key: its world tile index, x in the high half.
         uint64_t TileKey( const int32_t x, const int32_t z )
@@ -1078,6 +1078,12 @@ namespace Desert::Graphic::System
             const glm::vec2 hi = lo + ( side + 2.0f * stray );
             return glm::length( glm::max( glm::max( lo - eye, eye - hi ), glm::vec2( 0.0f ) ) );
         };
+        // The nearest a tile @p nearest from the eye is built for: less a tile and an eighth of the distance, so
+        // walking rebuilds a tile every eighth of the way towards it, not every frame.
+        const auto builtFor = [side]( const float nearest )
+        { return std::max( 0.0f, nearest - side - 0.125f * nearest ); };
+        const auto atX = static_cast<int32_t>( std::floor( eye.x / side ) );
+        const auto atZ = static_cast<int32_t>( std::floor( eye.y / side ) );
 
         // The pool's room (UE: a component's instance buffer holds what its builder produced): TileFeedback,
         // FramesInFlight frames old, says a build ran out of pages or three quarters of them are held - the pool
@@ -1100,7 +1106,38 @@ namespace Desert::Graphic::System
                     LOG_ERROR( "[Grass] the tile pool's feedback was not cleared: {}", wrote.GetError() );
             }
         }
-        pages = std::max( pages, slots * kGrassTileFirstPagesPerSlot );
+        // THE POOL'S SIZE (GRASS-TILE-2): the most the resident tiles hold. A tile built for the nearest b keeps the
+        // cells whose fade draw beats the field's share there (GrassFieldShare.glslh GrassFieldShareAt: (S / b)^2
+        // past StartCullDistance S, UE's fade to nothing at EndCullDistance, the screen-width floor): a binomial
+        // count over its cells, bounded by its mean and three deviations at full layer weight. The pool is made
+        // half again that size, so a settling field does not outgrow it - every doubling is a new pool and every
+        // tile built again - and doubles once the bound passes three quarters of it (the feedback above still
+        // doubles it for a field that outgrows the bound).
+        {
+            const float startCull  = std::bit_cast<float>( thin[0] );
+            const float endCull    = std::bit_cast<float>( thin[1] );
+            const float floorReach = std::bit_cast<float>( thin[2] );
+            const auto  thinShare  = []( const float distance, const float from )
+            { return from > 0.0f ? std::min( 1.0f, from * from / std::max( distance * distance, 1.0f ) ) : 1.0f; };
+            constexpr auto cells = static_cast<float>( kGrassTileCells * kGrassTileCells );
+            uint32_t       bound = 0u;
+            for ( int32_t z = atZ - reach; z <= atZ + reach; ++z )
+                for ( int32_t x = atX - reach; x <= atX + reach; ++x )
+                {
+                    const float nearest = nearestOf( x, z );
+                    if ( nearest > radius + side )
+                        continue;
+                    const float built = builtFor( nearest );
+                    const float faded = std::clamp( ( built - startCull ) / std::max( endCull - startCull, 1.0f ), 0.0f, 1.0f );
+                    const float share =
+                         std::min( thinShare( built, startCull ) * ( 1.0f - faded ), thinShare( built, floorReach ) );
+                    const float mean = cells * share;
+                    const float most = std::min( cells, mean + 3.0f * std::sqrt( mean ) );
+                    bound += static_cast<uint32_t>( std::ceil( most / static_cast<float>( kGrassTilePageRecords ) ) );
+                }
+            if ( 4u * bound > 3u * pages )
+                pages = std::max( 2u * pages, bound + bound / 2u );
+        }
 
         // A NEW POOL - another placement or field, another grid, more tiles than slots, more pages: every page
         // free, every tile built again, nearest first (GrassGenerate.shader Init).
@@ -1163,16 +1200,13 @@ namespace Desert::Graphic::System
 
         // THE BUILDS (UE grass.MaxCreatePerFrame, nearest first): a tile within the radius that is missing, stale,
         // nearer than it was built for (its far draws were not kept), or past twice what it was built for (it
-        // holds several times the instances it needs). A tile is built for its nearest less a tile and an eighth
-        // of the distance, so walking rebuilds a tile every eighth of the way towards it, not every frame.
+        // holds several times the instances it needs). A tile is built for builtFor( its nearest ).
         struct Wanted
         {
             float   Nearest = 0.0f;
             int32_t X = 0, Z = 0;
         };
         std::vector<Wanted> wanted;
-        const auto          atX = static_cast<int32_t>( std::floor( eye.x / side ) );
-        const auto          atZ = static_cast<int32_t>( std::floor( eye.y / side ) );
         for ( int32_t z = atZ - reach; z <= atZ + reach; ++z )
             for ( int32_t x = atX - reach; x <= atX + reach; ++x )
             {
@@ -1211,7 +1245,7 @@ namespace Desert::Graphic::System
             }
             else
                 gpu.TileEntries.push_back( glm::uvec4( found->second.Slot, 0u, 0u, 0u ) );
-            found->second.BuiltNear = std::max( 0.0f, want.Nearest - side - 0.125f * want.Nearest );
+            found->second.BuiltNear = builtFor( want.Nearest );
             found->second.Stale     = false;
             builds.push_back( glm::uvec4( found->second.Slot, static_cast<uint32_t>( want.X ),
                                           static_cast<uint32_t>( want.Z ),
@@ -1220,9 +1254,19 @@ namespace Desert::Graphic::System
         gpu.TileFrees  = static_cast<uint32_t>( gpu.TileEntries.size() - 1u );
         gpu.TileBuilds = static_cast<uint32_t>( builds.size() );
         gpu.TileEntries.insert( gpu.TileEntries.end(), builds.begin(), builds.end() );
+        // The tiles culled, nearest first (GRASS-TILE-2): the cull's groups run in about that order, so the full
+        // list - and the camera's, which keeps its order - holds the field front to back, and the depth prepass
+        // and the GBuffer reject the far blades behind the near ones early.
+        std::vector<std::pair<float, uint32_t>> culled;
+        culled.reserve( gpu.Tiles.size() );
         for ( const auto& [key, tile] : gpu.Tiles )
-            gpu.TileEntries.push_back( glm::uvec4( tile.Slot, 0u, 0u, 0u ) );
-        gpu.TileCulls = static_cast<uint32_t>( gpu.Tiles.size() );
+            culled.emplace_back( nearestOf( static_cast<int32_t>( static_cast<uint32_t>( key >> 32u ) ),
+                                            static_cast<int32_t>( static_cast<uint32_t>( key ) ) ),
+                                 tile.Slot );
+        std::sort( culled.begin(), culled.end() );
+        for ( const auto& [nearest, slot] : culled )
+            gpu.TileEntries.push_back( glm::uvec4( slot, 0u, 0u, 0u ) );
+        gpu.TileCulls = static_cast<uint32_t>( culled.size() );
         if ( gpu.PoolFresh || gpu.TileFrees != 0u || gpu.TileBuilds != 0u )
             ++gpu.TileVersion;
         m_Settling = m_Settling || pending;

@@ -76,6 +76,11 @@ namespace Desert::Editor
     /// trip. A turn is NOT a cut - the temporal histories stay, as they do under a person's mouse.
     inline constexpr const char* kViewportCameraSpin    = "Camera.Spin";
     inline constexpr float       kViewportCameraMaxSpin = 30.0f;
+    /// The camera's steady walk along its own heading on the ground plane, in centimetres PER FRAME (0 = still):
+    /// what a person walking the view does to every position-dependent cache (shadow pages, clipmaps, landscape
+    /// dicing), made repeatable for a scenario (FPS-FIELD-BARN-WALK). Like Camera.Spin it is not a cut.
+    inline constexpr const char* kViewportCameraGlide    = "Camera.Glide";
+    inline constexpr float       kViewportCameraMaxGlide = 500.0f;
     // DebugViewState::ValidateGpuCulling of the viewport (the "Validate GPU Culling" checkbox): 0 or 1.
     inline constexpr const char* kViewportValidateGpuCulling = "Debug.ValidateGpuCulling";
     // DebugViewState::ForceVirtualGeometryCutRefusal of the viewport: 0 or 1 ([vg_refused_fallback]).
@@ -120,7 +125,7 @@ namespace Desert::Editor
     [[nodiscard]] inline std::vector<EditableProperty>
     DescribeViewportCamera( const glm::vec3& position, const glm::vec3& forward, float fovDegrees,
                             bool validateGpuCulling, bool forceVgCutRefusal, bool forceVgPostCutRefusal,
-                            float spinDegreesPerFrame = 0.0f )
+                            float spinDegreesPerFrame = 0.0f, float glideCmPerFrame = 0.0f )
     {
         std::vector<EditableProperty> census;
 
@@ -163,6 +168,17 @@ namespace Desert::Editor
         spinRow.Max        = kViewportCameraMaxSpin;
         spinRow.Value      = { spinDegreesPerFrame, 0.0f, 0.0f, 0.0f };
         census.push_back( spinRow );
+
+        EditableProperty glideRow;
+        glideRow.Name       = kViewportCameraGlide;
+        glideRow.Label      = "Glide (cm/frame)";
+        glideRow.Group      = "Camera";
+        glideRow.Type       = "float";
+        glideRow.Components = 1;
+        glideRow.Min        = -kViewportCameraMaxGlide;
+        glideRow.Max        = kViewportCameraMaxGlide;
+        glideRow.Value      = { glideCmPerFrame, 0.0f, 0.0f, 0.0f };
+        census.push_back( glideRow );
 
         EditableProperty cullRow;
         cullRow.Name       = kViewportValidateGpuCulling;
@@ -207,6 +223,7 @@ namespace Desert::Editor
         Direction,
         FOV,
         Spin,
+        Glide,
         ValidateGpuCulling,
         ForceVgCutRefusal,
         ForceVgPostCutRefusal,
@@ -231,16 +248,18 @@ namespace Desert::Editor
         const bool isDirection = ( property == kViewportCameraDirection );
         const bool isFOV       = ( property == kViewportCameraFOV );
         const bool isSpin      = ( property == kViewportCameraSpin );
+        const bool isGlide     = ( property == kViewportCameraGlide );
         const bool isCull      = ( property == kViewportValidateGpuCulling );
         const bool isRefuse     = ( property == kViewportForceVgCutRefusal );
         const bool isPostRefuse = ( property == kViewportForceVgPostCutRefusal );
 
-        if ( !isPosition && !isDirection && !isFOV && !isSpin && !isCull && !isRefuse && !isPostRefuse )
+        if ( !isPosition && !isDirection && !isFOV && !isSpin && !isGlide && !isCull && !isRefuse && !isPostRefuse )
         {
             return Common::MakeFormattedError<ViewportCameraWrite>(
-                 "'{}' is not a property of the viewport. It offers '{}', '{}', '{}', '{}', '{}', '{}' and '{}'; "
-                 "ask 'properties' for the same subject to see their current values.",
+                 "'{}' is not a property of the viewport. It offers '{}', '{}', '{}', '{}', '{}', '{}', '{}' and "
+                 "'{}'; ask 'properties' for the same subject to see their current values.",
                  property, kViewportCameraPosition, kViewportCameraDirection, kViewportCameraFOV, kViewportCameraSpin,
+                 kViewportCameraGlide,
                  kViewportValidateGpuCulling, kViewportForceVgCutRefusal, kViewportForceVgPostCutRefusal );
         }
 
@@ -275,6 +294,15 @@ namespace Desert::Editor
                      "'{}' takes one number, degrees per frame in [{}, {}]; 0 stops the turn.", property,
                      -kViewportCameraMaxSpin, kViewportCameraMaxSpin );
             return Common::MakeSuccess( ViewportCameraWrite::Spin );
+        }
+
+        if ( isGlide )
+        {
+            if ( value.size() != 1 || !( value[0] >= -kViewportCameraMaxGlide && value[0] <= kViewportCameraMaxGlide ) )
+                return Common::MakeFormattedError<ViewportCameraWrite>(
+                     "'{}' takes one number, centimetres per frame in [{}, {}]; 0 stops the walk.", property,
+                     -kViewportCameraMaxGlide, kViewportCameraMaxGlide );
+            return Common::MakeSuccess( ViewportCameraWrite::Glide );
         }
 
         if ( value.size() != 3 )
