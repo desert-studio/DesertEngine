@@ -2409,16 +2409,20 @@ namespace Desert::Graphic::API::Vulkan
         // Execute).
         if ( segment.FirstPosition == RDG::CrossPipeSync::kForkAtGraphStart )
             m_PrologueScope = BeginGraphCommandsScope( "fork releases at the graph start" );
-        // A later piece of a run cut at a join (RDGCompile CutRunsAtConsumers) waits on nothing itself, but it
-        // follows the run's first piece on the compute queue: that piece's fork orders it too.
+        // A later piece of a run cut at a join (RDGCompile CutRunsAtConsumers), or a run an earlier run's fork
+        // already orders (RDGCompile CreateAsyncSyncs, the newest fork), waits on nothing itself, but it follows
+        // that earlier async segment on the compute queue: its fork orders this one too.
         bool forked = segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty();
         if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !forked && m_Result != nullptr &&
              segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
         {
-            uint32_t runFirst = segment.FirstPosition;
-            while ( runFirst > 0 && m_Result->Passes[runFirst - 1].OnPipe == RDG::Pipe::AsyncCompute )
-                --runFirst;
-            forked = runFirst != segment.FirstPosition && !m_Result->Passes[runFirst].WaitSyncs.empty();
+            for ( const RDG::PipeSegment& earlier : m_Result->Segments )
+            {
+                if ( earlier.OnPipe == RDG::Pipe::AsyncCompute &&
+                     earlier.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart &&
+                     earlier.FirstPosition < segment.FirstPosition && !earlier.WaitSyncs.empty() )
+                    forked = true;
+            }
         }
         if ( forked && m_Device.Profiler != nullptr && m_Result != nullptr &&
              segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
