@@ -5,6 +5,8 @@
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <unordered_set>
+#include <array>
+#include <map>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -2430,6 +2432,9 @@ namespace Desert::Graphic::System
         // cut or a carrier is refused or comes back) re-renders exactly its pages.
         std::vector<const GraphicsPipeline*> m_VsmCarriedTwins;
         std::vector<const GraphicsPipeline*> m_VsmCarriedTwinsLastFrame;
+        // Moves whenever ResetVirtualShadowGeometry shifts in a last-frame set other than the one before it (the
+        // producer's event, O(twins)): the key the VSM page cache's kept static / generic part is made under.
+        uint64_t m_VsmCarriedTwinsRevision = 0;
         bool                                 m_VsmClusteredThisFrame = false;
         // CpuWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views
         // the cascades' and levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
@@ -2467,7 +2472,27 @@ namespace Desert::Graphic::System
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
         // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one
         // under the same signature (m_CascadeKeySnapshots says the same).
+        // m_VsmStillCasters holds the ISM fields and the non-mesh casters; the static / generic queues' entries are
+        // m_VsmStaticStill's.
         std::vector<ShadowCasterEntry>                             m_VsmStillCasters;
+        // THE STATIC / GENERIC STILL ENTRIES (SCENE-CACHE-6; UE FCachedShadowMapData: a static primitive's
+        // invalidation comes from its own update, never from re-hashing every static primitive each frame): last
+        // drawn frame's entries of the static and generic queues, sorted by signature, and the keys they were made
+        // under. Made again (and diffed against the previous ones) only when the static casters' revision, the rows'
+        // LOD key, the carrier outcome (m_VsmCarriedTwinsRevision), the VG table's uploads
+        // (VirtualMeshTable::UploadGeneration) or the VirtualShadow pass table (DrawCommandCache::TableRevision)
+        // moved, or the gather is untracked (Valid false); otherwise they add no box and are not walked.
+        struct VsmStaticStill
+        {
+            bool                           Valid     = false;
+            uint64_t                       Revision  = 0;
+            uint64_t                       LodKey    = 0;
+            uint64_t                       Carriers  = 0;
+            uint64_t                       VgUploads = 0;
+            uint64_t                       VgTable   = 0;
+            std::vector<ShadowCasterEntry> Entries;
+        };
+        VsmStaticStill m_VsmStaticStill;
         std::vector<VsmInvalidationBox>                            m_VsmMovingBoxes;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
         // Per still ISM (by its signature): what each instance cast last frame, 0 = faded out by its cull
@@ -3256,6 +3281,31 @@ namespace Desert::Graphic::System
             uint64_t  Hash = 0;
         };
         std::vector<CascadeStaticPart> m_CascadeStaticParts;
+        // Whether the static / generic rows of this gather are the static casters' revision's (TrackStaticCasters
+        // ran for this gather and FinishStaticCasterRows kept or made them for it): a part keyed by
+        // m_StaticCasters.Revision may be kept only then. One rule for the cascades, the local views and the VSM.
+        [[nodiscard]] bool StaticCastersTracked() const;
+        // THE LOCAL VIEWS' STATIC / GENERIC PART (SCENE-CACHE-6, UE FCachedShadowMapData per local light): the hash
+        // LocalCasterSignature takes of the static and generic casters in a sphere, kept per sphere (its centre
+        // and radius bits) while the static casters' revision and the rows' LOD key are the ones it was made from.
+        // A sphere not asked for kLocalStaticPartGathers gathers is dropped (a moving light asks a new one each
+        // frame); an untracked gather makes the part and keeps nothing.
+        static constexpr uint64_t kLocalStaticPartGathers = 2;
+        struct LocalStaticKey
+        {
+            std::array<uint32_t, 4> Bits{}; // centre x, y, z and radius, bit for bit
+            auto                    operator<=>( const LocalStaticKey& ) const = default;
+        };
+        struct LocalStaticPart
+        {
+            uint64_t Revision = 0;
+            uint64_t LodKey   = 0;
+            uint64_t Asked    = 0; // the gather that last asked for it
+            uint64_t Hash     = 0;
+        };
+        std::map<LocalStaticKey, LocalStaticPart> m_LocalStaticParts;
+        uint64_t                                  m_LocalStaticSweep = 0; // the gather the last eviction ran for
+        [[nodiscard]] uint64_t                    LocalStaticCasterHash( const glm::vec3& centre, float radius );
         // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each, the static /
         // generic rows finished for this gather): a queue changed after the last GatherShadowCasters breaks the
         // order SceneRenderer::OnUpdate keeps.

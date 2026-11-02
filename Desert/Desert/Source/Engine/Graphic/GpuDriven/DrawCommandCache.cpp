@@ -317,11 +317,16 @@ namespace Desert::Graphic::GpuDriven
         }
         // The groups' VG twins are asked again too (a dirty pass re-asks them when it is rebuilt).
         if ( m_VgResolver )
+        {
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
+            {
                 for ( IndirectGroup& group : m_Passes[pass].Groups )
                     group.VirtualGeometryPipeline =
                          group.Pipeline != nullptr ? m_VgResolver( static_cast<MeshPass>( pass ), *group.Pipeline )
                                                    : nullptr;
+                ++m_TableRevision[pass];
+            }
+        }
     }
 
     bool DrawCommandCache::NeedsRebuild() const
@@ -338,6 +343,7 @@ namespace Desert::Graphic::GpuDriven
             RebuildPass( static_cast<MeshPass>( pass ) );
             m_Dirty[pass]      = false;
             m_Unuploaded[pass] = true;
+            ++m_TableRevision[pass];
         }
     }
 
