@@ -38,8 +38,22 @@ namespace Desert::Editor
     void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::vec3& position,
                             const glm::vec3& forward )
     {
+        // A COPY, TAKEN BEFORE THE CAMERA MOVES. A caller may hand over the camera's own eye (Camera.Spin passes
+        // camera->GetPosition(), a reference to m_Position), and SnapToDirection orbits m_Position about the old
+        // focal point: read after it, the position asked for was the orbited one, and Camera.Spin swung the eye
+        // round a circle of kViewportCameraFramingDistance (8.7 cm a frame at 1 degree) instead of turning it in
+        // place - every cache keyed on the eye's position (the displaced landscape's virtual shadow pages, the
+        // shadow LOD keys, the cloud shadow's sample count) was rebuilt on every frame of a "turn".
+        const glm::vec3 at = position;
         camera.SnapToDirection( glm::normalize( forward ) );
-        camera.Focus( ViewportCameraFocalPoint( position, forward ), kViewportCameraFramingDistance );
+        camera.Focus( ViewportCameraFocalPoint( at, forward ), kViewportCameraFramingDistance );
+        // EXACTLY THERE. Focus backs off along the orbit's own forward, rebuilt from yaw and pitch, which is the
+        // asked direction only to within float rounding, so the eye landed an ulp or two off - and an ulp is a
+        // new key for every cache the eye's position enters. The same pose with the eye pinned to the asked
+        // point (RestorePose also drops a fly's leftover glide, m_LocationDelta, which would carry it off).
+        Desert::Core::EditorCamera::Pose pose = camera.CapturePose();
+        pose.Position                         = at;
+        camera.RestorePose( pose );
     }
 
     bool ShotDirector::NamesScene()
