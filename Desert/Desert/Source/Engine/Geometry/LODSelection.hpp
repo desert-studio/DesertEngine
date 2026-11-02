@@ -89,34 +89,82 @@ namespace Desert::Geometry
     // a 1.6 M-triangle tree and a 600-triangle flower switch at the same sizes, so the dense mesh keeps tens of
     // triangles per pixel far away (FIELD_Barn: a dandelion's 2 354-triangle LOD 3 drawn 26..66 m away, ~30 px
     // across; an island tree's 800 k-triangle LOD 1 out to 76 m). Here a level also ends where its triangles,
-    // spread over the bounding sphere's disc on screen, would get fewer than kAutoLODPixelsPerTriangle pixels
+    // spread over the pixels the mesh can cover on screen, would get fewer than kAutoLODPixelsPerTriangle pixels
     // each - one 2x2 raster quad: below that the rasterizer shades whole quads per triangle and the vertex and
-    // setup cost buys no visible detail. The disc bounds the mesh, so the surface actually drawn keeps MORE
-    // triangles per covered pixel than the threshold states, never fewer. A screen size is a fraction of the
-    // screen height, so the pixels are counted at a reference height: the sizes are asset data, the same on
-    // every display (a taller screen shows a level a little denser than the threshold).
+    // setup cost buys no visible detail. What the mesh can cover is the bounding sphere's disc, or its surface
+    // seen face-on where that is smaller (LODScreenCoverage): a mesh of cards - a grass clump, a flower, a leaf
+    // crown, a fence - covers a third of its disc or less, and counted against the whole disc its levels kept
+    // three triangles and more per covered pixel (GRASS-LOD-1: FIELD_Barn's dandelions, 23.5 k triangles at
+    // LOD 0, 4.5 ms of G-buffer and masked prepass). Overlap only lowers what is covered, so the surface actually
+    // drawn keeps MORE triangles per covered pixel than the threshold states, never fewer. A screen size is a
+    // fraction of the screen height, so the pixels are counted at a reference height: the sizes are asset data,
+    // the same on every display (a taller screen shows a level a little denser than the threshold).
     inline constexpr float kAutoLODPixelsPerTriangle   = 4.0f;
     inline constexpr float kAutoLODReferenceScreenRows = 1080.0f;
 
-    // The screen size below which @p triangles over the bounding sphere's disc get fewer than
-    // kAutoLODPixelsPerTriangle reference pixels each: the disc of diameter S x H covers pi/4 (S H)^2 pixels.
-    inline float LODDensityScreenSize( const uint32_t triangles )
+    // THE SHARE OF ITS BOUNDING SPHERE'S DISC A MESH CAN COVER ON SCREEN, in (0, 1]: the area of its LOD 0
+    // triangles - every one facing the view and none hiding another, more than any view can show - over the disc
+    // of the sphere every LOD measure here uses (the half diagonal of LocalBounds), at most 1. A compact solid's
+    // surface exceeds its disc (a rock, a crate, a house stay at 1); a mesh of open cards, or a long thin part (a
+    // pole: pi x its width x its length against its length's disc), covers less - and the area is still at least
+    // what any view of it covers. One value per mesh, measured where its CPU triangles are (StaticMesh,
+    // DynamicMesh: submesh-local indices from VertexOffset); 1 for a mesh without triangles or bounds.
+    [[nodiscard]] inline float LODScreenCoverage( const std::vector<Vertex>&  vertices,
+                                                  const std::vector<Index>&   indices,
+                                                  const std::vector<Submesh>& submeshes )
+    {
+        const Common::Math::AABB bounds = LocalBounds( submeshes );
+        if ( submeshes.empty() || IsEmpty( bounds ) )
+            return 1.0f;
+        const glm::vec3 diagonal = bounds.Max - bounds.Min;
+        double          area     = 0.0;
+        for ( const Submesh& sm : submeshes )
+        {
+            const std::size_t first = sm.IndexOffset / 3u;
+            const std::size_t end   = std::min<std::size_t>( indices.size(), first + sm.IndexCount / 3u );
+            for ( std::size_t t = first; t < end; ++t )
+            {
+                const std::size_t a = std::size_t{ sm.VertexOffset } + indices[t].V1;
+                const std::size_t b = std::size_t{ sm.VertexOffset } + indices[t].V2;
+                const std::size_t c = std::size_t{ sm.VertexOffset } + indices[t].V3;
+                if ( a >= vertices.size() || b >= vertices.size() || c >= vertices.size() )
+                    continue;
+                const glm::vec3 ab = vertices[b].Position - vertices[a].Position;
+                const glm::vec3 ac = vertices[c].Position - vertices[a].Position;
+                area += 0.5 * static_cast<double>( glm::length( glm::cross( ab, ac ) ) );
+            }
+        }
+        constexpr double kPi  = 3.14159265358979;
+        const double     disc = 0.25 * kPi * static_cast<double>( glm::dot( diagonal, diagonal ) );
+        if ( !( disc > 0.0 ) || !( area > 0.0 ) )
+            return 1.0f;
+        return static_cast<float>( std::min( 1.0, area / disc ) );
+    }
+
+    // The screen size below which @p triangles over the pixels the mesh covers get fewer than
+    // kAutoLODPixelsPerTriangle reference pixels each: the disc of diameter S x H covers pi/4 (S H)^2 pixels, the
+    // mesh @p coverage of them (LODScreenCoverage).
+    inline float LODDensityScreenSize( const uint32_t triangles, const float coverage )
     {
         constexpr float kPi = 3.14159265358979f;
-        return std::sqrt( 4.0f * kAutoLODPixelsPerTriangle * static_cast<float>( triangles ) / kPi ) /
+        return std::sqrt( 4.0f * kAutoLODPixelsPerTriangle * static_cast<float>( triangles ) /
+                          ( kPi * std::clamp( coverage, 1.0e-4f, 1.0f ) ) ) /
                kAutoLODReferenceScreenRows;
     }
 
     // Level @p level's automatic size: the progression's, or larger (the finer level given up earlier) when the
-    // finer level's @p finerTriangles are already denser than the threshold there; never above @p previous, so
-    // a mesh whose finer levels are denser than the threshold even full screen draws them only from inside.
-    inline float ComputeLODScreenSize( const uint32_t level, const float previous, const uint32_t finerTriangles )
+    // finer level's @p finerTriangles are already denser than the threshold there over the mesh's @p coverage of
+    // its disc; never above @p previous, so a mesh whose finer levels are denser than the threshold even full
+    // screen draws them only from inside.
+    inline float ComputeLODScreenSize( const uint32_t level, const float previous, const uint32_t finerTriangles,
+                                       const float coverage )
     {
         if ( level == 0 )
             return kLOD0ScreenSize;
         const float progression =
              kAutoLOD1ScreenSize * std::pow( kAutoLODScreenSizeFactor, static_cast<float>( level - 1 ) );
-        return std::clamp( std::max( progression, LODDensityScreenSize( finerTriangles ) ), 0.0f,
+        const float density = LODDensityScreenSize( finerTriangles, coverage );
+        return std::clamp( std::max( progression, density ), 0.0f,
                            std::max( 0.0f, previous - kAutoLODScreenSizeGap ) );
     }
 
@@ -138,9 +186,10 @@ namespace Desert::Geometry
     // cache by ResolveSectionInfo): the author's per-LOD values where the mesh's asset states them, the
     // automatic rule for every level it does not (nullopt = UE bAutoComputeLODScreenSize; a list shorter than
     // the chain = UE's "no source model for this LOD" branch). One entry per level the mesh actually has:
-    // @p levelTriangles is its LODTriangleCounts.
+    // @p levelTriangles is its LODTriangleCounts, @p coverage its LODScreenCoverage.
     inline std::vector<float> ResolveLODScreenSizes( const std::span<const uint32_t>          levelTriangles,
-                                                     const std::optional<std::vector<float>>& authored )
+                                                     const std::optional<std::vector<float>>& authored,
+                                                     const float                              coverage )
     {
         std::vector<float> out;
         out.reserve( levelTriangles.size() );
@@ -149,9 +198,12 @@ namespace Desert::Geometry
             if ( authored && level < authored->size() )
                 out.push_back( ( *authored )[level] );
             else
-                out.push_back( ComputeLODScreenSize( static_cast<uint32_t>( level ),
-                                                     level == 0 ? kLOD0ScreenSize : out.back(),
-                                                     level == 0 ? 0u : levelTriangles[level - 1] ) );
+            {
+                // Locals, not conditionals in the call's by-value arguments (MSVC hangs on that form).
+                const float    previous = level == 0 ? kLOD0ScreenSize : out.back();
+                const uint32_t finer    = level == 0 ? 0u : levelTriangles[level - 1];
+                out.push_back( ComputeLODScreenSize( static_cast<uint32_t>( level ), previous, finer, coverage ) );
+            }
         }
         return out;
     }

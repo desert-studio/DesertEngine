@@ -29,6 +29,7 @@ namespace Desert
             {
                 const std::vector<Index> gpu = Geometry::BuildLODIndexBuffer( m_Vertices, m_Indices, m_Submeshes,
                                                                               Geometry::UnbakedLODChain() );
+                m_LODScreenCoverage = Geometry::LODScreenCoverage( m_Vertices, m_Indices, m_Submeshes );
                 ResolveLODScreenSizes();
                 indices = FlattenIndices( gpu );
             }

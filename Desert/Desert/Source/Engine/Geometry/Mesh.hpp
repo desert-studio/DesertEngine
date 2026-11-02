@@ -245,8 +245,11 @@ namespace Desert
         void ResolveLODScreenSizes()
         {
             m_LODScreenSizes = Geometry::ResolveLODScreenSizes( Geometry::LODTriangleCounts( m_Submeshes ),
-                                                                m_AuthoredLODScreenSizes );
+                                                                m_AuthoredLODScreenSizes, m_LODScreenCoverage );
         }
+        // Geometry::LODScreenCoverage of the mesh's LOD 0 triangles, set by the subclass that holds them before it
+        // resolves the sizes (1: the bounding disc, a mesh whose triangles it does not measure).
+        float                             m_LODScreenCoverage = 1.0f;
         std::optional<std::vector<float>> m_AuthoredLODScreenSizes;
         std::vector<float>                m_LODScreenSizes;
 

@@ -157,7 +157,7 @@ namespace Desert::Geometry
             // progression starts this level at (there the bounding sphere's diameter is screenSize x 1080 rows,
             // and the extent the relative error is measured against is no longer than that diameter). A part
             // thinner than the budget may go - it is under a pixel there; a rail wider than it stays.
-            screenSize = ComputeLODScreenSize( static_cast<uint32_t>( level + 1 ), screenSize, 0 );
+            screenSize = ComputeLODScreenSize( static_cast<uint32_t>( level + 1 ), screenSize, 0, 1.0f );
             const float errorBudget =
                  kLODMaxPixelError / ( std::max( screenSize, 1e-6f ) * kAutoLODReferenceScreenRows );
             const double share = static_cast<double>( targets[level] ) / static_cast<double>( totalTris );

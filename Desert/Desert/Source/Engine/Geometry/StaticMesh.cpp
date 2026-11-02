@@ -22,7 +22,8 @@ namespace Desert
         // kept with the drawn mesh's submeshes.
         for ( auto& sub : subs )
             std::vector<std::vector<Index>>().swap( sub.BakedLODs );
-        m_Submeshes = std::move( subs );
+        m_Submeshes         = std::move( subs );
+        m_LODScreenCoverage = Geometry::LODScreenCoverage( vertices, indices, m_Submeshes );
         ResolveLODScreenSizes();
 
         // A virtual-geometry mesh's cluster words follow its indices in the same span: every DAG's VertexRefs
@@ -76,7 +77,8 @@ namespace Desert
         geometry.VertexCount     = vertexCount;
         twin->SetUnpooledGeometry( std::move( geometry ) );
         twin->m_DistanceField = base.m_DistanceField;
-        twin->m_Cards         = base.m_Cards;
+        twin->m_Cards             = base.m_Cards;
+        twin->m_LODScreenCoverage = base.m_LODScreenCoverage;
         twin->ResolveLODScreenSizes();
         return twin;
     }

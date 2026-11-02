@@ -491,6 +491,7 @@ namespace Desert::Graphic::System
                                 .Transform          = glm::mat4( 1.0f ),
                                 .Material           = by.Cell->GetMaterialExecutor(),
                                 .HiddenSubmeshMask  = hidden,
+                                .LodLevel           = level,
                                 .IndirectArgs       = drawArgs,
                                 .IndirectInstances  = refs.Instances,
                                 .IndirectIds        = refs.Ids,
