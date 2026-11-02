@@ -1,4 +1,5 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -1353,10 +1354,15 @@ namespace Desert::Graphic::RDG
                 backend.AbandonGraph();
                 return frameFault( std::format( "graph '{}' chunks: {}", m_Name, chunksBegun.GetError() ), {} );
             }
+            // The active view is per recording thread (ViewResources.cpp t_ActiveView): a chunk recorded on a
+            // worker reads the same view's descriptor sets and block copies as the thread that runs the graph
+            // (UE: a parallel command list set records for its view), not the frame context.
+            ViewResources& recordingView = ViewResourceRegistry::Active();
             Common::JobSystem::Get().ParallelRanges(
                  chunks.size(), 1,
                  [&]( size_t begin, size_t end )
                  {
+                     const ActiveViewScope viewScope( recordingView );
                      for ( size_t c = begin; c < end; ++c )
                      {
                          RecordChunk& chunk = chunks[c];
