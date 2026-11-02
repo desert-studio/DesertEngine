@@ -253,6 +253,7 @@ namespace Desert::Graphic::SurfaceCache
                     FreeCard( card );
                 FreeRow( it->second.Row );
                 m_Instances.erase( it );
+                ++m_PlacementRevision;
                 it = m_Instances.end();
             }
             if ( it == m_Instances.end() )
@@ -265,12 +266,14 @@ namespace Desert::Graphic::SurfaceCache
                 fresh.Row        = AllocateRow();
                 PlaceCards( fresh );
                 it = m_Instances.emplace( in.Key, std::move( fresh ) ).first;
+                ++m_PlacementRevision;
             }
             else if ( it->second.World != in.World )
             {
                 // Moved: the captured texels are card space and stay; the card frames follow the world.
                 it->second.World = in.World;
                 PlaceCards( it->second );
+                ++m_PlacementRevision;
             }
             if ( it->second.SurfaceKey != in.SurfaceKey )
             {
@@ -300,6 +303,7 @@ namespace Desert::Graphic::SurfaceCache
                 FreeCard( card );
             FreeRow( it->second.Row );
             it = m_Instances.erase( it );
+            ++m_PlacementRevision;
         }
 
         // RESOLUTIONS. Each side a power of two, at least the smallest card side - a thin card's thin side

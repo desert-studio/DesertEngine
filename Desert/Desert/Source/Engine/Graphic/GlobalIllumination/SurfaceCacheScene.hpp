@@ -176,6 +176,14 @@ namespace Desert::Graphic::SurfaceCache
         // the global distance field's objects (a mesh and its world, no entity) are listed under in its object
         // grid.
         [[nodiscard]] std::unordered_map<uint64_t, uint32_t> RowsByPlacement() const;
+        // Bumped whenever RowsByPlacement would answer differently: an instance added (a row handed out), moved
+        // (its placement key) or removed (its row freed). A reader that keeps the rows by placement (the global
+        // distance field's object set, SceneRenderer::AddFrameGlobalDistanceField) re-reads them only then
+        // (UE: FLumenSceneData's primitive add / update / remove operations, not a per-frame rescan).
+        [[nodiscard]] uint64_t GetPlacementRevision() const
+        {
+            return m_PlacementRevision;
+        }
         // A mesh instance's placement: the mesh's identity and its world transform's bits.
         [[nodiscard]] static uint64_t PlacementKey( const void* mesh, const glm::mat4& world );
 
@@ -245,6 +253,7 @@ namespace Desert::Graphic::SurfaceCache
         std::unordered_map<uint64_t, Instance> m_Instances;
         uint64_t                               m_Frame = 0;
         bool                                   m_RelightAll = false; // InvalidateLighting, consumed by Update
+        uint64_t                               m_PlacementRevision = 0; // GetPlacementRevision
         // The B3 table's rows: the count ever handed out and the freed ones, reused lowest first.
         uint32_t              m_RowCount = 0;
         std::vector<uint32_t> m_FreeRows;

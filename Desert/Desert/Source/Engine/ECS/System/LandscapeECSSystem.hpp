@@ -7,6 +7,7 @@
 #include "System.hpp"
 
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 
 #include <entt/entt.hpp>
 
@@ -157,5 +158,21 @@ namespace Desert::ECS
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
         std::unordered_set<uint64_t> m_WarnedMaterials;
+
+        // EACH ROOT'S MATERIAL OVERRIDES, RESOLVED ONCE PER REVISION (UE: a landscape proxy's material is rebuilt
+        // on a material change, not read per frame), by root UUID. Every tile's draw command and the terrain
+        // renderer's tile proxies share the one object by pointer, so a new pointer IS a new revision downstream.
+        // Resolved again when the root names another handle, the material service moves its invalidation version
+        // (a load landed or failed, a live edit, a shader change, Clear) or the content registry wrote a row (a
+        // material saved after the scene first asked for it: ResolveOverrides discovers it only then).
+        struct ResolvedOverrides
+        {
+            uint64_t                                          Material            = 0u; // the handle, 0 = none
+            const void*                                       Service             = nullptr;
+            uint32_t                                          InvalidationVersion = 0u;
+            uint64_t                                          ContentSerial       = 0u;
+            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;            // never null once resolved
+        };
+        std::unordered_map<uint64_t, ResolvedOverrides> m_RootOverrides;
     };
 } // namespace Desert::ECS

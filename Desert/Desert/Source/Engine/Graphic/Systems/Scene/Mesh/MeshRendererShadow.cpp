@@ -491,13 +491,26 @@ namespace Desert::Graphic::System
     void MeshRenderer::GatherShadowCasters()
     {
         ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        // The ISM fields' gather is kept while its key and every field's transforms snapshot (by owner) are the
+        // ones it was made from: in a still frame no instance is walked again (IsmInstanceReach, the wind point,
+        // SelectLODFromBounds per instance). Any input that moved - the main camera, a field's mesh, instances,
+        // material, cull distance or wind, the queue's fields - starts the whole gather over, as every frame did.
+        const uint64_t ismKey  = IsmGatherKey();
+        bool           keepIsm = setup.IsmRevision != 0u && setup.IsmKey == ismKey &&
+                       setup.Fields.size() == m_InstancedQueue.size() &&
+                       setup.IsmSources.size() == m_InstancedQueue.size();
+        for ( std::size_t i = 0; keepIsm && i < m_InstancedQueue.size(); ++i )
+        {
+            const auto& held = setup.IsmSources[i];
+            const auto& now  = m_InstancedQueue[i].Transforms;
+            keepIsm          = !held.owner_before( now ) && !now.owner_before( held );
+        }
+        const uint64_t previousGather = setup.Gather;
         ++setup.Gather;
         setup.Statics.resize( m_StaticQueue.size() );
         setup.Generics.resize( m_GenericQueue.size() );
         setup.Skinned.resize( m_SkinnedQueue.size() );
         setup.Fields.resize( m_InstancedQueue.size() );
-        setup.Instances.clear();
-        setup.InstanceIndex.clear();
         // The box is the one IsVisibleInView would build per view from the same transform and local bounds, built
         // once; an empty local box stays empty (no extent: in every view).
         const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
@@ -529,9 +542,59 @@ namespace Desert::Graphic::System
             // level invalidates and culls it by too.
             setup.Skinned[i].WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
         }
-        // A field's instances are gathered by the first view that walks it (ShadowIsmInstances).
+        // A field's instances are gathered by the first view that walks it (ShadowIsmInstances). A kept gather's
+        // fields carry over to this gather (their rows stay in Instances); a field no view walked yet stays
+        // ungathered and is appended when one does.
+        if ( keepIsm )
+        {
+            for ( ShadowIsmField& field : setup.Fields )
+                if ( field.Gather == previousGather )
+                    field.Gather = setup.Gather;
+            return;
+        }
+        setup.Instances.clear();
+        setup.InstanceIndex.clear();
         for ( ShadowIsmField& field : setup.Fields )
             field = ShadowIsmField{};
+        setup.IsmKey = ismKey;
+        ++setup.IsmRevision;
+        setup.IsmSources.resize( m_InstancedQueue.size() );
+        for ( std::size_t i = 0; i < m_InstancedQueue.size(); ++i )
+            setup.IsmSources[i] = m_InstancedQueue[i].Transforms;
+    }
+
+    uint64_t MeshRenderer::IsmGatherKey() const
+    {
+        // Every input of ShadowIsmInstances but the transforms' content (held by owner, GatherShadowCasters) and
+        // the kShadowWindEdge constant.
+        const auto*             camera = m_SceneRenderer->GetMainCamera();
+        const Geometry::LODView lodView =
+             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
+                               : Geometry::LODView{};
+        SignatureHash hash;
+        hash.Add( camera != nullptr );
+        if ( camera != nullptr )
+        {
+            hash.Add( camera->GetPosition() );
+            hash.Add( camera->GetProjectionMatrix() );
+        }
+        hash.Add( DrawDistanceScale( lodView ) );
+        hash.Add( m_ShadowWindDistance );
+        hash.Add( m_InstancedQueue.size() );
+        for ( const auto& ism : m_InstancedQueue )
+        {
+            hash.Add( ism.Mesh != nullptr ? ism.Mesh->GetRenderRevision() : uint64_t{ 0 } );
+            hash.Add( ism.Transforms ? ism.Transforms->size() : std::size_t{ 0 } );
+            hash.Add( static_cast<const void*>( ism.Material.get() ) );
+            hash.Add( ism.CastShadows );
+            hash.Add( ism.CullDistance.Min );
+            hash.Add( ism.CullDistance.Max );
+            hash.Add( ism.Wind.Direction );
+            hash.Add( ism.Wind.Strength );
+            hash.Add( ism.Wind.Speed );
+            hash.Add( ism.Wind.Height );
+        }
+        return hash.Value;
     }
 
     bool MeshRenderer::ShadowCastersGathered() const
@@ -687,35 +750,60 @@ namespace Desert::Graphic::System
         // the distance either way redraws the layer; a nearer one makes the cascade movable only when it reaches
         // it (UE: a WPO primitive invalidates the dynamic layer of the views its bounds touch, not of every view):
         // a crown beyond the cascade's box draws nothing into it, so it must not force its movable layer.
-        for ( const auto& ism : m_InstancedQueue )
+        // THE ISM FIELDS' PART (SCENE-CACHE-3), kept per cascade while the gather it walks (IsmRevision: the
+        // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in a
+        // still frame no instance of any field is walked again here. A part that met an instance at the wind edge
+        // keys this frame's gather, so it is made again on the next frame.
+        if ( m_CascadeIsmParts.size() <= cascade )
+            m_CascadeIsmParts.resize( static_cast<std::size_t>( cascade ) + 1u );
+        CascadeIsmPart& part = m_CascadeIsmParts[cascade];
+        if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision ||
+             part.CasterVP != m_CascadeCasterVP[cascade] )
         {
-            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
-                continue;
-            hash.Add( ism.Mesh->GetRenderRevision() );
-            hash.Add( ism.Transforms.get() );
-            hash.Add( ism.Transforms->size() );
-            hash.Add( ism.Material.get() );
-            const ShadowIsmField& kept =
-                 ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-            for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+            SignatureHash ismHash;
+            bool          ismMovable = false;
+            bool          nearEdge   = false;
+            for ( const auto& ism : m_InstancedQueue )
             {
-                const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
-                if ( !reaches( row ) )
+                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                     continue;
-                // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
-                // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
-                // each frame until it leaves the edge.
-                if ( row.NearWindEdge )
-                    hash.Add( m_ShadowCasterSetup.Gather );
-                if ( row.Sways )
+                ismHash.Add( ism.Mesh->GetRenderRevision() );
+                ismHash.Add( ism.Transforms.get() );
+                ismHash.Add( ism.Transforms->size() );
+                ismHash.Add( ism.Material.get() );
+                const ShadowIsmField& kept =
+                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+                for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
                 {
-                    movable = true;
-                    continue;
+                    const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
+                    if ( !reaches( row ) )
+                        continue;
+                    // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
+                    // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
+                    // each frame until it leaves the edge.
+                    if ( row.NearWindEdge )
+                    {
+                        ismHash.Add( m_ShadowCasterSetup.Gather );
+                        nearEdge = true;
+                    }
+                    if ( row.Sways )
+                    {
+                        ismMovable = true;
+                        continue;
+                    }
+                    ismHash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
+                    ismHash.Add( row.LodLevel );
                 }
-                hash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
-                hash.Add( row.LodLevel );
             }
+            part.Valid    = !nearEdge;
+            part.Revision = m_ShadowCasterSetup.IsmRevision;
+            part.CasterVP = m_CascadeCasterVP[cascade];
+            part.Hash     = ismHash.Value;
+            part.Movable  = ismMovable;
         }
+        hash.Add( part.Hash );
+        if ( part.Movable )
+            movable = true;
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];

@@ -230,6 +230,9 @@ namespace Desert::Graphic::System
         m_GenericQueue.clear();
         m_InstancedQueue.clear();
         m_GpuInstancedQueue.clear();
+        // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
+        // scene or took a new material); the rest are kept across frames (GpuInstancedDrawRecord).
+        std::erase_if( m_GpuInstancedDraws, []( const auto& held ) { return held.second.Source.expired(); } );
         // The ISM view culls no pass asked for this frame: their field left the scene or took a new snapshot.
         std::erase_if( m_IsmViewCulls, [this]( const auto& entry )
                        { return entry.second.Generation != m_IsmViewCullGeneration; } );

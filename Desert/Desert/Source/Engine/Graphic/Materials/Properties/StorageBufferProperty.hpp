@@ -75,6 +75,13 @@ namespace Desert::Graphic
         // rebinds the new VkBuffer.
         void SetBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
+            // The same owned buffer again is no write (SCENE-CACHE-2, as Texture2DProperty::SetImage): a caller
+            // that re-sets its buffers every frame (the GPU-instanced sections, the terrain groups) must not put
+            // every view's descriptor set behind and rewrite it. A device buffer swapped under the same object (a
+            // resize, a new frame copy) is still taken: the backend compares the bound copy's CopyId
+            // (BoundCopies.NeedsWrite).
+            if ( !m_IsLent && m_Written && m_Buffer == buffer )
+                return;
             m_Buffer = buffer;
             m_Lent.reset();
             m_IsLent  = false;
@@ -88,6 +95,11 @@ namespace Desert::Graphic
         // name (EDITOR-LOG-CLEAN). The view owns it; the next view to draw this material lends its own.
         void LendViewBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
+            // The same live lent buffer again is no write (as SetBuffer). Compared by owner: a lent buffer that
+            // expired is never the one lent now, whatever address the new one took.
+            if ( m_IsLent && m_Written && buffer != nullptr && !m_Lent.expired() &&
+                 !m_Lent.owner_before( buffer ) && !buffer.owner_before( m_Lent ) )
+                return;
             m_Buffer.reset();
             m_Lent    = buffer;
             m_IsLent  = true;

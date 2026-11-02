@@ -169,7 +169,8 @@ namespace Desert::ECS
         // of the shader's schema defaults. A root without a LandscapeMaterial draws with those defaults.
         struct Surface
         {
-            Graphic::MaterialOverrides Overrides;
+            // Never null: the root's overrides of this material revision (m_RootOverrides), empty for no material.
+            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
             // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
             // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
             // not reported as unknown.
@@ -182,6 +183,39 @@ namespace Desert::ECS
             std::string GroundLayer;
         };
         std::map<uint64_t, Surface> surfaces;
+
+        // The root's overrides, resolved again only when their revision moved (ResolvedOverrides): the handle, the
+        // material service's invalidation version, the content registry's write serial.
+        auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
+        const uint32_t materialVersion =
+             materialService != nullptr ? materialService->GetInvalidationVersion() : 0u;
+        const uint64_t contentSerial = Assets::ContentRegistry::WriteSerial();
+        const auto     overridesOf   = [&]( const uint64_t                rootKey,
+                                        const LandscapeMaterialData* look ) -> std::shared_ptr<const Graphic::MaterialOverrides>
+        {
+            const uint64_t     raw    = look != nullptr ? static_cast<uint64_t>( look->Material ) : 0u;
+            ResolvedOverrides& cached = m_RootOverrides[rootKey];
+            if ( cached.Overrides != nullptr && cached.Material == raw && cached.Service == materialService &&
+                 cached.InvalidationVersion == materialVersion && cached.ContentSerial == contentSerial )
+                return cached.Overrides;
+            auto resolved = std::make_shared<Graphic::MaterialOverrides>();
+            if ( raw != 0u &&
+                 ( materialService == nullptr || !materialService->ResolveOverrides( look->Material, *resolved ) ) &&
+                 m_WarnedMaterials.insert( raw ).second )
+            {
+                // Not a silent default: the scene names a material the asset database does not have, and
+                // the landscape then renders in the shader's defaults. Said once per handle, not per frame.
+                LOG_WARN( "[Landscape] material handle {} does not resolve to a registered material — the "
+                          "landscape renders with the Terrain shader's own defaults.",
+                          raw );
+            }
+            cached.Material            = raw;
+            cached.Service             = materialService;
+            cached.InvalidationVersion = materialVersion;
+            cached.ContentSerial       = contentSerial;
+            cached.Overrides           = std::move( resolved );
+            return cached.Overrides;
+        };
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
         {
             const auto [it, inserted] = surfaces.try_emplace( static_cast<uint64_t>( rootId ) );
@@ -209,27 +243,15 @@ namespace Desert::ECS
                         it->second.LayersPending = true;
                 }
             }
+            const LandscapeMaterialData* look = nullptr;
             for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
             {
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
                     continue;
-                const LandscapeMaterialData& look = registry.get<LandscapeMaterialComponent>( entity ).Data;
-                const auto raw = static_cast<uint64_t>( look.Material );
-                if ( raw == 0 )
-                    break;
-                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-                if ( ( materials == nullptr ||
-                       !materials->ResolveOverrides( look.Material, it->second.Overrides ) ) &&
-                     m_WarnedMaterials.insert( raw ).second )
-                {
-                    // Not a silent default: the scene names a material the asset database does not have, and
-                    // the landscape then renders in the shader's defaults. Said once per handle, not per frame.
-                    LOG_WARN( "[Landscape] material handle {} does not resolve to a registered material — the "
-                              "landscape renders with the Terrain shader's own defaults.",
-                              raw );
-                }
+                look = &registry.get<LandscapeMaterialComponent>( entity ).Data;
                 break;
             }
+            it->second.Overrides = overridesOf( static_cast<uint64_t>( rootId ), look );
             return it->second;
         };
 

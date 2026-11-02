@@ -105,6 +105,14 @@ namespace Desert::Graphic
                            m_Uniform ? m_Uniform->GetBinding() : 0u, RDG::GetAccessName( declared ) );
                 return;
             }
+            // The same image under the same access again is no write (as SetSamplerState): a caller that
+            // re-binds its images every frame (the terrain groups, a pass that re-sets its inputs) must not put
+            // every view's descriptor set behind and rewrite it (UE: a material's uniform expression cache is
+            // invalidated by a parameter CHANGE, not by being set). A device image swapped under the same
+            // pointer - a streamed mip, TakeDeviceImageFrom, a recreated sampler, or a freed image's address
+            // reused - is still taken: Apply compares GetResourceGeneration, which is unique in the process.
+            if ( texture == m_Texture && declared == m_Declared )
+                return;
 
             m_Texture  = texture;
             m_Declared = declared;
