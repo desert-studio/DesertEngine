@@ -142,4 +142,29 @@ GrassBladeLod GrassBladeLodAt( float size, uint ring, uint levels )
     return lod;
 }
 
+// THE BLADE'S FADE (GPU-FRAME-4; UE grass: PerInstanceFadeAmount, an instance scaled to nothing before its cull) -
+// what keeps a thinning blade from popping. Every thinning of the field (the distance and floor laws above and the
+// far LOD's share, GrassBladeLodAt) drops an instance where the share kept falls to its own draw; a mesh already
+// shrinks out before that (GrassMeshShrink), and a blade lowers into the ground over the last band of shares above
+// its draw instead of vanishing at once. Per instance and by distance alone - no screen-space dither - so the fade
+// is the same every frame and at every camera turn: nothing for TAA / DLSS to turn into shimmer. Lowering (not
+// narrowing) keeps the fading blade at least as wide as the screen-width floor, so it never goes sub-pixel.
+// The band is a quarter of the share left on the nearer side of it, min(share, 1 - share): it closes to nothing
+// as the share reaches 1, so a blade the field keeps whole - every near blade - is never lowered, and it never
+// holds more than a quarter of the survivors.
+const float kGrassBladeFadeBand = 0.25;
+float GrassBladeFade( float share, float draw )
+{
+    float band = kGrassBladeFadeBand * min( share, 1.0 - share );
+    return band > 0.0 ? clamp( ( share - draw ) / band, 0.0, 1.0 ) : 1.0;
+}
+// What the fade takes from the survivors' area, given back to their width: survivors' draws are uniform below the
+// share, so the band's blades - band / share of them - stand half as tall on average, band / (2 share) of the
+// field's area; each survivor widens by 1 / (1 - that) and the field covers what the cover's GrassFieldCoverage
+// counts on.
+float GrassBladeFadeWiden( float share )
+{
+    float lost = 0.5 * kGrassBladeFadeBand * min( share, 1.0 - share ) / max( share, 1.0e-4 );
+    return 1.0 / ( 1.0 - clamp( lost, 0.0, 0.5 ) );
+}
 #endif // GRASS_FIELD_SHARE_GLSLH

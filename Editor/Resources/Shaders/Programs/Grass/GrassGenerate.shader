@@ -367,11 +367,15 @@ Shader "GrassGenerate"
                 uint  ring = p.Blade.x > 0.0 ? min( uint( distance / p.Blade.x ), p.Buckets.x - 1u ) : 0u;
                 float size = p.Lod.z > 0.0 ? p.Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
                 lod        = GrassBladeLodAt( size, ring, p.Buckets.x );
-                if ( fade >= min( kept, field.Floor ) * lod.Share )
+                float share = min( kept, field.Floor ) * lod.Share;
+                if ( fade >= share )
                     return;
                 scale.x *= field.Widen;
                 scale.z *= field.Widen;
-                scale.y *= field.Height;
+                // The blade the thinning is about to drop lowers into the ground first (GrassBladeFade: stable per
+                // instance, no pop), and the survivors widen by what that lowering takes from the field's area.
+                scale.y *= field.Height * GrassBladeFade( share, fade );
+                lod.Widen *= GrassBladeFadeWiden( share );
             }
             else
                 scale *= GrassMeshShrink( field, fade );
