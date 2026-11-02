@@ -401,7 +401,8 @@ namespace Desert::Graphic
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
-                                  const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
+                                  const std::shared_ptr<const MaterialOverrides>& overrides,
+                                  const System::LandscapeWeightDraw&               weights );
 
         // Submit one landscape root's grass for this frame (from LandscapeECSSystem via
         // DrawLandscapeGrassCommand).

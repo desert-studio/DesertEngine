@@ -43,8 +43,10 @@ namespace Desert::Graphic::System
         LandscapeWeightDraw Weights;
 
         // The root's material, as param + texture overrides applied generically to the DataDrivenMaterial by
-        // name (e.g. "Tint"). Unset parameters keep the shader's schema defaults.
-        Graphic::MaterialOverrides Overrides;
+        // name (e.g. "Tint"). Unset parameters keep the shader's schema defaults. Never null: one object per
+        // material revision, shared by every tile of the root (LandscapeECSSystem::m_RootOverrides), so its
+        // pointer is the revision the tile proxies (TileProxy) compare.
+        std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
     };
 
     // GPU landscape renderer. Draws each tile as a triangle grid over its samples into the scene framebuffer's
@@ -208,6 +210,9 @@ namespace Desert::Graphic::System
         void ReleaseWorldCaches()
         {
             ClearQueue();
+            // The pooled group slots and the tile proxies name the sets and the layer inputs below: they go first.
+            m_FrameGroupPool.clear();
+            m_TileProxies.clear();
             m_Materials.clear();
             m_LayerInputs.clear();
         }
@@ -217,6 +222,8 @@ namespace Desert::Graphic::System
             m_Queue.clear();
             m_FrameInstances.clear();
             m_FrameMaterials.clear();
+            // The group slots go back to the pool with their vectors' capacity; the next PrepareFrame takes them.
+            std::swap( m_FrameGroups, m_FrameGroupPool );
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_LocalLightDraws.clear();
@@ -238,12 +245,26 @@ namespace Desert::Graphic::System
             std::unique_ptr<DataDrivenMaterial> Shadow;
             // TerrainVirtualShadow.shader: the virtual shadow map's caster (the same vertex stage as Shadow).
             std::unique_ptr<DataDrivenMaterial> VirtualShadow;
+
+            // What the surface program's params were last written from (ApplyDefaults + the overrides' params):
+            // written again only when another overrides object (a new material revision), another surface
+            // program (render path, VSM permutation) or a recompiled program (its code generation) reaches the
+            // set. Nothing else writes those params, so the row keeps them from frame to frame.
+            std::shared_ptr<const MaterialOverrides> AppliedOverrides;
+            const DataDrivenMaterial*                AppliedSurface    = nullptr;
+            uint64_t                                 AppliedGeneration = 0u;
+            // The PrepareFrame (m_PrepareSerial) the set's group opened in, and that group's index: a tile finds
+            // its group with no key.
+            uint64_t GroupFrame = 0u;
+            size_t   GroupIndex = 0u;
         };
 
-        // A frame's terrains sharing one texture set. Named by key, not by pointer: m_Materials owns them.
+        // A frame's terrains sharing one texture set. m_Materials owns the set; the group points at it and at its
+        // key (the map is node-based, so both stay put until ReleaseWorldCaches).
         struct FrameGroup
         {
-            std::string                  Key;
+            const std::string*           Key       = nullptr;
+            ProgramMaterials*            Materials = nullptr;
             std::vector<glm::vec4>       ParamRows;
             std::vector<TerrainInstance> Instances;
             // The group's layer inputs (m_LayerInputs, keyed by the material's own textures, which the group key
@@ -251,6 +272,35 @@ namespace Desert::Graphic::System
             // and every light's row read them through this, with no TerrainTextureKey of their own.
             TerrainLayerInputs* Layers = nullptr;
         };
+
+        // ONE TILE'S PERSISTENT PROXY (UE: FLandscapeComponentSceneProxy lives in the scene and is rebuilt only when
+        // its component changes), by the tile's entity (m_TileProxies). It holds what PrepareFrame used to derive
+        // from strings on every frame: the tile's texture set (TerrainTextureKey, spelled only on a rebuild), its
+        // layer inputs and the override textures that are samplers of the surface program. Rebuilt when any
+        // revision below moved; the frame only reads it. A tile whose heightmap died leaves (owner liveness).
+        struct TileProxy
+        {
+            // The revision: the root's overrides object (one per material revision), the two maps' identity
+            // (owner, so a freed and reallocated image at the same address is a new one) and their pixel
+            // revisions, the render path and the forward VSM permutation (they pick the surface program).
+            std::shared_ptr<const MaterialOverrides> Overrides;
+            std::weak_ptr<Image2D>                   Heightmap;
+            std::weak_ptr<Image2D>                   Weightmap;
+            uint64_t                                 HeightRevision = 0u;
+            uint64_t                                 WeightRevision = 0u;
+            bool                                     Deferred       = false;
+            bool                                     ForwardVirtual = false;
+
+            const std::string*  Key       = nullptr; // m_Materials' key of the set
+            ProgramMaterials*   Materials = nullptr;
+            TerrainLayerInputs* Layers    = nullptr;
+            std::string         LayerTag; // UpdateTerrainLayerInputs' name of the material in an error
+            // Indices into Overrides->Textures of the samplers the surface program binds (the layer inputs' maps
+            // and layer infos reach the shader through the arrays instead).
+            std::vector<uint32_t> Samplers;
+        };
+        // @p tile's proxy, rebuilt first when one of its revisions moved.
+        const TileProxy& ProxyOf( const TerrainDrawData& tile, bool deferred );
 
         struct FrameDraw
         {
@@ -351,6 +401,13 @@ namespace Desert::Graphic::System
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
+        // The previous frame's group slots between ClearQueue and the next PrepareFrame: their vectors keep their
+        // capacity, so a frame opens its groups with no allocation.
+        std::vector<FrameGroup> m_FrameGroupPool;
+        // Every tile's persistent proxy (TileProxy), by entity.
+        std::unordered_map<uint32_t, TileProxy> m_TileProxies;
+        // Counts PrepareFrame calls: ProgramMaterials::GroupFrame names the frame a set's group opened in.
+        uint64_t m_PrepareSerial = 0u;
         std::vector<FrameDraw>       m_FrameDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
         // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a

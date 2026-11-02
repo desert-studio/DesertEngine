@@ -13,6 +13,8 @@
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Materials/DrawPushFields.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -389,6 +391,24 @@ namespace Desert::Graphic::System
                                       } );
         }
 
+        // The tile proxy's map is still the one it was built from: the same owner (a freed image whose address came
+        // back is another owner), or both absent.
+        bool SameOwner( const std::weak_ptr<Image2D>& held, const std::shared_ptr<Image2D>& now )
+        {
+            return !held.owner_before( now ) && !now.owner_before( held );
+        }
+
+        // The code generation of the program @p material draws with (Shader::GetCodeGeneration): a recompile moves
+        // it, and with it the material's row layout, so the params are written again.
+        uint64_t ProgramGeneration( const DataDrivenMaterial& material )
+        {
+            const MaterialExecutor* executor = material.GetMaterialExecutor();
+            if ( executor == nullptr )
+                return 0u;
+            const std::shared_ptr<Shader> shader = executor->GetShader();
+            return shader != nullptr ? shader->GetCodeGeneration() : 0u;
+        }
+
         // ONE UPLOAD PER GROUP (SCENE-CACHE-2; UE Landscape: one uniform buffer per component, read by every
         // pass): the first program of a group that declares the block takes the group's rows into its own buffer
         // (@p uploaded := @p block); every later program reads that same buffer (SetBuffer of the same buffer
@@ -557,7 +577,9 @@ namespace Desert::Graphic::System
 
     void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
-        m_FrameGroups.clear();
+        // Last frame's group slots (ClearQueue pooled them): reused below with their vectors' capacity.
+        if ( m_FrameGroups.empty() )
+            std::swap( m_FrameGroups, m_FrameGroupPool );
         m_FrameDraws.clear();
         // The lights' draws are PrepareLocalShadowViews' (after UpdateLocalShadows gave the lights their views).
         m_LocalLightDraws.clear();
@@ -566,7 +588,10 @@ namespace Desert::Graphic::System
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
         if ( m_Queue.empty() )
+        {
+            m_FrameGroups.clear();
             return;
+        }
 
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
         // does (it has no param rows, only the instances).
@@ -597,8 +622,14 @@ namespace Desert::Graphic::System
         // Rows upload up front and at final size for the same reason the mesh path does it:
         // growing a storage buffer reallocates the VkBuffer under a draw already recorded
         // against the old one.
-        std::unordered_map<std::string, size_t> groupIndex;
-        std::unordered_set<std::string>         layerKeysThisFrame;
+        //
+        // What does not change from frame to frame is the tiles' proxies (TileProxy, ProxyOf): a tile's set, its
+        // layer inputs and its samplers are looked up by entity and rebuilt only when a revision moved.
+        ++m_PrepareSerial;
+        size_t                           groupCount = 0;
+        std::vector<TerrainLayerInputs*> layersThisFrame;
+        // A tile whose GPU copy died (unloaded, its landscape removed) leaves its proxy: owner liveness, no compare.
+        std::erase_if( m_TileProxies, []( const auto& entry ) { return entry.second.Heightmap.expired(); } );
         m_FrameDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
         m_FrameMaterials.reserve( m_Queue.size() );
@@ -641,72 +672,52 @@ namespace Desert::Graphic::System
 
         for ( const auto& t : m_Queue )
         {
-            const auto [it, inserted] = groupIndex.try_emplace(
-                 TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ),
-                 m_FrameGroups.size() );
-            ProgramMaterials& materials = m_Materials[it->first];
-            if ( !materials.Forward )
-            {
-                materials.Forward       = std::make_unique<DataDrivenMaterial>( "Terrain" );
-                materials.GBuffer       = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
-                materials.Depth         = std::make_unique<DataDrivenMaterial>( "TerrainDepth" );
-                materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
-                materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
-            }
-            if ( m_ForwardVirtual && !materials.ForwardVsm )
-                materials.ForwardVsm =
-                     std::make_unique<DataDrivenMaterial>( m_PipelineVsm->GetSpecification().Shader );
+            // The tile's proxy: its texture set's materials, layer inputs and samplers, rebuilt only when one of
+            // its revisions moved (no TerrainTextureKey on a frame where nothing changed).
+            const TileProxy&  proxy     = ProxyOf( t, deferred );
+            ProgramMaterials& materials = *proxy.Materials;
 
             // The material's layer inputs (TerrainLayerInputs): keyed by the material's own textures, not the
-            // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
-            // A tile of a group opened this frame reads the group's (FrameGroup::Layers: the group key contains
-            // the layer key), so the layer key is spelled once per group, not once per tile.
-            TerrainLayerInputs* layersOf = nullptr;
-            if ( !inserted )
-                layersOf = m_FrameGroups[it->second].Layers;
-            if ( layersOf == nullptr )
+            // tile's, so every tile of a landscape shares one set of arrays; brought up to date once per frame per
+            // set (by its sources' generations: a streamed mip, a layer texture that landed).
+            TerrainLayerInputs& layers = *proxy.Layers;
+            if ( std::find( layersThisFrame.begin(), layersThisFrame.end(), &layers ) == layersThisFrame.end() )
             {
-                const std::string layerKey = TerrainTextureKey( t.Overrides, nullptr, nullptr );
-                layersOf                   = &m_LayerInputs[layerKey];
+                layersThisFrame.push_back( &layers );
                 if ( !m_EmptyLayerArray )
                     m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
-                if ( layerKeysThisFrame.insert( layerKey ).second )
-                {
-                    DESERT_PROFILE_PASS( "Terrain: Layer inputs" );
-                    UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
-                                              "landscape material " + layerKey, m_EmptyLayerArray, *layersOf );
-                }
+                DESERT_PROFILE_PASS( "Terrain: Layer inputs" );
+                UpdateTerrainLayerInputs( materials.Forward->GetSchema(), *t.Overrides, proxy.LayerTag,
+                                          m_EmptyLayerArray, layers );
             }
-            TerrainLayerInputs& layers = *layersOf;
 
-            if ( inserted )
+            // The first tile of a set this frame opens its group, in the next of last frame's slots.
+            if ( materials.GroupFrame != m_PrepareSerial )
             {
                 DESERT_PROFILE_PASS( "Terrain: Group textures" );
-                m_FrameGroups.push_back( { it->first, {}, {} } );
-                m_FrameGroups.back().Layers = &layers;
+                materials.GroupFrame = m_PrepareSerial;
+                materials.GroupIndex = groupCount;
+                if ( groupCount == m_FrameGroups.size() )
+                    m_FrameGroups.emplace_back();
+                FrameGroup& opened = m_FrameGroups[groupCount++];
+                opened.Key         = proxy.Key;
+                opened.Materials   = &materials;
+                opened.Layers      = &layers;
+                opened.ParamRows.clear();
+                opened.Instances.clear();
 
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
                 // are bound once, from the terrain that opened the group. Unset samplers keep the backend
-                // white fallback, so this is purely additive.
+                // white fallback, so this is purely additive. Which overrides are samplers is the proxy's (once
+                // per revision); the image each names is resolved here, since a texture that lands swaps it.
                 DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
-                const auto&         schema  = surface->GetSchema();
-                for ( const auto& [name, handle] : t.Overrides.Textures )
+                for ( const uint32_t index : proxy.Samplers )
                 {
-                    if ( handle == 0 )
-                        continue;
-                    // The layer inputs' maps and layer infos are no samplers: they reach the shader through
-                    // the arrays bound below and the rows' slice / input tables.
-                    const auto param =
-                         std::find_if( schema.Params.begin(), schema.Params.end(),
-                                       [&]( const Core::Formats::ShaderParam& p ) { return p.Name == name; } );
-                    if ( param != schema.Params.end() && ( param->ElementIndex >= 0 || param->IsAssetRef() ) )
-                        continue;
+                    const auto& [name, handle] = t.Overrides->Textures[index];
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
                     if ( tex == nullptr )
                         continue;
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this
-                    // exact type
-                    // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
+                    // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
                     // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
@@ -730,14 +741,25 @@ namespace Desert::Graphic::System
                     materials.Depth->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                 }
             }
-            FrameGroup&         group   = m_FrameGroups[it->second];
+            FrameGroup&         group   = m_FrameGroups[materials.GroupIndex];
             DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
 
             {
+                // The params are the overrides on the schema defaults, written again only when their revision
+                // moved (ProgramMaterials::AppliedOverrides); GetParamRow below still runs every frame (it writes
+                // the texture slots of the images the properties draw now).
                 DESERT_PROFILE_PASS( "Terrain: Tile params" );
-                surface->ApplyDefaults();
-                for ( const auto& [name, value] : t.Overrides.Params )
-                    surface->SetParamRaw( name, value );
+                const uint64_t generation = ProgramGeneration( *surface );
+                if ( materials.AppliedOverrides != t.Overrides || materials.AppliedSurface != surface ||
+                     materials.AppliedGeneration != generation )
+                {
+                    surface->ApplyDefaults();
+                    for ( const auto& [name, value] : t.Overrides->Params )
+                        surface->SetParamRaw( name, value );
+                    materials.AppliedOverrides  = t.Overrides;
+                    materials.AppliedSurface    = surface;
+                    materials.AppliedGeneration = generation;
+                }
             }
 
             TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
@@ -769,7 +791,7 @@ namespace Desert::Graphic::System
             }
 
             FrameDraw draw;
-            draw.Group       = it->second;
+            draw.Group       = materials.GroupIndex;
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
             draw.VertexCount = LandscapeDicedVertexCount( t.Landscape.QuadsPerTile,
                                                           static_cast<uint32_t>( instance.Params.w ), instance );
@@ -786,13 +808,16 @@ namespace Desert::Graphic::System
             }
         }
 
+        // The slots past this frame's groups go (the set count shrank).
+        m_FrameGroups.resize( groupCount );
+
         // ── Upload every group's material rows, still before any draw ───────────────────────────────────
         // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
         // block goes on in ApplySceneFrame)
         DESERT_PROFILE_PASS( "Terrain: Upload rows" );
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials const& materials = m_Materials[group.Key];
+            ProgramMaterials const& materials = *group.Materials;
             DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
             // ONE upload per group (SCENE-CACHE-2, ShareGroupRows): the programs that declare the block read the
             // first one's buffer.
@@ -811,6 +836,64 @@ namespace Desert::Graphic::System
                                         static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
             }
         }
+    }
+
+    const TerrainRenderer::TileProxy& TerrainRenderer::ProxyOf( const TerrainDrawData& t, const bool deferred )
+    {
+        TileProxy& proxy = m_TileProxies[t.Landscape.Entity];
+        if ( proxy.Materials != nullptr && proxy.Overrides == t.Overrides && SameOwner( proxy.Heightmap, t.Heightmap ) &&
+             SameOwner( proxy.Weightmap, t.Weights.Weightmap ) && proxy.HeightRevision == t.Landscape.HeightRevision &&
+             proxy.WeightRevision == t.Weights.Revision && proxy.Deferred == deferred &&
+             proxy.ForwardVirtual == m_ForwardVirtual )
+            return proxy;
+
+        DESERT_PROFILE_PASS( "Terrain: Tile proxy" );
+        const auto entry =
+             m_Materials.try_emplace( TerrainTextureKey( *t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ) )
+                  .first;
+        ProgramMaterials& materials = entry->second;
+        if ( !materials.Forward )
+        {
+            materials.Forward       = std::make_unique<DataDrivenMaterial>( "Terrain" );
+            materials.GBuffer       = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
+            materials.Depth         = std::make_unique<DataDrivenMaterial>( "TerrainDepth" );
+            materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
+            materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
+        }
+        // The forward VSM permutation is made on the first frame that draws with it (a toggle rebuilds the proxy).
+        if ( m_ForwardVirtual && !materials.ForwardVsm )
+            materials.ForwardVsm = std::make_unique<DataDrivenMaterial>( m_PipelineVsm->GetSpecification().Shader );
+        const std::string layerKey = TerrainTextureKey( *t.Overrides, nullptr, nullptr );
+
+        proxy.Overrides      = t.Overrides;
+        proxy.Heightmap      = t.Heightmap;
+        proxy.Weightmap      = t.Weights.Weightmap;
+        proxy.HeightRevision = t.Landscape.HeightRevision;
+        proxy.WeightRevision = t.Weights.Revision;
+        proxy.Deferred       = deferred;
+        proxy.ForwardVirtual = m_ForwardVirtual;
+        proxy.Key            = &entry->first;
+        proxy.Materials      = &materials;
+        proxy.Layers         = &m_LayerInputs[layerKey];
+        proxy.LayerTag       = "landscape material " + layerKey;
+
+        // The overrides that are samplers of the surface program: the layer inputs' maps and layer infos are no
+        // samplers, they reach the shader through the arrays and the rows' slice / input tables.
+        proxy.Samplers.clear();
+        const DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+        const auto&               schema  = surface->GetSchema();
+        for ( uint32_t index = 0; index < static_cast<uint32_t>( t.Overrides->Textures.size() ); ++index )
+        {
+            const std::string& name = t.Overrides->Textures[index].first;
+            if ( t.Overrides->Textures[index].second == 0 )
+                continue;
+            const auto param = std::find_if( schema.Params.begin(), schema.Params.end(),
+                                             [&]( const Core::Formats::ShaderParam& p ) { return p.Name == name; } );
+            if ( param != schema.Params.end() && ( param->ElementIndex >= 0 || param->IsAssetRef() ) )
+                continue;
+            proxy.Samplers.push_back( index );
+        }
+        return proxy;
     }
 
     void TerrainRenderer::ApplySceneFrame( const SceneFrameBinding& scene )
@@ -832,7 +915,7 @@ namespace Desert::Graphic::System
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {
-            const ProgramMaterials& materials = m_Materials.at( group.Key );
+            const ProgramMaterials& materials = *group.Materials;
             scene.ApplyTo( deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get() );
         }
     }
@@ -945,7 +1028,7 @@ namespace Desert::Graphic::System
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials const& materials = m_Materials[group.Key];
+            ProgramMaterials const& materials = *group.Materials;
             DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
             // ONE upload per group (SCENE-CACHE-2): the first program's buffer takes the rows, the other three
             // read that same buffer (ShareGroupRows) - the rows are identical by construction.
@@ -1104,7 +1187,7 @@ namespace Desert::Graphic::System
         std::vector<const MaterialExecutor*> executors;
         executors.reserve( m_FrameGroups.size() );
         for ( const auto& group : m_FrameGroups )
-            executors.push_back( ( m_Materials.at( group.Key ).*program )->GetMaterialExecutor() );
+            executors.push_back( ( group.Materials->*program )->GetMaterialExecutor() );
         return executors;
     }
 
@@ -1133,7 +1216,7 @@ namespace Desert::Graphic::System
         for ( size_t k = 0; k < draws.size(); ++k )
         {
             const FrameDraw&        draw     = draws[k];
-            const auto*             material = ( m_Materials.at( m_FrameGroups[draw.Group].Key ).*program ).get();
+            const auto*             material = ( m_FrameGroups[draw.Group].Materials->*program ).get();
             const MaterialExecutor* executor = material->GetMaterialExecutor();
             const Common::Memory::Buffer& block = executor->GetPushConstantBuffer();
             push.assign( block.Size, std::byte{ 0 } );
@@ -1345,7 +1428,7 @@ namespace Desert::Graphic::System
             // row's first pool vertex).
             hash.Add( m_FrameGroups[draw.Group].Instances[draw.Row] );
             hash.Add( draw.VertexCount );
-            hash.Bytes( m_FrameGroups[draw.Group].Key.data(), m_FrameGroups[draw.Group].Key.size() );
+            hash.Bytes( m_FrameGroups[draw.Group].Key->data(), m_FrameGroups[draw.Group].Key->size() );
             // The heightmap's texels (sculpting edits them in place: HeightRevision) and the image itself (its
             // device generation: a recreated one at the same address is another image).
             hash.Add( t.Heightmap.get() );

@@ -3905,8 +3905,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
                                              const System::LandscapeTileDraw&   tile,
-                                             const MaterialOverrides&           overrides,
-                                             const System::LandscapeWeightDraw& weights )
+                                             const std::shared_ptr<const MaterialOverrides>& overrides,
+                                             const System::LandscapeWeightDraw&               weights )
     {
         // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
         // tile's square around its base height, so a camera over the tile asks for everything.
@@ -3923,7 +3923,7 @@ namespace Desert::Graphic
             const float     pixels = TextureStreamingDemand::ScreenPixels(
                  center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
                  GetViewExtent().Height );
-            for ( const auto& [slot, asset] : overrides.Textures )
+            for ( const auto& [slot, asset] : overrides->Textures )
                 TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
