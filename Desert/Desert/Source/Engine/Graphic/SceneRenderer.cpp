@@ -781,6 +781,15 @@ namespace Desert::Graphic
                            ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
+        // The read above (and every per-frame budget read) answers from the ledger's running per-instance
+        // totals. A view's close is where they are proven against a full walk of the rows: a disagreement is
+        // a bookkeeping defect in ResourceLedger, and the budget has been reading wrong numbers since.
+        if ( const std::string disagreement = ResourceLedger::CheckInstanceTotals(); !disagreement.empty() )
+        {
+            LOG_ERROR(
+                 "[Resources] CheckInstanceTotals at {} close: the running totals disagree with the rows:\n{}",
+                 ResourceOwnerInstanceName( Instance ), disagreement );
+        }
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
