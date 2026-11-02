@@ -613,6 +613,12 @@ namespace Desert::Graphic::System
         bool                                            m_ShadowHeroPlanned  = false;
         CloudShadowTexelRect                            m_ShadowHeroPendingRect{};
         uint64_t                                        m_ShadowHeroPendingKey = 0;
+        // THE ONE THING THE MARCH'S EXEC WRITES BACK (RDG-PARALLEL-5), from whichever chunk records it: a shadow
+        // dispatch that did not run left bytes no key describes. The exec never writes the refresh state itself
+        // (UE: renderer state is the setup's); DeclareShadowMapNodes takes this flag first and drops the state it
+        // invalidates, so both copies are re-marched whole. "Clouds: ShadowMap" and "Clouds: ShadowMapHero" may
+        // record on two workers at once, hence an atomic and not three fields.
+        std::atomic<bool>                               m_ShadowMarchFailed{ false };
         std::shared_ptr<ShaderResources::StorageBuffer> m_ShadowParamsBuffer;
 
         // This frame's projection, and whether it describes anything. Rebuilt every frame rather than
@@ -657,6 +663,10 @@ namespace Desert::Graphic::System
         bool                    m_SkyOcclusionBuilt    = false;
         uint64_t                m_SkyOcclusionBuiltKey = 0;
         std::optional<uint64_t> m_SkyOcclusionPendingKey;
+        // Set by "Clouds: SkyOcclusion"'s exec (any worker) when its dispatch did not run; taken by the next
+        // DeclareSkyOcclusionIfStale, which drops m_SkyOcclusionBuilt so the volume is marched again
+        // (RDG-PARALLEL-5: the exec writes no renderer field).
+        std::atomic<bool> m_SkyOcclusionMarchFailed{ false };
 
         // How many batches of input uploads (AddInputUploads) reached the graph: an uploaded image changed bytes
         // the cached producers marched through. A batch still pending counts as landed (FieldInputsKey), because

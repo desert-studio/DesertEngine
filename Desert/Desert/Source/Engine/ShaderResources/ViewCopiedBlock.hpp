@@ -6,10 +6,12 @@
 #include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -48,19 +50,28 @@ namespace Desert::ShaderResources
         // copy starts at 0, behind every write, and takes each written field once (its seed already holds the
         // bytes, so that is idempotent). Kept per copy because "dirty" is a question about one (view x frame)
         // copy: a copy another view brought up to date is not up to date itself.
+        //
+        // RDG-PARALLEL-5: two chunks of one graph bind materials that share this copy in the same frame, so the
+        // version is an atomic that only moves forward. Each writer has delivered every field up to the version
+        // it notes, so the larger of two notes is what the copy holds, whichever lands last.
         [[nodiscard]] uint64_t GetAppliedVersion() const noexcept
         {
-            return m_AppliedVersion;
+            return m_AppliedVersion.load( std::memory_order_acquire );
         }
 
         void NoteApplied( const uint64_t version ) noexcept
         {
-            m_AppliedVersion = version;
+            uint64_t current = m_AppliedVersion.load( std::memory_order_relaxed );
+            while ( current < version &&
+                    !m_AppliedVersion.compare_exchange_weak( current, version, std::memory_order_acq_rel,
+                                                             std::memory_order_relaxed ) )
+            {
+            }
         }
 
     private:
-        const uint64_t m_Id;
-        uint64_t       m_AppliedVersion = 0;
+        const uint64_t        m_Id;
+        std::atomic<uint64_t> m_AppliedVersion{ 0 };
     };
 
     /**
@@ -115,6 +126,7 @@ namespace Desert::ShaderResources
         // Drops every copy and starts again from zeroes of `size` bytes (a rebuilt buffer).
         void Reset( const uint32_t size )
         {
+            std::scoped_lock lock( m_Lock );
             Graphic::ViewResourceRegistry::Forget( m_Key );
             m_Contents.assign( size, 0 );
         }
@@ -125,29 +137,109 @@ namespace Desert::ShaderResources
         // the growth rather than from zeroes. A block never shrinks here: shrinking is Reset.
         void Grow( const uint32_t newSize )
         {
+            std::scoped_lock lock( m_Lock );
             Graphic::ViewResourceRegistry::Forget( m_Key );
             if ( newSize > m_Contents.size() )
                 m_Contents.resize( newSize, 0 );
         }
 
         // The CPU image new copies are seeded from: the bytes of every write so far, whichever view made it.
+        // Read it where no pass records (setup, tests): a recording pass may be writing it under m_Lock.
         [[nodiscard]] const uint8_t* GetContents() const noexcept
         {
             return m_Contents.data();
         }
 
         // The active view's copy for `frameIndex`, created and seeded on first use.
+        //
+        // THREADING (RDG-PARALLEL-5). The lookup takes no lock of this block: ViewResources::Find is safe from
+        // any chunk, and a recording pass only ever finds (the seal in MakeActive refuses a make). Making a copy
+        // reads the CPU image to seed it, so that path runs under m_Lock, the lock every write of the image holds.
         [[nodiscard]] Common::BoolResultStr Resolve( const uint32_t frameIndex, const CopyMaker& make,
                                                      IBlockCopy*& out )
         {
-            Graphic::ViewResources& view = Graphic::ViewResourceRegistry::Active();
-            if ( Graphic::IViewResourceCopy* existing = view.Find( m_Key, frameIndex ) )
-            {
-                // Only this class inserts under m_Key, and it only inserts IBlockCopy.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                out = static_cast<IBlockCopy*>( existing );
+            if ( FindActive( frameIndex, out ) )
                 return Common::MakeSuccess( true );
+            std::scoped_lock lock( m_Lock );
+            return MakeActive( frameIndex, make, out );
+        }
+
+        // The version the ACTIVE view's copy for `frameIndex` has applied; 0 (behind every write) when that copy
+        // does not exist yet.
+        [[nodiscard]] uint64_t ActiveAppliedVersion( const uint32_t frameIndex ) const
+        {
+            const Graphic::IViewResourceCopy* existing =
+                 Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            return existing != nullptr ? static_cast<const IBlockCopy*>( existing )->GetAppliedVersion() : 0;
+        }
+
+        // Records that the ACTIVE view's copy for `frameIndex` holds every field write up to `version`. A copy
+        // that does not exist has applied nothing, so there is nothing to record.
+        void NoteActiveApplied( const uint32_t frameIndex, const uint64_t version )
+        {
+            if ( Graphic::IViewResourceCopy* existing =
+                      Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex ) )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                static_cast<IBlockCopy*>( existing )->NoteApplied( version );
+        }
+
+        // Writes into the active view's copy and into the CPU image future copies are seeded from.
+        //
+        // THREADING (RDG-PARALLEL-5). Two chunks of one graph may bind materials that share this block in the
+        // same frame: the same view, so the same copy. The CPU image and the copy's bytes are written as one
+        // unit under m_Lock: no torn range in either, and the image always equals what the last write left in
+        // the copy. Which of two DIFFERENT writes of one range lands last is the chunks' order, as it is for the
+        // GPU, which reads the one copy for both passes; a block two passes need different bytes in is per-pass
+        // state, not a shared block.
+        [[nodiscard]] Common::BoolResultStr Write( const void* data, const uint32_t size, const uint32_t offset,
+                                                   const uint32_t frameIndex, const CopyMaker& make )
+        {
+            if ( data == nullptr && size != 0 )
+                return Common::MakeError<bool>( "a block write was given a null source" );
+
+            std::scoped_lock lock( m_Lock );
+            if ( static_cast<uint64_t>( offset ) + size > m_Contents.size() )
+                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit a {}-byte block",
+                                                         size, offset, m_Contents.size() );
+
+            // Resolved BEFORE the image changes, so a copy created here is seeded with the previous
+            // contents and then receives this write like any existing one: one path, not two.
+            IBlockCopy* copy = nullptr;
+            if ( !FindActive( frameIndex, copy ) )
+            {
+                auto made = MakeActive( frameIndex, make, copy );
+                if ( !made.IsSuccess() )
+                    return made;
             }
+
+            if ( size != 0 )
+                std::memcpy( m_Contents.data() + offset, data, size );
+            return copy->Write( data, size, offset );
+        }
+
+    private:
+        // The active view's existing copy for `frameIndex`, if any. No lock of this block: Find locks the view.
+        [[nodiscard]] bool FindActive( const uint32_t frameIndex, IBlockCopy*& out ) const
+        {
+            Graphic::IViewResourceCopy* existing =
+                 Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex );
+            if ( existing == nullptr )
+                return false;
+            // Only this class inserts under m_Key, and it only inserts IBlockCopy.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            out = static_cast<IBlockCopy*>( existing );
+            return true;
+        }
+
+        // Makes, seeds and files the active view's copy for `frameIndex`. The caller holds m_Lock: the seed is
+        // the CPU image, and a copy another caller filed while this one waited for the lock is taken as it is.
+        [[nodiscard]] Common::BoolResultStr MakeActive( const uint32_t frameIndex, const CopyMaker& make,
+                                                        IBlockCopy*& out )
+        {
+            if ( FindActive( frameIndex, out ) )
+                return Common::MakeSuccess( true );
+            Graphic::ViewResources& view = Graphic::ViewResourceRegistry::Active();
 
             // RENDER-THREADS M1: no copy is made while a sealed pass records (UE: a pass's uniform buffers
             // exist before the graph records). The pass prepares the material that owns the block in its setup.
@@ -193,49 +285,6 @@ namespace Desert::ShaderResources
             return Common::MakeSuccess( true );
         }
 
-        // The version the ACTIVE view's copy for `frameIndex` has applied; 0 (behind every write) when that copy
-        // does not exist yet.
-        [[nodiscard]] uint64_t ActiveAppliedVersion( const uint32_t frameIndex ) const
-        {
-            const Graphic::IViewResourceCopy* existing =
-                 Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            return existing != nullptr ? static_cast<const IBlockCopy*>( existing )->GetAppliedVersion() : 0;
-        }
-
-        // Records that the ACTIVE view's copy for `frameIndex` holds every field write up to `version`. A copy
-        // that does not exist has applied nothing, so there is nothing to record.
-        void NoteActiveApplied( const uint32_t frameIndex, const uint64_t version )
-        {
-            if ( Graphic::IViewResourceCopy* existing =
-                      Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex ) )
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                static_cast<IBlockCopy*>( existing )->NoteApplied( version );
-        }
-
-        // Writes into the active view's copy and into the CPU image future copies are seeded from.
-        [[nodiscard]] Common::BoolResultStr Write( const void* data, const uint32_t size, const uint32_t offset,
-                                                   const uint32_t frameIndex, const CopyMaker& make )
-        {
-            if ( static_cast<uint64_t>( offset ) + size > m_Contents.size() )
-                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit a {}-byte block",
-                                                         size, offset, m_Contents.size() );
-            if ( data == nullptr && size != 0 )
-                return Common::MakeError<bool>( "a block write was given a null source" );
-
-            // Resolved BEFORE the image changes, so a copy created here is seeded with the previous
-            // contents and then receives this write like any existing one — one path, not two.
-            IBlockCopy* copy     = nullptr;
-            auto        resolved = Resolve( frameIndex, make, copy );
-            if ( !resolved.IsSuccess() )
-                return resolved;
-
-            if ( size != 0 )
-                std::memcpy( m_Contents.data() + offset, data, size );
-            return copy->Write( data, size, offset );
-        }
-
-    private:
         // Acquire takes a factory; the copy is already made (and seeded), so this one just hands it over.
         class HandOver final : public Graphic::IViewResourceCopyFactory
         {
@@ -255,6 +304,9 @@ namespace Desert::ShaderResources
 
         Graphic::ViewResourceKey m_Key = Graphic::ViewResourceKey::Allocate();
         std::vector<uint8_t>     m_Contents;
+        // Guards m_Contents and the write of the active copy's bytes (Write), and the make-and-seed of a copy
+        // (MakeActive). Taken before any ViewResources lock, never the other way round.
+        std::mutex m_Lock;
     };
 
     /**
