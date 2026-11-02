@@ -294,8 +294,8 @@ namespace Desert::Graphic::GpuDriven
     // LodOrigin.xyz, the main camera's position, and LodOrigin.w, the shadow wind distance), compiled as GLSL by
     // GpuCull_CastsRestPose and as C++ by the CPU walk (MeshRenderer::ShadowIsmInstances) and the cull's reference
     // (InstanceCullValidation.cpp); in a cascade c >= 2 also one nearer the camera than its ring's inner distance
-    // (CasterRing, the caster's reach: its sway shadows no receiver of the cascade). A primitive with kMovableCaster moves by itself in a view unless it casts its
-    // rest pose there: what a cached cascade's layers split on (InstanceCull.shader).
+    // (CasterRing, the caster's reach: its sway shadows no receiver of the cascade). A primitive with kMovableCaster
+    // moves by itself in a view unless it casts its rest pose there: what a cached cascade's layers split on (InstanceCull.shader).
 
     // One word per (view, instance) the cull writes (InstanceCull.shader Visibility[]; GLSL
     // DESERT_GPU_CULL_VISIBILITY_*): 0 = culled before occlusion. The debug readback compares kInView + LOD with
