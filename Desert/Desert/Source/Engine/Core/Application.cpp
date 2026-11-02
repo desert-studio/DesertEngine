@@ -1,5 +1,6 @@
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
@@ -115,6 +116,10 @@ namespace Desert::Engine
             m_Device->WaitIdle();
 
         m_EngineSubsystems.reset();
+
+        // The render caches the worlds parked as their components died (FrameManager::RetireAfterFrames) are
+        // released while the device that owns them is alive: the queue is a static and would outlive it.
+        FrameManager::GetInstance().ReleaseRetiredNow();
 
         // Everything the renderer generated at Init() (the BRDF LUT, the fallback textures, the API
         // object) and every GPU resource the registries handed out lives in a static that outlives this

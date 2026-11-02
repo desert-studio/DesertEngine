@@ -23,6 +23,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Projection.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
@@ -471,6 +472,24 @@ namespace Desert::ECS
         ScriptSlotParams = desc.ScriptSlotParams;
     }
 
+    // A COMPONENT'S RENDER CACHES ARE DROPPED THROUGH HERE, NEVER JUST RESET (UE: an RHI object the game thread
+    // releases is deleted once no frame in flight names it). The draws of the frame being recorded name a cached
+    // mesh and its material instances by raw pointer, and the render task records them while the interface edits
+    // or removes the component (RenderTask): a reset here was the last owner and freed them under the task, and
+    // under the GPU frames before it. Engine::FrameManager::RetireAfterFrames keeps them past both. The writers
+    // below park what they drop; Core::Scene parks a destroyed component's caches (on_destroy).
+    template <typename T>
+    inline void RetireRenderCache( const std::shared_ptr<T>& object )
+    {
+        Engine::FrameManager::GetInstance().RetireAfterFrames( object );
+    }
+    template <typename T>
+    inline void RetireRenderCaches( const std::vector<std::shared_ptr<T>>& objects )
+    {
+        for ( const auto& object : objects )
+            RetireRenderCache( object );
+    }
+
     // THE ONE WRITER of StaticMeshComponent: adds it when absent (on_construct), patches it when the value differs
     // (on_update), writes nothing when it is equal. A changed MaterialSlots drops the runtime instances, so the
     // mesh system rebuilds them from the new slots. Returns whether anything changed.
@@ -485,10 +504,15 @@ namespace Desert::ECS
                                     {
                                         if ( c.GetMaterialSlots() != desc.MaterialSlots )
                                         {
+                                            RetireRenderCaches( c.m_RuntimeMaterialInstances );
+                                            RetireRenderCache( c.m_RuntimeSlots );
                                             c.m_RuntimeMaterialInstances.clear();
                                             c.m_RuntimeSlots.reset();
                                             c.m_SeenMaterialsVersion = 0;
                                         }
+                                        // Assign replaces the edited mesh the draws in flight may name.
+                                        if ( c.RuntimeMesh != desc.RuntimeMesh )
+                                            RetireRenderCache( c.RuntimeMesh );
                                         c.Assign( desc );
                                     } );
             return true;
@@ -663,10 +687,17 @@ namespace Desert::ECS
                                     {
                                         if ( c.GetMaterialSlots() != desc.MaterialSlots )
                                         {
+                                            RetireRenderCaches( c.m_RuntimeMaterialInstances );
+                                            RetireRenderCaches( c.m_RuntimeDisplacedInstances );
                                             c.m_RuntimeMaterialInstances.clear();
                                             c.m_RuntimeDisplacedInstances.clear();
                                             c.m_SeenMaterialsVersion = 0;
                                         }
+                                        // Assign replaces the mesh and skeleton the draws in flight may name.
+                                        if ( c.RuntimeMesh != desc.RuntimeMesh )
+                                            RetireRenderCache( c.RuntimeMesh );
+                                        if ( c.RuntimeSkeleton != desc.RuntimeSkeleton )
+                                            RetireRenderCache( c.RuntimeSkeleton );
                                         c.Assign( desc );
                                     } );
             return true;
@@ -919,6 +950,8 @@ namespace Desert::ECS
                                     {
                                         if ( c.GetMaterialSlots() != desc.MaterialSlots )
                                         {
+                                            RetireRenderCaches( c.m_RuntimeMaterialInstances );
+                                            RetireRenderCaches( c.m_RuntimeDisplacedInstances );
                                             c.m_RuntimeMaterialInstances.clear();
                                             c.m_RuntimeDisplacedInstances.clear();
                                             c.m_SeenMaterialsVersion = 0;
@@ -927,13 +960,44 @@ namespace Desert::ECS
                                         // mesh describe the old one: drop it, the mesh system resolves the new.
                                         if ( c.GetMeshHandle() != desc.MeshHandle ||
                                              c.GetPrimitive() != desc.Primitive )
+                                        {
+                                            RetireRenderCache( c.m_RuntimeMesh );
                                             c.m_RuntimeMesh.reset();
+                                        }
                                         c.Assign( desc );
                                     } );
             return true;
         }
         registry.emplace<InstancedStaticMeshComponent>( entity, desc );
         return true;
+    }
+
+    // EVERY RENDER CACHE A COMPONENT HOLDS, parked when the component is destroyed (Core::Scene connects these to
+    // on_destroy: the Details panel's remove, an entity deleted, an undo that rebuilds an entity, a world
+    // cleared). The copies are the owners that outlive the component (RetireRenderCache).
+    inline void RetireRenderCachesOf( const StaticMeshComponent& c )
+    {
+        RetireRenderCache( c.GetRuntimeMesh() );
+        RetireRenderCaches( c.RuntimeMaterialInstances() );
+        RetireRenderCache( c.RuntimeSlots() );
+    }
+    inline void RetireRenderCachesOf( const SkinnedMeshComponent& c )
+    {
+        RetireRenderCache( c.GetRuntimeMesh() );
+        RetireRenderCache( c.GetRuntimeSkeleton() );
+        RetireRenderCaches( c.RuntimeMaterialInstances() );
+        RetireRenderCaches( c.RuntimeDisplacedInstances() );
+    }
+    inline void RetireRenderCachesOf( const InstancedStaticMeshComponent& c )
+    {
+        RetireRenderCache( c.RuntimeMesh() );
+        RetireRenderCaches( c.RuntimeMaterialInstances() );
+        RetireRenderCaches( c.RuntimeDisplacedInstances() );
+        RetireRenderCache( c.RuntimeInstanceSnapshot() );
+    }
+    inline void RetireRenderCachesOf( const TextComponent& c )
+    {
+        RetireRenderCache( c.RuntimeMesh );
     }
 
     // A FOLIAGE FIELD (UE: one FFoliageInfo of an AInstancedFoliageActor). Sits beside an

@@ -1414,6 +1414,11 @@ namespace Desert::Core
     {
         m_RetiringSurfaceCaches.Clear();
         m_RetiringReflectionCaptures.Clear();
+        // The render caches this world's Clear parked as its components died (ECS::RetireRenderCachesOf) go too,
+        // with any other world's: the device is idle, and the render task is joined first (a view of another
+        // world may be recording the draws that name its own).
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+        ::Desert::Engine::FrameManager::GetInstance().ReleaseRetiredNow();
     }
 
     void Scene::Clear()
@@ -1465,6 +1470,17 @@ namespace Desert::Core
         m_Subsystems.Begin();
     }
 
+    namespace
+    {
+        // A destroyed component's render caches outlive it by the frames in flight (ECS::RetireRenderCache): it
+        // is removed by the interface while the render task records the draws that name them by raw pointer.
+        template <typename Component>
+        void RetireRenderCachesOnDestroy( entt::registry& registry, entt::entity entity )
+        {
+            ECS::RetireRenderCachesOf( registry.get<Component>( entity ) );
+        }
+    } // namespace
+
     void Scene::SetupRegistryCallbacks()
     {
         // Disconnect first — Clear() calls this on every scene reload, and entt keeps signal connections
@@ -1493,6 +1509,17 @@ namespace Desert::Core
         connect.template operator()<ECS::InstancedStaticMeshComponent>();
         connect.template operator()<ECS::MaterialComponent>();
         connect.template operator()<ECS::VisibilityComponent>();
+        // Every component that holds render caches parks them as it dies (UE: the proxy's RHI objects are
+        // deleted once no frame in flight names them, never at the component's unregister).
+        const auto retireOnDestroy = [this]<typename Component>()
+        {
+            m_Registry.on_destroy<Component>().template disconnect<&RetireRenderCachesOnDestroy<Component>>();
+            m_Registry.on_destroy<Component>().template connect<&RetireRenderCachesOnDestroy<Component>>();
+        };
+        retireOnDestroy.template operator()<ECS::StaticMeshComponent>();
+        retireOnDestroy.template operator()<ECS::SkinnedMeshComponent>();
+        retireOnDestroy.template operator()<ECS::InstancedStaticMeshComponent>();
+        retireOnDestroy.template operator()<ECS::TextComponent>();
         {
             std::lock_guard lock( m_RenderStateDirtyMutex );
             m_RenderStateDirty.clear();
