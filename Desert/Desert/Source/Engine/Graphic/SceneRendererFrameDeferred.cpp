@@ -677,9 +677,12 @@ namespace Desert::Graphic
         gather.ViewHistoryValid = frame.HistoryValid();
         gather.Black            = refs.System.Black;
         // THE ONE DECISION POINT of the gather's denoiser: a temporal method that denoises the raw lighting
-        // signals itself (DLSS Ray Reconstruction) takes the integrate's output instead. No method of this
-        // renderer does, so the gather denoises.
-        gather.Denoise = true;
+        // signals itself (ITemporalUpscaler::TakesRawLightingSignals: DLSS Ray Reconstruction) takes the
+        // integrate's output instead - the contract DLSSUpscaler.hpp states ("the diffuse gather undenoised") and
+        // the reflections already keep (ReflectionsTraced: raw, no denoiser).
+        // Skipped, the gather writes no history, so the frame denoising resumes on
+        // starts it afresh (ScreenProbeGatherHistory::EndFrame).
+        gather.Denoise = !( m_TemporalUpscaler != nullptr && m_TemporalUpscaler->TakesRawLightingSignals() );
         const auto gathered =
              m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
         if ( !gathered )

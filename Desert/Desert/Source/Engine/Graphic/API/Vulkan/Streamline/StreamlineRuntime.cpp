@@ -1123,14 +1123,28 @@ namespace Desert::Graphic::Streamline
         std::vector<const sl::BaseStructure*> inputs{ &viewport };
         for ( const sl::ResourceTag& tag : tags )
             inputs.push_back( &tag );
-        if ( const sl::Result result = m_Library->EvaluateFeature(
-                  ToSl( feature ), token, const_cast<const sl::BaseStructure**>( inputs.data() ),
-                  static_cast<uint32_t>( inputs.size() ), commandBuffer );
-             result != sl::Result::eOk )
+        const sl::Result result =
+             m_Library->EvaluateFeature( ToSl( feature ), token, const_cast<const sl::BaseStructure**>( inputs.data() ),
+                                         static_cast<uint32_t>( inputs.size() ), commandBuffer );
+        // eWarnOutOfVRAM is a WARNING, not a failure (sl_result.h; Streamline: "Exceeded VRAM budget, various
+        // performance issues including stuttering can be expected"): the feature was recorded and its output is
+        // valid. Refusing it here took DLSS away for the rest of the process the first time another application
+        // held the VRAM (the view fell back to TSR). Logged once per stretch, the evaluation stands.
+        if ( result == sl::Result::eWarnOutOfVRAM )
+        {
+            if ( !m_OverVramBudget )
+                LOG_WARN( "[Streamline] slEvaluateFeature({}, viewport {}): over the VRAM budget; the feature ran, "
+                          "expect stutter until VRAM is freed",
+                          name, input.Viewport );
+            m_OverVramBudget = true;
+            return Common::MakeSuccess( true );
+        }
+        if ( result != sl::Result::eOk )
             return refuseEvaluation( std::format( "slEvaluateFeature({}, viewport {}, {} {}x{} -> {}x{}): {}", name,
                                                   input.Viewport, DlssModeName( input.Options.Mode ),
                                                   input.RenderWidth, input.RenderHeight, input.OutputWidth,
                                                   input.OutputHeight, ResultName( result ) ) );
+        m_OverVramBudget = false;
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::Streamline

@@ -233,6 +233,10 @@ namespace Desert::Graphic::Streamline
         std::map<uint32_t, DlssFeature> m_Viewports; // acquired and not yet released, by their feature
         uint32_t                 m_NextViewport = 1;
         uint64_t                 m_TokenFrame   = UINT64_MAX;
+        // An evaluation answered sl::Result::eWarnOutOfVRAM (the SDK's one warning: the feature RAN, the process is
+        // over its VRAM budget). Logged once per stretch of such frames, never a refusal (UE StreamlineRHI: a
+        // budget warning does not take the upscaler away); cleared by the next eOk evaluation.
+        bool                     m_OverVramBudget = false;
         void*                    m_Token        = nullptr; // sl::FrameToken* of m_TokenFrame
     };
 } // namespace Desert::Graphic::Streamline
