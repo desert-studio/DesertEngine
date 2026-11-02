@@ -170,11 +170,21 @@ namespace Desert::Graphic::API::Vulkan
         // RDG-PARALLEL-1: a scope's timestamp goes into the command buffer of the graph chunk bound to the calling
         // thread (VulkanRecordContext), else into the renderer's target; the scope tree and the frame's queries are
         // shared by every recording thread, so every scope entry point holds m_Lock.
+        // The renderer's target belongs to the render task while the views record on it (RenderTask, the same rule
+        // VulkanRendererAPI::IsRecording follows): a thread with no chunk of its own then gets VK_NULL_HANDLE, the
+        // "nothing records" answer every scope entry point already honours. vkCmd* on a buffer another thread is
+        // recording breaks Vulkan's external-synchronisation rule; 11-02 an editor panel's DESERT_PROFILE_PASS wrote
+        // a timestamp into the frame's buffer while the render thread recorded it, and the driver faulted.
         [[nodiscard]] VkCommandBuffer Target() const
         {
-            const VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
-            return chunk != nullptr ? chunk->CommandBuffer : m_RecordingTarget;
+            if ( const VulkanRecordContext* const chunk = VulkanRecordContext::Bound(); chunk != nullptr )
+                return chunk->CommandBuffer;
+            if ( !OwnsRecordingTarget() )
+                return VK_NULL_HANDLE;
+            return m_RecordingTarget;
         }
+        // True on the render task's thread, and on any thread while no view records on it.
+        [[nodiscard]] static bool OwnsRecordingTarget();
         std::mutex            m_Lock;
         std::vector<uint32_t> m_OrderScratch; // the order trace's scopes sorted by Scope::Order
 

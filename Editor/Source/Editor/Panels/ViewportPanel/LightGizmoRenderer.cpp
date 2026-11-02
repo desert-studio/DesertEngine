@@ -211,35 +211,35 @@ namespace Desert::Editor
         m_LightIconHovered = false; // recomputed by the icon renderers below (gates scene picking)
 
         {
-            DESERT_PROFILE_PASS( "Editor icons: Point lights" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Point lights" );
             RenderPointLights( camera, width, height, xpos, ypos );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Spot lights" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Spot lights" );
             RenderSpotLights( camera, width, height, xpos, ypos );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Direction lights" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Direction lights" );
             RenderDirectionLights( camera, width, height );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Cameras" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Cameras" );
             RenderCameras( camera, width, height, xpos, ypos );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Spawn icons" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Spawn icons" );
             RenderSpawnIcons( camera, width, height );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Text icons" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Text icons" );
             RenderTextIcons( camera, width, height );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Landscape ramp" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Landscape ramp" );
             RenderLandscapeRamp( camera, width, height );
         }
         {
-            DESERT_PROFILE_PASS( "Editor icons: Landscape splines" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Landscape splines" );
             RenderLandscapeSplines( camera, width, height );
         }
 
@@ -256,7 +256,7 @@ namespace Desert::Editor
 
         // Rig placement overlay (Convert-to-Skinned) — draws the bones being placed on a static mesh.
         {
-            DESERT_PROFILE_PASS( "Editor icons: Rig builder" );
+            DESERT_PROFILE_SCOPE( "Editor icons: Rig builder" );
             RenderRigBuilder( camera, width, height );
         }
 
