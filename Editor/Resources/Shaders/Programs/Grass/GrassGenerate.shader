@@ -12,10 +12,16 @@
 // (UE's RandomStream.GetFraction), its patches let it grow, and its fade draw beats the field's share at the nearest
 // the tile is built for (TileEntries' w): the thinning below is nested, so an instance dropped there is dropped at
 // every farther view - and the renderer rebuilds a tile the eye comes nearer than that.
-// THE TILE CULL (Cull: one group per resident tile over its records, each frame the view's inputs change -
-// GrassRenderer VarietyGpu::GenerateKey) is everything view-dependent, the rules the generation applied before
-// (GRASS-TILE-1 moved them unchanged): a tile whose candidates' root box lies past the cull radius or outside the
-// full list's volume is skipped whole; an instance is kept when it is inside the view's side planes, and - past
+// THE TILE CULL (Cull: one group per resident tile, each frame the view's inputs change - GrassRenderer
+// VarietyGpu::GenerateKey) is everything view-dependent, the rules the generation applied before (GRASS-TILE-1 moved
+// them unchanged). GRASS-TILE-2, TWO LEVELS (UE HISM: the cluster tree's bounds are culled first, then only the
+// instances of the clusters that passed): a tile is built as kTileClusters clusters of kTileClusterCells^2 cells -
+// one build thread group each - with their own root box and their records in a run of the tile's records SORTED BY
+// THEIR FADE DRAW; the cull skips a tile, then a cluster, whose box lies past the cull radius or outside the full
+// list's volume, and of a cluster it reads only the run's head whose fade draw beats the share at the box's nearest
+// point (the thinning is nested and the share only falls with distance: the tail is dropped at any point of the
+// box). So the cull's work follows the instances the view keeps, not the disc. An instance is kept when it is
+// inside the view's side planes, and - past
 // StartCullDistance - when its fade draw beats the distance share: (Start / d)^2, a blade's screen area
 // (GRASS-DENSITY), times UE's fade to zero at EndCullDistance - and a kept blade widens by that share and lowers over
 // the band's last fifth, a kept mesh shrinks to nothing before its draw drops it (GPU-COST-29), UE's (and past the
@@ -129,8 +135,9 @@ Shader "GrassGenerate"
         };
 
         // The pool's bookkeeping: [0] the free pages' count, [1, 1 + pages) the free-page stack, then per tile slot
-        // kTileHeaderWords: the build's candidates, the pages held, the write cursor, 0, the candidates' root box
-        // (min xyz, max xyz, OrderedBits), 0 x 6, then the pages held (kTilePages words from kTilePageWord).
+        // kTileHeaderWords: the build's candidates, the pages held, 0, 0, the candidates' root box (min xyz, max xyz,
+        // OrderedBits), 0 x 6, the pages held (kTilePages words from kTilePageWord), then its clusters' (from
+        // kTileClusterWord: count, first record, root box).
         Buffer(11) TileWords
         {
             uint TileWordsData[];
@@ -174,13 +181,28 @@ Shader "GrassGenerate"
         const uint kTileCells       = 32u;
         const uint kTilePageRecords = 64u;
         const uint kTilePages       = kTileCells * kTileCells / kTilePageRecords;
-        const uint kTileHeaderWords = 32u;
         const uint kTilePageWord    = 16u;
         const uint kTilePoolWords   = 3u;
-        // The most a view widens a candidate's sphere (CullCandidate): the thinning's Widen (GrassFieldShare, at
-        // most 1 / sqrt(0.05)) and the far LOD's with its fade (lod.Widen, at most 2 x GrassBladeFadeWiden's 2).
-        const float kMaxThinWiden = 4.4721360;
-        const float kMaxLodWiden  = 4.0;
+        // GRASS-TILE-2, a tile's clusters: kTileClusterCells^2 cells, one build thread group (LocalSize) each; per
+        // cluster kTileClusterWords header words from kTileClusterWord: its records, its first record in the tile,
+        // its root box (min xyz, max xyz, OrderedBits).
+        const uint kTileClusterCells = 8u;
+        const uint kTileClusterSide  = kTileCells / kTileClusterCells;
+        const uint kTileClusters     = kTileClusterSide * kTileClusterSide;
+        const uint kTileClusterWord  = 32u;
+        const uint kTileClusterWords = 8u;
+        const uint kTileHeaderWords  = kTileClusterWord + kTileClusters * kTileClusterWords;
+        // The most the far LOD widens a blade's sphere (CullCandidate lod.Widen: 1 / GrassFarLodShare, at most 2,
+        // times GrassBladeFadeWiden, at most 2).
+        const float kMaxLodWiden = 4.0;
+
+        // The build's cluster (Count: its count and box; Write: its records' fade draws, ranked) and the cull's
+        // clusters (their kept runs).
+        shared uint  s_ClusterCount;
+        shared uint  s_ClusterBox[6];
+        shared float s_Fade[64];
+        shared uint  s_Keep[kTileClusters];
+        shared uint  s_First[kTileClusters];
 
         uint Hash( uint x )
         {
@@ -519,9 +541,11 @@ Shader "GrassGenerate"
         }
 
         // The widest a candidate's bounding sphere (CullCandidate) can grow at most @p farthest from the eye, plus
-        // its centre's height: the tile cull's pad.
+        // its centre's height: the tile and cluster cull's pad. A blade widens by the thinning's Widen - it only
+        // grows with distance, so the farthest point's bounds the box's - and by the far LOD's; a mesh only shrinks.
         float TilePad( GrassParams p, float farthest )
         {
+            bool  blade = ( floatBitsToUint( p.ScaleX.w ) & kFlagBlade ) != 0u;
             float s = max( max( abs( p.ScaleX.x ), abs( p.ScaleX.y ) ),
                            max( max( abs( p.ScaleY.x ), abs( p.ScaleY.y ) ), max( abs( p.ScaleZ.x ), abs( p.ScaleZ.y ) ) ) );
             float floorBound = 0.0;
@@ -532,7 +556,38 @@ Shader "GrassGenerate"
                     narrowest = min( narrowest, p.CardWidths[i / 4u][i % 4u] );
                 floorBound = p.Lean.w * farthest / max( narrowest, 1.0e-3 );
             }
-            return p.Range.w * max( max( s * kMaxThinWiden, floorBound ) * kMaxLodWiden, s ) + abs( p.ScaleY.z ) * s;
+            float widen    = blade ? GrassFieldShareAt( farthest, p.Cull.x, p.Cull.y, p.Spread.w ).Widen : 1.0;
+            float lodWiden = blade ? kMaxLodWiden : 1.0;
+            return p.Range.w * max( max( s * widen, floorBound ) * lodWiden, s ) + abs( p.ScaleY.z ) * s;
+        }
+
+        // A root box (tile or cluster) none of whose candidates the cull can keep: past the cull radius, or
+        // outside the full list's volume by more than the pad.
+        bool BoxCulled( GrassParams p, vec3 lo, vec3 hi )
+        {
+            if ( length( clamp( p.Camera.xyz, lo, hi ) - p.Camera.xyz ) > p.Cull.y )
+                return true;
+            float farthest = length( max( abs( lo - p.Camera.xyz ), abs( hi - p.Camera.xyz ) ) );
+            float pad      = TilePad( p, farthest );
+            vec3  middle   = 0.5 * ( lo + hi );
+            vec3  extent   = 0.5 * ( hi - lo );
+            for ( int i = 0; i < 4; ++i )
+                if ( dot( p.Planes[i].xyz, middle ) + dot( abs( p.Planes[i].xyz ), extent ) + p.Planes[i].w < -pad )
+                    return true;
+            return false;
+        }
+
+        vec3 BoxWords( uint at )
+        {
+            return vec3( FromOrderedBits( TileWordsData[at] ), FromOrderedBits( TileWordsData[at + 1u] ),
+                         FromOrderedBits( TileWordsData[at + 2u] ) );
+        }
+
+        // Record @p slot of the tile whose header is at @p header: its index in the pool.
+        uint TileRecordAt( uint header, uint slot )
+        {
+            return TileWordsData[header + kTilePageWord + slot / kTilePageRecords] * kTilePageRecords +
+                   slot % kTilePageRecords;
         }
 
         // THE TILE CULL of one candidate (GRASS-TILE-1): everything the view decides - the generation's own rules,
@@ -772,6 +827,14 @@ Shader "GrassGenerate"
                 uint count  = min( TileWordsData[header], kTilePages * kTilePageRecords );
                 uint needed = ( count + kTilePageRecords - 1u ) / kTilePageRecords;
                 TileFeedbackData[0] = TileEntries[0].x;
+                // Each cluster's run of the tile's records, in cluster order.
+                uint first = 0u;
+                for ( uint c = 0u; c < kTileClusters; ++c )
+                {
+                    uint word                = header + kTileClusterWord + c * kTileClusterWords;
+                    TileWordsData[word + 1u] = first;
+                    first += TileWordsData[word];
+                }
                 if ( needed == 0u )
                     return;
                 uint top = atomicAdd( TileWordsData[0], 0u - needed );
@@ -789,60 +852,140 @@ Shader "GrassGenerate"
             }
             if ( Mode.x == kModeCount || Mode.x == kModeWrite )
             {
-                // One group of 8 x 8 cells per thread block, kTileCells / 8 squared blocks per tile, one tile per z.
-                uvec4 entry  = TileEntries[Mode.y + gl_WorkGroupID.z];
-                uint  header = HeaderBase() + entry.x * kTileHeaderWords;
-                ivec2 cell   = ivec2( int( entry.y ), int( entry.z ) ) * int( kTileCells ) + ivec2( gl_GlobalInvocationID.xy );
+                // One thread group per cluster (8 x 8 cells), kTileClusterSide squared per tile, one tile per z. No
+                // return before the barriers: the mode and the entry are uniform over the group.
+                uvec4 entry   = TileEntries[Mode.y + gl_WorkGroupID.z];
+                uint  header  = HeaderBase() + entry.x * kTileHeaderWords;
+                uint  cluster = HeaderBase() + entry.x * kTileHeaderWords + kTileClusterWord +
+                               ( gl_WorkGroupID.y * kTileClusterSide + gl_WorkGroupID.x ) * kTileClusterWords;
+                ivec2 cell    = ivec2( int( entry.y ), int( entry.z ) ) * int( kTileCells ) + ivec2( gl_GlobalInvocationID.xy );
                 const GrassFieldShare built =
                      GrassFieldShareAt( uintBitsToFloat( entry.w ), p.Cull.x, p.Cull.y, p.Spread.w );
                 TileRecord r;
-                if ( !PlaceCell( cell, p, min( built.Kept, built.Floor ), r ) )
-                    return;
+                bool       placed = PlaceCell( cell, p, min( built.Kept, built.Floor ), r );
+                uint       lane   = gl_LocalInvocationIndex;
                 if ( Mode.x == kModeCount )
                 {
-                    atomicAdd( TileWordsData[header], 1u );
-                    for ( uint i = 0u; i < 3u; ++i )
+                    // The cluster's count and root box in shared memory, then once into its header words and the
+                    // tile's.
+                    if ( lane == 0u )
                     {
-                        atomicMin( TileWordsData[header + 4u + i], OrderedBits( r.Position[i] ) );
-                        atomicMax( TileWordsData[header + 7u + i], OrderedBits( r.Position[i] ) );
+                        s_ClusterCount = 0u;
+                        for ( uint i = 0u; i < 3u; ++i )
+                        {
+                            s_ClusterBox[i]      = 0xffffffffu;
+                            s_ClusterBox[3u + i] = 0u;
+                        }
+                    }
+                    barrier();
+                    if ( placed )
+                    {
+                        atomicAdd( s_ClusterCount, 1u );
+                        for ( uint i = 0u; i < 3u; ++i )
+                        {
+                            atomicMin( s_ClusterBox[i], OrderedBits( r.Position[i] ) );
+                            atomicMax( s_ClusterBox[3u + i], OrderedBits( r.Position[i] ) );
+                        }
+                    }
+                    barrier();
+                    if ( lane == 0u )
+                    {
+                        TileWordsData[cluster] = s_ClusterCount;
+                        for ( uint i = 0u; i < 6u; ++i )
+                            TileWordsData[cluster + 2u + i] = s_ClusterBox[i];
+                        if ( s_ClusterCount != 0u )
+                        {
+                            atomicAdd( TileWordsData[header], s_ClusterCount );
+                            for ( uint i = 0u; i < 3u; ++i )
+                            {
+                                atomicMin( TileWordsData[header + 4u + i], s_ClusterBox[i] );
+                                atomicMax( TileWordsData[header + 7u + i], s_ClusterBox[3u + i] );
+                            }
+                        }
                     }
                     return;
                 }
-                uint slot = atomicAdd( TileWordsData[header + 2u], 1u );
+                // Write: the cluster's run, its records ranked by their fade draw (ties by lane), so the cull reads
+                // only the head of the run the view's share keeps. A cell with no instance ranks past every one.
+                s_Fade[lane] = placed ? r.Fade : 2.0;
+                barrier();
+                if ( !placed )
+                    return;
+                uint rank = 0u;
+                for ( uint j = 0u; j < 64u; ++j )
+                {
+                    float other = s_Fade[j];
+                    if ( other < r.Fade || ( other == r.Fade && j < lane ) )
+                        ++rank;
+                }
+                uint slot = TileWordsData[cluster + 1u] + rank;
                 if ( slot >= TileWordsData[header + 1u] * kTilePageRecords )
                     return;
-                uint page = TileWordsData[header + kTilePageWord + slot / kTilePageRecords];
-                StoreRecord( page * kTilePageRecords + slot % kTilePageRecords, r );
+                StoreRecord( TileRecordAt( header, slot ), r );
                 return;
             }
             if ( Mode.x == kModeCull )
             {
-                // One group per resident tile: the tile whole by its candidates' root box, then each candidate.
+                // One group per resident tile: the tile whole by its candidates' root box (uniform over the group),
+                // then each cluster by its own (a thread each), then the clusters' kept runs, 64 records a round.
                 uint header  = HeaderBase() + TileEntries[Mode.y + gl_WorkGroupID.x].x * kTileHeaderWords;
-                uint held    = TileWordsData[header + 1u];
-                uint records = min( TileWordsData[header], held * kTilePageRecords );
-                if ( records == 0u )
+                uint records = min( TileWordsData[header], TileWordsData[header + 1u] * kTilePageRecords );
+                if ( records == 0u || BoxCulled( p, BoxWords( header + 4u ), BoxWords( header + 7u ) ) )
                     return;
-                vec3 lo = vec3( FromOrderedBits( TileWordsData[header + 4u] ), FromOrderedBits( TileWordsData[header + 5u] ),
-                                FromOrderedBits( TileWordsData[header + 6u] ) );
-                vec3 hi = vec3( FromOrderedBits( TileWordsData[header + 7u] ), FromOrderedBits( TileWordsData[header + 8u] ),
-                                FromOrderedBits( TileWordsData[header + 9u] ) );
-                if ( length( clamp( p.Camera.xyz, lo, hi ) - p.Camera.xyz ) > p.Cull.y )
-                    return;
-                float farthest = length( max( abs( lo - p.Camera.xyz ), abs( hi - p.Camera.xyz ) ) );
-                float pad      = TilePad( p, farthest );
-                vec3  middle   = 0.5 * ( lo + hi );
-                vec3  extent   = 0.5 * ( hi - lo );
-                for ( int i = 0; i < 4; ++i )
-                    if ( dot( p.Planes[i].xyz, middle ) + dot( abs( p.Planes[i].xyz ), extent ) + p.Planes[i].w < -pad )
-                        return;
-                for ( uint page = 0u; page < held; ++page )
+                uint lane = gl_LocalInvocationIndex;
+                if ( lane < kTileClusters )
                 {
-                    uint at = page * kTilePageRecords + gl_LocalInvocationIndex;
-                    if ( at < records )
-                        CullCandidate( LoadRecord( TileWordsData[header + kTilePageWord + page] * kTilePageRecords +
-                                                   gl_LocalInvocationIndex ),
-                                       p );
+                    uint word  = header + kTileClusterWord + lane * kTileClusterWords;
+                    uint first = TileWordsData[word + 1u];
+                    uint keep  = 0u;
+                    if ( first < records && TileWordsData[word] != 0u )
+                    {
+                        uint count = min( TileWordsData[word], records - first );
+                        vec3 lo    = BoxWords( word + 2u );
+                        vec3 hi    = BoxWords( word + 5u );
+                        if ( !BoxCulled( p, lo, hi ) )
+                        {
+                            // The run is sorted by fade draw: its records from the first one the share at the box's
+                            // nearest point drops are dropped at every point of the box (CullCandidate's thinning).
+                            float nearest = length( clamp( p.Camera.xyz, lo, hi ) - p.Camera.xyz );
+                            const GrassFieldShare at = GrassFieldShareAt( nearest, p.Cull.x, p.Cull.y, p.Spread.w );
+                            float share = min( at.Kept, at.Floor );
+                            keep        = count;
+                            if ( share < 1.0 )
+                            {
+                                uint below = 0u;
+                                uint above = count;
+                                while ( below < above )
+                                {
+                                    uint middle = ( below + above ) / 2u;
+                                    float fade  =
+                                         unpackUnorm2x16( TilePoolData[TileRecordAt( header, first + middle ) * kTilePoolWords].w ).x;
+                                    if ( fade < share )
+                                        below = middle + 1u;
+                                    else
+                                        above = middle;
+                                }
+                                keep = below;
+                            }
+                        }
+                    }
+                    s_Keep[lane]  = keep;
+                    s_First[lane] = first;
+                }
+                barrier();
+                uint total = 0u;
+                for ( uint c = 0u; c < kTileClusters; ++c )
+                    total += s_Keep[c];
+                for ( uint t = lane; t < total; t += 64u )
+                {
+                    uint c = 0u;
+                    uint i = t;
+                    while ( i >= s_Keep[c] )
+                    {
+                        i -= s_Keep[c];
+                        ++c;
+                    }
+                    CullCandidate( LoadRecord( TileRecordAt( header, s_First[c] + i ) ), p );
                 }
             }
         }

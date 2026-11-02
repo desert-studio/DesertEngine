@@ -364,7 +364,7 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer TilePoolImport, TileWordsImport, TileTableImport, TileFeedbackImport;
             RDG::BufferRef      TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
             // This frame's tile table (GrassGenerate.shader Tiles): the header, then TileFrees slots to free,
-            // TileBuilds tiles to build, TileCulls tiles the tile cull walks.
+            // TileBuilds tiles to build, TileCulls tiles the tile cull walks (nearest first, GRASS-TILE-2).
             std::vector<glm::uvec4> TileEntries;
             uint32_t                TileFrees  = 0;
             uint32_t                TileBuilds = 0;
