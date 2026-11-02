@@ -415,6 +415,7 @@ namespace Desert::Graphic::System
                 m_CascadeVP[v]                                       = fits[c].ViewProj;
                 state.WorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
                 state.DepthRange[static_cast<glm::length_t>( c )]    = fits[c].DepthRange;
+                state.SplitFar[static_cast<glm::length_t>( c )]      = fits[c].SplitFar;
                 // The caster's bias, in world centimetres scaled per cascade (CascadeBiasSettings), as the
                 // matrix the casters draw with and the slope term their depth cell adds.
                 m_CascadeCasterBias[v] = ComputeCascadeCasterBias( light->Bias, fits[c], fits[0].WorldPerTexel );
@@ -688,12 +689,33 @@ namespace Desert::Graphic::System
         return row.LodLevel;
     }
 
-    glm::vec4 MeshRenderer::CasterWindOrigin() const
+    float MeshRenderer::ShadowWindDistanceOf( const uint32_t view ) const
+    {
+        // A cascade's movable layer is the cascade's: the same receivers, the same answer.
+        uint32_t cascadeView = view;
+        if ( cascadeView >= kCascadeMovableViewBase && cascadeView < kCascadeMovableViewBase + kCascadeViews )
+            cascadeView -= kCascadeMovableViewBase;
+        if ( cascadeView >= kCascadeViews )
+            return m_ShadowWindDistance;
+        const uint32_t               cascade = cascadeView % kMaxCascades;
+        const DirectionalShadowSlot& slot    = m_DirectionalShadow[cascadeView / kMaxCascades];
+        // Cascades 0 and 1 serve the receivers nearest the camera; a cascade not fitted this frame draws nothing.
+        if ( cascade < 2u || cascade >= slot.Fitted )
+            return m_ShadowWindDistance;
+        if ( m_ShadowWindDistance <= slot.SplitFar[static_cast<glm::length_t>( cascade - 2u )] )
+            return 0.0f;
+        return m_ShadowWindDistance;
+    }
+
+    glm::vec4 MeshRenderer::CasterWindOrigin( const uint32_t view ) const
     {
         // The origin ShadowIsmInstances measures its Sways from (its LODView: the main camera, none = the
         // world's).
         const auto* camera = m_SceneRenderer->GetMainCamera();
-        return glm::vec4( camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f ), m_ShadowWindDistance );
+        glm::vec3   origin( 0.0f );
+        if ( camera != nullptr )
+            origin = camera->GetPosition();
+        return glm::vec4( origin, ShadowWindDistanceOf( view ) );
     }
 
     const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field )
@@ -832,6 +854,11 @@ namespace Desert::Graphic::System
         // the distance either way redraws the layer; a nearer one makes the cascade movable only when it reaches
         // it (UE: a WPO primitive invalidates the dynamic layer of the views its bounds touch, not of every view):
         // a crown beyond the cascade's box draws nothing into it, so it must not force its movable layer.
+        // A cascade the wind does not reach (ShadowWindDistanceOf 0: no receiver near the camera samples it) holds
+        // every instance in its static layer, each keyed like a still one, and is made movable by none; the
+        // distance keys the layer and the kept ISM part, so a cascade the wind starts or stops reaching redraws it.
+        const float cascadeWind = ShadowWindDistanceOf( cascade );
+        hash.Add( cascadeWind );
         // THE ISM FIELDS' PART (SCENE-CACHE-3), kept per cascade while the gather it walks (IsmRevision: the
         // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in a
         // still frame no instance of any field is walked again here. A part that met an instance at the wind edge
@@ -840,7 +867,7 @@ namespace Desert::Graphic::System
             m_CascadeIsmParts.resize( static_cast<std::size_t>( cascade ) + 1u );
         CascadeIsmPart& part = m_CascadeIsmParts[cascade];
         if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision ||
-             part.CasterVP != m_CascadeCasterVP[cascade] )
+             part.CasterVP != m_CascadeCasterVP[cascade] || part.Wind != cascadeWind )
         {
             SignatureHash ismHash;
             bool          ismMovable = false;
@@ -863,12 +890,12 @@ namespace Desert::Graphic::System
                     // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
                     // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
                     // each frame until it leaves the edge.
-                    if ( row.NearWindEdge )
+                    if ( row.NearWindEdge && cascadeWind > 0.0f )
                     {
                         ismHash.Add( m_ShadowCasterSetup.Gather );
                         nearEdge = true;
                     }
-                    if ( row.Sways )
+                    if ( row.Sways && cascadeWind > 0.0f )
                     {
                         ismMovable = true;
                         continue;
@@ -880,6 +907,7 @@ namespace Desert::Graphic::System
             part.Valid    = !nearEdge;
             part.Revision = m_ShadowCasterSetup.IsmRevision;
             part.CasterVP = m_CascadeCasterVP[cascade];
+            part.Wind     = cascadeWind;
             part.Hash     = ismHash.Value;
             part.Movable  = ismMovable;
         }
@@ -900,7 +928,7 @@ namespace Desert::Graphic::System
         // the static layer, so a swaying section also keys the rule's measure (an instance crossing the distance
         // moves between the layers), and its movers make the cascade movable only when the box they can reach -
         // the distance around the camera, grown by an instance's reach - meets the cascade.
-        const glm::vec4 windOrigin = CasterWindOrigin();
+        const glm::vec4 windOrigin = CasterWindOrigin( cascade );
         for ( const auto& gpu : m_GpuInstancedQueue )
         {
             if ( !gpu.CastShadows || ( gpu.WorldBounds && !frustum.Intersects( *gpu.WorldBounds ) ) )
@@ -926,6 +954,8 @@ namespace Desert::Graphic::System
             if ( !sways )
                 continue;
             hash.Add( windOrigin );
+            if ( !( windOrigin.w > 0.0f ) )
+                continue; // every instance casts its rest pose into the static layer: no mover
             const glm::vec3 moverReach( windOrigin.w + gpu.Still->Reach );
             const glm::vec3 origin( windOrigin );
             if ( frustum.Intersects( Common::Math::AABB{ origin - moverReach, origin + moverReach } ) )
@@ -1300,10 +1330,13 @@ namespace Desert::Graphic::System
                  c );
             return;
         }
+        // The shadow wind rule's measure in this view (ShadowWindDistanceOf: 0 in a cascade no receiver near the
+        // camera samples), the one every caster material of the view and the instance split below read.
+        const glm::vec4 viewWind = CasterWindOrigin( c );
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching LightViewProjection[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                             m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
+                                             m_CascadeCasterBias[c], m_ParallaxQuality, viewWind );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
         // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the
         // virtual shadow map's attachment-less pool raster (IsVirtualShadowView).
@@ -1351,8 +1384,11 @@ namespace Desert::Graphic::System
         { return IsVisibleInView( cascadeFrustum, box ); };
         // Whether gathered instance @p k sways in this view: the shadow wind distance's rule (the gather's Sways),
         // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by
-        // GpuCull_CastsRestPose, the same function), a VSM level, a local light's view and the rain occlusion.
-        const auto instanceSways = [&gathered]( const uint32_t k ) { return gathered.Instances[k].Sways; };
+        // GpuCull_CastsRestPose, the same function), a VSM level, a local light's view and the rain occlusion; none
+        // in a cascade the wind does not reach (ShadowWindDistanceOf 0), whose static layer holds the rest poses.
+        const bool viewSways     = viewWind.w > 0.0f;
+        const auto instanceSways = [&gathered, viewSways]( const uint32_t k )
+        { return viewSways && gathered.Instances[k].Sways; };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
@@ -1526,7 +1562,7 @@ namespace Desert::Graphic::System
                 // A still field draws into the still layer only; a swaying one may draw into both (its instances
                 // past the shadow wind distance cast their rest pose with the still casters: the gather's Sways).
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
-                     !( ism.Wind.Sways() ? drawMovable || drawStatic : drawStatic ) )
+                     !( ism.Wind.Sways() && viewSways ? drawMovable || drawStatic : drawStatic ) )
                     continue;
                 // The field's walk (walkHidden over its primitive, the rule the static loop above reads): a still
                 // VG field in a cascade or a VSM level hides exactly its clustered submeshes; a field the bins or
@@ -1554,7 +1590,7 @@ namespace Desert::Graphic::System
                 // The field's movers and its still-standing instances are two draws: the wind is pushed per draw.
                 for ( const bool swaying : { false, true } )
                 {
-                    if ( swaying ? !ism.Wind.Sways() || !drawMovable : !drawStatic )
+                    if ( swaying ? !ism.Wind.Sways() || !viewSways || !drawMovable : !drawStatic )
                         continue;
                     const InstanceWind wind = swaying ? ism.Wind : InstanceWind{};
                     auto& visible = m_ScratchIsmVisible;
@@ -1694,7 +1730,7 @@ namespace Desert::Graphic::System
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
             skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality, viewWind );
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
@@ -1794,7 +1830,7 @@ namespace Desert::Graphic::System
         {
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality, viewWind );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
@@ -1822,7 +1858,7 @@ namespace Desert::Graphic::System
         {
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
+                              m_CascadeCasterBias[c], m_ParallaxQuality, viewWind );
             // The draws' rows are the scene material table's (SyncGpuScene); a refusal was said by name.
             if ( !LendMaterialTable( *set.Caster ) )
             {

@@ -256,6 +256,9 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
             uint32_t                                        Buckets     = 1;
+            // The first bucket below kMinScreenRadiusForDepthPrepass through this frame's lens (MeshRenderer::
+            // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.
+            uint32_t              PrepassBuckets = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
             // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
             // mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a row its

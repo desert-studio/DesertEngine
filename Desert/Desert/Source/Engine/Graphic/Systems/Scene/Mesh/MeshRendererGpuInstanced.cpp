@@ -38,6 +38,27 @@ namespace Desert::Graphic::System
             return gpu.Path == MeshVertexPath::Instanced ? std::max( 1u, gpu.Levels ) : 1u;
         }
 
+        // A section's buckets (GpuInstancedRenderData::PrepassBuckets): a mesh's LOD levels (a draw each), a
+        // blade's strip levels (the strip's submeshes, one draw).
+        uint32_t BucketsOf( const MeshRenderer::GpuInstancedRenderData& gpu )
+        {
+            if ( gpu.Path == MeshVertexPath::GrassBlade )
+                return static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() );
+            return LevelsOf( gpu );
+        }
+
+        // A blade strip's draw of buckets [first, end) of its @p buckets: the section's hidden submeshes and every
+        // strip level outside the range (submesh b = bucket b).
+        uint64_t BucketsHidden( const uint64_t hidden, const uint32_t buckets, const uint32_t first,
+                                const uint32_t end )
+        {
+            uint64_t outside = 0;
+            for ( uint32_t b = 0; b < std::min( buckets, 64u ); ++b )
+                if ( b < first || b >= end )
+                    outside |= uint64_t{ 1 } << b;
+            return hidden | outside;
+        }
+
         // Where level @p level's records begin: one record per submesh per level (GpuInstances.hpp).
         uint64_t LevelArgsOffset( const MeshRenderer::GpuInstancedRenderData& gpu, uint32_t level )
         {
@@ -141,6 +162,16 @@ namespace Desert::Graphic::System
         const MeshPass          companionPass    = companion != nullptr ? companion->Pass : MeshPass::Forward;
         GpuInstancedDrawRecord& record =
              m_GpuInstancedDraws[GpuInstancedDrawKey( gpu.Key, pass, postOcclusion, prepassed, companion != nullptr )];
+        // THE SPLIT (GpuInstancedDrawRecord::PrepassBuckets): its own revision, the section's buckets and the
+        // producer's count of them the early-Z pair draws. No cell depends on it, so a lens that moves the small
+        // buckets (a FOV change) re-derives only the split, never the cells and instances below.
+        const uint32_t buckets     = BucketsOf( gpu );
+        const uint32_t pairBuckets = std::min( gpu.PrepassBuckets, buckets );
+        const auto     reviseSplit = [&]( GpuInstancedDrawRecord& of )
+        {
+            of.Buckets        = buckets;
+            of.PrepassBuckets = pairBuckets;
+        };
 
         // The revision (GpuInstancedDrawRecord): the producer's instance by OWNER (an expired one never equals a
         // live one, whatever address the new one took), and every input the resolve below reads apart from the
@@ -157,6 +188,8 @@ namespace Desert::Graphic::System
             // A texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE).
             if ( materials->AwaitsTextures( record.Parent ) )
                 return nullptr;
+            if ( record.Buckets != buckets || record.PrepassBuckets != pairBuckets )
+                reviseSplit( record );
             return &record;
         }
 
@@ -178,6 +211,7 @@ namespace Desert::Graphic::System
         record.ForwardVirtual   = m_ForwardVirtualLocal;
         record.EarlyZ           = m_EarlyZPass;
         record.Parent           = parent;
+        reviseSplit( record );
         // The deferred early-Z pass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the sections
         // this frame's EarlyZPass admits (EarlyZAdmits: the Masked ones, or under All every opaque one too). A
         // section it does not admit gets no cell in it (nothing compiles a Depth pipeline it never draws).
@@ -268,7 +302,49 @@ namespace Desert::Graphic::System
         // Each phase's G-buffer draws EQUAL exactly the sections its own depth pass drew: phase 1's "Deferred:
         // Masked Depth Prepass" (m_MaskedPrepassed), phase 2's "Grass: Depth Prepass Post-Occlusion"
         // (m_MaskedPrepassedPost, the same records the G-buffer post pass draws).
-        std::vector<uint32_t>& phasePrepassed = postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
+        std::vector<MaskedPrepassedSection>& phasePrepassed =
+             postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
+        // The producer's buffers through a record's kept slots: the section's one Instances, the camera list's ids
+        // (the kSurfaceInstanceIdsDefine cell's GpuInstanceIds), a blade's shape (MeshPathOwnBinding); the same
+        // buffer again is no write (StorageBufferProperty::SetBuffer). The section's row is the scene material
+        // table's (SyncGpuScene claims it every sync), read by the cell of its template; the table is lent through
+        // the kept slot (LendMaterialTable). Empty: the section is not drawn through @p of this frame.
+        const auto bindRecord = [this]( GpuInstancedDrawRecord&       of,
+                                        const GpuInstancedRenderData& section ) -> std::optional<uint32_t>
+        {
+            if ( of.InstancesBlock != nullptr )
+                of.InstancesBlock->SetBuffer( section.Instances );
+            if ( of.IdsBlock != nullptr )
+                of.IdsBlock->SetBuffer( section.CameraIds );
+            if ( of.BladeBlock != nullptr )
+                of.BladeBlock->SetBuffer( section.BladeShape );
+            const std::optional<uint32_t> materialRow = FindMaterialRow( of.Parent, section.Material.get() );
+            if ( !materialRow )
+                return std::nullopt;
+            if ( of.MaterialBlock != nullptr )
+            {
+                if ( m_GpuScene == nullptr || m_GpuScene->GetMaterialsBuffer() == nullptr )
+                {
+                    if ( !LendMaterialTable( *of.Cell ) ) // says why
+                        return std::nullopt;
+                }
+                else
+                    of.MaterialBlock->LendViewBuffer( m_GpuScene->GetMaterialsBuffer() );
+            }
+            return materialRow;
+        };
+        // The masked prepass's question for a section whose small buckets would leave the pair: is the record the
+        // G-buffer of this phase draws them through (the section's own, not EQUAL: the G-buffer's carrier, no
+        // companion - the deferred G-buffer's Rest half pairs with nothing) Ready this frame.
+        const auto ownGBufferReady = [this, postOcclusion]( const GpuInstancedRenderData& section )
+        {
+            if ( !m_InstancedGBufferPipeline )
+                return false;
+            const GpuInstancedDrawRecord* const own = GpuInstancedDrawOf(
+                 section, MeshPass::GBuffer, m_InstancedGBufferPipeline.get(), nullptr, postOcclusion, false );
+            return own != nullptr && own->Admitted && own->Cell != nullptr && own->Pipeline != nullptr &&
+                   own->Pipeline->GetReadiness() == PipelineReadiness::Ready;
+        };
 
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
@@ -289,9 +365,12 @@ namespace Desert::Graphic::System
                 continue;
             if ( viaVisibility && ( maskedPrepass || pass == MeshPass::GBuffer ) )
                 continue;
-            const bool prepassed = pass == MeshPass::GBuffer &&
-                                   std::find( phasePrepassed.begin(), phasePrepassed.end(), gpu.Key ) !=
-                                        phasePrepassed.end();
+            auto recorded = phasePrepassed.end();
+            if ( pass == MeshPass::GBuffer )
+                recorded = std::find_if( phasePrepassed.begin(), phasePrepassed.end(),
+                                         [&gpu]( const MaskedPrepassedSection& section )
+                                         { return section.Key == gpu.Key; } );
+            const bool prepassed = recorded != phasePrepassed.end();
 
             // The kept record (GpuInstancedDrawOf); null: a texture of its material is in flight.
             GpuInstancedDrawRecord* const record =
@@ -299,6 +378,13 @@ namespace Desert::Graphic::System
             if ( record == nullptr || !record->Admitted )
                 continue;
             GpuInstancedDrawRecord& draw = *record;
+            // THE SMALL BUCKETS (GpuInstancedDrawRecord::PrepassBuckets, the record's split): how many of the
+            // section's buckets the early-Z pair draws this frame - the prepass the first ones, the G-buffer those
+            // EQUAL and the rest through the section's own G-buffer record. The G-buffer takes the count the
+            // prepass recorded (cut back to every bucket while that record was not Ready).
+            uint32_t prepassBuckets = draw.Buckets;
+            if ( prepassed )
+                prepassBuckets = std::min( recorded->Buckets, draw.Buckets );
             if ( draw.Cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
@@ -329,6 +415,17 @@ namespace Desert::Graphic::System
                 }
                 if ( draw.EqualPipeline == nullptr || draw.EqualPipeline->GetReadiness() != PipelineReadiness::Ready )
                     continue;
+                // The small buckets leave the pair only for a G-buffer that can draw them itself: the section's
+                // own G-buffer record (the one the G-buffer draws it with when this pass did not: the same
+                // carrier, no companion, the same phase) Ready this frame, decided here and recorded, so the
+                // G-buffer draws exactly what this pass left it. Until then every bucket stays in the pair.
+                // (GpuInstancedDrawOf drops every record only when the material service's invalidation version
+                // moves, which no lookup of this loop does: `draw` stays this section's.)
+                prepassBuckets = draw.PrepassBuckets;
+                if ( prepassBuckets < draw.Buckets && !ownGBufferReady( gpu ) )
+                    prepassBuckets = draw.Buckets;
+                if ( prepassBuckets == 0u )
+                    continue; // every bucket small: the G-buffer draws the section as one this pass never drew
             }
             if ( companion != nullptr )
             {
@@ -350,34 +447,13 @@ namespace Desert::Graphic::System
                 }
             }
 
-            // The producer's buffers through the kept slots: the section's one Instances, the camera list's ids
-            // (the kSurfaceInstanceIdsDefine cell's GpuInstanceIds), a blade's shape (MeshPathOwnBinding). The
-            // same buffer again is no write (StorageBufferProperty::SetBuffer).
-            if ( draw.InstancesBlock != nullptr )
-                draw.InstancesBlock->SetBuffer( gpu.Instances );
-            if ( draw.IdsBlock != nullptr )
-                draw.IdsBlock->SetBuffer( gpu.CameraIds );
-            if ( draw.BladeBlock != nullptr )
-                draw.BladeBlock->SetBuffer( gpu.BladeShape );
-            // The section's row is the scene material table's (SyncGpuScene claims it every sync), read by the
-            // cell of its template; the table is lent through the kept slot (LendMaterialTable).
-            const std::optional<uint32_t> materialRow = FindMaterialRow( draw.Parent, gpu.Material.get() );
+            const std::optional<uint32_t> materialRow = bindRecord( draw, gpu );
             if ( !materialRow )
                 continue;
-            if ( draw.MaterialBlock != nullptr )
-            {
-                if ( m_GpuScene == nullptr || m_GpuScene->GetMaterialsBuffer() == nullptr )
-                {
-                    if ( !LendMaterialTable( *draw.Cell ) ) // says why
-                        continue;
-                }
-                else
-                    draw.MaterialBlock->LendViewBuffer( m_GpuScene->GetMaterialsBuffer() );
-            }
             const uint32_t row = *materialRow;
             frameState.ApplyTo( draw.Instance.get() );
             if ( maskedPrepass )
-                phasePrepassed.push_back( gpu.Key );
+                phasePrepassed.push_back( { .Key = gpu.Key, .Buckets = prepassBuckets } );
 
             // THE RESOLVE (GRASS-VIS): one full-screen triangle per section - record 0 of the view's resolve table
             // (VirtualGeometry::VisibilityBuffer: {3, 1, 0, 0, 0}, the strip's first three indices, which
@@ -403,21 +479,48 @@ namespace Desert::Graphic::System
                 continue;
             }
 
-            // One draw per LOD level the producer sorted its instances into, each reading its level's records.
-            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-                list.Add( { .Pipeline           = draw.Pipeline,
-                            .Mesh               = gpu.Mesh,
-                            .Transform          = glm::mat4( 1.0f ),
-                            .Material           = draw.Cell->GetMaterialExecutor(),
-                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
-                            .IndirectArgs       = drawArgs,
-                            .IndirectInstances  = refs.Instances,
-                            .IndirectIds        = refs.Ids,
-                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
-                            .Push               = DrawPushFields{}
-                                         .MaterialIndex( row )
-                                         .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                         .PrimitiveFlags( 0u ) } );
+            // The draws of buckets [first, end) through @p by: a mesh's one draw per LOD level the producer sorted its
+            // instances into, each reading its level's records; a blade's one draw of the strip, its records the
+            // strip levels (submesh b = bucket b), the levels outside the range hidden (BucketsHidden).
+            const auto addBuckets = [&]( const GpuInstancedDrawRecord& by, const uint32_t first, const uint32_t end )
+            {
+                const auto add = [&]( const uint64_t hidden, const uint32_t level )
+                {
+                    list.Add( { .Pipeline           = by.Pipeline,
+                                .Mesh               = gpu.Mesh,
+                                .Transform          = glm::mat4( 1.0f ),
+                                .Material           = by.Cell->GetMaterialExecutor(),
+                                .HiddenSubmeshMask  = hidden,
+                                .IndirectArgs       = drawArgs,
+                                .IndirectInstances  = refs.Instances,
+                                .IndirectIds        = refs.Ids,
+                                .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                                .Push               = DrawPushFields{}
+                                             .MaterialIndex( row )
+                                             .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
+                                             .PrimitiveFlags( 0u ) } );
+                };
+                if ( first >= end )
+                    return;
+                if ( gpu.Path == MeshVertexPath::GrassBlade )
+                {
+                    add( BucketsHidden( gpu.HiddenSubmeshes, by.Buckets, first, end ), 0u );
+                    return;
+                }
+                for ( uint32_t level = first; level < end; ++level )
+                    add( gpu.HiddenSubmeshes, level );
+            };
+            addBuckets( draw, 0u, prepassBuckets );
+            if ( !prepassed || prepassBuckets >= draw.Buckets )
+                continue;
+            // THE SMALL BUCKETS the prepass left this frame (it found this record Ready): the section's own
+            // G-buffer record, its clip and depth writes - the texels and depth the pair would have left.
+            GpuInstancedDrawRecord* const own =
+                 GpuInstancedDrawOf( gpu, pass, instancedPipeline, companion, postOcclusion, false );
+            if ( own == nullptr || own->Cell == nullptr || own->Pipeline == nullptr || !bindRecord( *own, gpu ) )
+                continue;
+            frameState.ApplyTo( own->Instance.get() );
+            addBuckets( *own, prepassBuckets, draw.Buckets );
         }
     }
 
@@ -476,6 +579,10 @@ namespace Desert::Graphic::System
         // The cascade's caster box (as BuildShadowCascadeDraws culls the static casters): a section with a box casts
         // only into the cascades it meets.
         const Core::Frustum cascadeFrustum( m_CascadeCasterVP[shadowView], glm::mat4( 1.0f ) );
+        // The rule's measure in this cascade (ShadowWindDistanceOf): 0 where no receiver near the camera samples
+        // it, every instance then casting its rest pose into the static layer and none left for the movable one.
+        const glm::vec4 viewWind  = CasterWindOrigin( shadowView );
+        const bool      viewSways = viewWind.w > 0.0f;
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
             if ( !gpu.CastShadows )
@@ -499,7 +606,7 @@ namespace Desert::Graphic::System
             }
             else if ( layer == ShadowCasterLayer::Movable )
             {
-                if ( still && !sways )
+                if ( still && !( sways && viewSways ) )
                     continue;
                 split = still ? CasterWindLayer::kRule | CasterWindLayer::kDropFar : 0u;
             }
@@ -545,7 +652,7 @@ namespace Desert::Graphic::System
                 continue;
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, CasterWindOrigin() );
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind );
             BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =

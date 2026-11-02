@@ -374,6 +374,13 @@ namespace Common::Scalability
         // 10..400.
         FoliageGrassDensityScalePercent,
         FoliageGrassCullDistanceScalePercent,
+        // The blade LOD's screen size (GPU-FRAME-4; UE grass HISM: the instance's LOD by its screen size, GoT: far
+        // blades fewer and wider), render pixels: a blade instance whose bounding radius projects below it is in
+        // the far LOD - its coarsest strip, and half the field's blades over the band down to 1/sqrt(2) of it,
+        // each twice as wide, so the field covers what it did. Read by GrassRenderer::SetQuality -> PrepareVariety
+        // (GrassParamsGpu::Lod.z) -> GrassFieldShare.glslh GrassBladeLodAt, the one choice the GBuffer, the masked
+        // depth prepass and every shadow cascade draw. 0 = no far LOD (the variety's own LodDistance rings only).
+        FoliageGrassLodScreenPixels,
         // Which meshes the deferred path's early-Z pass draws before the G-buffer (UE r.EarlyZPass): EarlyZPassMode
         // (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass
         // ("Deferred: Masked Depth Prepass", then "Deferred: GBuffer" EQUAL for what it drew). Key

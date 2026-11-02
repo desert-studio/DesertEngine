@@ -436,6 +436,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::AddVariety (Start / End "
                "cull distances, GrassGenerate)",
                100, Vis::Basic },
+             { P::FoliageGrassLodScreenPixels, G::Foliage, "Foliage.GrassLodScreenPixels", 0, 256, CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (the blade "
+               "LOD's screen size, GrassGenerate GrassBladeLodAt)",
+               16, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",

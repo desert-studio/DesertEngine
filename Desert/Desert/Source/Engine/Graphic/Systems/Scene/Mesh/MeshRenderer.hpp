@@ -335,6 +335,11 @@ namespace Desert::Graphic::System
         int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
+    // UE r.MinScreenRadiusForDepthPrepass (0.03): a GPU-instanced bucket whose instances all stand below this
+    // screen radius - Geometry::SelectLODFromBounds' measure, the bounding sphere's radius x max(P[0][0], P[1][1])
+    // / 2 over its distance - is not in the deferred early-Z pass (GpuInstancedRenderData::PrepassBuckets).
+    inline constexpr float kMinScreenRadiusForDepthPrepass = 0.03f;
+
     class MeshRenderer final : public RenderSystem
     {
     public:
@@ -500,6 +505,15 @@ namespace Desert::Graphic::System
             // group of records (one per submesh, level L at record L x submesh count) per level, each drawn by a
             // draw of its own (UE grass HISM: the instance's LOD by screen size). 1: one bucket, level 0.
             uint32_t Levels = 1;
+            // THE SMALL BUCKETS SKIP THE DEPTH PREPASS (UE r.MinScreenRadiusForDepthPrepass, a primitive below
+            // that screen radius is not in the depth pass: its prepass costs more vertices than the overdraw it
+            // saves): the first bucket (a mesh's LOD level, a blade's strip level) whose every instance stands
+            // below kMinScreenRadiusForDepthPrepass of the screen, set by the producer that sorts the instances
+            // into the buckets. From it on the deferred early-Z pass does not draw the section's buckets and the
+            // G-buffer draws them through the section's own (path x GBuffer) cell - its clip and its depth writes,
+            // the same texels and depth the pair would have left (BuildGpuInstancedDraws). ~0u: every bucket is
+            // prepassed.
+            uint32_t PrepassBuckets = ~0u;
             // GrassBlade only: what each cascade picks the strip's record set (its shadow LOD) and the caster's
             // density by (BuildGpuInstancedShadowDraws, BladeShadowSet). Levels 0: the cascades draw set 0.
             GpuInstanceBladeShadowLod ShadowLod{};
@@ -911,9 +925,22 @@ namespace Desert::Graphic::System
         {
             m_FoliageShadowLodBias = steps;
         }
-        // The rule's measure as a light camera carries it (ViewFrame::CasterWindOrigin): xyz the main camera's
-        // origin - the point ShadowIsmInstances measures from - w the shadow wind distance.
-        [[nodiscard]] glm::vec4 CasterWindOrigin() const;
+        // WHO SWAYS IN WHICH CASCADE (UE: WPO off in the clipmap levels / cascades no receiver near the camera
+        // samples; r.Shadow.Virtual.Clipmap.WPODisableDistance): the shadow wind distance shadow view @p view
+        // measures its swaying casters by. A sun cascade no receiver within Shadows.WindAnimationDistance of the
+        // camera can sample gets 0 - every caster casts its rest pose, the cascade's static layer holds them and
+        // the wind neither redraws nor invalidates it; every other view (the near cascades, their movable layers,
+        // the VSM levels, the local and rain views) gets Shadows.WindAnimationDistance. Cascade c >= 2 is such a
+        // cascade when the distance is within cascade c-2's split: a visible receiver at a view depth up to it
+        // lies in a slice of a tighter cascade, inside that cascade's square (the sphere fit), so it picks that
+        // one or tighter (Mesh/CascadedShadow.glslh chooseCascade) and cross-fades at most into cascade c-1; a
+        // receiver within the distance is at a view depth no larger. One answer for the CPU walk
+        // (CascadeStaticSignature, BuildShadowCascadeDraws), the GPU cull's caster views (LodOrigin.w) and the
+        // vertex stage (CasterWindOrigin).
+        [[nodiscard]] float ShadowWindDistanceOf( uint32_t view ) const;
+        // The rule's measure as shadow view @p view's light camera carries it (ViewFrame::CasterWindOrigin): xyz
+        // the main camera's origin - the point ShadowIsmInstances measures from - w ShadowWindDistanceOf( view ).
+        [[nodiscard]] glm::vec4 CasterWindOrigin( uint32_t view ) const;
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
         void SetSkinCacheEnabled( const bool enabled )
         {
@@ -1904,13 +1931,21 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_MaskedDepthDraws; // "Deferred: Masked Depth Prepass": masked GPU sections
+        // A GPU-instanced section the masked depth prepass drew, and how many of its buckets
+        // (GpuInstancedRenderData::PrepassBuckets, cut back to every bucket while the section's own G-buffer
+        // pipeline is not Ready): the G-buffer draws those EQUAL and the rest through its own cell.
+        struct MaskedPrepassedSection
+        {
+            uint32_t Key     = 0;
+            uint32_t Buckets = 0;
+        };
         // The GPU-instanced sections (GpuInstancedRenderData::Key) THIS frame's masked depth prepass drew: the
         // G-buffer draws exactly these through m_InstancedGBufferEqualPipeline, every other one as before.
-        std::vector<uint32_t> m_MaskedPrepassed;
+        std::vector<MaskedPrepassedSection> m_MaskedPrepassed;
         // The same for phase 2 (GRASS-VIS-13): the sections "Grass: Depth Prepass Post-Occlusion" drew by their
         // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
         // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
-        std::vector<uint32_t> m_MaskedPrepassedPost;
+        std::vector<MaskedPrepassedSection> m_MaskedPrepassedPost;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
@@ -2525,6 +2560,7 @@ namespace Desert::Graphic::System
             float     SourceTanHalf = 0.0f;
             glm::vec4 WorldPerTexel = glm::vec4( 1.0f ); // per cascade: world size of one map texel (2*radius/res)
             glm::vec4 DepthRange    = glm::vec4( 1.0f ); // per cascade: world length of the [0,1] light depth
+            glm::vec4 SplitFar      = glm::vec4( 0.0f ); // per cascade: the view depth its slice ends at (cm)
             glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];
@@ -2976,6 +3012,13 @@ namespace Desert::Graphic::System
             StorageBufferProperty*    IdsBlock       = nullptr;
             StorageBufferProperty*    BladeBlock     = nullptr;
             StorageBufferProperty*    MaterialBlock  = nullptr; // null: the cell reads no Materials row block
+            // THE SPLIT, revised apart from the cells (none depends on it, so a lens that moves it re-derives only
+            // these): the section's buckets (a mesh's LOD levels, a blade's strip levels) and how many of them the
+            // deferred early-Z pair draws (GpuInstancedRenderData::PrepassBuckets, clamped); the G-buffer draws
+            // the rest through the section's own record. UE FCachedMeshDrawCommandInfo: the cached command carries
+            // what decides the passes it is drawn in.
+            uint32_t Buckets        = 0;
+            uint32_t PrepassBuckets = 0;
         };
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
@@ -3238,6 +3281,7 @@ namespace Desert::Graphic::System
             glm::mat4 CasterVP{ 1.0f };
             uint64_t  Hash    = 0;
             bool      Movable = false;
+            float     Wind    = -1.0f; // the cascade's ShadowWindDistanceOf the part was made with
         };
         std::vector<CascadeIsmPart> m_CascadeIsmParts;
         // THE STATIC CASTERS' REVISION (SCENE-CACHE-4; UE FCachedShadowMapData: the static layer is redrawn when a

@@ -110,4 +110,61 @@ float GrassFieldCoverageOf( GrassFieldShare s, float widenShare )
     return mix( GrassMeshCoverage( s ), GrassFieldCoverage( s ), widenShare );
 }
 
+// THE BLADE'S LOD (GPU-FRAME-4; UE grass HISM: an instance's LOD by its screen size; GoT: far blades fewer and
+// wider) - the one choice of a blade instance's level and of its far-LOD share. GrassGenerate makes it once per
+// instance and writes it into the instance's bucket (the strip level) and its scale, so the camera's GBuffer, its
+// masked depth prepass and every shadow cascade draw the same level of the same instances (a cascade's coarser
+// shadow set is max(bucket, set), MeshRenderer::BladeShadowSet).
+//  - size: the instance's bounding radius on screen over the Foliage quality's LodScreenPixels (render pixels,
+//    GrassQuality::LodScreenPixels): 1 = at the far LOD's screen size; 0 = no far LOD (no quality value, an
+//    orthographic lens, no render extent).
+//  - ring: the level of the variety's own distance rings (its LodDistance through the lens), the asset's detail.
+// Above the far LOD's screen size the instance draws its ring's level with the whole field. Below it the instance
+// draws the coarsest strip (each farther level of the strip halves its segments: the far LOD spends the fewest
+// vertices), and the field keeps size^2 of its blades - the share of the field whose radius still stands at the
+// far LOD's screen size - down to half: one LOD step, as the strip's levels halve. Each survivor is 1 / Share as
+// wide, so the field covers what it did (the cover's GrassFieldCoverage needs no term for it) and nothing pops:
+// the share falls continuously over size 1..1/sqrt(2), and the instances it drops are the same nested draw the
+// distance thinning drops by - the field thins one blade at a time, the same blades at every camera position.
+struct GrassBladeLod
+{
+    uint  Level; // the strip level (bucket) the instance draws
+    float Share; // the share of the field's blades kept: 1 above the far LOD's screen size, down to 1/2 below
+    float Widen; // a survivor's width multiplier, 1 / Share
+};
+GrassBladeLod GrassBladeLodAt( float size, uint ring, uint levels )
+{
+    GrassBladeLod lod;
+    bool          below = size > 0.0 && size < 1.0;
+    lod.Level           = below ? max( ring, levels - 1u ) : ring;
+    lod.Share           = below ? clamp( size * size, 0.5, 1.0 ) : 1.0;
+    lod.Widen           = 1.0 / lod.Share;
+    return lod;
+}
+
+// THE BLADE'S FADE (GPU-FRAME-4; UE grass: PerInstanceFadeAmount, an instance scaled to nothing before its cull) -
+// what keeps a thinning blade from popping. Every thinning of the field (the distance and floor laws above and the
+// far LOD's share, GrassBladeLodAt) drops an instance where the share kept falls to its own draw; a mesh already
+// shrinks out before that (GrassMeshShrink), and a blade lowers into the ground over the last band of shares above
+// its draw instead of vanishing at once. Per instance and by distance alone - no screen-space dither - so the fade
+// is the same every frame and at every camera turn: nothing for TAA / DLSS to turn into shimmer. Lowering (not
+// narrowing) keeps the fading blade at least as wide as the screen-width floor, so it never goes sub-pixel.
+// The band is a quarter of the share left on the nearer side of it, min(share, 1 - share): it closes to nothing
+// as the share reaches 1, so a blade the field keeps whole - every near blade - is never lowered, and it never
+// holds more than a quarter of the survivors.
+const float kGrassBladeFadeBand = 0.25;
+float GrassBladeFade( float share, float draw )
+{
+    float band = kGrassBladeFadeBand * min( share, 1.0 - share );
+    return band > 0.0 ? clamp( ( share - draw ) / band, 0.0, 1.0 ) : 1.0;
+}
+// What the fade takes from the survivors' area, given back to their width: survivors' draws are uniform below the
+// share, so the band's blades - band / share of them - stand half as tall on average, band / (2 share) of the
+// field's area; each survivor widens by 1 / (1 - that) and the field covers what the cover's GrassFieldCoverage
+// counts on.
+float GrassBladeFadeWiden( float share )
+{
+    float lost = 0.5 * kGrassBladeFadeBand * min( share, 1.0 - share ) / max( share, 1.0e-4 );
+    return 1.0 / ( 1.0 - clamp( lost, 0.0, 0.5 ) );
+}
 #endif // GRASS_FIELD_SHARE_GLSLH

@@ -319,7 +319,7 @@ namespace Desert::Graphic
                 {
                     views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
                                                    Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
-                                                   windDistance,
+                                                   meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
@@ -329,7 +329,7 @@ namespace Desert::Graphic
                 {
                     views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
                                                    Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
-                                                   windDistance,
+                                                   meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
                     viewKeys.push_back( System::MeshRenderer::CascadeMovableView( view ) );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}Movable", c ) );
@@ -611,11 +611,11 @@ namespace Desert::Graphic
             const uint32_t cascades = shadows[SceneResources::kDirectionalShadowSun].Count;
             for ( uint32_t c = 0; c < cascades; ++c )
             {
-                const glm::mat4& vp = meshes->GetCasterViewProjection(
-                     SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c );
+                const uint32_t   view = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c;
+                const glm::mat4& vp   = meshes->GetCasterViewProjection( view );
                 views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
                                                Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
-                                               windDistance,
+                                               meshes->ShadowWindDistanceOf( view ),
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
                 viewNames.push_back( std::format( "cascade {}", c ) );
