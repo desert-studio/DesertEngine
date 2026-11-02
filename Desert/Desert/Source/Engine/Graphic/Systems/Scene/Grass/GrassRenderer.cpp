@@ -519,6 +519,27 @@ namespace Desert::Graphic::System
             // A blade's sphere already holds the sway; a mesh's is its bounds.
             gpu.Reach = ( std::abs( boundsHeight ) + boundsRadius ) * maxScale +
                         ( variety.Blade ? 0.0f : WindBoundsPad( variety.Wind ) );
+            // THE SMALL BUCKETS (UE r.MinScreenRadiusForDepthPrepass; GpuInstancedRenderData::PrepassBuckets): the
+            // first bucket whose every instance stands below kMinScreenRadiusForDepthPrepass of the screen through
+            // this lens, in GrassGenerate's measure (radius x max(P00, P11) / 2 over the distance): a mesh's level
+            // b >= 1 holds the instances below its half screen size, a blade's bucket b >= 1 the ones at least
+            // b x LodDistance away. Bucket 0 reaches the camera, so it is never small.
+            gpu.PrepassBuckets = buckets;
+            const float screenMultiple =
+                 std::max( 0.5f * std::abs( frame.Projection[0][0] ), 0.5f * std::abs( frame.Projection[1][1] ) );
+            for ( uint32_t b = 1; perspective && b < buckets; ++b )
+            {
+                float largest = 1.0f;
+                if ( variety.Blade && lodDistance > 0.0f )
+                    largest = screenMultiple * boundsRadius * maxScale / ( static_cast<float>( b ) * lodDistance );
+                else if ( !variety.Blade && b < screenSizes.size() )
+                    largest = 0.5f * screenSizes[b];
+                if ( largest < kMinScreenRadiusForDepthPrepass )
+                {
+                    gpu.PrepassBuckets = b;
+                    break;
+                }
+            }
             // What a cascade picks a blade's shadow LOD and density by (GpuInstanceBladeShadowLod): the tallest
             // blade, the strip, where the generator's thinning starts (GrassGenerate p.Cull.x) and the world size
             // of one of this view's pixels per cm of distance (a cascade texel of size T is as fine as a pixel at
@@ -1118,6 +1139,7 @@ namespace Desert::Graphic::System
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
                            .Levels           = variety.Blade ? 1u : gpu->Buckets,
+                           .PrepassBuckets   = gpu->PrepassBuckets,
                            .ShadowLod        = gpu->ShadowLod,
                            .Key              = gpu->Index * 64u + s,
                            // The grass stands still but for the wind: a cached cascade keeps its rest pose.

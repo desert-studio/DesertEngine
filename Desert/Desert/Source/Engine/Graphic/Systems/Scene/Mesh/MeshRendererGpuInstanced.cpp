@@ -46,6 +46,9 @@ namespace Desert::Graphic::System
 
         // GRASS-VIS: view keys of the post-occlusion draws' instances, apart from phase 1's of the same cell view.
         constexpr uint32_t kGpuInstancedPostViewOffset = 0x04000000u;
+        // The G-buffer's second cell of a section whose small buckets left the early-Z pair (its own (path x
+        // GBuffer) cell beside the DEPTH_EQUAL one, GpuInstancedRenderData::PrepassBuckets): its instances' keys.
+        constexpr uint32_t kGpuInstancedSmallBucketsViewOffset = 0x08000000u;
 
         // The permutation of a GPU-instanced section's cell for the list it draws: @p ids (the camera's or a
         // cascade's, GpuInstanceRefs::Ids) - MeshRenderer::SurfaceInstanceIdsVariant of @p permutation, the one
@@ -155,10 +158,23 @@ namespace Desert::Graphic::System
             // Each phase's G-buffer draws EQUAL exactly the sections its own depth pass drew: phase 1's "Deferred:
             // Masked Depth Prepass" (m_MaskedPrepassed), phase 2's "Grass: Depth Prepass Post-Occlusion"
             // (m_MaskedPrepassedPost, the same records the G-buffer post pass draws).
-            std::vector<uint32_t>& phasePrepassed = postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
-            const bool             prepassed      = pass == MeshPass::GBuffer &&
-                                   std::find( phasePrepassed.begin(), phasePrepassed.end(), gpu.Key ) !=
-                                        phasePrepassed.end();
+            std::vector<MaskedPrepassedSection>& phasePrepassed =
+                 postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
+            const auto recorded  = std::find_if( phasePrepassed.begin(), phasePrepassed.end(),
+                                                 [&gpu]( const MaskedPrepassedSection& section )
+                                                 { return section.Key == gpu.Key; } );
+            const bool prepassed = pass == MeshPass::GBuffer && recorded != phasePrepassed.end();
+            // THE SMALL BUCKETS (GpuInstancedRenderData::PrepassBuckets; UE r.MinScreenRadiusForDepthPrepass): the
+            // section's buckets - a mesh's LOD levels (a draw each), a blade's strip levels (the strip's
+            // submeshes, one draw) - and how many of them the early-Z pair draws: the prepass the first
+            // prepassBuckets, the G-buffer those EQUAL and the rest through the section's own cell, with its clip
+            // and depth writes.
+            uint32_t bucketCount = LevelsOf( gpu );
+            if ( gpu.Path == MeshVertexPath::GrassBlade )
+                bucketCount = static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() );
+            uint32_t prepassBuckets = bucketCount;
+            if ( prepassed )
+                prepassBuckets = std::min( recorded->Buckets, bucketCount );
             // One cell (and instance) per section x view pass.
             const auto viewOf = [&gpu]( const MeshPass of )
             { return kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of ); };
@@ -221,6 +237,22 @@ namespace Desert::Graphic::System
                                       gpu.Material->IsTwoSided() );
                 if ( equalPipeline == nullptr || equalPipeline->GetReadiness() != PipelineReadiness::Ready )
                     continue;
+                // The small buckets leave the pair only for a G-buffer that can draw them itself: the section's
+                // own (path x GBuffer) cell Ready this frame, decided here and recorded, so the G-buffer draws
+                // exactly what this pass left it. Until then every bucket stays in the pair.
+                prepassBuckets = std::min( gpu.PrepassBuckets, bucketCount );
+                if ( prepassBuckets < bucketCount )
+                {
+                    DataDrivenMaterial* const ownCell     = cellOf( MeshPass::GBuffer );
+                    GraphicsPipeline*         ownPipeline = nullptr;
+                    if ( ownCell != nullptr && m_InstancedGBufferPipeline )
+                        ownPipeline = CullPermutation( CellPipeline( m_InstancedGBufferPipeline.get(), *ownCell ),
+                                                       gpu.Material->IsTwoSided() );
+                    if ( ownPipeline == nullptr || ownPipeline->GetReadiness() != PipelineReadiness::Ready )
+                        prepassBuckets = bucketCount;
+                }
+                if ( prepassBuckets == 0u )
+                    continue; // every bucket small: the G-buffer draws the section as one this pass never drew
             }
             if ( companion != nullptr )
             {
@@ -260,7 +292,7 @@ namespace Desert::Graphic::System
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
             if ( maskedPrepass )
-                phasePrepassed.push_back( gpu.Key );
+                phasePrepassed.push_back( { .Key = gpu.Key, .Buckets = prepassBuckets } );
 
             // THE RESOLVE (GRASS-VIS): one full-screen triangle per section - record 0 of the view's resolve table
             // (VirtualGeometry::VisibilityBuffer: {3, 1, 0, 0, 0}, the strip's first three indices, which
@@ -286,21 +318,66 @@ namespace Desert::Graphic::System
                 continue;
             }
 
-            // One draw per LOD level the producer sorted its instances into, each reading its level's records.
-            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-                list.Add( { .Pipeline           = pipeline,
-                            .Mesh               = gpu.Mesh,
-                            .Transform          = glm::mat4( 1.0f ),
-                            .Material           = cell->GetMaterialExecutor(),
-                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
-                            .IndirectArgs       = drawArgs,
-                            .IndirectInstances  = refs.Instances,
-                            .IndirectIds        = refs.Ids,
-                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
-                            .Push               = DrawPushFields{}
-                                         .MaterialIndex( row )
-                                         .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                         .PrimitiveFlags( 0u ) } );
+            // The draws of buckets [first, end) through @p drawCell: a mesh's one draw per LOD level the producer
+            // sorted its instances into, each reading its level's records; a blade's one draw of the strip, its
+            // records the strip levels (submesh b = bucket b), the levels outside the range hidden.
+            const auto addBuckets = [&]( DataDrivenMaterial& drawCell, GraphicsPipeline* const drawPipeline,
+                                         const uint32_t first, const uint32_t end )
+            {
+                const auto add = [&]( const uint64_t hidden, const uint32_t level )
+                {
+                    list.Add( { .Pipeline           = drawPipeline,
+                                .Mesh               = gpu.Mesh,
+                                .Transform          = glm::mat4( 1.0f ),
+                                .Material           = drawCell.GetMaterialExecutor(),
+                                .HiddenSubmeshMask  = hidden,
+                                .IndirectArgs       = drawArgs,
+                                .IndirectInstances  = refs.Instances,
+                                .IndirectIds        = refs.Ids,
+                                .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                                .Push               = DrawPushFields{}
+                                             .MaterialIndex( row )
+                                             .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
+                                             .PrimitiveFlags( 0u ) } );
+                };
+                if ( gpu.Path == MeshVertexPath::GrassBlade )
+                {
+                    if ( first >= end )
+                        return;
+                    uint64_t outside = 0;
+                    for ( uint32_t b = 0; b < std::min( bucketCount, 64u ); ++b )
+                        if ( b < first || b >= end )
+                            outside |= uint64_t{ 1 } << b;
+                    add( gpu.HiddenSubmeshes | outside, 0u );
+                    return;
+                }
+                for ( uint32_t level = first; level < end; ++level )
+                    add( gpu.HiddenSubmeshes, level );
+            };
+            addBuckets( *cell, pipeline, 0u, prepassBuckets );
+            if ( !prepassed || prepassBuckets >= bucketCount )
+                continue;
+            // THE SMALL BUCKETS the prepass left this frame (it found this pipeline Ready): the section's own
+            // (path x GBuffer) cell, its clip and depth writes - the texels and depth the pair would have left.
+            DataDrivenMaterial* const ownCell = cellOf( MeshPass::GBuffer );
+            if ( ownCell == nullptr )
+                continue;
+            GraphicsPipeline* const ownPipeline =
+                 CullPermutation( CellPipeline( instancedPipeline, *ownCell ), gpu.Material->IsTwoSided() );
+            if ( ownPipeline == nullptr )
+                continue;
+            uint32_t ownSlot = view + kGpuInstancedSmallBucketsViewOffset;
+            if ( postOcclusion )
+                ownSlot += kGpuInstancedPostViewOffset;
+            auto& ownInstance = m_GpuInstancedInstances[ownSlot];
+            if ( !ownInstance || ownInstance->GetParentMaterial() != ownCell )
+                ownInstance = ownCell->CreateInstance( "GpuInstanced" );
+            BindGpuInstancedBuffers( *ownCell, gpu, cameraList ? gpu.CameraIds : nullptr );
+            if ( !LendMaterialTable( *ownCell ) )
+                continue;
+            frameState.ApplyTo( ownInstance.get() );
+            ownCell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
+            addBuckets( *ownCell, ownPipeline, prepassBuckets, bucketCount );
         }
     }
 

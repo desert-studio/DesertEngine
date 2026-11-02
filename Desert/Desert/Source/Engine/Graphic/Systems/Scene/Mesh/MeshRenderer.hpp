@@ -328,6 +328,11 @@ namespace Desert::Graphic::System
         int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
+    // UE r.MinScreenRadiusForDepthPrepass (0.03): a GPU-instanced bucket whose instances all stand below this
+    // screen radius - Geometry::SelectLODFromBounds' measure, the bounding sphere's radius x max(P[0][0], P[1][1])
+    // / 2 over its distance - is not in the deferred early-Z pass (GpuInstancedRenderData::PrepassBuckets).
+    inline constexpr float kMinScreenRadiusForDepthPrepass = 0.03f;
+
     class MeshRenderer final : public RenderSystem
     {
     public:
@@ -493,6 +498,15 @@ namespace Desert::Graphic::System
             // group of records (one per submesh, level L at record L x submesh count) per level, each drawn by a
             // draw of its own (UE grass HISM: the instance's LOD by screen size). 1: one bucket, level 0.
             uint32_t Levels = 1;
+            // THE SMALL BUCKETS SKIP THE DEPTH PREPASS (UE r.MinScreenRadiusForDepthPrepass, a primitive below
+            // that screen radius is not in the depth pass: its prepass costs more vertices than the overdraw it
+            // saves): the first bucket (a mesh's LOD level, a blade's strip level) whose every instance stands
+            // below kMinScreenRadiusForDepthPrepass of the screen, set by the producer that sorts the instances
+            // into the buckets. From it on the deferred early-Z pass does not draw the section's buckets and the
+            // G-buffer draws them through the section's own (path x GBuffer) cell - its clip and its depth writes,
+            // the same texels and depth the pair would have left (BuildGpuInstancedDraws). ~0u: every bucket is
+            // prepassed.
+            uint32_t PrepassBuckets = ~0u;
             // GrassBlade only: what each cascade picks the strip's record set (its shadow LOD) and the caster's
             // density by (BuildGpuInstancedShadowDraws, BladeShadowSet). Levels 0: the cascades draw set 0.
             GpuInstanceBladeShadowLod ShadowLod{};
@@ -1895,13 +1909,21 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_MaskedDepthDraws; // "Deferred: Masked Depth Prepass": masked GPU sections
+        // A GPU-instanced section the masked depth prepass drew, and how many of its buckets
+        // (GpuInstancedRenderData::PrepassBuckets, cut back to every bucket while the section's own G-buffer
+        // pipeline is not Ready): the G-buffer draws those EQUAL and the rest through its own cell.
+        struct MaskedPrepassedSection
+        {
+            uint32_t Key     = 0;
+            uint32_t Buckets = 0;
+        };
         // The GPU-instanced sections (GpuInstancedRenderData::Key) THIS frame's masked depth prepass drew: the
         // G-buffer draws exactly these through m_InstancedGBufferEqualPipeline, every other one as before.
-        std::vector<uint32_t> m_MaskedPrepassed;
+        std::vector<MaskedPrepassedSection> m_MaskedPrepassed;
         // The same for phase 2 (GRASS-VIS-13): the sections "Grass: Depth Prepass Post-Occlusion" drew by their
         // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
         // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
-        std::vector<uint32_t> m_MaskedPrepassedPost;
+        std::vector<MaskedPrepassedSection> m_MaskedPrepassedPost;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
