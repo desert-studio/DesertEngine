@@ -170,6 +170,8 @@ namespace Desert::Editor
         std::optional<Control::Request>  m_ControlInFlight;
         // Camera.Spin: degrees per frame the editor camera turns about world up, applied in ServiceChannel.
         float m_CameraSpinDegreesPerFrame = 0.0f;
+        // Camera.Glide: centimetres per frame the editor camera walks along its heading on the ground plane.
+        float m_CameraGlideCmPerFrame = 0.0f;
         std::optional<Control::Response> m_ControlPendingReply;
 
         struct PendingNnCheck

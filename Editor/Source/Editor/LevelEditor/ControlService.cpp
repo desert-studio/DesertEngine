@@ -318,9 +318,9 @@ namespace Desert::Editor
         if ( !m_ControlSocket.IsListening() )
             return;
 
-        // Camera.Spin: the turn advances once per frame, before any request of this frame is read, so a
-        // `profile-dump` taken while it runs measures a camera that moved every frame.
-        if ( m_CameraSpinDegreesPerFrame != 0.0f )
+        // Camera.Spin / Camera.Glide: the turn and the walk advance once per frame, before any request of this
+        // frame is read, so a `profile-dump` taken while they run measures a camera that moved every frame.
+        if ( m_CameraSpinDegreesPerFrame != 0.0f || m_CameraGlideCmPerFrame != 0.0f )
         {
             if ( ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera() )
             {
@@ -329,7 +329,14 @@ namespace Desert::Editor
                 const float     s       = std::sin( angle );
                 const glm::vec3 forward = camera->GetDirection();
                 const glm::vec3 turned( c * forward.x + s * forward.z, forward.y, -s * forward.x + c * forward.z );
-                PlaceEditorCamera( *camera, camera->GetPosition(), turned );
+                glm::vec3       position = camera->GetPosition();
+                const glm::vec2 heading( forward.x, forward.z );
+                if ( glm::length( heading ) > 1e-4f )
+                {
+                    const glm::vec2 step = glm::normalize( heading ) * m_CameraGlideCmPerFrame;
+                    position += glm::vec3( step.x, 0.0f, step.y );
+                }
+                PlaceEditorCamera( *camera, position, turned );
             }
         }
 
@@ -1018,7 +1025,7 @@ namespace Desert::Editor
                                                       debugView.ValidateGpuCulling,
                                                       debugView.ForceVirtualGeometryCutRefusal,
                                                       debugView.ForceVirtualGeometryPostCutRefusal,
-                                                      m_CameraSpinDegreesPerFrame ) ) );
+                                                      m_CameraSpinDegreesPerFrame, m_CameraGlideCmPerFrame ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1536,6 +1543,13 @@ namespace Desert::Editor
 
         // The turn belongs to the editor camera alone: a Play view is the game's, and turning it from here
         // would be a second driver of the gameplay camera.
+        if ( which.GetValue() == ViewportCameraWrite::Glide )
+        {
+            if ( camera == nullptr )
+                return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+            m_CameraGlideCmPerFrame = request.Value[0];
+            return Control::Response::Success( request.Id );
+        }
         if ( which.GetValue() == ViewportCameraWrite::Spin )
         {
             if ( camera == nullptr )
