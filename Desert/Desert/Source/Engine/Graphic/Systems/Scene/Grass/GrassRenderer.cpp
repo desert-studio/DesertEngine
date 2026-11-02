@@ -46,8 +46,12 @@ namespace Desert::Graphic::System
         // records, a tile slot's header words, a record's bytes, the feedback words.
         constexpr uint32_t kGrassTileCells         = 32u;
         constexpr uint32_t kGrassTilePageRecords   = 64u;
-        // GRASS-TILE-2: 32 words of the tile, then 16 clusters of 8 words (GrassGenerate.shader kTileClusterWord).
-        constexpr uint32_t kGrassTileHeaderWords   = 32u + 16u * 8u;
+        // GRASS-TILE-2: a tile's clusters (GrassGenerate.shader kTileClusters), each one thread group's cells - of the
+        // build and of the tile cull (GRASS-TILE-4: one group per cluster, one thread per record); the tile's header
+        // is 32 words of the tile, then 8 words per cluster (kTileClusterWord).
+        constexpr uint32_t kGrassTileClusters =
+             ( kGrassTileCells / kGrassGroupSize ) * ( kGrassTileCells / kGrassGroupSize );
+        constexpr uint32_t kGrassTileHeaderWords   = 32u + kGrassTileClusters * 8u;
         constexpr uint32_t kGrassTileRecordBytes   = 3u * sizeof( glm::uvec4 );
         constexpr uint32_t kGrassTileFeedbackWords = 4u;
         constexpr uint32_t kGrassTileModeInit      = 0u;
@@ -1666,8 +1670,10 @@ namespace Desert::Graphic::System
                  { return DispatchOneGroup( context, *m_Finalize, &reset, sizeof( reset ) ); } );
 
             // THE TILE CULL (GrassGenerate.shader Cull; UE: the grass HISM's instances culled, LODed and faded per
-            // view): the full list and the cascades' lists from the resident tiles, one dispatch per variety, one
-            // group per tile.
+            // view): the full list and the cascades' lists from the resident tiles, one dispatch per variety (no
+            // barrier between them: each writes its own lists), one group per cluster of a tile and one thread per
+            // record (GRASS-TILE-4: a group per tile walked its up to 1024 records in rounds of 64 - the longest
+            // tile's rounds were each variety's floor).
             graph.AddPass(
                  "Grass: Tile Cull", RDG::PassFlags::Compute,
                  [this, bindGenerate]( RDG::PassBuilder& pass )
@@ -1682,7 +1688,7 @@ namespace Desert::Graphic::System
                          return std::pair{ GrassGeneratePush{ glm::uvec4( kGrassTileModeCull,
                                                                           1u + gpu.TileFrees + gpu.TileBuilds,
                                                                           gpu.TileCulls, gpu.TilePages ) },
-                                           glm::uvec3( gpu.TileCulls, 1u, 1u ) };
+                                           glm::uvec3( kGrassTileClusters, gpu.TileCulls, 1u ) };
                      };
                      return dispatchTiles( context, m_FrameGenerate, cullShape );
                  } );
