@@ -434,7 +434,7 @@ namespace Desert::Graphic::Render2D
                 {
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
-                                    RDG::OtherRouteFill{} )
+                                    RDG::NoOtherRouteFill() )
                          .Texture( Render2DMaskedLayerShaderParameters::RetainedLayerTexture, pic.Content,
                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                          .Sampler( Render2DMaskedLayerShaderParameters::LinearClampSampler,
@@ -461,7 +461,7 @@ namespace Desert::Graphic::Render2D
             {
                 // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
                 declared
-                     .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+                     .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
                      .Texture( Render2DBackdropShaderParameters::BackdropTexture, backdrop,
                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( Render2DBackdropShaderParameters::LinearClampSampler,

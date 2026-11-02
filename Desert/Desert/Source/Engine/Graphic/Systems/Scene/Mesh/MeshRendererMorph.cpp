@@ -164,7 +164,7 @@ namespace Desert::Graphic::System
                 RDG::Builder                           graph( "MorphTargets" );
                 const std::shared_ptr<ComputePipeline> pipeline = m_MorphPipeline;
                 const auto&               layout = m_MorphLayout.Get( pipeline->GetSpecification().Shader );
-                const RDG::OtherRouteFill fill   = Renderer::GetPipelineRouteFill( *pipeline );
+                const std::shared_ptr<const RDG::OtherRouteFill> fill = Renderer::GetPipelineRouteFill( *pipeline );
 
                 std::vector<MorphTwin*> declared;
                 for ( MorphTwin* twin : pending )

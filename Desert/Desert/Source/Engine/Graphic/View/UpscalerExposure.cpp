@@ -90,7 +90,7 @@ namespace Desert::Graphic
              kExposureShaderName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( UpscalerExposureLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( UpscalerExposureLayout(), RDG::NoOtherRouteFill() )
                       .Texture( UpscalerExposureShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( UpscalerExposureShaderParameters::PointClampSampler,

@@ -340,7 +340,7 @@ namespace Desert::Graphic::RDG
                 covered[slot] = 1;
                 ++filled;
             }
-            for ( const std::string& name : block.Other.Slots )
+            for ( const std::string& name : block.Other->Slots )
             {
                 const size_t slot = slotOf( name );
                 if ( slot == slots )
@@ -361,14 +361,18 @@ namespace Desert::Graphic::RDG
     {
         if ( !block.Layout )
             return Common::MakeError( std::string( "the block declares no shader binding layout" ) );
+        if ( !block.Other )
+            return Common::MakeError( std::format( "the block of shader '{}' declares no other-route fill "
+                                                   "(RDG::NoOtherRouteFill when the other route fills nothing)",
+                                                   block.Layout->ShaderName ) );
         const ShaderBindingLayout& layout  = *block.Layout;
+        const OtherRouteFill&      other   = *block.Other;
         // CPU-FRAME-5: the linear proof first; this walk runs only when it cannot prove the slots valid,
         // and names the first fault in declaration order.
         if ( !SlotsProvenValid( block ) )
         {
             const auto                 byOther = [&]( std::string_view name ) {
-                return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) !=
-                       block.Other.Slots.end();
+                return std::find( other.Slots.begin(), other.Slots.end(), name ) != other.Slots.end();
             };
             for ( const DeclaredBindingEntry& entry : block.Entries )
             {
@@ -399,8 +403,8 @@ namespace Desert::Graphic::RDG
         const uint32_t declared = layout.PushConstantBytes;
         const uint32_t given    = block.PushConstantBytes;
         const bool     refused =
-             declared == 0 ? given != 0 || block.Other.PushConstants
-                               : ( given == 0 ) == !block.Other.PushConstants || ( given != 0 && given != declared );
+             declared == 0 ? given != 0 || other.PushConstants
+                               : ( given == 0 ) == !other.PushConstants || ( given != 0 && given != declared );
         if ( refused )
             return Common::MakeError( std::format( kPushFormat, layout.ShaderName, declared, given ) );
         return Common::MakeSuccess( true );
@@ -428,13 +432,13 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( true );
     }
 
-    BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, OtherRouteFill other )
+    BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, std::shared_ptr<const OtherRouteFill> other )
     {
         return Bindings( std::make_shared<const ShaderBindingLayout>( std::move( layout ) ), std::move( other ) );
     }
 
     BindingBlockBuilder PassBuilder::Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
-                                               OtherRouteFill                                    other )
+                                               std::shared_ptr<const OtherRouteFill>             other )
     {
         std::vector<DeclaredBindingBlock>& blocks = m_Builder.m_Passes[m_Pass].Blocks;
         blocks.push_back( DeclaredBindingBlock{ layout, std::move( other ), {}, 0 } );

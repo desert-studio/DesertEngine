@@ -490,7 +490,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_HitLightingPipeline )
                 return;
-            auto block = pass.Bindings( m_HitLightingLayout.Get( m_HitLightingShader ), RDG::OtherRouteFill{} );
+            auto block = pass.Bindings( m_HitLightingLayout.Get( m_HitLightingShader ), RDG::NoOtherRouteFill() );
             block.Texture( SSRHitLightingShaderParameters::GBufferNormalTexture, gbuffer[1],
                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .Sampler( SSRHitLightingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )

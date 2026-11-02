@@ -1681,7 +1681,7 @@ namespace Desert::Graphic::System
                  [&]( RDG::PassBuilder& pass )
                  {
                      constexpr RDG::Access kR = RDG::Access::StorageRead;
-                     auto&& block = pass.Bindings( layout.Get( shader ), RDG::OtherRouteFill{} );
+                     auto&& block = pass.Bindings( layout.Get( shader ), RDG::NoOtherRouteFill() );
                      if ( nrc )
                          block.Storage( PathTracingTraceShaderParameters::NrcQueriesUB, nrc->Queries,
                                         RDG::Access::StorageWrite )
@@ -1989,7 +1989,7 @@ namespace Desert::Graphic::System
                  "PathTracing: Resolve", RDG::PassFlags::Raster | RDG::PassFlags::NeverParallel,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ), RDG::OtherRouteFill{} )
+                     pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ), RDG::NoOtherRouteFill() )
                           .Texture( PathTracingResolveShaderParameters::AccumulationTexture, image,
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingResolveShaderParameters::PointClampSampler,

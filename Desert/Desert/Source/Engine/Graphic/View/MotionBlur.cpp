@@ -287,7 +287,7 @@ namespace Desert::Graphic
              kBlurKernelPasses[0], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( MotionBlurFlattenLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( MotionBlurFlattenLayout(), RDG::NoOtherRouteFill() )
                       .Texture( MotionBlurFlattenShaderParameters::VelocityTexture, inputs.Velocity,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( MotionBlurFlattenShaderParameters::PointClampSampler, point )
@@ -305,7 +305,7 @@ namespace Desert::Graphic
              kBlurKernelPasses[1], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( MotionBlurTileMaxLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( MotionBlurTileMaxLayout(), RDG::NoOtherRouteFill() )
                       .Texture( MotionBlurTileMaxShaderParameters::FlattenedVelocityTexture, flat,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( MotionBlurTileMaxShaderParameters::PointClampSampler, point )
@@ -320,7 +320,7 @@ namespace Desert::Graphic
              kBlurKernelPasses[2], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( MotionBlurNeighborMaxLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( MotionBlurNeighborMaxLayout(), RDG::NoOtherRouteFill() )
                       .Texture( MotionBlurNeighborMaxShaderParameters::TileMaxTexture, tileMax,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( MotionBlurNeighborMaxShaderParameters::PointClampSampler, point )
@@ -337,7 +337,7 @@ namespace Desert::Graphic
              {
                  // The colour taps are bilinear (sub-pixel positions along the velocity); the flattened velocity
                  // and the tiles are read at texel centres.
-                 pass.Bindings( MotionBlurGatherLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( MotionBlurGatherLayout(), RDG::NoOtherRouteFill() )
                       .Texture( MotionBlurGatherShaderParameters::SceneColorTexture, inputs.SceneColor,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( MotionBlurGatherShaderParameters::LinearClampSampler,

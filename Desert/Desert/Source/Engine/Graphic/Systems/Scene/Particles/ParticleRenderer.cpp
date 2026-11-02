@@ -1376,7 +1376,9 @@ namespace Desert::Graphic::System
                                    RDG::SamplerDesc::PointClamp() );
                 // The rest of the list, minus the depth above and minus what the material route already fills
                 // (a slot filled by both faults the node as surely as one filled by neither).
-                const RDG::OtherRouteFill& route  = sprite.Material->GetMaterialExecutor()->GetRouteFill();
+                const std::shared_ptr<const RDG::OtherRouteFill> fill =
+                     sprite.Material->GetMaterialExecutor()->GetRouteFill();
+                const RDG::OtherRouteFill& route  = *fill;
                 RDG::ShaderBindingLayout   others = *layout;
                 std::erase_if( others.Slots,
                                [&route]( const RDG::ShaderSlot& slot )

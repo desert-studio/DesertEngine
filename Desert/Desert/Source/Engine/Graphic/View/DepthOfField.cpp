@@ -377,7 +377,7 @@ namespace Desert::Graphic
              kDofKernelPasses[0], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( DofSetupLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( DofSetupLayout(), RDG::NoOtherRouteFill() )
                       .Texture( DepthOfFieldSetupShaderParameters::SceneColorTexture, inputs.SceneColor,
                                 RDG::Access::SampledCompute, all )
                       .Sampler( DepthOfFieldSetupShaderParameters::LinearClampSampler, linear )
@@ -395,7 +395,7 @@ namespace Desert::Graphic
              kDofKernelPasses[1], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( DofTileFlattenLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( DofTileFlattenLayout(), RDG::NoOtherRouteFill() )
                       .Texture( DepthOfFieldTileFlattenShaderParameters::HalfResolutionColorCocTexture, halfColor,
                                 RDG::Access::SampledCompute, all )
                       .Sampler( DepthOfFieldTileFlattenShaderParameters::PointClampSampler, point )
@@ -410,7 +410,7 @@ namespace Desert::Graphic
              kDofKernelPasses[2], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( DofTileDilateLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( DofTileDilateLayout(), RDG::NoOtherRouteFill() )
                       .Texture( DepthOfFieldTileDilateShaderParameters::TilesTexture, tiles,
                                 RDG::Access::SampledCompute, all )
                       .Sampler( DepthOfFieldTileDilateShaderParameters::PointClampSampler, point )
@@ -429,7 +429,7 @@ namespace Desert::Graphic
                  kDofKernelPasses[static_cast<std::size_t>( kernel )], RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     pass.Bindings( layout, RDG::OtherRouteFill{} )
+                     pass.Bindings( layout, RDG::NoOtherRouteFill() )
                           .Texture( DepthOfFieldGatherShaderParameters::HalfResolutionColorCocTexture, halfColor,
                                     RDG::Access::SampledCompute, all )
                           .Sampler( DepthOfFieldGatherShaderParameters::LinearClampSampler, linear )
@@ -450,7 +450,7 @@ namespace Desert::Graphic
              kDofKernelPasses[5], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( DofRecombineLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( DofRecombineLayout(), RDG::NoOtherRouteFill() )
                       .Texture( DepthOfFieldRecombineShaderParameters::SceneColorTexture, inputs.SceneColor,
                                 RDG::Access::SampledCompute, all )
                       .Sampler( DepthOfFieldRecombineShaderParameters::PointClampSampler, point )

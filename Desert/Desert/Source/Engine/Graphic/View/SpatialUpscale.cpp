@@ -158,7 +158,7 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  // texelFetch only: the EASU lobes are the filter, the sampler filters nothing.
-                 pass.Bindings( SpatialUpscaleLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( SpatialUpscaleLayout(), RDG::NoOtherRouteFill() )
                       .Texture( SpatialUpscaleShaderParameters::SourceColorTexture, sceneColor,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( SpatialUpscaleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
@@ -217,7 +217,7 @@ namespace Desert::Graphic
              "Sharpen", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( SharpenLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( SharpenLayout(), RDG::NoOtherRouteFill() )
                       .Texture( SpatialUpscaleSharpenShaderParameters::SourceColorTexture, color,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( SpatialUpscaleSharpenShaderParameters::PointClampSampler,

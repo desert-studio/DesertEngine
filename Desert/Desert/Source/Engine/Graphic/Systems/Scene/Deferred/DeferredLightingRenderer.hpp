@@ -234,7 +234,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_WorldView )
                 return;
-            pass.Bindings( m_WorldViewLayout.Get( m_WorldViewShader ), RDG::OtherRouteFill{} )
+            pass.Bindings( m_WorldViewLayout.Get( m_WorldViewShader ), RDG::NoOtherRouteFill() )
                  .Texture( DeferredLightingWorldViewShaderParameters::DeviceDepthTexture, depth,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                  .Sampler( DeferredLightingWorldViewShaderParameters::LinearRepeatSampler,

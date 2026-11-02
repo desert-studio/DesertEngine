@@ -168,7 +168,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_EdgesPipeline )
             return; // RecordEdges refuses by name
-        pass.Bindings( m_EdgesLayout.Get( m_EdgesPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_EdgesLayout.Get( m_EdgesPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Texture( SMAAEdgesShaderParameters::ColorTexture, input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( SMAAEdgesShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
     }
@@ -186,7 +186,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_WeightsPipeline )
             return; // RecordWeights refuses by name
-        pass.Bindings( m_WeightsLayout.Get( m_WeightsPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_WeightsLayout.Get( m_WeightsPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Texture( SMAAWeightsShaderParameters::EdgesTexture, edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( SMAAWeightsShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Texture( SMAAWeightsShaderParameters::AreaTexture, area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
@@ -207,7 +207,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_BlendPipeline )
             return; // RecordBlend refuses by name
-        pass.Bindings( m_BlendLayout.Get( m_BlendPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_BlendLayout.Get( m_BlendPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Texture( SMAABlendShaderParameters::ColorTexture, input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( SMAABlendShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Texture( SMAABlendShaderParameters::BlendTexture, weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

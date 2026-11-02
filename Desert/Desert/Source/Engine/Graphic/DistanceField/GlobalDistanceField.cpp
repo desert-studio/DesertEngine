@@ -910,7 +910,7 @@ namespace Desert::Graphic::DistanceField
              "Debug: Global Distance Field", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::OtherRouteFill{} );
+                 auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::NoOtherRouteFill() );
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
                      block.Texture( kGlobalDistanceFieldClipmapTextures[level], field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

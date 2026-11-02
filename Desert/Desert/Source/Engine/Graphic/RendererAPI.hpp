@@ -242,7 +242,7 @@ namespace Desert::Graphic
                      uint32_t indexCount, uint32_t firstIndex ) = 0;
         // The setup-time halves of the consumers above (see Renderer::GetBindingLayout / GetPipelineRouteFill).
         [[nodiscard]] virtual RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const = 0;
-        [[nodiscard]] virtual RDG::OtherRouteFill
+        [[nodiscard]] virtual std::shared_ptr<const RDG::OtherRouteFill>
         GetPipelineRouteFill( const ComputePipeline& pipeline ) const = 0;
         // The PassBindings route of RenderMesh (see Renderer::RenderMesh( const RDG::PassBindings&, ... )).
         [[nodiscard]] virtual Common::BoolResultStr

@@ -493,7 +493,7 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
             sortNames.push_back( Sys::ParticleSortPassName( range.Emitter, s ) );
             graph.AddPass(
                  sortNames.back(), PassFlags::Compute, [&, kind]( PassBuilder& pass )
-                 { Sys::DeclareParticleSortStage( pass, layout, {}, buffers, kind ); }, Ok );
+                 { Sys::DeclareParticleSortStage( pass, layout, NoOtherRouteFill(), buffers, kind ); }, Ok );
         }
     }
     graph.AddPass(
@@ -867,13 +867,13 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
     writer
          .Bindings( ShaderBindingLayout{ "TransmittanceLut",
                                          { { "TransmittanceLutTexture", ShaderResourceKind::StorageTexture } } },
-                    {} )
+                    NoOtherRouteFill() )
          .Storage( RenderGraphCompileTestFirstShaderParameters::TransmittanceLutTexture, lut, Access::StorageWrite,
                    "Sky.TransmittanceLut" );
     Desert::Graphic::RenderPassDeclaration reader;
     reader
          .Bindings(
-              ShaderBindingLayout{ "Skybox", { { "TransmittanceLutTexture", ShaderResourceKind::Texture } } }, {} )
+              ShaderBindingLayout{ "Skybox", { { "TransmittanceLutTexture", ShaderResourceKind::Texture } } }, NoOtherRouteFill() )
          .Texture( RenderGraphCompileTestSecondShaderParameters::TransmittanceLutTexture, lut,
                    Access::SampledGraphics, "Sky.TransmittanceLut" )
          .Sampler( RenderGraphCompileTestSecondShaderParameters::LinearClampSampler, SamplerDesc::LinearClamp() );
@@ -922,7 +922,7 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
          .Bindings( ShaderBindingLayout{ "CloudResolve",
                                          { { "CloudHistoryTexture", ShaderResourceKind::Texture },
                                            { "CloudHistoryGuideTexture", ShaderResourceKind::Texture } } },
-                    {} )
+                    NoOtherRouteFill() )
          .Texture( RenderGraphCompileTestSkyShaderParameters::CloudHistoryTexture, fallback,
                    Access::SampledCompute, "Clouds.HistoryFallback" )
          .Sampler( RenderGraphCompileTestSkyShaderParameters::LinearRepeatSampler, SamplerDesc::LinearRepeat() )
@@ -1007,7 +1007,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
              "Deferred: Composite", PassFlags::Raster,
              [&]( PassBuilder& pass )
              {
-                 pass.Bindings( layout, {} )
+                 pass.Bindings( layout, NoOtherRouteFill() )
                       .Texture( RenderGraphCompileTestCompositeShaderParameters::SsaoTexture,
                                 ssao.IsValid() ? ssao : system.White, Access::SampledGraphics,
                                 SubresourceRange::All() )
@@ -1031,7 +1031,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
              "Deferred: Composite", PassFlags::Raster,
              [&]( PassBuilder& pass )
              {
-                 pass.Bindings( layout, {} )
+                 pass.Bindings( layout, NoOtherRouteFill() )
                       .Texture( RenderGraphCompileTestCompositeShaderParameters::SsaoTexture, TextureRef{},
                                 Access::SampledGraphics, SubresourceRange::All() )
                       .Sampler( RenderGraphCompileTestCompositeShaderParameters::LinearRepeatSampler,
@@ -4826,7 +4826,7 @@ namespace
                  [this]( PassBuilder& pass )
                  {
                      pass.ColorTarget( 0, glass, LoadOp::ClearColor( 0, 0, 0, 0 ) );
-                     pass.Bindings( GlassLayout(), {} )
+                     pass.Bindings( GlassLayout(), NoOtherRouteFill() )
                           .Texture( RenderGraphCompileTestGlassShaderParameters::SceneColorTexture, lit,
                                     Access::SampledGraphics, SubresourceRange::All() )
                           .Sampler( RenderGraphCompileTestGlassShaderParameters::LinearClampSampler,
@@ -4987,7 +4987,7 @@ TEST( RenderGraphCompile, OneRefInThreeSlotsOfOneBlockIsOneRead )
          "PostFX: Tonemap", PassFlags::Raster,
          [&]( PassBuilder& pass )
          {
-             pass.Bindings( layout, {} )
+             pass.Bindings( layout, NoOtherRouteFill() )
                   .Texture( RenderGraphCompileTestTonemapShaderParameters::BloomTexture, black,
                             Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
                   .Sampler( RenderGraphCompileTestTonemapShaderParameters::LinearClampSampler,

@@ -857,19 +857,11 @@ namespace Desert::Graphic::API::Vulkan
         return MakeShaderBindingLayout( vulkan.GetReflectionData(), SlotsOf( vulkan ), vulkan.GetName() );
     }
 
-    RDG::OtherRouteFill VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
+    std::shared_ptr<const RDG::OtherRouteFill>
+    VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
-        const auto& compute = static_cast<const VulkanPipelineCompute&>( pipeline );
-        const auto* shader  = dynamic_cast<const VulkanShader*>( compute.GetShader().get() );
-        if ( shader == nullptr )
-            return {};
-        // The same set-0 keys DispatchCompute hands ResolveRdgPassBindings as the other route.
-        RdgOtherRoute other;
-        for ( const uint32_t binding : compute.GetBoundBindings() )
-            other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
-        other.PushConstants = !compute.GetBoundPushConstants().empty();
-        return MakeOtherRouteFill( SlotsOf( *shader ), other );
+        return static_cast<const VulkanPipelineCompute&>( pipeline ).GetRouteFill();
     }
 
     Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,

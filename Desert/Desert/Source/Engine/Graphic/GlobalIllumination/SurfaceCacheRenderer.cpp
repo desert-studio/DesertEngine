@@ -488,7 +488,7 @@ namespace Desert::Graphic::SurfaceCache
              "Debug: Surface Cache Atlas", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 auto block = pass.Bindings( m_AtlasViewLayout.Get( m_AtlasViewShader ), RDG::OtherRouteFill{} );
+                 auto block = pass.Bindings( m_AtlasViewLayout.Get( m_AtlasViewShader ), RDG::NoOtherRouteFill() );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      if ( kCapturedLayers[i] != Layer::Emissive && kCapturedLayers[i] != Layer::Subsurface )
                          block.Texture( kLayerTextures[i], layers[i], RDG::Access::SampledGraphics,
@@ -553,7 +553,7 @@ namespace Desert::Graphic::SurfaceCache
              RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( m_SceneViewLayout.Get( m_SceneViewShader ), RDG::OtherRouteFill{} )
+                 pass.Bindings( m_SceneViewLayout.Get( m_SceneViewShader ), RDG::NoOtherRouteFill() )
                       .Storage( SurfaceCacheSceneViewShaderParameters::SurfaceCardBuffer, cards,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheSceneViewShaderParameters::SurfaceCardPageBuffer, pages,
@@ -772,7 +772,7 @@ namespace Desert::Graphic::SurfaceCache
              [&]( RDG::PassBuilder& pass )
              {
                  const auto& layout = m_LightingLayout.Get( m_LightingShader );
-                 auto        block  = pass.Bindings( layout, RDG::OtherRouteFill{} );
+                 auto        block  = pass.Bindings( layout, RDG::NoOtherRouteFill() );
                  block.Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCardBuffer, buffers.Cards,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCardPageBuffer, buffers.Pages,
@@ -889,7 +889,7 @@ namespace Desert::Graphic::SurfaceCache
              {
                  using P            = SurfaceCacheRadiosityTraceShaderParameters;
                  const auto& layout = m_RadiosityLayout.Get( m_RadiosityShader );
-                 auto        block  = pass.Bindings( layout, RDG::OtherRouteFill{} );
+                 auto        block  = pass.Bindings( layout, RDG::NoOtherRouteFill() );
                  constexpr RDG::Access kR = RDG::Access::StorageRead;
                  constexpr RDG::Access kS = RDG::Access::SampledGraphics;
                  block.Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
@@ -930,7 +930,7 @@ namespace Desert::Graphic::SurfaceCache
              [&]( RDG::PassBuilder& pass )
              {
                  const auto& layout = m_IndirectLayout.Get( m_IndirectShader );
-                 auto        block  = pass.Bindings( layout, RDG::OtherRouteFill{} );
+                 auto        block  = pass.Bindings( layout, RDG::NoOtherRouteFill() );
                  block.Storage( SurfaceCacheIndirectLightingShaderParameters::SurfaceCardBuffer, buffers.Cards,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheIndirectLightingShaderParameters::SurfaceCardPageBuffer, buffers.Pages,

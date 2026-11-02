@@ -14,7 +14,11 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <limits>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -107,7 +111,11 @@ namespace Desert::Graphic
         // resource, its own or its schema default (Texture2DProperty::Apply restores the default, a cube writes
         // the fallback) - and the push constants, which the executor always supplies (its buffer is allocated at
         // creation).
-        [[nodiscard]] RDG::OtherRouteFill GetRouteFill() const;
+        // ROUTEFILL: the fill is kept and handed out shared. It is rebuilt only when what it is made of changed
+        // (RouteFillInputs: which storage buffers are written, which textures are row textures or carry their
+        // own sampler, whether there are push constants; the names change only in InitializeProperties), so a
+        // pass's setup copies, formats and sorts no name. Safe from several declaring threads.
+        [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill> GetRouteFill() const;
         std::shared_ptr<Shader> GetShader() const
         {
             return m_Shader;
@@ -152,6 +160,12 @@ namespace Desert::Graphic
     private:
         // The upload and descriptor writes of the prepare (above).
         void ApplyForRecording() const;
+        // Everything GetRouteFill reads besides the property names, one byte per property in the lookups' own
+        // order (fixed while InitializeProperties does not run): two equal results give the same fill.
+        void RouteFillInputs( std::vector<uint8_t>& inputs ) const;
+        mutable std::mutex                                 m_RouteFillLock;
+        mutable std::vector<uint8_t>                       m_RouteFillInputs;
+        mutable std::shared_ptr<const RDG::OtherRouteFill> m_RouteFill;
         // The newest write of any property this executor owns.
         [[nodiscard]] uint64_t NewestPropertyWrite() const;
 

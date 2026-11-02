@@ -206,7 +206,7 @@ namespace Desert::Graphic::RayTracing
 
         const std::shared_ptr<ComputePipeline> pipeline = m_Pipeline;
         const auto&                            layout   = m_Layout.Get( pipeline->GetSpecification().Shader );
-        const RDG::OtherRouteFill              fill     = Renderer::GetPipelineRouteFill( *pipeline );
+        const std::shared_ptr<const RDG::OtherRouteFill> fill = Renderer::GetPipelineRouteFill( *pipeline );
         RDG::Builder                           graph( "SkinCache" );
         std::optional<RDG::BufferRef>          bones;
         // A vertex external is registered once per graph: two records of one entity may share a morph twin.

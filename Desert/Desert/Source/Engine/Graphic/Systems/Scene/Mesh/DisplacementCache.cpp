@@ -491,8 +491,8 @@ namespace Desert::Graphic::System
         const std::shared_ptr<ComputePipeline> emit          = m_EmitPipeline;
         const auto& heightsLayout = m_HeightsLayout.Get( heights->GetSpecification().Shader );
         const auto& emitLayout    = m_EmitLayout.Get( emit->GetSpecification().Shader );
-        const RDG::OtherRouteFill              heightsFill   = Renderer::GetPipelineRouteFill( *heights );
-        const RDG::OtherRouteFill              emitFill      = Renderer::GetPipelineRouteFill( *emit );
+        const std::shared_ptr<const RDG::OtherRouteFill> heightsFill = Renderer::GetPipelineRouteFill( *heights );
+        const std::shared_ptr<const RDG::OtherRouteFill> emitFill = Renderer::GetPipelineRouteFill( *emit );
         const uint32_t pointGroups  = ( pointCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
         const uint32_t vertexGroups = ( vertexCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
         graph.AddPass(
