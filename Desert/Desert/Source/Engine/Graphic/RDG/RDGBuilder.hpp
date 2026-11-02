@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -428,8 +429,9 @@ namespace Desert::Graphic::RDG
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
             std::vector<DeclaredBindingBlock> Blocks;
-            // PassBuilder::Prepares, in declaration order.
-            std::vector<const IRecordPrerequisite*> Prerequisites;
+            // PassBuilder::Prepares, in declaration order: indices into Builder::m_Prerequisites (one entry per
+            // distinct object of the graph), so Execute prepares each object once, by index.
+            std::vector<uint32_t>             Prerequisites;
             std::string                       DeclarationError;
         };
 
@@ -478,6 +480,10 @@ namespace Desert::Graphic::RDG
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
+        // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
+        // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
+        std::vector<const IRecordPrerequisite*>                  m_Prerequisites;
+        std::unordered_map<const IRecordPrerequisite*, uint32_t> m_PrerequisiteIndex;
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;

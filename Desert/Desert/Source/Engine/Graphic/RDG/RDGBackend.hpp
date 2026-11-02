@@ -182,6 +182,16 @@ namespace Desert::Graphic::RDG
         // extracted transient gets a dedicated resource. Two transients sharing bytes are two distinct physical
         // resources over the same memory; their order is enforced only by the AliasAcquire barrier.
         virtual Common::BoolResultStr BeginGraph( const GraphView& graph ) = 0;
+        // UE FRDGBuilder::SetupParallelExecute. Called once per Execute, after BeginGraph and the passes'
+        // IRecordPrerequisite objects, before the first pass records, sequentially on the calling thread, with
+        // every executed pass in order. The backend creates here what it would otherwise create lazily while a
+        // pass records (Vulkan: render passes, framebuffers, attachment views), so recording looks it up and
+        // creates nothing. Nothing is reported: a pass whose objects could not be made here makes them again
+        // when it records and faults where it always did. The default prepares nothing.
+        virtual void PrepareRecording( std::span<const CompiledPass> passes )
+        {
+            static_cast<void>( passes );
+        }
 
         // Label and timestamp open around the pass.
         virtual void BeginPass( const CompiledPass& pass ) = 0;

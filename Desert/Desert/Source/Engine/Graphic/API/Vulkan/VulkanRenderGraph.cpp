@@ -546,8 +546,11 @@ namespace Desert::Graphic::API::Vulkan
                                                             range.LayerCount, m_Desc.Mips, m_Desc.Layers );
         const auto key = std::make_tuple( range.BaseMip, range.MipCount, range.BaseLayer,
                                           range.LayerCount | ( forAttachment ? 0x80000000u : 0u ) );
-        if ( const auto found = m_Views.find( key ); found != m_Views.end() )
-            return Common::MakeSuccess( found->second );
+        {
+            const std::shared_lock<std::shared_mutex> lookup( m_ViewsLock );
+            if ( const auto found = m_Views.find( key ); found != m_Views.end() )
+                return Common::MakeSuccess( found->second );
+        }
 
         VkImageViewType type = range.LayerCount == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         if ( m_Desc.Dim == RDG::TextureDim::Tex3D )
@@ -565,6 +568,10 @@ namespace Desert::Graphic::API::Vulkan
         info.viewType         = type;
         info.format           = m_Format;
         info.subresourceRange = { m_Aspect, range.BaseMip, range.MipCount, range.BaseLayer, range.LayerCount };
+        // Created under the write lock: two threads asking for the same new view get one view.
+        const std::unique_lock<std::shared_mutex> create( m_ViewsLock );
+        if ( const auto found = m_Views.find( key ); found != m_Views.end() )
+            return Common::MakeSuccess( found->second );
         VkImageView    view   = VK_NULL_HANDLE;
         const VkResult result = vkCreateImageView( m_Device, &info, nullptr, &view );
         if ( result != VK_SUCCESS )
@@ -1624,7 +1631,52 @@ namespace Desert::Graphic::API::Vulkan
         return created;
     }
 
+    void VulkanRdgBackend::PrepareRecording( std::span<const RDG::CompiledPass> passes )
+    {
+        m_PreparedRenderPasses.clear();
+        uint32_t count = 0;
+        for ( const RDG::CompiledPass& pass : passes )
+            count = std::max( count, pass.Pass + 1 );
+        m_PreparedRenderPasses.resize( count );
+        // Every pass that opens a render pass (a merged pass continues the one its first pass opened; a pass a
+        // fault re-opens resolves in BeginRenderPass). Sequential, before any pass records: no lock.
+        for ( const RDG::CompiledPass& pass : passes )
+        {
+            const bool opens = RDG::HasFlag( pass.Flags, RDG::PassFlags::Raster ) &&
+                               ( !pass.Attachments.empty() || pass.AreaWidth != 0 ) && !pass.ContinuesRenderPass;
+            if ( !opens )
+                continue;
+            PreparedRenderPass& prepared = m_PreparedRenderPasses[pass.Pass];
+            if ( ResolveRenderPass( pass, prepared ) )
+                prepared.Source = &pass;
+            else
+                prepared = PreparedRenderPass{};
+        }
+    }
+
     Common::BoolResultStr VulkanRdgBackend::BeginRenderPass( const RDG::CompiledPass& pass )
+    {
+        // The planned pass PrepareRecording resolved: only looked up. A fault-adjusted copy (Load -> Clear) or a
+        // merged pass re-opening after a fault closed its render pass resolves here, under the lock (the render
+        // pass map and the framebuffer list are shared by every recording thread).
+        if ( pass.Pass < m_PreparedRenderPasses.size() && m_PreparedRenderPasses[pass.Pass].Source == &pass )
+        {
+            RecordBeginRenderPass( m_PreparedRenderPasses[pass.Pass] );
+            return Common::MakeSuccess( true );
+        }
+        PreparedRenderPass resolved;
+        {
+            std::lock_guard<std::mutex> lock( m_RenderPassLock );
+            Common::BoolResultStr       made = ResolveRenderPass( pass, resolved );
+            if ( !made )
+                return made;
+        }
+        RecordBeginRenderPass( resolved );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::ResolveRenderPass( const RDG::CompiledPass& pass,
+                                                               PreparedRenderPass&      out )
     {
         uint32_t colourCount = 0;
         for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
@@ -1738,7 +1790,11 @@ namespace Desert::Graphic::API::Vulkan
             if ( entry.RenderPass == renderPass.GetValue() && entry.Views == views &&
                  entry.Extent.width == extent.width && entry.Extent.height == extent.height &&
                  entry.Layers == layers )
+            {
+                // Unique: an entry is added only when none matches, and BeginGraph drops the dead ones.
                 framebuffer = entry.Framebuffer;
+                break;
+            }
         }
         if ( framebuffer == VK_NULL_HANDLE )
         {
@@ -1758,15 +1814,26 @@ namespace Desert::Graphic::API::Vulkan
                  { renderPass.GetValue(), views, std::move( textures ), extent, layers, framebuffer } );
         }
 
+        out.RenderPass    = renderPass.GetValue();
+        out.Framebuffer   = framebuffer;
+        out.Extent        = extent;
+        out.Clears        = std::move( clears );
+        out.Compatibility = RdgCompatibilityKey( key );
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::RecordBeginRenderPass( const PreparedRenderPass& prepared )
+    {
+        const VkExtent2D      extent = prepared.Extent;
         VkRenderPassBeginInfo begin{};
         begin.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        begin.renderPass      = renderPass.GetValue();
-        begin.framebuffer     = framebuffer;
+        begin.renderPass      = prepared.RenderPass;
+        begin.framebuffer     = prepared.Framebuffer;
         begin.renderArea      = { { 0, 0 }, extent };
-        begin.clearValueCount = static_cast<uint32_t>( clears.size() );
-        begin.pClearValues    = clears.data();
+        begin.clearValueCount = static_cast<uint32_t>( prepared.Clears.size() );
+        begin.pClearValues    = prepared.Clears.data();
         vkCmdBeginRenderPass( m_CommandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE );
-        m_OpenRenderPass = RdgCompatibilityKey( key );
+        m_OpenRenderPass = prepared.Compatibility;
 
         // The whole target: what nearly every pass wants, set once here instead of in every exec lambda. The
         // engine's convention (VulkanRendererAPI::SetViewportAndScissor): negative height, so +Y is up and the
@@ -1780,7 +1847,6 @@ namespace Desert::Graphic::API::Vulkan
         const VkRect2D   scissor{ { 0, 0 }, extent };
         vkCmdSetViewport( m_CommandBuffer, 0, 1, &viewport );
         vkCmdSetScissor( m_CommandBuffer, 0, 1, &scissor );
-        return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
@@ -2018,6 +2084,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::Release()
     {
+        m_PreparedRenderPasses.clear();
         m_Textures.clear();
         m_Buffers.clear();
         // The allocator's open graph ends with the backend's hold (EndGraph, AbandonGraph, a new BeginGraph).

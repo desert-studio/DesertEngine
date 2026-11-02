@@ -21,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <span>
 #include <string_view>
@@ -185,7 +186,10 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t           m_AccessMask = 0;
         // The dedicated allocation's ledger row (Create only): the image's kind and the allocation's bytes.
         ResourceOwnership                                                         m_Ledger;
+        // Created lazily by GetView, which the recording threads call from exec lambdas: lookups share the lock,
+        // a new view takes it alone.
         std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, VkImageView> m_Views;
+        std::shared_mutex                                                         m_ViewsLock;
     };
 
     // The view a sampled input bound inside a graph node names, for exactly the subresource the node declared:
@@ -565,6 +569,9 @@ namespace Desert::Graphic::API::Vulkan
             return m_Memory;
         }
         Common::BoolResultStr BeginGraph( const RDG::GraphView& graph ) override;
+        // Resolves the render pass, framebuffer and attachment views of every pass that opens a render pass,
+        // by CompiledPass::Pass; BeginRenderPass of that planned pass then only records.
+        void                  PrepareRecording( std::span<const RDG::CompiledPass> passes ) override;
         void                  BeginPass( const RDG::CompiledPass& pass ) override;
         void                  RecordBarriers( std::span<const RDG::Barrier> barriers ) override;
         Common::BoolResultStr BeginRenderPass( const RDG::CompiledPass& pass ) override;
@@ -624,8 +631,26 @@ namespace Desert::Graphic::API::Vulkan
             VkFramebuffer                                Framebuffer = VK_NULL_HANDLE;
         };
 
+        // What vkCmdBeginRenderPass of one pass needs (PrepareRecording / BeginRenderPass).
+        struct PreparedRenderPass
+        {
+            // The planned pass it was resolved for, null when not prepared: a fault-adjusted copy of the pass
+            // has another address and resolves again.
+            const RDG::CompiledPass*  Source      = nullptr;
+            VkRenderPass              RenderPass  = VK_NULL_HANDLE;
+            VkFramebuffer             Framebuffer = VK_NULL_HANDLE;
+            VkExtent2D                Extent{};
+            std::vector<VkClearValue> Clears;
+            RdgRenderPassKey          Compatibility; // becomes m_OpenRenderPass
+        };
+
         void                            Release();
         Common::ResultStr<VkRenderPass> GetRenderPass( const RdgRenderPassKey& key );
+        // Finds or creates the render pass, framebuffer and attachment views of @p pass (m_RenderPasses,
+        // m_Framebuffers): on the calling thread alone, or under m_RenderPassLock.
+        Common::BoolResultStr ResolveRenderPass( const RDG::CompiledPass& pass, PreparedRenderPass& out );
+        // vkCmdBeginRenderPass, the open render pass key, and the whole-target viewport and scissor.
+        void RecordBeginRenderPass( const PreparedRenderPass& prepared );
 
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
@@ -685,5 +710,9 @@ namespace Desert::Graphic::API::Vulkan
         std::optional<RdgRenderPassKey>          m_OpenRenderPass;
         std::map<RdgRenderPassKey, VkRenderPass> m_RenderPasses;
         std::vector<FramebufferEntry>            m_Framebuffers;
+        // By CompiledPass::Pass, this graph only (PrepareRecording; Release clears it).
+        std::vector<PreparedRenderPass> m_PreparedRenderPasses;
+        // A render pass resolved while passes record (BeginRenderPass of an unprepared pass).
+        std::mutex m_RenderPassLock;
     };
 } // namespace Desert::Graphic::API::Vulkan

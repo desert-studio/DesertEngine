@@ -484,9 +484,14 @@ namespace Desert::Graphic::RDG
 
     void PassBuilder::Prepares( const IRecordPrerequisite& prerequisite )
     {
-        std::vector<const IRecordPrerequisite*>& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
-        if ( std::find( declared.begin(), declared.end(), &prerequisite ) == declared.end() )
-            declared.push_back( &prerequisite );
+        // One graph-wide index per distinct object (O(1) here; Execute prepares by index).
+        const auto [entry, inserted] = m_Builder.m_PrerequisiteIndex.try_emplace(
+             &prerequisite, static_cast<uint32_t>( m_Builder.m_Prerequisites.size() ) );
+        if ( inserted )
+            m_Builder.m_Prerequisites.push_back( &prerequisite );
+        std::vector<uint32_t>& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
+        if ( std::find( declared.begin(), declared.end(), entry->second ) == declared.end() )
+            declared.push_back( entry->second );
     }
 
     void PassBuilder::ExternalQueue( const ExternalQueueSync& sync )
@@ -1063,6 +1068,29 @@ namespace Desert::Graphic::RDG
         // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared (empty = prepared or none).
         std::vector<std::string> prepareFailures( m_Passes.size() );
 
+        // The incoming read-after-write edges of each pass, in result.Edges order (CSR: rawIn[rawBegin[p] ..
+        // rawBegin[p + 1]) are pass p's). A late fault walks only the pass's own edges instead of every edge of
+        // the graph per pass.
+        std::vector<uint32_t> rawBegin( m_Passes.size() + 1, 0 );
+        std::vector<uint32_t> rawIn;
+        {
+            for ( const DependencyEdge& edge : result.Edges )
+            {
+                if ( edge.Kind == DependencyKind::ReadAfterWrite && edge.To < m_Passes.size() )
+                    ++rawBegin[edge.To + 1];
+            }
+            for ( size_t p = 0; p < m_Passes.size(); ++p )
+                rawBegin[p + 1] += rawBegin[p];
+            rawIn.resize( rawBegin.back() );
+            std::vector<uint32_t> fill( rawBegin.begin(), rawBegin.end() - 1 );
+            for ( uint32_t e = 0; e < result.Edges.size(); ++e )
+            {
+                const DependencyEdge& edge = result.Edges[e];
+                if ( edge.Kind == DependencyKind::ReadAfterWrite && edge.To < m_Passes.size() )
+                    rawIn[fill[edge.To]++] = e;
+            }
+        }
+
 #if DESERT_DEV_INSTRUMENTS
         // THE CPU RECORD COST OF EACH PASS, one row per pass (UE: RDG's per-pass CPU event under the pass's
         // name). Prefixed so it never lands in the row the backend fills with the same pass's GPU time, nor in
@@ -1085,10 +1113,10 @@ namespace Desert::Graphic::RDG
             bool                    useAdjusted = false;
             std::optional<uint32_t> skipRoot;
             std::string             skipReason;
-            for ( const DependencyEdge& edge : result.Edges )
+            for ( uint32_t incoming = rawBegin[p]; incoming < rawBegin[p + 1]; ++incoming )
             {
-                if ( edge.To != p || edge.Kind != DependencyKind::ReadAfterWrite || lostRoot[edge.From] < 0 ||
-                     skipRoot )
+                const DependencyEdge& edge = result.Edges[rawIn[incoming]];
+                if ( lostRoot[edge.From] < 0 || skipRoot )
                     continue;
                 const ResourceRecord& record     = m_Resources[edge.Resource];
                 const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
@@ -1205,29 +1233,31 @@ namespace Desert::Graphic::RDG
         // a failure faults only the passes that declared it.
         DESERT_PROFILE_PHASE( phases, "RDG: Prepare recording" );
         {
-            std::vector<std::pair<const IRecordPrerequisite*, std::string>> prepared;
+            // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
+            constexpr int8_t         kNotPrepared = -1;
+            std::vector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
+            std::vector<std::string> failures( m_Prerequisites.size() );
             for ( const CompiledPass& planned : result.Passes )
             {
-                for ( const IRecordPrerequisite* prerequisite : m_Passes[planned.Pass].Prerequisites )
+                for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
                 {
-                    const auto done =
-                         std::find_if( prepared.begin(), prepared.end(), [prerequisite]( const auto& entry )
-                                       { return entry.first == prerequisite; } );
-                    std::string failure;
-                    if ( done != prepared.end() )
-                        failure = done->second;
-                    else
+                    if ( prepared[index] == kNotPrepared )
                     {
-                        const Common::BoolResultStr ready = prerequisite->PrepareForRecording();
+                        const Common::BoolResultStr ready = m_Prerequisites[index]->PrepareForRecording();
                         if ( !ready )
-                            failure = ready.GetError();
-                        prepared.emplace_back( prerequisite, failure );
+                            failures[index] = ready.GetError();
+                        prepared[index] = failures[index].empty() ? 1 : 0;
                     }
-                    if ( !failure.empty() && prepareFailures[planned.Pass].empty() )
+                    if ( prepared[index] == 0 && prepareFailures[planned.Pass].empty() )
                         prepareFailures[planned.Pass] =
-                             std::format( "a prerequisite was not prepared: {}", failure );
+                             std::format( "a prerequisite was not prepared: {}", failures[index] );
                 }
             }
+            // UE FRDGBuilder::SetupParallelExecute: what the backend would otherwise create lazily while a pass
+            // records (Vulkan: the render pass, framebuffer and attachment views of every pass that opens one)
+            // exists before the first pass records. A failure here is not reported: the pass's BeginRenderPass
+            // resolves it again and fails at the same point it always did.
+            backend.PrepareRecording( result.Passes );
         }
 
         DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );
