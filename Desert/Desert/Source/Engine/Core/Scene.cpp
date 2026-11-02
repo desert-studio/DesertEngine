@@ -1034,7 +1034,7 @@ namespace Desert::Core
                 // registry and the live camera; from here the renderer works from its own copies (the frozen camera,
                 // the replayed draws, `info` copied by value). The next view's BeginScene joins this job first, so
                 // two brackets are never open at once. Its failure is reported by the render task.
-                auto* const renderer = view.Renderer.get();
+                auto* const renderer = &*view.Renderer;
                 ::Desert::Engine::RenderTask::Get().Enqueue(
                      "Scene view", [renderer, info = sceneRendererInfo]() -> Common::BoolResultStr
                      {
