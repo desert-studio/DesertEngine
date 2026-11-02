@@ -357,11 +357,20 @@ namespace Desert::Graphic::System
             // (kGrassTileModeInit).
             uint32_t                                        PoolGeneration = 0;
             bool                                            PoolFresh      = false;
-            std::shared_ptr<ShaderResources::StorageBuffer> TilePool;     // GPU only: the records
-            std::shared_ptr<ShaderResources::StorageBuffer> TileWords;    // GPU only: free pages, tile headers
             std::shared_ptr<ShaderResources::StorageBuffer> TileTable;    // per frame in flight: TileEntries
             std::shared_ptr<ShaderResources::StorageBuffer> TileFeedback; // per frame in flight: read back
-            RDG::ExternalBuffer TilePoolImport, TileWordsImport, TileTableImport, TileFeedbackImport;
+            RDG::ExternalBuffer                             TileTableImport, TileFeedbackImport;
+            // GRASS-TILE-3: THE POOL IS VIDEO MEMORY (UE: the grass HISM's instance buffers are GPU resources, the
+            // host only uploads). The records (TilePool) and the free pages and tile headers (TileWords) are
+            // written and read by the GPU alone, so they are graph buffers kept across graphs (Builder::Extract,
+            // device-local) - not persistent StorageBuffers, which are host-visible (MakeMappedBufferCopy:
+            // CPU_TO_GPU): ~1 GB of those filled the device-local host-visible heap (256 MB without resizable BAR)
+            // and the driver placed the rest - the pool and the camera list's Instances and ids made after it -
+            // in system memory, read over PCIe by the tile cull, the camera cull and every grass draw.
+            // TilePoolMade: AddFrame made the pool of this PoolGeneration in a graph (the next graphs register
+            // TilePoolHeld / TileWordsHeld); false until then, and a new pool is made by the next frame's.
+            bool                TilePoolMade = false;
+            RDG::ExternalBuffer TilePoolHeld, TileWordsHeld;
             RDG::BufferRef      TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
             // This frame's tile table (GrassGenerate.shader Tiles): the header, then TileFrees slots to free,
             // TileBuilds tiles to build, TileCulls tiles the tile cull walks (nearest first, GRASS-TILE-2).
