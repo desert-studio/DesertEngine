@@ -2127,10 +2127,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( index >= m_ChunkCount )
             return;
         // Its secondaries are never executed (the arena resets with the slot), so the queries of its scopes are
-        // never written and read untimed; they keep their place in the order, before the inline re-record.
+        // never written. RDG-PARALLEL-5: its passes are recorded again inline, each with a scope of its own, so
+        // the chunk's scopes are retracted: [GpuOrder] holds every pass once, no duplicate row read untimed.
         Chunk& chunk = *m_Chunks[index];
         if ( m_Device.ChunkOrder != nullptr )
-            m_Device.ChunkOrder->StampChunkOrder( chunk.Record.GpuScopesMade );
+            m_Device.ChunkOrder->RetractChunkScopes( chunk.Record.GpuScopesMade );
+        chunk.Record.GpuScopesMade.clear();
         chunk.Pieces.clear();
     }
 
