@@ -1,4 +1,5 @@
 #include "PreviewViewport.hpp"
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include "PreviewPaneLayout.hpp"
 
@@ -943,7 +944,10 @@ namespace Desert::Editor
         if ( !m_Inited || !m_Renderer || !shader )
             return;
 
-        // Idle first: a pipeline this cache is about to drop may still be executing in a submitted frame.
+        // The render task first: this preview's view may be recording with the pipelines about to be dropped
+        // (RenderTask::JoinOnGameThread, the fence for a mutation of what a job reads; idle between frames).
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+        // Idle next: a pipeline this cache is about to drop may still be executing in a submitted frame.
         // The main scene's hot-reload path does the same before its own InvalidateByShader.
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
         m_Renderer->GetPipelineCache().InvalidateByShader( shader );
