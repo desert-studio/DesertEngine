@@ -246,6 +246,14 @@ namespace Desert::Graphic::API::Vulkan
 
     bool VulkanRendererAPI::IsRecording()
     {
+        // RDG-PARALLEL-1: a graph chunk on a task worker records into its own context; a loss there stops that
+        // chunk's recording only (the frame's target is the dispatching thread's to disarm).
+        if ( VulkanRecordContext* const chunk = VulkanRecordContext::Bound(); chunk != nullptr )
+        {
+            if ( chunk->CommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+                chunk->CommandBuffer = VK_NULL_HANDLE;
+            return chunk->CommandBuffer != VK_NULL_HANDLE;
+        }
         if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
             m_CurrentCommandBuffer = nullptr;
         return m_CurrentCommandBuffer != nullptr;
@@ -297,12 +305,12 @@ namespace Desert::Graphic::API::Vulkan
         // Name the region so a RenderDoc/NSight capture is a readable tree ("DeferredGBufferPass",
         // "RSMPass", "SSRTracePass"...) instead of a flat run of draws. The spec already carries the
         // name for logging; this is the same string, handed to the debugger.
-        VKUtils::BeginDebugLabel( m_CurrentCommandBuffer,
+        VKUtils::BeginDebugLabel( RecordingTarget(),
                                   renderPass->GetSpecification().DebugName.c_str() );
 
         m_OpenRenderPass =
              CompatibleRenderPassKeyOf( framebuffer->GetSpecification(), framebuffer->GetSpecification().Samples );
-        vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+        vkCmdBeginRenderPass( RecordingTarget(), &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
         SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
 
         return BOOLSUCCESS;
@@ -312,7 +320,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( IsRecording() )
         {
-            vkCmdEndRenderPass( m_CurrentCommandBuffer );
+            vkCmdEndRenderPass( RecordingTarget() );
             m_OpenRenderPass.reset();
 
             // The implicit final subpass dependency uses dstStageMask=BOTTOM_OF_PIPE and
@@ -326,7 +334,7 @@ namespace Desert::Graphic::API::Vulkan
                 .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
             };
-            vkCmdPipelineBarrier( m_CurrentCommandBuffer,
+            vkCmdPipelineBarrier( RecordingTarget(),
                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                   0,
@@ -336,7 +344,7 @@ namespace Desert::Graphic::API::Vulkan
 
             // Closes the region opened by BeginRenderPass. It opens exactly
             // one, so this stays balanced — an unmatched Begin corrupts the capture's tree.
-            VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
+            VKUtils::EndDebugLabel( RecordingTarget() );
         }
         return BOOLSUCCESS;
     }
@@ -344,13 +352,13 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::BeginDebugLabel( const char* name )
     {
         if ( IsRecording() )
-            VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, name );
+            VKUtils::BeginDebugLabel( RecordingTarget(), name );
     }
 
     void VulkanRendererAPI::EndDebugLabel()
     {
         if ( IsRecording() )
-            VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
+            VKUtils::EndDebugLabel( RecordingTarget() );
     }
 
     bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline* pipeline )
@@ -373,9 +381,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( openPass == nullptr )
         {
             // No pass, so nothing to resolve the pipeline against. Latched by name like an unbuilt pipeline.
-            if ( m_WarnedUnbuiltPipelines
-                      .insert( std::format( "{}#outside-pass", pipeline->GetSpecification().DebugName ) )
-                      .second )
+            if ( WarnOnce( std::format( "{}#outside-pass", pipeline->GetSpecification().DebugName ) ) )
                 LOG_ERROR( "[Renderer] pipeline '{}' bound outside a render pass; not drawn",
                            pipeline->GetSpecification().DebugName );
             return false;
@@ -386,11 +392,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( VkPipeline bound = vulkanPipeline->GetVkPipelineFor( *openPass ); bound != VK_NULL_HANDLE )
         {
             // CPU-FRAME-6: recorded only when the command buffer holds another pipeline (m_BoundGraphics).
-            m_BoundGraphics.On( m_CurrentCommandBuffer );
-            if ( m_BoundGraphics.Pipeline != bound )
+            Recording().BoundGraphics.On( RecordingTarget() );
+            if ( Recording().BoundGraphics.Pipeline != bound )
             {
-                vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
-                m_BoundGraphics.Pipeline = bound;
+                vkCmdBindPipeline( RecordingTarget(), VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
+                Recording().BoundGraphics.Pipeline = bound;
             }
             return true;
         }
@@ -404,7 +410,7 @@ namespace Desert::Graphic::API::Vulkan
         // a sentence in a log message and starts being what happens. The name is the pipeline's, because
         // that is what a reader can look up; the shader's own error was already written once, at compile.
         const std::string& name = vulkanPipeline->GetSpecification().DebugName;
-        if ( m_WarnedUnbuiltPipelines.insert( name ).second )
+        if ( WarnOnce( name ) )
         {
             LOG_ERROR( "[Renderer] pipeline '{}' was never built (its shader has no compiled stages) — "
                        "everything drawn through it is skipped until the shader compiles.",
@@ -413,8 +419,9 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
+    std::shared_ptr<VertexBuffer> VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
     {
+        const std::lock_guard<std::mutex> grow( m_GrowLock );
         // White colour and UV1 (0,0) in every vertex — what UE's GNullColorVertexBuffer and a missing TexCoord1
         // give a material. Grown, never shrunk; the replaced buffer is released through the allocator's
         // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
@@ -438,6 +445,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VkBuffer VulkanRendererAPI::VisibleRowIdentity( const uint32_t rows )
     {
+        const std::lock_guard<std::mutex> grow( m_GrowLock );
         if ( m_VisibleRowIdentity == nullptr || rows > m_VisibleRowIdentityRows )
         {
             // Doubled past the request, so a scene that grows by one draw does not reallocate every frame.
@@ -480,8 +488,8 @@ namespace Desert::Graphic::API::Vulkan
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
             // The material binds its own sets past the renderer's record of what is bound (m_BoundGraphics).
-            m_BoundGraphics.ForgetSets();
-            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+            Recording().BoundGraphics.ForgetSets();
+            if ( !vkBackend->BindDescriptorSets( RecordingTarget(), vulkanPipeline->GetVkPipelineLayout(),
                                                  VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
                 return;
         }
@@ -490,7 +498,7 @@ namespace Desert::Graphic::API::Vulkan
         // Widths > 1 require the wideLines device feature — MoltenVK lacks it, so force 1.0 there (a
         // wider value is a validation error and gets dropped anyway).
         const float safeWidth = Graphic::RenderConfig::WideLines ? std::clamp( lineWidth, 1.0f, 10.0f ) : 1.0f;
-        vkCmdSetLineWidth( m_CurrentCommandBuffer, safeWidth );
+        vkCmdSetLineWidth( RecordingTarget(), safeWidth );
 
         // Vertexless: the DebugLine vertex shader pulls each vertex from the Lines storage buffer by
         // gl_VertexIndex. The pipeline's topology groups them: 2 per segment (Lines), 3 per triangle.
@@ -890,7 +898,7 @@ namespace Desert::Graphic::API::Vulkan
                   BindGraphicsPassState( bindings, pipeline, material, push, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
+        vkCmdDrawIndirect( RecordingTarget(), buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
@@ -911,11 +919,11 @@ namespace Desert::Graphic::API::Vulkan
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         VkBuffer vbuffer = static_cast<API::Vulkan::VulkanVertexBuffer&>( vertexBuffer ).GetVulkanBuffer();
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        vkCmdBindVertexBuffers( RecordingTarget(), 0, 1, &vbuffer, offsets );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
-        vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-        m_BoundGeometry.reset(); // bindings 0 and the index buffer now hold this batch's, not a mesh's
+        vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        Recording().BoundGeometry.reset(); // bindings 0 and the index buffer now hold this batch's, not a mesh's
         // Vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
         return Common::MakeSuccess( true );
@@ -976,23 +984,23 @@ namespace Desert::Graphic::API::Vulkan
         // buffer objects: a pool arena that grew keeps its object and changes its handle, and a draw after the
         // growth must bind the new one. Every pooled mesh's shared binding is its arena at offset 0, so the binned
         // passes bind once per pipeline switch.
-        const BoundGeometry key{ m_CurrentCommandBuffer, &pipeline, vbuffer, geometry.VertexOffset, sbuffer,
+        const BoundGeometry key{ RecordingTarget(), &pipeline, vbuffer, geometry.VertexOffset, sbuffer,
                                  soffset,                ibuffer,   geometry.IndexOffset };
-        if ( !m_BoundGeometry.has_value() || *m_BoundGeometry != key )
+        if ( !Recording().BoundGeometry.has_value() || *Recording().BoundGeometry != key )
         {
             const VkDeviceSize voffset = geometry.VertexOffset;
-            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, &voffset );
+            vkCmdBindVertexBuffers( RecordingTarget(), 0, 1, &vbuffer, &voffset );
             if ( sbuffer != VK_NULL_HANDLE )
-                vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, &soffset );
+                vkCmdBindVertexBuffers( RecordingTarget(), 1, 1, &sbuffer, &soffset );
             if ( ibuffer != VK_NULL_HANDLE )
-                vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, geometry.IndexOffset, VK_INDEX_TYPE_UINT32 );
-            m_BoundGeometry = key;
+                vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, geometry.IndexOffset, VK_INDEX_TYPE_UINT32 );
+            Recording().BoundGeometry = key;
             GeometryPool::Get().RecordBind( shared );
         }
         if ( visibleRows != VK_NULL_HANDLE )
         {
             const VkDeviceSize zero = 0;
-            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &visibleRows,
+            vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &visibleRows,
                                     &zero );
         }
         return Common::MakeSuccess( true );
@@ -1049,7 +1057,7 @@ namespace Desert::Graphic::API::Vulkan
         // move past the layout this pipeline holds (pushConstant, above).
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
         // CPU-FRAME-5: the renderer's scratch (recording is one thread's), so a draw allocates no push block.
-        std::vector<std::byte>& push = m_SubmeshPush;
+        std::vector<std::byte>& push = Recording().SubmeshPush;
         push.clear();
         if ( pushConstant.has_value() && pushConstant->size > 0 )
         {
@@ -1073,7 +1081,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( pushConstant.has_value() && pushConstant->size > 0 )
             {
                 std::memcpy( push.data(), &finalTransform, sizeof( glm::mat4 ) );
-                vkCmdPushConstants( m_CurrentCommandBuffer, graphics->GetVkPipelineLayout(),
+                vkCmdPushConstants( RecordingTarget(), graphics->GetVkPipelineLayout(),
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
@@ -1152,10 +1160,10 @@ namespace Desert::Graphic::API::Vulkan
                  // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh pass.
                  DrawCounter::RecordCpuIndirect();
                  if ( indexCount == 0u )
-                     vkCmdDrawIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                     vkCmdDrawIndirect( RecordingTarget(), vkArgs, at, 1,
                                         static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
                  else
-                     vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                     vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs, at, 1,
                                                static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
                  return Common::MakeSuccess( true );
              } );
@@ -1232,7 +1240,7 @@ namespace Desert::Graphic::API::Vulkan
                 bin.emplace( pass, label.Mesh, label.Material );
                 bin->Add( 1, label.TrianglesPerInstance, true );
             }
-            vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs,
+            vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs,
                                       draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count, draw.Stride );
         }
         return Common::MakeSuccess( true );
@@ -1279,10 +1287,10 @@ namespace Desert::Graphic::API::Vulkan
         // buffers (m_BoundGeometry) is untouched; the next mesh draw binds binding 2 itself.
         const VkBuffer     rowBuffer = rows.GetValue()->GetBuffer();
         const VkDeviceSize zero      = 0;
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
+        vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
                                 &zero );
         DrawCounter::RecordBins( 1u, 1u );
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
+        vkCmdDrawIndirect( RecordingTarget(), args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
@@ -1300,7 +1308,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( cmd.GetError() );
         // BindGraphicsPipeline and DrawCounted record into the renderer's current command buffer, which the
         // graph backend points at the segment the pass runs on (VulkanRdgBackend::SetRecordingListener).
-        if ( cmd.GetValue() != m_CurrentCommandBuffer )
+        if ( cmd.GetValue() != RecordingTarget() )
             return Common::MakeFormattedError(
                  "{}: the renderer records into another command buffer than the pass's segment", pass );
         const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
@@ -1414,13 +1422,13 @@ namespace Desert::Graphic::API::Vulkan
         if ( !sets.empty() )
         {
             const VkPipelineLayout layout = graphics->GetVkPipelineLayout();
-            m_BoundGraphics.On( cmd.GetValue() );
-            if ( m_BoundGraphics.SetsLayout != layout || !std::ranges::equal( m_BoundGraphics.Sets, sets ) )
+            Recording().BoundGraphics.On( cmd.GetValue() );
+            if ( Recording().BoundGraphics.SetsLayout != layout || !std::ranges::equal( Recording().BoundGraphics.Sets, sets ) )
             {
                 vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
                                          static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
-                m_BoundGraphics.SetsLayout = layout;
-                m_BoundGraphics.Sets.assign( sets.begin(), sets.end() );
+                Recording().BoundGraphics.SetsLayout = layout;
+                Recording().BoundGraphics.Sets.assign( sets.begin(), sets.end() );
             }
         }
         // Stages and size are the pipeline LAYOUT's range (VulkanPipeline::GetPushConstantRange), not the shader's
@@ -1457,12 +1465,12 @@ namespace Desert::Graphic::API::Vulkan
         VkMemoryBarrier barrier{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
                                  .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT,
                                  .dstAccessMask = VK_ACCESS_SHADER_READ_BIT };
-        vkCmdPipelineBarrier( m_CurrentCommandBuffer,
+        vkCmdPipelineBarrier( RecordingTarget(),
                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
 
         // Transition the target to GENERAL for storage writes (its last use was a fragment sample).
-        vkImage->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_GENERAL,
+        vkImage->TransitionLayout( RecordingTarget(), VK_IMAGE_LAYOUT_GENERAL,
                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                    VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT );
     }
@@ -1476,7 +1484,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         // Back to SHADER_READ_ONLY so the fragment stage (tonemap) can sample the bloom result.
-        vkImage->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        vkImage->TransitionLayout( RecordingTarget(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                    VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
     }
@@ -1493,7 +1501,7 @@ namespace Desert::Graphic::API::Vulkan
         // late-fragment depth test, and a colour attachment written by fragment output. The aspect mask
         // is the image's own, so a D24S8 attachment is barriered as DEPTH|STENCIL.
         vkImage->TransitionLayout(
-             m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+             RecordingTarget(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
              VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -1512,7 +1520,7 @@ namespace Desert::Graphic::API::Vulkan
         // depth attachment that is DEPTH_STENCIL_ATTACHMENT_OPTIMAL. Leaving it in SHADER_READ_ONLY would
         // make the next depth pass begin from the wrong layout, which the render pass does not fix.
         vkImage->TransitionLayout(
-             m_CurrentCommandBuffer, vkImage->GetDefaultLayout(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+             RecordingTarget(), vkImage->GetDefaultLayout(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
              VK_ACCESS_SHADER_READ_BIT,
              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT );
@@ -2017,7 +2025,7 @@ namespace Desert::Graphic::API::Vulkan
         region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
         region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
         region.extent         = { src->GetWidth(), src->GetHeight(), 1 };
-        vkCmdCopyImage( m_CurrentCommandBuffer, vsrc->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        vkCmdCopyImage( RecordingTarget(), vsrc->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                         vdst->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
         return BOOLSUCCESS;
     }
@@ -2111,7 +2119,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !IsRecording() )
             return;
         VkRect2D scissor = { .offset = { x, y }, .extent = { width, height } };
-        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+        vkCmdSetScissor( RecordingTarget(), 0, 1, &scissor );
     }
 
     void VulkanRendererAPI::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
@@ -2126,8 +2134,8 @@ namespace Desert::Graphic::API::Vulkan
                                    0.0f,
                                    1.0f };
         const VkRect2D   scissor{ { x, y }, { width, height } };
-        vkCmdSetViewport( m_CurrentCommandBuffer, 0, 1, &viewport );
-        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+        vkCmdSetViewport( RecordingTarget(), 0, 1, &viewport );
+        vkCmdSetScissor( RecordingTarget(), 0, 1, &scissor );
     }
 
     void VulkanRendererAPI::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
@@ -2158,7 +2166,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         const VkClearRect rect{
              .rect = { .offset = { x, y }, .extent = { width, height } }, .baseArrayLayer = 0, .layerCount = 1 };
-        vkCmdClearAttachments( m_CurrentCommandBuffer, static_cast<uint32_t>( attachments.size() ),
+        vkCmdClearAttachments( RecordingTarget(), static_cast<uint32_t>( attachments.size() ),
                                attachments.data(), 1, &rect );
     }
 
@@ -2206,10 +2214,10 @@ namespace Desert::Graphic::API::Vulkan
                                 .height   = -(float)height,
                                 .minDepth = 0.0f,
                                 .maxDepth = 1.0f };
-        vkCmdSetViewport( m_CurrentCommandBuffer, 0, 1, &viewport );
+        vkCmdSetViewport( RecordingTarget(), 0, 1, &viewport );
 
         VkRect2D scissor = { .offset = { 0, 0 }, .extent = { width, height } };
-        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+        vkCmdSetScissor( RecordingTarget(), 0, 1, &scissor );
     }
 
     void VulkanRendererAPI::ClearAttachments( const std::vector<VkClearValue>&    clearValues,
@@ -2237,7 +2245,7 @@ namespace Desert::Graphic::API::Vulkan
                  .baseArrayLayer = 0,
                  .layerCount     = 1 };
         }
-        vkCmdClearAttachments( m_CurrentCommandBuffer, attachmentCount, attachments.data(), attachmentCount,
+        vkCmdClearAttachments( RecordingTarget(), attachmentCount, attachments.data(), attachmentCount,
                                clearRects.data() );
     }
 
@@ -2249,7 +2257,7 @@ namespace Desert::Graphic::API::Vulkan
                                                 int32_t vertexOffset, uint32_t firstInstance )
     {
         DrawCounter::Record( instanceCount );
-        vkCmdDrawIndexed( m_CurrentCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset,
+        vkCmdDrawIndexed( RecordingTarget(), indexCount, instanceCount, firstIndex, vertexOffset,
                           firstInstance );
     }
 
@@ -2257,7 +2265,7 @@ namespace Desert::Graphic::API::Vulkan
                                          uint32_t firstInstance )
     {
         DrawCounter::Record( instanceCount );
-        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance );
+        vkCmdDraw( RecordingTarget(), vertexCount, instanceCount, firstVertex, firstInstance );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

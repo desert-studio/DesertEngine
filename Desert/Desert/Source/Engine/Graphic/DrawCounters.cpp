@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <mutex>
 
 namespace Desert::Graphic
 {
@@ -17,13 +18,16 @@ namespace Desert::Graphic
         // Not atomics: every recorded draw goes through VulkanRendererAPI, and its own header records that
         // `m_CurrentCommandBuffer` non-null IS the "recording" state and BeginFrame is its only writer.
         // Recording is single-threaded by that invariant; making these atomic would suggest otherwise.
+        // RDG-PARALLEL-1: graph chunks count draws on task workers; every counter read and write holds it.
+        std::recursive_mutex g_Lock;
         DrawCounters g_Recording;
         DrawCounters g_Finished;
         using PassCounters = std::array<MeshPassDrawCounters, kCountedMeshPasses>;
         PassCounters g_PassRecording{};
         PassCounters g_PassFinished{};
         // The pass MeshPassScope opened; kCountedMeshPasses = none (a draw outside the mesh passes).
-        uint32_t g_ActivePass = kCountedMeshPasses;
+        // RDG-PARALLEL-1: per recording thread - a graph chunk's mesh pass is its own.
+        thread_local uint32_t g_ActivePass = kCountedMeshPasses;
         // Written by GrassRenderer::AddFrame while the frame graph is built, not by the recording funnels.
         GrassDrawCounters g_GrassRecording;
         GrassDrawCounters g_GrassFinished;
@@ -31,6 +35,7 @@ namespace Desert::Graphic
 
     void DrawCounter::Roll()
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         g_Finished      = g_Recording;
         g_Recording     = DrawCounters{};
         g_PassFinished  = g_PassRecording;
@@ -41,6 +46,7 @@ namespace Desert::Graphic
 
     void DrawCounter::Record( uint32_t instanceCount )
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         ++g_Recording.Draws;
         g_Recording.Instances += instanceCount;
         if ( g_ActivePass < kCountedMeshPasses )
@@ -59,12 +65,14 @@ namespace Desert::Graphic
 
     void DrawCounter::RecordCpuIndirect()
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         if ( g_ActivePass < kCountedMeshPasses )
             ++g_PassRecording[g_ActivePass].CpuDraws;
     }
 
     void DrawCounter::RecordBins( const uint32_t bins, const uint32_t calls )
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         if ( g_ActivePass >= kCountedMeshPasses )
             return;
         g_PassRecording[g_ActivePass].BinsIssued += bins;
@@ -73,12 +81,14 @@ namespace Desert::Graphic
 
     MeshPassDrawCounters DrawCounter::LastFrameMeshPass( const uint32_t pass )
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         return pass < kCountedMeshPasses ? g_PassFinished[pass] : MeshPassDrawCounters{};
     }
 
     void DrawCounter::RecordGrass( const uint32_t full, const uint32_t camera, const uint32_t post,
                                    const std::span<const uint32_t> cascades )
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         g_GrassRecording.Full += full;
         g_GrassRecording.Camera += camera;
         g_GrassRecording.Post += post;
@@ -89,16 +99,19 @@ namespace Desert::Graphic
 
     void DrawCounter::RecordGrassGenerated( const uint32_t varieties )
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         g_GrassRecording.Generated += varieties;
     }
 
     GrassDrawCounters DrawCounter::LastFrameGrass()
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         return g_GrassFinished;
     }
 
     DrawCounters DrawCounter::LastFrame()
     {
+        const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         return g_Finished;
     }
 } // namespace Desert::Graphic
