@@ -193,8 +193,10 @@ namespace Desert::Graphic::RDG
 
     // RDG-CONTRACTS B(2)/(3). A maximal run of consecutive executed passes on ONE pipe that no sync splits: the
     // unit the backend records into one command buffer and submits once. Graphics segments are split at every
-    // pass that waits on a join or signals a fork; an AsyncCompute segment is the passes between one fork and
-    // its join. Segments are in submission order: a segment is submitted only after every segment it waits on.
+    // pass that waits on a join or signals a fork; an AsyncCompute segment is one piece of a run of consecutive
+    // async passes: the run is cut after every pass an earlier graphics consumer waits for (UE bAsyncComputeEnd),
+    // so each piece signals its own join; only the run's first piece waits on its fork. Segments are in
+    // submission order: a segment is submitted only after every segment it waits on.
     struct PipeSegment
     {
         Pipe                  OnPipe        = Pipe::Graphics;
