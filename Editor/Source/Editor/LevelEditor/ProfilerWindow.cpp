@@ -345,15 +345,16 @@ namespace Desert::Editor
             for ( const auto& s : prof.LastFrame() )
                 if ( s.Name == pass && s.GpuCalls > 0 )
                     passSelfMs = s.GpuSelfMs;
-            if ( passSelfMs > 0.0 )
+            if ( passSelfMs > 0.0 ) {
                 LOG_INFO(
                      "[Profiler] draw split | {} | total {} groups | sum gpu {:.3f} ms of pass gpu self {:.3f} "
                      "ms ({:.1f} %)",
                      pass, groups, sumMs, passSelfMs, 100.0 * sumMs / passSelfMs );
-            else
+            } else {
                 LOG_INFO( "[Profiler] draw split | {} | total {} groups | sum gpu {:.3f} ms; the pass has no gpu "
                           "row of that name",
                           pass, groups, sumMs );
+            }
             first = end;
         }
         LOG_INFO( "[Profiler] ---- end ----" );
