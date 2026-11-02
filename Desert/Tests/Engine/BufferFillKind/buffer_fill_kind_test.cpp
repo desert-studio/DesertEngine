@@ -200,6 +200,10 @@ namespace
         {
             return m_Block.GetSize();
         }
+        Common::ResultStr<uint64_t> GetDeviceAddress() override
+        {
+            return Common::MakeError<uint64_t>( "a test buffer has no device address" );
+        }
         Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
         {
             return Common::MakeError<bool>( "a stub has no device copy" );
@@ -482,6 +486,10 @@ TEST( StorageBufferFields, HasNoneAndTheReferenceOutlivesTheCall )
         uint32_t GetSize() const override
         {
             return 0;
+        }
+        Common::ResultStr<uint64_t> GetDeviceAddress() override
+        {
+            return Common::MakeError<uint64_t>( "a test buffer has no device address" );
         }
         Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
         {

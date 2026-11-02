@@ -62,6 +62,15 @@ namespace Desert::ShaderResources
         NO_DISCARD virtual Common::BoolResultStr ReadBack( void* destination, uint32_t size,
                                                            uint32_t offset = 0 ) = 0;
 
+        // THE DEVICE ADDRESS OF THE COPY THIS FRAME BINDS (GRASS-CULL-2: a pass over many buffers names them by
+        // address in one table instead of binding each - GrassRenderer's variety table): the active view's copy for
+        // this frame in flight (made if it does not exist yet, as a write or a bind makes it) - the copy
+        // Renderer::ImportBuffer imports this frame - or the one buffer of a persistent one. Taken every frame and
+        // never kept: a per-frame buffer's address is its frame in flight's, and a resize makes a new buffer.
+        // Refused where the device has no bufferDeviceAddress (the buffer then carries no SHADER_DEVICE_ADDRESS
+        // usage).
+        NO_DISCARD virtual Common::ResultStr<uint64_t> GetDeviceAddress() = 0;
+
     private:
         Graphic::ResourceOwnership m_Accounting;
 

@@ -1,6 +1,9 @@
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 
 #include <cstring>
 
@@ -17,6 +20,26 @@ namespace Desert::ShaderResources::API::Vulkan
         constexpr VkBufferUsageFlags kUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                               VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
                                               VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+        // GRASS-CULL-2: a storage buffer is also READ BY ADDRESS where the device has bufferDeviceAddress (its own
+        // DeviceCaps row; the allocator is created with the device-address flag under the same row,
+        // VulkanAllocator.cpp): a pass over many buffers names them in one table (GetDeviceAddress - the grass
+        // variety table). A usage bit of a feature that is not enabled is invalid, so the bit follows the row.
+        bool HasDeviceAddress()
+        {
+            const auto& allocator = SP_CAST( Desert::Graphic::API::Vulkan::VulkanContext,
+                                             EngineContext::GetInstance().GetRendererContext() )
+                                         ->GetVulkanAllocator();
+            return allocator &&
+                   allocator->GetDeviceCaps().Has( Desert::Graphic::API::Vulkan::Capability::BufferDeviceAddress );
+        }
+
+        VkBufferUsageFlags StorageUsage()
+        {
+            if ( HasDeviceAddress() )
+                return kUsage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            return kUsage;
+        }
     } // namespace
 
     VulkanStorageBuffer::VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
@@ -38,7 +61,7 @@ namespace Desert::ShaderResources::API::Vulkan
         }
 
         m_SharedImage.assign( size, 0 );
-        const auto made = MakeMappedBufferCopy( std::format( "{}-StorageBuffer-Persistent", m_BufferName ), kUsage,
+        const auto made = MakeMappedBufferCopy( std::format( "{}-StorageBuffer-Persistent", m_BufferName ), StorageUsage(),
                                                 size, m_Shared );
         // A constructor has no channel, so the answer is kept and handed to every later question.
         m_Built = made.IsSuccess() ? Common::MakeSuccess( true )
@@ -64,7 +87,7 @@ namespace Desert::ShaderResources::API::Vulkan
     {
         std::unique_ptr<MappedBufferCopy> copy;
         const auto                        made = MakeMappedBufferCopy(
-             std::format( "{}-StorageBuffer-{}-Frame{}", m_BufferName, viewName, frameIndex ), kUsage, GetSize(),
+             std::format( "{}-StorageBuffer-{}-Frame{}", m_BufferName, viewName, frameIndex ), StorageUsage(), GetSize(),
              copy );
         if ( !made.IsSuccess() )
             return Common::MakeFormattedError<bool>( "storage buffer '{}' copy for view '{}', frame {}: {}",
@@ -195,5 +218,20 @@ namespace Desert::ShaderResources::API::Vulkan
             return resolved;
         out = copy->Binding();
         return BOOLSUCCESS;
+    }
+    Common::ResultStr<uint64_t> VulkanStorageBuffer::GetDeviceAddress()
+    {
+        if ( !HasDeviceAddress() )
+            return Common::MakeFormattedError<uint64_t>(
+                 "storage buffer '{}' has no device address: the device has no bufferDeviceAddress", m_BufferName );
+        MappedBufferCopy* copy     = nullptr;
+        const auto        resolved = ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeFormattedError<uint64_t>( "{}", resolved.GetError() );
+        const uint64_t address = Desert::Graphic::API::Vulkan::CurrentBufferAddress( copy->Binding().Info.buffer );
+        if ( address == 0 )
+            return Common::MakeFormattedError<uint64_t>( "storage buffer '{}': its buffer has no device address",
+                                                         m_BufferName );
+        return Common::MakeSuccess( address );
     }
 } // namespace Desert::ShaderResources::API::Vulkan

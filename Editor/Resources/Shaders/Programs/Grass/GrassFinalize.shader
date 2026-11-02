@@ -2,167 +2,60 @@
 // After GrassGenerate: each bucket's appended count, clamped to its capacity, becomes the instanceCount of the
 // records that draw it and its first instance their firstInstance (GpuInstances.hpp: bucket L for the submeshes'
 // records of a mesh's level L - one bucket without a LOD chain - and bucket s for record s of every set of a blade
-// strip's records, one set per shadow LOD, Mode.z), the UNCLAMPED counts (the generator's atomic counts past the
-// capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback). The
-// counts STAY in Args until the next generation (GRASS-VIS-24: the camera cull of every later frame reads them -
-// which slots hold a kept instance); the reset mode (Mode.x = 2, before a generation) zeroes them. One thread.
-// The camera's list (GRASS-VIS; Mode.x = 3, after GrassGenerate's camera cull): CameraArgs' records get its phase-1
-// counts the same way, and each bucket's phase words (GrassGenerate.shader CameraArgs) freeze this frame's candidates
-// and phase 1's drawn count for phase 2 and restart the counters. The post mode (Mode.x = 1, after phase 2) writes
-// PostArgs' records: phase 2's appended instances, right after phase 1's drawn ones in the camera's list.
+// strip's records, one set per shadow LOD, the row's kGrassRowBlade), the UNCLAMPED counts (the generator's atomic
+// counts past the capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer,
+// GPU-count feedback). The counts STAY in Args until the next generation (GRASS-VIS-24: the camera cull of every
+// later frame reads them - which slots hold a kept instance - and its dispatch is their sum, Args word 3); the
+// reset mode (Mode.x = 1, before a generation) zeroes them.
 // Drawn counts (GRASS-VIS-7, GrassRenderer::GetDrawnCounts): after the written mark, Feedback holds the full list's
 // drawn count, the camera's phase-1 drawn count (the full list's when the camera has no list of its own, Mode.y = 0;
-// the camera mode's otherwise) and phase 2's appended count (0 until the post mode writes it), read back with the
-// bucket counts FramesInFlight frames later.
-// The cascades' lists (GPU-COST-21, Mode.w = the cascade views that have one, list k the k-th set bit): each list's
-// copy of Args' layout in CascadeArgs gets its records and counts the same way, and Feedback, after those three
-// counts, one drawn count per cascade VIEW (0 for a view without a list), so the read-back names the cascade
-// whatever lists a later frame has.
+// GrassCull.shader's camera finalize writes it otherwise) and phase 2's appended count (0 until GrassCull's post
+// finalize writes it), read back with the bucket counts FramesInFlight frames later.
+// The cascades' lists (GPU-COST-21, the row's Info.w = the cascade views that have one, list k the k-th set bit):
+// each list's copy of Args' layout in CascadeArgs gets its records and counts the same way, and Feedback, after
+// those three counts, one drawn count per cascade VIEW (0 for a view without a list), so the read-back names the
+// cascade whatever lists a later frame has.
+// GRASS-CULL-2 (UE GPUScene: one table, one dispatch for every primitive): ONE dispatch per pass for all the
+// generating varieties - thread i finalizes row Mode.z + i (and every 64th after it) of the variety table
+// (Common/GrassVarietyRows.glslh), whose buffers it reads and writes by device address. The camera's list is
+// GrassCull.shader's.
 Shader "GrassFinalize"
 {
     Compute
     {
-        LocalSize(1, 1, 1);
+        LocalSize(64, 1, 1);
 
-        Buffer(0) Args
-        {
-            uint Arguments[]; // bucket count, capacity, record count, drawn, 5 words per record, 4 per bucket
-        };
+        #include <Common/GrassVarietyRows.glslh>
 
-        Buffer(1) Feedback
+        // GrassRenderer.cpp GrassVarietyTableGpu: the camera's side planes (GrassCull's), then the rows.
+        ReadBuffer(0) Varieties
         {
-            uint FeedbackData[]; // per bucket the count the generator wanted, then 1 (this copy was written), then
-                                 // the drawn counts: full list, camera phase 1, phase 2
-        };
-
-        Buffer(2) CameraArgs
-        {
-            uint CameraArguments[]; // Args' layout, then four phase words per bucket (GrassGenerate.shader)
-        };
-
-        Buffer(3) PostArgs
-        {
-            uint PostArguments[]; // Args' layout: the phase-2 draws
-        };
-
-        Buffer(4) CascadeArgs
-        {
-            uint CascadeArguments[]; // per cascade list one copy of Args' layout (GrassGenerate.shader CascadeArgs)
-        };
-
-        // THE CULL'S DISPATCHES (GRASS-CULL-1; UE InstanceCulling: the cull dispatches indirect by the GPU's own
-        // count, never by a buffer's capacity, and the CPU never reads it): [0] the camera cull's groups (x, y, z)
-        // over the kept instances, written after the generation (Mode.x = 0; the kept counts stay until the next
-        // one); [1] phase 2's over this frame's candidates, written after the camera cull (Mode.x = 3). GrassRenderer
-        // kCullDispatchBytes / kPostDispatchOffset.
-        Buffer(5) CullDispatch
-        {
-            uvec4 CullDispatchData[];
+            vec4            VarietyCameraPlanes[4];
+            GrassVarietyRow VarietyRows[];
         };
 
         // The cascade views Feedback counts (GrassRenderer kGrassCascadeLists, SceneResources::kMaxCascadeViews).
         const uint kCascadeViews = 8u;
-
-        // GrassGenerate's group (LocalSize 8 x 8) and the groups along x a dispatch wraps at (Vulkan's guaranteed
-        // maxComputeWorkGroupCount[0]); GrassGenerate.shader CullThread linearises them back.
-        const uint kCullGroupThreads = 64u;
-        const uint kCullGroupsX      = 65535u;
-
-        // The groups that give each of @p threads one thread (x, y, z; w unused): one row up to kCullGroupsX
-        // groups, past it as few rows as fit, so fewer groups than rows run idle. None for none.
-        uvec4 CullGroups( uint threads )
-        {
-            uint groups = ( threads + kCullGroupThreads - 1u ) / kCullGroupThreads;
-            uint rows   = max( 1u, ( groups + kCullGroupsX - 1u ) / kCullGroupsX );
-            return uvec4( ( groups + rows - 1u ) / rows, rows, 1u, 0u );
-        }
+        // LocalSize: the rows the group finalizes at once.
+        const uint kRowThreads = 64u;
 
         // Mirrors Graphic::System::GrassFinalizePush (GrassRenderer.cpp).
         PushConstant PushConstants
         {
-            uvec4 Mode; // x = 0 after the generation, 1 after phase 2, 2 before a generation (the reset), 3 after
-                        // the camera cull; y = 1 when the camera has a list of its own (its Feedback word is the
-                        // camera mode's);
-                        // z = 1: a blade's records, sets of one record per bucket (record s draws bucket s % count);
-                        // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
+            uvec4 Mode; // x = 0 after the generation, 1 before a generation (the reset); y = 1 when the camera has a
+                        // list of its own (its Feedback words are GrassCull's); z = the first row; w = the rows
         };
 
-        // The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its
-        // levels); a blade's in sets of one record per bucket (Mode.z), each set a shadow LOD of the same buckets.
-        uint BucketOfRecord( uint s, uint records, uint buckets )
+        // Row @p r's cascade lists: each list's records and counts as Args', its drawn count into Feedback by the
+        // view it is for.
+        void FinalizeCascades( uint r, uint buckets, uint records, bool blade )
         {
-            if ( Mode.z != 0u )
-                return s % buckets;
-            return min( s / max( 1u, records / buckets ), buckets - 1u );
-        }
-
-        // Phase 1's camera records, and the phase words frozen for phase 2; returns the candidates frozen (phase
-        // 2's threads).
-        uint FinalizeCamera()
-        {
-            uint buckets = CameraArguments[0];
-            uint records = CameraArguments[2];
-            uint table   = 4u + records * 5u;
-            uint phases  = table + buckets * 4u;
-            for ( uint s = 0u; s < records; ++s )
-            {
-                uint b  = BucketOfRecord( s, records, buckets );
-                uint at = table + b * 4u;
-                CameraArguments[4u + s * 5u + 1u] = min( CameraArguments[at], CameraArguments[at + 2u] );
-                CameraArguments[4u + s * 5u + 4u] = CameraArguments[at + 1u];
-            }
-            uint drawn      = 0u;
-            uint candidates = 0u;
-            for ( uint b = 0u; b < buckets; ++b )
-            {
-                uint at    = table + b * 4u;
-                uint phase = phases + b * 4u;
-                uint seen  = min( CameraArguments[at], CameraArguments[at + 2u] );
-                drawn += seen;
-                CameraArguments[phase + 1u] = min( CameraArguments[phase], CameraArguments[at + 2u] );
-                candidates += CameraArguments[phase + 1u];
-                CameraArguments[phase]      = 0u;
-                CameraArguments[phase + 2u] = seen;
-                CameraArguments[phase + 3u] = 0u;
-                CameraArguments[at]         = 0u;
-            }
-            CameraArguments[3] = drawn;
-            return candidates;
-        }
-
-        // Phase 2's records: each bucket's appended count, within what phase 1 left of its capacity, after phase
-        // 1's drawn instances.
-        uint PostCount( uint at, uint phase )
-        {
-            uint room = CameraArguments[at + 2u] - min( CameraArguments[phase + 2u], CameraArguments[at + 2u] );
-            return min( CameraArguments[phase + 3u], room );
-        }
-        void FinalizePost()
-        {
-            uint buckets = CameraArguments[0];
-            uint records = CameraArguments[2];
-            uint table   = 4u + records * 5u;
-            uint phases  = table + buckets * 4u;
-            for ( uint s = 0u; s < records; ++s )
-            {
-                uint b = BucketOfRecord( s, records, buckets );
-                PostArguments[4u + s * 5u + 1u] = PostCount( table + b * 4u, phases + b * 4u );
-                PostArguments[4u + s * 5u + 4u] = CameraArguments[table + b * 4u + 1u] + CameraArguments[phases + b * 4u + 2u];
-            }
-            uint drawn = 0u;
-            for ( uint b = 0u; b < buckets; ++b )
-                drawn += PostCount( table + b * 4u, phases + b * 4u );
-            PostArguments[3]            = drawn;
-            FeedbackData[buckets + 3u] = drawn;
-        }
-
-        // Each cascade list's records and counts as Args', its drawn count into Feedback by the view it is for.
-        void FinalizeCascades( uint buckets, uint records )
-        {
+            GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            GrassWords cascade  = GrassWords( VarietyRows[r].CascadeArgs );
             for ( uint v = 0u; v < kCascadeViews; ++v )
-                FeedbackData[buckets + 4u + v] = 0u;
+                feedback.Words[buckets + 4u + v] = 0u;
             uint words = 4u + records * 5u + buckets * 4u;
-            uint mask  = Mode.w;
+            uint mask  = VarietyRows[r].Info.w;
             for ( uint k = 0u; mask != 0u; ++k )
             {
                 uint view = uint( findLSB( mask ) );
@@ -171,70 +64,73 @@ Shader "GrassFinalize"
                 uint table = base + 4u + records * 5u;
                 for ( uint s = 0u; s < records; ++s )
                 {
-                    uint at = table + BucketOfRecord( s, records, buckets ) * 4u;
-                    CascadeArguments[base + 4u + s * 5u + 1u] = min( CascadeArguments[at], CascadeArguments[at + 2u] );
-                    CascadeArguments[base + 4u + s * 5u + 4u] = CascadeArguments[at + 1u];
+                    uint at = table + GrassBucketOfRecord( s, records, buckets, blade ) * 4u;
+                    cascade.Words[base + 4u + s * 5u + 1u] = min( cascade.Words[at], cascade.Words[at + 2u] );
+                    cascade.Words[base + 4u + s * 5u + 4u] = cascade.Words[at + 1u];
                 }
                 uint drawn = 0u;
                 for ( uint b = 0u; b < buckets; ++b )
                 {
                     uint at = table + b * 4u;
-                    drawn += min( CascadeArguments[at], CascadeArguments[at + 2u] );
-                    CascadeArguments[at] = 0u;
+                    drawn += min( cascade.Words[at], cascade.Words[at + 2u] );
+                    cascade.Words[at] = 0u;
                 }
-                CascadeArguments[base + 3u]          = drawn;
-                FeedbackData[buckets + 4u + view] = drawn;
+                cascade.Words[base + 3u]            = drawn;
+                feedback.Words[buckets + 4u + view] = drawn;
             }
         }
 
-        void main()
+        // Mode 0, row @p r: the full list's records, its counts into Feedback, its drawn count into Args word 3 (the
+        // camera cull's threads until the next generation), the cascades' lists.
+        void Finalize( uint r )
         {
-            if ( Mode.x == 1u )
-            {
-                FinalizePost();
-                return;
-            }
-            if ( Mode.x == 2u )
-            {
-                uint tableAt = 4u + Arguments[2] * 5u;
-                for ( uint b = 0u; b < Arguments[0]; ++b )
-                    Arguments[tableAt + b * 4u] = 0u;
-                return;
-            }
-            if ( Mode.x == 3u )
-            {
-                CullDispatchData[1]              = CullGroups( FinalizeCamera() );
-                uint cameraBuckets               = CameraArguments[0];
-                FeedbackData[cameraBuckets + 2u] = CameraArguments[3];
-                FeedbackData[cameraBuckets + 3u] = 0u;
-                return;
-            }
-            uint buckets = Arguments[0];
-            uint records = Arguments[2];
-            uint table   = 4u + records * 5u;
+            GrassWords args     = GrassWords( VarietyRows[r].Args );
+            GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            bool       blade    = ( VarietyRows[r].Info.z & kGrassRowBlade ) != 0u;
+            uint       buckets  = args.Words[0];
+            uint       records  = args.Words[2];
+            uint       table    = 4u + records * 5u;
             for ( uint s = 0u; s < records; ++s )
             {
-                uint b = BucketOfRecord( s, records, buckets );
-                uint at = table + b * 4u;
-                Arguments[4u + s * 5u + 1u] = min( Arguments[at], Arguments[at + 2u] );
-                Arguments[4u + s * 5u + 4u] = Arguments[at + 1u];
+                uint at = table + GrassBucketOfRecord( s, records, buckets, blade ) * 4u;
+                args.Words[4u + s * 5u + 1u] = min( args.Words[at], args.Words[at + 2u] );
+                args.Words[4u + s * 5u + 4u] = args.Words[at + 1u];
             }
             uint drawn = 0u;
             for ( uint b = 0u; b < buckets; ++b )
             {
-                drawn += min( Arguments[table + b * 4u], Arguments[table + b * 4u + 2u] );
-                FeedbackData[b] = Arguments[table + b * 4u];
+                drawn += min( args.Words[table + b * 4u], args.Words[table + b * 4u + 2u] );
+                feedback.Words[b] = args.Words[table + b * 4u];
             }
-            FeedbackData[buckets]      = 1u;
-            FeedbackData[buckets + 1u] = drawn;
+            feedback.Words[buckets]      = 1u;
+            feedback.Words[buckets + 1u] = drawn;
             if ( Mode.y == 0u )
             {
-                FeedbackData[buckets + 2u] = drawn;
-                FeedbackData[buckets + 3u] = 0u;
+                feedback.Words[buckets + 2u] = drawn;
+                feedback.Words[buckets + 3u] = 0u;
             }
-            Arguments[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
-            CullDispatchData[0] = CullGroups( drawn ); // every later frame's camera cull, until the next generation
-            FinalizeCascades( buckets, records );
+            args.Words[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
+            FinalizeCascades( r, buckets, records, blade );
+        }
+
+        // Mode 1, row @p r: Args' kept counts zeroed before the generation counts anew.
+        void Reset( uint r )
+        {
+            GrassWords args    = GrassWords( VarietyRows[r].Args );
+            uint       tableAt = 4u + args.Words[2] * 5u;
+            for ( uint b = 0u; b < args.Words[0]; ++b )
+                args.Words[tableAt + b * 4u] = 0u;
+        }
+
+        void main()
+        {
+            for ( uint i = gl_LocalInvocationIndex; i < Mode.w; i += kRowThreads )
+            {
+                if ( Mode.x == 1u )
+                    Reset( Mode.z + i );
+                else
+                    Finalize( Mode.z + i );
+            }
         }
     }
 }

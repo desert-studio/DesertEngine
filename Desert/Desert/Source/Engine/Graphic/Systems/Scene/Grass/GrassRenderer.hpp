@@ -288,11 +288,11 @@ namespace Desert::Graphic::System
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs     PostRefs;   // phase 2's: CameraIds through PostArgs
             RDG::BufferRef      CandidatesRef;
-            // GRASS-CULL-1: the camera cull's and phase 2's indirect dispatches, GrassFinalize's from the GPU's
-            // counts (GrassRenderer.cpp kCullDispatchBytes, GrassFinalize.shader CullDispatch).
-            std::shared_ptr<ShaderResources::StorageBuffer> CullDispatch;
-            RDG::ExternalBuffer                             CullDispatchImport;
-            RDG::BufferRef                                  CullDispatchRef;
+            // GRASS-CULL-2: what the camera cull reads of the params, through the variety table (GrassRenderer.cpp
+            // GrassVarietyRowGpu): x = the bounds radius, y = the bounds centre height (local), z = the cull pad (cm),
+            // and the bucket table's first word in Args.
+            glm::vec4                                       CullBounds{ 0.0f };
+            uint32_t                                        TableWord = 0;
             // GPU-COST-21, THE CASCADES' LISTS (UE: each shadow view culls its instances by its own volume): per
             // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster
             // box, CascadeIds list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
@@ -330,6 +330,14 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
                                                   const ViewFrame& frame, const ViewVolumes& volumes );
+        // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows, then
+        // m_FrameGenerate's, written into m_Table and imported into @p graph (m_TableRef). Refused when a variety's
+        // buffer has no device address.
+        [[nodiscard]] Common::BoolResultStr WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes );
+        // The one binding block of a pass over the table: GrassFinalize's; GrassCull's, @p hzb the texture it tests
+        // and @p dispatch its access to this frame's dispatch buffer (m_FrameDispatch).
+        void BindFinalize( RDG::PassBuilder& pass );
+        void BindCull( RDG::PassBuilder& pass, RDG::TextureRef hzb, RDG::Access dispatch );
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
@@ -346,10 +354,19 @@ namespace Desert::Graphic::System
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral
+        bool m_FrameTable = false; // the last AddFrame wrote its variety table and added its passes
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
+        std::shared_ptr<ComputePipeline> m_Cull; // GRASS-CULL-2: the camera cull and phase 2 (GrassCull.shader)
         mutable ShaderBindingLayoutCache m_GenerateLayout;
         mutable ShaderBindingLayoutCache m_FinalizeLayout;
+        mutable ShaderBindingLayoutCache m_CullLayout;
+        // GRASS-CULL-2: the variety table (per frame in flight, WriteVarietyTable) and the last AddFrame graph's
+        // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_Table;
+        RDG::ExternalBuffer                             m_TableImport;
+        RDG::BufferRef                                  m_TableRef{};
+        RDG::BufferRef                                  m_FrameDispatch{};
         uint32_t                         m_NextIndex = 0;
         GrassBladeRayTracing             m_BladeRayTracing;
         // GRASS-VIS: the raster-stream rows handed out this frame (AddFrame resets it; PrepareVariety hands each

@@ -1,0 +1,58 @@
+#ifndef DESERT_GRASS_VARIETY_ROWS_GLSLH
+#define DESERT_GRASS_VARIETY_ROWS_GLSLH
+
+// THE GRASS VARIETY TABLE (GRASS-CULL-2; UE GPUScene / InstanceCulling: one table describes every primitive's
+// instances, and one dispatch culls them all). GrassRenderer writes it once per frame (GrassRenderer.cpp
+// GrassVarietyTableGpu / GrassVarietyRowGpu, std430, WriteVarietyTable): the camera's side planes, then one row per
+// variety a pass covers - the camera cull's varieties first (m_FrameCull), the generating ones after them
+// (m_FrameGenerate). A row names the variety's own buffers by DEVICE ADDRESS (StorageBuffer::GetDeviceAddress: the
+// copies this frame imports, a per-frame buffer's of this frame in flight), so a pass over every variety binds the
+// table once instead of a block of buffers per variety; the passes still declare every variety buffer they read or
+// write to the frame graph (PassBuilder::Read / Write), which places the barriers by them.
+// GL_EXT_buffer_reference(_uvec2) is enabled for every stage by the assembler (DShaderParser.cpp AssembleStage).
+
+struct GrassVarietyRow
+{
+    uvec2 Instances;   // mat4 per slot (GrassGenerate.shader Instances)
+    uvec2 Args;        // GpuInstances.hpp: header (bucket count, capacity, record count, drawn), the draw records,
+                       // then per bucket count, first, capacity, half screen size
+    uvec2 CameraIds;   // the camera's list: per slot the row of Instances (GPU-COST-22)
+    uvec2 CameraArgs;  // Args' layout, then four phase words per bucket (GrassCull.shader)
+    uvec2 Candidates;  // per slot two uvec4: the hidden instance's sphere, its row of Instances
+    uvec2 PostArgs;    // Args' layout: phase 2's draws
+    uvec2 Feedback;    // this frame in flight's copy: per bucket the generator's count, the written mark, the full
+                       // list's, the camera's phase-1 and phase 2's drawn counts, one per cascade view
+    uvec2 CascadeArgs; // per cascade list one copy of Args' layout (GrassGenerate.shader CascadeArgs)
+    uvec4 Info;        // x = bucket count, y = the bucket table's first word in Args, z = flags (kGrassRowBlade),
+                       // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
+    vec4  Bounds;      // x = bounds radius (local), y = bounds centre height (local), z = the cull pad (cm: a mesh's
+                       // sway past its bounds), w = 0
+};
+
+// Info.z: the variety's records come in sets of one record per bucket (a blade strip's, one set per shadow LOD),
+// not in a group of records per bucket (a mesh's levels).
+const uint kGrassRowBlade = 1u;
+
+layout( buffer_reference, std430, buffer_reference_align = 4 ) buffer GrassWords
+{
+    uint Words[];
+};
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassTransforms
+{
+    mat4 Transforms[];
+};
+layout( buffer_reference, std430, buffer_reference_align = 16 ) buffer GrassQuads
+{
+    uvec4 Quads[];
+};
+
+// The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its levels); a
+// blade's in sets of one record per bucket, each set a shadow LOD of the same buckets.
+uint GrassBucketOfRecord( uint s, uint records, uint buckets, bool blade )
+{
+    if ( blade )
+        return s % buckets;
+    return min( s / max( 1u, records / buckets ), buckets - 1u );
+}
+
+#endif
