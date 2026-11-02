@@ -1063,17 +1063,31 @@ namespace Desert::Graphic::System
         //   MovablePasses - LOADS the map and draws the movable casters (skinned, swaying foliage, the terrain).
         // A cascade whose matrix and casters stood still and that holds no movable caster has no work at all: its
         // map is last frame's.
+        // A SCROLLED cascade (UE's CSM scrolling, PlanCascadeCache) instead: Scrolls clears its layer and copies in
+        // the part of the cache its new placement still covers, its ScrollPasses node LOADS the layer and draws the
+        // static casters reaching the strips the shift uncovered, and a ToCache copy takes the layer back as the
+        // cache before its movable casters are drawn.
         struct CascadeCacheCopy
         {
-            std::shared_ptr<Image2D> From;
+            std::shared_ptr<Image2D> From; // the cascade's cache
             uint32_t                 Layer = 0; // the cascade: its layer of the array
+            std::string              Name;
+            bool                     ToCache = false; // the layer into the cache (a scrolled cascade's static depth)
+        };
+        struct CascadeCacheScroll
+        {
+            std::shared_ptr<Image2D> From; // the cascade's cache
+            uint32_t                 Layer = 0;
+            glm::ivec2               Shift{ 0 }; // destination texel = source texel + Shift (CascadePlacement::ShiftTo)
             std::string              Name;
         };
         struct ShadowCascadeFrame
         {
-            std::vector<SystemRasterPass> StaticPasses;
-            std::vector<CascadeCacheCopy> Copies;
-            std::vector<SystemRasterPass> MovablePasses;
+            std::vector<CascadeCacheScroll> Scrolls;
+            std::vector<SystemRasterPass>   StaticPasses;
+            std::vector<SystemRasterPass>   ScrollPasses;
+            std::vector<CascadeCacheCopy>   Copies;
+            std::vector<SystemRasterPass>   MovablePasses;
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
@@ -1932,7 +1946,12 @@ namespace Desert::Graphic::System
         // whether a movable caster reaches it: the cache key of the cascade's static layer. A still ISM field's
         // part is its snapshot and the instances the gather keeps in the box with their levels
         // (ShadowIsmInstances, gathered here when no view walked the field yet): what the layer draws.
-        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, bool& movable );
+        // @p casterVP: the box the casters are taken from (this frame's caster matrix, or the one a scrolled cache
+        // was drawn with). @p withLod: the levels the camera chose are part of the key (a content key leaves them
+        // out: a scrolled cache keeps the level it was drawn at, PlanCascadeCache). @p windSplit: a reached caster is
+        // split between the layers by the wind ring around the camera, which no content key can hold.
+        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, const glm::mat4& casterVP, bool withLod,
+                                                       bool& movable, bool& windSplit );
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
@@ -2424,6 +2443,26 @@ namespace Desert::Graphic::System
         // The cache of each cascade's static casters (depth only, the map's format): drawn when its key changes,
         // copied into layer c of m_CascadeMaps whenever the map is rebuilt.
         std::shared_ptr<Framebuffer> m_CascadeStaticFB[kCascadeViews]; // by cascade view; a slot not held: null
+        // WHERE A CASCADE'S MAP LIES (CascadeFit::TexelOrigin and DepthOrigin, with the light and the texel it was
+        // fitted with): two placements that differ only in TexelOrigin hold the same static depth, shifted.
+        struct CascadePlacement
+        {
+            glm::vec3  Travel{ 0.0f };
+            float      WorldPerTexel = 0.0f;
+            float      DepthOrigin   = 0.0f;
+            glm::ivec2 TexelOrigin{ 0 };
+            [[nodiscard]] bool SameMapAs( const CascadePlacement& other ) const
+            {
+                return Travel == other.Travel && WorldPerTexel == other.WorldPerTexel &&
+                       DepthOrigin == other.DepthOrigin;
+            }
+            // The texel shift from this placement to @p next in framebuffer axes (destination = source + shift):
+            // x runs with light-space x, y against light-space y (the graph's viewport has a negative height).
+            [[nodiscard]] glm::ivec2 ShiftTo( const CascadePlacement& next ) const
+            {
+                return glm::ivec2( TexelOrigin.x - next.TexelOrigin.x, next.TexelOrigin.y - TexelOrigin.y );
+            }
+        };
         struct CascadeCacheState
         {
             std::optional<uint64_t> StaticKey; // the key the cache was drawn with; nullopt = never drawn
@@ -2431,7 +2470,18 @@ namespace Desert::Graphic::System
             bool                    Rebuild      = false; // this frame: the map is the cache copied (+ movable)
             bool                    Movable      = false; // this frame: a movable caster reaches the cascade
             bool MapHasMovable = false; // the map holds movable depth from the frame it was built
+            // StaticKey is the CONTENT key (CascadeStaticSignature without the camera's levels, the keyed casters'
+            // CascadeShadowContent): the kind a scrolled cache is checked with.
+            bool                            KeyIsContent = false;
+            std::optional<CascadePlacement> Placement;        // where the cache's depth lies
+            glm::mat4                       CasterVP{ 1.0f }; // the caster matrix of that placement
+            // This frame the cache SCROLLS (UE's CSM scrolling): shifted by Shift, only its strips drawn.
+            bool       Scroll = false;
+            glm::ivec2 Shift{ 0 };
+            uint32_t   StripCount = 0;
+            glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) }; // CascadeScrollStrips
         };
+        CascadePlacement m_CascadePlacement[kCascadeViews]; // this frame's fits (UpdateCascades)
         // The instance snapshots the static layers' keys were taken over, held one frame longer than the queue
         // holds them: a snapshot is immutable and is replaced when its instances change, so its address is its
         // revision only while no new snapshot can be allocated at that address — which holding it guarantees.
@@ -3313,6 +3363,8 @@ namespace Desert::Graphic::System
             bool      Movable = false;
             float     Wind    = -1.0f; // the cascade's ShadowWindDistanceOf the part was made with
             glm::vec4 Ring{ -1.0f };   // the cascade's ShadowWindRingOf the part was made with
+            bool      WithLod   = true;  // the camera's levels are in Hash (CascadeStaticSignature's withLod)
+            bool      WindSplit = false; // an instance in the box is split by the wind ring
         };
         std::vector<CascadeIsmPart> m_CascadeIsmParts;
         // THE STATIC CASTERS' REVISION (SCENE-CACHE-4; UE FCachedShadowMapData: the static layer is redrawn when a
@@ -3353,7 +3405,8 @@ namespace Desert::Graphic::System
             uint64_t  Revision = 0;
             uint64_t  LodKey   = 0;
             glm::mat4 CasterVP{ 1.0f };
-            uint64_t  Hash = 0;
+            uint64_t  Hash    = 0;
+            bool      WithLod = true; // the camera's levels are in Hash (CascadeStaticSignature's withLod)
         };
         std::vector<CascadeStaticPart> m_CascadeStaticParts;
         // Whether the static / generic rows of this gather are the static casters' revision's (TrackStaticCasters

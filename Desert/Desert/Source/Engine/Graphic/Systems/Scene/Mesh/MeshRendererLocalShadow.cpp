@@ -539,7 +539,8 @@ namespace Desert::Graphic::System
                          if ( !caster )
                              continue; // gone since the setup: its draws went with it
                          if ( auto cast = caster->RecordShadowView(
-                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
+                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view],
+                                   {} );
                               !cast.IsSuccess() )
                              return cast;
                      }

@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <functional>
 #include <vector>
 
@@ -144,6 +145,12 @@ namespace Desert::Graphic::System
         // never nullopt.
         [[nodiscard]] virtual std::optional<uint64_t> CascadeShadowSignature( uint32_t view ) const = 0;
 
+        // THE CASCADE KEY'S CONTENT: what CascadeShadowSignature hashes less the detail the camera chose (the levels
+        // and the dice of the rows), or nullopt when the caster cannot tell the two apart. A cascade that moved by
+        // whole texels SCROLLS while it stays (MeshRenderer::PlanCascadeCache, UE's CSM scrolling): its cached depth
+        // keeps the detail it was drawn at, as UE keeps a cached caster's LOD; nullopt, no cascade it reaches scrolls.
+        [[nodiscard]] virtual std::optional<uint64_t> CascadeShadowContent( uint32_t view ) const = 0;
+
         // THE LOCAL VIEWS' CACHE KEY (UE: a stationary light's cached shadow depth is kept until a caster in its
         // reach changes). A hash of what this caster draws into @p light's views — every input of its depth there:
         // placement, shape, the geometry's level of detail (chosen from the light, LocalShadowCasterLight), the
@@ -161,11 +168,13 @@ namespace Desert::Graphic::System
 
         // Draws through the blocks DeclareShadowView declared, the first of them at @p firstBlock
         // (RDG::PassBindings( context, context.GetBindingBlock( firstBlock + i ) )); the first refused draw is the
-        // error.
+        // error. @p region: the parts of the view to fill, each the clip box of a matrix (a scrolled cascade's strips,
+        // CascadeScrollStrips); empty, the whole view. A draw none of them reaches may be left out.
         [[nodiscard]] virtual Common::BoolResultStr RecordShadowView( const RDG::PassContext& context,
                                                                       uint32_t view, uint32_t firstBlock,
-                                                                      const glm::mat4&         casterViewProj,
-                                                                      const CascadeCasterBias& bias ) = 0;
+                                                                      const glm::mat4&           casterViewProj,
+                                                                      const CascadeCasterBias&   bias,
+                                                                      std::span<const glm::mat4> region ) = 0;
 
         // THE SUN'S VIRTUAL SHADOW MAP ("VSM: Raster", one attachment-less node per clipmap level). Its pages are
         // cached across frames, so the caster says what it draws (AppendVirtualShadowEntries, before the graph is

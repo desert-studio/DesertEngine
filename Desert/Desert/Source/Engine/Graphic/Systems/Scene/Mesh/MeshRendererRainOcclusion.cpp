@@ -83,7 +83,8 @@ namespace Desert::Graphic::System
                      if ( const auto caster = weak.lock() )
                      {
                          if ( auto cast = caster->RecordShadowView(
-                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
+                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view],
+                                   {} );
                               !cast.IsSuccess() )
                              return cast;
                      }

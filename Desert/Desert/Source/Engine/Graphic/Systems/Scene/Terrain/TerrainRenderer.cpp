@@ -1671,6 +1671,40 @@ namespace Desert::Graphic::System
         return hash.Value;
     }
 
+    std::optional<uint64_t> TerrainRenderer::CascadeShadowContent( const uint32_t view ) const
+    {
+        // CascadeShadowSignature's inputs less the rows and the dice the camera chose: which tiles, where, with which
+        // maps (a sculpted height, a repainted weight or a recreated image changes it; a new ring or dice does not).
+        ShadowSignatureHash           hash;
+        const std::vector<FrameDraw>& draws = ShadowViewDraws( view );
+        hash.Add( draws.size() );
+        if ( !draws.empty() && draws.size() != m_Queue.size() )
+            return std::nullopt;
+        for ( std::size_t i = 0; i < draws.size(); ++i )
+        {
+            const FrameDraw&       draw = draws[i];
+            const TerrainDrawData& t    = m_Queue[i];
+            if ( draw.Group >= m_FrameGroups.size() )
+                return std::nullopt;
+            hash.Bytes( m_FrameGroups[draw.Group].Key->data(), m_FrameGroups[draw.Group].Key->size() );
+            hash.Add( t.Landscape.Entity );
+            hash.Add( t.Landscape.OriginX );
+            hash.Add( t.Landscape.OriginZ );
+            hash.Add( t.Landscape.BaseY );
+            hash.Add( t.Landscape.SpacingCm );
+            hash.Add( t.Landscape.ZScale );
+            hash.Add( t.Landscape.QuadsPerTile );
+            hash.Add( t.Heightmap.get() );
+            if ( t.Heightmap )
+                hash.Add( t.Heightmap->GetResourceGeneration() );
+            hash.Add( t.Landscape.HeightRevision );
+            hash.Add( t.Weights.Weightmap.get() );
+            hash.Add( t.Weights.Revision );
+            hash.Add( t.Weights.VisibilityLayer );
+        }
+        return hash.Value;
+    }
+
     uint32_t TerrainRenderer::DeclareShadowView( RenderPassDeclaration& declared, const uint32_t view )
     {
         if ( !m_ShadowPipeline || ShadowViewDraws( view ).empty() )
@@ -1684,12 +1718,44 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, const uint32_t view,
                                                              const uint32_t           firstBlock,
-                                                             const glm::mat4&         casterViewProj,
-                                                             const CascadeCasterBias& bias )
+                                                             const glm::mat4&                 casterViewProj,
+                                                             const CascadeCasterBias&         bias,
+                                                             const std::span<const glm::mat4> region )
     {
-        const std::vector<FrameDraw>& draws = ShadowViewDraws( view );
-        if ( !m_ShadowPipeline || draws.empty() )
+        const std::vector<FrameDraw>& viewDraws = ShadowViewDraws( view );
+        if ( !m_ShadowPipeline || viewDraws.empty() )
             return BOOLSUCCESS;
+        // A SCROLLED CASCADE fills only its strips (MeshRenderer::PlanCascadeCache): a tile whose box none of them
+        // reaches is already in the cache copied in. A cascade's draws are parallel to the queue
+        // (CascadeShadowSignature). The box is the tile's undisplaced slab grown by the tile's side every way: the
+        // displacement moves the surface off the slab by less than a tile, and the margin holds the tile whether its
+        // origin is read as its corner or its centre.
+        std::vector<FrameDraw> regionDraws;
+        if ( !region.empty() && viewDraws.size() == m_Queue.size() )
+        {
+            std::vector<Core::Frustum> strips;
+            for ( const glm::mat4& strip : region )
+                strips.emplace_back( strip, glm::mat4( 1.0f ) );
+            for ( std::size_t i = 0; i < viewDraws.size(); ++i )
+            {
+                const LandscapeTileDraw& l    = m_Queue[i].Landscape;
+                const float              side = l.SpacingCm * static_cast<float>( l.QuadsPerTile );
+                const Common::Math::AABB box{ glm::vec3( l.OriginX - side, l.MinY - side, l.OriginZ - side ),
+                                              glm::vec3( l.OriginX + 2.0f * side, l.MaxY + side,
+                                                         l.OriginZ + 2.0f * side ) };
+                for ( const Core::Frustum& strip : strips )
+                {
+                    if ( strip.Intersects( box ) )
+                    {
+                        regionDraws.push_back( viewDraws[i] );
+                        break;
+                    }
+                }
+            }
+            if ( regionDraws.empty() )
+                return BOOLSUCCESS;
+        }
+        const std::vector<FrameDraw>& draws = regionDraws.empty() ? viewDraws : regionDraws;
         // The view's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
         // like the matrix beside it, so the one shadow material per group still serves every view. The
         // constant part is already in casterViewProj (Graphic::CasterViewProj). A point/spot view's pair is
