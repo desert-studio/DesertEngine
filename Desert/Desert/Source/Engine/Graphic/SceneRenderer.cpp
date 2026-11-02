@@ -974,6 +974,25 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying() && !scene.IsSimulating();
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+        // WHAT THE EXTENSION PASSES DRAW IS READ HERE, ON THE GAME THREAD (UE: ISceneViewExtension::SetupView).
+        // The rest of this view's frame records on the render task while the interface edits the registry and
+        // talks to the OS, so a pass collects from the world now and its Declare/Execute read only that. The
+        // same views AddExtensionPoint adds the passes to: not a reflection capture's face, not a view without
+        // its scene target. The Join at the top of this bracket is what lets a pass keep one view's gathered
+        // state: the previous view's nodes are done with it.
+        if ( !m_ViewProfile.SceneCapture && m_TargetFramebuffer )
+        {
+            ExtensionPassGatherContext gather;
+            gather.Camera       = GetMainCamera();
+            gather.Renderer     = this;
+            gather.ScenePlaying = IsScenePlaying();
+            gather.OutputExtent = glm::uvec2{ m_ViewExtent.Width, m_ViewExtent.Height };
+            for ( const ExtensionPass& extension : m_FrameExtensions->All() )
+            {
+                if ( extension.Gather )
+                    extension.Gather( gather );
+            }
+        }
 #if DESERT_DEV_INSTRUMENTS
         // The scene's debug lines and strings, for this frame's DebugDraw passes.
         if ( !m_DebugDraw )
@@ -3724,6 +3743,9 @@ namespace Desert::Graphic
         // that its camera turns square, and a rebuild would idle the device for identical targets.
         if ( m_ViewExtent == ViewExtent{ width, height } )
             return;
+        // THE TARGETS ARE REBUILT BELOW, and the view's frame may still be recording into them on the render task:
+        // a viewport panel resizes its view while the interface is drawn, which is exactly when the scene records.
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         // A LIVE VIEW'S RESIZE IS NEVER REFUSED (Engine::ViewBudget::ResizeOverrunBytes): the view is on
         // screen, and refusing its size is what left the main view at its 64x64 placeholder on a full device.
         // Going past the budget is said once per size, since the panel asks again every frame it stays that

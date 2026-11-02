@@ -1315,11 +1315,18 @@ namespace Desert::Core
     void Scene::RegisterExtensionPass( Graphic::ExtensionPass&& pass )
     {
         DESERT_VERIFY( !pass.Name.empty() && pass.Execute );
+        // A view of this scene may be recording on the render task, walking this list and calling into the passes
+        // (SceneRenderer::AddExtensionPoint): the list changes, and a replaced pass's owner may be freed, only
+        // after it.
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         m_ExtensionPasses.Register( std::move( pass ) );
     }
 
     void Scene::UnregisterExtensionPass( const std::string& name )
     {
+        // Same fence as Register: the owner calls this from its destructor, and its members (the state the pass's
+        // Declare/Execute read) are destroyed right after.
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         m_ExtensionPasses.Unregister( name );
     }
 

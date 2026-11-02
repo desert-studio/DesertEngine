@@ -29,6 +29,9 @@ namespace Desert::Graphic
         // context.
         thread_local ViewResources* t_ActiveView = nullptr;
 
+        // ViewResourceRegistry::SetForgetFence's function (null until the application installs one).
+        std::atomic<ViewResourceRegistry::ForgetFence> s_ForgetFence{ nullptr };
+
         RegistryState& State()
         {
             static RegistryState state;
@@ -121,8 +124,16 @@ namespace Desert::Graphic
         return static_cast<uint32_t>( state.Live.size() );
     }
 
+    void ViewResourceRegistry::SetForgetFence( const ForgetFence fence )
+    {
+        s_ForgetFence.store( fence, std::memory_order_release );
+    }
+
     uint32_t ViewResourceRegistry::Forget( const ViewResourceKey key )
     {
+        // Before the lock: the fence may run deferred commands (RenderTask::AfterJoin) that forget again.
+        if ( const ForgetFence fence = s_ForgetFence.load( std::memory_order_acquire ) )
+            fence();
         RegistryState&                    state = State();
         const std::lock_guard<std::mutex> guard( state.Lock );
         uint32_t                          dropped = FrameContext().Forget( key );

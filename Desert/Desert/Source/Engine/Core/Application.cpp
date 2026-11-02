@@ -7,6 +7,7 @@
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
@@ -186,6 +187,9 @@ namespace Desert::Engine
         // Loop state rather than a member: nothing outside this loop has a use for it, and the whole of
         // what it remembers is whether the PREVIOUS iteration stood down (see 1b below).
         Graphic::DrawableAreaGate drawableArea;
+        // A shared view resource forgotten by the game thread while a view records on the render task waits for
+        // it (ViewResourceRegistry::SetForgetFence).
+        Graphic::ViewResourceRegistry::SetForgetFence( [] { ::Desert::Engine::RenderTask::Get().JoinOnGameThread(); } );
         while ( m_IsRunningApplication )
         {
             // Frame boundary for the profiler (publishes last frame, flips Optick's frame). Placed at the
@@ -408,6 +412,7 @@ namespace Desert::Engine
 
         // The render task's thread ends with the loop, before the layers release what its jobs recorded with.
         RenderTask::Get().Shutdown();
+        Graphic::ViewResourceRegistry::SetForgetFence( nullptr );
 
         // Window closed: detach layers (top-down) so each releases its resources and clears its
         // session state — e.g. EditorLayer::OnDetach removes the crash-recovery lock. Nothing else

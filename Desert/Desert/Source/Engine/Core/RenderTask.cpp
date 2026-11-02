@@ -149,6 +149,12 @@ namespace Desert::Engine
         m_Joining = false;
     }
 
+    void RenderTask::JoinOnGameThread()
+    {
+        if ( InFlight() && OnGameThread() )
+            Join();
+    }
+
     void RenderTask::AfterJoin( Command command )
     {
         if ( !InFlight() )

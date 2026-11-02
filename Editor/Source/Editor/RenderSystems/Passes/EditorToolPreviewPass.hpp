@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,8 @@ namespace Desert::Editor::Render
         static void Hide( const ::Desert::Core::Scene& scene );
         // This frame's preview of `scene`, or nothing.
         [[nodiscard]] static const ToolPreviewMesh* Current( const ::Desert::Core::Scene& scene );
+        // The same preview, held: the pass's Gather keeps it for the render task while the tool may Show the next.
+        [[nodiscard]] static std::shared_ptr<const ToolPreviewMesh> Snapshot( const ::Desert::Core::Scene& scene );
     };
 
     // Draws ToolPreview's mesh of its scene in the Debug phase into the scene HDR target, depth-tested against
@@ -57,6 +60,8 @@ namespace Desert::Editor::Render
         std::unique_ptr<Graphic::MaterialDebugLine> m_EdgeMaterial;
         // This frame's edges, lifted off their surfaces for this view (LiftEdges).
         std::vector<Graphic::MaterialDebugLine::LineVertex> m_LiftedEdges;
+        // The preview Gather took on the game thread for this view's frame (null: the tool shows none).
+        std::shared_ptr<const ToolPreviewMesh> m_GatheredMesh;
         // What this view's Declare uploaded (0 = that draw does not draw), and why the edges were refused
         // (LiftEdges; empty = they were not).
         uint32_t    m_FaceVertices = 0;

@@ -71,6 +71,13 @@ namespace Desert::Engine
         // preview render) waits for them instead of racing them.
         void AfterJoin( Command command );
 
+        // THE FENCE FOR A MUTATION OF WHAT A JOB READS, from code that runs on more than one thread (a shared view
+        // resource forgotten, an extension pass registered, a view resized): joins when the caller is the game
+        // thread and a job is in flight, and returns at once anywhere else. The render task changing what it
+        // reads itself is sequential with its own jobs, and a worker never fences (the render task may be
+        // waiting on that worker: a join there would deadlock).
+        void JoinOnGameThread();
+
         // True from an Enqueue until the job queue drains (the render thread clears it).
         [[nodiscard]] bool InFlight() const noexcept
         {
