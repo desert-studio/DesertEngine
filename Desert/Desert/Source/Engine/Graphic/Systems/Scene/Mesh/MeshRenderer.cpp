@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <format>
 #include <memory>
 #include <optional>
@@ -1875,6 +1876,16 @@ namespace Desert::Graphic::System
             // The gather keeps the record's hit program by address (SectionSource::ProgramHit).
             words.Pointer( &data.RayHit );
             words.Value( ( data.RayHit.Template.empty() ? 0u : 1u ) | ( data.RayHit.Opacity.has_value() ? 2u : 0u ) );
+            // The surface cache's card gather keeps a generic draw's capture while the static casters' revision
+            // holds (SCENE-CACHE-5): a Shader Override's program, textures and values are its cards' surface.
+            words.Value( std::hash<std::string>{}( data.ShaderName ) );
+            words.Value( std::hash<std::string>{}( GenericTextureKey( data ) ) );
+            for ( const auto& [name, value] : data.Overrides.Params )
+            {
+                words.Value( std::hash<std::string>{}( name ) );
+                for ( int lane = 0; lane < 4; ++lane )
+                    words.Value( std::hash<float>{}( value[lane] ) );
+            }
             return words.Hash;
         };
         const auto skinnedContent = []( const SkinnedMeshRenderData& data )

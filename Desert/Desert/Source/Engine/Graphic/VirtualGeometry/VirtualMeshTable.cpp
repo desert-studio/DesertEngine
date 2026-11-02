@@ -210,6 +210,7 @@ namespace Desert::Graphic::VirtualGeometry
         std::vector<MeshRows>          Rows; // index = VirtualMeshIndex = its row in Meshes
         uint64_t                       Frame = 0;
         uint32_t                       Live  = 0;
+        uint64_t                       Generation = 0; // UploadGeneration
 
         void Free( MeshRows& rows, const VirtualMeshIndex index )
         {
@@ -442,6 +443,7 @@ namespace Desert::Graphic::VirtualGeometry
             s.Rows.resize( *meshRow + 1u );
         s.Rows[*meshRow] = std::move( rows );
         ++s.Live;
+        ++s.Generation;
         const MeshRows& placed = s.Rows[*meshRow];
         LOG_INFO(
              "[VirtualMeshTable] '{}' registered {} clusters, {} groups, rows mesh {} dags [{}, +{}) clusters "
@@ -465,6 +467,7 @@ namespace Desert::Graphic::VirtualGeometry
         rows.Retiring   = true;
         rows.ReleasedAt = s.Frame;
         --s.Live;
+        ++s.Generation;
         LOG_INFO( "[VirtualMeshTable] '{}' released {} clusters ({} meshes resident)", rows.Name,
                   rows.ClusterCount, s.Live );
     }
@@ -476,7 +479,10 @@ namespace Desert::Graphic::VirtualGeometry
         ++s.Frame;
         for ( VirtualMeshIndex i = 0; i < s.Rows.size(); ++i )
             if ( s.Rows[i].Retiring && s.Frame - s.Rows[i].ReleasedAt > kRetireFrames )
+            {
                 s.Free( s.Rows[i], i );
+                ++s.Generation;
+            }
         if ( s.Meshes.Spans.End == 0 )
             return BOOLSUCCESS; // nothing ever registered: no table is made
         if ( auto uploaded = s.Meshes.Upload(); !uploaded )
@@ -488,8 +494,19 @@ namespace Desert::Graphic::VirtualGeometry
         if ( auto uploaded = s.Hierarchy.Upload(); !uploaded )
             return uploaded;
         for ( MeshRows& rows : s.Rows )
+        {
+            if ( rows.Uploaded != rows.Live )
+                ++s.Generation;
             rows.Uploaded = rows.Live;
+        }
         return BOOLSUCCESS;
+    }
+
+    uint64_t VirtualMeshTable::UploadGeneration() const
+    {
+        const Storage&  s = *m_Storage;
+        std::lock_guard lock( s.Mutex );
+        return s.Generation;
     }
 
     std::vector<VirtualMeshDagSpan> VirtualMeshTable::DescribeUploaded( const VirtualMeshIndex mesh ) const

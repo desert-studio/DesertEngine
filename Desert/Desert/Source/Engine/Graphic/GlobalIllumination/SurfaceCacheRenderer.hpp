@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -33,6 +34,11 @@ namespace Desert::Graphic
     class Image2D;
     class Shader;
 } // namespace Desert::Graphic
+
+namespace Desert::ShaderResources
+{
+    class StorageBuffer;
+} // namespace Desert::ShaderResources
 
 // THE SURFACE CACHE'S GPU HALF (GI-SURFACE-CACHE-2): the atlases, the capture atlas and the passes that fill and
 // show them. UE: FLumenSceneData's atlases + LumenSceneCardCapture.cpp (the capture atlas, then
@@ -216,7 +222,7 @@ namespace Desert::Graphic::SurfaceCache
         // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
         // frame.
         [[nodiscard]] Common::ResultStr<SceneUpdate>
-        UpdateScene( const std::vector<SceneInstance>& instances, uint64_t engineFrame,
+        UpdateScene( std::span<const SceneGroup> groups, uint64_t engineFrame,
                      const GlobalIllumination::DirectionalLighting& lighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const
@@ -241,7 +247,9 @@ namespace Desert::Graphic::SurfaceCache
         // UE CopyCardsToSurfaceCache: one 8 x 8 group per tile of every page of the frame's captures.
         [[nodiscard]] Common::BoolResultStr AddCopyPass( RDG::Builder& graph, const ImportImage& import,
                                                          const CaptureTextures& capture, const SceneFrame& frame );
-        [[nodiscard]] FrameBuffers          UploadRecords( RDG::Builder& graph, const SceneFrame& frame ) const;
+        // The records' tables as graph imports of the persistent device tables (m_RecordTables), written only
+        // when @p frame's records are another set than the one they hold; LightingPages uploaded every frame.
+        [[nodiscard]] Common::ResultStr<FrameBuffers> UploadRecords( RDG::Builder& graph, const SceneFrame& frame );
         // What a traced hit reads of this frame's cache (GIHitRadiance): @p buffers and the atlas layers.
         [[nodiscard]] GlobalIllumination::SurfaceCacheFrame HitReads( const ImportImage&  import,
                                                                       const FrameBuffers& buffers ) const;
@@ -289,6 +297,24 @@ namespace Desert::Graphic::SurfaceCache
                       bool depth, std::string_view name );
 
         SurfaceCacheScene m_Scene;
+        // THE RECORDS' DEVICE TABLES (SCENE-CACHE-6; UE FLumenSceneData's card / page buffers live across frames
+        // and are written when the scene's cards change): Cards, Pages, MeshCards, InstanceRows. Written when the
+        // frame's records are another set than m_UploadedRecords - SceneFrame::Records is a shared_ptr<const>
+        // made again only on an event (SurfaceCacheScene::Update, THE GPU RECORDS), and the one written is held
+        // so its address cannot come back as another set's. Each table is its rows' size exactly (the shaders
+        // bound a row by the table's length, SurfaceCacheSampling.glslh): another size makes a new buffer.
+        struct RecordTable
+        {
+            std::string                                     Name;
+            std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
+            RDG::ExternalBuffer                             Import;
+            uint64_t                                        Bytes = 0;
+        };
+        std::array<RecordTable, 4>          m_RecordTables;
+        std::shared_ptr<const SceneRecords> m_UploadedRecords;
+        template <typename T>
+        [[nodiscard]] Common::ResultStr<RDG::BufferRef> UploadRecordTable( RDG::Builder& graph, RecordTable& table,
+                                                                           const std::vector<T>& rows, bool write );
         // THE FRAME'S UPDATE (once per frame): the engine frame it ran in and the records a later call of that
         // frame hands back without updating anything.
         struct FrameUpdate

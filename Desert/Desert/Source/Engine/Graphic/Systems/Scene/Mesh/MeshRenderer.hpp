@@ -5,6 +5,8 @@
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <unordered_set>
+#include <array>
+#include <map>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -1349,7 +1351,9 @@ namespace Desert::Graphic::System
         // as the scene's G-buffer draws it) draws each capture's mesh through its card camera into its rectangle
         // of the capture atlas (viewport + scissor per draw). One view copy per capture of a material in the
         // frame: the camera block is the material's, so one card camera needs one material.
-        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
+        // @p out: the frame's card groups (SurfaceCache::SceneGroup), their instances held by this renderer until
+        // the next gather; a group is gathered again only when an input of it moved (THE CARD GATHER below).
+        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneGroup>& out );
         // The (path x GBuffer) pass state a card of that path is captured with; null when the renderer has none.
         [[nodiscard]] GraphicsPipeline*     CardCapturePassState( MeshVertexPath path ) const;
         // @p view: the frame's scene/view inputs - the G-buffer cell samples the rain occlusion map its wetness
@@ -1970,7 +1974,44 @@ namespace Desert::Graphic::System
             MeshVertexPath                  Path = MeshVertexPath::Static;
             std::vector<CardCaptureSection> Sections;
         };
-        std::vector<CardCaptureSource> m_CardCaptureSources;
+        // THE CARD GATHER (SCENE-CACHE-5; UE FLumenSceneData primitive groups, updated from the scene's primitive
+        // add / update / remove lists, and a material's readiness as an event - not every section and every ISM
+        // instance asked every frame). Three kinds of group, each kept with the key of the inputs it was gathered
+        // from and gathered again only when that key moves (its Revision then moves, and the surface cache walks
+        // only that group):
+        //  - the static + generic group (one: an entity's sections drawn partly by either queue are one
+        //    instance): the static casters' revision (m_StaticCasters, the GpuScene stream: world, mesh, shading,
+        //    section slot, hidden submeshes, queue order and - generic - the override's program, textures and
+        //    values) while it is tracked for this gather; gathered every frame while it is not;
+        //  - one group per ISM field (entity x mesh): its section groups' mesh, render revision, shading, hidden
+        //    submeshes, instance count and transforms snapshot (held by owner: a snapshot freed and re-made at the
+        //    same address is another one);
+        //  - the skinned group: every frame (posed, few).
+        // And for every group, the readiness its answers were made under (CardReadinessKey): the material
+        // service's invalidation version (a material rebuilt, a texture landed), the pipelines' readiness event
+        // (Graphic::PipelineReadinessGeneration), the shader service's recompile generation, the cards that
+        // landed (Assets::MeshCardsSlot::PublishGeneration) and the capture pass states.
+        struct CardGatherGroup
+        {
+            uint64_t                                    Id       = 0;
+            uint64_t                                    Key      = 0;
+            uint64_t                                    Revision = 0;
+            bool                                        Gathered = false;
+            uint64_t                                    SeenGather = 0; // m_CardGather when the frame had it
+            // Its sections' answers that were not the cell's own pipeline (ChoosePipelineDraw counted them as
+            // stand-in draws): counted again in every frame the group is kept (GetStandInDraws, the shot gate).
+            uint32_t                                    StandIns = 0;
+            std::vector<SurfaceCache::SceneInstance>    Instances;
+            std::vector<CardCaptureSource>              Sources; // by SceneInstance::Source
+            std::vector<std::weak_ptr<const std::vector<glm::mat4>>> Snapshots; // ISM: per section group
+        };
+        CardGatherGroup                                       m_CardStaticGroup;
+        CardGatherGroup                                       m_CardSkinnedGroup;
+        std::unordered_map<uint64_t, CardGatherGroup>         m_CardFieldGroups; // by field id
+        std::vector<CardGatherGroup*>                         m_CardGroupOrder;  // the last gather's groups
+        uint64_t                                              m_CardGather         = 0;
+        uint64_t                                              m_CardGroupRevision  = 0;
+        [[nodiscard]] uint64_t                                CardReadinessKey() const;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
         // material per capture of it in the frame, its camera in its block.
         // By MeshVertexPath: the static, skinned and instanced cells.
@@ -2391,6 +2432,9 @@ namespace Desert::Graphic::System
         // cut or a carrier is refused or comes back) re-renders exactly its pages.
         std::vector<const GraphicsPipeline*> m_VsmCarriedTwins;
         std::vector<const GraphicsPipeline*> m_VsmCarriedTwinsLastFrame;
+        // Moves whenever ResetVirtualShadowGeometry shifts in a last-frame set other than the one before it (the
+        // producer's event, O(twins)): the key the VSM page cache's kept static / generic part is made under.
+        uint64_t m_VsmCarriedTwinsRevision = 0;
         bool                                 m_VsmClusteredThisFrame = false;
         // CpuWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views
         // the cascades' and levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
@@ -2428,7 +2472,27 @@ namespace Desert::Graphic::System
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
         // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one
         // under the same signature (m_CascadeKeySnapshots says the same).
+        // m_VsmStillCasters holds the ISM fields and the non-mesh casters; the static / generic queues' entries are
+        // m_VsmStaticStill's.
         std::vector<ShadowCasterEntry>                             m_VsmStillCasters;
+        // THE STATIC / GENERIC STILL ENTRIES (SCENE-CACHE-6; UE FCachedShadowMapData: a static primitive's
+        // invalidation comes from its own update, never from re-hashing every static primitive each frame): last
+        // drawn frame's entries of the static and generic queues, sorted by signature, and the keys they were made
+        // under. Made again (and diffed against the previous ones) only when the static casters' revision, the rows'
+        // LOD key, the carrier outcome (m_VsmCarriedTwinsRevision), the VG table's uploads
+        // (VirtualMeshTable::UploadGeneration) or the VirtualShadow pass table (DrawCommandCache::TableRevision)
+        // moved, or the gather is untracked (Valid false); otherwise they add no box and are not walked.
+        struct VsmStaticStill
+        {
+            bool                           Valid     = false;
+            uint64_t                       Revision  = 0;
+            uint64_t                       LodKey    = 0;
+            uint64_t                       Carriers  = 0;
+            uint64_t                       VgUploads = 0;
+            uint64_t                       VgTable   = 0;
+            std::vector<ShadowCasterEntry> Entries;
+        };
+        VsmStaticStill m_VsmStaticStill;
         std::vector<VsmInvalidationBox>                            m_VsmMovingBoxes;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
         // Per still ISM (by its signature): what each instance cast last frame, 0 = faded out by its cull
@@ -3217,6 +3281,31 @@ namespace Desert::Graphic::System
             uint64_t  Hash = 0;
         };
         std::vector<CascadeStaticPart> m_CascadeStaticParts;
+        // Whether the static / generic rows of this gather are the static casters' revision's (TrackStaticCasters
+        // ran for this gather and FinishStaticCasterRows kept or made them for it): a part keyed by
+        // m_StaticCasters.Revision may be kept only then. One rule for the cascades, the local views and the VSM.
+        [[nodiscard]] bool StaticCastersTracked() const;
+        // THE LOCAL VIEWS' STATIC / GENERIC PART (SCENE-CACHE-6, UE FCachedShadowMapData per local light): the hash
+        // LocalCasterSignature takes of the static and generic casters in a sphere, kept per sphere (its centre
+        // and radius bits) while the static casters' revision and the rows' LOD key are the ones it was made from.
+        // A sphere not asked for kLocalStaticPartGathers gathers is dropped (a moving light asks a new one each
+        // frame); an untracked gather makes the part and keeps nothing.
+        static constexpr uint64_t kLocalStaticPartGathers = 2;
+        struct LocalStaticKey
+        {
+            std::array<uint32_t, 4> Bits{}; // centre x, y, z and radius, bit for bit
+            auto                    operator<=>( const LocalStaticKey& ) const = default;
+        };
+        struct LocalStaticPart
+        {
+            uint64_t Revision = 0;
+            uint64_t LodKey   = 0;
+            uint64_t Asked    = 0; // the gather that last asked for it
+            uint64_t Hash     = 0;
+        };
+        std::map<LocalStaticKey, LocalStaticPart> m_LocalStaticParts;
+        uint64_t                                  m_LocalStaticSweep = 0; // the gather the last eviction ran for
+        [[nodiscard]] uint64_t                    LocalStaticCasterHash( const glm::vec3& centre, float radius );
         // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each, the static /
         // generic rows finished for this gather): a queue changed after the last GatherShadowCasters breaks the
         // order SceneRenderer::OnUpdate keeps.

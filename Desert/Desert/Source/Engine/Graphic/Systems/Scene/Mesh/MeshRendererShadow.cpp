@@ -588,6 +588,12 @@ namespace Desert::Graphic::System
                setup.Fields.size() == m_InstancedQueue.size();
     }
 
+    bool MeshRenderer::StaticCastersTracked() const
+    {
+        return m_StaticCasters.Revision != 0u && m_StaticCasters.Gather == m_ShadowCasterSetup.Gather &&
+               m_ShadowCasterSetup.StaticRowsRevision == m_StaticCasters.Revision;
+    }
+
     uint64_t MeshRenderer::StaticLodKey() const
     {
         const auto*   camera = m_SceneRenderer->GetMainCamera();
@@ -777,9 +783,7 @@ namespace Desert::Graphic::System
         if ( m_CascadeStaticParts.size() <= cascade )
             m_CascadeStaticParts.resize( static_cast<std::size_t>( cascade ) + 1u );
         CascadeStaticPart& still   = m_CascadeStaticParts[cascade];
-        const bool         tracked = m_StaticCasters.Revision != 0u &&
-                             m_StaticCasters.Gather == m_ShadowCasterSetup.Gather &&
-                             m_ShadowCasterSetup.StaticRowsRevision == m_StaticCasters.Revision;
+        const bool         tracked = StaticCastersTracked();
         if ( !tracked || !still.Valid || still.Revision != m_StaticCasters.Revision ||
              still.LodKey != m_ShadowCasterSetup.StaticLodKey || still.CasterVP != m_CascadeCasterVP[cascade] )
         {
