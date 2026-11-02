@@ -2314,6 +2314,111 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr VulkanRendererAPI::ScrollGraphDepthIntoLayer( const RDG::PassContext& context,
+                                                                        const RDG::TextureRef   source,
+                                                                        const RDG::TextureRef   target,
+                                                                        const uint32_t          targetLayer,
+                                                                        const int32_t           shiftX,
+                                                                        const int32_t           shiftY,
+                                                                        const float             clearDepth )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from = context.GetTexture( source, RDG::Access::CopySrc );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to =
+             context.GetTexture( target, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( targetLayer ) );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromImage = VulkanRdgBackend::TextureOf( from.GetValue() );
+        if ( !fromImage )
+            return Common::MakeError( fromImage.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& src = *from.GetValue().Desc;
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        if ( src.Size.Width != dst.Size.Width || src.Size.Height != dst.Size.Height ||
+             src.Samples != dst.Samples || targetLayer >= dst.Layers )
+            return Common::MakeError( std::format(
+                 "ScrollGraphDepthIntoLayer: '{}' is {}x{} with {} sample(s), layer {} of '{}' ({}x{}, {} "
+                 "sample(s), {} layer(s)); a scroll needs the same size and sample count and an existing layer",
+                 from.GetValue().Name, src.Size.Width, src.Size.Height, src.Samples, targetLayer,
+                 to.GetValue().Name, dst.Size.Width, dst.Size.Height, dst.Samples, dst.Layers ) );
+
+        // The graph's Copy node put the source in TRANSFER_SRC and the target layer in TRANSFER_DST. The layer at the
+        // far plane first: the texels no source texel lands on are the strips the caller draws next.
+        const VkImage                  targetImage = toImage.GetValue()->GetImage();
+        const VkClearDepthStencilValue clear{ clearDepth, 0u };
+        const VkImageSubresourceRange  range{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, targetLayer, 1 };
+        vkCmdClearDepthStencilImage( commands.GetValue(), targetImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear,
+                                     1, &range );
+        const int32_t width  = static_cast<int32_t>( src.Size.Width ) - std::abs( shiftX );
+        const int32_t height = static_cast<int32_t>( src.Size.Height ) - std::abs( shiftY );
+        if ( width <= 0 || height <= 0 )
+            return BOOLSUCCESS;
+        // The copy writes texels the clear wrote: transfer write after transfer write.
+        VkMemoryBarrier written{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+        written.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        written.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier( commands.GetValue(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                              1, &written, 0, nullptr, 0, nullptr );
+        VkImageCopy region{};
+        region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+        region.srcOffset      = { std::max( -shiftX, 0 ), std::max( -shiftY, 0 ), 0 };
+        region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, targetLayer, 1 };
+        region.dstOffset      = { std::max( shiftX, 0 ), std::max( shiftY, 0 ), 0 };
+        region.extent         = { static_cast<uint32_t>( width ), static_cast<uint32_t>( height ), 1 };
+        vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        targetImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphLayerToDepth( const RDG::PassContext& context,
+                                                                    const RDG::TextureRef   source,
+                                                                    const uint32_t          sourceLayer,
+                                                                    const RDG::TextureRef   target )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from =
+             context.GetTexture( source, RDG::Access::CopySrc, RDG::SubresourceRange::Layer( sourceLayer ) );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to = context.GetTexture( target, RDG::Access::CopyDst );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromImage = VulkanRdgBackend::TextureOf( from.GetValue() );
+        if ( !fromImage )
+            return Common::MakeError( fromImage.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& src = *from.GetValue().Desc;
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        if ( src.Size.Width != dst.Size.Width || src.Size.Height != dst.Size.Height ||
+             src.Samples != dst.Samples || sourceLayer >= src.Layers )
+            return Common::MakeError( std::format(
+                 "CopyGraphLayerToDepth: layer {} of '{}' ({}x{}, {} sample(s), {} layer(s)) into '{}' ({}x{}, {} "
+                 "sample(s)); a copy needs the same size and sample count and an existing layer",
+                 sourceLayer, from.GetValue().Name, src.Size.Width, src.Size.Height, src.Samples, src.Layers,
+                 to.GetValue().Name, dst.Size.Width, dst.Size.Height, dst.Samples ) );
+
+        // The graph's Copy node put the source layer in TRANSFER_SRC and the target in TRANSFER_DST.
+        VkImageCopy region{};
+        region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, sourceLayer, 1 };
+        region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+        region.extent         = { dst.Size.Width, dst.Size.Height, 1 };
+        vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        toImage.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr VulkanRendererAPI::CopyGraphBufferToTexture( const RDG::PassContext& context,
                                                                        const RDG::BufferRef    source,
                                                                        const RDG::TextureRef   target )

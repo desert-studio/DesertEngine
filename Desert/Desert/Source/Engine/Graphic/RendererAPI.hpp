@@ -334,6 +334,20 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                              RDG::TextureRef source, RDG::TextureRef target,
                                                              uint32_t targetLayer ) = 0;
+        // A SCROLLED cascade's layer (MeshRenderer, UE's CSM scrolling): layer @p targetLayer of @p target cleared to
+        // @p clearDepth, then the texels of @p source that still land inside it copied in, shifted by (@p shiftX,
+        // @p shiftY) texels (destination = source + shift). The same Copy node declarations as CopyGraphDepthToLayer;
+        // the same extent and sample count, else refused and named.
+        virtual Common::BoolResultStr ScrollGraphDepthIntoLayer( const RDG::PassContext& context,
+                                                                 RDG::TextureRef source, RDG::TextureRef target,
+                                                                 uint32_t targetLayer, int32_t shiftX,
+                                                                 int32_t shiftY, float clearDepth ) = 0;
+        // The other way: layer @p sourceLayer of the graph depth array @p source into the graph depth @p target,
+        // inside the exec of a Copy node that declared that layer CopySrc and @p target CopyDst (a scrolled cascade's
+        // static depth back into its cache). The same extent and sample count, else refused and named.
+        virtual Common::BoolResultStr CopyGraphLayerToDepth( const RDG::PassContext& context,
+                                                             RDG::TextureRef source, uint32_t sourceLayer,
+                                                             RDG::TextureRef target ) = 0;
         // Copy the tightly packed texels of the graph buffer @p source into mip 0, layer 0 of the colour graph
         // texture @p target, inside the exec of the Copy node @p context that declared @p source CopySrc and
         // @p target CopyDst (UE: a texture upload recorded on the graph's command list; no submit, no wait). The

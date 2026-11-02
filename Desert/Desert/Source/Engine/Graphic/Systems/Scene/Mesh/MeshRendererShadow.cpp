@@ -365,6 +365,8 @@ namespace Desert::Graphic::System
             state.RedrawStatic = false;
             state.Rebuild      = false;
             state.Movable      = false;
+            state.Scroll       = false;
+            state.StripCount   = 0;
         }
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
@@ -438,6 +440,10 @@ namespace Desert::Graphic::System
             {
                 const uint32_t v                                     = slot * kMaxCascades + c;
                 m_CascadeVP[v]                                       = fits[c].ViewProj;
+                m_CascadePlacement[v] = CascadePlacement{ .Travel        = light->Direction,
+                                                          .WorldPerTexel = fits[c].WorldPerTexel,
+                                                          .DepthOrigin   = fits[c].DepthOrigin,
+                                                          .TexelOrigin   = fits[c].TexelOrigin };
                 state.WorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
                 state.DepthRange[static_cast<glm::length_t>( c )]    = fits[c].DepthRange;
                 state.SplitFar[static_cast<glm::length_t>( c )]      = fits[c].SplitFar;
@@ -843,7 +849,8 @@ namespace Desert::Graphic::System
         return h ^ ( key.Hidden.High.size() * 0x9E3779B97F4A7C15ull );
     }
 
-    uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, bool& movable )
+    uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, const glm::mat4& casterVP,
+                                                   const bool withLod, bool& movable, bool& windSplit )
     {
         // THE CASTER BOX, as BuildShadowCascadeDraws culls with: a static caster outside it is not in the cache,
         // so it moving changes nothing drawn.
@@ -854,7 +861,7 @@ namespace Desert::Graphic::System
             movable = true;
             return 0;
         }
-        const Core::Frustum frustum( m_CascadeCasterVP[cascade], glm::mat4( 1.0f ) );
+        const Core::Frustum frustum( casterVP, glm::mat4( 1.0f ) );
         // The gathered boxes (GatherShadowCasters), the ones BuildShadowCascadeDraws culls with.
         const auto reaches = [&frustum]( const ShadowCasterRow& row )
         { return IsVisibleInView( frustum, row.WorldBounds ); };
@@ -869,7 +876,8 @@ namespace Desert::Graphic::System
         CascadeStaticPart& still   = m_CascadeStaticParts[cascade];
         const bool         tracked = StaticCastersTracked();
         if ( !tracked || !still.Valid || still.Revision != m_StaticCasters.Revision ||
-             still.LodKey != m_ShadowCasterSetup.StaticLodKey || still.CasterVP != m_CascadeCasterVP[cascade] )
+             still.LodKey != m_ShadowCasterSetup.StaticLodKey || still.CasterVP != casterVP ||
+             still.WithLod != withLod )
         {
             SignatureHash stillHash;
             for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
@@ -883,7 +891,8 @@ namespace Desert::Graphic::System
                 stillHash.Add( rd.ForcedLOD );
                 stillHash.Add( rd.LODBias );
                 // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
-                stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
+                if ( withLod )
+                    stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
                 // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
                 // (ShadingOf: the same answer the casters draw with).
                 const SectionShading shading = ShadingOf( rd );
@@ -898,12 +907,14 @@ namespace Desert::Graphic::System
                     continue;
                 stillHash.Add( g.Mesh->GetRenderRevision() );
                 stillHash.Add( g.Transform );
-                stillHash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
+                if ( withLod )
+                    stillHash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
             }
             still.Valid    = tracked;
             still.Revision = m_StaticCasters.Revision;
             still.LodKey   = m_ShadowCasterSetup.StaticLodKey;
-            still.CasterVP = m_CascadeCasterVP[cascade];
+            still.CasterVP = casterVP;
+            still.WithLod  = withLod;
             still.Hash     = stillHash.Value;
         }
         hash.Add( still.Hash );
@@ -935,11 +946,13 @@ namespace Desert::Graphic::System
             m_CascadeIsmParts.resize( static_cast<std::size_t>( cascade ) + 1u );
         CascadeIsmPart& part = m_CascadeIsmParts[cascade];
         if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision ||
-             part.CasterVP != m_CascadeCasterVP[cascade] || part.Wind != cascadeWind || part.Ring != cascadeRing )
+             part.CasterVP != casterVP || part.WithLod != withLod || part.Wind != cascadeWind ||
+             part.Ring != cascadeRing )
         {
             SignatureHash ismHash;
             bool          ismMovable = false;
             bool          nearEdge   = false;
+            bool          ismSplit   = false;
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
@@ -960,11 +973,13 @@ namespace Desert::Graphic::System
                     // each frame until it leaves the edge.
                     if ( row.NearWindEdge && cascadeWind > 0.0f )
                     {
+                        ismSplit = true;
                         ismHash.Add( m_ShadowCasterSetup.Gather );
                         nearEdge = true;
                     }
                     if ( row.Sways && cascadeWind > 0.0f )
                     {
+                        ismSplit = true;
                         const ShadowWindRingSide side =
                              ShadowWindRingSideOf( row.WindPoint, row.CasterReach, cascadeRing, ringOrigin );
                         if ( side == ShadowWindRingSide::Edge )
@@ -979,12 +994,15 @@ namespace Desert::Graphic::System
                         }
                     }
                     ismHash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
-                    ismHash.Add( row.LodLevel );
+                    if ( withLod )
+                        ismHash.Add( row.LodLevel );
                 }
             }
             part.Valid    = !nearEdge;
             part.Revision = m_ShadowCasterSetup.IsmRevision;
-            part.CasterVP = m_CascadeCasterVP[cascade];
+            part.CasterVP  = casterVP;
+            part.WithLod   = withLod;
+            part.WindSplit = ismSplit;
             part.Wind     = cascadeWind;
             part.Ring     = cascadeRing;
             part.Hash     = ismHash.Value;
@@ -993,6 +1011,8 @@ namespace Desert::Graphic::System
         hash.Add( part.Hash );
         if ( part.Movable )
             movable = true;
+        if ( part.WindSplit )
+            windSplit = true;
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
@@ -1032,6 +1052,7 @@ namespace Desert::Graphic::System
             hash.Add( sways );
             if ( !sways )
                 continue;
+            windSplit = true;
             hash.Add( windOrigin );
             if ( !( windOrigin.w > 0.0f ) )
                 continue; // every instance casts its rest pose into the static layer: no mover
@@ -1055,9 +1076,10 @@ namespace Desert::Graphic::System
     void MeshRenderer::PlanCascadeCache()
     {
         // UE's cached shadow maps for a directional light's cascades: the static casters' depth is kept per
-        // cascade and drawn again only when the cascade's matrix (the sun turned, the camera moved a texel) or
-        // one of the static casters it reaches changed; the movable casters are drawn over a copy of it every
-        // frame they exist.
+        // cascade and drawn again only when the cascade's map moved other than by whole texels (the sun turned, a
+        // depth quantum was crossed, ComputeShadowCascades) or one of the static casters it reaches changed; a map
+        // that moved by whole texels SCROLLS (UE's CSM scrolling): the cache is shifted and only the strips the
+        // shift uncovered are drawn. The movable casters are drawn over a copy of it every frame they exist.
         if ( !m_ShadowPipeline )
             return;
 
@@ -1079,13 +1101,15 @@ namespace Desert::Graphic::System
                 CascadeCacheState& state = m_CascadeCache[v];
                 if ( !m_CascadeStaticFB[v] )
                     continue;
-                bool          movable = false;
-                SignatureHash key;
-                key.Add( CascadeStaticSignature( v, movable ) );
                 // The non-mesh casters (the landscape): a keyed one is drawn into the static layer and its key is
                 // the layer's (a sculpted height, a streamed displacement mip, a moved camera's LOD or dice redraw
                 // it); an unkeyed one makes the cascade movable. Asked of THIS frame's draws: the plan runs after
-                // TerrainRenderer::PrepareLocalShadowViews.
+                // TerrainRenderer::PrepareLocalShadowViews. A keyed one's content (CascadeShadowContent: its key less
+                // the camera's detail) is what the content key below holds of it.
+                bool          movable = false;
+                SignatureHash casterKey;
+                SignatureHash casterContent;
+                bool          contentKnown = StaticCastersTracked();
                 for ( const auto& weak : m_ShadowCasters )
                 {
                     const auto caster = weak.lock();
@@ -1093,7 +1117,11 @@ namespace Desert::Graphic::System
                         continue;
                     if ( const std::optional<uint64_t> cast = caster->CascadeShadowSignature( v ) )
                     {
-                        key.Add( *cast );
+                        casterKey.Add( *cast );
+                        if ( const std::optional<uint64_t> content = caster->CascadeShadowContent( v ) )
+                            casterContent.Add( *content );
+                        else
+                            contentKnown = false;
                         m_CascadeKeyedCasters[v].push_back( weak );
                     }
                     else
@@ -1102,13 +1130,80 @@ namespace Desert::Graphic::System
                         m_CascadeUnkeyedCasters[v].push_back( weak );
                     }
                 }
-                key.Add( m_CascadeCasterVP[v] );
-                key.Add( m_CascadeCasterBias[v] );
                 EnsureShadowViewMaterials( kCascadeMovableViewBase + v );
 
+                // THE CONTENT KEY (UE's cached CSM: a cached cascade is invalidated by its static casters changing,
+                // not by the camera): which static casters the box of a caster matrix holds, what they are and how
+                // they are biased - without the levels of detail the camera chose for them, a cache keeps the level
+                // it was drawn at. It lets a cascade whose map moved by whole texels SCROLL: the cached depth is
+                // shifted and only the strips the shift uncovered are drawn (CascadeScrollStrips), once the box the
+                // cache was drawn with still holds what it held. Kept while every static caster is tracked
+                // (StaticCastersTracked), every keyed caster tells its content apart and no caster in the box is split
+                // by the wind ring around the camera; otherwise the full key below decides, as it did.
+                const auto contentKey = [&]( const glm::mat4& casterVP, bool& reachedMovable, bool& windSplit )
+                {
+                    SignatureHash content;
+                    content.Add( CascadeStaticSignature( v, casterVP, false, reachedMovable, windSplit ) );
+                    content.Add( casterContent.Value );
+                    content.Add( m_CascadeCasterBias[v] );
+                    return content.Value;
+                };
+                const CascadePlacement& placement    = m_CascadePlacement[v];
+                const bool              samePlace    = state.Placement && state.Placement->SameMapAs( placement );
+                bool                    keyIsContent = contentKnown;
+                bool                    redraw       = true;
+                uint64_t                newKey       = 0;
+                state.Scroll                         = false;
+                state.StripCount                     = 0;
+                if ( keyIsContent )
+                {
+                    glm::ivec2 shift( 0 );
+                    if ( samePlace )
+                        shift = state.Placement->ShiftTo( placement );
+                    // The cached box is asked FIRST: its static part is the one the last frame kept (SCENE-CACHE-4);
+                    // this frame's box is asked after it and kept for the next.
+                    bool cacheHolds = false;
+                    if ( samePlace && shift != glm::ivec2( 0 ) && state.KeyIsContent && state.StaticKey &&
+                         CascadeScrollOverlaps( shift, m_Shadow.ShadowMapSize ) )
+                    {
+                        bool cachedMovable = false;
+                        bool cachedSplit   = false;
+                        cacheHolds = contentKey( state.CasterVP, cachedMovable, cachedSplit ) == *state.StaticKey &&
+                                     !cachedSplit;
+                    }
+                    bool windSplit = false;
+                    newKey         = contentKey( m_CascadeCasterVP[v], movable, windSplit );
+                    if ( windSplit )
+                        keyIsContent = false;
+                    else if ( samePlace && shift == glm::ivec2( 0 ) )
+                        redraw = !state.KeyIsContent || state.StaticKey != newKey;
+                    else if ( cacheHolds )
+                    {
+                        redraw           = false;
+                        state.Scroll     = true;
+                        state.Shift      = shift;
+                        state.StripCount = CascadeScrollStrips( shift, m_Shadow.ShadowMapSize, m_CascadeCasterVP[v],
+                                                                state.Strips );
+                    }
+                }
+                if ( !keyIsContent )
+                {
+                    bool          unusedSplit = false;
+                    SignatureHash key;
+                    key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], true, movable, unusedSplit ) );
+                    key.Add( casterKey.Value );
+                    key.Add( m_CascadeCasterVP[v] );
+                    key.Add( m_CascadeCasterBias[v] );
+                    newKey = key.Value;
+                    redraw = state.KeyIsContent || state.StaticKey != newKey;
+                }
+
                 state.Movable      = movable;
-                state.RedrawStatic = state.StaticKey != key.Value;
-                state.StaticKey    = key.Value;
+                state.RedrawStatic = redraw || state.Scroll;
+                state.StaticKey    = newKey;
+                state.KeyIsContent = keyIsContent;
+                state.Placement    = placement;
+                state.CasterVP     = m_CascadeCasterVP[v];
                 state.Rebuild      = state.RedrawStatic || state.Movable || state.MapHasMovable;
                 if ( state.Rebuild )
                     state.MapHasMovable = state.Movable;
@@ -1466,8 +1561,23 @@ namespace Desert::Graphic::System
         // ShadowGenericLod, ShadowIsmInstances), the same level in every view; the box every view culls a caster
         // by is the gathered one (GatherShadowCasters).
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
-        const auto               inView   = [&cascadeFrustum]( const Common::Math::AABB& box )
-        { return IsVisibleInView( cascadeFrustum, box ); };
+        // A SCROLLED CASCADE'S STATIC LAYER (PlanCascadeCache) draws what reaches the strips its shift uncovered: the
+        // rest of the layer is its cache, copied in shifted.
+        std::vector<Core::Frustum> strips;
+        if ( layer == ShadowCasterLayer::Static && c < kCascadeViews && m_CascadeCache[c].Scroll )
+            for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount; ++s )
+                strips.emplace_back( m_CascadeCache[c].Strips[s], glm::mat4( 1.0f ) );
+        const auto inView = [&cascadeFrustum, &strips]( const Common::Math::AABB& box )
+        {
+            if ( !IsVisibleInView( cascadeFrustum, box ) )
+                return false;
+            if ( strips.empty() )
+                return true;
+            for ( const Core::Frustum& strip : strips )
+                if ( IsVisibleInView( strip, box ) )
+                    return true;
+            return false;
+        };
         // Whether gathered instance @p k sways in this view: the shadow wind distance's rule (the gather's Sways),
         // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by
         // GpuCull_CastsRestPose, the same function), a VSM level, a local light's view and the rain occlusion; none
@@ -2070,7 +2180,9 @@ namespace Desert::Graphic::System
         // "MeshShadowCascade{c}.FromCache"), and this frame may make no copy (no caster pipeline, no fitted
         // cascade, the ray-traced sun): the array is created for the copy all the same (UE: the TexCreate flags of
         // the pooled target), or the copy's command meets an image without TRANSFER_DST.
-        graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics, { RDG::Access::CopyDst } );
+        // A scrolled cascade's layer is also copied back into its cache ("MeshShadowCascade{c}.ToCache"): CopySrc.
+        graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics,
+                       { RDG::Access::CopyDst, RDG::Access::CopySrc } );
         m_CascadeMapsBuilt = true;
         // Every layer starts at the far plane (1, standard Z: "no occluder"), written once on the frame the array
         // is made. The cascade passes write only the layers fitted this frame, and none when nothing is fitted (an
@@ -2129,6 +2241,12 @@ namespace Desert::Graphic::System
                      {
                          if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
                              return drawn;
+                         // A scrolled cascade's keyed casters fill its strips only (PlanCascadeCache).
+                         const CascadeCacheState& cache       = m_CascadeCache[c];
+                         uint32_t                 regionCount = 0;
+                         if ( cache.Scroll )
+                             regionCount = cache.StripCount;
+                         const std::span<const glm::mat4> region( cache.Strips, regionCount );
                          // The keyed non-mesh casters (the landscape), into the cached layer
                          // their key is part of (PlanCascadeCache).
                          for ( const auto& [weak, firstBlock] : m_CascadeStaticCasters[c] )
@@ -2138,8 +2256,8 @@ namespace Desert::Graphic::System
                              {
                                  continue; // gone since the setup: its draws went with it
                              }
-                             if ( auto cast = caster->RecordShadowView(
-                                       context, c, firstBlock, m_CascadeCasterVP[c], m_CascadeCasterBias[c] );
+                             if ( auto cast = caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
+                                                                        m_CascadeCasterBias[c], region );
                                   !cast.IsSuccess() )
                              {
                                  return cast;
@@ -2147,8 +2265,7 @@ namespace Desert::Graphic::System
                          }
                          return BOOLSUCCESS;
                      },
-                     .TargetFramebuffer = m_CascadeStaticFB[c],
-                     .ClearDepth        = 1.0f };
+                 };
                 pass.Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
                 {
                     // Depth-only casters sample no graph resource: one block per caster material with the
@@ -2169,12 +2286,37 @@ namespace Desert::Graphic::System
                         }
                     }
                 };
-                frame.StaticPasses.push_back( std::move( pass ) );
+                if ( state.Scroll )
+                {
+                    // Into the layer the scroll copy filled ("MeshShadowCascade{c}.Scroll"): LOAD, the strips drawn
+                    // over it.
+                    pass.TargetDepthArray = maps;
+                    pass.TargetLayer      = layer;
+                    frame.Scrolls.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
+                                               .Layer = layer,
+                                               .Shift = state.Shift,
+                                               .Name  = name + ".Scroll" } );
+                    frame.ScrollPasses.push_back( std::move( pass ) );
+                }
+                else
+                {
+                    pass.TargetFramebuffer = m_CascadeStaticFB[c];
+                    pass.ClearDepth        = 1.0f;
+                    frame.StaticPasses.push_back( std::move( pass ) );
+                }
             }
 
-            frame.Copies.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
-                                      .Layer = layer,
-                                      .Name  = name + ".FromCache" } );
+            // A scrolled cascade's layer now holds its static depth whole: it becomes the cache. Any other rebuilt
+            // cascade is its cache copied in.
+            if ( state.Scroll )
+                frame.Copies.push_back( { .From    = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
+                                          .Layer   = layer,
+                                          .Name    = name + ".ToCache",
+                                          .ToCache = true } );
+            else
+                frame.Copies.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
+                                          .Layer = layer,
+                                          .Name  = name + ".FromCache" } );
 
             if ( !state.Movable )
                 continue;
@@ -2198,7 +2340,7 @@ namespace Desert::Graphic::System
                              continue; // gone since the setup: its draws went with it
                          }
                          if ( auto cast = caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
-                                                                    m_CascadeCasterBias[c] );
+                                                                    m_CascadeCasterBias[c], {} );
                               !cast.IsSuccess() )
                          {
                              return cast;

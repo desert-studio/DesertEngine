@@ -154,21 +154,58 @@ namespace Desert::Graphic
             // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
             const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
             const System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
-            AddSystemRasters( graph, textures, cascades.StaticPasses, true );
-            for ( const auto& copy : cascades.Copies )
+            // A scrolled cascade first (UE's CSM scrolling): its layer cleared to the far plane (1, standard Z) and
+            // the part of its cache the new placement still covers copied in, shifted.
+            for ( const auto& scroll : cascades.Scrolls )
             {
-                const RDG::TextureRef from = textures.Import( copy.From, copy.Name + ".Cache" );
+                const RDG::TextureRef from = textures.Import( scroll.From, scroll.Name + ".Cache" );
                 if ( !from.IsValid() )
                     continue;
+                graph.AddPass(
+                     scroll.Name, RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( from, RDG::Access::CopySrc );
+                         pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( scroll.Layer ) );
+                     },
+                     [from, maps, layer = scroll.Layer, shift = scroll.Shift]( RDG::PassContext& context )
+                          -> Common::BoolResultStr
+                     {
+                         return Renderer::ScrollGraphDepthIntoLayer( context, from, maps, layer, shift.x, shift.y,
+                                                                     1.0f );
+                     } );
+            }
+            AddSystemRasters( graph, textures, cascades.StaticPasses, true );
+            // ...its strips drawn over the shifted cache: LOAD, no clear may wipe the copy.
+            AddSystemRasters( graph, textures, cascades.ScrollPasses, false );
+            for ( const auto& copy : cascades.Copies )
+            {
+                const RDG::TextureRef cache = textures.Import( copy.From, copy.Name + ".Cache" );
+                if ( !cache.IsValid() )
+                    continue;
+                if ( copy.ToCache )
+                {
+                    // A scrolled cascade's layer, its static depth whole again, back into its cache.
+                    graph.AddPass(
+                         copy.Name, RDG::PassFlags::Copy,
+                         [&]( RDG::PassBuilder& pass )
+                         {
+                             pass.Read( maps, RDG::Access::CopySrc, RDG::SubresourceRange::Layer( copy.Layer ) );
+                             pass.Write( cache, RDG::Access::CopyDst );
+                         },
+                         [cache, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                         { return Renderer::CopyGraphLayerToDepth( context, maps, layer, cache ); } );
+                    continue;
+                }
                 graph.AddPass(
                      copy.Name, RDG::PassFlags::Copy,
                      [&]( RDG::PassBuilder& pass )
                      {
-                         pass.Read( from, RDG::Access::CopySrc );
+                         pass.Read( cache, RDG::Access::CopySrc );
                          pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( copy.Layer ) );
                      },
-                     [from, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
-                     { return Renderer::CopyGraphDepthToLayer( context, from, maps, layer ); } );
+                     [cache, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphDepthToLayer( context, cache, maps, layer ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
         }
