@@ -408,27 +408,28 @@ namespace Desert::Graphic::SurfaceCache
         }
     }
 
-    SceneFrame SurfaceCacheScene::Update( const std::vector<SceneInstance>& instances,
-                                          const std::span<const glm::vec3>  viewers )
+    void SurfaceCacheScene::RemoveInstance( const std::unordered_map<uint64_t, Instance>::iterator it )
     {
-        ++m_Frame;
-        SceneFrame frame;
-        if ( m_Budget.AtlasSize < kPhysicalPageSize || m_CaptureAtlasSize == 0 )
-            return frame;
+        for ( Card& card : it->second.Cards )
+            FreeCard( card );
+        FreeRow( it->second.Row );
+        m_Instances.erase( it );
+        ++m_PlacementRevision;
+    }
 
+    void SurfaceCacheScene::TakeGroup( const SceneGroup& group, HeldGroup& held )
+    {
         // ADD / MOVE. A key that comes back with another mesh or another card build is a new instance.
-        for ( const SceneInstance& in : instances )
+        std::vector<uint64_t> keys;
+        keys.reserve( group.Instances.size() );
+        for ( const SceneInstance& in : group.Instances )
         {
             if ( !in.Cards || in.Cards->Cards.empty() )
                 continue;
             auto it = m_Instances.find( in.Key );
             if ( it != m_Instances.end() && ( it->second.Mesh != in.Mesh || it->second.Build != in.Cards ) )
             {
-                for ( Card& card : it->second.Cards )
-                    FreeCard( card );
-                FreeRow( it->second.Row );
-                m_Instances.erase( it );
-                ++m_PlacementRevision;
+                RemoveInstance( it );
                 it = m_Instances.end();
             }
             if ( it == m_Instances.end() )
@@ -460,25 +461,72 @@ namespace Desert::Graphic::SurfaceCache
                         mip->Captured     = false;
                         mip->CaptureFrame = 0;
                     }
+                ++m_RecordSerial;
             }
             for ( Card& card : it->second.Cards )
+            {
+                // A card that became ready may be picked: the pick looks again (m_RecordSerial).
+                if ( card.Ready != in.CaptureReady )
+                    ++m_RecordSerial;
                 card.Ready = in.CaptureReady;
+            }
+            it->second.Group     = group.Id;
             it->second.Source    = in.Source;
             it->second.SeenFrame = m_Frame;
+            keys.push_back( in.Key );
         }
-        // REMOVE: every instance the frame no longer has gives its pages back.
-        for ( auto it = m_Instances.begin(); it != m_Instances.end(); )
+        // REMOVE: every instance the group held and no longer has gives its pages back (one another group took
+        // this frame is that group's).
+        for ( const uint64_t key : held.Keys )
+        {
+            const auto it = m_Instances.find( key );
+            if ( it != m_Instances.end() && it->second.Group == group.Id && it->second.SeenFrame != m_Frame )
+                RemoveInstance( it );
+        }
+        held.Keys     = std::move( keys );
+        held.Revision = group.Revision;
+        held.Taken    = true;
+    }
+
+    SceneFrame SurfaceCacheScene::Update( const std::span<const SceneGroup> groups,
+                                          const std::span<const glm::vec3>  viewers )
+    {
+        ++m_Frame;
+        SceneFrame frame;
+        if ( m_Budget.AtlasSize < kPhysicalPageSize || m_CaptureAtlasSize == 0 )
+        {
+            static const std::shared_ptr<const SceneRecords> kNoRecords = std::make_shared<const SceneRecords>();
+            frame.Records                                               = kNoRecords;
+            return frame;
+        }
+
+        // ADD / MOVE / REMOVE BY GROUP (SCENE-CACHE-5; UE FLumenSceneData's primitive add / update / remove
+        // lists): a group whose revision is the one the scene last took it at is not walked - its instances are
+        // where they were. Every group of the frame names its index (a capture's CardCapture::Group).
+        for ( uint32_t g = 0; g < groups.size(); ++g )
+        {
+            const SceneGroup& group = groups[g];
+            HeldGroup&        held  = m_Groups[group.Id];
+            held.Index              = g;
+            held.SeenFrame          = m_Frame;
+            if ( !held.Taken || held.Revision != group.Revision )
+                TakeGroup( group, held );
+        }
+        // A group the frame no longer has: every instance it held gives its pages back.
+        for ( auto it = m_Groups.begin(); it != m_Groups.end(); )
         {
             if ( it->second.SeenFrame == m_Frame )
             {
                 ++it;
                 continue;
             }
-            for ( Card& card : it->second.Cards )
-                FreeCard( card );
-            FreeRow( it->second.Row );
-            it = m_Instances.erase( it );
-            ++m_PlacementRevision;
+            for ( const uint64_t key : it->second.Keys )
+            {
+                const auto instance = m_Instances.find( key );
+                if ( instance != m_Instances.end() && instance->second.Group == it->first )
+                    RemoveInstance( instance );
+            }
+            it = m_Groups.erase( it );
         }
 
         // RESOLUTIONS AND ALLOCATION (AllocateCards), made again only when what they read moved (SCENE-CACHE-4;
@@ -507,35 +555,55 @@ namespace Desert::Graphic::SurfaceCache
         // CONFIRMED CAPTURES (GI-SURFACE-CACHE-4). A capture becomes the card's surface only once the graph that
         // drew it EXECUTED (ConfirmCapturesExecuted, from the copy pass's exec): a frame whose graph was dropped
         // (a pass refused at build) never ran its copy, and its cards are captured again rather than shown empty
-        // for ever. A capture that no execution confirms within kCaptureConfirmFrames is taken as dropped.
+        // for ever. A capture that no execution confirms within kCaptureConfirmFrames is taken as dropped. The
+        // cards are walked only while a frame's captures are in flight (m_InFlightCaptureFrames, SCENE-CACHE-5).
         {
             std::vector<uint64_t> executed;
             {
                 const std::lock_guard lock( m_ExecutedMutex );
                 executed.swap( m_ExecutedCaptureFrames );
             }
-
-            for ( auto& [key, instance] : m_Instances )
-                for ( Card& card : instance.Cards )
-                    for ( CardMip* mip : { &card.Low, &card.High } )
-                    {
-                        if ( mip->CaptureFrame == 0 )
-                            continue;
-                        if ( std::find( executed.begin(), executed.end(), mip->CaptureFrame ) != executed.end() )
+            if ( !m_InFlightCaptureFrames.empty() )
+            {
+                for ( auto& [key, instance] : m_Instances )
+                    for ( Card& card : instance.Cards )
+                        for ( CardMip* mip : { &card.Low, &card.High } )
                         {
-                            mip->Captured     = true;
-                            mip->CaptureFrame = 0;
+                            if ( mip->CaptureFrame == 0 )
+                                continue;
+                            if ( std::find( executed.begin(), executed.end(), mip->CaptureFrame ) !=
+                                 executed.end() )
+                            {
+                                mip->Captured     = true;
+                                mip->CaptureFrame = 0;
+                                ++m_RecordSerial;
+                            }
+                            else if ( mip->CaptureFrame + kCaptureConfirmFrames < m_Frame )
+                            {
+                                mip->CaptureFrame = 0;
+                                ++m_RecordSerial;
+                            }
                         }
-                        else if ( mip->CaptureFrame + kCaptureConfirmFrames < m_Frame )
-                            mip->CaptureFrame = 0;
-                    }
+                // A frame confirmed or given up has no mip in flight any more.
+                std::erase_if( m_InFlightCaptureFrames,
+                               [&]( const uint64_t inFlight )
+                               {
+                                   return std::find( executed.begin(), executed.end(), inFlight ) !=
+                                               executed.end() ||
+                                          inFlight + kCaptureConfirmFrames < m_Frame;
+                               } );
+            }
         }
 
         // CAPTURES, shelf-packed into the capture atlas (rows of the tallest mip in them): every low mip first,
         // nearest first - the guaranteed surface before any sharper one - then the high mips, nearest first. A
         // low mip is captured even under a captured high one: it is what the card shows once the high is evicted.
+        // Walked only when a mip may wait (SCENE-CACHE-5): the last walk left one for want of room or of the
+        // per-frame cap, or an event since may have made one (an allocation, a placement, a surface swap, a
+        // ready flag, a capture given up).
         uint32_t                           shelfX = 0, shelfY = 0, shelfHeight = 0;
         std::map<const CardMip*, uint32_t> captured; // mip -> index in frame.Captures
+        bool                               waiting = false;
         const auto                         capture = [&]( const Card& card, CardMip& mip )
         {
             if ( mip.ResX == 0 || mip.Captured || mip.CaptureFrame != 0 || !card.Ready )
@@ -547,7 +615,10 @@ namespace Desert::Graphic::SurfaceCache
                 shelfHeight = 0;
             }
             if ( shelfY + mip.ResY > m_CaptureAtlasSize )
+            {
+                waiting = true;
                 return; // the next frame's atlas
+            }
             CardCapture entry;
             entry.CaptureRect = { shelfX, shelfY, mip.ResX, mip.ResY };
             shelfX += mip.ResX;
@@ -563,31 +634,79 @@ namespace Desert::Graphic::SurfaceCache
             frame.Captures.push_back( entry );
             mip.CaptureFrame = m_Frame;
         };
-        for ( Card* card : m_SortedCards )
+        const bool pick = m_PickWaiting || m_PickSerial != m_RecordSerial || m_PickAtlas != m_AtlasSerial ||
+                          m_PickPlacement != m_PlacementRevision;
+        if ( pick )
         {
-            if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
-                break;
-            capture( *card, card->Low );
-        }
-        for ( Card* card : m_SortedCards )
-        {
-            if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
-                break;
-            capture( *card, card->High );
+            for ( Card* card : m_SortedCards )
+            {
+                if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
+                {
+                    waiting = true;
+                    break;
+                }
+                capture( *card, card->Low );
+            }
+            for ( Card* card : m_SortedCards )
+            {
+                if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
+                {
+                    waiting = true;
+                    break;
+                }
+                capture( *card, card->High );
+            }
+            if ( !frame.Captures.empty() )
+            {
+                m_InFlightCaptureFrames.push_back( m_Frame );
+                ++m_RecordSerial;
+            }
+            m_PickWaiting   = waiting;
+            m_PickSerial    = m_RecordSerial;
+            m_PickAtlas     = m_AtlasSerial;
+            m_PickPlacement = m_PlacementRevision;
         }
 
-        // THE GPU RECORDS (compact, this frame's order) and the page copies of this frame's captures.
-        const float    atlas          = static_cast<float>( m_Budget.AtlasSize );
+        // THE GPU RECORDS, made again only when one of them changed (THE KEPT RECORDS, SurfaceCacheScene.hpp).
         // Every visible page is relit in the frame after InvalidateLighting.
         const uint64_t lightingFactor = m_RelightAll ? 1u : std::max( m_Budget.DirectLightingUpdateFactor, 1u );
         m_RelightAll                  = false;
         frame.Frame                   = m_Frame;
+        if ( !m_Records || m_RecordsTransient || m_RecordsSerial != m_RecordSerial ||
+             m_RecordsAtlas != m_AtlasSerial || m_RecordsPlacement != m_PlacementRevision )
+        {
+            BuildRecords( captured, lightingFactor, frame );
+            m_RecordsSerial    = m_RecordSerial;
+            m_RecordsAtlas     = m_AtlasSerial;
+            m_RecordsPlacement = m_PlacementRevision;
+            return frame;
+        }
+        // Kept: no capture, no page first shown, the same records. The lighting budget's pages of this frame -
+        // one physical page in DirectLightingUpdateFactor, ascending as the walk would list them.
+        frame.Records = m_Records;
+        frame.LightingPages.reserve( m_VisiblePages.size() / lightingFactor + 1u );
+        for ( const auto& [page, physicalPage] : m_VisiblePages )
+            if ( physicalPage % lightingFactor == m_Frame % lightingFactor )
+                frame.LightingPages.push_back( page );
+        return frame;
+    }
+
+
+    void SurfaceCacheScene::BuildRecords( const std::map<const CardMip*, uint32_t>& captured,
+                                          const uint64_t lightingFactor, SceneFrame& frame )
+    {
+        // THE GPU RECORDS (compact, this frame's order) and the page copies of this frame's captures.
+        const float atlas = static_cast<float>( m_Budget.AtlasSize );
+        auto        made  = std::make_shared<SceneRecords>();
+        SceneRecords& records = *made;
+        m_VisiblePages.clear();
+        m_RecordsTransient = false;
         // (row, MeshCards index) of every instance, for the B3 table.
         std::vector<std::pair<uint32_t, uint32_t>> rowRecords;
         rowRecords.reserve( m_Instances.size() );
         for ( auto& [key, instance] : m_Instances )
         {
-            const uint32_t meshIndex = static_cast<uint32_t>( frame.MeshCards.size() );
+            const uint32_t meshIndex = static_cast<uint32_t>( records.MeshCards.size() );
             rowRecords.emplace_back( instance.Row, meshIndex );
             MeshCardsPayload mesh;
             const glm::mat3  basis( instance.World );
@@ -597,7 +716,7 @@ namespace Desert::Graphic::SurfaceCache
                 const glm::vec3 axis   = length > 0.0f ? basis[r] / length : glm::vec3( 0.0f );
                 mesh.WorldToLocal[r]   = glm::vec4( axis, instance.World[3][r] );
             }
-            mesh.Cards = glm::uvec4( static_cast<uint32_t>( frame.Cards.size() ),
+            mesh.Cards = glm::uvec4( static_cast<uint32_t>( records.Cards.size() ),
                                      static_cast<uint32_t>( instance.Cards.size() ),
                                      instance.Build->MostlyTwoSided ? 2u : 0u, 0u );
             for ( uint32_t c = 0; c < instance.Cards.size(); ++c )
@@ -606,7 +725,7 @@ namespace Desert::Graphic::SurfaceCache
                 const uint32_t direction = static_cast<uint32_t>( card.Build.Direction );
                 mesh.CardLookup[direction / 4u][static_cast<int>( direction % 4u )] |= 1u << c;
 
-                const uint32_t cardIndex = static_cast<uint32_t>( frame.Cards.size() );
+                const uint32_t cardIndex = static_cast<uint32_t>( records.Cards.size() );
                 CardPayload    payload;
                 for ( int r = 0; r < 3; ++r )
                     payload.WorldToLocal[r] = glm::vec4( card.Axes[r], card.Center[r] );
@@ -631,17 +750,21 @@ namespace Desert::Graphic::SurfaceCache
                 // one back on show) has lit layers its last lighting left, or a stranger's: lit like a capture.
                 const bool relight  = visible && ( capturing || card.Shown != shownMip );
                 card.Shown          = visible ? shownMip : ShownMip::None;
+                // A frame-only state: the next frame's records differ (the relight flag clears, the mip this frame
+                // captures is shown only once its capture is confirmed).
+                if ( relight || capturing )
+                    m_RecordsTransient = true;
                 payload.LocalExtent = glm::vec4( card.Extent, resident ? 2.0f * card.Extent.x / mip.ResX : 0.0f );
                 payload.Pages       = glm::uvec4( mip.PagesX | ( mip.PagesY << 16u ),
-                                                  static_cast<uint32_t>( frame.Pages.size() ), 0u, 0u );
+                                                  static_cast<uint32_t>( records.Pages.size() ), 0u, 0u );
                 payload.Info =
                      glm::uvec4( ( resident ? Log2( mip.ResX ) | ( Log2( mip.ResY ) << 8u ) : 0u ) |
                                       ( direction << 16u ) | ( 0xFu << 20u ) | ( visible ? 1u << 24u : 0u ),
                                  meshIndex, 0u, 0u );
-                frame.Cards.push_back( payload );
-                frame.ResidentCards += resident ? 1u : 0u;
-                frame.CapturedCards += visible ? 1u : 0u;
-                frame.HighResCards += visible && shownMip == ShownMip::High ? 1u : 0u;
+                records.Cards.push_back( payload );
+                records.ResidentCards += resident ? 1u : 0u;
+                records.CapturedCards += visible ? 1u : 0u;
+                records.HighResCards += visible && shownMip == ShownMip::High ? 1u : 0u;
 
                 for ( uint32_t py = 0; py < mip.PagesY; ++py )
                     for ( uint32_t px = 0; px < mip.PagesX; ++px )
@@ -668,8 +791,10 @@ namespace Desert::Graphic::SurfaceCache
                              rect.X / kPhysicalPageSize +
                              rect.Y / kPhysicalPageSize * AtlasPagesPerSide( m_Budget.AtlasSize );
                         if ( visible && ( relight || physicalPage % lightingFactor == m_Frame % lightingFactor ) )
-                            frame.LightingPages.push_back( static_cast<uint32_t>( frame.Pages.size() ) );
-                        frame.Pages.push_back( page );
+                            frame.LightingPages.push_back( static_cast<uint32_t>( records.Pages.size() ) );
+                        if ( visible )
+                            m_VisiblePages.emplace_back( static_cast<uint32_t>( records.Pages.size() ), physicalPage );
+                        records.Pages.push_back( page );
                     }
                 // The page copies of every mip captured this frame, shown or not.
                 for ( const CardMip* source : { &card.Low, &card.High } )
@@ -678,6 +803,7 @@ namespace Desert::Graphic::SurfaceCache
                     if ( entry == captured.end() )
                         continue;
                     CardCapture& captureEntry = frame.Captures[entry->second];
+                    captureEntry.Group        = m_Groups.at( instance.Group ).Index;
                     captureEntry.Source       = instance.Source;
                     captureEntry.World        = instance.World;
                     for ( uint32_t py = 0; py < source->PagesY; ++py )
@@ -693,10 +819,11 @@ namespace Desert::Graphic::SurfaceCache
                         }
                 }
             }
-            frame.MeshCards.push_back( mesh );
+            records.MeshCards.push_back( mesh );
         }
-        BuildInstanceTable( frame, rowRecords );
-        return frame;
+        BuildInstanceTable( records, rowRecords );
+        m_Records     = std::move( made );
+        frame.Records = m_Records;
     }
 
     uint32_t SurfaceCacheScene::AllocateRow()
@@ -718,7 +845,7 @@ namespace Desert::Graphic::SurfaceCache
     }
 
     void
-    SurfaceCacheScene::BuildInstanceTable( SceneFrame&                                       frame,
+    SurfaceCacheScene::BuildInstanceTable( SceneRecords&                                     frame,
                                            const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords ) const
     {
         // THE TABLE: every row ever handed out; a freed row reads "no cards" until it is reused.

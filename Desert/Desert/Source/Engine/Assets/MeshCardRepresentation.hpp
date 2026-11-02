@@ -195,6 +195,10 @@ namespace Desert::Assets
     public:
         [[nodiscard]] std::shared_ptr<const MeshCardsBuildData> Get() const;
         void Publish( std::shared_ptr<const MeshCardsBuildData> cards );
+        // Moved by every Publish, of any mesh's slot (SCENE-CACHE-5): a cache of what Get answered - the surface
+        // cache's card gather - reads the slots again only when cards landed somewhere since (an event, not a
+        // poll of every mesh's slot every frame).
+        [[nodiscard]] static uint64_t PublishGeneration();
 
     private:
         mutable std::mutex                        m_Mutex;

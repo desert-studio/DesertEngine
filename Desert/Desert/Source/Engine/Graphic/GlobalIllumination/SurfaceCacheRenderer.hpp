@@ -216,7 +216,7 @@ namespace Desert::Graphic::SurfaceCache
         // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
         // frame.
         [[nodiscard]] Common::ResultStr<SceneUpdate>
-        UpdateScene( const std::vector<SceneInstance>& instances, uint64_t engineFrame,
+        UpdateScene( std::span<const SceneGroup> groups, uint64_t engineFrame,
                      const GlobalIllumination::DirectionalLighting& lighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const

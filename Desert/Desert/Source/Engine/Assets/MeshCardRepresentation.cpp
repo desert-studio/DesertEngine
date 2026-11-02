@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cstring>
 #include <format>
@@ -298,9 +299,23 @@ namespace Desert::Assets
         return m_Cards;
     }
 
+    namespace
+    {
+        std::atomic<uint64_t> g_MeshCardsPublishGeneration{ 0 };
+    } // namespace
+
     void MeshCardsSlot::Publish( std::shared_ptr<const MeshCardsBuildData> cards )
     {
-        const std::lock_guard<std::mutex> lock( m_Mutex );
-        m_Cards = std::move( cards );
+        {
+            const std::lock_guard<std::mutex> lock( m_Mutex );
+            m_Cards = std::move( cards );
+        }
+        // After the store: a reader that sees the new generation sees the cards.
+        g_MeshCardsPublishGeneration.fetch_add( 1u, std::memory_order_acq_rel );
+    }
+
+    uint64_t MeshCardsSlot::PublishGeneration()
+    {
+        return g_MeshCardsPublishGeneration.load( std::memory_order_acquire );
     }
 } // namespace Desert::Assets

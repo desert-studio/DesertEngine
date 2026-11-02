@@ -360,7 +360,7 @@ namespace Desert::Graphic::SurfaceCache
     }
 
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
-    SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const uint64_t engineFrame,
+    SurfaceCacheRenderer::UpdateScene( const std::span<const SceneGroup> groups, const uint64_t engineFrame,
                                        const GlobalIllumination::DirectionalLighting& lighting )
     {
         // The frame's update already ran (another view of the scene, earlier this frame): this graph reads the
@@ -382,7 +382,7 @@ namespace Desert::Graphic::SurfaceCache
             m_LitBy          = lighting;
             m_ResetRadiosity = true;
         }
-        SceneFrame scene = m_Scene.Update( instances, views->Origins );
+        SceneFrame scene = m_Scene.Update( groups, views->Origins );
         m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Scene = scene };
         return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
     }
@@ -543,11 +543,12 @@ namespace Desert::Graphic::SurfaceCache
         SceneViewPush         push;
         push.ViewProjection = viewProjection;
         push.CameraPosition = glm::vec4( cameraPosition, 1.0f );
-        push.Counts         = glm::uvec4( m_AtlasSize, static_cast<uint32_t>( frame.Cards.size() ), 0u, 0u );
+        const uint32_t cardCount = static_cast<uint32_t>( frame.Records->Cards.size() );
+        push.Counts              = glm::uvec4( m_AtlasSize, cardCount, 0u, 0u );
         // FinalLighting is radiance; the target is scene colour, stored at radiance x pre-exposure. Albedo is shown as is.
         push.ColorScale     = glm::vec4( lit ? preExposure : 1.0f, 0.0f, 0.0f, 0.0f );
         GraphicsPipeline* const raw   = pipeline.GetValue().get();
-        const uint32_t          count = static_cast<uint32_t>( frame.Cards.size() );
+        const uint32_t          count = cardCount;
         graph.AddPass(
              lit ? "Debug: Lumen Scene (lit surface cache cards)" : "Debug: Lumen Scene (surface cache cards)",
              RDG::PassFlags::Raster,
@@ -585,10 +586,10 @@ namespace Desert::Graphic::SurfaceCache
     SurfaceCacheRenderer::FrameBuffers SurfaceCacheRenderer::UploadRecords( RDG::Builder&     graph,
                                                                             const SceneFrame& frame ) const
     {
-        return { .Cards         = UploadBuffer( graph, frame.Cards, "SurfaceCache.Cards" ),
-                 .Pages         = UploadBuffer( graph, frame.Pages, "SurfaceCache.Pages" ),
-                 .MeshCards     = UploadBuffer( graph, frame.MeshCards, "SurfaceCache.MeshCards" ),
-                 .InstanceRows  = UploadBuffer( graph, frame.InstanceRows, "SurfaceCache.InstanceRows" ),
+        return { .Cards         = UploadBuffer( graph, frame.Records->Cards, "SurfaceCache.Cards" ),
+                 .Pages         = UploadBuffer( graph, frame.Records->Pages, "SurfaceCache.Pages" ),
+                 .MeshCards     = UploadBuffer( graph, frame.Records->MeshCards, "SurfaceCache.MeshCards" ),
+                 .InstanceRows  = UploadBuffer( graph, frame.Records->InstanceRows, "SurfaceCache.InstanceRows" ),
                  .LightingPages = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" ) };
     }
 

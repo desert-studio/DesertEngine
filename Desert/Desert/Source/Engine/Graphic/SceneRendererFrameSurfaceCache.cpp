@@ -239,9 +239,9 @@ namespace Desert::Graphic
         // Updated at most once per engine frame (SurfaceCacheRenderer::UpdateScene): a cache another view
         // already updated this frame is read - its records uploaded into this graph, its atlases imported - and
         // nothing that writes the atlases (capture, copy, direct and indirect lighting) is recorded again.
-        std::vector<SurfaceCache::SceneInstance> instances;
-        meshRenderer->GatherSurfaceCacheInstances( instances );
-        auto update = cache->UpdateScene( instances, engineFrame, GetFrameDirectionalLighting() );
+        std::vector<SurfaceCache::SceneGroup> groups;
+        meshRenderer->GatherSurfaceCacheInstances( groups );
+        auto update = cache->UpdateScene( groups, engineFrame, GetFrameDirectionalLighting() );
         if ( !update )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );
@@ -373,14 +373,15 @@ namespace Desert::Graphic
         }
 
         // Said when the scene settles or grows, not per frame.
-        const uint64_t census = ( static_cast<uint64_t>( scene.Cards.size() ) << 32 ) | scene.CapturedCards;
+        const SurfaceCache::SceneRecords& records = *scene.Records;
+        const uint64_t census = ( static_cast<uint64_t>( records.Cards.size() ) << 32 ) | records.CapturedCards;
         if ( scene.Captures.empty() && census != m_SurfaceCacheLoggedCensus )
         {
             m_SurfaceCacheLoggedCensus = census;
             LOG_INFO( "[SurfaceCache] settled: {} instance(s), {} card(s), {} resident, {} captured, {} at high "
                       "resolution, {} page(s)",
-                      scene.MeshCards.size(), scene.Cards.size(), scene.ResidentCards, scene.CapturedCards,
-                      scene.HighResCards, scene.Pages.size() );
+                      records.MeshCards.size(), records.Cards.size(), records.ResidentCards, records.CapturedCards,
+                      records.HighResCards, records.Pages.size() );
             // The card build's coverage report over the meshes loaded so far (MeshCardRepresentation.hpp).
             LOG_INFO( "[SurfaceCache] card coverage: {}",
                       Assets::FormatMeshCardsCoverage( Assets::MeshCardsCoverageSummary(), 12 ) );
@@ -389,7 +390,7 @@ namespace Desert::Graphic
                 LOG_WARN(
                      "[SurfaceCache] the atlas cannot hold the smallest resolution of {} of {} card(s): raise "
                      "GlobalIllumination.SurfaceCacheAtlasSize of this quality; their hits are lit in place",
-                     scene.MissingMinimumCards, scene.Cards.size() );
+                     scene.MissingMinimumCards, records.Cards.size() );
             }
         }
 

@@ -1349,7 +1349,9 @@ namespace Desert::Graphic::System
         // as the scene's G-buffer draws it) draws each capture's mesh through its card camera into its rectangle
         // of the capture atlas (viewport + scissor per draw). One view copy per capture of a material in the
         // frame: the camera block is the material's, so one card camera needs one material.
-        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
+        // @p out: the frame's card groups (SurfaceCache::SceneGroup), their instances held by this renderer until
+        // the next gather; a group is gathered again only when an input of it moved (THE CARD GATHER below).
+        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneGroup>& out );
         // The (path x GBuffer) pass state a card of that path is captured with; null when the renderer has none.
         [[nodiscard]] GraphicsPipeline*     CardCapturePassState( MeshVertexPath path ) const;
         // @p view: the frame's scene/view inputs - the G-buffer cell samples the rain occlusion map its wetness
@@ -1970,7 +1972,44 @@ namespace Desert::Graphic::System
             MeshVertexPath                  Path = MeshVertexPath::Static;
             std::vector<CardCaptureSection> Sections;
         };
-        std::vector<CardCaptureSource> m_CardCaptureSources;
+        // THE CARD GATHER (SCENE-CACHE-5; UE FLumenSceneData primitive groups, updated from the scene's primitive
+        // add / update / remove lists, and a material's readiness as an event - not every section and every ISM
+        // instance asked every frame). Three kinds of group, each kept with the key of the inputs it was gathered
+        // from and gathered again only when that key moves (its Revision then moves, and the surface cache walks
+        // only that group):
+        //  - the static + generic group (one: an entity's sections drawn partly by either queue are one
+        //    instance): the static casters' revision (m_StaticCasters, the GpuScene stream: world, mesh, shading,
+        //    section slot, hidden submeshes, queue order and - generic - the override's program, textures and
+        //    values) while it is tracked for this gather; gathered every frame while it is not;
+        //  - one group per ISM field (entity x mesh): its section groups' mesh, render revision, shading, hidden
+        //    submeshes, instance count and transforms snapshot (held by owner: a snapshot freed and re-made at the
+        //    same address is another one);
+        //  - the skinned group: every frame (posed, few).
+        // And for every group, the readiness its answers were made under (CardReadinessKey): the material
+        // service's invalidation version (a material rebuilt, a texture landed), the pipelines' readiness event
+        // (Graphic::PipelineReadinessGeneration), the shader service's recompile generation, the cards that
+        // landed (Assets::MeshCardsSlot::PublishGeneration) and the capture pass states.
+        struct CardGatherGroup
+        {
+            uint64_t                                    Id       = 0;
+            uint64_t                                    Key      = 0;
+            uint64_t                                    Revision = 0;
+            bool                                        Gathered = false;
+            uint64_t                                    SeenGather = 0; // m_CardGather when the frame had it
+            // Its sections' answers that were not the cell's own pipeline (ChoosePipelineDraw counted them as
+            // stand-in draws): counted again in every frame the group is kept (GetStandInDraws, the shot gate).
+            uint32_t                                    StandIns = 0;
+            std::vector<SurfaceCache::SceneInstance>    Instances;
+            std::vector<CardCaptureSource>              Sources; // by SceneInstance::Source
+            std::vector<std::weak_ptr<const std::vector<glm::mat4>>> Snapshots; // ISM: per section group
+        };
+        CardGatherGroup                                       m_CardStaticGroup;
+        CardGatherGroup                                       m_CardSkinnedGroup;
+        std::unordered_map<uint64_t, CardGatherGroup>         m_CardFieldGroups; // by field id
+        std::vector<CardGatherGroup*>                         m_CardGroupOrder;  // the last gather's groups
+        uint64_t                                              m_CardGather         = 0;
+        uint64_t                                              m_CardGroupRevision  = 0;
+        [[nodiscard]] uint64_t                                CardReadinessKey() const;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
         // material per capture of it in the frame, its camera in its block.
         // By MeshVertexPath: the static, skinned and instanced cells.
