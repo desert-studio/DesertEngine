@@ -14,6 +14,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -770,8 +771,21 @@ namespace Desert::Editor
 
         // The scene brackets its own renderer now, so a frame that refuses cannot leave the editor's
         // command buffer holding half a pass — it is reported here and the preview skips a frame.
-        if ( const auto frame = m_PreviewScene->OnUpdate( Common::Timestep( 0.016f ) ); !frame.IsSuccess() )
-            LOG_ERROR( "[Photogrammetry] preview frame skipped: {}", frame.GetError() );
+        // THE PREVIEW FRAME RECORDS AFTER THE LEVEL'S VIEWS (RenderTask::AfterJoin; now when nothing is in flight):
+        // this runs while the panels are drawn, which is when the level's view records on the render task.
+        // Deferred, it runs at the fence, still before the interface graph samples the image the pane handed
+        // ImGui; the resize above stays immediate (it fences itself, only on the frame the pane changes size), so
+        // that image is the one this frame renders.
+        ::Desert::Engine::RenderTask::Get().AfterJoin(
+             [this]
+             {
+                 if ( !m_PreviewScene )
+                     return;
+                 if ( const auto frame = m_PreviewScene->OnUpdate( Common::Timestep( 0.016f ) ); !frame.IsSuccess() )
+                 {
+                     LOG_ERROR( "[Photogrammetry] preview frame skipped: {}", frame.GetError() );
+                 }
+             } );
     }
 
     // ---------------------------------------------------------------------------------------------------

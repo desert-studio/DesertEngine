@@ -2805,6 +2805,14 @@ namespace Desert::Graphic
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
+        // THE FRAME'S STATISTICS ARE PUBLISHED HERE, where the frame that counted them ends: the interface reads
+        // them (the status bar) while the next frame may be recording on the render task, so it reads the last
+        // finished frame's value, never the mesh renderer's counter mid-frame.
+        if ( const auto mesh = m_RenderSystems.find( "MeshSystem" ); mesh != m_RenderSystems.end() && mesh->second )
+            m_PublishedViewTriangles.store(
+                 static_cast<const System::MeshRenderer*>( mesh->second.get() )->GetViewTrianglesDrawn(),
+                 std::memory_order_relaxed );
+
 #if DESERT_DEV_INSTRUMENTS
         // The gameplay debugger's Rendering category: the watched entity described from the queues the passes
         // drew, BEFORE they are cleared. A watch older than the previous frame is dropped (the debugger hid).
@@ -3882,13 +3890,24 @@ namespace Desert::Graphic
 
     void SceneRenderer::SetLODPreview( const uint32_t entity, const int level )
     {
-        if ( level < 0 )
+        const auto apply = [this, entity, level]
         {
-            m_LODPreview = {};
-            return;
-        }
-        // Two frames: the renewal and the frame's BeginScene may come in either order within one frame.
-        m_LODPreview = { .Entity = entity, .Level = level, .FramesLeft = 2 };
+            if ( level < 0 )
+            {
+                m_LODPreview = {};
+                return;
+            }
+            // Two frames: the renewal and the frame's BeginScene may come in either order within one frame.
+            m_LODPreview = { .Entity = entity, .Level = level, .FramesLeft = 2 };
+        };
+        // THE LEASE CHANGES BETWEEN RECORDINGS (UE: ENQUEUE_RENDER_COMMAND): the Modeling panel renews it while it
+        // is drawn, which is when this view may be recording on the render task and reading the lease
+        // (LODPreviewFor). Deferred to the fence (RenderTask::AfterJoin; now when nothing is in flight); the
+        // renderer outlives it, since its destructor joins first.
+        if ( ::Desert::Engine::RenderTask::OnRenderThread() )
+            apply();
+        else
+            ::Desert::Engine::RenderTask::Get().AfterJoin( apply );
     }
 
     int SceneRenderer::LODPreviewFor( const uint32_t entity, const int authoredForcedLOD ) const
@@ -4084,10 +4103,7 @@ namespace Desert::Graphic
 
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
     {
-        const auto found = m_RenderSystems.find( "MeshSystem" );
-        if ( found == m_RenderSystems.end() )
-            return 0;
-        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+        return m_PublishedViewTriangles.load( std::memory_order_relaxed );
     }
 
     System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const

@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Camera.hpp>
 
+#include <atomic>
 #include <unordered_set>
 
 #include <Engine/Graphic/VirtualGeometry/VisibilityBuffer.hpp>
@@ -1061,6 +1062,9 @@ namespace Desert::Graphic
             int      FramesLeft = 0;
         };
         LODPreviewLease m_LODPreview;
+        // GetViewTrianglesDrawn's answer: the mesh renderer's count as of the last EndScene (the interface reads it
+        // while the next frame records on the render task).
+        std::atomic<uint64_t> m_PublishedViewTriangles{ 0 };
         // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
         float m_LastExposure = 0.0f;
         // The AverageLocalExposure the eye adaptation read back with it (1 = none): pre-exposure follows it.

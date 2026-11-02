@@ -190,6 +190,11 @@ namespace Desert::Engine
         // A shared view resource forgotten by the game thread while a view records on the render task waits for
         // it (ViewResourceRegistry::SetForgetFence).
         Graphic::ViewResourceRegistry::SetForgetFence( [] { ::Desert::Engine::RenderTask::Get().JoinOnGameThread(); } );
+        // THE SCENE VIEWS RECORD ON THE RENDER TASK, overlapping the interface (UE: the rendering thread records
+        // the view family while the game thread ticks and paints Slate). What the views read from the world is
+        // gathered on this thread first (ExtensionPass::Gather, BeginScene's snapshots); the palette's
+        // "Debug.Scene record: serial" puts them back inline for a frame compare.
+        RenderTask::Get().SetOverlapped( true );
         while ( m_IsRunningApplication )
         {
             // Frame boundary for the profiler (publishes last frame, flips Optick's frame). Placed at the
