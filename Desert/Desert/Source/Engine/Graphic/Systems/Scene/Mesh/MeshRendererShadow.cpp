@@ -511,26 +511,9 @@ namespace Desert::Graphic::System
         setup.Generics.resize( m_GenericQueue.size() );
         setup.Skinned.resize( m_SkinnedQueue.size() );
         setup.Fields.resize( m_InstancedQueue.size() );
-        // The box is the one IsVisibleInView would build per view from the same transform and local bounds, built
-        // once; an empty local box stays empty (no extent: in every view).
-        const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
-        { return Geometry::IsEmpty( local ) ? local : Geometry::TransformBounds( transform, local ); };
-        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
-        {
-            const StaticMeshRenderData& rd = m_StaticQueue[i];
-            setup.Statics[i]               = ShadowCasterRow{};
-            if ( rd.Mesh != nullptr && rd.CastShadows )
-                setup.Statics[i].WorldBounds =
-                     worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
-        }
-        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
-        {
-            const GenericMeshRenderData& g = m_GenericQueue[i];
-            setup.Generics[i]              = ShadowCasterRow{};
-            if ( g.Mesh != nullptr && g.CastShadows )
-                setup.Generics[i].WorldBounds =
-                     worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
-        }
+        // The static / generic rows are finished once this view's records are synced (FinishStaticCasterRows,
+        // from SyncGpuScene): the static casters' revision they are kept by is the GpuScene stream's, known only
+        // then. No reader asks them before (ShadowCastersGathered says so).
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
@@ -600,8 +583,81 @@ namespace Desert::Graphic::System
     bool MeshRenderer::ShadowCastersGathered() const
     {
         const ShadowCasterSetup& setup = m_ShadowCasterSetup;
-        return setup.Statics.size() == m_StaticQueue.size() && setup.Generics.size() == m_GenericQueue.size() &&
-               setup.Skinned.size() == m_SkinnedQueue.size() && setup.Fields.size() == m_InstancedQueue.size();
+        return setup.StaticRowsGather == setup.Gather && setup.Statics.size() == m_StaticQueue.size() &&
+               setup.Generics.size() == m_GenericQueue.size() && setup.Skinned.size() == m_SkinnedQueue.size() &&
+               setup.Fields.size() == m_InstancedQueue.size();
+    }
+
+    uint64_t MeshRenderer::StaticLodKey() const
+    {
+        const auto*   camera = m_SceneRenderer->GetMainCamera();
+        SignatureHash hash;
+        hash.Add( m_LODEnabled );
+        hash.Add( camera != nullptr );
+        if ( camera != nullptr )
+        {
+            hash.Add( camera->GetPosition() );
+            hash.Add( camera->GetProjectionMatrix() );
+        }
+        return hash.Value;
+    }
+
+    void MeshRenderer::FinishStaticCasterRows()
+    {
+        DESERT_PROFILE_SCOPE( "Shadow: Static caster rows" );
+        ShadowCasterSetup&       setup  = m_ShadowCasterSetup;
+        const StaticCasterTrack& track  = m_StaticCasters;
+        const uint64_t           lodKey = StaticLodKey();
+        // Kept: the revision they were made for is this gather's (TrackStaticCasters ran for it). The queues'
+        // sizes are part of the revision (its order word), so a kept row is the same entry's.
+        const bool keep =
+             track.Revision != 0u && track.Gather == setup.Gather && setup.StaticRowsRevision == track.Revision &&
+             setup.Statics.size() == m_StaticQueue.size() && setup.Generics.size() == m_GenericQueue.size();
+        if ( keep )
+        {
+            // The boxes hold; a level is asked again (lazily, ShadowStaticLod) only when the camera or the LOD
+            // toggle moved.
+            if ( setup.StaticLodKey != lodKey )
+            {
+                for ( ShadowCasterRow& row : setup.Statics )
+                    row.LodLevel = kShadowLodUnknown;
+                for ( ShadowCasterRow& row : setup.Generics )
+                    row.LodLevel = kShadowLodUnknown;
+            }
+        }
+        else
+        {
+            setup.Statics.resize( m_StaticQueue.size() );
+            setup.Generics.resize( m_GenericQueue.size() );
+            // The box is the one IsVisibleInView would build per view from the same transform and local bounds,
+            // built once; an empty local box stays empty (no extent: in every view).
+            const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
+            { return Geometry::IsEmpty( local ) ? local : Geometry::TransformBounds( transform, local ); };
+            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            {
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                setup.Statics[i]               = ShadowCasterRow{};
+                if ( rd.Mesh != nullptr && rd.CastShadows )
+                {
+                    setup.Statics[i].WorldBounds =
+                         worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
+                }
+            }
+            for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
+            {
+                const GenericMeshRenderData& g = m_GenericQueue[i];
+                setup.Generics[i]              = ShadowCasterRow{};
+                if ( g.Mesh != nullptr && g.CastShadows )
+                {
+                    setup.Generics[i].WorldBounds =
+                         worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
+                }
+            }
+        }
+        // Revision 0 (untracked: no stream read for this gather) never keeps them next time.
+        setup.StaticRowsRevision = track.Gather == setup.Gather ? track.Revision : 0u;
+        setup.StaticLodKey       = lodKey;
+        setup.StaticRowsGather   = setup.Gather;
     }
 
     uint32_t MeshRenderer::ShadowStaticLod( const uint32_t index )
@@ -713,34 +769,56 @@ namespace Desert::Graphic::System
         const auto reaches = [&frustum]( const ShadowCasterRow& row )
         { return IsVisibleInView( frustum, row.WorldBounds ); };
         SignatureHash hash;
-        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+        // THE STATIC / GENERIC PART (SCENE-CACHE-4), kept per cascade while the static casters' revision (every
+        // field hashed below reaches it through the GpuScene stream, StaticCasterTrack says how), the rows' LOD
+        // key (the levels ShadowStaticLod answers) and the cascade's caster matrix (which boxes reach it) are the
+        // ones it was made from: in a still frame no static caster is walked here. An untracked gather (no
+        // revision for it) makes the part every frame and never keeps it.
+        if ( m_CascadeStaticParts.size() <= cascade )
+            m_CascadeStaticParts.resize( static_cast<std::size_t>( cascade ) + 1u );
+        CascadeStaticPart& still   = m_CascadeStaticParts[cascade];
+        const bool         tracked = m_StaticCasters.Revision != 0u &&
+                             m_StaticCasters.Gather == m_ShadowCasterSetup.Gather &&
+                             m_ShadowCasterSetup.StaticRowsRevision == m_StaticCasters.Revision;
+        if ( !tracked || !still.Valid || still.Revision != m_StaticCasters.Revision ||
+             still.LodKey != m_ShadowCasterSetup.StaticLodKey || still.CasterVP != m_CascadeCasterVP[cascade] )
         {
-            const StaticMeshRenderData& rd = m_StaticQueue[i];
-            if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasterSetup.Statics[i] ) )
-                continue;
-            hash.Add( rd.Mesh->GetRenderRevision() );
-            hash.Add( rd.Transform );
-            hash.Add( rd.HiddenSubmeshes );
-            hash.Add( rd.ForcedLOD );
-            hash.Add( rd.LODBias );
-            // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
-            hash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
-            // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
-            // (ShadingOf: the same answer the casters draw with).
-            const SectionShading shading = ShadingOf( rd );
-            hash.Add( rd.SectionSlot );
-            hash.Add( shading.Surface );
-            hash.Add( shading.Instance );
+            SignatureHash stillHash;
+            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            {
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasterSetup.Statics[i] ) )
+                    continue;
+                stillHash.Add( rd.Mesh->GetRenderRevision() );
+                stillHash.Add( rd.Transform );
+                stillHash.Add( rd.HiddenSubmeshes );
+                stillHash.Add( rd.ForcedLOD );
+                stillHash.Add( rd.LODBias );
+                // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
+                stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
+                // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
+                // (ShadingOf: the same answer the casters draw with).
+                const SectionShading shading = ShadingOf( rd );
+                stillHash.Add( rd.SectionSlot );
+                stillHash.Add( shading.Surface );
+                stillHash.Add( shading.Instance );
+            }
+            for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
+            {
+                const GenericMeshRenderData& g = m_GenericQueue[i];
+                if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasterSetup.Generics[i] ) )
+                    continue;
+                stillHash.Add( g.Mesh->GetRenderRevision() );
+                stillHash.Add( g.Transform );
+                stillHash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
+            }
+            still.Valid    = tracked;
+            still.Revision = m_StaticCasters.Revision;
+            still.LodKey   = m_ShadowCasterSetup.StaticLodKey;
+            still.CasterVP = m_CascadeCasterVP[cascade];
+            still.Hash     = stillHash.Value;
         }
-        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
-        {
-            const GenericMeshRenderData& g = m_GenericQueue[i];
-            if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasterSetup.Generics[i] ) )
-                continue;
-            hash.Add( g.Mesh->GetRenderRevision() );
-            hash.Add( g.Transform );
-            hash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
-        }
+        hash.Add( still.Hash );
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound) and by
         // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
         // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull

@@ -3151,6 +3151,13 @@ namespace Desert::Graphic::System
             uint64_t                                                 IsmKey      = 0;
             uint64_t                                                 IsmRevision = 0;
             std::vector<std::weak_ptr<const std::vector<glm::mat4>>> IsmSources; // per m_InstancedQueue entry
+            // THE STATIC / GENERIC ROWS ARE KEPT ACROSS FRAMES (SCENE-CACHE-4): finished by FinishStaticCasterRows
+            // once this view's records are synced (SyncGpuScene), recomputed only when the static casters'
+            // revision (m_StaticCasters) moved; their levels are asked again only when StaticLodKey moved.
+            // StaticRowsGather: the gather they were finished for (another: not of these queues yet).
+            uint64_t StaticRowsGather   = 0;
+            uint64_t StaticRowsRevision = 0;
+            uint64_t StaticLodKey       = 0;
         };
         ShadowCasterSetup m_ShadowCasterSetup;
         // The ISM gather's key: the main camera's LODView and lens scale, the shadow wind distance and, per field,
@@ -3169,8 +3176,50 @@ namespace Desert::Graphic::System
             bool      Movable = false;
         };
         std::vector<CascadeIsmPart> m_CascadeIsmParts;
-        // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each): a queue changed
-        // after the last GatherShadowCasters breaks the order SceneRenderer::OnUpdate keeps.
+        // THE STATIC CASTERS' REVISION (SCENE-CACHE-4; UE FCachedShadowMapData: the static layer is redrawn when a
+        // static primitive it holds is added, moved, removed or changes how it draws, never by comparing the
+        // primitives every frame). Moved by TrackStaticCasters, run by SyncGpuScene once the registry synced this
+        // view's records, from the GpuScene primitive change stream: every field the static / generic part of
+        // CascadeStaticSignature and the gathered rows read reaches the stream - the world (Moved), the mesh,
+        // ForcedLOD, LODBias and CastShadows (the registry's Updated: GpuSceneRegistry::Touch compares them), the
+        // section slot, its shading, the hidden submeshes, the mesh's submeshes, residency and render revision
+        // (MotionRecord::Content, SyncGpuScene's words) - plus the queues' own order (the rows and parts are per
+        // queue entry: another set or order of primitives is another revision). Only changes of a primitive
+        // the static / generic queues hold count (Member), so a moving skinned character or ISM field does not
+        // move it.
+        struct StaticCasterTrack
+        {
+            uint64_t             Stream   = 0; // GpuScene::GetStreamId the cursor is a serial of
+            uint64_t             Cursor   = 0; // the stream read up to (GetChangeSerial when read)
+            uint64_t             Order    = 0; // the static then generic records' primitives, in queue order
+            uint64_t             Revision = 0; // 0: never tracked
+            uint64_t             Gather   = 0; // the ShadowCasterSetup::Gather it was tracked for
+            std::vector<uint8_t> Member;       // per GpuScene primitive: one of the static / generic records'
+        };
+        StaticCasterTrack m_StaticCasters;
+        // Advances m_StaticCasters over the stream since its cursor and finishes the static / generic rows
+        // (FinishStaticCasterRows). After the write-back of the records' rows (GpuPrimitive) in SyncGpuScene.
+        void TrackStaticCasters( const GpuDriven::GpuScene& scene );
+        // The static / generic rows of this gather: kept when the static casters' revision is the one they were
+        // made for, their levels reset when StaticLodKey moved; made again otherwise.
+        void FinishStaticCasterRows();
+        // Every input ComputeLOD reads besides the record (whose fields are the static revision's): the main
+        // camera's position and projection and the LOD toggle.
+        [[nodiscard]] uint64_t StaticLodKey() const;
+        // Each cascade's static / generic part of CascadeStaticSignature, kept while the static casters' revision,
+        // the rows' LOD key and the cascade's caster matrix are the ones it was made from.
+        struct CascadeStaticPart
+        {
+            bool      Valid    = false;
+            uint64_t  Revision = 0;
+            uint64_t  LodKey   = 0;
+            glm::mat4 CasterVP{ 1.0f };
+            uint64_t  Hash = 0;
+        };
+        std::vector<CascadeStaticPart> m_CascadeStaticParts;
+        // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each, the static /
+        // generic rows finished for this gather): a queue changed after the last GatherShadowCasters breaks the
+        // order SceneRenderer::OnUpdate keeps.
         [[nodiscard]] bool ShadowCastersGathered() const;
         // The level of static / generic caster @p index, asked of the camera once per gather.
         [[nodiscard]] uint32_t ShadowStaticLod( uint32_t index );
