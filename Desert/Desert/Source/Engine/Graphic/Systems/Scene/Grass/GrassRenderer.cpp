@@ -1087,7 +1087,9 @@ namespace Desert::Graphic::System
         {
             std::array<uint32_t, kGrassTileFeedbackWords> read{};
             if ( const auto got = gpu.TileFeedback->ReadBack( read.data(), sizeof( read ) ); !got.IsSuccess() )
+            {
                 LOG_ERROR( "[Grass] the tile pool's feedback was not read back: {}", got.GetError() );
+            }
             else if ( read != std::array<uint32_t, kGrassTileFeedbackWords>{} )
             {
                 if ( read[0] == gpu.PoolGeneration && ( read[1] != 0u || 4u * read[2] > 3u * gpu.TilePages ) )
