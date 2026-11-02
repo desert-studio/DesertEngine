@@ -1,5 +1,6 @@
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
@@ -355,6 +356,10 @@ namespace Desert::Engine
                     if ( !rendered.IsSuccess() )
                         ReportLayerFailure( "OnUIRender", layer.get(), rendered.GetError() );
                 }
+                // THE FRAME'S FENCE (RenderTask): every view the layers handed the render task has recorded before
+                // the deferred events run and the frame is submitted. The editor joined already, before its
+                // interface graph (VulkanImGui::End); an application without one joins here.
+                RenderTask::Get().Join();
                 m_Events.RouteDeferred();
             }
 
@@ -400,6 +405,9 @@ namespace Desert::Engine
                 m_FramePacer.WaitForNextFrame();
             }
         }
+
+        // The render task's thread ends with the loop, before the layers release what its jobs recorded with.
+        RenderTask::Get().Shutdown();
 
         // Window closed: detach layers (top-down) so each releases its resources and clears its
         // session state — e.g. EditorLayer::OnDetach removes the crash-recovery lock. Nothing else

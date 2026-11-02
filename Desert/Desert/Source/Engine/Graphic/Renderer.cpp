@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -309,6 +310,8 @@ namespace Desert::Graphic
 
     Common::BoolResultStr Renderer::ExecuteGraph( RDG::Builder& graph )
     {
+        // A graph the game thread records while the views record (a panel's preview) lands after them (RenderTask).
+        ::Desert::Engine::RenderTask::RecordGuard( graph.GetName() );
         return s_RendererAPI->ExecuteGraph( graph );
     }
 

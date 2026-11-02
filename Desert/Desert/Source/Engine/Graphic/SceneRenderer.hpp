@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Core/Camera.hpp>
+
 #include <unordered_set>
 
 #include <Engine/Graphic/VirtualGeometry/VisibilityBuffer.hpp>
@@ -1783,6 +1785,8 @@ namespace Desert::Graphic
         // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
         // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
         const ExtensionPassRegistry* m_FrameExtensions = nullptr;
+        // The view's camera as BeginScene saw it; m_SceneInfo.ActiveCamera points here (RenderTask).
+        Core::FrozenCamera m_FrozenCamera;
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
@@ -845,6 +846,8 @@ namespace Desert::Graphic
     SceneRenderer::~SceneRenderer()
     try
     {
+        // A job of this view may still be recording on the render task.
+        ::Desert::Engine::RenderTask::Get().Join();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
             std::erase( LiveRenderers(), this );
@@ -927,6 +930,10 @@ namespace Desert::Graphic
     NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene,
                                                                 Core::Camera*              camera )
     {
+        // ONE BRACKET AT A TIME (see Scene::OnUpdate's view loop): a view still recording on the render task
+        // closes before this one opens.
+        ::Desert::Engine::RenderTask::Get().Join();
+
         // This view is where per-frame writes go until the phase returns — set FIRST, before anything writes
         // a per-frame resource; the frame context gets them back on every exit, so nothing written after the
         // last view of a frame lands in this view's copies.
@@ -941,7 +948,14 @@ namespace Desert::Graphic
         // answer for every renderer of that scene — so a second view of one world rendered from the
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
-        m_SceneInfo.ActiveCamera = camera;
+        //
+        // FROZEN HERE (UE: FViewInfo copies the view matrices out of the game thread's FSceneView). The rest of
+        // the frame records on the render task while the interface may move the live camera (the viewport's
+        // lens setters, CameraPilot); every reader of this view's camera reads this copy, with the live
+        // camera's source id, so its history stays its own.
+        if ( camera != nullptr )
+            m_FrozenCamera.Freeze( *camera );
+        m_SceneInfo.ActiveCamera = camera != nullptr ? &m_FrozenCamera : nullptr;
         // The world this frame draws and its clock (its generation keys CameraIdentity; TimeSeconds, OnUpdate).
         m_SceneGeneration  = scene.GetGeneration();
         m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();

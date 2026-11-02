@@ -1,4 +1,5 @@
 #include <Editor/Core/Control/InputInjection.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
 #include <Editor/Widgets/UIHelper/UICacheTextureImGui.hpp>
@@ -376,6 +377,11 @@ namespace Desert::Graphic::API::Vulkan
              ImVec2( static_cast<float>( window->GetWidth() ), static_cast<float>( window->GetHeight() ) );
 
         ::ImGui::Render();
+
+        // THE FENCE (RenderTask; UE: FRenderCommandFence before the Slate draw buffer): the scene views recorded on the
+        // render task while the panels were built above; the interface graph samples their images and its
+        // submissions must follow theirs. The commands the panels deferred (RenderTask::AfterJoin) run here too.
+        ::Desert::Engine::RenderTask::Get().Join();
 
         auto& renderer = ::Desert::Graphic::Renderer::GetInstance();
 

@@ -51,7 +51,7 @@ namespace Desert::Core
         // or switches to another outside-driven camera, is a camera cut.
         [[nodiscard]] CameraSourceId GetSourceId() const
         {
-            return m_SourceEntity != kNoSourceEntity ? EntityCameraSource( m_SourceEntity ) : m_SourceTicket.Get();
+            return m_FrozenSource ? *m_FrozenSource : m_SourceEntity != kNoSourceEntity ? EntityCameraSource( m_SourceEntity ) : m_SourceTicket.Get();
         }
         [[nodiscard]] float            GetFOV() const { return m_FOV; }
         // Width over height of the viewport this camera was last projected for; nullopt before the first
@@ -110,10 +110,25 @@ namespace Desert::Core
 
         uint32_t m_ViewportWidth  = 0; // last viewport size (for the live setters to rebuild against)
         uint32_t m_ViewportHeight = 0;
+
+        // FrozenCamera: every view value of @p live, its source id included (a plain copy issues a new one).
+        void CopyViewFrom( const Camera& live );
+        std::optional<CameraSourceId> m_FrozenSource; // set only on a frozen copy
     };
 
     // Free-orbit / fly viewport camera (RMB to look + WASDQE to move). This is what the editor renders
     // through in Edit mode.
+    // THE VIEW AS A RENDERER'S BeginScene SAW IT (RenderTask; UE: FViewInfo's copy of the view matrices). The frame
+    // records on the render task while the game thread may move the live camera; the renderer reads this.
+    class FrozenCamera final : public Camera
+    {
+    public:
+        void Freeze( const Camera& live )
+        {
+            CopyViewFrom( live );
+        }
+    };
+
     class EditorCamera : public Camera
     {
     public:

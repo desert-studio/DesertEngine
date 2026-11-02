@@ -1,4 +1,5 @@
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/RenderTask.hpp>
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Common/Core/Constants.hpp>
@@ -430,6 +431,8 @@ namespace Desert::Core
 
     Scene::~Scene()
     {
+        // A job of this world's views may still be recording (RenderTask): it reads this scene's buffers.
+        ::Desert::Engine::RenderTask::Get().Join();
         m_Subsystems.End();
 
         // Erased in the destructor and nowhere else, so an entry cannot outlive the object it points at.
@@ -678,6 +681,10 @@ namespace Desert::Core
 
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
+        // THE FENCE OF EVERY VIEW STILL RECORDING (RenderTask): another world's views, handed to the render task
+        // by its own update, finish before this world's systems touch the renderer's shared state.
+        ::Desert::Engine::RenderTask::Get().Join();
+
         // The world's parameters before anything reads them: the scripts below set them, every view after them
         // snapshots them. The service logged a refusal once; the instance then holds none.
         {
@@ -1022,18 +1029,31 @@ namespace Desert::Core
                         buffer->ExecuteAll( *view.Renderer );
                 }
 
-                view.Renderer->OnUpdate( sceneRendererInfo );
-
-                DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
-                if ( auto ended = view.Renderer->EndScene(); !ended && firstError.empty() )
-                    firstError = ended.GetError();
+                // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game thread
+                // enqueues the view family and goes on to the interface). BeginScene and the replay above read the
+                // registry and the live camera; from here the renderer works from its own copies (the frozen camera,
+                // the replayed draws, `info` copied by value). The next view's BeginScene joins this job first, so
+                // two brackets are never open at once. Its failure is reported by the render task.
+                auto* const renderer = view.Renderer.get();
+                ::Desert::Engine::RenderTask::Get().Enqueue(
+                     "Scene view", [renderer, info = sceneRendererInfo]() -> Common::BoolResultStr
+                     {
+                         renderer->OnUpdate( info );
+                         DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
+                         return renderer->EndScene();
+                     } );
             }
         }
-        {
-            DESERT_PROFILE_SCOPE( "Scene: CmdBuffer Clear" );
-            for ( const auto& buffer : m_SystemCommandBuffers )
-                buffer->Clear();
-        }
+        // Behind the last view, on the same queue: the replayed draws may point into the arena until their view has
+        // recorded. Joined by the next Scene::OnUpdate before the systems record into it again.
+        ::Desert::Engine::RenderTask::Get().Enqueue( "Scene: CmdBuffer Clear",
+                                                     [this]() -> Common::BoolResultStr
+                                                     {
+                                                         DESERT_PROFILE_SCOPE( "Scene: CmdBuffer Clear" );
+                                                         for ( const auto& buffer : m_SystemCommandBuffers )
+                                                             buffer->Clear();
+                                                         return BOOLSUCCESS;
+                                                     } );
 
         // The stepped frame of a pause is THIS update, whatever it reported: consumed here, after every
         // system has asked TicksGameplay(), so the world holds again from the next frame.
@@ -1602,6 +1622,9 @@ namespace Desert::Core
 
     void Scene::DestroyEntity( ECS::Entity entity )
     {
+        // A destroy on the game thread while the views record waits for them: what the entity owned may be
+        // what a replayed draw points at (RenderTask).
+        ::Desert::Engine::RenderTask::Get().Join();
         if ( !entity )
             return;
         // The algorithm lives beside the index it maintains — see SceneEntityIndex.hpp for why it is O(1)
