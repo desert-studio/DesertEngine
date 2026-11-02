@@ -68,6 +68,18 @@ namespace Desert::Graphic
         std::span<const DrawSplitLabel> SplitLabels{};
     };
 
+    // One vkCmdDrawIndexed of a vertex-buffer-less indexed draw (RendererAPI::DrawProceduralIndexed): @p
+    // IndexCount (> 0) uint32 indices from @p FirstIndex, each vertex's gl_VertexIndex = its index + @p
+    // VertexOffset, x @p InstanceCount (> 0) instances from @p FirstInstance (gl_InstanceIndex counts from it).
+    struct ProceduralIndexedRange
+    {
+        uint32_t IndexCount    = 0;
+        uint32_t FirstIndex    = 0;
+        int32_t  VertexOffset  = 0;
+        uint32_t InstanceCount = 1;
+        uint32_t FirstInstance = 0;
+    };
+
     // One material group of the virtual-geometry raster (VirtualGeometry::RasterBins): ONE non-indexed
     // VkDrawIndirectCommand at Args + ArgsOffset (vertexCount = kClusterMaxTriangles x 3, instanceCount = the
     // group's clusters, firstInstance = its first Rows entry), drawn with the group's `.VirtualGeometry` cell.
@@ -233,6 +245,17 @@ namespace Desert::Graphic
         DrawProceduralIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                 const MaterialExecutor* material, std::span<const std::byte> push,
                                 RDG::BufferRef args, uint64_t offset ) = 0;
+        // The procedural draw through a shared index buffer and no vertex buffer (UE DrawIndexedPrimitive over
+        // FLandscapeSharedBuffers' grid index buffer): the vertex stage builds each vertex from gl_VertexIndex
+        // (= the index + the range's VertexOffset) and gl_InstanceIndex, and the post-transform cache shades a
+        // vertex the triangles share once. @p indexBuffer (uint32 indices, uploaded) is bound once and every
+        // range of @p ranges is one vkCmdDrawIndexed of it with the same pass state and @p push (as
+        // DrawProcedural's). Refused, before anything is recorded, for no range, an empty range or one past the
+        // buffer's indices.
+        [[nodiscard]] virtual Common::BoolResultStr
+        DrawProceduralIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                               const MaterialExecutor* material, std::span<const std::byte> push,
+                               IndexBuffer& indexBuffer, std::span<const ProceduralIndexedRange> ranges ) = 0;
         // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.

@@ -597,6 +597,38 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
+    void TerrainRenderer::EnsureGridIndices( const uint32_t cells )
+    {
+        if ( m_GridIndices.contains( cells ) )
+            return;
+        const std::vector<uint32_t> indices = LandscapeGridIndices( cells );
+        std::shared_ptr<IndexBuffer> buffer = IndexBuffer::Create(
+             indices.data(), static_cast<uint32_t>( indices.size() * sizeof( uint32_t ) ), BufferUsage::Static );
+        if ( !buffer )
+        {
+            LOG_ERROR( "[TerrainRenderer] the {}-cell grid's index buffer was not created: its tiles are not drawn",
+                       cells );
+            m_GridIndices.emplace( cells, nullptr );
+            return;
+        }
+        buffer->ClaimOwnership( ResourceOwner::SceneRenderer );
+        if ( const auto uploaded = buffer->RT_Invalidate(); !uploaded.IsSuccess() )
+        {
+            LOG_ERROR( "[TerrainRenderer] the {}-cell grid's index buffer was not uploaded ({}): its tiles are not "
+                       "drawn",
+                       cells, uploaded.GetError() );
+            buffer.reset();
+        }
+        m_GridIndices.emplace( cells, std::move( buffer ) );
+    }
+
+    void TerrainRenderer::SplitDraw( FrameDraw& draw, const uint32_t quadsPerTile, const uint32_t gridLod,
+                                     const TerrainInstance& row )
+    {
+        draw.Split = LandscapeDrawSplitOf( quadsPerTile, gridLod, row );
+        EnsureGridIndices( draw.Split.Cells );
+    }
+
     void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
         // Last frame's group slots (ClearQueue pooled them): reused below with their vectors' capacity.
@@ -822,6 +854,7 @@ namespace Desert::Graphic::System
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
             draw.VertexCount = LandscapeDicedVertexCount( t.Landscape.QuadsPerTile,
                                                           static_cast<uint32_t>( instance.Params.w ), instance );
+            SplitDraw( draw, t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
             m_FrameDraws.push_back( draw );
             // FPS-FIELD-BARN (TERRAIN-GPU-1): a tile wholly outside the camera's frustum costs the camera's
             // rasters its whole grid of vertex work for no pixel - 6 of FIELD_Barn's 20 tiles (1.76 M of 5.47 M
@@ -996,6 +1029,7 @@ namespace Desert::Graphic::System
                 FrameDraw   draw  = camera;
                 draw.Row          = static_cast<uint32_t>( group.Instances.size() );
                 draw.VertexCount  = count;
+                SplitDraw( draw, l.QuadsPerTile, static_cast<uint32_t>( row.Params.w ), row );
                 draws.push_back( draw );
                 group.Instances.push_back( row );
             }
@@ -1032,6 +1066,7 @@ namespace Desert::Graphic::System
                 draw.Row   = static_cast<uint32_t>( group.Instances.size() );
                 draw.VertexCount =
                      LandscapeLodVertexCount( l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
+                SplitDraw( draw, l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
                 local.Draws.push_back( draw );
                 group.Instances.push_back( instance );
 
@@ -1272,10 +1307,39 @@ namespace Desert::Graphic::System
                     return drawn;
                 continue;
             }
-            if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor, draw.VertexCount,
-                                                        1, push );
-                 !drawn.IsSuccess() )
-                return drawn;
+            // TERRAIN-GPU-2 (UE FLandscapeSharedBuffers): the dice rings - the procedural decode's head, their
+            // sub-vertices the dice pool's - then every other cell through the grid's shared index buffer, one
+            // vertex a grid node, where the decode evaluated each node six times (FPS-FIELD-BARN: 5.5 M vertex
+            // invocations of the camera's tiles, ten heightmap fetches each).
+            if ( draw.Split.RingVertices > 0u )
+                if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor,
+                                                            draw.Split.RingVertices, 1, push );
+                     !drawn.IsSuccess() )
+                    return drawn;
+            const LandscapeGridRanges cells = LandscapeGridRangesOf( draw.Split );
+            if ( cells.Count == 0u )
+                continue; // the rings cover the whole tile
+            const auto grid = m_GridIndices.find( draw.Split.Cells );
+            if ( grid == m_GridIndices.end() || !grid->second )
+                return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): no index buffer for the {}-cell grid",
+                                                   context.GetPassName(), k, executor->GetDubugName(),
+                                                   draw.Split.Cells );
+            const uint32_t                        pitch = draw.Split.Cells + 1u;
+            std::array<ProceduralIndexedRange, 4> ranges{};
+            for ( uint32_t r = 0; r < cells.Count; ++r )
+            {
+                const LandscapeGridRange& range = cells.Ranges[r];
+                ranges[r].IndexCount            = range.IndexCount;
+                ranges[r].FirstIndex            = range.FirstIndex;
+                ranges[r].VertexOffset          = static_cast<int32_t>( range.FirstRow * pitch );
+                ranges[r].InstanceCount         = range.Rows;
+                ranges[r].FirstInstance         = kLandscapeGridFirstInstance;
+            }
+            const std::span<const ProceduralIndexedRange> gridRanges( ranges.data(), cells.Count );
+            if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
+                                                                 *grid->second, gridRanges, push );
+                 !indexed.IsSuccess() )
+                return indexed;
         }
         return BOOLSUCCESS;
     }

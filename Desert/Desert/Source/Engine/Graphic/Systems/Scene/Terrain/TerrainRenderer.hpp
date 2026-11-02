@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/IndexBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -307,8 +308,17 @@ namespace Desert::Graphic::System
         {
             size_t   Group       = 0;
             uint32_t Row         = 0; // names BOTH the param row and the instance row
-            uint32_t VertexCount = 0;
+            uint32_t VertexCount = 0; // the procedural decode's whole draw (the virtual shadow map's records)
+            // What RecordDraws draws instead (TERRAIN-GPU-2): the dice rings procedurally, the other cells through
+            // the grid's shared index buffer (m_GridIndices[Split.Cells]).
+            LandscapeDrawSplit Split;
         };
+        // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile, the grid's
+        // index buffer made first if this is the first draw at that grid (EnsureGridIndices).
+        void SplitDraw( FrameDraw& draw, uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row );
+        // The shared index buffer of the @p cells-a-side grid (LandscapeGridIndices), made and uploaded on first
+        // use, before any graph records a draw of it; an error is logged and the draws of that grid refuse.
+        void EnsureGridIndices( uint32_t cells );
 
         // One point/spot light's terrain draws (PrepareFrame): the tiles in its reach, each at the LOD the light
         // asks for (its rows follow the camera's in the group buffers), and the key of what they draw.
@@ -433,6 +443,10 @@ namespace Desert::Graphic::System
         };
         std::vector<DicePoolJob>         m_DicePoolJobs;
         uint32_t                         m_DicePoolVertices = 0;
+        // THE GRIDS' SHARED INDEX BUFFERS (UE FLandscapeSharedBuffers), by cells a side: one per grid size any tile
+        // has drawn at (a 255-quad landscape's eight LOD grids, 2.1 MB), kept for the renderer's life. Written
+        // only in PrepareFrame / PrepareLocalShadowViews, read by RecordDraws.
+        std::unordered_map<uint32_t, std::shared_ptr<IndexBuffer>> m_GridIndices;
         RDG::BufferRef                   m_DicePool;
         std::shared_ptr<ComputePipeline> m_DicePoolPipeline;
         ShaderBindingLayoutCache         m_DicePoolLayout;

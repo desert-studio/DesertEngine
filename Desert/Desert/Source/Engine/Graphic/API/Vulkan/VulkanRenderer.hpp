@@ -89,6 +89,11 @@ namespace Desert::Graphic::API::Vulkan
                                                       const MaterialExecutor*    material,
                                                       std::span<const std::byte> push, RDG::BufferRef args,
                                                       uint64_t offset ) override;
+        Common::BoolResultStr DrawProceduralIndexed( const RDG::PassBindings&   bindings,
+                                                     const GraphicsPipeline&    pipeline,
+                                                     const MaterialExecutor*    material,
+                                                     std::span<const std::byte> push, IndexBuffer& indexBuffer,
+                                                     std::span<const ProceduralIndexedRange> ranges ) override;
         Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,
