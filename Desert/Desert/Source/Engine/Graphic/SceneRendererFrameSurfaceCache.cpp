@@ -378,15 +378,15 @@ namespace Desert::Graphic
         }
 
         // Said when the scene settles or grows, not per frame.
-        const SurfaceCache::SceneRecords& records = *scene.Records;
-        const uint64_t census = ( static_cast<uint64_t>( records.Cards.size() ) << 32 ) | records.CapturedCards;
+        const SurfaceCache::SceneRecords& sceneRecords = *scene.Records;
+        const uint64_t census = ( static_cast<uint64_t>( sceneRecords.Cards.size() ) << 32 ) | sceneRecords.CapturedCards;
         if ( scene.Captures.empty() && census != m_SurfaceCacheLoggedCensus )
         {
             m_SurfaceCacheLoggedCensus = census;
             LOG_INFO( "[SurfaceCache] settled: {} instance(s), {} card(s), {} resident, {} captured, {} at high "
                       "resolution, {} page(s)",
-                      records.MeshCards.size(), records.Cards.size(), records.ResidentCards, records.CapturedCards,
-                      records.HighResCards, records.Pages.size() );
+                      sceneRecords.MeshCards.size(), sceneRecords.Cards.size(), sceneRecords.ResidentCards, sceneRecords.CapturedCards,
+                      sceneRecords.HighResCards, sceneRecords.Pages.size() );
             // The card build's coverage report over the meshes loaded so far (MeshCardRepresentation.hpp).
             LOG_INFO( "[SurfaceCache] card coverage: {}",
                       Assets::FormatMeshCardsCoverage( Assets::MeshCardsCoverageSummary(), 12 ) );
@@ -395,7 +395,7 @@ namespace Desert::Graphic
                 LOG_WARN(
                      "[SurfaceCache] the atlas cannot hold the smallest resolution of {} of {} card(s): raise "
                      "GlobalIllumination.SurfaceCacheAtlasSize of this quality; their hits are lit in place",
-                     scene.MissingMinimumCards, records.Cards.size() );
+                     scene.MissingMinimumCards, sceneRecords.Cards.size() );
             }
         }
 
