@@ -223,6 +223,11 @@ namespace Desert::Assets
 
         [[nodiscard]] std::shared_ptr<const MeshDistanceFieldData> Get() const;
         void Publish( std::shared_ptr<const MeshDistanceFieldData> field );
+        // Moves on with every Publish of any slot in the process (any thread): a reader that keeps what the
+        // meshes' fields were when it looked (the global distance field's object set) looks again only when a
+        // field landed since (UE: FDistanceFieldAsyncQueue's completed tasks add the primitive's distance field
+        // object, nothing polls every mesh every frame).
+        [[nodiscard]] static uint64_t PublishGeneration();
         [[nodiscard]] bool MostlyTwoSided() const
         {
             return m_MostlyTwoSided;

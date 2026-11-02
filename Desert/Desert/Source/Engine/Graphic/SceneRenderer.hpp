@@ -987,6 +987,24 @@ namespace Desert::Graphic
         DistanceField::GlobalDistanceField*                 m_SharedGlobalDistanceField = nullptr;
         // What this view does with the field it reads (its near-field grid, the debug view), made on first use.
         std::unique_ptr<DistanceField::GlobalDistanceFieldView> m_GlobalDistanceFieldView;
+        // THE SCENE'S DISTANCE-FIELD OBJECTS, KEPT (UE FDistanceFieldSceneData's primitive add / update / remove
+        // operations; AddFrameGlobalDistanceField): rebuilt from the mesh queues only when what they were made of
+        // moved on - the GpuScene's primitive change stream past m_GdfObjectsCursor (a static or ISM primitive
+        // added, removed, re-meshed, moved, its instances or its sections changed, a discarded frame), a mesh's
+        // field landing (MeshDistanceFieldSlot::PublishGeneration), the surface cache's placements (its rows,
+        // SurfaceCacheScene::GetPlacementRevision), or the frame after a move (GpuScene::BeginFrame settles
+        // PrevLocalToWorld := LocalToWorld without a stream entry). Otherwise the frame reuses the sealed set.
+        struct KeptGdfObjects
+        {
+            DistanceField::GlobalDistanceFieldObjectSet Set;
+            uint64_t                                    Stream            = 0;
+            uint64_t                                    Cursor            = 0;
+            uint64_t                                    FieldsPublished   = 0;
+            uint64_t                                    SurfacePlacements = 0;
+            const void*                                 SurfaceCache      = nullptr;
+            bool                                        SettleAfterMove   = false;
+        };
+        std::optional<KeptGdfObjects> m_GdfObjects;
         // The view's deformation field (DEFORM-FIELD: the clipmap of the world's contacts around this view's camera),
         // and what this frame's graph imported of it (empty while the world never deformed: no pass, no image).
         Deformation::DeformationFieldRenderer               m_DeformationField;
