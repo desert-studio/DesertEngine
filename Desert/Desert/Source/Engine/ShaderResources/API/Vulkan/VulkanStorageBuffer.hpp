@@ -49,6 +49,9 @@ namespace Desert::ShaderResources::API::Vulkan
 
         NO_DISCARD Common::BoolResultStr ReadBack( void* destination, uint32_t size, uint32_t offset ) override;
 
+        // StorageBuffer::GetDeviceAddress: ActiveCopy's buffer for this frame in flight (the copy ImportBuffer binds).
+        NO_DISCARD Common::ResultStr<uint64_t> GetDeviceAddress() override;
+
         // What the render graph knows about the copy it last imported (VulkanRendererAPI::ImportBuffer):
         // that copy's id, the graph's non-owning handle on its VkBuffer, and the state the last graph left
         // it in. A persistent buffer has one copy, so its state carries from frame to frame (a simulation
