@@ -246,6 +246,10 @@ namespace Desert::Graphic::System
             std::string                  Key;
             std::vector<glm::vec4>       ParamRows;
             std::vector<TerrainInstance> Instances;
+            // The group's layer inputs (m_LayerInputs, keyed by the material's own textures, which the group key
+            // contains): resolved once per frame by the tile that opened the group; every other tile of the group
+            // and every light's row read them through this, with no TerrainTextureKey of their own.
+            TerrainLayerInputs* Layers = nullptr;
         };
 
         struct FrameDraw

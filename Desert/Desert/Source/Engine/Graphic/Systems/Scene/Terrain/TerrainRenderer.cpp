@@ -388,6 +388,22 @@ namespace Desert::Graphic::System
                                                                  : std::optional<float>( n->second );
                                       } );
         }
+
+        // ONE UPLOAD PER GROUP (SCENE-CACHE-2; UE Landscape: one uniform buffer per component, read by every
+        // pass): the first program of a group that declares the block takes the group's rows into its own buffer
+        // (@p uploaded := @p block); every later program reads that same buffer (SetBuffer of the same buffer
+        // again is no write), so the surface, the two casters and the depth prepass cost one upload, not four.
+        void ShareGroupRows( StorageBufferProperty*& uploaded, StorageBufferProperty& block, const void* data,
+                             const uint32_t bytes )
+        {
+            if ( uploaded == nullptr || uploaded->GetOwnedStorageBuffer() == nullptr )
+            {
+                block.SetRawData( data, bytes );
+                uploaded = &block;
+                return;
+            }
+            block.SetBuffer( uploaded->GetOwnedStorageBuffer() );
+        }
     } // namespace
 
     namespace
@@ -643,21 +659,31 @@ namespace Desert::Graphic::System
 
             // The material's layer inputs (TerrainLayerInputs): keyed by the material's own textures, not the
             // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
-            const std::string   layerKey = TerrainTextureKey( t.Overrides, nullptr, nullptr );
-            TerrainLayerInputs& layers   = m_LayerInputs[layerKey];
-            if ( !m_EmptyLayerArray )
-                m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
-            if ( layerKeysThisFrame.insert( layerKey ).second )
+            // A tile of a group opened this frame reads the group's (FrameGroup::Layers: the group key contains
+            // the layer key), so the layer key is spelled once per group, not once per tile.
+            TerrainLayerInputs* layersOf = nullptr;
+            if ( !inserted )
+                layersOf = m_FrameGroups[it->second].Layers;
+            if ( layersOf == nullptr )
             {
-                DESERT_PROFILE_PASS( "Terrain: Layer inputs" );
-                UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
-                                          "landscape material " + layerKey, m_EmptyLayerArray, layers );
+                const std::string layerKey = TerrainTextureKey( t.Overrides, nullptr, nullptr );
+                layersOf                   = &m_LayerInputs[layerKey];
+                if ( !m_EmptyLayerArray )
+                    m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
+                if ( layerKeysThisFrame.insert( layerKey ).second )
+                {
+                    DESERT_PROFILE_PASS( "Terrain: Layer inputs" );
+                    UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
+                                              "landscape material " + layerKey, m_EmptyLayerArray, *layersOf );
+                }
             }
+            TerrainLayerInputs& layers = *layersOf;
 
             if ( inserted )
             {
                 DESERT_PROFILE_PASS( "Terrain: Group textures" );
                 m_FrameGroups.push_back( { it->first, {}, {} } );
+                m_FrameGroups.back().Layers = &layers;
 
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
                 // are bound once, from the terrain that opened the group. Unset samplers keep the backend
@@ -768,6 +794,9 @@ namespace Desert::Graphic::System
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (SCENE-CACHE-2, ShareGroupRows): the programs that declare the block read the
+            // first one's buffer.
+            StorageBufferProperty* uploaded = nullptr;
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
             {
@@ -778,8 +807,8 @@ namespace Desert::Graphic::System
                                                 : material->Get<StorageBufferProperty>( kMaterialRowBlock );
                 if ( rows )
                     if ( !group.ParamRows.empty() )
-                        rows->SetRawData( group.ParamRows.data(),
-                                          static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
+                        ShareGroupRows( uploaded, *rows, group.ParamRows.data(),
+                                        static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
             }
         }
     }
@@ -881,9 +910,7 @@ namespace Desert::Graphic::System
                 FrameGroup&           group    = m_FrameGroups[m_FrameDraws[i].Group];
                 // The same layer inputs as the camera's row (resolved above this frame); the shadow program
                 // reads none of them, the row is whole.
-                const TerrainInstance instance =
-                     LandscapeInstance( t, TileLodsOf( l, lightLods ),
-                                        m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ) );
+                const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( l, lightLods ), *group.Layers );
 
                 FrameDraw draw;
                 draw.Group = m_FrameDraws[i].Group;
@@ -920,13 +947,15 @@ namespace Desert::Graphic::System
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (SCENE-CACHE-2): the first program's buffer takes the rows, the other three
+            // read that same buffer (ShareGroupRows) - the rows are identical by construction.
+            StorageBufferProperty* uploaded = nullptr;
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
                 if ( auto* instances =
                           material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
-                    instances->SetRawData(
-                         group.Instances.data(),
-                         static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
+                    ShareGroupRows( uploaded, *instances, group.Instances.data(),
+                                    static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
         }
     }
 
