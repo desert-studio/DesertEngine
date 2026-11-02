@@ -33,15 +33,15 @@ namespace Desert::Graphic::API::Vulkan
         // A primary command buffer of the current slot on @p pipe, begun (one-time submit).
         Common::ResultStr<VkCommandBuffer> BeginCommandBuffer( RDG::Pipe pipe );
         // RDG-PARALLEL-3 (UE: a parallel FRHICommandList per task, each with its own Vulkan command pool): the
-        // secondary command buffers of graph chunks recorded on task workers. One arena per (slot, pipe, chunk
-        // index): a VkCommandPool is externally synchronized, so two workers never share one. Calling thread,
-        // before any worker records: the current slot holds at least @p arenas arenas on @p pipe.
-        Common::BoolResultStr ReserveSecondaryArenas( RDG::Pipe pipe, uint32_t arenas );
-        // On the one worker recording arena @p arena: a secondary of the current slot, begun with @p usage and
-        // @p inheritance (render pass VK_NULL_HANDLE: recorded outside a render pass).
-        Common::ResultStr<VkCommandBuffer> BeginSecondary( RDG::Pipe pipe, uint32_t arena,
-                                                           const VkCommandBufferInheritanceInfo& inheritance,
-                                                           VkCommandBufferUsageFlags             usage );
+        // command buffers of graph chunks recorded on task workers. One arena per (slot, pipe, chunk index): a
+        // VkCommandPool is externally synchronized, so two workers never share one. Calling thread, before any
+        // worker records: the current slot holds at least @p arenas arenas on @p pipe.
+        Common::BoolResultStr ReserveChunkArenas( RDG::Pipe pipe, uint32_t arenas );
+        // RDG-PARALLEL-10 (UE: a parallel-translated command list records PRIMARY command buffers, submitted in
+        // order; secondaries only where one render pass is split across threads, which a chunk never is). On the
+        // one worker recording arena @p arena: a primary of the current slot, begun one-time submit. The segment
+        // recorder splices it into the open submission (VulkanRdgSegmentRecorder::SpliceChunk).
+        Common::ResultStr<VkCommandBuffer> BeginChunkCommandBuffer( RDG::Pipe pipe, uint32_t arena );
         // An unused binary semaphore of the current slot (unsignalled: every semaphore handed out in a slot's
         // previous frame was signalled and waited by that frame's submissions, which the fence covered).
         Common::ResultStr<VkSemaphore> AcquireSemaphore();
@@ -60,8 +60,8 @@ namespace Desert::Graphic::API::Vulkan
         struct Slot
         {
             std::array<PipePool, 2>  Pipes; // indexed by RDG::Pipe
-            // RDG-PARALLEL-3: per pipe, the chunk arenas (ReserveSecondaryArenas); grown only on the calling thread.
-            std::array<std::vector<PipePool>, 2> Secondary;
+            // RDG-PARALLEL-3: per pipe, the chunk arenas (ReserveChunkArenas); grown only on the calling thread.
+            std::array<std::vector<PipePool>, 2> ChunkArenas;
             std::vector<VkSemaphore> Semaphores;
             uint32_t                 SemaphoresUsed = 0;
         };
@@ -96,7 +96,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         RDG::Pipe                         OnPipe        = RDG::Pipe::Graphics;
         VkQueue                           Queue         = VK_NULL_HANDLE;
-        VkCommandBuffer                   CommandBuffer = VK_NULL_HANDLE;
+        // RDG-PARALLEL-10: in submission order, all in this one VkSubmitInfo (the waits before the first, the
+        // signals after the last): the segment's own buffer, and around every chunk replayed in it the chunk's
+        // primary then the segment's continuation. The last one is the one recording continues in while open.
+        std::vector<VkCommandBuffer>      CommandBuffers;
         std::vector<VkSemaphore>          WaitSemaphores;
         std::vector<VkPipelineStageFlags> WaitStages;
         std::vector<VkSemaphore>          SignalSemaphores;
@@ -127,6 +130,10 @@ namespace Desert::Graphic::API::Vulkan
         // Returns the command buffer recording continues in after this segment (the open tail), or VK_NULL_HANDLE.
         Common::ResultStr<VkCommandBuffer> EndSegment( const RDG::PipeSegment&  segment,
                                                        const VulkanRdgQueueSet& queues );
+        // RDG-PARALLEL-10. A chunk replayed in the open segment: its current command buffer ends, @p chunk (a
+        // recorded, ended primary of the segment's queue family) follows it in the same submission, and a fresh
+        // continuation of the segment's pipe is begun and returned (recording goes on in it).
+        Common::ResultStr<VkCommandBuffer> SpliceChunk( VkCommandBuffer chunk, const VulkanRdgQueueSet& queues );
         // The graph ended (its final barriers are recorded): its compile result is let go, and its submissions
         // and open tail stay for Take.
         void EndGraph();

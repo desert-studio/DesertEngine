@@ -31,8 +31,8 @@ namespace Desert::Graphic::API::Vulkan
     // CommandBuffer. Vulkan keeps both across render passes and a pipeline bind does not disturb the sets, so a
     // draw whose pipeline handle, or whose layout and set handles, equal these records no bind. Every dynamic
     // state the engine sets (viewport, scissor, line width) is dynamic in every graphics pipeline
-    // (VulkanPipeline::m_DynamicStates), so a skipped pipeline bind keeps no stale static state. A secondary
-    // command buffer inherits no bound state: On() of a new buffer forgets everything.
+    // (VulkanPipeline::m_DynamicStates), so a skipped pipeline bind keeps no stale static state. A freshly
+    // begun command buffer holds no bound state: On() of a new buffer forgets everything.
     struct VulkanBoundGraphics
     {
         VkCommandBuffer              CommandBuffer = VK_NULL_HANDLE;
@@ -71,7 +71,7 @@ namespace Desert::Graphic::API::Vulkan
     // with another thread.
     struct VulkanRecordContext
     {
-        // The command buffer the context records into now (a chunk: its current secondary; null between two).
+        // The command buffer the context records into now (a chunk: its own primary).
         VkCommandBuffer                    CommandBuffer = VK_NULL_HANDLE;
         std::optional<VulkanBoundGeometry> BoundGeometry;
         VulkanBoundGraphics                BoundGraphics;

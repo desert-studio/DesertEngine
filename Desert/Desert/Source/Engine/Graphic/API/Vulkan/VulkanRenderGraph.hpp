@@ -582,7 +582,7 @@ namespace Desert::Graphic::API::Vulkan
         static Common::ResultStr<VulkanRdgBuffer*>  BufferOf( const RDG::BufferBinding& binding );
         // The command buffer the open segment (or the graph tail) records into; VK_NULL_HANDLE outside a
         // graph. For a backend that forwards to this one (its contexts are not this backend's).
-        // On a worker recording a graph chunk: that chunk's current secondary.
+        // On a worker recording a graph chunk: that chunk's primary.
         VkCommandBuffer GetRecordingCommandBuffer() const
         {
             return RecordingBuffer();
@@ -668,10 +668,12 @@ namespace Desert::Graphic::API::Vulkan
         void RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers ) override;
 
         // ── RDG-PARALLEL-3: chunks recorded on task workers (UE FRDGBuilder parallel execute) ───────────────
-        // Each chunk records into secondary command buffers of its own arena (VulkanRdgQueueObjects::
-        // BeginSecondary) with its own recording context, pass state, labels and descriptor arena; the calling
-        // thread replays them into the segment's primary in pass order (vkCmdExecuteCommands; a render pass the
-        // chunk opened is begun there with VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS).
+        // Each chunk records into ONE primary command buffer of its own arena (VulkanRdgQueueObjects::
+        // BeginChunkCommandBuffer) with its own recording context, pass state, labels and descriptor arena, its
+        // render passes begun inline exactly as on the calling thread (a chunk never splits a render pass:
+        // RDGBuilder cuts only between render pass instances). RDG-PARALLEL-10 (UE: a parallel-translated
+        // command list is a primary payload, submitted in order): the calling thread splices it into the open
+        // segment's submission in pass order (VulkanRdgSegmentRecorder::SpliceChunk), no vkCmdExecuteCommands.
         [[nodiscard]] bool SupportsParallelRecording() const override
         {
             return true;
@@ -685,26 +687,14 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         struct PreparedRenderPass; // below
-        // One secondary of a chunk: recorded outside a render pass, or inside the one it continues (begun by
-        // ExecuteChunk around it with the chunk's render pass, framebuffer, extent and clears).
-        struct ChunkPiece
-        {
-            VkCommandBuffer           CommandBuffer = VK_NULL_HANDLE;
-            bool                      InRenderPass  = false;
-            VkRenderPass              RenderPass    = VK_NULL_HANDLE;
-            VkFramebuffer             Framebuffer   = VK_NULL_HANDLE;
-            VkExtent2D                Extent{};
-            std::vector<VkClearValue> Clears;
-        };
         // Everything one chunk keeps while its worker records it: what the frame's state holds for the calling
         // thread (m_CommandBuffer -> Record.CommandBuffer, m_OpenRenderPass, m_PassSets, m_ProfilerScopes,
-        // m_CpuScopes), and the debug labels open in the current piece (re-opened in the next one: a label never
-        // spans two secondaries).
+        // m_CpuScopes), and the debug labels its passes opened (EndChunk closes what a failed pass left open).
         struct Chunk
         {
             const VulkanRdgBackend*         Owner = nullptr;
             RDG::RecordChunkDesc            Desc;
-            uint32_t                        Arena = 0; // its secondary arena on Desc.OnPipe; descriptors: Arena + 1
+            uint32_t                        Arena = 0; // its chunk arena on Desc.OnPipe; descriptors: Arena + 1
             VulkanRecordContext             Record;
             std::optional<RdgRenderPassKey> OpenRenderPass;
             VulkanRdgPassSetMemo            PassSets;
@@ -713,8 +703,10 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> CpuScopes;
 #endif
             std::vector<const char*> Labels; // pass names (CompileResult outlives the chunk)
-            std::vector<ChunkPiece>  Pieces;
-            std::string              Failure; // a piece could not be begun: ExecuteChunk ends the frame with it
+            // Its primary from BeginChunk until ExecuteChunk splices it (Record.CommandBuffer is nulled by a device
+            // loss; this one is still ended by EndChunk).
+            VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
+            std::string     Failure; // its buffer could not be begun or ended: ExecuteChunk ends the frame with it
             // What the worker had bound before BeginChunk (a worker may record a chunk inside another's wait).
             Chunk*               PreviousChunk   = nullptr;
             VulkanRecordContext* PreviousContext = nullptr;
@@ -745,11 +737,6 @@ namespace Desert::Graphic::API::Vulkan
             Chunk* const chunk = BoundChunk();
             return chunk != nullptr ? chunk->ProfilerScopes : m_ProfilerScopes;
         }
-        // Ends the chunk's current piece (its open labels first) and begins the next one: outside a render pass
-        // when @p prepared is null, else inside @p prepared (labels re-opened, viewport and scissor set: a
-        // secondary inherits no dynamic state). The recording context forgets its bound state either way.
-        void SwitchChunkPiece( Chunk& chunk, const PreparedRenderPass* prepared );
-        void EndChunkPiece( Chunk& chunk );
         std::vector<std::unique_ptr<Chunk>> m_Chunks; // reused across graphs; the first m_ChunkCount are this graph's
         uint32_t                            m_ChunkCount = 0;
         static inline thread_local Chunk*   t_Chunk      = nullptr;
