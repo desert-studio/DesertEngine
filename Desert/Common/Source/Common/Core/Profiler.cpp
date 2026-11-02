@@ -4,20 +4,274 @@
 #include "Profiler.hpp"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 
 namespace Common::Profiling
 {
+    namespace Detail
+    {
+        // One row of one thread between two publications: the sums ScopeResult averages.
+        struct ScopeAccum
+        {
+            double   TotalMs   = 0.0;
+            double   SelfMs    = 0.0;
+            double   WaitMs    = 0.0;
+            double   GpuMs     = 0.0;
+            double   GpuSelfMs = 0.0;
+            uint32_t Calls     = 0;
+            uint32_t GpuCalls  = 0;
+
+            // A row is part of a window exactly when something was added to it: every add counts a call.
+            [[nodiscard]] bool Empty() const noexcept
+            {
+                return Calls == 0 && GpuCalls == 0;
+            }
+            ScopeAccum& operator+=( const ScopeAccum& other ) noexcept
+            {
+                TotalMs += other.TotalMs;
+                SelfMs += other.SelfMs;
+                WaitMs += other.WaitMs;
+                GpuMs += other.GpuMs;
+                GpuSelfMs += other.GpuSelfMs;
+                Calls += other.Calls;
+                GpuCalls += other.GpuCalls;
+                return *this;
+            }
+        };
+
+        // THE THREAD-NAME CACHE'S KEY: a name by its two parts (LocalScopeName), hashed and compared as the
+        // concatenation it stands for, so a lookup builds no string. FNV-1a, because it streams: hashing the
+        // prefix and then the name gives exactly the hash of the stored concatenation.
+        struct ScopeNameKey
+        {
+            std::string_view Prefix;
+            std::string_view Name;
+        };
+
+        struct ScopeNameKeyHash
+        {
+            using is_transparent = void;
+
+            static constexpr uint64_t kOffset = 14695981039346656037ull;
+            static constexpr uint64_t kPrime  = 1099511628211ull;
+
+            [[nodiscard]] static uint64_t Mix( uint64_t hash, const std::string_view text ) noexcept
+            {
+                for ( const char c : text )
+                {
+                    hash ^= static_cast<unsigned char>( c );
+                    hash *= kPrime;
+                }
+                return hash;
+            }
+            size_t operator()( const ScopeNameKey& key ) const noexcept
+            {
+                return static_cast<size_t>( Mix( Mix( kOffset, key.Prefix ), key.Name ) );
+            }
+            size_t operator()( const std::string& text ) const noexcept
+            {
+                return static_cast<size_t>( Mix( kOffset, text ) );
+            }
+        };
+
+        struct ScopeNameKeyEqual
+        {
+            using is_transparent = void;
+
+            [[nodiscard]] static bool Matches( const std::string_view text, const ScopeNameKey& key ) noexcept
+            {
+                return text.size() == key.Prefix.size() + key.Name.size() && text.starts_with( key.Prefix ) &&
+                       text.substr( key.Prefix.size() ) == key.Name;
+            }
+            bool operator()( const std::string& a, const std::string& b ) const noexcept
+            {
+                return a == b;
+            }
+            bool operator()( const ScopeNameKey& key, const std::string& text ) const noexcept
+            {
+                return Matches( text, key );
+            }
+            bool operator()( const std::string& text, const ScopeNameKey& key ) const noexcept
+            {
+                return Matches( text, key );
+            }
+        };
+
+        // ONE THREAD'S SAMPLES (UE FThreadStats), in two halves. The thread adds into the ACTIVE half and never
+        // takes a lock; the publisher (BeginFrame) makes the other half active and then reads and clears the one
+        // the thread has stopped writing. The handover is a Dekker pair on two atomics: the thread raises
+        // Writing BEFORE it reads Active, the publisher stores Active BEFORE it reads Writing, all four
+        // sequentially consistent - so either the thread already sees the new half, or the publisher sees the
+        // thread inside an add on the old one and waits the few nanoseconds that add takes.
+        struct ThreadStats
+        {
+            struct Half
+            {
+                // Rows by name id, in pages, so a thread that only ever touched a few late-interned names does
+                // not hold a row for every name before them.
+                static constexpr uint32_t kPageRows = 64;
+                using Page                          = std::array<ScopeAccum, kPageRows>;
+
+                std::vector<std::unique_ptr<Page>> Pages;
+                std::vector<uint32_t>              Touched;           // ids added to in this half, for the merge
+                double                             OutermostMs = 0.0; // see Profiler::LastFrameNamedMs
+
+                ScopeAccum& Row( const uint32_t id )
+                {
+                    const uint32_t page = id / kPageRows;
+                    if ( page >= Pages.size() )
+                        Pages.resize( page + 1 );
+                    if ( !Pages[page] )
+                        Pages[page] = std::make_unique<Page>();
+                    ScopeAccum& row = ( *Pages[page] )[id % kPageRows];
+                    if ( row.Empty() )
+                        Touched.push_back( id );
+                    return row;
+                }
+
+                // Adds every touched row into @p merged (by id) and leaves the half empty.
+                void DrainInto( std::vector<ScopeAccum>& merged )
+                {
+                    for ( const uint32_t id : Touched )
+                    {
+                        ScopeAccum& row = ( *Pages[id / kPageRows] )[id % kPageRows];
+                        if ( id >= merged.size() )
+                            merged.resize( id + 1 );
+                        merged[id] += row;
+                        row = ScopeAccum{};
+                    }
+                    Touched.clear();
+                }
+            };
+
+            std::array<Half, 2>   Halves;
+            std::atomic<uint32_t> Active{ 0 };
+            std::atomic<bool>     Writing{ false };
+            // Set by the thread's exit (ThreadStatsRetirer) after its last add: from then on nobody writes either
+            // half, and the next publication drains both and drops the buffer.
+            std::atomic<bool> Retired{ false };
+
+            // This thread's runtime names (LocalScopeName). Read and written by this thread alone.
+            std::unordered_map<std::string, InternedScopeName, ScopeNameKeyHash, ScopeNameKeyEqual> Names;
+
+            template <class Add>
+            void Write( const uint32_t id, Add&& add )
+            {
+                Writing.store( true, std::memory_order_seq_cst );
+                Half& half = Halves[Active.load( std::memory_order_seq_cst )];
+                add( half, half.Row( id ) );
+                Writing.store( false, std::memory_order_release );
+            }
+
+            // The publisher's side of the handover: the half this thread wrote until now, no longer written.
+            Half& Flip()
+            {
+                const uint32_t old = Active.load( std::memory_order_relaxed ); // only the publisher stores it
+                Active.store( old ^ 1u, std::memory_order_seq_cst );
+                while ( Writing.load( std::memory_order_seq_cst ) )
+                    std::this_thread::yield();
+                return Halves[old];
+            }
+        };
+    } // namespace Detail
+
+    namespace
+    {
+        // The calling thread's buffer (Profiler::LocalStats). Trivially destructible, so it can be read at any
+        // point of the thread's exit, including after the retirer below has run.
+        thread_local Detail::ThreadStats* t_Stats        = nullptr;
+        thread_local bool                 t_StatsRetired = false;
+
+        // Retires the thread's buffer when the thread exits: the last thing the thread does to it. A sample
+        // closed after that (a thread_local destroyed later that times its teardown) is dropped, never written
+        // into a buffer the publisher may already have freed.
+        struct ThreadStatsRetirer
+        {
+            ThreadStatsRetirer()                                       = default;
+            ThreadStatsRetirer( const ThreadStatsRetirer& )            = delete;
+            ThreadStatsRetirer& operator=( const ThreadStatsRetirer& ) = delete;
+            ~ThreadStatsRetirer()
+            {
+                if ( t_Stats != nullptr )
+                    t_Stats->Retired.store( true, std::memory_order_release );
+                t_Stats        = nullptr;
+                t_StatsRetired = true;
+            }
+        };
+    } // namespace
+
     Profiler& Profiler::Get()
     {
         static Profiler s_Instance;
         return s_Instance;
     }
 
+    Profiler::Profiler() = default;
+
+    Profiler::~Profiler()
+    {
+        // The singleton dies in static destruction, on the thread that called exit(). Some runtimes destroy that
+        // thread's thread_locals AFTER the statics, so its retirer would mark a buffer this destructor is about to
+        // free: detach the thread from it first. Every other thread has been joined by now.
+        t_Stats        = nullptr;
+        t_StatsRetired = true;
+    }
+
+    Detail::ThreadStats* Profiler::LocalStats()
+    {
+        if ( t_Stats != nullptr )
+            return t_Stats;
+        if ( t_StatsRetired )
+            return nullptr;
+
+        auto                 owned = std::make_unique<Detail::ThreadStats>();
+        Detail::ThreadStats* stats = owned.get();
+        {
+            std::lock_guard<std::mutex> lock( m_ThreadsMutex );
+            m_Threads.push_back( std::move( owned ) );
+        }
+        // Function-local, so it is constructed - and its destructor registered for this thread's exit - on the
+        // thread's first sample, and never for a thread that closes no scope.
+        static thread_local ThreadStatsRetirer retirer;
+        (void)retirer;
+        t_Stats = stats;
+        return stats;
+    }
+
+    InternedScopeName Profiler::InternScopeName( const std::string_view name )
+    {
+        std::lock_guard<std::mutex> lock( m_NameMutex );
+        if ( const auto found = m_NameIds.find( name ); found != m_NameIds.end() )
+            return { found->second, m_NameText[found->second].c_str() };
+        const auto         id   = static_cast<uint32_t>( m_NameText.size() );
+        const std::string& text = m_NameText.emplace_back( name );
+        m_NameIds.emplace( std::string_view( text ), id );
+        return { id, text.c_str() };
+    }
+
+    InternedScopeName Profiler::LocalScopeName( const std::string_view prefix, const std::string_view name )
+    {
+        Detail::ThreadStats* const stats = LocalStats();
+        const Detail::ScopeNameKey key{ prefix, name };
+        if ( stats != nullptr )
+            if ( const auto found = stats->Names.find( key ); found != stats->Names.end() )
+                return found->second;
+
+        // First sight of this name on this thread: the one time it is concatenated.
+        std::string text;
+        text.reserve( prefix.size() + name.size() );
+        text.append( prefix ).append( name );
+        const InternedScopeName interned = InternScopeName( text );
+        if ( stats != nullptr )
+            stats->Names.emplace( std::move( text ), interned );
+        return interned;
+    }
+
     void Profiler::BeginFrame()
     {
-        std::lock_guard<std::mutex> lock( m_Mutex );
+        Detail::ThreadStats* const frameStats = LocalStats(); // the caller is the frame thread
 
-        m_FrameThread  = std::this_thread::get_id();
         const auto now = Clock::now();
         if ( !m_WindowStarted )
         {
@@ -31,22 +285,53 @@ namespace Common::Profiling
         if ( windowMs < windowLimit || m_WindowFrames == 0 )
             return; // still accumulating this window
 
+        // THE MERGE: every thread's half of the window, by name id. A thread that exited since the last
+        // publication left both halves (nobody flips a retired buffer's halves again) and is dropped here.
+        std::vector<Detail::ScopeAccum> merged;
+        double                          frameNamedMs = 0.0;
+        {
+            std::lock_guard<std::mutex> lock( m_ThreadsMutex );
+            for ( auto it = m_Threads.begin(); it != m_Threads.end(); )
+            {
+                Detail::ThreadStats& stats   = **it;
+                const bool           retired = stats.Retired.load( std::memory_order_acquire );
+                if ( retired )
+                {
+                    for ( Detail::ThreadStats::Half& half : stats.Halves )
+                        half.DrainInto( merged );
+                    it = m_Threads.erase( it );
+                    continue;
+                }
+                Detail::ThreadStats::Half& half = stats.Flip();
+                half.DrainInto( merged );
+                if ( &stats == frameStats )
+                    frameNamedMs = half.OutermostMs;
+                half.OutermostMs = 0.0;
+                ++it;
+            }
+        }
+
         // Window elapsed: publish the AVERAGE per-frame cost of every scope over the window.
         const double inv = 1.0 / static_cast<double>( m_WindowFrames );
         m_Display.clear();
-        m_Display.reserve( m_Accum.size() );
-        for ( const auto& [name, result] : m_Accum )
         {
-            ScopeResult avg;
-            avg.Name      = name;
-            avg.TotalMs   = result.TotalMs * inv;                              // avg ms / frame
-            avg.Calls     = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
-            avg.SelfMs    = result.SelfMs * inv;
-            avg.WaitMs    = result.WaitMs * inv;
-            avg.GpuMs     = result.GpuMs * inv;                                // avg GPU ms / frame
-            avg.GpuSelfMs = result.GpuSelfMs * inv;
-            avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
-            m_Display.push_back( avg );
+            std::lock_guard<std::mutex> lock( m_NameMutex );
+            for ( uint32_t id = 0; id < merged.size(); ++id )
+            {
+                const Detail::ScopeAccum& result = merged[id];
+                if ( result.Empty() )
+                    continue;
+                ScopeResult avg;
+                avg.Name    = m_NameText[id];
+                avg.TotalMs = result.TotalMs * inv;                                              // avg ms / frame
+                avg.Calls = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
+                avg.SelfMs    = result.SelfMs * inv;
+                avg.WaitMs    = result.WaitMs * inv;
+                avg.GpuMs     = result.GpuMs * inv; // avg GPU ms / frame
+                avg.GpuSelfMs = result.GpuSelfMs * inv;
+                avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
+                m_Display.push_back( std::move( avg ) );
+            }
         }
         if ( m_SortByTime )
             std::sort( m_Display.begin(), m_Display.end(),
@@ -56,59 +341,52 @@ namespace Common::Profiling
                        []( const ScopeResult& a, const ScopeResult& b ) { return a.Name < b.Name; } );
 
         m_DisplayFrameMs      = windowMs * inv; // avg frame time over the window
-        m_DisplayFrameNamedMs = m_AccumFrameNamedMs * inv;
-        m_AccumFrameNamedMs   = 0.0;
+        m_DisplayFrameNamedMs = frameNamedMs * inv;
 
         // The mesh draw split's groups, averaged over the same frames (empty when the split was off all window).
-        m_DrawSplitDisplay.clear();
-        m_DrawSplitDisplay.reserve( m_DrawSplitAccum.size() );
-        for ( const auto& [key, group] : m_DrawSplitAccum )
         {
-            DrawSplitResult avg = group;
-            avg.GpuMs *= inv;
-            avg.Draws *= inv;
-            avg.Triangles *= inv;
-            m_DrawSplitDisplay.push_back( std::move( avg ) );
+            std::lock_guard<std::mutex> lock( m_Mutex );
+            m_DrawSplitDisplay.clear();
+            m_DrawSplitDisplay.reserve( m_DrawSplitAccum.size() );
+            for ( const auto& [key, group] : m_DrawSplitAccum )
+            {
+                DrawSplitResult avg = group;
+                avg.GpuMs *= inv;
+                avg.Draws *= inv;
+                avg.Triangles *= inv;
+                m_DrawSplitDisplay.push_back( std::move( avg ) );
+            }
+            m_DrawSplitAccum.clear();
         }
         std::sort( m_DrawSplitDisplay.begin(), m_DrawSplitDisplay.end(),
                    []( const DrawSplitResult& a, const DrawSplitResult& b )
                    { return a.Pass != b.Pass ? a.Pass < b.Pass : a.GpuMs > b.GpuMs; } );
-        m_DrawSplitAccum.clear();
 
-        m_Accum.clear();
+        ++m_PublishCount;
         m_WindowFrames = 0;
         m_WindowStart  = now;
     }
 
-    namespace
+    void Profiler::AddSample( const uint32_t nameId, const double totalMs, const double selfMs,
+                              const double waitMs, const bool outermost )
     {
-        // CPU-FRAME-5: a scope's row by its name's characters (the map's hash is transparent): a scope whose row
-        // exists - every scope after its first sample in the window - builds no key string.
-        template <class Rows>
-        typename Rows::mapped_type& RowOf( Rows& rows, const std::string_view name )
-        {
-            auto found = rows.find( name );
-            if ( found == rows.end() )
-                found = rows.emplace( std::string( name ), typename Rows::mapped_type{} ).first;
-            return found->second;
-        }
-    } // namespace
-
-    void Profiler::AddSample( const char* name, double totalMs, double selfMs, double waitMs, bool outermost )
-    {
-        if ( !m_Enabled )
+        if ( !m_Enabled || nameId == kNoScopeName )
+            return;
+        Detail::ThreadStats* const stats = LocalStats();
+        if ( stats == nullptr )
             return;
 
-        std::lock_guard<std::mutex> lock( m_Mutex );
-        if ( outermost && std::this_thread::get_id() == m_FrameThread )
-            m_AccumFrameNamedMs += totalMs;
-        auto&                       r = RowOf( m_Accum, name ); // summed across the whole window, averaged on publish
-        if ( r.Name.empty() )
-            r.Name = name;
-        r.TotalMs += totalMs;
-        r.SelfMs += selfMs;
-        r.WaitMs += waitMs;
-        r.Calls += 1;
+        // Summed across the whole window in this thread's half, merged and averaged on publish.
+        stats->Write( nameId,
+                      [&]( Detail::ThreadStats::Half& half, Detail::ScopeAccum& row )
+                      {
+                          if ( outermost )
+                              half.OutermostMs += totalMs;
+                          row.TotalMs += totalMs;
+                          row.SelfMs += selfMs;
+                          row.WaitMs += waitMs;
+                          row.Calls += 1;
+                      } );
     }
 
     namespace
@@ -122,6 +400,13 @@ namespace Common::Profiling
     ScopedTimer::ScopedTimer( const char* name, ScopeKind kind )
          : m_Name( name ), m_Enclosing( t_Innermost ), m_Start( std::chrono::high_resolution_clock::now() ),
            m_Kind( kind )
+    {
+        t_Innermost = this;
+    }
+
+    ScopedTimer::ScopedTimer( const InternedScopeName& name, ScopeKind kind )
+         : m_Name( name.Text ), m_NameId( name.Id ), m_Enclosing( t_Innermost ),
+           m_Start( std::chrono::high_resolution_clock::now() ), m_Kind( kind )
     {
         t_Innermost = this;
     }
@@ -157,28 +442,39 @@ namespace Common::Profiling
                 m_Enclosing->m_WaitMs += waitMs;
             }
 
-            Profiler::Get().AddSample( m_Name, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs,
-                                       m_Enclosing == nullptr );
+            Profiler& profiler = Profiler::Get();
+            if ( profiler.Enabled() && m_Name != nullptr )
+            {
+                // An interned name is its id already; a runtime one is found in this thread's name cache.
+                const uint32_t nameId =
+                     m_NameId != kNoScopeName ? m_NameId : profiler.LocalScopeName( {}, m_Name ).Id;
+                profiler.AddSample( nameId, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs,
+                                    m_Enclosing == nullptr );
+            }
         }
         DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
     }
 
     void Profiler::AddGpuSample( const char* name, double inclusiveMs, double selfMs )
     {
-        if ( !m_Enabled )
+        if ( !m_Enabled || name == nullptr )
             return;
 
         // The backend resolves a frame's queries MaxFramesInFlight frames after they were written, so this
         // lands in a LATER window than the CPU sample of the same scope. Over a window of hundreds of
         // frames that shifts the average by the lag divided by the window — well under a per cent — and it
         // keeps the read off the GPU's critical path, which is the whole point.
-        std::lock_guard<std::mutex> lock( m_Mutex );
-        auto&                       r = RowOf( m_Accum, name );
-        if ( r.Name.empty() )
-            r.Name = name;
-        r.GpuMs += inclusiveMs;
-        r.GpuSelfMs += selfMs;
-        r.GpuCalls += 1;
+        const uint32_t             nameId = LocalScopeName( {}, name ).Id;
+        Detail::ThreadStats* const stats  = LocalStats();
+        if ( stats == nullptr )
+            return;
+        stats->Write( nameId,
+                      [&]( Detail::ThreadStats::Half&, Detail::ScopeAccum& row )
+                      {
+                          row.GpuMs += inclusiveMs;
+                          row.GpuSelfMs += selfMs;
+                          row.GpuCalls += 1;
+                      } );
     }
 
     void Profiler::AddDrawSplitSample( std::string_view pass, std::string_view mesh, std::string_view material,

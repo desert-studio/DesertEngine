@@ -9,6 +9,10 @@
 
 #include "Editor/Core/FlightRules.hpp"
 
+#include <array>
+#include <cstdint>
+#include <vector>
+
 namespace Desert::Engine
 {
     class Application;
@@ -56,10 +60,33 @@ namespace Desert::Editor
         [[nodiscard]] bool FinishFlight();
 
     private:
+        // THE TABLE'S CELLS, formatted ONCE PER PUBLICATION (UE: the stat HUD formats a group when the stats
+        // thread publishes a frame, Insights' tables virtualise their rows). The profiler publishes a window
+        // twice a second; the window is painted every frame, so the numbers are printed here when
+        // Profiler::PublishCount moves and the paint only submits the rows the clipper says are visible.
+        struct TableRow
+        {
+            std::array<char, 16> Cpu{};
+            std::array<char, 16> Wait{}; // "-" when the scope waited for nothing
+            std::array<char, 16> Gpu{};  // "-" when no GPU time reached the row
+            std::array<char, 16> GpuSelf{};
+            std::array<char, 16> Pct{};
+            std::array<char, 16> Calls{};
+            bool                 Waited = false;
+            bool                 Timed  = false; // GPU columns carry a measurement
+            bool                 Hot    = false; // over 25 % of the frame
+        };
+        // Re-formats m_TableRows from the profiler's published window when it is a new one.
+        void RefreshTable();
+
         Engine::Application* m_Application;
         SceneWorkspace&      m_Workspace;
         PlaySession&         m_Play;
         const ShotDirector&  m_Shots;
+
+        std::vector<TableRow> m_TableRows;                    // by row of Profiler::LastFrame
+        uint64_t              m_TablePublish    = UINT64_MAX; // the publication m_TableRows was formatted from
+        double                m_TableGpuFrameMs = 0.0;        // that publication's GPU frame bracket
 
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
         // --flight: one row per frame of Play, written as the CSV when the capture ends.
