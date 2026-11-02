@@ -334,7 +334,9 @@ namespace Desert::Graphic
                      LOG_ERROR( "[DebugDraw] {}", recorded.GetError() );
                  }
                  m_Text.DeclareBindings( declared, RDG::TextureRef{} );
-             } };
+             },
+             // Render2D::FlushList grows and writes m_Text's vertex / index buffers and its flush bookkeeping.
+             .NeverParallel = true };
     }
 } // namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS

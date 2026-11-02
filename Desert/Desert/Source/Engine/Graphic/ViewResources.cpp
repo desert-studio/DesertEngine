@@ -64,26 +64,30 @@ namespace Desert::Graphic
             throw std::invalid_argument( "ViewResources::Acquire: unassigned ViewResourceKey in view '" + m_Name +
                                          "'" );
 
+        if ( IViewResourceCopy* const existing = Find( key, frameIndex ) )
+            return *existing;
+
+        // Made outside the lock: a factory may allocate, book ledger rows or look up other copies of this view.
+        // Two chunks that both missed make one copy each; the first filed wins and the other is dropped (its
+        // destructor defers its own GPU release) after the lock is released - `made` outlives `write`.
+        std::unique_ptr<IViewResourceCopy> made = factory.CreateViewCopy( m_Name, frameIndex );
+        if ( !made )
+            throw std::logic_error(
+                 std::format( "ViewResources::Acquire: factory returned no copy for key {}, frame {}, view '{}'",
+                              key.Value(), frameIndex, m_Name ) );
+
+        const std::unique_lock<std::shared_mutex> write( m_CopiesLock );
         if ( frameIndex >= m_Frames.size() )
             m_Frames.resize( static_cast<size_t>( frameIndex ) + 1 );
-
         std::unique_ptr<IViewResourceCopy>& slot = m_Frames[frameIndex][key.Value()];
         if ( !slot )
-        {
-            slot = factory.CreateViewCopy( m_Name, frameIndex );
-            if ( !slot )
-            {
-                m_Frames[frameIndex].erase( key.Value() );
-                throw std::logic_error( std::format(
-                     "ViewResources::Acquire: factory returned no copy for key {}, frame {}, view '{}'",
-                     key.Value(), frameIndex, m_Name ) );
-            }
-        }
+            slot = std::move( made );
         return *slot;
     }
 
     IViewResourceCopy* ViewResources::Find( const ViewResourceKey key, const uint32_t frameIndex ) const
     {
+        const std::shared_lock<std::shared_mutex> read( m_CopiesLock );
         if ( frameIndex >= m_Frames.size() )
             return nullptr;
         const auto it = m_Frames[frameIndex].find( key.Value() );
@@ -92,7 +96,8 @@ namespace Desert::Graphic
 
     uint32_t ViewResources::Forget( const ViewResourceKey key )
     {
-        uint32_t dropped = 0;
+        const std::unique_lock<std::shared_mutex> write( m_CopiesLock );
+        uint32_t                                  dropped = 0;
         for ( CopyMap& frame : m_Frames )
             dropped += static_cast<uint32_t>( frame.erase( key.Value() ) );
         return dropped;
@@ -100,12 +105,14 @@ namespace Desert::Graphic
 
     void ViewResources::Clear()
     {
+        const std::unique_lock<std::shared_mutex> write( m_CopiesLock );
         m_Frames.clear();
     }
 
     uint32_t ViewResources::CopyCount() const noexcept
     {
-        size_t count = 0;
+        const std::shared_lock<std::shared_mutex> read( m_CopiesLock );
+        size_t                                    count = 0;
         for ( const CopyMap& frame : m_Frames )
             count += frame.size();
         return static_cast<uint32_t>( count );

@@ -347,7 +347,9 @@ namespace Desert::Graphic
 
         const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
         graph.AddPass(
-             pass.Name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+             pass.Name,
+             RDG::PassFlags::Raster | RDG::PassFlags::NeverCull |
+                  ( pass.NeverParallel ? RDG::PassFlags::NeverParallel : RDG::PassFlags::None ),
              [&]( RDG::PassBuilder& node )
              {
                  DeclareOn( node, images, declared );

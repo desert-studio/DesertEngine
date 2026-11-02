@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -147,6 +148,12 @@ namespace Desert::Graphic
         // is not noexcept, so vector::resize copies instead of moving -- and a map of unique_ptr cannot be
         // copied (C2672 on Windows only; clang moves and compiled it).
         std::deque<CopyMap> m_Frames; // index = frame in flight; grown on first use of a slot
+        // RDG-PARALLEL-4 (UE: a parallel pass's uniform buffers are looked up, never raced). The chunks of one
+        // graph record on workers at once and all of them Find in the active view's copies; a pass without
+        // declared prerequisites may still Acquire (insert) while another chunk looks up. Shared for Find,
+        // exclusive for the map's growth, Forget and Clear. The copies themselves are not guarded: a copy
+        // is written by the pass that binds it.
+        mutable std::shared_mutex m_CopiesLock;
     };
 
     /**
@@ -158,9 +165,11 @@ namespace Desert::Graphic
      * context — which is active whenever no view is, so a write outside every view can never land in a
      * view's copy.
      *
-     * THREADING. The live list is guarded, so views may be created and destroyed on any thread; the copies
-     * themselves are touched only on the thread that records frames (Acquire, Find, Forget), the same
-     * thread that bound renderer slots before this.
+     * THREADING. The live list is guarded, so views may be created and destroyed on any thread. A view's copy
+     * map is guarded by the view (Acquire, Find, Forget), because the chunks of one graph record on workers at
+     * once (RDG-PARALLEL). The ACTIVE pointer is one process-wide value set by the thread that executes the
+     * graph, around Execute; the workers read it and no pass exec opens an ActiveViewScope (RDG-PARALLEL-4
+     * audit), so every chunk of a graph sees the view that graph records.
      */
     class ViewResourceRegistry
     {
