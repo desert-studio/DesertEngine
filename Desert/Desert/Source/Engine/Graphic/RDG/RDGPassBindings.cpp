@@ -26,11 +26,30 @@ namespace Desert::Graphic::RDG
 
     // Every failure goes through here so the message has one shape: "<pass>: '<slot>' <- '<resource>': <why>".
     // Only the first one is kept; a later entry never overwrites it.
+    // RDG-PARALLEL-7 (RDG-REC-2): the resource an error names ("texture #3"), formatted only when an error is
+    // kept - the success path of every entry formatted it before.
+    namespace
+    {
+        struct ResourceLabel
+        {
+            std::string_view Kind;
+            uint64_t         Index = 0;
+        };
+    } // namespace
+
     static void KeepFirstError( std::string& firstError, std::string_view pass, std::string_view shaderName,
                                 std::string_view resource, std::string_view why )
     {
         if ( firstError.empty() )
             firstError = fmt::format( "{}: '{}' <- '{}': {}", pass, shaderName, resource, why );
+    }
+
+    static void KeepFirstError( std::string& firstError, std::string_view pass, std::string_view shaderName,
+                                ResourceLabel resource, std::string_view why )
+    {
+        if ( firstError.empty() )
+            firstError = fmt::format( "{}: '{}' <- '{} #{}': {}", pass, shaderName, resource.Kind, resource.Index,
+                                      why );
     }
 
     void PassBindings::ResolveSampled( std::string_view shaderName, ShaderResourceKind kind, TextureRef texture,
@@ -40,7 +59,7 @@ namespace Desert::Graphic::RDG
         if ( !m_FirstError.empty() )
             return;
         const std::string_view pass   = m_Context.GetPassName();
-        const std::string      handle = fmt::format( "texture #{}", texture.Index );
+        const ResourceLabel    handle{ "texture", texture.Index };
         if ( !IsSampledAccess( declared ) )
         {
             KeepFirstError( m_FirstError, pass, shaderName, handle,
@@ -100,7 +119,7 @@ namespace Desert::Graphic::RDG
         if ( !m_FirstError.empty() )
             return;
         const std::string_view pass   = m_Context.GetPassName();
-        const std::string      handle = fmt::format( "texture #{}", texture.Index );
+        const ResourceLabel    handle{ "texture", texture.Index };
         if ( !IsStorageAccess( declared ) )
         {
             KeepFirstError( m_FirstError, pass, shaderName, handle,
@@ -140,7 +159,7 @@ namespace Desert::Graphic::RDG
         if ( !firstError.empty() )
             return;
         const std::string_view pass   = context.GetPassName();
-        const std::string      handle = fmt::format( "buffer #{}", buffer.Index );
+        const ResourceLabel    handle{ "buffer", buffer.Index };
         const bool             legal  = kind == ShaderResourceKind::UniformBuffer ? declared == Access::UniformRead
                                         : kind == ShaderResourceKind::AccelerationStructure
                                              ? declared == Access::AccelStructRead
