@@ -3,6 +3,7 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -13,6 +14,8 @@
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Materials/DrawPushFields.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -114,6 +117,11 @@ namespace Desert::Graphic::System
                 instance.GrassCoverWiden[c /
                                          World::Landscape::kLandscapeWeightmapChannels][static_cast<glm::length_t>(
                      c % World::Landscape::kLandscapeWeightmapChannels )] = t.Weights.GrassCoverWiden[c];
+            for ( size_t c = 0; c < t.Weights.GrassCoverFarLodRadius.size(); ++c )
+                instance.GrassCoverFarLodRadius[c / World::Landscape::kLandscapeWeightmapChannels]
+                                               [static_cast<glm::length_t>(
+                                                    c % World::Landscape::kLandscapeWeightmapChannels )] =
+                     t.Weights.GrassCoverFarLodRadius[c];
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
@@ -324,6 +332,27 @@ namespace Desert::Graphic::System
                       glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ), std::max( z0, z0 + extent ) ) };
         }
 
+        // A tile's world box as the camera's rasters draw it (m_ViewDraws, UE's per-component frustum cull): its
+        // quads, the heights its samples reach (the LOD morph and the border stitch only interpolate between
+        // them), widened on every axis by the displacement's reach along the normal - @p displacementCm, the
+        // row's magnitude (ApplyLandscapeDisplacement: 0 when the tile is not displaced); (height - Center) x
+        // Magnitude never leaves +-Magnitude.
+        Common::Math::AABB TileViewBox( const LandscapeTileDraw& at, const float displacementCm )
+        {
+            const float        x0     = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
+            const float        z0     = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
+            const float        extent = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
+            const float        reach  = std::max( displacementCm, 0.0f );
+            Common::Math::AABB box;
+            box.Min = glm::vec3( std::min( x0, x0 + extent ), std::min( at.MinY, at.MaxY ),
+                                 std::min( z0, z0 + extent ) ) -
+                      glm::vec3( reach );
+            box.Max = glm::vec3( std::max( x0, x0 + extent ), std::max( at.MinY, at.MaxY ),
+                                 std::max( z0, z0 + extent ) ) +
+                      glm::vec3( reach );
+            return box;
+        }
+
         struct TileKey
         {
             float   OriginX                            = 0.0f;
@@ -387,6 +416,40 @@ namespace Desert::Graphic::System
                                           return n == lods.end() ? std::nullopt
                                                                  : std::optional<float>( n->second );
                                       } );
+        }
+
+        // The tile proxy's map is still the one it was built from: the same owner (a freed image whose address came
+        // back is another owner), or both absent.
+        bool SameOwner( const std::weak_ptr<Image2D>& held, const std::shared_ptr<Image2D>& now )
+        {
+            return !held.owner_before( now ) && !now.owner_before( held );
+        }
+
+        // The code generation of the program @p material draws with (Shader::GetCodeGeneration): a recompile moves
+        // it, and with it the material's row layout, so the params are written again.
+        uint64_t ProgramGeneration( const DataDrivenMaterial& material )
+        {
+            const MaterialExecutor* executor = material.GetMaterialExecutor();
+            if ( executor == nullptr )
+                return 0u;
+            const std::shared_ptr<Shader> shader = executor->GetShader();
+            return shader != nullptr ? shader->GetCodeGeneration() : 0u;
+        }
+
+        // ONE UPLOAD PER GROUP (SCENE-CACHE-2; UE Landscape: one uniform buffer per component, read by every
+        // pass): the first program of a group that declares the block takes the group's rows into its own buffer
+        // (@p uploaded := @p block); every later program reads that same buffer (SetBuffer of the same buffer
+        // again is no write), so the surface, the two casters and the depth prepass cost one upload, not four.
+        void ShareGroupRows( StorageBufferProperty*& uploaded, StorageBufferProperty& block, const void* data,
+                             const uint32_t bytes )
+        {
+            if ( uploaded == nullptr || uploaded->GetOwnedStorageBuffer() == nullptr )
+            {
+                block.SetRawData( data, bytes );
+                uploaded = &block;
+                return;
+            }
+            block.SetBuffer( uploaded->GetOwnedStorageBuffer() );
         }
     } // namespace
 
@@ -539,10 +602,45 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
+    void TerrainRenderer::EnsureGridIndices( const uint32_t cells )
+    {
+        if ( m_GridIndices.contains( cells ) )
+            return;
+        const std::vector<uint32_t> indices = LandscapeGridIndices( cells );
+        std::shared_ptr<IndexBuffer> buffer = IndexBuffer::Create(
+             indices.data(), static_cast<uint32_t>( indices.size() * sizeof( uint32_t ) ), BufferUsage::Static );
+        if ( !buffer )
+        {
+            LOG_ERROR( "[TerrainRenderer] the {}-cell grid's index buffer was not created: its tiles are not drawn",
+                       cells );
+            m_GridIndices.emplace( cells, nullptr );
+            return;
+        }
+        buffer->ClaimOwnership( ResourceOwner::SceneRenderer );
+        if ( const auto uploaded = buffer->RT_Invalidate(); !uploaded.IsSuccess() )
+        {
+            LOG_ERROR( "[TerrainRenderer] the {}-cell grid's index buffer was not uploaded ({}): its tiles are not "
+                       "drawn",
+                       cells, uploaded.GetError() );
+            buffer.reset();
+        }
+        m_GridIndices.emplace( cells, std::move( buffer ) );
+    }
+
+    void TerrainRenderer::SplitDraw( FrameDraw& draw, const uint32_t quadsPerTile, const uint32_t gridLod,
+                                     const TerrainInstance& row )
+    {
+        draw.Split = LandscapeDrawSplitOf( quadsPerTile, gridLod, row );
+        EnsureGridIndices( draw.Split.Cells );
+    }
+
     void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
-        m_FrameGroups.clear();
+        // Last frame's group slots (ClearQueue pooled them): reused below with their vectors' capacity.
+        if ( m_FrameGroups.empty() )
+            std::swap( m_FrameGroups, m_FrameGroupPool );
         m_FrameDraws.clear();
+        m_ViewDraws.clear();
         // The lights' draws are PrepareLocalShadowViews' (after UpdateLocalShadows gave the lights their views).
         m_LocalLightDraws.clear();
         m_FrameInstances.clear();
@@ -550,7 +648,10 @@ namespace Desert::Graphic::System
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
         if ( m_Queue.empty() )
+        {
+            m_FrameGroups.clear();
             return;
+        }
 
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
         // does (it has no param rows, only the instances).
@@ -581,10 +682,20 @@ namespace Desert::Graphic::System
         // Rows upload up front and at final size for the same reason the mesh path does it:
         // growing a storage buffer reallocates the VkBuffer under a draw already recorded
         // against the old one.
-        std::unordered_map<std::string, size_t> groupIndex;
-        std::unordered_set<std::string>         layerKeysThisFrame;
+        //
+        // What does not change from frame to frame is the tiles' proxies (TileProxy, ProxyOf): a tile's set, its
+        // layer inputs and its samplers are looked up by entity and rebuilt only when a revision moved.
+        ++m_PrepareSerial;
+        size_t                           groupCount = 0;
+        std::vector<TerrainLayerInputs*> layersThisFrame;
+        // A tile whose GPU copy died (unloaded, its landscape removed) leaves its proxy: owner liveness, no compare.
+        std::erase_if( m_TileProxies, []( const auto& entry ) { return entry.second.Heightmap.expired(); } );
         m_FrameDraws.reserve( m_Queue.size() );
+        m_ViewDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
+        // The camera's frustum from the matrix its rasters draw with (RenderGBufferManual / GeometryPass /
+        // RenderDepthManual: the view's jittered view-projection), so the cull and the clip agree to the pixel.
+        const Core::Frustum cameraFrustum( frame.JitteredViewProjection, glm::mat4( 1.0f ) );
         m_FrameMaterials.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
@@ -625,62 +736,52 @@ namespace Desert::Graphic::System
 
         for ( const auto& t : m_Queue )
         {
-            const auto [it, inserted] = groupIndex.try_emplace(
-                 TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ),
-                 m_FrameGroups.size() );
-            ProgramMaterials& materials = m_Materials[it->first];
-            if ( !materials.Forward )
-            {
-                materials.Forward       = std::make_unique<DataDrivenMaterial>( "Terrain" );
-                materials.GBuffer       = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
-                materials.Depth         = std::make_unique<DataDrivenMaterial>( "TerrainDepth" );
-                materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
-                materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
-            }
-            if ( m_ForwardVirtual && !materials.ForwardVsm )
-                materials.ForwardVsm =
-                     std::make_unique<DataDrivenMaterial>( m_PipelineVsm->GetSpecification().Shader );
+            // The tile's proxy: its texture set's materials, layer inputs and samplers, rebuilt only when one of
+            // its revisions moved (no TerrainTextureKey on a frame where nothing changed).
+            const TileProxy&  proxy     = ProxyOf( t, deferred );
+            ProgramMaterials& materials = *proxy.Materials;
 
             // The material's layer inputs (TerrainLayerInputs): keyed by the material's own textures, not the
-            // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
-            const std::string   layerKey = TerrainTextureKey( t.Overrides, nullptr, nullptr );
-            TerrainLayerInputs& layers   = m_LayerInputs[layerKey];
-            if ( !m_EmptyLayerArray )
-                m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
-            if ( layerKeysThisFrame.insert( layerKey ).second )
+            // tile's, so every tile of a landscape shares one set of arrays; brought up to date once per frame per
+            // set (by its sources' generations: a streamed mip, a layer texture that landed).
+            TerrainLayerInputs& layers = *proxy.Layers;
+            if ( std::find( layersThisFrame.begin(), layersThisFrame.end(), &layers ) == layersThisFrame.end() )
             {
+                layersThisFrame.push_back( &layers );
+                if ( !m_EmptyLayerArray )
+                    m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
                 DESERT_PROFILE_PASS( "Terrain: Layer inputs" );
-                UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
-                                          "landscape material " + layerKey, m_EmptyLayerArray, layers );
+                UpdateTerrainLayerInputs( materials.Forward->GetSchema(), *t.Overrides, proxy.LayerTag,
+                                          m_EmptyLayerArray, layers );
             }
 
-            if ( inserted )
+            // The first tile of a set this frame opens its group, in the next of last frame's slots.
+            if ( materials.GroupFrame != m_PrepareSerial )
             {
                 DESERT_PROFILE_PASS( "Terrain: Group textures" );
-                m_FrameGroups.push_back( { it->first, {}, {} } );
+                materials.GroupFrame = m_PrepareSerial;
+                materials.GroupIndex = groupCount;
+                if ( groupCount == m_FrameGroups.size() )
+                    m_FrameGroups.emplace_back();
+                FrameGroup& opened = m_FrameGroups[groupCount++];
+                opened.Key         = proxy.Key;
+                opened.Materials   = &materials;
+                opened.Layers      = &layers;
+                opened.ParamRows.clear();
+                opened.Instances.clear();
 
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
                 // are bound once, from the terrain that opened the group. Unset samplers keep the backend
-                // white fallback, so this is purely additive.
+                // white fallback, so this is purely additive. Which overrides are samplers is the proxy's (once
+                // per revision); the image each names is resolved here, since a texture that lands swaps it.
                 DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
-                const auto&         schema  = surface->GetSchema();
-                for ( const auto& [name, handle] : t.Overrides.Textures )
+                for ( const uint32_t index : proxy.Samplers )
                 {
-                    if ( handle == 0 )
-                        continue;
-                    // The layer inputs' maps and layer infos are no samplers: they reach the shader through
-                    // the arrays bound below and the rows' slice / input tables.
-                    const auto param =
-                         std::find_if( schema.Params.begin(), schema.Params.end(),
-                                       [&]( const Core::Formats::ShaderParam& p ) { return p.Name == name; } );
-                    if ( param != schema.Params.end() && ( param->ElementIndex >= 0 || param->IsAssetRef() ) )
-                        continue;
+                    const auto& [name, handle] = t.Overrides->Textures[index];
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
                     if ( tex == nullptr )
                         continue;
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this
-                    // exact type
-                    // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
+                    // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
                     // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
@@ -704,14 +805,25 @@ namespace Desert::Graphic::System
                     materials.Depth->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                 }
             }
-            FrameGroup&         group   = m_FrameGroups[it->second];
+            FrameGroup&         group   = m_FrameGroups[materials.GroupIndex];
             DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
 
             {
+                // The params are the overrides on the schema defaults, written again only when their revision
+                // moved (ProgramMaterials::AppliedOverrides); GetParamRow below still runs every frame (it writes
+                // the texture slots of the images the properties draw now).
                 DESERT_PROFILE_PASS( "Terrain: Tile params" );
-                surface->ApplyDefaults();
-                for ( const auto& [name, value] : t.Overrides.Params )
-                    surface->SetParamRaw( name, value );
+                const uint64_t generation = ProgramGeneration( *surface );
+                if ( materials.AppliedOverrides != t.Overrides || materials.AppliedSurface != surface ||
+                     materials.AppliedGeneration != generation )
+                {
+                    surface->ApplyDefaults();
+                    for ( const auto& [name, value] : t.Overrides->Params )
+                        surface->SetParamRaw( name, value );
+                    materials.AppliedOverrides  = t.Overrides;
+                    materials.AppliedSurface    = surface;
+                    materials.AppliedGeneration = generation;
+                }
             }
 
             TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
@@ -743,11 +855,17 @@ namespace Desert::Graphic::System
             }
 
             FrameDraw draw;
-            draw.Group       = it->second;
+            draw.Group       = materials.GroupIndex;
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
             draw.VertexCount = LandscapeDicedVertexCount( t.Landscape.QuadsPerTile,
                                                           static_cast<uint32_t>( instance.Params.w ), instance );
+            SplitDraw( draw, t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
             m_FrameDraws.push_back( draw );
+            // FPS-FIELD-BARN (TERRAIN-GPU-1): a tile wholly outside the camera's frustum costs the camera's
+            // rasters its whole grid of vertex work for no pixel - 6 of FIELD_Barn's 20 tiles (1.76 M of 5.47 M
+            // vertices) at the measured eye. Its row, its dice-pool job and its caster draws stay (m_FrameDraws).
+            if ( cameraFrustum.Intersects( TileViewBox( t.Landscape, instance.Displacement.x ) ) )
+                m_ViewDraws.push_back( draw );
 
             // One GetParamRow (it rewrites the row's texture slots on every call).
             const auto& paramRow = surface->GetParamRow();
@@ -760,14 +878,20 @@ namespace Desert::Graphic::System
             }
         }
 
+        // The slots past this frame's groups go (the set count shrank).
+        m_FrameGroups.resize( groupCount );
+
         // ── Upload every group's material rows, still before any draw ───────────────────────────────────
         // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
         // block goes on in ApplySceneFrame)
         DESERT_PROFILE_PASS( "Terrain: Upload rows" );
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials const& materials = m_Materials[group.Key];
+            ProgramMaterials const& materials = *group.Materials;
             DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (SCENE-CACHE-2, ShareGroupRows): the programs that declare the block read the
+            // first one's buffer.
+            StorageBufferProperty* uploaded = nullptr;
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
             {
@@ -778,10 +902,68 @@ namespace Desert::Graphic::System
                                                 : material->Get<StorageBufferProperty>( kMaterialRowBlock );
                 if ( rows )
                     if ( !group.ParamRows.empty() )
-                        rows->SetRawData( group.ParamRows.data(),
-                                          static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
+                        ShareGroupRows( uploaded, *rows, group.ParamRows.data(),
+                                        static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
             }
         }
+    }
+
+    const TerrainRenderer::TileProxy& TerrainRenderer::ProxyOf( const TerrainDrawData& t, const bool deferred )
+    {
+        TileProxy& proxy = m_TileProxies[t.Landscape.Entity];
+        if ( proxy.Materials != nullptr && proxy.Overrides == t.Overrides && SameOwner( proxy.Heightmap, t.Heightmap ) &&
+             SameOwner( proxy.Weightmap, t.Weights.Weightmap ) && proxy.HeightRevision == t.Landscape.HeightRevision &&
+             proxy.WeightRevision == t.Weights.Revision && proxy.Deferred == deferred &&
+             proxy.ForwardVirtual == m_ForwardVirtual )
+            return proxy;
+
+        DESERT_PROFILE_PASS( "Terrain: Tile proxy" );
+        const auto entry =
+             m_Materials.try_emplace( TerrainTextureKey( *t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ) )
+                  .first;
+        ProgramMaterials& materials = entry->second;
+        if ( !materials.Forward )
+        {
+            materials.Forward       = std::make_unique<DataDrivenMaterial>( "Terrain" );
+            materials.GBuffer       = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
+            materials.Depth         = std::make_unique<DataDrivenMaterial>( "TerrainDepth" );
+            materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
+            materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
+        }
+        // The forward VSM permutation is made on the first frame that draws with it (a toggle rebuilds the proxy).
+        if ( m_ForwardVirtual && !materials.ForwardVsm )
+            materials.ForwardVsm = std::make_unique<DataDrivenMaterial>( m_PipelineVsm->GetSpecification().Shader );
+        const std::string layerKey = TerrainTextureKey( *t.Overrides, nullptr, nullptr );
+
+        proxy.Overrides      = t.Overrides;
+        proxy.Heightmap      = t.Heightmap;
+        proxy.Weightmap      = t.Weights.Weightmap;
+        proxy.HeightRevision = t.Landscape.HeightRevision;
+        proxy.WeightRevision = t.Weights.Revision;
+        proxy.Deferred       = deferred;
+        proxy.ForwardVirtual = m_ForwardVirtual;
+        proxy.Key            = &entry->first;
+        proxy.Materials      = &materials;
+        proxy.Layers         = &m_LayerInputs[layerKey];
+        proxy.LayerTag       = "landscape material " + layerKey;
+
+        // The overrides that are samplers of the surface program: the layer inputs' maps and layer infos are no
+        // samplers, they reach the shader through the arrays and the rows' slice / input tables.
+        proxy.Samplers.clear();
+        const DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+        const auto&               schema  = surface->GetSchema();
+        for ( uint32_t index = 0; index < static_cast<uint32_t>( t.Overrides->Textures.size() ); ++index )
+        {
+            const std::string& name = t.Overrides->Textures[index].first;
+            if ( t.Overrides->Textures[index].second == 0 )
+                continue;
+            const auto param = std::find_if( schema.Params.begin(), schema.Params.end(),
+                                             [&]( const Core::Formats::ShaderParam& p ) { return p.Name == name; } );
+            if ( param != schema.Params.end() && ( param->ElementIndex >= 0 || param->IsAssetRef() ) )
+                continue;
+            proxy.Samplers.push_back( index );
+        }
+        return proxy;
     }
 
     void TerrainRenderer::ApplySceneFrame( const SceneFrameBinding& scene )
@@ -803,7 +985,7 @@ namespace Desert::Graphic::System
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {
-            const ProgramMaterials& materials = m_Materials.at( group.Key );
+            const ProgramMaterials& materials = *group.Materials;
             scene.ApplyTo( deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get() );
         }
     }
@@ -852,6 +1034,7 @@ namespace Desert::Graphic::System
                 FrameDraw   draw  = camera;
                 draw.Row          = static_cast<uint32_t>( group.Instances.size() );
                 draw.VertexCount  = count;
+                SplitDraw( draw, l.QuadsPerTile, static_cast<uint32_t>( row.Params.w ), row );
                 draws.push_back( draw );
                 group.Instances.push_back( row );
             }
@@ -881,15 +1064,14 @@ namespace Desert::Graphic::System
                 FrameGroup&           group    = m_FrameGroups[m_FrameDraws[i].Group];
                 // The same layer inputs as the camera's row (resolved above this frame); the shadow program
                 // reads none of them, the row is whole.
-                const TerrainInstance instance =
-                     LandscapeInstance( t, TileLodsOf( l, lightLods ),
-                                        m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ) );
+                const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( l, lightLods ), *group.Layers );
 
                 FrameDraw draw;
                 draw.Group = m_FrameDraws[i].Group;
                 draw.Row   = static_cast<uint32_t>( group.Instances.size() );
                 draw.VertexCount =
                      LandscapeLodVertexCount( l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
+                SplitDraw( draw, l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
                 local.Draws.push_back( draw );
                 group.Instances.push_back( instance );
 
@@ -918,15 +1100,17 @@ namespace Desert::Graphic::System
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials const& materials = m_Materials[group.Key];
+            ProgramMaterials const& materials = *group.Materials;
             DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (SCENE-CACHE-2): the first program's buffer takes the rows, the other three
+            // read that same buffer (ShareGroupRows) - the rows are identical by construction.
+            StorageBufferProperty* uploaded = nullptr;
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
                 if ( auto* instances =
                           material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
-                    instances->SetRawData(
-                         group.Instances.data(),
-                         static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
+                    ShareGroupRows( uploaded, *instances, group.Instances.data(),
+                                    static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
         }
     }
 
@@ -1075,7 +1259,7 @@ namespace Desert::Graphic::System
         std::vector<const MaterialExecutor*> executors;
         executors.reserve( m_FrameGroups.size() );
         for ( const auto& group : m_FrameGroups )
-            executors.push_back( ( m_Materials.at( group.Key ).*program )->GetMaterialExecutor() );
+            executors.push_back( ( group.Materials->*program )->GetMaterialExecutor() );
         return executors;
     }
 
@@ -1104,7 +1288,7 @@ namespace Desert::Graphic::System
         for ( size_t k = 0; k < draws.size(); ++k )
         {
             const FrameDraw&        draw     = draws[k];
-            const auto*             material = ( m_Materials.at( m_FrameGroups[draw.Group].Key ).*program ).get();
+            const auto*             material = ( m_FrameGroups[draw.Group].Materials->*program ).get();
             const MaterialExecutor* executor = material->GetMaterialExecutor();
             const Common::Memory::Buffer& block = executor->GetPushConstantBuffer();
             push.assign( block.Size, std::byte{ 0 } );
@@ -1128,10 +1312,39 @@ namespace Desert::Graphic::System
                     return drawn;
                 continue;
             }
-            if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor, draw.VertexCount,
-                                                        1, push );
-                 !drawn.IsSuccess() )
-                return drawn;
+            // TERRAIN-GPU-2 (UE FLandscapeSharedBuffers): the dice rings - the procedural decode's head, their
+            // sub-vertices the dice pool's - then every other cell through the grid's shared index buffer, one
+            // vertex a grid node, where the decode evaluated each node six times (FPS-FIELD-BARN: 5.5 M vertex
+            // invocations of the camera's tiles, ten heightmap fetches each).
+            if ( draw.Split.RingVertices > 0u )
+                if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor,
+                                                            draw.Split.RingVertices, 1, push );
+                     !drawn.IsSuccess() )
+                    return drawn;
+            const LandscapeGridRanges cells = LandscapeGridRangesOf( draw.Split );
+            if ( cells.Count == 0u )
+                continue; // the rings cover the whole tile
+            const auto grid = m_GridIndices.find( draw.Split.Cells );
+            if ( grid == m_GridIndices.end() || !grid->second )
+                return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): no index buffer for the {}-cell grid",
+                                                   context.GetPassName(), k, executor->GetDubugName(),
+                                                   draw.Split.Cells );
+            const uint32_t                        pitch = draw.Split.Cells + 1u;
+            std::array<ProceduralIndexedRange, 4> ranges{};
+            for ( uint32_t r = 0; r < cells.Count; ++r )
+            {
+                const LandscapeGridRange& range = cells.Ranges[r];
+                ranges[r].IndexCount            = range.IndexCount;
+                ranges[r].FirstIndex            = range.FirstIndex;
+                ranges[r].VertexOffset          = static_cast<int32_t>( range.FirstRow * pitch );
+                ranges[r].InstanceCount         = range.Rows;
+                ranges[r].FirstInstance         = kLandscapeGridFirstInstance;
+            }
+            const std::span<const ProceduralIndexedRange> gridRanges( ranges.data(), cells.Count );
+            if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
+                                                                 *grid->second, gridRanges, push );
+                 !indexed.IsSuccess() )
+                return indexed;
         }
         return BOOLSUCCESS;
     }
@@ -1184,14 +1397,14 @@ namespace Desert::Graphic::System
                                    if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
                                        return BOOLSUCCESS;
                                    const auto* camera = m_SceneRenderer->GetMainCamera();
-                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() || m_ForwardRefused )
+                                   if ( ( camera == nullptr ) || m_ViewDraws.empty() || m_ForwardRefused )
                                        return BOOLSUCCESS;
                                    // Through the blocks declared below (the scene/view inputs Terrain.shader
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
                                    return RecordDraws( context, 0, *BasePassPipeline(), ForwardProgram(),
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
-                                                       m_FrameDraws );
+                                                       m_ViewDraws );
                                },
                                .TargetFramebuffer = targetFb };
         pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
@@ -1199,7 +1412,7 @@ namespace Desert::Graphic::System
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
             // scene/view inputs its shader has slots for (a block entry IS the read).
             if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() || m_ForwardRefused )
+                 m_SceneRenderer->GetMainCamera() == nullptr || m_ViewDraws.empty() || m_ForwardRefused )
             {
                 return;
             }
@@ -1217,21 +1430,21 @@ namespace Desert::Graphic::System
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
-        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_FrameDraws.empty() )
+        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_ViewDraws.empty() )
             return BOOLSUCCESS;
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
         // Through the blocks DeclareGBufferDraws declared.
         return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
     }
 
     void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
     {
         // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples no scene/view input.
         if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr || !m_GBufferPipeline ||
-             m_FrameDraws.empty() )
+             m_ViewDraws.empty() )
         {
             return;
         }
@@ -1243,10 +1456,10 @@ namespace Desert::Graphic::System
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
     {
         // Exactly when RenderDepthManual draws: the forward path's frames that draw the terrain at all
-        // ("TerrainPass" draws the same m_FrameDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
+        // ("TerrainPass" draws the same m_ViewDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
         // no scene/view input.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
+             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
              m_ForwardRefused || WireframeView() )
         {
             return;
@@ -1260,12 +1473,12 @@ namespace Desert::Graphic::System
     {
         // The wireframe view's base pass writes its own depth (BasePassPipeline): not prepassed, as the meshes'.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
+             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
              m_ForwardRefused || WireframeView() )
             return BOOLSUCCESS;
         // The base pass's very matrix (GeometryPass), so both rasterise the same depth.
         return RecordDraws( context, 0, *m_DepthPipeline, &ProgramMaterials::Depth,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
     }
 
     const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const
@@ -1316,7 +1529,7 @@ namespace Desert::Graphic::System
             // row's first pool vertex).
             hash.Add( m_FrameGroups[draw.Group].Instances[draw.Row] );
             hash.Add( draw.VertexCount );
-            hash.Bytes( m_FrameGroups[draw.Group].Key.data(), m_FrameGroups[draw.Group].Key.size() );
+            hash.Bytes( m_FrameGroups[draw.Group].Key->data(), m_FrameGroups[draw.Group].Key->size() );
             // The heightmap's texels (sculpting edits them in place: HeightRevision) and the image itself (its
             // device generation: a recreated one at the same address is another image).
             hash.Add( t.Heightmap.get() );

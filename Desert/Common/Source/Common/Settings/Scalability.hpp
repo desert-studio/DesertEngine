@@ -368,19 +368,37 @@ namespace Common::Scalability
         // clouds and the light grids.
         AsyncCompute,
         // Landscape grass (GRASS-DENSITY; UE sg.FoliageQuality -> grass.DensityScale, grass.CullDistanceScale),
-        // read by GrassRenderer::SetQuality. DensityScalePercent scales every variety's Density (its grid cell grows
-        // by 1 / sqrt(scale), so fewer cells are generated); CullDistanceScalePercent scales its Start and End
-        // cull distances (and so where its distance thinning begins and where it ends). Percent, 10..100 and
+        // read by GrassRenderer::SetQuality. DensityScalePercent scales every variety's Density (its grid cell
+        // grows by 1 / sqrt(scale), so fewer cells are generated); CullDistanceScalePercent scales its Start and
+        // End cull distances (and so where its distance thinning begins and where it ends). Percent, 10..100 and
         // 10..400.
         FoliageGrassDensityScalePercent,
         FoliageGrassCullDistanceScalePercent,
-        // Which meshes the deferred path's early-Z pass draws before the G-buffer (UE r.EarlyZPass): EarlyZPassMode
-        // (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass
+        // The blade LOD's screen size (GPU-FRAME-4; UE grass HISM: the instance's LOD by its screen size, GoT: far
+        // blades fewer and wider), render pixels: a blade instance whose bounding radius projects below it is in
+        // the far LOD - its coarsest strip, and half the field's blades over the band down to 1/sqrt(2) of it,
+        // each twice as wide, so the field covers what it did; a mesh variety's instance (GPU-FRAME-6, UE
+        // foliage.MinimumScreenSize) the same share by its own screen size, the dropped ones shrinking out (a mesh
+        // survivor does not widen). Read by GrassRenderer::SetQuality -> PrepareVariety (GrassParamsGpu::Lod.z) ->
+        // GrassFieldShare.glslh GrassFarLodShare (GrassBladeLodAt, GrassMeshFarLod), the one choice the GBuffer,
+        // the masked depth prepass and every shadow cascade draw. 0 = no far LOD (the variety's own LOD levels
+        // only).
+        FoliageGrassLodScreenPixels,
+        // Which meshes the deferred path's early-Z pass draws before the G-buffer (UE r.EarlyZPass):
+        // EarlyZPassMode (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate ->
+        // MeshRenderer::SetEarlyZPass
         // ("Deferred: Masked Depth Prepass", then "Deferred: GBuffer" EQUAL for what it drew). Key
         // "RenderPipeline.EarlyZPass": equal at every level (a renderer choice, not a quality step: All costs a
         // depth-only draw per opaque mesh and saves the G-buffer's overdraw), so only a machine override names it;
         // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
         EarlyZPass,
+        // 0/1: graph passes record on task workers (RDG-PARALLEL-3; UE r.RDG.ParallelExecute): a Graphics segment
+        // of 24+ passes is cut into chunks of about 24 at render pass boundaries, each recorded into secondary
+        // command buffers of its own and replayed in pass order (NeverParallel passes record inline). 0 = every
+        // pass records on the calling thread: the same commands, for a byte-compare and as the rollback. Read by
+        // SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute. Key "RenderPipeline.ParallelExecute": equal
+        // at every level (a CPU recording choice, not a quality step), so only a machine override names it.
+        ParallelExecute,
         // The landscape grass blades' shadow LOD bias (GPU-COST-20; UE r.Shadow LOD bias / grass shadow LOD): each
         // step draws a blade into every cascade as if the cascade's texel were twice as wide - a strip level
         // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->

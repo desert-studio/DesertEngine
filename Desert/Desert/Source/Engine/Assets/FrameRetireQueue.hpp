@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -48,6 +49,23 @@ namespace Desert::Assets
             const auto released = static_cast<std::size_t>( std::distance( first, m_Parked.end() ) );
             m_Parked.erase( first, m_Parked.end() );
             return released;
+        }
+
+        /// As Collect, but the due items are MOVED into @p released instead of destroyed here: a caller that
+        /// collects under a lock destroys them after letting it go, because a destructor may park again.
+        std::size_t TakeDue( std::uint64_t frame, std::uint32_t framesInFlight, std::vector<T>& released )
+        {
+            if ( m_Parked.empty() )
+                return 0;
+            const auto first = std::stable_partition( m_Parked.begin(), m_Parked.end(),
+                                                      [frame, framesInFlight]( const Parked& parked )
+                                                      { return frame < parked.Frame + framesInFlight + 1; } );
+            const auto due   = static_cast<std::size_t>( std::distance( first, m_Parked.end() ) );
+            released.reserve( released.size() + due );
+            for ( auto it = first; it != m_Parked.end(); ++it )
+                released.push_back( std::move( it->Item ) );
+            m_Parked.erase( first, m_Parked.end() );
+            return due;
         }
 
         /// Release everything now. Only for a caller that has idled the device (shutdown, service reset).

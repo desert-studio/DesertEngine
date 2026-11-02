@@ -61,6 +61,7 @@ Shader "GrassGenerate"
         LocalSize(8, 8, 1);
 
         #include <Common/GrassFieldShare.glslh>
+        #include <Common/ShadowWind.glslh>
 
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
@@ -80,12 +81,18 @@ Shader "GrassGenerate"
                              // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
             vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
                              // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
-            vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
+            vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
+                             // the far LOD of a blade or a mesh: z = the distance at which its bounding radius at scale 1
+                             // stands at the Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh
+                             // GrassBladeLodAt, GrassMeshFarLod)
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
             vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
-            uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list's copy of
-                             // Args' layout in CascadeArgs, z = the cull pad (float bits, cm: a mesh's sway past its bounds)
+            uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list in
+                             // CascadeArgs (its copy of Args' layout, then its rest twin), z = the cull pad (float bits,
+                             // cm: a mesh's sway past its bounds), w = a list's first rest count (one per bucket)
             vec4  CascadePlanes[48]; // list k's caster box at 6k..6k+5 (GrassRenderer kGrassCascadeLists = 8 lists)
+            vec4  CasterWindOrigin;  // GRASS-SHADOW-1: xyz = the shadow wind rule's origin (the main camera)
+            vec4  CascadeRings[8];   // list k's movers' ring: x = inner, y = wind distance (0: no mover), cm
         };
 
         ReadBuffer(0) Field
@@ -113,6 +120,12 @@ Shader "GrassGenerate"
         // as Args, list k's copy at k x Cascades.y words, its buckets at k x capacity in CascadeIds (per slot the
         // instance's row of Instances, GPU-COST-22). The
         // cascade draws its list instead of the full one (MeshRenderer::BuildGpuInstancedShadowDraws).
+        // EACH LAYER ITS OWN PART (GRASS-SHADOW-1; UE: a cached shadow's static and movable casters are separate
+        // draw lists): a bucket's movers - the instances in the list's ring CascadeRings[k] of the rule's origin,
+        // the ones that sway over the cascade's cache - fill it from its first slot, counted by the bucket table;
+        // its rest-pose casters fill it from its last slot, counted by the list's rest counts (Cascades.w). The
+        // cache's static layer draws the rest part, the movable layer the movers: neither runs a vertex of the
+        // other's instances. A bucket's two parts never meet: together they hold at most what the full list kept.
         Buffer(8) CascadeIds
         {
             uint GrassCascadeIdsData[];
@@ -353,14 +366,42 @@ Shader "GrassGenerate"
             // the last stretch before its own draw drops it - at EndCullDistance too (GPU-COST-29; UE grass HISM:
             // no survivor growth, PerInstanceFadeAmount / scale to zero; GrassMeshShrink, GrassMeshCoverage): its
             // card overdraw falls with distance as the field thins, and the cover takes on what it leaves.
+            // THE BLADE'S LOD (GPU-FRAME-4, GrassFieldShare.glslh GrassBladeLodAt - the one choice): its strip level
+            // and the far LOD's share from its bounding radius on screen - its own height scale, before the
+            // thinning's height and its clump's, over the far LOD's screen size (p.Lod.z: where a blade at scale 1
+            // stands at it). The far LOD drops the blades of the same nested draw the thinning above drops by (an
+            // instance kept at a share is kept at every larger one), so the field thins one blade at a time and
+            // never reshuffles; its survivors widen by 1 / Share below, past the floor's lift.
+            GrassBladeLod lod = GrassBladeLod( 0u, 1.0, 1.0 );
             if ( blade )
             {
+                uint  ring = p.Blade.x > 0.0 ? min( uint( distance / p.Blade.x ), p.Buckets.x - 1u ) : 0u;
+                float size = p.Lod.z > 0.0 ? p.Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
+                lod        = GrassBladeLodAt( size, ring, p.Buckets.x );
+                float share = min( kept, field.Floor ) * lod.Share;
+                if ( fade >= share )
+                    return;
                 scale.x *= field.Widen;
                 scale.z *= field.Widen;
-                scale.y *= field.Height;
+                // The blade the thinning is about to drop lowers into the ground first (GrassBladeFade: stable per
+                // instance, no pop), and the survivors widen by what that lowering takes from the field's area.
+                scale.y *= field.Height * GrassBladeFade( share, fade );
+                lod.Widen *= GrassBladeFadeWiden( share );
             }
             else
-                scale *= GrassMeshShrink( field, fade );
+            {
+                // THE MESH'S FAR LOD (GPU-FRAME-6, GrassFieldShare.glslh GrassMeshFarLod): the blade's far-LOD
+                // share by its bounding radius on screen - its largest axis scale over the far LOD's screen size
+                // (p.Lod.z: where the mesh at scale 1 stands at it) - on top of the distance thinning, and the
+                // instance it drops shrinks to nothing first (GrassMeshShrink over both shares).
+                float           size    = p.Lod.z > 0.0
+                                              ? p.Lod.z * max( scale.x, max( scale.y, scale.z ) ) / max( distance, 1.0 )
+                                              : 0.0;
+                GrassFieldShare reached = GrassMeshFarLod( field, size );
+                if ( fade >= reached.Kept )
+                    return;
+                scale *= GrassMeshShrink( reached, fade );
+            }
             // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
             // narrowest card's: the sphere tests take the widest the instance can become.
             float floorBound = 0.0;
@@ -374,7 +415,7 @@ Shader "GrassGenerate"
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
             // bounding sphere (the camera's own list is GrassCull.shader's).
-            float radius = p.Range.w * max( max( scale.x, floorBound ), max( scale.y, scale.z ) );
+            float radius = p.Range.w * max( max( scale.x, floorBound ) * lod.Widen, max( scale.y, scale.z ) );
             vec3  centre = position + vec3( 0.0, p.ScaleY.z * scale.y, 0.0 );
             for ( int i = 0; i < 4; ++i )
                 if ( dot( p.Planes[i].xyz, centre ) + p.Planes[i].w < -radius )
@@ -405,6 +446,9 @@ Shader "GrassGenerate"
                     float width = p.CardWidths[card / 4u][card % 4u];
                     scale.x     = max( scale.x, p.Lean.w * distance / max( width, 1.0e-3 ) );
                 }
+                // The far LOD's survivor stands for the 1 / Share blades it keeps the place of: its card - lifted to
+                // the floor first - is that much wider, so the field covers what it did.
+                scale.x *= lod.Widen;
             }
             float c = cos( yaw ), s = sin( yaw );
             mat3  basis = mat3( vec3( c, 0.0, -s ), vec3( 0.0, 1.0, 0.0 ), vec3( s, 0.0, c ) );
@@ -431,8 +475,8 @@ Shader "GrassGenerate"
             }
 
             uint bucket = 0u;
-            if ( p.Blade.x > 0.0 )
-                bucket = min( uint( distance / p.Blade.x ), p.Buckets.x - 1u );
+            if ( blade )
+                bucket = lod.Level;
             else if ( p.Buckets.x > 1u )
             {
                 // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
@@ -488,10 +532,28 @@ Shader "GrassGenerate"
                     }
                     if ( !inside )
                         continue;
+                    // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the instance's point (its root, the
+                    // vertex stage's model[3]): a mover inside the ring [inner, wind distance), else its rest pose.
+                    // The ring is Common/ShadowWind.glslh's one rule (ShadowWindInsideRing, as GpuCull_CastsRestPose
+                    // and the CPU walk read it); x = ShadowWindInnerOf = ShadowWindRingInner( ShadowWindRingOf ).
+                    vec2 ring  = p.CascadeRings[k].xy;
+                    bool mover = ring.y > 0.0 &&
+                                 !ShadowWindCastsRestPose( position, p.CasterWindOrigin.xyz, ring.y ) &&
+                                 !ShadowWindInsideRing( position, p.CasterWindOrigin.xyz, ring.x );
                     uint at   = k * p.Cascades.y + table;
-                    uint slot = atomicAdd( CascadeArguments[at], 1u );
-                    if ( slot < CascadeArguments[at + 2u] )
-                        GrassCascadeIdsData[CascadeArguments[at + 1u] + slot] = index;
+                    uint room = CascadeArguments[at + 2u];
+                    if ( mover )
+                    {
+                        uint slot = atomicAdd( CascadeArguments[at], 1u );
+                        if ( slot < room )
+                            GrassCascadeIdsData[CascadeArguments[at + 1u] + slot] = index;
+                    }
+                    else
+                    {
+                        uint slot = atomicAdd( CascadeArguments[k * p.Cascades.y + p.Cascades.w + bucket], 1u );
+                        if ( slot < room )
+                            GrassCascadeIdsData[CascadeArguments[at + 1u] + room - 1u - slot] = index;
+                    }
                 }
             }
         }

@@ -68,6 +68,11 @@ namespace Desert::Graphic
 
     void MaterialExecutor::InitializeProperties( const Core::Formats::ShaderProgramMeta& parameterSchema )
     {
+        {
+            // The property names change here: the kept route fill is made again on its next request.
+            const std::scoped_lock lock( m_RouteFillLock );
+            m_RouteFill.reset();
+        }
         // THE MATERIAL OWNS EXACTLY ITS PROPERTIES. A sampler the shader declares and the schema's
         // Properties block does not is a pass parameter (shadow cascades, environment cubes, BRDF LUT, cloud
         // shadow map, scene textures): the pass binds it through RDG::PassBindings, and no property exists
@@ -147,8 +152,46 @@ namespace Desert::Graphic
         }
     }
 
-    RDG::OtherRouteFill MaterialExecutor::GetRouteFill() const
+    void MaterialExecutor::RouteFillInputs( std::vector<uint8_t>& inputs ) const
     {
+        inputs.clear();
+        uint8_t push = 0;
+        if ( m_PushConstantBuffer.Size != 0u )
+            push = 1;
+        inputs.push_back( push );
+        for ( const auto& [name, index] : m_StorageBufferPropertiesLookup )
+        {
+            uint8_t written = 0;
+            if ( m_StorageBufferPropertiesStorage[index]->IsWritten() )
+                written = 1;
+            inputs.push_back( written );
+        }
+        const auto samplerOf = []( const auto& uniform ) -> uint8_t
+        {
+            if ( uniform && uniform->GetSamplerBinding() )
+                return 2;
+            return 0;
+        };
+        for ( const auto& [name, index] : m_Texture2DPropertiesLookup )
+        {
+            const auto& property = m_Texture2DPropertiesStorage[index];
+            if ( property->IsRowTexture() )
+                inputs.push_back( 1 );
+            else
+                inputs.push_back( samplerOf( property->GetUniform() ) );
+        }
+        for ( const auto& [name, index] : m_TextureCubePropertiesLookup )
+            inputs.push_back( samplerOf( m_TextureCubePropertiesStorage[index]->GetUniform() ) );
+    }
+
+    std::shared_ptr<const RDG::OtherRouteFill> MaterialExecutor::GetRouteFill() const
+    {
+        // Per thread, so a steady frame allocates nothing to compare.
+        thread_local std::vector<uint8_t> t_Inputs;
+        RouteFillInputs( t_Inputs );
+        const std::scoped_lock lock( m_RouteFillLock );
+        if ( m_RouteFill && t_Inputs == m_RouteFillInputs )
+            return m_RouteFill;
         RDG::OtherRouteFill fill;
         fill.PushConstants = m_PushConstantBuffer.Size != 0u;
         const auto add     = [&fill]( const auto& lookup )
@@ -177,7 +220,9 @@ namespace Desert::Graphic
             addTexture( name, m_TextureCubePropertiesStorage[index]->GetUniform() );
         // Deterministic, so a validation message does not depend on hash-map order.
         std::sort( fill.Slots.begin(), fill.Slots.end() );
-        return fill;
+        m_RouteFillInputs = t_Inputs;
+        m_RouteFill       = std::make_shared<const RDG::OtherRouteFill>( std::move( fill ) );
+        return m_RouteFill;
     }
 
     void MaterialExecutor::ApplyForRecording() const

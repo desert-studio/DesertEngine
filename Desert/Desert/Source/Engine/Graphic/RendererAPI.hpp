@@ -8,6 +8,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/DrawSplitLabel.hpp>
+#include <Engine/Graphic/ProceduralIndexedRange.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
@@ -233,6 +234,17 @@ namespace Desert::Graphic
         DrawProceduralIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                 const MaterialExecutor* material, std::span<const std::byte> push,
                                 RDG::BufferRef args, uint64_t offset ) = 0;
+        // The procedural draw through a shared index buffer and no vertex buffer (UE DrawIndexedPrimitive over
+        // FLandscapeSharedBuffers' grid index buffer): the vertex stage builds each vertex from gl_VertexIndex
+        // (= the index + the range's VertexOffset) and gl_InstanceIndex, and the post-transform cache shades a
+        // vertex the triangles share once. @p indexBuffer (uint32 indices, uploaded) is bound once and every
+        // range of @p ranges is one vkCmdDrawIndexed of it with the same pass state and @p push (as
+        // DrawProcedural's). Refused, before anything is recorded, for no range, an empty range or one past the
+        // buffer's indices.
+        [[nodiscard]] virtual Common::BoolResultStr
+        DrawProceduralIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                               const MaterialExecutor* material, std::span<const std::byte> push,
+                               IndexBuffer& indexBuffer, std::span<const ProceduralIndexedRange> ranges ) = 0;
         // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.
@@ -242,7 +254,7 @@ namespace Desert::Graphic
                      uint32_t indexCount, uint32_t firstIndex ) = 0;
         // The setup-time halves of the consumers above (see Renderer::GetBindingLayout / GetPipelineRouteFill).
         [[nodiscard]] virtual RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const = 0;
-        [[nodiscard]] virtual RDG::OtherRouteFill
+        [[nodiscard]] virtual std::shared_ptr<const RDG::OtherRouteFill>
         GetPipelineRouteFill( const ComputePipeline& pipeline ) const = 0;
         // The PassBindings route of RenderMesh (see Renderer::RenderMesh( const RDG::PassBindings&, ... )).
         [[nodiscard]] virtual Common::BoolResultStr

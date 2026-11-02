@@ -9,6 +9,7 @@
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <atomic>
 #include <optional>
 #include <span>
 #include <vector>
@@ -407,6 +408,21 @@ namespace Desert::Graphic
         Ready,
         Failed,
     };
+
+    // THE READINESS EVENT (SCENE-CACHE-5): moved every time a pipeline's driver compile starts, lands or fails
+    // (VulkanPipeline's build state, after the state is stored). A cache of readiness answers - the surface
+    // cache's card gather (MeshRenderer::GatherSurfaceCacheInstances) - asks its pipelines again only when it
+    // moved, reading it BEFORE it asks them (UE: a material render proxy's invalidation, not a poll of every
+    // pipeline every frame).
+    inline std::atomic<uint64_t>& PipelineReadinessCounter()
+    {
+        static std::atomic<uint64_t> counter{ 0 };
+        return counter;
+    }
+    [[nodiscard]] inline uint64_t PipelineReadinessGeneration()
+    {
+        return PipelineReadinessCounter().load( std::memory_order_acquire );
+    }
 
     class GraphicsPipeline : public IPipeline
     {

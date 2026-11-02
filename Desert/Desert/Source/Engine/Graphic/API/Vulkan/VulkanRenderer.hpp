@@ -3,12 +3,14 @@
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp> // m_RdgTransients is owned here
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>    // m_FrameLoop is owned here
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 #include <vulkan/vulkan.h>
@@ -36,7 +38,7 @@ namespace Desert::Graphic::API::Vulkan
         // there), so a caller asks for it when it records and never keeps it.
         [[nodiscard]] VkCommandBuffer GetCurrentCommandBuffer() const
         {
-            return m_CurrentCommandBuffer;
+            return RecordingTarget();
         }
         [[nodiscard]] virtual Common::BoolResultStr EndFrame() override;
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() override;
@@ -87,12 +89,18 @@ namespace Desert::Graphic::API::Vulkan
                                                       const MaterialExecutor*    material,
                                                       std::span<const std::byte> push, RDG::BufferRef args,
                                                       uint64_t offset ) override;
+        Common::BoolResultStr DrawProceduralIndexed( const RDG::PassBindings&   bindings,
+                                                     const GraphicsPipeline&    pipeline,
+                                                     const MaterialExecutor*    material,
+                                                     std::span<const std::byte> push, IndexBuffer& indexBuffer,
+                                                     std::span<const ProceduralIndexedRange> ranges ) override;
         Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                            const MaterialExecutor* material, VertexBuffer& vertexBuffer,
                                            IndexBuffer& indexBuffer, uint32_t indexCount,
                                            uint32_t firstIndex ) override;
         [[nodiscard]] RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader ) const override;
-        [[nodiscard]] RDG::OtherRouteFill GetPipelineRouteFill( const ComputePipeline& pipeline ) const override;
+        [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill>
+        GetPipelineRouteFill( const ComputePipeline& pipeline ) const override;
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
                                           const MaterialExecutor& material, std::span<const std::byte> push,
@@ -179,67 +187,27 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindMeshBuffers( std::string_view pass, const GraphicsPipeline& pipeline,
                                                const MeshGeometryBinding& geometry, VkBuffer visibleRows,
                                                bool shared );
-        // What BindMeshBuffers last bound on m_CurrentCommandBuffer; reset whenever a buffer is (re)armed and when
-        // another path binds binding 0 / the index buffer (DrawIndexed).
-        struct BoundGeometry
+        // RDG-PARALLEL-1: the bound-state caches live in the recording context (VulkanRecordContext.hpp): the frame's
+        // (m_FrameRecording, around m_CurrentCommandBuffer) or the graph chunk's bound to this thread, so a chunk
+        // recorded on a task worker reads and writes only its own. Recording() is that context, RecordingTarget()
+        // the command buffer every entry point below records into.
+        using BoundGeometry = VulkanBoundGeometry;
+        VulkanRecordContext  m_FrameRecording; // its CommandBuffer is unused: the frame's is m_CurrentCommandBuffer
+        [[nodiscard]] VulkanRecordContext& Recording()
         {
-            VkCommandBuffer         CommandBuffer = VK_NULL_HANDLE;
-            const GraphicsPipeline* Pipeline      = nullptr;
-            VkBuffer                Vertices      = VK_NULL_HANDLE;
-            VkDeviceSize            VertexOffset  = 0;
-            VkBuffer                Streams       = VK_NULL_HANDLE;
-            VkDeviceSize            StreamOffset  = 0;
-            VkBuffer                Indices       = VK_NULL_HANDLE;
-            VkDeviceSize            IndexOffset   = 0;
-
-            [[nodiscard]] bool operator==( const BoundGeometry& ) const = default;
-        };
-        std::optional<BoundGeometry> m_BoundGeometry;
-        // CPU-FRAME-6 (UE: FVulkanCommandListContext's pending graphics state - a bind of what is bound already
-        // records nothing): the pipeline and descriptor sets last recorded at the GRAPHICS bind point of
-        // CommandBuffer. Vulkan keeps both across render passes and a pipeline bind does not disturb the sets, so
-        // a draw whose pipeline handle, or whose layout and set handles, equal these records no bind. Every
-        // dynamic state the engine sets (viewport, scissor, line width) is dynamic in every graphics pipeline
-        // (VulkanPipeline::m_DynamicStates), so a skipped pipeline bind keeps no stale static state. Forgotten
-        // (ForgetBoundState) wherever m_BoundGeometry is - a buffer (re)armed, code outside the renderer bound
-        // its own (InvalidateGeometryBinding) - and at every graph pass's begin and end (a pass exec may record
-        // through anything: ImGui, NGX, a test's raw vkCmd*); the sets alone after SubmitPulled's material
-        // bound its own.
-        struct BoundGraphics
+            VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
+            return chunk != nullptr ? *chunk : m_FrameRecording;
+        }
+        [[nodiscard]] VkCommandBuffer RecordingTarget() const
         {
-            VkCommandBuffer              CommandBuffer = VK_NULL_HANDLE;
-            VkPipeline                   Pipeline      = VK_NULL_HANDLE;
-            VkPipelineLayout             SetsLayout    = VK_NULL_HANDLE;
-            std::vector<VkDescriptorSet> Sets; // bound at set 0 on; the capacity is kept across forgets
-
-            // Tracks @p commandBuffer from here: what another buffer held is forgotten.
-            void On( VkCommandBuffer commandBuffer )
-            {
-                if ( CommandBuffer == commandBuffer )
-                    return;
-                Forget();
-                CommandBuffer = commandBuffer;
-            }
-            void ForgetSets()
-            {
-                SetsLayout = VK_NULL_HANDLE;
-                Sets.clear();
-            }
-            void Forget()
-            {
-                CommandBuffer = VK_NULL_HANDLE;
-                Pipeline      = VK_NULL_HANDLE;
-                ForgetSets();
-            }
-        };
-        BoundGraphics m_BoundGraphics;
-        // Everything the renderer knows bound on the current command buffer (geometry, pipeline, sets).
+            const VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
+            return chunk != nullptr ? chunk->CommandBuffer : m_CurrentCommandBuffer;
+        }
+        // Everything the renderer knows bound on the recording command buffer (geometry, pipeline, sets).
         void ForgetBoundState()
         {
-            m_BoundGeometry.reset();
-            m_BoundGraphics.Forget();
+            Recording().ForgetBoundState();
         }
-        std::vector<std::byte> m_SubmeshPush; // WalkMeshSubmeshes' push block, reused by every draw
         // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
         // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
         // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.
@@ -285,9 +253,12 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
         // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
         // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
-        const std::shared_ptr<VertexBuffer>& DefaultVertexStreams( uint32_t capacity );
+        // RDG-PARALLEL-1: by value and under m_GrowLock - a chunk on another worker may grow it meanwhile (the
+        // replaced buffer stays alive through the allocator's per-frame deletion queue).
+        std::shared_ptr<VertexBuffer>        DefaultVertexStreams( uint32_t capacity );
+        std::mutex                           m_GrowLock; // DefaultVertexStreams and VisibleRowIdentity
         std::shared_ptr<VertexBuffer>        m_DefaultVertexStreams;
-        uint32_t                             m_DefaultVertexStreamsCapacity = 0;
+        std::atomic<uint32_t>                m_DefaultVertexStreamsCapacity{ 0 }; // read unlocked by BindMeshBuffers
 
     private:
         // THE ONE QUESTION EVERY RECORDING ENTRY POINT ASKS. BeginFrame is gated, but a loss can be noted
@@ -318,9 +289,15 @@ namespace Desert::Graphic::API::Vulkan
         // or against the graph backend's open pass when the draw is recorded inside one.
         std::optional<RdgRenderPassKey> m_OpenRenderPass;
 
-        /// Debug names already reported by BindGraphicsPipeline. Written only from the render thread's
-        /// recording path, which is the only caller of every submit entry point above.
+        /// Debug names already reported by BindGraphicsPipeline. RDG-PARALLEL-1: graph chunks record on task
+        /// workers, so every insert goes through WarnOnce (true the first time @p key is seen).
         std::unordered_set<std::string> m_WarnedUnbuiltPipelines;
+        std::mutex                      m_WarnedLock;
+        [[nodiscard]] bool              WarnOnce( std::string key )
+        {
+            const std::lock_guard<std::mutex> lock( m_WarnedLock );
+            return m_WarnedUnbuiltPipelines.insert( std::move( key ) ).second;
+        }
 
         /// Owned outright rather than reached through a global: there is one renderer API and the query
         /// pool's lifetime is exactly its lifetime. The profiling macros find it through the sink the

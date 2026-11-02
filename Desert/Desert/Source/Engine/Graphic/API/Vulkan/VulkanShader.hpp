@@ -10,6 +10,8 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    struct RdgSlotTable; // VulkanRdgPassBindings.hpp
+
     enum class WriteDescriptorType
     {
         Uniform = 0,
@@ -159,6 +161,13 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReflectionData;
         }
 
+        // RDG-PARALLEL-6: the resource slots of GetReflectionData(), built with it (never null once reflected):
+        // pass bindings resolve by an index lookup, not by walking the reflection per dispatch.
+        const std::shared_ptr<const RdgSlotTable>& GetRdgSlots() const
+        {
+            return m_RdgSlots;
+        }
+
         auto& GetShaderDescriptorSets()
         {
             return m_ReflectionData.ShaderDescriptorSets;
@@ -241,6 +250,8 @@ namespace Desert::Graphic::API::Vulkan
         Core::Formats::MaterialLayout                m_MaterialLayout;
 
         ShaderResource::ReflectionData      m_ReflectionData;
+        // Built from m_ReflectionData in the same assignment, so the two never describe different modules.
+        std::shared_ptr<const RdgSlotTable> m_RdgSlots;
         std::vector<DescriptorSetLayoutRef> m_DescriptorSetLayouts; // indexed by set
 
         DescriptorSetInfo m_DescriptorSetInfo;

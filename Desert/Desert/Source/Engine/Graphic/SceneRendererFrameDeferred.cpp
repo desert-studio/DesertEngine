@@ -1058,50 +1058,93 @@ namespace Desert::Graphic
         }
 
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
-        // off-screen too (a trace leaves the frustum).
-        std::vector<DistanceField::GlobalDistanceFieldObject> objects;
-        // The surface cache's instance-table row of each placement (mesh, world), which the field's object grid
-        // lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame, so these
-        // are the last update's rows; a row is stable while its instance lives, and a new one recomposites the
-        // object the frame it appears (GlobalDistanceField: the row is part of the object's identity).
-        SurfaceCache::SurfaceCacheRenderer* const   surfaceCache = ReadSurfaceCache();
-        const std::unordered_map<uint64_t, uint32_t> rows = surfaceCache != nullptr
-                                                                 ? surfaceCache->GetScene().RowsByPlacement()
-                                                                 : std::unordered_map<uint64_t, uint32_t>{};
-        // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
-        // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
-        // asynchronous queue) is not in it yet.
-        // Each object also carries where the view drew it last frame (UE: the instance's PrevLocalToWorld, which
-        // a near-field hit's velocity reads): a static draw's GpuScene row (SyncGpuScene ran before any pass);
-        // an instanced batch's instances have no previous transform of their own and did not move.
-        const auto place = [&objects, &rows]( const void*                                                 mesh,
-                                              const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                              const glm::mat4& world, const glm::mat4& prevWorld,
-                                              const bool mostlyTwoSided )
+        // off-screen too (a trace leaves the frustum). KEPT ACROSS FRAMES (m_GdfObjects, UE FDistanceFieldSceneData):
+        // the set is rebuilt from the queues only when one of its sources moved on, each one a revision:
+        //  - the GpuScene's primitive change stream (MeshRenderer::SyncGpuScene -> GpuSceneRegistry::Sync): a static
+        //    draw or an ISM field added, removed, re-meshed (Updated), moved (Moved: SetTransform), its instances
+        //    replaced (Updated: a new Transforms snapshot), its sections / materials / visibility (Content), or a
+        //    discarded frame (Discarded) - any entry past the cursor;
+        //  - a field landing in a mesh's slot (the asynchronous queue, MeshDistanceFieldSlot::PublishGeneration);
+        //  - the surface cache's placements (an instance taking, moving or freeing its row: GetPlacementRevision),
+        //    or the cache itself appearing / going;
+        //  - the frame after a move: GpuScene::BeginFrame settles PrevLocalToWorld := LocalToWorld with no stream
+        //    entry, and the objects' previous worlds must follow.
+        // Wind and skinning write no stream entry and change nothing here (the field holds still instances).
+        const GpuDriven::GpuScene&                gpuScene     = *meshRenderer->GetGpuScene();
+        SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
+        const uint64_t                            published    = Assets::MeshDistanceFieldSlot::PublishGeneration();
+        const uint64_t placements = surfaceCache != nullptr ? surfaceCache->GetScene().GetPlacementRevision() : 0u;
+        // The stream's entries since the set was made (none when it is another stream, or older than the kept
+        // window: the set is rebuilt).
+        std::optional<std::span<const GpuDriven::PrimitiveChange>> changes;
+        if ( m_GdfObjects && m_GdfObjects->Stream == gpuScene.GetStreamId() )
+            changes = gpuScene.ChangesSince( m_GdfObjects->Cursor );
+        bool moved = false;
+        if ( changes )
+            for ( const GpuDriven::PrimitiveChange& change : *changes )
+                moved = moved || change.Kind == GpuDriven::PrimitiveChangeKind::Moved;
+        const bool rebuild = !m_GdfObjects || !changes || !changes->empty() || m_GdfObjects->SettleAfterMove ||
+                             m_GdfObjects->FieldsPublished != published ||
+                             m_GdfObjects->SurfacePlacements != placements ||
+                             m_GdfObjects->SurfaceCache != static_cast<const void*>( surfaceCache );
+        if ( rebuild )
         {
-            const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
-            const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
-            for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
-                objects.push_back( DistanceField::GlobalDistanceFieldObject{
-                     .Field          = std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
-                     .World          = world,
-                     .PrevWorld      = prevWorld,
-                     .Row            = row,
-                     .MostlyTwoSided = mostlyTwoSided } );
-        };
-        // The previous world of each primitive is its GpuScene row's (MeshRenderer::SyncGpuScene ran this frame
-        // before any pass was declared: OnUpdate draws nothing without it).
-        const GpuDriven::GpuScene& gpuScene = *meshRenderer->GetGpuScene();
-        for ( const auto& draw : meshRenderer->GetStaticQueue() )
-            if ( draw.Mesh != nullptr )
-                if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform, GpuDriven::UnpackAffine( gpuScene.Primitive( draw.GpuPrimitive ).PrevLocalToWorld ),
-                           draw.Mesh->IsDistanceFieldMostlyTwoSided() );
-        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
-            if ( ism.Mesh != nullptr && ism.Transforms )
-                if ( const auto field = ism.Mesh->GetDistanceField() )
-                    for ( const glm::mat4& world : *ism.Transforms )
-                        place( ism.Mesh, field, world, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
+            KeptGdfObjects kept;
+            kept.Stream            = gpuScene.GetStreamId();
+            kept.Cursor            = gpuScene.GetChangeSerial();
+            kept.FieldsPublished   = published;
+            kept.SurfacePlacements = placements;
+            kept.SurfaceCache      = surfaceCache;
+            // A rebuild after a move (or a first one, which cannot tell) looks once more next frame: by then the
+            // moved primitives' previous worlds have settled.
+            kept.SettleAfterMove = moved || !m_GdfObjects;
+            std::vector<DistanceField::GlobalDistanceFieldObject>& objects = kept.Set.Objects;
+            // The surface cache's instance-table row of each placement (mesh, world), which the field's object
+            // grid lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame,
+            // so these are the last update's rows; a row is stable while its instance lives, and a new one
+            // recomposites the object the frame it appears (GlobalDistanceField: the row is part of the object's
+            // identity) - its placement revision rebuilds this set the frame after.
+            const std::unordered_map<uint64_t, uint32_t> rows = surfaceCache != nullptr
+                                                                     ? surfaceCache->GetScene().RowsByPlacement()
+                                                                     : std::unordered_map<uint64_t, uint32_t>{};
+            // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
+            // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
+            // asynchronous queue) is not in it yet.
+            // Each object also carries where the view drew it last frame (UE: the instance's PrevLocalToWorld,
+            // which a near-field hit's velocity reads): a static draw's GpuScene row (SyncGpuScene ran before any
+            // pass); an instanced batch's instances have no previous transform of their own and did not move.
+            const auto place = [&objects, &rows]( const void*                                                 mesh,
+                                                  const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                                  const glm::mat4& world, const glm::mat4& prevWorld,
+                                                  const bool mostlyTwoSided )
+            {
+                const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
+                const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
+                for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
+                    objects.push_back( DistanceField::GlobalDistanceFieldObject{
+                         .Field          = std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
+                         .World          = world,
+                         .PrevWorld      = prevWorld,
+                         .Row            = row,
+                         .MostlyTwoSided = mostlyTwoSided } );
+            };
+            // The previous world of each primitive is its GpuScene row's (MeshRenderer::SyncGpuScene ran this
+            // frame before any pass was declared: OnUpdate draws nothing without it).
+            for ( const auto& draw : meshRenderer->GetStaticQueue() )
+                if ( draw.Mesh != nullptr )
+                    if ( const auto field = draw.Mesh->GetDistanceField() )
+                        place( draw.Mesh, field, draw.Transform,
+                               GpuDriven::UnpackAffine( gpuScene.Primitive( draw.GpuPrimitive ).PrevLocalToWorld ),
+                               draw.Mesh->IsDistanceFieldMostlyTwoSided() );
+            for ( const auto& ism : meshRenderer->GetInstancedQueue() )
+                if ( ism.Mesh != nullptr && ism.Transforms )
+                    if ( const auto field = ism.Mesh->GetDistanceField() )
+                        for ( const glm::mat4& world : *ism.Transforms )
+                            place( ism.Mesh, field, world, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
+            DistanceField::SealGlobalDistanceFieldObjectSet( kept.Set );
+            m_GdfObjects = std::move( kept );
+        }
+        const DistanceField::GlobalDistanceFieldObjectSet& objects = m_GdfObjects->Set;
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };

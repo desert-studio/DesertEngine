@@ -107,27 +107,32 @@ namespace Desert::Editor::Render
         // written into the material in the node's setup - the write may grow its storage buffer, which drops the
         // view copies - and the material is prepared, so the exec creates nothing. A view's setup and exec run
         // back to back (the pass runs inside its view's OnUpdate), so one pass object still serves every view.
-        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
+        //
+        // THE LINES ARE BUILT FROM THE REGISTRY ON THE GAME THREAD (ExtensionPass::Gather, when the view opens its
+        // frame): the setup and exec run on the render task while the interface edits the registry.
+        pass.Gather = [this]( const Graphic::ExtensionPassGatherContext& ctx )
         {
-            m_LineVertices = 0;
+            m_GatheredLines.clear();
             // Asked of the RENDERER, not the scene — see EditorGridPass for why. This flag in particular:
             // it defaulted to `true` in SceneSettings and 55 of 80 committed scenes carried it on, so the
             // green wireframes travelled through git into everybody's viewport.
-            const auto scene = m_Scene.lock();
-            if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
+            if ( ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
+                return;
+            BuildLines( m_GatheredLines, ctx.Renderer->GetDebugView().ShowColliders );
+        };
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
+        {
+            m_LineVertices = 0;
+            if ( m_GatheredLines.empty() || ctx.Renderer == nullptr )
                 return;
             // The lines are drawn over the scene view: its frame's camera block (the pass runs inside OnUpdate).
             const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
             if ( view == nullptr )
                 return;
-            std::vector<LineVertex> lines;
-            BuildLines( lines, ctx.Renderer->GetDebugView().ShowColliders );
-            if ( lines.empty() )
-                return;
 
-            m_Material->Update( *view, lines );
+            m_Material->Update( *view, m_GatheredLines );
             declared.Prepares( *m_Material->GetMaterialExecutor() );
-            m_LineVertices = static_cast<uint32_t>( lines.size() );
+            m_LineVertices = static_cast<uint32_t>( m_GatheredLines.size() );
         };
 
         scene->RegisterExtensionPass( std::move( pass ) );

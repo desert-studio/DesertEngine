@@ -6,7 +6,9 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -44,6 +46,30 @@ namespace Desert::Graphic::API::Vulkan
         bool                    PushConstants = false;
     };
 
+    // A resource slot of the shader as reflection records it: its bucket decides the kind an entry must have.
+    struct RdgReflectedSlot
+    {
+        RdgSlotKey              Slot;
+        std::string             Name; // "<name>[<element>]" for an element of an arrayed binding
+        std::string_view        Bucket;
+        RDG::ShaderResourceKind Kind = RDG::ShaderResourceKind::Texture;
+    };
+
+    // RDG-PARALLEL-6 (UE FShaderParameterMapInfo, bound once per shader). Every resource slot of ONE reflection,
+    // built once when the shader is reflected (VulkanShader keeps it beside its ReflectionData and rebuilds it
+    // with it on a reload), so a dispatch, a trace and a pass declaration read a table and never walk the
+    // reflection maps, copy a name or sort again. Immutable after MakeRdgSlotTable: any thread reads it.
+    struct RdgSlotTable
+    {
+        std::vector<RdgReflectedSlot> Slots;  // by (set, binding, element): the order every report uses
+        std::vector<uint32_t>         ByName; // indices into Slots, by Name: the binary search of an entry's slot
+
+        // The index in Slots of the slot named @p name, or Slots.size() when the shader has none.
+        [[nodiscard]] size_t Find( std::string_view name ) const;
+    };
+
+    [[nodiscard]] std::shared_ptr<const RdgSlotTable> MakeRdgSlotTable( const ShaderResource::ReflectionData& reflection );
+
     // Resolves every entry of @p bindings against @p reflection of shader @p shaderName and checks the draw is
     // complete. Refused, naming the pass and the slot, when: the block has a failed entry; a name is not a
     // resource of the shader; an entry's kind does not match the reflected descriptor bucket; a slot is filled
@@ -54,14 +80,24 @@ namespace Desert::Graphic::API::Vulkan
     // and its push-constant range.
     RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
                                                       std::string_view                      shaderName );
+    // The same over the shader's slot table (@p slots built from @p reflection): what the engine calls; the
+    // reflection-only forms above and below build the table for one call (pure-data callers, tests).
+    RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
+                                                      const RdgSlotTable& slots, std::string_view shaderName );
 
     // RDG-FAULT1. @p other (slot keys) as the shader names of those slots, for a setup-time block's
     // OtherRouteFill. A key the reflection does not declare is left out: the record-time resolve still checks the
     // real route.
     RDG::OtherRouteFill MakeOtherRouteFill( const ShaderResource::ReflectionData& reflection,
                                             const RdgOtherRoute&                  other );
+    RDG::OtherRouteFill MakeOtherRouteFill( const RdgSlotTable& slots, const RdgOtherRoute& other );
 
     Common::ResultStr<std::vector<RdgResolvedEntry>>
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other );
+    // @p slots is the table of @p reflection (VulkanShader::GetRdgSlots).
+    Common::ResultStr<std::vector<RdgResolvedEntry>>
+    ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, const RdgSlotTable& slots,
+                            std::string_view shaderName, const RDG::PassBindings& bindings,
+                            const RdgOtherRoute& other );
 } // namespace Desert::Graphic::API::Vulkan

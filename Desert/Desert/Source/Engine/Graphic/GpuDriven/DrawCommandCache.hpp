@@ -208,6 +208,12 @@ namespace Desert::Graphic::GpuDriven
         // Re-sorts the bins and groups of the passes whose primitives changed; no-op when nothing did.
         void               Rebuild();
         [[nodiscard]] bool NeedsRebuild() const;
+        // Moves whenever pass @p pass's lookups (SubmeshGroup, SubmeshVirtualGeometryPipeline, SubmeshesBinned) may
+        // answer differently: the pass rebuilt, or its groups' VG twins asked again (InvalidatePipelines).
+        [[nodiscard]] uint64_t TableRevision( MeshPass pass ) const
+        {
+            return m_TableRevision[static_cast<uint32_t>( pass )];
+        }
 
         [[nodiscard]] const PassDrawTable& Pass( MeshPass pass ) const;
         // Every pass's table, indexed by MeshPass (InstanceCulling's @p tables).
@@ -278,6 +284,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<glm::uvec2>                            m_FreeTransformRanges; // x = first row, y = count
         std::array<PassDrawTable, kMeshPassCount>          m_Passes;
         std::array<bool, kMeshPassCount>                   m_Dirty{};
+        std::array<uint64_t, kMeshPassCount>               m_TableRevision{}; // TableRevision
         // Rebuilt and not uploaded yet (the pass tables), and the transforms changed since the last upload.
         std::array<bool, kMeshPassCount> m_Unuploaded{};
         bool                             m_TransformsUnuploaded = false;

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/GpuInstances.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSharedGpuMemory.hpp>
@@ -17,6 +18,8 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
@@ -171,7 +174,7 @@ namespace Desert::Graphic::API::Vulkan
             VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
             // The frame's graphics tail: the last submission, which signals RenderComplete and the fence.
             m_FrameSubmissions.push_back(
-                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
+                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
             m_CurrentCommandBuffer = nullptr;
         }
         return BOOLSUCCESS;
@@ -246,6 +249,16 @@ namespace Desert::Graphic::API::Vulkan
 
     bool VulkanRendererAPI::IsRecording()
     {
+        // RDG-PARALLEL-1: a graph chunk on a task worker records into its own context; a loss there stops that
+        // chunk's recording only (the frame's target is the dispatching thread's to disarm).
+        if ( VulkanRecordContext* const chunk = VulkanRecordContext::Bound(); chunk != nullptr )
+        {
+            if ( chunk->CommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+                chunk->CommandBuffer = VK_NULL_HANDLE;
+            return chunk->CommandBuffer != VK_NULL_HANDLE;
+        }
+        // A game-thread record while the views record on the render task joins them first (RenderTask).
+        ::Desert::Engine::RenderTask::RecordGuard( "a graphics API recording entry point" );
         if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
             m_CurrentCommandBuffer = nullptr;
         return m_CurrentCommandBuffer != nullptr;
@@ -297,12 +310,12 @@ namespace Desert::Graphic::API::Vulkan
         // Name the region so a RenderDoc/NSight capture is a readable tree ("DeferredGBufferPass",
         // "RSMPass", "SSRTracePass"...) instead of a flat run of draws. The spec already carries the
         // name for logging; this is the same string, handed to the debugger.
-        VKUtils::BeginDebugLabel( m_CurrentCommandBuffer,
+        VKUtils::BeginDebugLabel( RecordingTarget(),
                                   renderPass->GetSpecification().DebugName.c_str() );
 
         m_OpenRenderPass =
              CompatibleRenderPassKeyOf( framebuffer->GetSpecification(), framebuffer->GetSpecification().Samples );
-        vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+        vkCmdBeginRenderPass( RecordingTarget(), &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
         SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
 
         return BOOLSUCCESS;
@@ -312,7 +325,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( IsRecording() )
         {
-            vkCmdEndRenderPass( m_CurrentCommandBuffer );
+            vkCmdEndRenderPass( RecordingTarget() );
             m_OpenRenderPass.reset();
 
             // The implicit final subpass dependency uses dstStageMask=BOTTOM_OF_PIPE and
@@ -326,7 +339,7 @@ namespace Desert::Graphic::API::Vulkan
                 .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
             };
-            vkCmdPipelineBarrier( m_CurrentCommandBuffer,
+            vkCmdPipelineBarrier( RecordingTarget(),
                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                   0,
@@ -336,7 +349,7 @@ namespace Desert::Graphic::API::Vulkan
 
             // Closes the region opened by BeginRenderPass. It opens exactly
             // one, so this stays balanced — an unmatched Begin corrupts the capture's tree.
-            VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
+            VKUtils::EndDebugLabel( RecordingTarget() );
         }
         return BOOLSUCCESS;
     }
@@ -344,13 +357,13 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::BeginDebugLabel( const char* name )
     {
         if ( IsRecording() )
-            VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, name );
+            VKUtils::BeginDebugLabel( RecordingTarget(), name );
     }
 
     void VulkanRendererAPI::EndDebugLabel()
     {
         if ( IsRecording() )
-            VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
+            VKUtils::EndDebugLabel( RecordingTarget() );
     }
 
     bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline* pipeline )
@@ -373,9 +386,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( openPass == nullptr )
         {
             // No pass, so nothing to resolve the pipeline against. Latched by name like an unbuilt pipeline.
-            if ( m_WarnedUnbuiltPipelines
-                      .insert( std::format( "{}#outside-pass", pipeline->GetSpecification().DebugName ) )
-                      .second )
+            if ( WarnOnce( std::format( "{}#outside-pass", pipeline->GetSpecification().DebugName ) ) )
                 LOG_ERROR( "[Renderer] pipeline '{}' bound outside a render pass; not drawn",
                            pipeline->GetSpecification().DebugName );
             return false;
@@ -386,11 +397,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( VkPipeline bound = vulkanPipeline->GetVkPipelineFor( *openPass ); bound != VK_NULL_HANDLE )
         {
             // CPU-FRAME-6: recorded only when the command buffer holds another pipeline (m_BoundGraphics).
-            m_BoundGraphics.On( m_CurrentCommandBuffer );
-            if ( m_BoundGraphics.Pipeline != bound )
+            Recording().BoundGraphics.On( RecordingTarget() );
+            if ( Recording().BoundGraphics.Pipeline != bound )
             {
-                vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
-                m_BoundGraphics.Pipeline = bound;
+                vkCmdBindPipeline( RecordingTarget(), VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
+                Recording().BoundGraphics.Pipeline = bound;
             }
             return true;
         }
@@ -404,7 +415,7 @@ namespace Desert::Graphic::API::Vulkan
         // a sentence in a log message and starts being what happens. The name is the pipeline's, because
         // that is what a reader can look up; the shader's own error was already written once, at compile.
         const std::string& name = vulkanPipeline->GetSpecification().DebugName;
-        if ( m_WarnedUnbuiltPipelines.insert( name ).second )
+        if ( WarnOnce( name ) )
         {
             LOG_ERROR( "[Renderer] pipeline '{}' was never built (its shader has no compiled stages) — "
                        "everything drawn through it is skipped until the shader compiles.",
@@ -413,8 +424,9 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
+    std::shared_ptr<VertexBuffer> VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
     {
+        const std::lock_guard<std::mutex> grow( m_GrowLock );
         // White colour and UV1 (0,0) in every vertex — what UE's GNullColorVertexBuffer and a missing TexCoord1
         // give a material. Grown, never shrunk; the replaced buffer is released through the allocator's
         // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
@@ -438,6 +450,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VkBuffer VulkanRendererAPI::VisibleRowIdentity( const uint32_t rows )
     {
+        const std::lock_guard<std::mutex> grow( m_GrowLock );
         if ( m_VisibleRowIdentity == nullptr || rows > m_VisibleRowIdentityRows )
         {
             // Doubled past the request, so a scene that grows by one draw does not reallocate every frame.
@@ -480,8 +493,8 @@ namespace Desert::Graphic::API::Vulkan
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
             // The material binds its own sets past the renderer's record of what is bound (m_BoundGraphics).
-            m_BoundGraphics.ForgetSets();
-            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+            Recording().BoundGraphics.ForgetSets();
+            if ( !vkBackend->BindDescriptorSets( RecordingTarget(), vulkanPipeline->GetVkPipelineLayout(),
                                                  VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
                 return;
         }
@@ -490,7 +503,7 @@ namespace Desert::Graphic::API::Vulkan
         // Widths > 1 require the wideLines device feature — MoltenVK lacks it, so force 1.0 there (a
         // wider value is a validation error and gets dropped anyway).
         const float safeWidth = Graphic::RenderConfig::WideLines ? std::clamp( lineWidth, 1.0f, 10.0f ) : 1.0f;
-        vkCmdSetLineWidth( m_CurrentCommandBuffer, safeWidth );
+        vkCmdSetLineWidth( RecordingTarget(), safeWidth );
 
         // Vertexless: the DebugLine vertex shader pulls each vertex from the Lines storage buffer by
         // gl_VertexIndex. The pipeline's topology groups them: 2 per segment (Lines), 3 per triangle.
@@ -522,28 +535,100 @@ namespace Desert::Graphic::API::Vulkan
                        "pipeline was built from an earlier compile of the shader and was not rebuilt",
                        pipeline.GetSpecification().DebugName, layoutStages, shaderName, shaderStages );
         }
+        // RDG-PARALLEL-9 (RDG-REC-2): by the layout's table, not a walk of its bindings.
         const VkDescriptorSetLayoutBinding* FindLayoutBinding( const VulkanDescriptorSetLayout& layout,
                                                                uint32_t                         binding )
         {
-            for ( const VkDescriptorSetLayoutBinding& entry : layout.Bindings() )
-            {
-                if ( entry.binding == binding )
-                    return &entry;
-            }
-            return nullptr;
+            return layout.FindBinding( binding );
         }
 
-        // One descriptor set per set of @p layouts, allocated for THIS exec from the graph's per-frame pools,
-        // with every resolved PassBindings entry written at its slot. The caller fills the other route's slots
-        // into the returned sets before they are bound.
+        // A non-dispatchable handle as a key word: its value is compared, never turned back into a handle.
+        template <typename Handle>
+        uint64_t HandleWord( Handle handle )
+        {
+            if constexpr ( std::is_pointer_v<Handle> )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): compared, never dereferenced
+                return static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( handle ) );
+            }
+            else
+            {
+                return static_cast<uint64_t>( handle );
+            }
+        }
+
+        // RDG-PARALLEL-7 (RDG-REC-3b): one set of the pipeline's layout in the exec being written.
+        struct RdgSetPlan
+        {
+            std::vector<uint64_t>               Key;           // VulkanRdgPassDescriptors::AcquireCached's
+            VulkanRdgPassDescriptors::CachedSet Cached;        // Set is bound; Hit: nothing is written into it
+            bool                                Fresh = false; // a cache miss, published after its writes
+        };
+        // Per thread (chunk workers write their own execs), reused so that a steady frame allocates nothing here.
+        struct RdgSetScratch
+        {
+            std::vector<RdgSetPlan>       Sets;
+            std::vector<VkDescriptorType> Types;    // per entry: its layout binding's descriptor type
+            std::vector<VkSampler>        Samplers; // per entry: a Sampler entry's shared sampler
+        };
+        thread_local RdgSetScratch t_SetScratch;
+
+        // The material's written slots (@p material) copied from the material's own set into @p set, set 0 of the
+        // sets WriteRdgPassSets writes for one exec (a set that is not a cache hit, before it is published).
+        // RDG-PARALLEL-9: the copies are built in a per-thread scratch, so a steady miss allocates nothing here.
+        Common::BoolResultStr CopyMaterialSlots( VkDescriptorSet set, const VulkanDescriptorSetLayout& layout,
+                                                 const VulkanMaterialBackend::WrittenSlots& material,
+                                                 std::string_view                           pass )
+        {
+            thread_local std::vector<VkCopyDescriptorSet> t_Copies;
+            std::vector<VkCopyDescriptorSet>&             copies = t_Copies;
+            copies.clear();
+            for ( const uint32_t binding : material.Bindings )
+            {
+                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( layout, binding );
+                if ( entry == nullptr )
+                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
+                                                       pass, binding );
+                VkCopyDescriptorSet copy{};
+                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+                copy.srcSet          = material.Set;
+                copy.srcBinding      = binding;
+                copy.dstSet          = set;
+                copy.dstBinding      = binding;
+                copy.descriptorCount = entry->descriptorCount;
+                copies.push_back( copy );
+            }
+            if ( copies.empty() )
+                return Common::MakeSuccess( true );
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
+            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
+            return Common::MakeSuccess( true );
+        }
+
+        // RDG-PARALLEL-9: the first word of a set-0 key's material part (WriteRdgPassSets). Every entry's part
+        // starts with (binding << 32) | element, which is never all ones, so a key of entries alone never equals
+        // a key with a material.
+        constexpr uint64_t kMaterialKeyMarker = ~uint64_t{ 0 };
+
+        // One descriptor set per set of @p layouts with every resolved PassBindings entry written at its slot.
+        // RDG-PARALLEL-7 (RDG-REC-3b; UE FVulkanDescriptorSetCache): a set that holds only the pass's entries
+        // comes from the content cache (VulkanRdgPassDescriptors::AcquireCached), keyed by the identities of what
+        // the entries name; an equal set an earlier exec wrote is bound again with nothing allocated or written,
+        // a miss is written here and published once its batch flushed. @p otherRouteFillsSetZero: the caller
+        // writes the other route's slots into set 0 after this returns (pipeline setters), so that set is
+        // allocated for THIS exec from the graph's per-frame pools, as before. @p material (null for compute and
+        // trace): RDG-PARALLEL-9 (UE: a material's descriptor set is cached by what it holds) - the material's
+        // written slots are copied into set 0 here, and set 0 is cached like any other, its key carrying the
+        // material set and its copy record's identity and version; an equal key binds the set the first exec
+        // wrote and copied, with nothing allocated, written or copied.
         Common::ResultStr<std::vector<VkDescriptorSet>>
         WriteRdgPassSets( VulkanRdgPassDescriptors&                  descriptors,
                           const std::vector<DescriptorSetLayoutRef>& layouts,
-                          std::span<const RdgResolvedEntry> entries, std::string_view pass )
+                          std::span<const RdgResolvedEntry> entries, std::string_view pass,
+                          bool otherRouteFillsSetZero, const VulkanMaterialBackend::WrittenSlots* material )
         {
             using Sets = std::vector<VkDescriptorSet>;
-            Sets sets;
-            sets.reserve( layouts.size() );
             // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
             // bound as it is, and slots written into it later reach commands already recorded. A layout is the
             // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
@@ -556,24 +641,42 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
-                if ( isBindless( index ) )
-                {
-                    sets.push_back( bindless->GetDescriptorSet() );
-                    continue;
-                }
-                const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
-                if ( !set )
-                    return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
-                sets.push_back( set.GetValue() );
             }
-            for ( const RdgResolvedEntry& entry : entries )
+            RdgSetScratch& scratch = t_SetScratch;
+            scratch.Sets.resize( layouts.size() );
+            for ( size_t index = 0; index < layouts.size(); ++index )
             {
-                const std::string_view name = entry.Texture != nullptr
-                                                   ? std::string_view( entry.Texture->ShaderName )
-                                                   : std::string_view( entry.Buffer->ShaderName );
-                if ( entry.Slot.Set >= sets.size() )
+                RdgSetPlan& plan = scratch.Sets[index];
+                plan.Key.clear();
+                plan.Key.push_back( HandleWord( layouts[index]->Handle() ) );
+                plan.Cached = VulkanRdgPassDescriptors::CachedSet{};
+                plan.Fresh  = false;
+            }
+            scratch.Types.assign( entries.size(), VK_DESCRIPTOR_TYPE_MAX_ENUM );
+            scratch.Samplers.assign( entries.size(), VK_NULL_HANDLE );
+            const auto nameOf = []( const RdgResolvedEntry& entry )
+            {
+                if ( entry.Texture != nullptr )
+                    return std::string_view( entry.Texture->ShaderName );
+                return std::string_view( entry.Buffer->ShaderName );
+            };
+            const auto layoutOf = []( const RdgResolvedEntry& entry )
+            {
+                if ( entry.Kind == RDG::ShaderResourceKind::StorageTexture )
+                    return VK_IMAGE_LAYOUT_GENERAL;
+                return RdgVulkanLayout( RDG::GetAccessState( entry.Texture->Declared ).Layout );
+            };
+
+            // 1. Every entry is checked against the layout and appends what it names to its set's key: its slot,
+            //    kind and type, then the identity of the resource (never a view or buffer handle) and its range,
+            //    layout or sampler. Nothing is allocated yet.
+            for ( size_t at = 0; at < entries.size(); ++at )
+            {
+                const RdgResolvedEntry& entry = entries[at];
+                const std::string_view  name  = nameOf( entry );
+                if ( entry.Slot.Set >= layouts.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
-                                                             pass, name, entry.Slot.Set, sets.size() );
+                                                             pass, name, entry.Slot.Set, layouts.size() );
                 if ( isBindless( entry.Slot.Set ) )
                     return Common::MakeFormattedError<Sets>(
                          "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
@@ -585,11 +688,15 @@ namespace Desert::Graphic::API::Vulkan
                     return Common::MakeFormattedError<Sets>(
                          "{}: '{}' (set {}, binding {}) is not in the pipeline's layout", pass, name,
                          entry.Slot.Set, entry.Slot.Binding );
-                VkDescriptorSet       set     = sets[entry.Slot.Set];
-                Common::BoolResultStr written = Common::MakeSuccess( true );
+                scratch.Types[at]          = binding->descriptorType;
+                std::vector<uint64_t>& key = scratch.Sets[entry.Slot.Set].Key;
+                key.push_back( ( static_cast<uint64_t>( entry.Slot.Binding ) << 32U ) | entry.Slot.Element );
+                key.push_back( ( static_cast<uint64_t>( entry.Kind ) << 32U ) |
+                               static_cast<uint64_t>( binding->descriptorType ) );
                 if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
                 {
-                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER. The sampler cache
+                    // owns it for the device's life, so its handle is its identity.
                     if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
                         return Common::MakeFormattedError<Sets>(
                              "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
@@ -597,36 +704,166 @@ namespace Desert::Graphic::API::Vulkan
                     const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
                     if ( !made )
                         return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                    scratch.Samplers[at] = made.GetValue();
+                    key.push_back( HandleWord( made.GetValue() ) );
                 }
                 else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
-                    const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
-                    const VkImageLayout      layout =
-                         storage ? VK_IMAGE_LAYOUT_GENERAL
-                                      : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
                     if ( texture.Sampler )
                         return Common::MakeFormattedError<Sets>(
                              "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
                              "texture is read through a Sampler slot of the pass",
                              pass, name, static_cast<int>( binding->descriptorType ) );
-                    written =
-                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
-                }
-                else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
-                {
-                    written = descriptors.WriteAccelerationStructure(
-                         set, entry.Slot.Binding, binding->descriptorType, entry.Buffer->Buffer );
+                    const Common::ResultStr<VulkanRdgTexture*> physical =
+                         VulkanRdgBackend::TextureOf( texture.Texture );
+                    if ( !physical )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, physical.GetError() );
+                    key.push_back( physical.GetValue()->GetIdentity() );
+                    key.push_back( ( static_cast<uint64_t>( texture.Range.BaseMip ) << 32U ) |
+                                   texture.Range.MipCount );
+                    key.push_back( ( static_cast<uint64_t>( texture.Range.BaseLayer ) << 32U ) |
+                                   texture.Range.LayerCount );
+                    key.push_back( static_cast<uint64_t>( layoutOf( entry ) ) );
                 }
                 else
                 {
-                    written = descriptors.WriteBuffer( set, entry.Slot.Binding, binding->descriptorType,
-                                                       entry.Buffer->Buffer );
+                    // A buffer range or an acceleration structure: fixed for the wrapping object's life.
+                    const Common::ResultStr<VulkanRdgBuffer*> physical =
+                         VulkanRdgBackend::BufferOf( entry.Buffer->Buffer );
+                    if ( !physical )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, physical.GetError() );
+                    key.push_back( physical.GetValue()->GetIdentity() );
+                    key.push_back( physical.GetValue()->GetOffset() );
+                    key.push_back( physical.GetValue()->GetSize() );
+                    key.push_back( HandleWord( physical.GetValue()->GetAccelerationStructure() ) );
                 }
-                if ( !written.IsSuccess() )
-                    return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, written.GetError() );
+            }
+
+            // 1b. The material's part of set 0's key, after every entry's: the material set, then its copy
+            //     record's identity and version (DescriptorCopyRecord). While they are unchanged the material set
+            //     holds the same descriptors at the same bindings, so the copies of an earlier exec are current.
+            const bool copiesMaterial = material != nullptr && !material->Bindings.empty();
+            if ( copiesMaterial )
+            {
+                if ( layouts.empty() )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: the material fills set 0, which the pipeline has not", pass );
+                if ( isBindless( 0 ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: the material fills set 0, the bindless texture table's", pass );
+                std::vector<uint64_t>& key = scratch.Sets[0].Key;
+                key.push_back( kMaterialKeyMarker );
+                key.push_back( HandleWord( material->Set ) );
+                key.push_back( material->Identity );
+                key.push_back( material->Version );
+            }
+
+            // 2. The sets: the bindless table's as it is, set 0 of an other-route caller from this frame's pools,
+            //    every other one from the cache.
+            Sets       sets( layouts.size(), VK_NULL_HANDLE );
+            const auto discardFresh = [&descriptors, &scratch]()
+            {
+                for ( const RdgSetPlan& plan : scratch.Sets )
+                {
+                    if ( plan.Fresh )
+                        descriptors.DiscardCached( plan.Cached );
+                }
+            };
+            for ( size_t index = 0; index < layouts.size(); ++index )
+            {
+                RdgSetPlan& plan = scratch.Sets[index];
+                if ( isBindless( index ) )
+                {
+                    sets[index]     = bindless->GetDescriptorSet();
+                    plan.Cached.Hit = true; // no entry of the pass is written into it (refused above)
+                    continue;
+                }
+                if ( index == 0 && otherRouteFillsSetZero )
+                {
+                    const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
+                    if ( !set )
+                    {
+                        discardFresh();
+                        return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
+                    }
+                    sets[index] = set.GetValue();
+                    continue;
+                }
+                const Common::ResultStr<VulkanRdgPassDescriptors::CachedSet> cached =
+                     descriptors.AcquireCached( layouts[index]->Handle(), plan.Key );
+                if ( !cached )
+                {
+                    discardFresh();
+                    return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, cached.GetError() );
+                }
+                plan.Cached = cached.GetValue();
+                plan.Fresh  = !plan.Cached.Hit;
+                sets[index] = plan.Cached.Set;
+            }
+
+            // 3. The entries of every set that is not a cache hit. RDG-PARALLEL-6 (RDG-REC-3a): they go out in one
+            //    vkUpdateDescriptorSets when the batch closes, before the caller binds them. No caller holds a
+            //    batch open around this, so the batch flushes here.
+            std::string failure;
+            {
+                VulkanRdgPassDescriptors::WriteBatch batch( descriptors );
+                for ( size_t at = 0; at < entries.size() && failure.empty(); ++at )
+                {
+                    const RdgResolvedEntry& entry = entries[at];
+                    if ( scratch.Sets[entry.Slot.Set].Cached.Hit )
+                        continue;
+                    const VkDescriptorSet  set     = sets[entry.Slot.Set];
+                    const VkDescriptorType type    = scratch.Types[at];
+                    Common::BoolResultStr  written = Common::MakeSuccess( true );
+                    if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                    {
+                        descriptors.WriteSampler( set, entry.Slot.Binding, scratch.Samplers[at] );
+                    }
+                    else if ( entry.Texture != nullptr )
+                    {
+                        const RDG::BoundTexture& texture = *entry.Texture;
+                        written = descriptors.WriteTexture( set, entry.Slot.Binding, type, texture.Texture,
+                                                            texture.Range, layoutOf( entry ), entry.Slot.Element );
+                    }
+                    else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
+                    {
+                        written = descriptors.WriteAccelerationStructure( set, entry.Slot.Binding, type,
+                                                                          entry.Buffer->Buffer );
+                    }
+                    else
+                    {
+                        written = descriptors.WriteBuffer( set, entry.Slot.Binding, type, entry.Buffer->Buffer );
+                    }
+                    if ( !written.IsSuccess() )
+                        failure = std::format( "{}: '{}': {}", pass, nameOf( entry ), written.GetError() );
+                }
+            }
+            if ( !failure.empty() )
+            {
+                discardFresh();
+                return Common::MakeFormattedError<Sets>( "{}", failure );
+            }
+
+            // 3b. The material's slots into set 0 when it is not a cache hit: after the batch flushed and before
+            //     step 4 publishes the set. The pass's entries never name these bindings (the resolution refused
+            //     a slot both routes fill), so the order of the two writes does not matter.
+            if ( copiesMaterial && !scratch.Sets[0].Cached.Hit )
+            {
+                const Common::BoolResultStr copied = CopyMaterialSlots( sets[0], *layouts[0], *material, pass );
+                if ( !copied )
+                {
+                    discardFresh();
+                    return Common::MakeFormattedError<Sets>( "{}", copied.GetError() );
+                }
+            }
+
+            // 4. Findable only now that their descriptors are submitted: another chunk never binds a set that is
+            //    still being written (an update after a bind would invalidate its command buffer).
+            for ( const RdgSetPlan& plan : scratch.Sets )
+            {
+                if ( plan.Fresh )
+                    descriptors.PublishCached( plan.Key, plan.Cached );
             }
             return Common::MakeSuccess( std::move( sets ) );
         }
@@ -639,39 +876,15 @@ namespace Desert::Graphic::API::Vulkan
             return bindings.GetPushConstants().empty() ? other : bindings.GetPushConstants();
         }
 
-        // The material's written slots (@p material) copied from the material's own set into @p sets' set 0, the
-        // sets WriteRdgPassSets wrote for one exec; nothing to copy when it wrote none.
-        Common::BoolResultStr CopyMaterialSlots( const std::vector<VkDescriptorSet>&        sets,
-                                                 const std::vector<DescriptorSetLayoutRef>& layouts,
-                                                 const VulkanMaterialBackend::WrittenSlots& material,
-                                                 std::string_view                           pass )
+        // RDG-PARALLEL-6: the shader's slot table (VulkanShader::GetRdgSlots). A shader that was never reflected
+        // has an empty ReflectionData, and the table of an empty reflection is the empty table.
+        const RdgSlotTable& SlotsOf( const VulkanShader& shader )
         {
-            if ( material.Bindings.empty() )
-                return Common::MakeSuccess( true );
-            if ( sets.empty() )
-                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not",
-                                                   pass );
-            std::vector<VkCopyDescriptorSet> copies;
-            copies.reserve( material.Bindings.size() );
-            for ( const uint32_t binding : material.Bindings )
-            {
-                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( *layouts[0], binding );
-                if ( entry == nullptr )
-                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
-                                                       pass, binding );
-                VkCopyDescriptorSet copy{};
-                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-                copy.srcSet          = material.Set;
-                copy.srcBinding      = binding;
-                copy.dstSet          = sets[0];
-                copy.dstBinding      = binding;
-                copy.descriptorCount = entry->descriptorCount;
-                copies.push_back( copy );
-            }
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                   ->GetVulkanLogicalDevice();
-            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
-            return Common::MakeSuccess( true );
+            static const RdgSlotTable kUnreflected;
+            const std::shared_ptr<const RdgSlotTable>& slots = shader.GetRdgSlots();
+            if ( slots )
+                return *slots;
+            return kUnreflected;
         }
     } // namespace
 
@@ -679,22 +892,14 @@ namespace Desert::Graphic::API::Vulkan
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         const auto& vulkan = static_cast<const VulkanShader&>( shader );
-        return MakeShaderBindingLayout( vulkan.GetReflectionData(), vulkan.GetName() );
+        return MakeShaderBindingLayout( vulkan.GetReflectionData(), SlotsOf( vulkan ), vulkan.GetName() );
     }
 
-    RDG::OtherRouteFill VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
+    std::shared_ptr<const RDG::OtherRouteFill>
+    VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
-        const auto& compute = static_cast<const VulkanPipelineCompute&>( pipeline );
-        const auto* shader  = dynamic_cast<const VulkanShader*>( compute.GetShader().get() );
-        if ( shader == nullptr )
-            return {};
-        // The same set-0 keys DispatchCompute hands ResolveRdgPassBindings as the other route.
-        RdgOtherRoute other;
-        for ( const uint32_t binding : compute.GetBoundBindings() )
-            other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
-        other.PushConstants = !compute.GetBoundPushConstants().empty();
-        return MakeOtherRouteFill( shader->GetReflectionData(), other );
+        return static_cast<const VulkanPipelineCompute&>( pipeline ).GetRouteFill();
     }
 
     Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,
@@ -768,11 +973,13 @@ namespace Desert::Graphic::API::Vulkan
         other.PushConstants = !compute.GetBoundPushConstants().empty();
 
         const auto resolved =
-             ResolveRdgPassBindings( shader->GetReflectionData(), shader->GetName(), bindings, other );
+             ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ), shader->GetName(), bindings,
+                                     other );
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), compute.GetLayouts(), resolved.GetValue(), pass );
+             WriteRdgPassSets( *descriptors.GetValue(), compute.GetLayouts(), resolved.GetValue(), pass,
+                               !other.Filled.empty(), nullptr );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
         if ( !other.Filled.empty() )
@@ -825,11 +1032,13 @@ namespace Desert::Graphic::API::Vulkan
         // The program's reflection is the pipeline's layout (VulkanRayTracingPipeline::Build): the pass's
         // bindings resolve against it alone, as a compute dispatch's against its program; no setter route.
         const auto resolved =
-             ResolveRdgPassBindings( program->GetReflectionData(), program->GetName(), bindings, RdgOtherRoute{} );
+             ResolveRdgPassBindings( program->GetReflectionData(), SlotsOf( *program ), program->GetName(), bindings,
+                                     RdgOtherRoute{} );
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
+             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass, false,
+                               nullptr );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
 
@@ -890,8 +1099,46 @@ namespace Desert::Graphic::API::Vulkan
                   BindGraphicsPassState( bindings, pipeline, material, push, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
+        vkCmdDrawIndirect( RecordingTarget(), buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr
+    VulkanRendererAPI::DrawProceduralIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                              const MaterialExecutor*          material,
+                                              const std::span<const std::byte> push, IndexBuffer& indexBuffer,
+                                              const std::span<const ProceduralIndexedRange> ranges )
+    {
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        if ( ranges.empty() )
+            return Common::MakeFormattedError( "{}: an indexed procedural draw of no range", pass );
+        const uint64_t indices = indexBuffer.GetCount();
+        for ( const ProceduralIndexedRange& range : ranges )
+        {
+            if ( range.IndexCount == 0u || range.InstanceCount == 0u )
+                return Common::MakeFormattedError( "{}: an indexed procedural draw of {} indices x {} instances",
+                                                   pass, range.IndexCount, range.InstanceCount );
+            if ( uint64_t{ range.FirstIndex } + range.IndexCount > indices )
+                return Common::MakeFormattedError( "{}: indices [{}, {}) past the end of a {}-index buffer", pass,
+                                                   range.FirstIndex,
+                                                   uint64_t{ range.FirstIndex } + range.IndexCount, indices );
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+        VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
+        if ( ibuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError(
+                 "{}: the index buffer of an indexed procedural draw is not uploaded", pass );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, material, push, PassStatePush::Record );
+             !bound || !bound.GetValue() )
+            return bound;
+        vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        Recording().BoundGeometry.reset(); // the index buffer now holds this draw's, not a mesh's
+        // No vertex buffer: the vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
+        for ( const ProceduralIndexedRange& range : ranges )
+            DrawIndexedCounted( range.IndexCount, range.InstanceCount, range.FirstIndex, range.VertexOffset,
+                                range.FirstInstance );
         return Common::MakeSuccess( true );
     }
 
@@ -911,11 +1158,11 @@ namespace Desert::Graphic::API::Vulkan
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         VkBuffer vbuffer = static_cast<API::Vulkan::VulkanVertexBuffer&>( vertexBuffer ).GetVulkanBuffer();
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        vkCmdBindVertexBuffers( RecordingTarget(), 0, 1, &vbuffer, offsets );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
-        vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-        m_BoundGeometry.reset(); // bindings 0 and the index buffer now hold this batch's, not a mesh's
+        vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        Recording().BoundGeometry.reset(); // bindings 0 and the index buffer now hold this batch's, not a mesh's
         // Vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
         return Common::MakeSuccess( true );
@@ -976,23 +1223,23 @@ namespace Desert::Graphic::API::Vulkan
         // buffer objects: a pool arena that grew keeps its object and changes its handle, and a draw after the
         // growth must bind the new one. Every pooled mesh's shared binding is its arena at offset 0, so the binned
         // passes bind once per pipeline switch.
-        const BoundGeometry key{ m_CurrentCommandBuffer, &pipeline, vbuffer, geometry.VertexOffset, sbuffer,
+        const BoundGeometry key{ RecordingTarget(), &pipeline, vbuffer, geometry.VertexOffset, sbuffer,
                                  soffset,                ibuffer,   geometry.IndexOffset };
-        if ( !m_BoundGeometry.has_value() || *m_BoundGeometry != key )
+        if ( !Recording().BoundGeometry.has_value() || *Recording().BoundGeometry != key )
         {
             const VkDeviceSize voffset = geometry.VertexOffset;
-            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, &voffset );
+            vkCmdBindVertexBuffers( RecordingTarget(), 0, 1, &vbuffer, &voffset );
             if ( sbuffer != VK_NULL_HANDLE )
-                vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, &soffset );
+                vkCmdBindVertexBuffers( RecordingTarget(), 1, 1, &sbuffer, &soffset );
             if ( ibuffer != VK_NULL_HANDLE )
-                vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, geometry.IndexOffset, VK_INDEX_TYPE_UINT32 );
-            m_BoundGeometry = key;
+                vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, geometry.IndexOffset, VK_INDEX_TYPE_UINT32 );
+            Recording().BoundGeometry = key;
             GeometryPool::Get().RecordBind( shared );
         }
         if ( visibleRows != VK_NULL_HANDLE )
         {
             const VkDeviceSize zero = 0;
-            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &visibleRows,
+            vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &visibleRows,
                                     &zero );
         }
         return Common::MakeSuccess( true );
@@ -1049,7 +1296,7 @@ namespace Desert::Graphic::API::Vulkan
         // move past the layout this pipeline holds (pushConstant, above).
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
         // CPU-FRAME-5: the renderer's scratch (recording is one thread's), so a draw allocates no push block.
-        std::vector<std::byte>& push = m_SubmeshPush;
+        std::vector<std::byte>& push = Recording().SubmeshPush;
         push.clear();
         if ( pushConstant.has_value() && pushConstant->size > 0 )
         {
@@ -1073,7 +1320,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( pushConstant.has_value() && pushConstant->size > 0 )
             {
                 std::memcpy( push.data(), &finalTransform, sizeof( glm::mat4 ) );
-                vkCmdPushConstants( m_CurrentCommandBuffer, graphics->GetVkPipelineLayout(),
+                vkCmdPushConstants( RecordingTarget(), graphics->GetVkPipelineLayout(),
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
@@ -1152,10 +1399,10 @@ namespace Desert::Graphic::API::Vulkan
                  // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh pass.
                  DrawCounter::RecordCpuIndirect();
                  if ( indexCount == 0u )
-                     vkCmdDrawIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                     vkCmdDrawIndirect( RecordingTarget(), vkArgs, at, 1,
                                         static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
                  else
-                     vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                     vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs, at, 1,
                                                static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
                  return Common::MakeSuccess( true );
              } );
@@ -1232,7 +1479,7 @@ namespace Desert::Graphic::API::Vulkan
                 bin.emplace( pass, label.Mesh, label.Material );
                 bin->Add( 1, label.TrianglesPerInstance, true );
             }
-            vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs,
+            vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs,
                                       draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count, draw.Stride );
         }
         return Common::MakeSuccess( true );
@@ -1279,10 +1526,10 @@ namespace Desert::Graphic::API::Vulkan
         // buffers (m_BoundGeometry) is untouched; the next mesh draw binds binding 2 itself.
         const VkBuffer     rowBuffer = rows.GetValue()->GetBuffer();
         const VkDeviceSize zero      = 0;
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
+        vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
                                 &zero );
         DrawCounter::RecordBins( 1u, 1u );
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
+        vkCmdDrawIndirect( RecordingTarget(), args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
@@ -1300,7 +1547,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( cmd.GetError() );
         // BindGraphicsPipeline and DrawCounted record into the renderer's current command buffer, which the
         // graph backend points at the segment the pass runs on (VulkanRdgBackend::SetRecordingListener).
-        if ( cmd.GetValue() != m_CurrentCommandBuffer )
+        if ( cmd.GetValue() != RecordingTarget() )
             return Common::MakeFormattedError(
                  "{}: the renderer records into another command buffer than the pass's segment", pass );
         const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
@@ -1387,16 +1634,16 @@ namespace Desert::Graphic::API::Vulkan
             // serves builds none.
             for ( const uint32_t binding : materialSlots.Bindings )
                 other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
-            const auto resolved = ResolveRdgPassBindings( reflection, shader->GetName(), bindings, other );
+            const auto resolved =
+                 ResolveRdgPassBindings( reflection, SlotsOf( *shader ), shader->GetName(), bindings, other );
             if ( !resolved )
                 return Common::MakeError( resolved.GetError() );
-            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass );
+            // RDG-PARALLEL-9: set 0 with the material's slots comes from the descriptor cache as well; the copies
+            // are made inside, on a miss only.
+            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass, false,
+                                             &materialSlots );
             if ( !written )
                 return Common::MakeError( written.GetError() );
-            if ( const Common::BoolResultStr copied =
-                      CopyMaterialSlots( written.GetValue(), layouts, materialSlots, pass );
-                 !copied )
-                return copied;
             memo.GetValue()->Keep( key, written.ExtractValue() );
             kept = memo.GetValue()->Find( key );
         }
@@ -1414,13 +1661,13 @@ namespace Desert::Graphic::API::Vulkan
         if ( !sets.empty() )
         {
             const VkPipelineLayout layout = graphics->GetVkPipelineLayout();
-            m_BoundGraphics.On( cmd.GetValue() );
-            if ( m_BoundGraphics.SetsLayout != layout || !std::ranges::equal( m_BoundGraphics.Sets, sets ) )
+            Recording().BoundGraphics.On( cmd.GetValue() );
+            if ( Recording().BoundGraphics.SetsLayout != layout || !std::ranges::equal( Recording().BoundGraphics.Sets, sets ) )
             {
                 vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
                                          static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
-                m_BoundGraphics.SetsLayout = layout;
-                m_BoundGraphics.Sets.assign( sets.begin(), sets.end() );
+                Recording().BoundGraphics.SetsLayout = layout;
+                Recording().BoundGraphics.Sets.assign( sets.begin(), sets.end() );
             }
         }
         // Stages and size are the pipeline LAYOUT's range (VulkanPipeline::GetPushConstantRange), not the shader's
@@ -1457,12 +1704,12 @@ namespace Desert::Graphic::API::Vulkan
         VkMemoryBarrier barrier{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
                                  .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT,
                                  .dstAccessMask = VK_ACCESS_SHADER_READ_BIT };
-        vkCmdPipelineBarrier( m_CurrentCommandBuffer,
+        vkCmdPipelineBarrier( RecordingTarget(),
                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
 
         // Transition the target to GENERAL for storage writes (its last use was a fragment sample).
-        vkImage->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_GENERAL,
+        vkImage->TransitionLayout( RecordingTarget(), VK_IMAGE_LAYOUT_GENERAL,
                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                    VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT );
     }
@@ -1476,7 +1723,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         // Back to SHADER_READ_ONLY so the fragment stage (tonemap) can sample the bloom result.
-        vkImage->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        vkImage->TransitionLayout( RecordingTarget(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                    VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
     }
@@ -1493,7 +1740,7 @@ namespace Desert::Graphic::API::Vulkan
         // late-fragment depth test, and a colour attachment written by fragment output. The aspect mask
         // is the image's own, so a D24S8 attachment is barriered as DEPTH|STENCIL.
         vkImage->TransitionLayout(
-             m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+             RecordingTarget(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
              VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -1512,7 +1759,7 @@ namespace Desert::Graphic::API::Vulkan
         // depth attachment that is DEPTH_STENCIL_ATTACHMENT_OPTIMAL. Leaving it in SHADER_READ_ONLY would
         // make the next depth pass begin from the wrong layout, which the render pass does not fix.
         vkImage->TransitionLayout(
-             m_CurrentCommandBuffer, vkImage->GetDefaultLayout(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+             RecordingTarget(), vkImage->GetDefaultLayout(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
              VK_ACCESS_SHADER_READ_BIT,
              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT );
@@ -1627,6 +1874,8 @@ namespace Desert::Graphic::API::Vulkan
         // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
         m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
+        // RDG-PARALLEL-3: a graph chunk's scopes take their order as the chunk is replayed.
+        m_RdgDevice.ChunkOrder = &m_GpuProfiler;
 #endif
         // RDG-CONTRACTS B(3): the graph records into its own segment command buffers, so the frame command
         // buffer is split here: what was recorded before the graph is submitted before the graph.
@@ -1639,7 +1888,7 @@ namespace Desert::Graphic::API::Vulkan
                  std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
         }
         m_FrameSubmissions.push_back(
-             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
+             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
@@ -2017,7 +2266,7 @@ namespace Desert::Graphic::API::Vulkan
         region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
         region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
         region.extent         = { src->GetWidth(), src->GetHeight(), 1 };
-        vkCmdCopyImage( m_CurrentCommandBuffer, vsrc->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        vkCmdCopyImage( RecordingTarget(), vsrc->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                         vdst->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
         return BOOLSUCCESS;
     }
@@ -2111,7 +2360,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !IsRecording() )
             return;
         VkRect2D scissor = { .offset = { x, y }, .extent = { width, height } };
-        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+        vkCmdSetScissor( RecordingTarget(), 0, 1, &scissor );
     }
 
     void VulkanRendererAPI::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
@@ -2126,8 +2375,8 @@ namespace Desert::Graphic::API::Vulkan
                                    0.0f,
                                    1.0f };
         const VkRect2D   scissor{ { x, y }, { width, height } };
-        vkCmdSetViewport( m_CurrentCommandBuffer, 0, 1, &viewport );
-        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+        vkCmdSetViewport( RecordingTarget(), 0, 1, &viewport );
+        vkCmdSetScissor( RecordingTarget(), 0, 1, &scissor );
     }
 
     void VulkanRendererAPI::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
@@ -2158,7 +2407,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         const VkClearRect rect{
              .rect = { .offset = { x, y }, .extent = { width, height } }, .baseArrayLayer = 0, .layerCount = 1 };
-        vkCmdClearAttachments( m_CurrentCommandBuffer, static_cast<uint32_t>( attachments.size() ),
+        vkCmdClearAttachments( RecordingTarget(), static_cast<uint32_t>( attachments.size() ),
                                attachments.data(), 1, &rect );
     }
 
@@ -2206,10 +2455,10 @@ namespace Desert::Graphic::API::Vulkan
                                 .height   = -(float)height,
                                 .minDepth = 0.0f,
                                 .maxDepth = 1.0f };
-        vkCmdSetViewport( m_CurrentCommandBuffer, 0, 1, &viewport );
+        vkCmdSetViewport( RecordingTarget(), 0, 1, &viewport );
 
         VkRect2D scissor = { .offset = { 0, 0 }, .extent = { width, height } };
-        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+        vkCmdSetScissor( RecordingTarget(), 0, 1, &scissor );
     }
 
     void VulkanRendererAPI::ClearAttachments( const std::vector<VkClearValue>&    clearValues,
@@ -2237,7 +2486,7 @@ namespace Desert::Graphic::API::Vulkan
                  .baseArrayLayer = 0,
                  .layerCount     = 1 };
         }
-        vkCmdClearAttachments( m_CurrentCommandBuffer, attachmentCount, attachments.data(), attachmentCount,
+        vkCmdClearAttachments( RecordingTarget(), attachmentCount, attachments.data(), attachmentCount,
                                clearRects.data() );
     }
 
@@ -2249,7 +2498,7 @@ namespace Desert::Graphic::API::Vulkan
                                                 int32_t vertexOffset, uint32_t firstInstance )
     {
         DrawCounter::Record( instanceCount );
-        vkCmdDrawIndexed( m_CurrentCommandBuffer, indexCount, instanceCount, firstIndex, vertexOffset,
+        vkCmdDrawIndexed( RecordingTarget(), indexCount, instanceCount, firstIndex, vertexOffset,
                           firstInstance );
     }
 
@@ -2257,7 +2506,7 @@ namespace Desert::Graphic::API::Vulkan
                                          uint32_t firstInstance )
     {
         DrawCounter::Record( instanceCount );
-        vkCmdDraw( m_CurrentCommandBuffer, vertexCount, instanceCount, firstVertex, firstInstance );
+        vkCmdDraw( RecordingTarget(), vertexCount, instanceCount, firstVertex, firstInstance );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

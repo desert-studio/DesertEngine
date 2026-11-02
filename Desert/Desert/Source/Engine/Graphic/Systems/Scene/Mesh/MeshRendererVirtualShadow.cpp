@@ -195,20 +195,52 @@ namespace Desert::Graphic::System
         // THE CASTERS THAT STAND STILL, each by a signature of what it draws and where (CascadeStaticSignature's
         // terms, without a frustum: the map's pages outlive any one level's window). One whose signature is known
         // from last frame keeps its box, so a still forest is not re-boxed every frame.
-        std::vector<ShadowCasterEntry> still;
-        still.reserve( m_VsmStillCasters.size() );
-        const auto addStill = [this, &still]( const uint64_t signature, const auto& boxOf )
+        const auto addFrom = []( std::vector<ShadowCasterEntry>& into, const std::vector<ShadowCasterEntry>& known,
+                                 const uint64_t signature, const auto& boxOf )
         {
-            const auto known = std::lower_bound( m_VsmStillCasters.begin(), m_VsmStillCasters.end(), signature,
+            const auto found = std::lower_bound( known.begin(), known.end(), signature,
                                                  []( const ShadowCasterEntry& entry, const uint64_t value )
                                                  { return entry.Signature < value; } );
-            if ( known != m_VsmStillCasters.end() && known->Signature == signature )
+            if ( found != known.end() && found->Signature == signature )
             {
-                still.push_back( *known );
+                into.push_back( *found );
                 return;
             }
             const VsmInvalidationBox box = boxOf();
-            still.push_back( { .Signature = signature, .Min = box.Min, .Max = box.Max } );
+            into.push_back( { .Signature = signature, .Min = box.Min, .Max = box.Max } );
+        };
+        // The ISM fields and the non-mesh casters, against last frame's (m_VsmStillCasters).
+        std::vector<ShadowCasterEntry> still;
+        still.reserve( m_VsmStillCasters.size() );
+        const auto addStill = [this, &still, &addFrom]( const uint64_t signature, const auto& boxOf )
+        { addFrom( still, m_VsmStillCasters, signature, boxOf ); };
+        // A caster added, removed or changed is a signature on one side only: its old box (it left) and its new
+        // box (it came) are invalidated, and nothing else is. Both sides sorted by signature.
+        const auto bySignature = []( const ShadowCasterEntry& a, const ShadowCasterEntry& b )
+        { return a.Signature < b.Signature; };
+        const auto diffInto = [&result]( const std::vector<ShadowCasterEntry>& was,
+                                         const std::vector<ShadowCasterEntry>& is )
+        {
+            auto before = was.begin();
+            auto now    = is.begin();
+            while ( before != was.end() || now != is.end() )
+            {
+                if ( now == is.end() || ( before != was.end() && before->Signature < now->Signature ) )
+                {
+                    result.Boxes.push_back( { .Min = before->Min, .Max = before->Max } );
+                    ++before;
+                }
+                else if ( before == was.end() || now->Signature < before->Signature )
+                {
+                    result.Boxes.push_back( { .Min = now->Min, .Max = now->Max } );
+                    ++now;
+                }
+                else
+                {
+                    ++before;
+                    ++now;
+                }
+            }
         };
 
         // A caster's rastered set enters its signature only when the raster draws some of it: "no raster" and
@@ -220,50 +252,82 @@ namespace Desert::Graphic::System
                 for ( const uint64_t word : words )
                     hash.Add( word );
         };
-        for ( const auto& rd : m_StaticQueue )
+        // THE STATIC / GENERIC ENTRIES (m_VsmStaticStill): every field their signatures and boxes read reaches the
+        // static casters' revision (StaticCasterTrack: transform, mesh, render revision, hidden submeshes,
+        // ForcedLOD, LODBias, section slot and shading, generic VisibleSubmeshMask; the boxes are the rows it
+        // keeps), the levels the LOD key (StaticLodKey), the rastered sets the carrier outcome
+        // (m_VsmCarriedTwinsRevision), the uploaded DAG rows (VirtualMeshTable::UploadGeneration) and the
+        // VirtualShadow pass's groups and twins (DrawCommandCache::TableRevision). The keys are read before any of
+        // those is asked: a move in between leaves the entries under the older key, made again next frame. Under
+        // the same keys the entries are last frame's and add no box: no static caster is walked.
+        const uint64_t vgUploads = VirtualGeometry::VirtualMeshTable::Get().UploadGeneration();
+        uint64_t       vgTable   = 0;
+        if ( m_DrawCommandCache )
+            vgTable = m_DrawCommandCache->TableRevision( GpuDriven::MeshPass::VirtualShadow );
+        VsmStaticStill& staticPart = m_VsmStaticStill;
+        const bool      tracked    = StaticCastersTracked();
+        if ( !tracked || !staticPart.Valid || staticPart.Revision != m_StaticCasters.Revision ||
+             staticPart.LodKey != gathered.StaticLodKey || staticPart.Carriers != m_VsmCarriedTwinsRevision ||
+             staticPart.VgUploads != vgUploads || staticPart.VgTable != vgTable )
         {
-            if ( rd.Mesh == nullptr || !rd.CastShadows )
-                continue;
-            const auto    index = static_cast<uint32_t>( &rd - m_StaticQueue.data() );
-            SignatureHash hash;
-            hash.Add( rd.Mesh->GetRenderRevision() );
-            hash.Add( rd.Transform );
-            hash.Add( rd.HiddenSubmeshes );
-            hash.Add( rd.ForcedLOD );
-            hash.Add( rd.LODBias );
-            // The LOD it is drawn with follows the main camera: a change redraws its pages.
-            hash.Add( std::min( ShadowStaticLod( index ), Geometry::MaxAvailableLOD( rd.Mesh->GetSubmeshes() ) ) );
-            const SectionShading shading = ShadingOf( rd );
-            hash.Add( rd.SectionSlot );
-            hash.Add( shading.Surface );
-            hash.Add( shading.Instance );
-            // Its rastered set (VsmRasteredSubmeshes, the levels' walk rule): the clusters' depth is the cut's,
-            // the walk's the mesh LOD's, so a submesh moving between them redraws its pages. The set is this
-            // frame's clusterable submeshes under LAST frame's carrier outcome (this frame's cut and carriers are
-            // made after the pages, from their dirty mask): a refused or returning cut or carrier redraws exactly
-            // the pages of the casters it moved, one frame later (UE: a primitive's invalidation is applied to the
-            // next frame's cache).
-            if ( !m_VsmCarriedTwinsLastFrame.empty() )
+            std::vector<ShadowCasterEntry> fresh;
+            fresh.reserve( staticPart.Entries.size() );
+            const auto addStatic = [&fresh, &staticPart, &addFrom]( const uint64_t signature, const auto& boxOf )
+            { addFrom( fresh, staticPart.Entries, signature, boxOf ); };
+            for ( const auto& rd : m_StaticQueue )
             {
-                VsmRasteredSubmeshes( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame,
-                                      m_ClusterWalkScratch );
-                addRasteredSet( hash, m_ClusterWalkScratch );
+                if ( rd.Mesh == nullptr || !rd.CastShadows )
+                    continue;
+                const auto    index = static_cast<uint32_t>( &rd - m_StaticQueue.data() );
+                SignatureHash hash;
+                hash.Add( rd.Mesh->GetRenderRevision() );
+                hash.Add( rd.Transform );
+                hash.Add( rd.HiddenSubmeshes );
+                hash.Add( rd.ForcedLOD );
+                hash.Add( rd.LODBias );
+                // The LOD it is drawn with follows the main camera: a change redraws its pages.
+                hash.Add( std::min( ShadowStaticLod( index ), Geometry::MaxAvailableLOD( rd.Mesh->GetSubmeshes() ) ) );
+                const SectionShading shading = ShadingOf( rd );
+                hash.Add( rd.SectionSlot );
+                hash.Add( shading.Surface );
+                hash.Add( shading.Instance );
+                // Its rastered set (VsmRasteredSubmeshes, the levels' walk rule): the clusters' depth is the cut's,
+                // the walk's the mesh LOD's, so a submesh moving between them redraws its pages. The set is this
+                // frame's clusterable submeshes under LAST frame's carrier outcome (this frame's cut and carriers are
+                // made after the pages, from their dirty mask): a refused or returning cut or carrier redraws exactly
+                // the pages of the casters it moved, one frame later (UE: a primitive's invalidation is applied to the
+                // next frame's cache).
+                if ( !m_VsmCarriedTwinsLastFrame.empty() )
+                {
+                    VsmRasteredSubmeshes( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame,
+                                          m_ClusterWalkScratch );
+                    addRasteredSet( hash, m_ClusterWalkScratch );
+                }
+                addStatic( hash.Value,
+                           [&gathered, index] { return GatheredBox( gathered.Statics[index].WorldBounds ); } );
             }
-            addStill( hash.Value,
-                      [&gathered, index] { return GatheredBox( gathered.Statics[index].WorldBounds ); } );
-        }
-        for ( const auto& g : m_GenericQueue )
-        {
-            if ( g.Mesh == nullptr || !g.CastShadows )
-                continue;
-            const auto    index = static_cast<uint32_t>( &g - m_GenericQueue.data() );
-            SignatureHash hash;
-            hash.Add( g.Mesh->GetRenderRevision() );
-            hash.Add( g.Transform );
-            hash.Add( g.VisibleSubmeshMask );
-            hash.Add( ShadowGenericLod( index ) );
-            addStill( hash.Value,
-                      [&gathered, index] { return GatheredBox( gathered.Generics[index].WorldBounds ); } );
+            for ( const auto& g : m_GenericQueue )
+            {
+                if ( g.Mesh == nullptr || !g.CastShadows )
+                    continue;
+                const auto    index = static_cast<uint32_t>( &g - m_GenericQueue.data() );
+                SignatureHash hash;
+                hash.Add( g.Mesh->GetRenderRevision() );
+                hash.Add( g.Transform );
+                hash.Add( g.VisibleSubmeshMask );
+                hash.Add( ShadowGenericLod( index ) );
+                addStatic( hash.Value,
+                           [&gathered, index] { return GatheredBox( gathered.Generics[index].WorldBounds ); } );
+            }
+            std::sort( fresh.begin(), fresh.end(), bySignature );
+            diffInto( staticPart.Entries, fresh );
+            staticPart.Entries   = std::move( fresh );
+            staticPart.Valid     = tracked;
+            staticPart.Revision  = m_StaticCasters.Revision;
+            staticPart.LodKey    = gathered.StaticLodKey;
+            staticPart.Carriers  = m_VsmCarriedTwinsRevision;
+            staticPart.VgUploads = vgUploads;
+            staticPart.VgTable   = vgTable;
         }
 
         // THE CASTERS THAT MOVE BY THEMSELVES (swaying foliage, skinned meshes): their box now; last frame's box
@@ -346,32 +410,8 @@ namespace Desert::Graphic::System
             addStill( entry.Signature,
                       [&entry] { return VsmInvalidationBox{ .Min = entry.Min, .Max = entry.Max }; } );
 
-        // A caster added, removed or changed is a signature on one side only: its old box (it left) and its new
-        // box (it came) are invalidated, and nothing else is.
-        const auto bySignature = []( const ShadowCasterEntry& a, const ShadowCasterEntry& b )
-        { return a.Signature < b.Signature; };
         std::sort( still.begin(), still.end(), bySignature );
-        auto before = m_VsmStillCasters.begin();
-        auto now    = still.begin();
-        while ( before != m_VsmStillCasters.end() || now != still.end() )
-        {
-            if ( now == still.end() ||
-                 ( before != m_VsmStillCasters.end() && before->Signature < now->Signature ) )
-            {
-                result.Boxes.push_back( { .Min = before->Min, .Max = before->Max } );
-                ++before;
-            }
-            else if ( before == m_VsmStillCasters.end() || now->Signature < before->Signature )
-            {
-                result.Boxes.push_back( { .Min = now->Min, .Max = now->Max } );
-                ++now;
-            }
-            else
-            {
-                ++before;
-                ++now;
-            }
-        }
+        diffInto( m_VsmStillCasters, still );
         // The movers' boxes now, and last frame's that are not among them (a still-standing swaying instance's
         // reach box is the same every frame: one box covers both).
         const auto boxLess = []( const VsmInvalidationBox& a, const VsmInvalidationBox& b )
@@ -561,10 +601,14 @@ namespace Desert::Graphic::System
     {
         // Only a recorded raster's carrier outcome is what last frame's pages hold
         // (CollectVirtualShadowInvalidation).
+        std::vector<const GraphicsPipeline*> carried;
         if ( std::exchange( m_VsmClusteredThisFrame, false ) )
-            m_VsmCarriedTwinsLastFrame = std::move( m_VsmCarriedTwins );
-        else
-            m_VsmCarriedTwinsLastFrame.clear();
+            carried = std::move( m_VsmCarriedTwins );
+        // The page cache's kept static part is keyed by the outcome (m_VsmCarriedTwinsRevision): a set other than
+        // the one before moves it (both sorted and unique, AddVirtualShadowRasterPasses).
+        if ( carried != m_VsmCarriedTwinsLastFrame )
+            ++m_VsmCarriedTwinsRevision;
+        m_VsmCarriedTwinsLastFrame = std::move( carried );
         m_VsmCarriedTwins.clear();
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;

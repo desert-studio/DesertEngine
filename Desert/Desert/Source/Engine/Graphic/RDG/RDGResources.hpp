@@ -284,6 +284,12 @@ namespace Desert::Graphic::RDG
         // Pipe::Graphics otherwise (CompileResult::DemotedAsyncPasses). The pass's exec lambda must record the
         // same commands on either pipe - it asks PassContext::GetPipe() only for labels, never to branch its work.
         AsyncCompute = 1u << 4,
+        // RDG-PARALLEL-2. UE: ERDGPassFlags::NeverParallel. The pass records on the calling thread, straight into
+        // its segment's command buffer, never in a chunk on a worker: its exec records raw commands through
+        // CommandBufferOf into a primary-only API or calls third-party code that is not thread-safe (FSR3, NGX,
+        // acceleration structure builds, ImGui). A pass whose exec writes renderer state other passes read
+        // while recording is NeverParallel until that state is per pass.
+        NeverParallel = 1u << 5,
     };
 
     // A hardware queue timeline the compiled graph records onto (UE: ERHIPipeline). Graphics is the queue the

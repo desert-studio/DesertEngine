@@ -128,7 +128,8 @@ namespace Desert::Graphic::System
     // never sees a read of a transient nobody produced and keeps the stages in their declared order.
     inline void DeclareParticleSortStage( RDG::PassBuilder&                                      pass,
                                           const std::shared_ptr<const RDG::ShaderBindingLayout>& layout,
-                                          RDG::OtherRouteFill fill, const ParticleSortBuffers& buffers,
+                                          std::shared_ptr<const RDG::OtherRouteFill> fill,
+                                          const ParticleSortBuffers& buffers,
                                           const ParticleSortStageKind kind )
     {
         const bool writesSorted = kind == ParticleSortStageKind::Write || kind == ParticleSortStageKind::RibbonInit ||

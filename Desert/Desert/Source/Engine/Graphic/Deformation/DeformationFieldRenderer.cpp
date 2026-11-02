@@ -442,7 +442,7 @@ namespace Desert::Graphic::Deformation
              "Debug: Deformation Field", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::OtherRouteFill{} )
+                 pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::NoOtherRouteFill() )
                       .Sampler( DeformationFieldViewShaderParameters::PointClampSampler,
                                 RDG::SamplerDesc::PointClamp() )
                       .Texture( DeformationFieldViewShaderParameters::DeformHeight0Texture, field.Height[0],

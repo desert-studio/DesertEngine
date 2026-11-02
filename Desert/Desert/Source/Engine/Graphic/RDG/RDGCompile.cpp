@@ -2,7 +2,9 @@
 // 5.8 FRDGBuilder::Compile (Runtime/RenderCore/Private/RenderGraphBuilder.cpp): one Builder::Compiler member
 // function per phase - FlushCullStack, the fork/join pass, MergeRenderPasses, CollectPassBarriers,
 // CompilePassOps, AllocateTransientResources, CreatePassBarriers, FinalizeResources - adapted to a graph
-// whose passes are never reordered.
+// whose passes keep their declaration order except where HoistQueuedUploads moves a queued upload to the graph
+// head and ScheduleIntoAsyncWindows moves a graphics pass, along its dependency edges, into an async run's
+// overlap window.
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -82,6 +84,10 @@ namespace Desert::Graphic::RDG
             int32_t  ForkSync     = -1; // index into CompileResult::Syncs
             int32_t  JoinSync     = -1;
             bool     NeedsFork    = false; // an external it consumes was never touched by this graph before
+            // A later piece of one run of consecutive async positions, cut where a graphics consumer joins
+            // (FindAsyncRuns, UE bAsyncComputeEnd): submitted right after the previous piece on the same queue,
+            // it is ordered by that piece's fork and shares it (CreateAsyncSyncs).
+            bool ContinuesRun = false;
         };
 
         Barrier RdgMakeBarrier( const RdgRawTransition& raw, ResourceKind kind, const SubresourceRange& range )
@@ -263,7 +269,10 @@ namespace Desert::Graphic::RDG
         void                                CullPasses();
         void                                CollectDependencyEdges();
         void                                ChoosePipes();
+        void                                HoistQueuedUploads();
+        void                                ScheduleIntoAsyncWindows();
         void                                FindAsyncRuns();
+        void                                CutRunsAtConsumers();
         void                                CreateAsyncSyncs();
         void                                ComputeLifetimes();
         Common::BoolResultStr               PlanAliasing();
@@ -274,6 +283,12 @@ namespace Desert::Graphic::RDG
         void                                CreatePassBarriers();
         void                                FilterStagesPerPipe();
         void                                BuildPipeSegments();
+
+        // Set by AddTransfers when a transfer's acquire would record before the join ordering it.
+        const std::string& SyncError() const
+        {
+            return m_SyncError;
+        }
 
         CompileResult TakeResult()
         {
@@ -325,8 +340,15 @@ namespace Desert::Graphic::RDG
 
         std::vector<Pipe>                  m_PipeAt;
         std::vector<uint32_t>              m_PositionOf;
+        // Positions [0, m_UploadHead) are the queued uploads HoistQueuedUploads moved to the graph head.
+        uint32_t                           m_UploadHead = 0;
         std::vector<RdgAsyncRun>           m_Runs;
         std::vector<int32_t>               m_RunAt;
+        // By async position (UE FRDGPass::CrossPipelineConsumer): the earliest graphics position that may not
+        // start before the pass at that position completed; kJoinAtGraphEnd: only the graph end needs it.
+        std::vector<uint32_t>              m_ConsumerAt;
+        // A transfer whose acquire would record before the join that orders it (AddTransfers): Compile fails.
+        std::string                        m_SyncError;
         std::vector<std::vector<uint32_t>> m_WaitAt;
         std::vector<std::vector<uint32_t>> m_SignalAt;
         // SHARED READ GROUPS (FindAsyncRuns). m_GroupOfUse[position][i]: the read group use i of the pass at
@@ -830,7 +852,7 @@ namespace Desert::Graphic::RDG
         }
     }
 
-    // ── S1. Pipe choice. Passes are never reordered: the scheduler only picks a pipe per pass ─────────────
+    // ── S1. Pipe choice. A pipe per pass (reordering: HoistQueuedUploads, ScheduleIntoAsyncWindows) ──────
     void Builder::Compiler::ChoosePipes()
     {
         m_Result.Pipes = m_Pipes;
@@ -849,13 +871,189 @@ namespace Desert::Graphic::RDG
         }
     }
 
+    // ── S1 (cont.). Queued uploads at the graph head (RDG-ASYNC-2; UE FRDGBuilder::SubmitBufferUploads) ──────
+    // QueueBufferUpload adds its copy where the renderer calls it, right before the reader. An async run that
+    // reads an upload then forks after it, mid-frame, and a fork is a graphics submission that signals only once
+    // ALL earlier graphics work completed: the queue drains there (FPS-FIELD-BARN 1_static: "Upload:
+    // Lights.ShadowViews" drained the movable shadow cascades, 0.91 ms; the screen-probe CompactAllocator uploads
+    // 0.28 + 0.31 ms). UE uploads every queued buffer before the first pass. Here: an upload with no incoming
+    // dependency edge (no earlier pass touched its buffer, so nothing it writes can be seen earlier) moves, in its
+    // order, to the head. Every edge keeps its direction - an upload has no predecessor, and its readers stay
+    // after it - so the graph's result is the same. An upload's exec reads only its own copied bytes, so it
+    // crosses a NeverParallel or ExternalQueue pass freely. An upload with an earlier user of its buffer stays in
+    // place.
+    void Builder::Compiler::HoistQueuedUploads()
+    {
+        std::vector<bool> hasPredecessor( m_ExecutedCount, false );
+        for ( const DependencyEdge& edge : m_Result.Edges )
+            hasPredecessor[m_PositionOf[edge.To]] = true;
+        std::vector<bool> hoisted( m_ExecutedCount, false );
+        uint32_t          count = 0;
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+        {
+            hoisted[position] = m_Passes[m_Executed[position]].QueuedUpload && !hasPredecessor[position] &&
+                                m_PipeAt[position] == Pipe::Graphics;
+            if ( hoisted[position] )
+                ++count;
+        }
+        m_UploadHead = count;
+        if ( count == 0 )
+            return;
+        std::vector<uint32_t> order; // new position -> old position
+        order.reserve( m_ExecutedCount );
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+        {
+            if ( hoisted[position] )
+                order.push_back( position );
+        }
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+        {
+            if ( !hoisted[position] )
+                order.push_back( position );
+        }
+        std::vector<uint32_t> executed( m_ExecutedCount );
+        std::vector<Pipe>     pipes( m_ExecutedCount );
+        for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
+        {
+            executed[at]               = m_Executed[order[at]];
+            pipes[at]                  = m_PipeAt[order[at]];
+            m_PositionOf[executed[at]] = at;
+        }
+        std::copy( executed.begin(), executed.end(), m_Executed.begin() );
+        m_PipeAt = std::move( pipes );
+    }
+
+    // ── S2 (pre). Graphics work into the async windows (RDG-ASYNC-1) ─────────────────────────────────────
+    // The graphics queue waits at a run's join when the graphics passes between the run's fork and its first
+    // consumer take less time than the run (FPS-FIELD-BARN: 1.5-1.9 ms of graphics against a 2.41 ms chain).
+    // A graphics pass after that consumer and before the next run that depends on no async pass, and on no
+    // pass from the insertion point on that is not moved itself, is moved - in its order - to just before the
+    // consumer: every dependency edge keeps its direction, so the graph's result is the same and the queue
+    // fills the window. UE leaves this to the renderer's declaration order; the graph has the edges, so the
+    // compile decides it, with no hand-placed order in the renderer.
+    // Order no edge records is kept: a NeverParallel pass (its exec writes renderer state later passes read
+    // while recording) and an ExternalQueue pass are never moved, nothing moves across them, and a consumer
+    // that is one of them takes nothing in front of it. The insertion point steps back over a raster chain the
+    // consumer continues (a raster predecessor right before a raster consumer), so a render-pass merge stays.
+    void Builder::Compiler::ScheduleIntoAsyncWindows()
+    {
+        if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
+            return;
+        // Direct predecessors of each position, from the dependency edges (CSR).
+        std::vector<uint32_t> predBegin( m_ExecutedCount + 1, 0 );
+        for ( const DependencyEdge& edge : m_Result.Edges )
+            ++predBegin[m_PositionOf[edge.To] + 1];
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+            predBegin[position + 1] += predBegin[position];
+        std::vector<uint32_t> preds( m_Result.Edges.size() );
+        {
+            std::vector<uint32_t> fill( predBegin.begin(), predBegin.end() - 1 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+                preds[fill[m_PositionOf[edge.To]]++] = m_PositionOf[edge.From];
+        }
+        const auto keepsOrder = [&]( uint32_t position )
+        {
+            const PassRecord& pass = m_Passes[m_Executed[position]];
+            return HasFlag( pass.Flags, PassFlags::NeverParallel ) || pass.External.has_value();
+        };
+        const auto isRaster = [&]( uint32_t position )
+        { return HasFlag( m_Passes[m_Executed[position]].Flags, PassFlags::Raster ); };
+        const auto dependsOn = [&]( uint32_t position, uint32_t on )
+        {
+            return std::find( preds.begin() + predBegin[position], preds.begin() + predBegin[position + 1], on ) !=
+                   preds.begin() + predBegin[position + 1];
+        };
+
+        std::vector<bool>     moved( m_ExecutedCount, false );
+        std::vector<uint32_t> order; // new position -> old position
+        uint32_t              emitted  = 0;
+        uint32_t              position = 0;
+        while ( position < m_ExecutedCount )
+        {
+            if ( m_PipeAt[position] != Pipe::AsyncCompute )
+            {
+                ++position;
+                continue;
+            }
+            const uint32_t first = position;
+            while ( position < m_ExecutedCount && m_PipeAt[position] == Pipe::AsyncCompute )
+                ++position;
+            const uint32_t last      = position - 1;
+            uint32_t       nextFirst = position;
+            while ( nextFirst < m_ExecutedCount && m_PipeAt[nextFirst] != Pipe::AsyncCompute )
+                ++nextFirst;
+            // The run's first consumer before the next run: the first graphics pass with an edge from it.
+            uint32_t join = nextFirst;
+            for ( uint32_t q = last + 1; q < nextFirst && join == nextFirst; ++q )
+            {
+                for ( uint32_t k = predBegin[q]; k < predBegin[q + 1]; ++k )
+                {
+                    if ( preds[k] >= first && preds[k] <= last )
+                        join = q;
+                }
+            }
+            if ( join == nextFirst || keepsOrder( join ) )
+                continue;
+            uint32_t insertAt = join;
+            while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
+                    isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
+                --insertAt;
+            bool any = false;
+            for ( uint32_t q = join + 1; q < nextFirst; ++q )
+            {
+                if ( keepsOrder( q ) )
+                    break;
+                bool free = true;
+                for ( uint32_t k = predBegin[q]; k < predBegin[q + 1] && free; ++k )
+                {
+                    const uint32_t before = preds[k];
+                    free = m_PipeAt[before] != Pipe::AsyncCompute && ( before < insertAt || moved[before] );
+                }
+                moved[q] = free;
+                any      = any || free;
+            }
+            if ( !any )
+                continue;
+            order.reserve( m_ExecutedCount );
+            for ( ; emitted < insertAt; ++emitted )
+                order.push_back( emitted );
+            for ( uint32_t q = insertAt; q < nextFirst; ++q )
+            {
+                if ( moved[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = insertAt; q < nextFirst; ++q )
+            {
+                if ( !moved[q] )
+                    order.push_back( q );
+            }
+            emitted = nextFirst;
+        }
+        if ( order.empty() )
+            return;
+        for ( ; emitted < m_ExecutedCount; ++emitted )
+            order.push_back( emitted );
+        std::vector<uint32_t> executed( m_ExecutedCount );
+        std::vector<Pipe>     pipes( m_ExecutedCount );
+        for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
+        {
+            executed[at]               = m_Executed[order[at]];
+            pipes[at]                  = m_PipeAt[order[at]];
+            m_PositionOf[executed[at]] = at;
+        }
+        std::copy( executed.begin(), executed.end(), m_Executed.begin() );
+        m_PipeAt = std::move( pipes );
+    }
+
     // ── S2. Async runs and their fork / join (UE's fork/join pass in Compile) ─────────────────────────────
     // A run is a maximal range of consecutive async positions. Its fork is the last graphics pass it
-    // depends on (any RAW / WAR / WAW edge, or the release of contents it takes over); its join the first
-    // graphics pass that depends on it or takes over its contents, or the end of the graph.
+    // depends on (any RAW / WAR / WAW edge, or the release of contents it takes over). Each of its passes has
+    // a cross-pipeline consumer: the first graphics pass that depends on it or takes over its contents, or the
+    // end of the graph. CutRunsAtConsumers then cuts the run where a consumer joins.
     void Builder::Compiler::FindAsyncRuns()
     {
         m_RunAt.assign( m_ExecutedCount, -1 );
+        m_ConsumerAt.assign( m_ExecutedCount, CrossPipeSync::kJoinAtGraphEnd );
         m_WaitAt.assign( m_ExecutedCount, {} );
         m_SignalAt.assign( m_ExecutedCount, {} );
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
@@ -881,10 +1079,7 @@ namespace Desert::Graphic::RDG
                 run.ForkPosition = std::max( run.ForkPosition, static_cast<int32_t>( from ) );
             }
             else
-            {
-                RdgAsyncRun& run = m_Runs[static_cast<size_t>( m_RunAt[from] )];
-                run.JoinPosition = std::min( run.JoinPosition, to );
-            }
+                m_ConsumerAt[from] = std::min( m_ConsumerAt[from], to );
         }
         // SHARED READ GROUPS (UE: a read-only state merges across pipelines, ERHIPipeline::All). A group is a
         // maximal run of one subresource's uses that all read it in one layout (a buffer: any reads) - the run
@@ -960,9 +1155,9 @@ namespace Desert::Graphic::RDG
                 const bool       opens  = group < 0 || m_GroupOpener[static_cast<size_t>( group )] == position;
                 if ( opens && sharedAsync[use.Sub] >= 0 )
                 {
-                    RdgAsyncRun& ended   = runAt( static_cast<uint32_t>( sharedAsync[use.Sub] ) );
-                    ended.JoinPosition   = std::min( ended.JoinPosition, position );
-                    sharedAsync[use.Sub] = -1;
+                    const uint32_t reader = static_cast<uint32_t>( sharedAsync[use.Sub] );
+                    m_ConsumerAt[reader]  = std::min( m_ConsumerAt[reader], position );
+                    sharedAsync[use.Sub]  = -1;
                 }
                 if ( shared && pipe == Pipe::AsyncCompute )
                     sharedAsync[use.Sub] = static_cast<int32_t>( position );
@@ -980,10 +1175,9 @@ namespace Desert::Graphic::RDG
                         continue;
                     }
                     // Graphics takes the group from the run that opened it (TrackUse releases it there).
-                    RdgAsyncRun& opened = runAt( opener );
-                    opened.JoinPosition = std::min( opened.JoinPosition, position );
-                    owner[use.Sub]      = pipe;
-                    lastTouch[use.Sub]  = static_cast<int32_t>( position );
+                    m_ConsumerAt[opener] = std::min( m_ConsumerAt[opener], position );
+                    owner[use.Sub]       = pipe;
+                    lastTouch[use.Sub]   = static_cast<int32_t>( position );
                     continue;
                 }
                 if ( owned[use.Sub] && owner[use.Sub] != pipe && use.Consumes )
@@ -998,8 +1192,8 @@ namespace Desert::Graphic::RDG
                     }
                     else
                     {
-                        RdgAsyncRun& run = runAt( static_cast<uint32_t>( lastTouch[use.Sub] ) );
-                        run.JoinPosition = std::min( run.JoinPosition, position );
+                        const uint32_t released = static_cast<uint32_t>( lastTouch[use.Sub] );
+                        m_ConsumerAt[released]  = std::min( m_ConsumerAt[released], position );
                     }
                 }
                 owned[use.Sub]     = true;
@@ -1007,21 +1201,96 @@ namespace Desert::Graphic::RDG
                 lastTouch[use.Sub] = static_cast<int32_t>( position );
             }
         }
+        CutRunsAtConsumers();
+    }
+
+    // CROSS-PIPELINE CONSUMERS (UE FRDGBuilder::Compile: CrossPipelineConsumer, bAsyncComputeEnd). A run's
+    // single join after its last pass made the first graphics consumer wait for the whole run even when it
+    // depends on its first passes only (FPS-FIELD-BARN: "Deferred: Reflections" waited 0.3-0.9 ms for the end
+    // of the run "far field .. Temporal", whose last passes only the composite reads). A run is cut after every
+    // pass whose consumers come before any consumer of the passes after it: the piece ends its submission
+    // there and signals its own join, waited by its earliest consumer. One queue runs the pieces in order, so
+    // a later piece's join implies every earlier one: a cut whose consumer a later pass's earlier consumer
+    // already waits for is not made, and the pieces' joins strictly increase.
+    void Builder::Compiler::CutRunsAtConsumers()
+    {
+        // laterJoin[p]: the earliest consumer of the run's passes from p to its end (slot Last + 1: none).
+        std::vector<uint32_t>    laterJoin( m_ExecutedCount + 1, CrossPipeSync::kJoinAtGraphEnd );
+        std::vector<RdgAsyncRun> pieces;
+        pieces.reserve( m_Runs.size() );
+        for ( const RdgAsyncRun& run : m_Runs )
+        {
+            laterJoin[run.Last + 1] = CrossPipeSync::kJoinAtGraphEnd;
+            for ( uint32_t position = run.Last + 1; position-- > run.First; )
+                laterJoin[position] = std::min( laterJoin[position + 1], m_ConsumerAt[position] );
+            RdgAsyncRun piece  = run; // the run's fork (ForkPosition, NeedsFork) goes with every piece
+            piece.JoinPosition = CrossPipeSync::kJoinAtGraphEnd;
+            for ( uint32_t position = run.First; position <= run.Last; ++position )
+            {
+                piece.JoinPosition = std::min( piece.JoinPosition, m_ConsumerAt[position] );
+                if ( position != run.Last && piece.JoinPosition >= laterJoin[position + 1] )
+                    continue;
+                piece.Last = position;
+                pieces.push_back( piece );
+                piece.First        = position + 1;
+                piece.JoinPosition = CrossPipeSync::kJoinAtGraphEnd;
+                piece.ContinuesRun = true;
+            }
+        }
+        m_Runs = std::move( pieces );
+        for ( size_t r = 0; r < m_Runs.size(); ++r )
+        {
+            for ( uint32_t position = m_Runs[r].First; position <= m_Runs[r].Last; ++position )
+                m_RunAt[position] = static_cast<int32_t>( r );
+        }
     }
 
     // ── S2 (cont.). Each run's fork and join become CrossPipeSyncs ───────────────────────────────────────
     void Builder::Compiler::CreateAsyncSyncs()
     {
-        for ( RdgAsyncRun& run : m_Runs )
+        std::vector<bool> touched( m_ResourceCount, false );
+        // THE NEWEST FORK (RDG-ASYNC-2; UE: a run forks only where a graphics producer of it is, and the async
+        // pipe's later runs follow the earlier ones). The compute queue runs the runs in order, and a semaphore
+        // wait's second scope holds every later command on that queue: a run whose graphics producers all come
+        // at or before the newest fork's position is already ordered after them by that fork. It takes no fork of
+        // its own - another fork would cut the graphics submission and drain the queue there for nothing - and
+        // the newest fork's wait stages grow by its stages. kRdgForkAtGraphStart orders before every position.
+        int32_t coverSync     = -1;
+        int32_t coverPosition = kRdgForkAtGraphStart;
+        for ( size_t r = 0; r < m_Runs.size(); ++r )
         {
+            RdgAsyncRun& run = m_Runs[r];
             // An external the run consumes untouched by this graph so far: the previous graph left it
-            // owned by Graphics; the graphics pass just before the run releases it and forks.
+            // owned by Graphics; a graphics position before the run releases it and forks: the newest fork's,
+            // else the end of the upload head (HoistQueuedUploads), else the pass just before the run.
             // At position 0 there is no such pass: the graphics prologue segment releases it and forks
             // (amendment B).
-            if ( run.NeedsFork && run.ForkPosition < 0 )
-                run.ForkPosition = run.First == 0 ? kRdgForkAtGraphStart : static_cast<int32_t>( run.First - 1 );
+            if ( !run.ContinuesRun && run.NeedsFork && run.ForkPosition < 0 )
+            {
+                if ( coverSync >= 0 )
+                    run.ForkPosition = coverPosition;
+                else if ( m_UploadHead > 0 )
+                    run.ForkPosition = static_cast<int32_t>( m_UploadHead - 1 );
+                else if ( run.First == 0 )
+                    run.ForkPosition = kRdgForkAtGraphStart;
+                else
+                    run.ForkPosition = static_cast<int32_t>( run.First - 1 );
+            }
+            // A run whose graphics producers are all queued uploads forks once at the end of the upload head:
+            // every such run then shares one fork there, before any graphics work is in flight.
+            if ( !run.ContinuesRun && run.ForkPosition >= 0 &&
+                 static_cast<uint32_t>( run.ForkPosition ) < m_UploadHead )
+                run.ForkPosition = static_cast<int32_t>( m_UploadHead - 1 );
+            // A later piece of a run waits on no fork of its own: the first piece's wait orders it (a semaphore
+            // wait's second scope includes every later command on its queue, for the stages it names - the
+            // stages of the whole run, below). Its transfers from Graphics and its aliasing window use that fork.
+            if ( run.ContinuesRun )
+            {
+                run.ForkPosition = m_Runs[r - 1].ForkPosition;
+                run.ForkSync     = m_Runs[r - 1].ForkSync;
+            }
 
-            std::vector<bool>  touched( m_ResourceCount, false );
+            std::fill( touched.begin(), touched.end(), false );
             PipelineStageFlags asyncStages = PipelineStage_None;
             for ( uint32_t position = run.First; position <= run.Last; ++position )
             {
@@ -1031,21 +1300,45 @@ namespace Desert::Graphic::RDG
                     touched[use.Resource] = true;
                 }
             }
-            if ( run.ForkPosition >= 0 || run.ForkPosition == kRdgForkAtGraphStart )
+            if ( !run.ContinuesRun && ( run.ForkPosition >= 0 || run.ForkPosition == kRdgForkAtGraphStart ) )
             {
-                const bool     atStart = run.ForkPosition == kRdgForkAtGraphStart;
-                const uint32_t fork =
-                     atStart ? CrossPipeSync::kForkAtGraphStart : static_cast<uint32_t>( run.ForkPosition );
-                run.ForkSync = static_cast<int32_t>( m_Result.Syncs.size() );
-                m_Result.Syncs.push_back(
-                     { Pipe::Graphics, fork, Pipe::AsyncCompute, run.First, asyncStages, true } );
-                if ( !atStart ) // the prologue segment signals a fork from the graph start
-                    m_SignalAt[fork].push_back( static_cast<uint32_t>( run.ForkSync ) );
-                m_WaitAt[run.First].push_back( static_cast<uint32_t>( run.ForkSync ) );
+                // The fork gates every piece of the run: its wait stages are those of all of them.
+                PipelineStageFlags forkStages = asyncStages;
+                for ( size_t later = r + 1; later < m_Runs.size() && m_Runs[later].ContinuesRun; ++later )
+                {
+                    for ( uint32_t position = m_Runs[later].First; position <= m_Runs[later].Last; ++position )
+                    {
+                        for ( const RdgSubUse& use : m_PassUses[m_Executed[position]] )
+                            forkStages |= use.State.Stages;
+                    }
+                }
+                if ( coverSync >= 0 && run.ForkPosition <= coverPosition )
+                {
+                    // Ordered by the newest fork (above): its transfers from Graphics release before that fork
+                    // signals, and its aliasing window opens there - the run cannot start earlier.
+                    run.ForkPosition = coverPosition;
+                    run.ForkSync     = coverSync;
+                    m_Result.Syncs[static_cast<size_t>( coverSync )].WaitStages |= forkStages;
+                }
+                else
+                {
+                    const bool     atStart = run.ForkPosition == kRdgForkAtGraphStart;
+                    const uint32_t fork =
+                         atStart ? CrossPipeSync::kForkAtGraphStart : static_cast<uint32_t>( run.ForkPosition );
+                    run.ForkSync = static_cast<int32_t>( m_Result.Syncs.size() );
+                    m_Result.Syncs.push_back(
+                         { Pipe::Graphics, fork, Pipe::AsyncCompute, run.First, forkStages, true } );
+                    if ( !atStart ) // the prologue segment signals a fork from the graph start
+                        m_SignalAt[fork].push_back( static_cast<uint32_t>( run.ForkSync ) );
+                    m_WaitAt[run.First].push_back( static_cast<uint32_t>( run.ForkSync ) );
+                    coverSync     = run.ForkSync;
+                    coverPosition = run.ForkPosition;
+                }
             }
             // The semaphore wait blocks only the stages it names for everything after it on the graphics
-            // queue: every graphics access to anything the run touched, from the join on. A join at the
-            // graph end guards the final barriers, which take over the run's own last accesses.
+            // queue: every graphics access to anything the piece touched, from the join on. A join at the
+            // graph end guards the final barriers, which take over the run's own last accesses. Each piece
+            // signals its own join at its end; the next piece starts a new submission (BuildPipeSegments).
             PipelineStageFlags joinStages = PipelineStage_None;
             if ( run.JoinPosition == CrossPipeSync::kJoinAtGraphEnd )
                 joinStages = asyncStages;
@@ -1702,6 +1995,21 @@ namespace Desert::Graphic::RDG
                                             : m_Runs[static_cast<size_t>( m_RunAt[transfer.ReleasePosition] )];
             transfer.Sync =
                  static_cast<uint32_t>( barrier.SrcPipe == Pipe::Graphics ? run.ForkSync : run.JoinSync );
+            // A run is cut at its consumers (CutRunsAtConsumers): the piece that releases must have joined by
+            // the acquire. FindAsyncRuns' ownership walk mirrors this tracker; if they ever name different
+            // release positions, the acquire would record before the semaphore that orders it - refused.
+            if ( barrier.SrcPipe != Pipe::Graphics && acquirePosition != CrossPipeSync::kJoinAtGraphEnd &&
+                 run.JoinPosition > acquirePosition && m_SyncError.empty() )
+            {
+                std::string waiter = "the graph end";
+                if ( run.JoinPosition != CrossPipeSync::kJoinAtGraphEnd )
+                    waiter = "pass '" + std::string( m_Passes[m_Executed[run.JoinPosition]].Name ) + "'";
+                m_SyncError =
+                     fmt::format( "graph '{}': the ownership acquire at pass '{}' is ordered by the join of "
+                                  "the async piece ending at pass '{}', which only {} waits for",
+                                  m_Name, m_Passes[m_Executed[acquirePosition]].Name,
+                                  m_Passes[m_Executed[run.Last]].Name, waiter );
+            }
             m_Result.OwnershipTransfers.push_back( transfer );
         }
     }
@@ -1776,10 +2084,12 @@ namespace Desert::Graphic::RDG
             // after the pass may read what the other API wrote, and the fork's binary semaphore is signalled
             // before that work ran. A timeline wait consumes nothing, so both pipes wait the same value.
             const bool afterExternal = position > 0 && m_Result.Passes[position - 1].External.has_value();
-            const bool split =
-                 position == 0 || afterExternal || pass.OnPipe != m_Result.Passes[position - 1].OnPipe ||
-                 ( pass.OnPipe == Pipe::Graphics &&
-                   ( !pass.WaitSyncs.empty() || !m_Result.Passes[position - 1].SignalSyncs.empty() ) );
+            // A signal ends a submission on either pipe: a graphics fork, or the join of an async run's piece
+            // (CutRunsAtConsumers) - the next piece of the run is the next AsyncCompute submission.
+            const bool split = position == 0 || afterExternal ||
+                               pass.OnPipe != m_Result.Passes[position - 1].OnPipe ||
+                               !m_Result.Passes[position - 1].SignalSyncs.empty() ||
+                               ( pass.OnPipe == Pipe::Graphics && !pass.WaitSyncs.empty() );
             if ( split )
             {
                 m_Result.Segments.push_back( { pass.OnPipe, position, position, {}, {} } );
@@ -1805,10 +2115,11 @@ namespace Desert::Graphic::RDG
         return Compile( memory, PipeCapabilities{} );
     }
 
-    // The phases in UE FRDGBuilder::Compile's order, adapted to a graph that is never reordered: the fault set
-    // (RDG-FAULT1: malformed passes, folded declarations, lost inputs, externals' fault policies), culling,
-    // dependency edges, pipe choice and fork/join, lifetimes, transient memory, barriers with load/store ops,
-    // render-pass merging, final states, barrier rectangles, per-pipe stages, segments.
+    // The phases in UE FRDGBuilder::Compile's order, adapted to a graph reordered only by queued uploads to its head
+    // and into async windows: the fault set (RDG-FAULT1: malformed passes, folded declarations, lost inputs,
+    // externals' fault policies), culling, dependency edges, pipe choice, upload head and fork/join, lifetimes,
+    // transient memory, barriers with load/store ops, render-pass merging, final states, barrier rectangles,
+    // per-pipe stages, segments.
     Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory,
                                                        const PipeCapabilities&            pipes ) const
     {
@@ -1833,6 +2144,8 @@ namespace Desert::Graphic::RDG
         compiler.CollectDependencyEdges();
         DESERT_PROFILE_PHASE( stages, "RDG Compile: pipes and async runs" );
         compiler.ChoosePipes();
+        compiler.HoistQueuedUploads();
+        compiler.ScheduleIntoAsyncWindows();
         compiler.FindAsyncRuns();
         compiler.CreateAsyncSyncs();
         DESERT_PROFILE_PHASE( stages, "RDG Compile: lifetimes" );
@@ -1848,6 +2161,8 @@ namespace Desert::Graphic::RDG
         DESERT_PROFILE_PHASE( stages, "RDG Compile: final and merged barriers" );
         compiler.CollectFinalBarriers();
         compiler.CreatePassBarriers();
+        if ( !compiler.SyncError().empty() )
+            return Common::MakeError<CompileResult>( compiler.SyncError() );
         DESERT_PROFILE_PHASE( stages, "RDG Compile: pipe segments" );
         compiler.FilterStagesPerPipe();
         compiler.BuildPipeSegments();

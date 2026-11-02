@@ -5,6 +5,8 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
+
 namespace Desert::Graphic::API::Vulkan
 {
     VulkanDescriptorSetLayout::VulkanDescriptorSetLayout(
@@ -22,6 +24,16 @@ namespace Desert::Graphic::API::Vulkan
     {
         for ( const auto& binding : m_Bindings )
             m_DescriptorCount += binding.descriptorCount;
+        uint32_t highest = 0;
+        for ( const auto& binding : m_Bindings )
+            highest = std::max( highest, binding.binding + 1 );
+        m_IndexOfBinding.assign( highest, kNoBinding );
+        for ( uint32_t index = 0; index < static_cast<uint32_t>( m_Bindings.size() ); ++index )
+        {
+            uint32_t& at = m_IndexOfBinding[m_Bindings[index].binding];
+            if ( at == kNoBinding )
+                at = index;
+        }
 
         DESERT_VERIFY( bindingFlags.empty() || bindingFlags.size() == m_Bindings.size(),
                        "Shader '{}': set {} has {} bindings and {} binding flags", m_Owner, m_Set,

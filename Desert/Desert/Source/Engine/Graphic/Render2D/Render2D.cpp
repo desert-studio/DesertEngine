@@ -434,7 +434,7 @@ namespace Desert::Graphic::Render2D
                 {
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
-                                    RDG::OtherRouteFill{} )
+                                    RDG::NoOtherRouteFill() )
                          .Texture( Render2DMaskedLayerShaderParameters::RetainedLayerTexture, pic.Content,
                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                          .Sampler( Render2DMaskedLayerShaderParameters::LinearClampSampler,
@@ -461,7 +461,7 @@ namespace Desert::Graphic::Render2D
             {
                 // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
                 declared
-                     .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+                     .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
                      .Texture( Render2DBackdropShaderParameters::BackdropTexture, backdrop,
                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( Render2DBackdropShaderParameters::LinearClampSampler,
@@ -793,7 +793,9 @@ namespace Desert::Graphic::Render2D
             Render2D*             layerRenderer = target.Renderer.get();
             const DrawList2D*     layer         = job->Layer;
             graph.AddPass(
-                 "UIRetainedLayer", RDG::PassFlags::Raster,
+                 // NeverParallel: FlushList grows and writes the layer renderer's vertex / index buffers and its
+                 // flush bookkeeping (m_UsedBackdrop, m_PreparedList) while it records.
+                 "UIRetainedLayer", RDG::PassFlags::Raster | RDG::PassFlags::NeverParallel,
                  [layerRef, layerRenderer, layer]( RDG::PassBuilder& pass )
                  {
                      // Transparent: the layer is premultiplied.

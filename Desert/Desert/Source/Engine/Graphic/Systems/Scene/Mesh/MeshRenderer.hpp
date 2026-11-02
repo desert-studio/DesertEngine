@@ -5,6 +5,8 @@
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <unordered_set>
+#include <array>
+#include <map>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -75,6 +77,11 @@ namespace Desert::Runtime
     class MaterialService;
     class ShaderService;
 } // namespace Desert::Runtime
+
+namespace Desert::Graphic
+{
+    class StorageBufferProperty;
+} // namespace Desert::Graphic
 
 namespace Desert::Graphic::System
 {
@@ -328,6 +335,11 @@ namespace Desert::Graphic::System
         int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
+    // UE r.MinScreenRadiusForDepthPrepass (0.03): a GPU-instanced bucket whose instances all stand below this
+    // screen radius - Geometry::SelectLODFromBounds' measure, the bounding sphere's radius x max(P[0][0], P[1][1])
+    // / 2 over its distance - is not in the deferred early-Z pass (GpuInstancedRenderData::PrepassBuckets).
+    inline constexpr float kMinScreenRadiusForDepthPrepass = 0.03f;
+
     class MeshRenderer final : public RenderSystem
     {
     public:
@@ -483,6 +495,13 @@ namespace Desert::Graphic::System
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;
             uint32_t                                        CascadeMask     = 0;
             uint32_t                                        CascadeArgBytes = 0;
+            // GRASS-SHADOW-1, EACH LAYER ITS OWN PART (UE: a cached shadow's static and movable casters are separate
+            // draw lists): non-zero when a cascade's list holds its movers (the ring the shadow wind rule sways,
+            // ShadowWindInnerOf .. ShadowWindDistanceOf) apart from its rest-pose casters - the movers drawn by the
+            // list's records, the rest by their twins CascadeRestShift bytes after them. The static layer then
+            // draws the rest part, the movable layer the movers, each with no per-instance rule in its vertex
+            // stage (GrassGenerate.shader splits, GrassFinalize.shader counts).
+            uint32_t                                        CascadeRestShift = 0;
             // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
             // the producer (RayTracingGpuInstanceSource::Rows).
             uint32_t Capacity = 0;
@@ -493,6 +512,15 @@ namespace Desert::Graphic::System
             // group of records (one per submesh, level L at record L x submesh count) per level, each drawn by a
             // draw of its own (UE grass HISM: the instance's LOD by screen size). 1: one bucket, level 0.
             uint32_t Levels = 1;
+            // THE SMALL BUCKETS SKIP THE DEPTH PREPASS (UE r.MinScreenRadiusForDepthPrepass, a primitive below
+            // that screen radius is not in the depth pass: its prepass costs more vertices than the overdraw it
+            // saves): the first bucket (a mesh's LOD level, a blade's strip level) whose every instance stands
+            // below kMinScreenRadiusForDepthPrepass of the screen, set by the producer that sorts the instances
+            // into the buckets. From it on the deferred early-Z pass does not draw the section's buckets and the
+            // G-buffer draws them through the section's own (path x GBuffer) cell - its clip and its depth writes,
+            // the same texels and depth the pair would have left (BuildGpuInstancedDraws). ~0u: every bucket is
+            // prepassed.
+            uint32_t PrepassBuckets = ~0u;
             // GrassBlade only: what each cascade picks the strip's record set (its shadow LOD) and the caster's
             // density by (BuildGpuInstancedShadowDraws, BladeShadowSet). Levels 0: the cascades draw set 0.
             GpuInstanceBladeShadowLod ShadowLod{};
@@ -904,9 +932,39 @@ namespace Desert::Graphic::System
         {
             m_FoliageShadowLodBias = steps;
         }
-        // The rule's measure as a light camera carries it (ViewFrame::CasterWindOrigin): xyz the main camera's
-        // origin - the point ShadowIsmInstances measures from - w the shadow wind distance.
-        [[nodiscard]] glm::vec4 CasterWindOrigin() const;
+        // WHO SWAYS IN WHICH CASCADE (UE: WPO off in the clipmap levels / cascades no receiver near the camera
+        // samples; r.Shadow.Virtual.Clipmap.WPODisableDistance): the shadow wind distance shadow view @p view
+        // measures its swaying casters by. A sun cascade no receiver within Shadows.WindAnimationDistance of the
+        // camera can sample gets 0 - every caster casts its rest pose, the cascade's static layer holds them and
+        // the wind neither redraws nor invalidates it; every other view (the near cascades, their movable layers,
+        // the VSM levels, the local and rain views) gets Shadows.WindAnimationDistance. Cascade c >= 2 is such a
+        // cascade when the distance is within cascade c-2's split: a visible receiver at a view depth up to it
+        // lies in a slice of a tighter cascade, inside that cascade's square (the sphere fit), so it picks that
+        // one or tighter (Mesh/CascadedShadow.glslh chooseCascade) and cross-fades at most into cascade c-1; a
+        // receiver within the distance is at a view depth no larger. One answer for the CPU walk
+        // (CascadeStaticSignature, BuildShadowCascadeDraws), the GPU cull's caster views (LodOrigin.w) and the
+        // vertex stage (CasterWindOrigin).
+        [[nodiscard]] float ShadowWindDistanceOf( uint32_t view ) const;
+        // THE CASTER'S REACH (GPU-FRAME-6; UE r.Shadow.Virtual.Clipmap.WPODisableDistance keeps WPO only in the
+        // levels its receivers read): the inner distance of shadow view @p view's movers' ring for a caster whose
+        // every point lies within @p reach (cm) of its instance point - the instance point nearer the main camera
+        // than it casts its rest pose into the static layer too. In cascade c >= 2 its shadow then falls within
+        // reach x (1 + 1 / tan(elevation)) of it on the ground it stands on, so on receivers no farther from the
+        // camera - at no larger view depth - than cascade c-2's split, which pick a tighter cascade (the rule
+        // above): the cascade's movers are only the ring [inner, Shadows.WindAnimationDistance). 0 (no ring) for
+        // cascades 0 and 1, every other view and a light at or below the horizon. Read by the vertex stage's split
+        // (ViewFrame::CasterWindRing, CasterWindLayer.glslh) and the same section's CascadeStaticSignature.
+        [[nodiscard]] float ShadowWindInnerOf( uint32_t view, float reach ) const;
+        // The ring of shadow view @p view as Common/ShadowWind.glslh reads it (ShadowWindRingInner): x = cascade
+        // c-2's split (cm), y = the light's fall across / down; zero (no ring) where ShadowWindInnerOf is 0 for
+        // every reach. ONE ring for every caster path (GPU-FRAME-7): the GPU-instanced sections
+        // (ShadowWindInnerOf), the CPU ISM walk (ShadowIsmInstances' WindPoint / CasterReach,
+        // CascadeStaticSignature, BuildShadowCascadeDraws) and the GPU cull's caster views
+        // (GpuCullView::CasterRing, GpuCull_CastsRestPose).
+        [[nodiscard]] glm::vec4 ShadowWindRingOf( uint32_t view ) const;
+        // The rule's measure as shadow view @p view's light camera carries it (ViewFrame::CasterWindOrigin): xyz
+        // the main camera's origin - the point ShadowIsmInstances measures from - w ShadowWindDistanceOf( view ).
+        [[nodiscard]] glm::vec4 CasterWindOrigin( uint32_t view ) const;
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
         void SetSkinCacheEnabled( const bool enabled )
         {
@@ -1344,7 +1402,9 @@ namespace Desert::Graphic::System
         // as the scene's G-buffer draws it) draws each capture's mesh through its card camera into its rectangle
         // of the capture atlas (viewport + scissor per draw). One view copy per capture of a material in the
         // frame: the camera block is the material's, so one card camera needs one material.
-        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
+        // @p out: the frame's card groups (SurfaceCache::SceneGroup), their instances held by this renderer until
+        // the next gather; a group is gathered again only when an input of it moved (THE CARD GATHER below).
+        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneGroup>& out );
         // The (path x GBuffer) pass state a card of that path is captured with; null when the renderer has none.
         [[nodiscard]] GraphicsPipeline*     CardCapturePassState( MeshVertexPath path ) const;
         // @p view: the frame's scene/view inputs - the G-buffer cell samples the rain occlusion map its wetness
@@ -1895,13 +1955,21 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_MaskedDepthDraws; // "Deferred: Masked Depth Prepass": masked GPU sections
+        // A GPU-instanced section the masked depth prepass drew, and how many of its buckets
+        // (GpuInstancedRenderData::PrepassBuckets, cut back to every bucket while the section's own G-buffer
+        // pipeline is not Ready): the G-buffer draws those EQUAL and the rest through its own cell.
+        struct MaskedPrepassedSection
+        {
+            uint32_t Key     = 0;
+            uint32_t Buckets = 0;
+        };
         // The GPU-instanced sections (GpuInstancedRenderData::Key) THIS frame's masked depth prepass drew: the
         // G-buffer draws exactly these through m_InstancedGBufferEqualPipeline, every other one as before.
-        std::vector<uint32_t> m_MaskedPrepassed;
+        std::vector<MaskedPrepassedSection> m_MaskedPrepassed;
         // The same for phase 2 (GRASS-VIS-13): the sections "Grass: Depth Prepass Post-Occlusion" drew by their
         // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
         // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
-        std::vector<uint32_t> m_MaskedPrepassedPost;
+        std::vector<MaskedPrepassedSection> m_MaskedPrepassedPost;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
@@ -1965,7 +2033,44 @@ namespace Desert::Graphic::System
             MeshVertexPath                  Path = MeshVertexPath::Static;
             std::vector<CardCaptureSection> Sections;
         };
-        std::vector<CardCaptureSource> m_CardCaptureSources;
+        // THE CARD GATHER (SCENE-CACHE-5; UE FLumenSceneData primitive groups, updated from the scene's primitive
+        // add / update / remove lists, and a material's readiness as an event - not every section and every ISM
+        // instance asked every frame). Three kinds of group, each kept with the key of the inputs it was gathered
+        // from and gathered again only when that key moves (its Revision then moves, and the surface cache walks
+        // only that group):
+        //  - the static + generic group (one: an entity's sections drawn partly by either queue are one
+        //    instance): the static casters' revision (m_StaticCasters, the GpuScene stream: world, mesh, shading,
+        //    section slot, hidden submeshes, queue order and - generic - the override's program, textures and
+        //    values) while it is tracked for this gather; gathered every frame while it is not;
+        //  - one group per ISM field (entity x mesh): its section groups' mesh, render revision, shading, hidden
+        //    submeshes, instance count and transforms snapshot (held by owner: a snapshot freed and re-made at the
+        //    same address is another one);
+        //  - the skinned group: every frame (posed, few).
+        // And for every group, the readiness its answers were made under (CardReadinessKey): the material
+        // service's invalidation version (a material rebuilt, a texture landed), the pipelines' readiness event
+        // (Graphic::PipelineReadinessGeneration), the shader service's recompile generation, the cards that
+        // landed (Assets::MeshCardsSlot::PublishGeneration) and the capture pass states.
+        struct CardGatherGroup
+        {
+            uint64_t                                    Id       = 0;
+            uint64_t                                    Key      = 0;
+            uint64_t                                    Revision = 0;
+            bool                                        Gathered = false;
+            uint64_t                                    SeenGather = 0; // m_CardGather when the frame had it
+            // Its sections' answers that were not the cell's own pipeline (ChoosePipelineDraw counted them as
+            // stand-in draws): counted again in every frame the group is kept (GetStandInDraws, the shot gate).
+            uint32_t                                    StandIns = 0;
+            std::vector<SurfaceCache::SceneInstance>    Instances;
+            std::vector<CardCaptureSource>              Sources; // by SceneInstance::Source
+            std::vector<std::weak_ptr<const std::vector<glm::mat4>>> Snapshots; // ISM: per section group
+        };
+        CardGatherGroup                                       m_CardStaticGroup;
+        CardGatherGroup                                       m_CardSkinnedGroup;
+        std::unordered_map<uint64_t, CardGatherGroup>         m_CardFieldGroups; // by field id
+        std::vector<CardGatherGroup*>                         m_CardGroupOrder;  // the last gather's groups
+        uint64_t                                              m_CardGather         = 0;
+        uint64_t                                              m_CardGroupRevision  = 0;
+        [[nodiscard]] uint64_t                                CardReadinessKey() const;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
         // material per capture of it in the frame, its camera in its block.
         // By MeshVertexPath: the static, skinned and instanced cells.
@@ -2386,6 +2491,9 @@ namespace Desert::Graphic::System
         // cut or a carrier is refused or comes back) re-renders exactly its pages.
         std::vector<const GraphicsPipeline*> m_VsmCarriedTwins;
         std::vector<const GraphicsPipeline*> m_VsmCarriedTwinsLastFrame;
+        // Moves whenever ResetVirtualShadowGeometry shifts in a last-frame set other than the one before it (the
+        // producer's event, O(twins)): the key the VSM page cache's kept static / generic part is made under.
+        uint64_t m_VsmCarriedTwinsRevision = 0;
         bool                                 m_VsmClusteredThisFrame = false;
         // CpuWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views
         // the cascades' and levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
@@ -2423,7 +2531,27 @@ namespace Desert::Graphic::System
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
         // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one
         // under the same signature (m_CascadeKeySnapshots says the same).
+        // m_VsmStillCasters holds the ISM fields and the non-mesh casters; the static / generic queues' entries are
+        // m_VsmStaticStill's.
         std::vector<ShadowCasterEntry>                             m_VsmStillCasters;
+        // THE STATIC / GENERIC STILL ENTRIES (SCENE-CACHE-6; UE FCachedShadowMapData: a static primitive's
+        // invalidation comes from its own update, never from re-hashing every static primitive each frame): last
+        // drawn frame's entries of the static and generic queues, sorted by signature, and the keys they were made
+        // under. Made again (and diffed against the previous ones) only when the static casters' revision, the rows'
+        // LOD key, the carrier outcome (m_VsmCarriedTwinsRevision), the VG table's uploads
+        // (VirtualMeshTable::UploadGeneration) or the VirtualShadow pass table (DrawCommandCache::TableRevision)
+        // moved, or the gather is untracked (Valid false); otherwise they add no box and are not walked.
+        struct VsmStaticStill
+        {
+            bool                           Valid     = false;
+            uint64_t                       Revision  = 0;
+            uint64_t                       LodKey    = 0;
+            uint64_t                       Carriers  = 0;
+            uint64_t                       VgUploads = 0;
+            uint64_t                       VgTable   = 0;
+            std::vector<ShadowCasterEntry> Entries;
+        };
+        VsmStaticStill m_VsmStaticStill;
         std::vector<VsmInvalidationBox>                            m_VsmMovingBoxes;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
         // Per still ISM (by its signature): what each instance cast last frame, 0 = faded out by its cull
@@ -2456,6 +2584,7 @@ namespace Desert::Graphic::System
             float     SourceTanHalf = 0.0f;
             glm::vec4 WorldPerTexel = glm::vec4( 1.0f ); // per cascade: world size of one map texel (2*radius/res)
             glm::vec4 DepthRange    = glm::vec4( 1.0f ); // per cascade: world length of the [0,1] light depth
+            glm::vec4 SplitFar      = glm::vec4( 0.0f ); // per cascade: the view depth its slice ends at (cm)
             glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];
@@ -2863,9 +2992,67 @@ namespace Desert::Graphic::System
         std::vector<InstancedMeshRenderData> m_DisplacedTwinRecords;  // scratch: the twins' records, capacity kept
         std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
-        // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
-        std::unordered_map<uint32_t, MaterialInstancePtr> m_GpuInstancedInstances;
-        uint64_t                                          m_GpuInstancedStamp = 0;
+        // SCENE-CACHE-2, THE CACHED DRAW RECORD of a GPU-instanced section (UE FCachedMeshDrawCommandInfo: the
+        // draw command is built when the primitive is added or its material changes, and a frame only picks the
+        // visible ones). What BuildGpuInstancedDraws and GrassVisibilityReady resolved for one (section Key x pass
+        // x phase x early-Z half x prepassed) - the cell copy, its pipelines through the carriers, the draw's own
+        // instance and the cell's buffer slots - kept across frames and resolved again only when its revision
+        // moved:
+        //   - MaterialService::GetInvalidationVersion (every Invalidate, a material load landing, a live edit,
+        //     a shader swap, MaterialService::Clear): the whole cache goes (m_GpuInstancedStamp), its cells may be
+        //     in the graveyard;
+        //   - the producer's section: another MaterialInstance (Source, owner-compared, so a freed one's address
+        //     reused is still another), another vertex path, a camera list appearing or going (the ids
+        //     permutation);
+        //   - the pass's carriers (the instanced pipeline, the companion's pass and state, the EQUAL G-buffer
+        //   state);
+        //   - the forward VSM choice (m_ForwardVirtualLocal, ForwardVirtualCell) and the early-Z mode
+        //   (EarlyZAdmits).
+        // Still asked EVERY frame (they move without a revision or are this frame's): the frustum, the producer's
+        // RDG refs and buffers (re-set through the kept slots: StorageBufferProperty::SetBuffer of the same buffer
+        // is no write), the material row (SyncGpuScene claims rows per sync), AwaitsTextures, each pipeline's
+        // readiness (a compile finishing is not a revision), the GRASS-VIS and prepass sets, frameState.ApplyTo.
+        struct GpuInstancedDrawRecord
+        {
+            std::weak_ptr<MaterialInstance>       Source;
+            MeshVertexPath                        Path             = MeshVertexPath::Instanced;
+            bool                                  CameraList       = false;
+            GraphicsPipeline*                     Carrier          = nullptr;
+            GraphicsPipeline*                     CompanionCarrier = nullptr;
+            MeshPass                              CompanionPass    = MeshPass::Forward;
+            GraphicsPipeline*                     EqualCarrier     = nullptr;
+            bool                                  ForwardVirtual   = false;
+            ::Common::Scalability::EarlyZPassMode EarlyZ           = ::Common::Scalability::EarlyZPassMode::All;
+            // Resolved under the revision above.
+            const DataDrivenMaterial* Parent            = nullptr;
+            DataDrivenMaterial*       Cell              = nullptr; // null: refused (said once)
+            GraphicsPipeline*         Pipeline          = nullptr;
+            GraphicsPipeline*         EqualPipeline     = nullptr; // the masked prepass's G-buffer half
+            bool                      EqualRefused      = false;   // ... its permutation was refused (said once)
+            GraphicsPipeline*         CompanionPipeline = nullptr; // the forward prepass pairing's other half
+            bool                      Admitted          = true;    // EarlyZAdmits( Parent ) under EarlyZ
+            MaterialInstancePtr       Instance;                    // the draw's own instance of Cell
+            StorageBufferProperty*    InstancesBlock = nullptr;
+            StorageBufferProperty*    IdsBlock       = nullptr;
+            StorageBufferProperty*    BladeBlock     = nullptr;
+            StorageBufferProperty*    MaterialBlock  = nullptr; // null: the cell reads no Materials row block
+            // THE SPLIT, revised apart from the cells (none depends on it, so a lens that moves it re-derives only
+            // these): the section's buckets (a mesh's LOD levels, a blade's strip levels) and how many of them the
+            // deferred early-Z pair draws (GpuInstancedRenderData::PrepassBuckets, clamped); the G-buffer draws
+            // the rest through the section's own record. UE FCachedMeshDrawCommandInfo: the cached command carries
+            // what decides the passes it is drawn in.
+            uint32_t Buckets        = 0;
+            uint32_t PrepassBuckets = 0;
+        };
+        std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
+        uint32_t                                             m_GpuInstancedStamp = 0;
+        // The record of @p gpu in @p pass through @p carrier (BuildGpuInstancedDraws' arguments; @p prepassed: the
+        // G-buffer draws the section EQUAL after the masked prepass drew it), resolved again when its revision
+        // moved. Null without a material service.
+        [[nodiscard]] GpuInstancedDrawRecord* GpuInstancedDrawOf( const GpuInstancedRenderData& gpu, MeshPass pass,
+                                                                  GraphicsPipeline*      carrier,
+                                                                  const StaticPassCells* companion,
+                                                                  bool postOcclusion, bool prepassed );
         // MeshRendererGpuInstanced.cpp: the GPU-instanced sections into a geometry list (the pass's instanced
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         // @p companion: the other half of the forward prepass pairing (PairsWithPrepass) - the prepass draws a
@@ -3071,6 +3258,12 @@ namespace Desert::Graphic::System
             // (Sways), and a cached cascade it reaches redraws both layers each frame (CascadeStaticSignature),
             // since the GPU bins may have put it in either.
             bool NearWindEdge = false;
+            // A swaying instance's point (ShadowWindInstancePoint) and reach (ShadowWindCasterReach), what the
+            // per-cascade ring reads (ShadowWindRingOf, ShadowIsmRingRest): nearer the camera than the ring's
+            // inner distance it casts its rest pose in that cascade, as GpuCull_CastsRestPose decides on the GPU.
+            // Zero for every other row.
+            glm::vec3 WindPoint{ 0.0f };
+            glm::vec2 CasterReach{ 0.0f };
         };
         struct ShadowIsmField
         {
@@ -3089,10 +3282,108 @@ namespace Desert::Graphic::System
             // wind can reach and the level, and the instance's index in its field's transforms.
             std::vector<ShadowCasterRow> Instances;
             std::vector<uint32_t>        InstanceIndex;
+            // THE ISM GATHER IS KEPT ACROSS FRAMES (SCENE-CACHE-3) while every input of ShadowIsmInstances is the
+            // one it was made from: IsmKey (IsmGatherKey) and the transforms snapshots, held by owner (a freed
+            // snapshot whose address came back is another one). IsmRevision moves whenever the gather starts over.
+            uint64_t                                                 IsmKey      = 0;
+            uint64_t                                                 IsmRevision = 0;
+            std::vector<std::weak_ptr<const std::vector<glm::mat4>>> IsmSources; // per m_InstancedQueue entry
+            // THE STATIC / GENERIC ROWS ARE KEPT ACROSS FRAMES (SCENE-CACHE-4): finished by FinishStaticCasterRows
+            // once this view's records are synced (SyncGpuScene), recomputed only when the static casters'
+            // revision (m_StaticCasters) moved; their levels are asked again only when StaticLodKey moved.
+            // StaticRowsGather: the gather they were finished for (another: not of these queues yet).
+            uint64_t StaticRowsGather   = 0;
+            uint64_t StaticRowsRevision = 0;
+            uint64_t StaticLodKey       = 0;
         };
         ShadowCasterSetup m_ShadowCasterSetup;
-        // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each): a queue changed
-        // after the last GatherShadowCasters breaks the order SceneRenderer::OnUpdate keeps.
+        // The ISM gather's key: the main camera's LODView and lens scale, the shadow wind distance and, per field,
+        // its mesh's render revision, instance count, material, caster flag, cull distance and wind (not its clock:
+        // the gather reads the sway's reach, not its phase). O(fields), never O(instances).
+        [[nodiscard]] uint64_t IsmGatherKey() const;
+        // Each cascade's ISM part of CascadeStaticSignature (the instances the layer keeps of every field), kept
+        // while the gather (ShadowCasterSetup::IsmRevision) and the cascade's caster matrix are the ones it was made
+        // from. Invalid after a part that met an instance at the wind edge: that one keys the gather of its frame.
+        struct CascadeIsmPart
+        {
+            bool      Valid    = false;
+            uint64_t  Revision = 0;
+            glm::mat4 CasterVP{ 1.0f };
+            uint64_t  Hash    = 0;
+            bool      Movable = false;
+            float     Wind    = -1.0f; // the cascade's ShadowWindDistanceOf the part was made with
+            glm::vec4 Ring{ -1.0f };   // the cascade's ShadowWindRingOf the part was made with
+        };
+        std::vector<CascadeIsmPart> m_CascadeIsmParts;
+        // THE STATIC CASTERS' REVISION (SCENE-CACHE-4; UE FCachedShadowMapData: the static layer is redrawn when a
+        // static primitive it holds is added, moved, removed or changes how it draws, never by comparing the
+        // primitives every frame). Moved by TrackStaticCasters, run by SyncGpuScene once the registry synced this
+        // view's records, from the GpuScene primitive change stream: every field the static / generic part of
+        // CascadeStaticSignature and the gathered rows read reaches the stream - the world (Moved), the mesh,
+        // ForcedLOD, LODBias and CastShadows (the registry's Updated: GpuSceneRegistry::Touch compares them), the
+        // section slot, its shading, the hidden submeshes, the mesh's submeshes, residency and render revision
+        // (MotionRecord::Content, SyncGpuScene's words) - plus the queues' own order (the rows and parts are per
+        // queue entry: another set or order of primitives is another revision). Only changes of a primitive
+        // the static / generic queues hold count (Member), so a moving skinned character or ISM field does not
+        // move it.
+        struct StaticCasterTrack
+        {
+            uint64_t             Stream   = 0; // GpuScene::GetStreamId the cursor is a serial of
+            uint64_t             Cursor   = 0; // the stream read up to (GetChangeSerial when read)
+            uint64_t             Order    = 0; // the static then generic records' primitives, in queue order
+            uint64_t             Revision = 0; // 0: never tracked
+            uint64_t             Gather   = 0; // the ShadowCasterSetup::Gather it was tracked for
+            std::vector<uint8_t> Member;       // per GpuScene primitive: one of the static / generic records'
+        };
+        StaticCasterTrack m_StaticCasters;
+        // Advances m_StaticCasters over the stream since its cursor and finishes the static / generic rows
+        // (FinishStaticCasterRows). After the write-back of the records' rows (GpuPrimitive) in SyncGpuScene.
+        void TrackStaticCasters( const GpuDriven::GpuScene& scene );
+        // The static / generic rows of this gather: kept when the static casters' revision is the one they were
+        // made for, their levels reset when StaticLodKey moved; made again otherwise.
+        void FinishStaticCasterRows();
+        // Every input ComputeLOD reads besides the record (whose fields are the static revision's): the main
+        // camera's position and projection and the LOD toggle.
+        [[nodiscard]] uint64_t StaticLodKey() const;
+        // Each cascade's static / generic part of CascadeStaticSignature, kept while the static casters' revision,
+        // the rows' LOD key and the cascade's caster matrix are the ones it was made from.
+        struct CascadeStaticPart
+        {
+            bool      Valid    = false;
+            uint64_t  Revision = 0;
+            uint64_t  LodKey   = 0;
+            glm::mat4 CasterVP{ 1.0f };
+            uint64_t  Hash = 0;
+        };
+        std::vector<CascadeStaticPart> m_CascadeStaticParts;
+        // Whether the static / generic rows of this gather are the static casters' revision's (TrackStaticCasters
+        // ran for this gather and FinishStaticCasterRows kept or made them for it): a part keyed by
+        // m_StaticCasters.Revision may be kept only then. One rule for the cascades, the local views and the VSM.
+        [[nodiscard]] bool StaticCastersTracked() const;
+        // THE LOCAL VIEWS' STATIC / GENERIC PART (SCENE-CACHE-6, UE FCachedShadowMapData per local light): the hash
+        // LocalCasterSignature takes of the static and generic casters in a sphere, kept per sphere (its centre
+        // and radius bits) while the static casters' revision and the rows' LOD key are the ones it was made from.
+        // A sphere not asked for kLocalStaticPartGathers gathers is dropped (a moving light asks a new one each
+        // frame); an untracked gather makes the part and keeps nothing.
+        static constexpr uint64_t kLocalStaticPartGathers = 2;
+        struct LocalStaticKey
+        {
+            std::array<uint32_t, 4> Bits{}; // centre x, y, z and radius, bit for bit
+            auto                    operator<=>( const LocalStaticKey& ) const = default;
+        };
+        struct LocalStaticPart
+        {
+            uint64_t Revision = 0;
+            uint64_t LodKey   = 0;
+            uint64_t Asked    = 0; // the gather that last asked for it
+            uint64_t Hash     = 0;
+        };
+        std::map<LocalStaticKey, LocalStaticPart> m_LocalStaticParts;
+        uint64_t                                  m_LocalStaticSweep = 0; // the gather the last eviction ran for
+        [[nodiscard]] uint64_t                    LocalStaticCasterHash( const glm::vec3& centre, float radius );
+        // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each, the static /
+        // generic rows finished for this gather): a queue changed after the last GatherShadowCasters breaks the
+        // order SceneRenderer::OnUpdate keeps.
         [[nodiscard]] bool ShadowCastersGathered() const;
         // The level of static / generic caster @p index, asked of the camera once per gather.
         [[nodiscard]] uint32_t ShadowStaticLod( uint32_t index );

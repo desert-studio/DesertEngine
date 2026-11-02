@@ -15,6 +15,7 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
+#include <Engine/Graphic/ProceduralIndexedRange.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 
 namespace Desert::ShaderResources
@@ -142,6 +143,15 @@ namespace Desert::Graphic
                                                                            const MaterialExecutor*  material,
                                                                            RDG::BufferRef args, uint64_t offset,
                                                                            std::span<const std::byte> push = {} );
+        // DrawProcedural through a shared index buffer (RendererAPI::DrawProceduralIndexed, UE
+        // DrawIndexedPrimitive over FLandscapeSharedBuffers): the landscape tile's grid, each grid node one vertex
+        // the post-transform cache shades once for the triangles around it (TerrainRenderer::RecordDraws). Every
+        // range of @p ranges is one indexed draw of @p indexBuffer with the same pass state and @p push.
+        [[nodiscard]] static Common::BoolResultStr
+        DrawProceduralIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                               const MaterialExecutor* material, IndexBuffer& indexBuffer,
+                               std::span<const ProceduralIndexedRange> ranges,
+                               std::span<const std::byte>              push = {} );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling BackdropTexture from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
@@ -183,9 +193,12 @@ namespace Desert::Graphic
         // is recorded. GetBindingLayout: the resource slots and push-constant range @p shader reflects (names and
         // kinds only). GetPipelineRouteFill: the slots a compute pipeline's own setters (asset textures,
         // out-of-graph buffers) hold, by shader name - the other route of DispatchCompute. A graphics draw's
-        // other route is its material's (MaterialExecutor::GetRouteFill).
+        // other route is its material's (MaterialExecutor::GetRouteFill). ROUTEFILL: the fill is the one the
+        // pipeline keeps (VulkanPipelineCompute::GetRouteFill), rebuilt only when its bound slots or its shader
+        // change - a pass's setup shares it, never derives it.
         [[nodiscard]] static RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader );
-        [[nodiscard]] static RDG::OtherRouteFill      GetPipelineRouteFill( const ComputePipeline& pipeline );
+        [[nodiscard]] static std::shared_ptr<const RDG::OtherRouteFill>
+        GetPipelineRouteFill( const ComputePipeline& pipeline );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

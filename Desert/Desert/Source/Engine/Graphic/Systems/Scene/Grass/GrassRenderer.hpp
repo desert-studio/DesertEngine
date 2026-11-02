@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -99,6 +100,12 @@ namespace Desert::Graphic::System
     // kGrassBladeMaxCards cards' widths (Height x du / dv) - the width the screen-width floor's distance is
     // measured by.
     [[nodiscard]] float GrassBladeMeanWidth( const GrassBladeDraw& blade, glm::vec2 scaleX );
+
+    // A grass mesh's bounding radius about its root (cm at scale 1, from its local bounds): its bounds' half
+    // diagonal plus the centre's horizontal offset - what the far LOD measures an instance's screen size by
+    // (GrassRenderer::PrepareVariety) and the ground's far cover the meshes' far LOD distance by
+    // (LandscapeECSSystem: TerrainInstance::GrassCoverFarLodRadius).
+    [[nodiscard]] float GrassFarLodRadius( const Common::Math::AABB& bounds );
 
     struct GrassSectionDraw
     {
@@ -238,6 +245,12 @@ namespace Desert::Graphic::System
             // CascadePlanes).
             uint32_t  CascadeMask = 0;
             glm::vec4 CascadePlanes[kGrassCascadeLists * 6u]{};
+            // GRASS-SHADOW-1: list k's cascade view (the k-th set bit of CascadeMask) - the view a variety asks
+            // MeshRenderer::ShadowWindInnerOf for its ring's inner distance by its own reach.
+            uint32_t CascadeViews[kGrassCascadeLists]{};
+            // ...and the rule's measure that view's light camera carries (MeshRenderer::CasterWindOrigin: xyz the
+            // main camera's origin, w ShadowWindDistanceOf - 0 where every instance casts its rest pose).
+            glm::vec4 CascadeWind[kGrassCascadeLists]{};
         };
         struct FieldGpu
         {
@@ -256,6 +269,9 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
             uint32_t                                        Buckets     = 1;
+            // The first bucket below kMinScreenRadiusForDepthPrepass through this frame's lens (MeshRenderer::
+            // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.
+            uint32_t              PrepassBuckets = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
             // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
             // mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a row its
@@ -295,10 +311,16 @@ namespace Desert::Graphic::System
             uint32_t                                        TableWord = 0;
             // GPU-COST-21, THE CASCADES' LISTS (UE: each shadow view culls its instances by its own volume): per
             // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster
-            // box, CascadeIds list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
-            // per list, its bucket firsts moved by k x Capacity. No live view: one-word stand-ins the passes bind.
-            uint32_t                                        CascadeMask     = 0;
-            uint32_t                                        CascadeArgWords = 0;
+            // box, CascadeIds list k at k x Capacity, CascadeArgs per list (CascadeArgWords words) one copy of
+            // Args' layout, its bucket firsts moved by k x Capacity, then the list's REST TWIN (GRASS-SHADOW-1): a
+            // copy of the records and one rest count per bucket. A bucket's movers (the ring [inner, wind
+            // distance) of the list's cascade, MeshRenderer::ShadowWindInnerOf) fill it from its first slot and
+            // are what Args' records draw; its rest-pose casters fill it from its last slot and are what the
+            // twin's records draw, CascadeRestShift bytes after the record they twin. No live view: one-word
+            // stand-ins the passes bind.
+            uint32_t                                        CascadeMask      = 0;
+            uint32_t                                        CascadeArgWords  = 0;
+            uint32_t                                        CascadeRestShift = 0;
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeArgs;
             RDG::ExternalBuffer                             CascadeIdsImport, CascadeArgsImport;
@@ -329,7 +351,8 @@ namespace Desert::Graphic::System
         };
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
-                                                  const ViewFrame& frame, const ViewVolumes& volumes );
+                                                  const ViewFrame& frame, const ViewVolumes& volumes,
+                                                  const MeshRenderer& meshes );
         // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows, then
         // m_FrameGenerate's, written into m_Table and imported into @p graph (m_TableRef). Refused when a variety's
         // buffer has no device address.

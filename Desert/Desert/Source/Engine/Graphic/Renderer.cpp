@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -158,7 +159,7 @@ namespace Desert::Graphic
         return s_RendererAPI->GetBindingLayout( shader );
     }
 
-    RDG::OtherRouteFill Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline )
+    std::shared_ptr<const RDG::OtherRouteFill> Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline )
     {
         return s_RendererAPI->GetPipelineRouteFill( pipeline );
     }
@@ -207,6 +208,16 @@ namespace Desert::Graphic
                                                             const std::span<const std::byte> push )
     {
         return s_RendererAPI->DrawProceduralIndirect( bindings, pipeline, material, push, args, offset );
+    }
+
+    Common::BoolResultStr Renderer::DrawProceduralIndexed( const RDG::PassBindings& bindings,
+                                                           const GraphicsPipeline&  pipeline,
+                                                           const MaterialExecutor*  material,
+                                                           IndexBuffer&             indexBuffer,
+                                                           const std::span<const ProceduralIndexedRange> ranges,
+                                                           const std::span<const std::byte>              push )
+    {
+        return s_RendererAPI->DrawProceduralIndexed( bindings, pipeline, material, push, indexBuffer, ranges );
     }
 
     Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings,
@@ -309,6 +320,8 @@ namespace Desert::Graphic
 
     Common::BoolResultStr Renderer::ExecuteGraph( RDG::Builder& graph )
     {
+        // A graph the game thread records while the views record (a panel's preview) lands after them (RenderTask).
+        ::Desert::Engine::RenderTask::RecordGuard( graph.GetName() );
         return s_RendererAPI->ExecuteGraph( graph );
     }
 

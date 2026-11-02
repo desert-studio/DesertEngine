@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
@@ -651,23 +652,74 @@ namespace Desert::Graphic
         }
     }
 
+    namespace
+    {
+        // THE INTERFACE'S WRITE TO WHAT THE RENDER TASK READS (UE: ENQUEUE_RENDER_COMMAND). On the render task
+        // itself, or with nothing in flight, @p apply runs now; otherwise it waits for the fence
+        // (RenderTask::AfterJoin), which runs it after the views in flight and before the next BeginScene of any
+        // view. Tested here rather than left to AfterJoin so the common case (a setter called between frames)
+        // builds no std::function. The renderer outlives a deferred write: its destructor joins first.
+        template <typename Apply>
+        void BetweenRecordings( Apply&& apply )
+        {
+            auto& task = ::Desert::Engine::RenderTask::Get();
+            if ( ::Desert::Engine::RenderTask::OnRenderThread() || !task.InFlight() )
+            {
+                apply();
+                return;
+            }
+            task.AfterJoin( std::forward<Apply>( apply ) );
+        }
+    } // namespace
+
+    void SceneRenderer::CheckWriteBetweenRecordings( const std::string_view site ) const
+    {
+#if defined( DESERT_CONFIG_DEBUG )
+        if ( ::Desert::Engine::RenderTask::OnRenderThread() ||
+             !m_RecordingOnTask.load( std::memory_order_acquire ) )
+            return;
+        static std::mutex                      warnedMutex;
+        static std::unordered_set<std::string> warned;
+        const std::scoped_lock                 lock( warnedMutex );
+        if ( warned.emplace( site ).second )
+        {
+            LOG_ERROR(
+                 "[RenderTask] view '{}': '{}' written on another thread while the view records on the render "
+                 "task (a torn frame). Defer it (RenderTask::AfterJoin, as SceneRenderer's setters do) or "
+                 "make it before the views (OnPreUpdate).",
+                 m_ViewResources.GetName(), site );
+        }
+#else
+        (void)site;
+#endif
+    }
+
     void SceneRenderer::ResetTemporalHistory()
     {
-        // Over m_RenderSystemOrder for the reason RebindScene gives: the map can hold null entries.
-        for ( const auto& name : m_RenderSystemOrder )
-        {
-            if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
-                it->second->OnTemporalHistoryReset();
-        }
-        // The view's own history (previous matrices, history textures, motion records) resets with the next
-        // frame: an explicit camera cut (ViewInputs::CameraCut), consumed by the BeginFrame that succeeds.
-        m_CameraCutPending = true;
-        LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
-                  m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+        BetweenRecordings(
+             [this]
+             {
+                 CheckWriteBetweenRecordings( "SceneRenderer::ResetTemporalHistory" );
+                 // Over m_RenderSystemOrder for the reason RebindScene gives: the map can hold null entries.
+                 for ( const auto& name : m_RenderSystemOrder )
+                 {
+                     if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
+                         it->second->OnTemporalHistoryReset();
+                 }
+                 // The view's own history (previous matrices, history textures, motion records) resets with the
+                 // next frame: an explicit camera cut (ViewInputs::CameraCut), consumed by the BeginFrame that
+                 // succeeds.
+                 m_CameraCutPending = true;
+                 LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
+                           m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+             } );
     }
 
     void SceneRenderer::ReleaseWorldResources()
     {
+        // What is released below is what this view's job reads (RenderTask::JoinOnGameThread: a fence for a
+        // mutation of what a job reads; between frames nothing is in flight and it returns at once).
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         const ActiveViewScope          viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // A lent surface cache / distance field is its lender's (a reflection capture's), released with it; the
@@ -781,6 +833,15 @@ namespace Desert::Graphic
                            ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
+        // The read above (and every per-frame budget read) answers from the ledger's running per-instance
+        // totals. A view's close is where they are proven against a full walk of the rows: a disagreement is
+        // a bookkeeping defect in ResourceLedger, and the budget has been reading wrong numbers since.
+        if ( const std::string disagreement = ResourceLedger::CheckInstanceTotals(); !disagreement.empty() )
+        {
+            LOG_ERROR(
+                 "[Resources] CheckInstanceTotals at {} close: the running totals disagree with the rows:\n{}",
+                 ResourceOwnerInstanceName( Instance ), disagreement );
+        }
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
@@ -800,14 +861,28 @@ namespace Desert::Graphic
         return held;
     }
 
-    std::string SceneRenderer::DescribeLiveViews()
+    uint64_t SceneRenderer::LiveHeldBytes()
+    {
+        const std::scoped_lock lock( LiveRenderersMutex() );
+        uint64_t               held = 0;
+        // The same entries as LiveHoldings: a capture face view (Borrowed) holds 0 of its own (HeldBytes).
+        for ( const SceneRenderer* renderer : LiveRenderers() )
+            held += renderer->HeldBytes();
+        return held;
+    }
+
+    uint64_t SceneRenderer::SceneHeldBytes()
     {
         uint64_t held = 0;
-        for ( const Engine::ViewBudget::HeldView& view : LiveHoldings() )
-            held += view.Bytes;
-        uint64_t shared = 0;
-        for ( const Engine::ViewBudget::HeldView& scene : SceneHoldings() )
-            shared += scene.Bytes;
+        for ( const ResourceInstanceCensus& scene : ResourceLedger::TakeInstances( ResourceInstanceKind::Scene ) )
+            held += scene.Bytes;
+        return held;
+    }
+
+    std::string SceneRenderer::DescribeLiveViews()
+    {
+        const uint64_t held   = LiveHeldBytes();
+        const uint64_t shared = SceneHeldBytes();
         return std::format( "{} live, {:.1f} MiB; scenes {:.1f} MiB shared", ViewResourceRegistry::LiveCount(),
                             static_cast<double>( held ) / ( 1024.0 * 1024.0 ),
                             static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );
@@ -845,6 +920,8 @@ namespace Desert::Graphic
     SceneRenderer::~SceneRenderer()
     try
     {
+        // A job of this view may still be recording on the render task.
+        ::Desert::Engine::RenderTask::Get().Join();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
             std::erase( LiveRenderers(), this );
@@ -927,6 +1004,10 @@ namespace Desert::Graphic
     NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene,
                                                                 Core::Camera*              camera )
     {
+        // ONE BRACKET AT A TIME (see Scene::OnUpdate's view loop): a view still recording on the render task
+        // closes before this one opens.
+        ::Desert::Engine::RenderTask::Get().Join();
+
         // This view is where per-frame writes go until the phase returns — set FIRST, before anything writes
         // a per-frame resource; the frame context gets them back on every exit, so nothing written after the
         // last view of a frame lands in this view's copies.
@@ -941,7 +1022,14 @@ namespace Desert::Graphic
         // answer for every renderer of that scene — so a second view of one world rendered from the
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
-        m_SceneInfo.ActiveCamera = camera;
+        //
+        // FROZEN HERE (UE: FViewInfo copies the view matrices out of the game thread's FSceneView). The rest of
+        // the frame records on the render task while the interface may move the live camera (the viewport's
+        // lens setters, CameraPilot); every reader of this view's camera reads this copy, with the live
+        // camera's source id, so its history stays its own.
+        if ( camera != nullptr )
+            m_FrozenCamera.Freeze( *camera );
+        m_SceneInfo.ActiveCamera = camera != nullptr ? &m_FrozenCamera : nullptr;
         // The world this frame draws and its clock (its generation keys CameraIdentity; TimeSeconds, OnUpdate).
         m_SceneGeneration  = scene.GetGeneration();
         m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
@@ -960,6 +1048,25 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying() && !scene.IsSimulating();
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+        // WHAT THE EXTENSION PASSES DRAW IS READ HERE, ON THE GAME THREAD (UE: ISceneViewExtension::SetupView).
+        // The rest of this view's frame records on the render task while the interface edits the registry and
+        // talks to the OS, so a pass collects from the world now and its Declare/Execute read only that. The
+        // same views AddExtensionPoint adds the passes to: not a reflection capture's face, not a view without
+        // its scene target. The Join at the top of this bracket is what lets a pass keep one view's gathered
+        // state: the previous view's nodes are done with it.
+        if ( !m_ViewProfile.SceneCapture && m_TargetFramebuffer )
+        {
+            ExtensionPassGatherContext gather;
+            gather.Camera       = GetMainCamera();
+            gather.Renderer     = this;
+            gather.ScenePlaying = IsScenePlaying();
+            gather.OutputExtent = glm::uvec2{ m_ViewExtent.Width, m_ViewExtent.Height };
+            for ( const ExtensionPass& extension : m_FrameExtensions->All() )
+            {
+                if ( extension.Gather )
+                    extension.Gather( gather );
+            }
+        }
 #if DESERT_DEV_INSTRUMENTS
         // The scene's debug lines and strings, for this frame's DebugDraw passes.
         if ( !m_DebugDraw )
@@ -1178,7 +1285,9 @@ namespace Desert::Graphic
                  .DensityScale =
                       0.01f * static_cast<float>( quality.As<int>( Parameter::FoliageGrassDensityScalePercent ) ),
                  .CullDistanceScale = 0.01f * static_cast<float>( quality.As<int>(
-                                                   Parameter::FoliageGrassCullDistanceScalePercent ) ) };
+                                                   Parameter::FoliageGrassCullDistanceScalePercent ) ),
+                 .LodScreenPixels =
+                      static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ) };
             if ( const auto grass = m_RenderSystems.find( "GrassSystem" ); grass != m_RenderSystems.end() )
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 UNIQUE_GET_AS( System::GrassRenderer, grass->second )->SetQuality( grassQuality );
@@ -1497,6 +1606,10 @@ namespace Desert::Graphic
     {
         DESERT_PROFILE_SCOPE( "SceneRenderer::OnUpdate" );
 
+        // The Debug write check's window opens (CheckWriteBetweenRecordings); EndScene closes it.
+        if ( ::Desert::Engine::RenderTask::OnRenderThread() )
+            m_RecordingOnTask.store( true, std::memory_order_release );
+
         // RE-OPENED HERE, and it is not belt-and-braces. Scene drives the views PHASE BY PHASE — every
         // view's BeginScene, then every view's OnUpdate — and each phase's scope is gone when it returns.
         // Without this line a second view writes its per-frame GPU state into the frame context instead of
@@ -1610,6 +1723,7 @@ namespace Desert::Graphic
         // setting or the device says no. The cloud shadow map and the PostOpaque particle chain (it reads the
         // resolved scene depth, AddFrameParticlesPostOpaque) are NOT among them: they are graphics-queue passes.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
+        graph.SetParallelExecute( m_Quality.As<int>( Common::Scalability::Parameter::ParallelExecute ) != 0 );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
@@ -2763,7 +2877,14 @@ namespace Desert::Graphic
 #if DESERT_DEV_INSTRUMENTS
     void SceneRenderer::WatchPrimitive( const uint32_t entity )
     {
-        m_PrimitiveWatch = PrimitiveWatch{ entity, Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() };
+        // The frame the request was made in, taken now: a deferred write still names it (EndScene's freshness).
+        const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        BetweenRecordings(
+             [this, entity, frame]
+             {
+                 CheckWriteBetweenRecordings( "SceneRenderer::WatchPrimitive" );
+                 m_PrimitiveWatch = PrimitiveWatch{ entity, frame };
+             } );
     }
 #endif
 
@@ -2771,6 +2892,31 @@ namespace Desert::Graphic
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
+        // The Debug write check's window closes on every exit (opened at the head of OnUpdate on the render task).
+        struct RecordingEnds
+        {
+            std::atomic<bool>& Flag;
+            ~RecordingEnds()
+            {
+                Flag.store( false, std::memory_order_release );
+            }
+        };
+        const RecordingEnds recordingEnds{ m_RecordingOnTask };
+
+        // THE FRAME'S STATISTICS ARE PUBLISHED HERE, where the frame that counted them ends: the interface reads
+        // them (the status bar, the cascade viewer) while the next frame may be recording on the render task, so
+        // it reads the last finished frame's value, never the mesh renderer's state mid-frame.
+        if ( const auto mesh = m_RenderSystems.find( "MeshSystem" ); mesh != m_RenderSystems.end() && mesh->second )
+        {
+            const auto* meshRenderer = static_cast<const System::MeshRenderer*>( mesh->second.get() );
+            m_PublishedViewTriangles.store( meshRenderer->GetViewTrianglesDrawn(), std::memory_order_relaxed );
+            // The cascade caches: assigned in place (no allocation once sized), a shared_ptr copy per cascade.
+            const uint32_t         cascades = meshRenderer->GetCascadeCount();
+            const std::scoped_lock lock( m_PublishedCascadesMutex );
+            m_PublishedCascadeCaches.resize( cascades );
+            for ( uint32_t c = 0; c < cascades; ++c )
+                m_PublishedCascadeCaches[c] = meshRenderer->GetCascadeCacheImage( c );
+        }
 
 #if DESERT_DEV_INSTRUMENTS
         // The gameplay debugger's Rendering category: the watched entity described from the queues the passes
@@ -3710,6 +3856,9 @@ namespace Desert::Graphic
         // that its camera turns square, and a rebuild would idle the device for identical targets.
         if ( m_ViewExtent == ViewExtent{ width, height } )
             return;
+        // THE TARGETS ARE REBUILT BELOW, and the view's frame may still be recording into them on the render task:
+        // a viewport panel resizes its view while the interface is drawn, which is exactly when the scene records.
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         // A LIVE VIEW'S RESIZE IS NEVER REFUSED (Engine::ViewBudget::ResizeOverrunBytes): the view is on
         // screen, and refusing its size is what left the main view at its 64x64 placeholder on a full device.
         // Going past the budget is said once per size, since the panel asks again every frame it stays that
@@ -3846,13 +3995,21 @@ namespace Desert::Graphic
 
     void SceneRenderer::SetLODPreview( const uint32_t entity, const int level )
     {
-        if ( level < 0 )
-        {
-            m_LODPreview = {};
-            return;
-        }
-        // Two frames: the renewal and the frame's BeginScene may come in either order within one frame.
-        m_LODPreview = { .Entity = entity, .Level = level, .FramesLeft = 2 };
+        // THE LEASE CHANGES BETWEEN RECORDINGS (UE: ENQUEUE_RENDER_COMMAND): the Modeling panel renews it while it
+        // is drawn, which is when this view may be recording on the render task and reading the lease
+        // (LODPreviewFor). Deferred to the fence (BetweenRecordings; now when nothing is in flight).
+        BetweenRecordings(
+             [this, entity, level]
+             {
+                 CheckWriteBetweenRecordings( "SceneRenderer::SetLODPreview" );
+                 if ( level < 0 )
+                 {
+                     m_LODPreview = {};
+                     return;
+                 }
+                 // Two frames: the renewal and the frame's BeginScene may come in either order within one frame.
+                 m_LODPreview = { .Entity = entity, .Level = level, .FramesLeft = 2 };
+             } );
     }
 
     int SceneRenderer::LODPreviewFor( const uint32_t entity, const int authoredForcedLOD ) const
@@ -3905,8 +4062,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
                                              const System::LandscapeTileDraw&   tile,
-                                             const MaterialOverrides&           overrides,
-                                             const System::LandscapeWeightDraw& weights )
+                                             const std::shared_ptr<const MaterialOverrides>& overrides,
+                                             const System::LandscapeWeightDraw&               weights )
     {
         // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
         // tile's square around its base height, so a camera over the tile asks for everything.
@@ -3923,7 +4080,7 @@ namespace Desert::Graphic
             const float     pixels = TextureStreamingDemand::ScreenPixels(
                  center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
                  GetViewExtent().Height );
-            for ( const auto& [slot, asset] : overrides.Textures )
+            for ( const auto& [slot, asset] : overrides->Textures )
                 TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
@@ -4048,10 +4205,7 @@ namespace Desert::Graphic
 
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
     {
-        const auto found = m_RenderSystems.find( "MeshSystem" );
-        if ( found == m_RenderSystems.end() )
-            return 0;
-        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+        return m_PublishedViewTriangles.load( std::memory_order_relaxed );
     }
 
     System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const
@@ -4099,12 +4253,38 @@ namespace Desert::Graphic
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )
     {
-        const auto& jumpFloodSystem =
-             UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-        jumpFloodSystem->SetEnabled( enabled );
-        jumpFloodSystem->SetOutlineColor( color );
-        jumpFloodSystem->SetOutlineWidth( width );
-        jumpFloodSystem->SetOutlineSmoothness( smoothness );
+        // Between recordings (SetDebugView's note): the outline system reads these while the view records.
+        BetweenRecordings(
+             [this, color, width, smoothness, enabled]
+             {
+                 CheckWriteBetweenRecordings( "SceneRenderer::SetOutlineSettings" );
+                 const auto& jumpFloodSystem =
+                      UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+                 jumpFloodSystem->SetEnabled( enabled );
+                 jumpFloodSystem->SetOutlineColor( color );
+                 jumpFloodSystem->SetOutlineWidth( width );
+                 jumpFloodSystem->SetOutlineSmoothness( smoothness );
+             } );
+    }
+
+    void SceneRenderer::SetDebugView( const DebugViewState& state )
+    {
+        BetweenRecordings(
+             [this, state]
+             {
+                 CheckWriteBetweenRecordings( "SceneRenderer::SetDebugView" );
+                 m_DebugView = state;
+             } );
+    }
+
+    void SceneRenderer::SetQuality( const Common::Scalability::ResolvedQuality& quality )
+    {
+        BetweenRecordings(
+             [this, quality]
+             {
+                 CheckWriteBetweenRecordings( "SceneRenderer::SetQuality" );
+                 m_Quality = quality;
+             } );
     }
 
     void SceneRenderer::SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look )
@@ -4205,15 +4385,18 @@ namespace Desert::Graphic
         m_SharedSurfaceCache = cache;
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
+    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( const uint32_t cascade ) const
     {
-        return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->GetCascadeCacheImage( cascade );
+        const std::scoped_lock lock( m_PublishedCascadesMutex );
+        if ( cascade >= m_PublishedCascadeCaches.size() )
+            return nullptr;
+        return m_PublishedCascadeCaches[cascade];
     }
 
-    uint32_t SceneRenderer::GetShadowCascadeCount()
+    uint32_t SceneRenderer::GetShadowCascadeCount() const
     {
-        return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetCascadeCount();
+        const std::scoped_lock lock( m_PublishedCascadesMutex );
+        return static_cast<uint32_t>( m_PublishedCascadeCaches.size() );
     }
 
     void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )

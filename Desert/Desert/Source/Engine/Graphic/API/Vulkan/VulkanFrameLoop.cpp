@@ -161,8 +161,8 @@ namespace Desert::Graphic::API::Vulkan
                 submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( prepared.Waits.size() );
                 submitInfo.pWaitSemaphores      = prepared.Waits.data();
                 submitInfo.pWaitDstStageMask    = prepared.Stages.data();
-                submitInfo.commandBufferCount   = 1;
-                submitInfo.pCommandBuffers      = &frame[i].CommandBuffer;
+                submitInfo.commandBufferCount   = static_cast<uint32_t>( frame[i].CommandBuffers.size() );
+                submitInfo.pCommandBuffers      = frame[i].CommandBuffers.data();
                 submitInfo.signalSemaphoreCount = static_cast<uint32_t>( prepared.Signals.size() );
                 submitInfo.pSignalSemaphores    = prepared.Signals.data();
                 m_SubmitInfos.push_back( submitInfo );

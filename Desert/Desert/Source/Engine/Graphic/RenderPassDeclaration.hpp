@@ -115,7 +115,7 @@ namespace Desert::Graphic
         struct BlockUse
         {
             std::shared_ptr<const RDG::ShaderBindingLayout> Layout;
-            RDG::OtherRouteFill                             Other;
+            std::shared_ptr<const RDG::OtherRouteFill>      Other = RDG::NoOtherRouteFill();
             std::vector<BlockEntry>                         Entries;
             uint32_t                                        PushConstantBytes = 0;
         };
@@ -274,13 +274,13 @@ namespace Desert::Graphic
         };
         // The kept layout (ShaderBindingLayoutCache): shared, not copied per frame.
         BlockDeclaration Bindings( const std::shared_ptr<const RDG::ShaderBindingLayout>& layout,
-                                   RDG::OtherRouteFill                                    other )
+                                   std::shared_ptr<const RDG::OtherRouteFill>             other )
         {
             m_Blocks.push_back( { layout, std::move( other ), {}, 0 } );
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
         // A layout made for this declaration only: the declaration takes it over.
-        BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, RDG::OtherRouteFill other )
+        BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, std::shared_ptr<const RDG::OtherRouteFill> other )
         {
             m_Blocks.push_back( { std::make_shared<const RDG::ShaderBindingLayout>( std::move( layout ) ),
                                   std::move( other ),

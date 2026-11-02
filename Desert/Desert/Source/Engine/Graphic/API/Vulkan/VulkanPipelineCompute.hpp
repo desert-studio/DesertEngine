@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 
@@ -9,6 +10,9 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
 #include <span>
 #include <vector>
 
@@ -72,6 +76,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_BoundPushConstants;
         }
+        // ROUTEFILL (UE: the parameter layout is made once and only read per pass). The other-route fill of the
+        // bound bindings above as shader names (Renderer::GetPipelineRouteFill): kept, and rebuilt only when the
+        // set of bound binding keys, the presence of push constants or the shader's slot table (a hot reload)
+        // changes. A pass's setup shares the kept object; a rebind of the same binding (the GDF composite rebinds
+        // its buffers every frame) changes nothing. Safe from several declaring threads.
+        [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill> GetRouteFill() const;
         // Writes the resources the setters bound into @p descriptorSet (set 0). Refused, naming the pipeline and
         // the binding, when a bound resource has no view or copy to write.
         Common::BoolResultStr WriteBoundResources( VkDescriptorSet descriptorSet );
@@ -118,6 +128,20 @@ namespace Desert::Graphic::API::Vulkan
         std::unordered_map<uint32_t, RDG::SamplerDesc>                m_BoundSamplers;
         std::unordered_map<uint32_t, ShaderResources::StorageBuffer*> m_BoundStorageBuffers;
         std::vector<std::byte>                                        m_BoundPushConstants;
+        // Raised when a setter adds a binding key no map held, or push constants appear / disappear: the only
+        // changes of what GetRouteFill is made of on the setter side (no setter removes a key).
+        uint64_t m_BoundKeysVersion = 0;
+
+        // The fill GetRouteFill hands out and what it was made from (the slot table is held, so its address
+        // cannot come back for another table while it is compared).
+        struct RouteFillCache
+        {
+            std::shared_ptr<const RdgSlotTable>        Slots;
+            uint64_t                                   BoundKeysVersion = ~uint64_t{ 0 };
+            std::shared_ptr<const RDG::OtherRouteFill> Fill;
+        };
+        mutable std::mutex     m_RouteFillLock;
+        mutable RouteFillCache m_RouteFill;
 
         // Records the currently-bound resources into @p cmd against @p descriptorSet and dispatches.
         // Shared by the immediate Dispatch() and the batched Record(); performs no layout transitions and no

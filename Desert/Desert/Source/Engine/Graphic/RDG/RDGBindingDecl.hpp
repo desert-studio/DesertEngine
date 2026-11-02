@@ -126,6 +126,17 @@ namespace Desert::Graphic::RDG
         bool                     PushConstants = false;
     };
 
+    // ROUTEFILL: the fill of a route that fills nothing - one object for the process, shared by every block
+    // that declares it (a pass with no material and no pipeline setters), so declaring one allocates nothing.
+    // A block holds its fill by pointer, like its layout: the pipeline (VulkanPipelineCompute::GetRouteFill)
+    // and the material (MaterialExecutor::GetRouteFill) hand out the fill they keep, rebuilt only when what it
+    // is made of changes, never per pass.
+    [[nodiscard]] inline const std::shared_ptr<const OtherRouteFill>& NoOtherRouteFill()
+    {
+        static const std::shared_ptr<const OtherRouteFill> kNothing = std::make_shared<const OtherRouteFill>();
+        return kNothing;
+    }
+
     // One entry of a declared block: the resource, the access it declares for the pass, and the shader slot.
     struct DeclaredBindingEntry
     {
@@ -143,7 +154,9 @@ namespace Desert::Graphic::RDG
         // Shared and const: a renderer hands the graph the layout it keeps (RDG::LayoutCache) by pointer, no
         // per-frame copy of the slot list; null is refused by ValidatePassBindings.
         std::shared_ptr<const ShaderBindingLayout> Layout;
-        OtherRouteFill                             Other;
+        // Shared and const the same way (NoOtherRouteFill when the other route fills nothing); null is refused by
+        // ValidatePassBindings.
+        std::shared_ptr<const OtherRouteFill>      Other = NoOtherRouteFill();
         std::vector<DeclaredBindingEntry>          Entries;
         uint32_t                                   PushConstantBytes = 0; // what the exec will push
     };

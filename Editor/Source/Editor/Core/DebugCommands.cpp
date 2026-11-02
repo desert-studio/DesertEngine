@@ -5,6 +5,7 @@
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 
@@ -60,8 +61,16 @@ namespace Desert::Editor
             if ( on && !profiler.GetGpuSink() )
                 return Common::MakeError<bool>(
                      "this device reports no GPU timestamps; there is nothing to time." );
-            profiler.GpuEnabled()    = on;
-            profiler.GpuPassScopes() = on;
+            // BETWEEN RECORDINGS (RenderTask::AfterJoin; now when nothing is in flight): the palette runs while the
+            // scene views may record on the render task, and a pass scope opened with timing off and closed with
+            // it on is a half-written row.
+            ::Desert::Engine::RenderTask::Get().AfterJoin(
+                 [on]
+                 {
+                     auto& gpu           = Common::Profiling::Profiler::Get();
+                     gpu.GpuEnabled()    = on;
+                     gpu.GpuPassScopes() = on;
+                 } );
             return PaletteCommandDone();
         };
         commands.push_back( { "Debug", "GPU profiling: On", [enable] { return enable( true ); } } );
@@ -79,14 +88,30 @@ namespace Desert::Editor
                               } } );
     }
 
+    void AppendSceneRecordCommands( std::vector<PaletteCommand>& commands )
+    {
+        commands.push_back( { "Debug", "Scene record: serial", []() -> Common::BoolResultStr
+                              {
+                                  ::Desert::Engine::RenderTask::Get().SetSerial( true );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Debug", "Scene record: render task", []() -> Common::BoolResultStr
+                              {
+                                  ::Desert::Engine::RenderTask::Get().SetSerial( false );
+                                  return PaletteCommandDone();
+                              } } );
+    }
+
     void AppendProfilerDrawSplitCommands( std::vector<PaletteCommand>& commands )
     {
         // On top of GPU timing (Profiler::GpuEnabled, --gpu-profile): without it the split records nothing,
         // and the switch says so instead of answering done to a dump that will hold no row.
         commands.push_back( { "Profiler", "MeshDrawSplit 1", []() -> Common::BoolResultStr
                               {
-                                  auto& profiler           = Common::Profiling::Profiler::Get();
-                                  profiler.MeshDrawSplit() = true;
+                                  auto& profiler = Common::Profiling::Profiler::Get();
+                                  // Between recordings, as GPU profiling: On/Off.
+                                  ::Desert::Engine::RenderTask::Get().AfterJoin(
+                                       [] { Common::Profiling::Profiler::Get().MeshDrawSplit() = true; } );
                                   if ( !profiler.GpuEnabled() || profiler.GetGpuSink() == nullptr )
                                       LOG_WARN( "[Profiler] MeshDrawSplit is on, but GPU timing is off or has no "
                                                 "timestamp sink: no draw split row until it is on." );
@@ -94,7 +119,8 @@ namespace Desert::Editor
                               } } );
         commands.push_back( { "Profiler", "MeshDrawSplit 0", []() -> Common::BoolResultStr
                               {
-                                  Common::Profiling::Profiler::Get().MeshDrawSplit() = false;
+                                  ::Desert::Engine::RenderTask::Get().AfterJoin(
+                                       [] { Common::Profiling::Profiler::Get().MeshDrawSplit() = false; } );
                                   return PaletteCommandDone();
                               } } );
     }

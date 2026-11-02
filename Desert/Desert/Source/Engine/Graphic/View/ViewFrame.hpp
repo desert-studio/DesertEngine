@@ -254,6 +254,11 @@ namespace Desert::Graphic
         // splits itself (Mesh/Surface/CasterWindLayer.glslh): xyz the main camera's origin (world cm), w
         // Shadows.WindAnimationDistance (cm) - the caster cull view's LodOrigin. 0 for every other view.
         glm::vec4 CasterWindOrigin{ 0.0f };
+        // LIGHT VIEWS ONLY: the movers' ring of a caster draw whose vertex stage splits its instances
+        // (GPU-FRAME-6, CasterWindLayer.glslh): x the inner distance (cm, 0 = none) nearer than which an instance
+        // casts its rest pose too - its shadow reaches no receiver that samples this cascade
+        // (MeshRenderer::ShadowWindInnerOf). y, z, w unused. 0 for every other view.
+        glm::vec4 CasterWindRing{ 0.0f };
         // SCENE VIEWS ONLY: the view's grass field lens (System::MakeGrassFieldLens of the Foliage quality through
         // this frame's camera and render extent: x DistanceScale, y PixelsPerUnit). Written once by the frame's
         // owner right after the view resolved its frame (SceneRenderer::OnUpdate); the landscape's far grass cover

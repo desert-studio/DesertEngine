@@ -43,7 +43,7 @@ namespace Desert::Graphic::RayTracing
         const RDG::BufferRef scratch =
              graph.CreateBuffer( RDG::BufferDesc{ scratchBytes }, kDynamicGeometryScratchName );
         graph.AddPass(
-             kDynamicGeometryPassName, RDG::PassFlags::Compute,
+             kDynamicGeometryPassName, RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Write( scratch, RDG::Access::AccelStructBuildWrite );

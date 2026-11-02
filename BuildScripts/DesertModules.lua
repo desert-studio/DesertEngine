@@ -110,7 +110,7 @@ DesertModules.Placement = {
     P( "AnimationCore",   [[Engine/Animation/]] ),
     -- RHI + RDG
     P( "ShaderCompiler",  [[Engine/Core/ShaderCompiler/]] ),
-    P( "RenderCore",      [[Engine/Graphic/API/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager)\.]] ),
+    P( "RenderCore",      [[Engine/Graphic/API/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager|RenderTask)\.]] ),
     P( "RenderCore",      [[Engine/Graphic/(Image|ImageFactory|ImageTraits|IndexBuffer|VertexBuffer|Framebuffer|RenderPass|RenderPassDeclaration|ExternalRenderPass|Pipeline|PipelineCache|PipelineCacheFile|PipelineBuilds|Shader|SwapChain|SwapchainAcquire|GpuBatch|ComputeImages|MipMapGenerator|DeviceLost|DrawCounters|MemoryReadout|MemoryReadoutSource|MappedMemory|AllocationLedger|ResourceLedger|RendererAPI|RendererTypes|Texture|TextureFactory|FallbackTextures|DefaultTextures|PixelPack|GpuTimestampLayout|ShaderBindingLayoutCache|DynamicResources|RenderGraphBuilder|RenderGraphSort|RenderPhase|RenderPhaseRegistry|FrameGraphRefs|ViewMemory|View/ViewFrame|GraphImageImporter|Renderer|RendererContext|RenderConfig|ViewResources|ViewDescriptorSets|ViewTargetFormats|ShadowCascades|BindlessTextureTable|RayTracingPipeline)\.]] ),
     -- the RHI's ray-tracing interfaces (BLAS geometry, skinned / procedural BLAS, the view's TLAS) + the dynamic-BLAS
     -- pass (RDG only); the Vulkan side implements them, the renderer's caches drive them

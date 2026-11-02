@@ -90,11 +90,25 @@ namespace Desert::Graphic::SurfaceCache
         bool     CaptureReady = true;
     };
 
+    // A PRIMITIVE GROUP of the gatherer (SCENE-CACHE-5; UE FLumenSceneData's primitive groups and their
+    // add / update / remove lists): its instances are added, moved and removed only in a frame whose
+    // @p Revision differs from the one the scene last took them at - an unchanged group costs nothing, never a
+    // look-up and a matrix compare per instance. @p Id names the group across frames (every instance key lives
+    // in one group); a group the frame no longer has gives every instance it held back. SceneInstance::Source
+    // of its instances counts within the group; CardCapture::Group names the group by its index in the frame.
+    struct SceneGroup
+    {
+        uint64_t                       Id       = 0;
+        uint64_t                       Revision = 0;
+        std::span<const SceneInstance> Instances;
+    };
+
     // One card capture of the frame: the instance's mesh drawn through the card's orthographic camera into
     // @p CaptureRect of the frame's capture atlas, then each of the card's pages copied out of it.
     struct CardCapture
     {
-        uint32_t  Source = 0;         // SceneInstance::Source of the frame
+        uint32_t  Group  = 0;         // the instance's group, by its index in the frame's groups
+        uint32_t  Source = 0;         // SceneInstance::Source of the instance, within its group
         glm::mat4 World{ 1.0f };      // the instance's world
         glm::mat4 View{ 1.0f };       // the card camera: on the card plane, looking against the card direction
         glm::mat4 Projection{ 1.0f }; // reversed-Z orthographic box of the card (1 = card plane, 0 = far side)
@@ -112,23 +126,32 @@ namespace Desert::Graphic::SurfaceCache
     };
     static_assert( sizeof( CardPageCopy ) == 32 );
 
-    // What the frame hands the GPU: the scene's records (rebuilt each frame, compact) and this frame's captures.
-    struct SceneFrame
+    // The scene's GPU records (compact), shared by every frame they hold for: made again only in a frame where
+    // one of them changed (SurfaceCacheScene::Update, THE GPU RECORDS), otherwise the last frame's are handed on
+    // as they are - not rebuilt, not copied.
+    struct SceneRecords
     {
         std::vector<CardPayload>      Cards;
         std::vector<CardPagePayload>  Pages;
         std::vector<MeshCardsPayload> MeshCards;
-        std::vector<CardCapture>      Captures;
-        std::vector<CardPageCopy>     Copies;
-        // Indices into Pages relit this frame (the direct-lighting budget; every page captured this frame).
-        std::vector<uint32_t> LightingPages;
         // The instance table (contract B3, SurfaceCache.hpp): one row per live instance, by its stable row.
         std::vector<InstanceRowPayload> InstanceRows;
+        uint32_t                        ResidentCards = 0;
+        uint32_t                        CapturedCards = 0;
+        uint32_t                        HighResCards  = 0; // cards showing their high mip
+    };
+
+    // What the frame hands the GPU: the scene's records and this frame's captures.
+    struct SceneFrame
+    {
+        // Never null once Update ran with an atlas; the same object over frames while nothing in it changed.
+        std::shared_ptr<const SceneRecords> Records;
+        std::vector<CardCapture>            Captures;
+        std::vector<CardPageCopy>           Copies;
+        // Indices into Pages relit this frame (the direct-lighting budget; every page captured this frame).
+        std::vector<uint32_t> LightingPages;
         // The scene frame these records belong to (ConfirmCapturesExecuted takes it back).
-        uint64_t Frame         = 0;
-        uint32_t ResidentCards = 0;
-        uint32_t CapturedCards = 0;
-        uint32_t HighResCards  = 0; // cards showing their high mip
+        uint64_t Frame = 0;
         // Cards the atlas could not give even their low mip (every high mip already evicted): the quality's
         // GlobalIllumination.SurfaceCacheAtlasSize is too small for the scene; their hits are lit in place.
         uint32_t MissingMinimumCards = 0;
@@ -146,8 +169,7 @@ namespace Desert::Graphic::SurfaceCache
         // origins of every view of the scene this frame (UE: the Lumen scene update's ViewOrigins, up to
         // MAX_LUMEN_VIEW_ORIGINS): a card's distance - its resolution and its capture priority - is the nearest
         // viewer's, so the cards in front of a second viewport are captured as those of the first. Never empty.
-        [[nodiscard]] SceneFrame Update( const std::vector<SceneInstance>& instances,
-                                         std::span<const glm::vec3>        viewers );
+        [[nodiscard]] SceneFrame Update( std::span<const SceneGroup> groups, std::span<const glm::vec3> viewers );
         // The lit layers no longer hold the scene's light (a significant change of the directional lights,
         // GlobalIllumination::InvalidatesLightingHistory): the next Update relights every visible page in its
         // frame instead of one in DirectLightingUpdateFactor (UE: the scene lighting's full relight).
@@ -176,6 +198,14 @@ namespace Desert::Graphic::SurfaceCache
         // the global distance field's objects (a mesh and its world, no entity) are listed under in its object
         // grid.
         [[nodiscard]] std::unordered_map<uint64_t, uint32_t> RowsByPlacement() const;
+        // Bumped whenever RowsByPlacement would answer differently: an instance added (a row handed out), moved
+        // (its placement key) or removed (its row freed). A reader that keeps the rows by placement (the global
+        // distance field's object set, SceneRenderer::AddFrameGlobalDistanceField) re-reads them only then
+        // (UE: FLumenSceneData's primitive add / update / remove operations, not a per-frame rescan).
+        [[nodiscard]] uint64_t GetPlacementRevision() const
+        {
+            return m_PlacementRevision;
+        }
         // A mesh instance's placement: the mesh's identity and its world transform's bits.
         [[nodiscard]] static uint64_t PlacementKey( const void* mesh, const glm::mat4& world );
 
@@ -221,30 +251,92 @@ namespace Desert::Graphic::SurfaceCache
             std::shared_ptr<const Assets::MeshCardsBuildData> Build;
             glm::mat4                                         World{ 1.0f };
             std::vector<Card>                                 Cards;
-            uint32_t                                          Source     = 0;
-            uint64_t                                          SeenFrame  = 0;
+            uint64_t                                          Group      = 0; // SceneGroup::Id
+            uint32_t                                          Source     = 0; // within the group
+            uint64_t                                          SeenFrame  = 0; // the last frame its group was taken
             uint64_t                                          SurfaceKey = 0;
             uint32_t                                          Row        = kNoInstance; // the B3 table row
         };
+        // A group as the scene last took it: its revision, the keys of its instances and its index in the frame.
+        struct HeldGroup
+        {
+            uint64_t              Revision  = 0;
+            bool                  Taken     = false;
+            uint32_t              Index     = 0;
+            uint64_t              SeenFrame = 0;
+            std::vector<uint64_t> Keys;
+        };
+        // ADD / MOVE / REMOVE of one group whose revision the frame changed (Update).
+        void TakeGroup( const SceneGroup& group, HeldGroup& held );
+        void RemoveInstance( std::unordered_map<uint64_t, Instance>::iterator it );
+        // THE GPU RECORDS of the scene as it stands (Update): every card, page and mesh-cards record, compact, the
+        // page copies of this frame's captures and the visible pages by physical page for the lighting budget.
+        void BuildRecords( const std::map<const CardMip*, uint32_t>& captured, uint64_t lightingFactor,
+                           SceneFrame& frame );
 
         void                   PlaceCards( Instance& instance ) const;
         void                   FreeMip( CardMip& mip );
         void                   FreeCard( Card& card );
         [[nodiscard]] bool     AllocateMip( CardMip& mip, uint32_t resX, uint32_t resY );
+        // RESOLUTIONS AND ALLOCATION: every card's distance to the nearest of @p viewers and its wanted mips,
+        // nearest first (m_SortedCards), then the low and high mips placed in the atlas. Run by Update only when
+        // what it reads moved (the settle check there).
+        void AllocateCards( std::span<const glm::vec3> viewers );
         [[nodiscard]] uint32_t WantedLongSide( const Card& card ) const;
         [[nodiscard]] uint32_t AllocateRow();
         void                   FreeRow( uint32_t row );
         // The frame's instance table (SceneFrame::InstanceRows), after the records.
-        void BuildInstanceTable( SceneFrame&                                       frame,
+        void BuildInstanceTable( SceneRecords&                                     records,
                                  const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords ) const;
 
         SurfaceCacheBudget                     m_Budget;
         uint32_t                               m_CaptureAtlasSize    = 0;
         uint32_t                               m_MaxCapturesPerFrame = 0;
         SurfaceCacheAllocator                  m_Allocator;
-        std::unordered_map<uint64_t, Instance> m_Instances;
+        std::unordered_map<uint64_t, Instance>  m_Instances;
+        std::unordered_map<uint64_t, HeldGroup> m_Groups; // by SceneGroup::Id
         uint64_t                               m_Frame = 0;
         bool                                   m_RelightAll = false; // InvalidateLighting, consumed by Update
+        uint64_t                               m_PlacementRevision = 0; // GetPlacementRevision
+        // THE SETTLED ALLOCATION (SCENE-CACHE-4, Update): moved by every mip allocated or freed and every atlas
+        // reset; what the last AllocateCards measured with (placement revision, budget, capture atlas, viewers),
+        // whether it changed nothing (settled: the same inputs make nothing new), its cards nearest first
+        // (pointers into m_Instances' cards, valid while m_PlacementRevision holds: only an add, move or remove
+        // re-makes or frees a card list) and the cards it could not give their low mip.
+        uint64_t               m_AtlasSerial = 0;
+        bool                   m_Settled     = false;
+        uint64_t               m_SettledPlacement = 0;
+        SurfaceCacheBudget     m_SettledBudget{};
+        uint32_t               m_SettledCaptureAtlas = 0;
+        std::vector<glm::vec3> m_SettledViewers;
+        std::vector<Card*>     m_SortedCards;
+        uint32_t               m_SettledMissing = 0;
+        // THE KEPT RECORDS (SCENE-CACHE-5; UE: only dirty card / page / mesh-cards records are re-uploaded):
+        // m_RecordSerial moves with every event that changes a record besides an add, move or remove
+        // (m_PlacementRevision) and a mip allocated or freed (m_AtlasSerial): a surface swap, a capture picked,
+        // confirmed or given up. The records are made again when one of the three moved since m_Records was
+        // made, or when m_Records holds a frame-only state (a page relit as first shown, a mip shown because
+        // that frame captured it): the next frame's differ. Otherwise m_Records is handed on, and the lighting
+        // budget's pages are read from m_VisiblePages (each visible page and its physical page), never by
+        // walking every card.
+        uint64_t                                   m_RecordSerial     = 0;
+        uint64_t                                   m_RecordsSerial    = 0;
+        uint64_t                                   m_RecordsAtlas     = 0;
+        uint64_t                                   m_RecordsPlacement = 0;
+        bool                                       m_RecordsTransient = true;
+        std::shared_ptr<const SceneRecords>        m_Records;
+        std::vector<std::pair<uint32_t, uint32_t>> m_VisiblePages; // (page index, physical page), ascending
+        // A mip may wait for a capture (allocated, uncaptured, nothing in flight, its instance ready): the capture
+        // pick walks the cards only while the last walk left one waiting or an event moved m_RecordSerial,
+        // m_AtlasSerial or m_PlacementRevision since it (a ready flag only changes with a group taken, which
+        // moves m_RecordSerial).
+        uint64_t m_PickSerial    = 0;
+        uint64_t m_PickAtlas     = 0;
+        uint64_t m_PickPlacement = 0;
+        bool     m_PickWaiting   = true;
+        // Frames whose captures are in flight (picked, not yet confirmed or given up): the confirm walk over the
+        // cards runs only while one is.
+        std::vector<uint64_t> m_InFlightCaptureFrames;
         // The B3 table's rows: the count ever handed out and the freed ones, reused lowest first.
         uint32_t              m_RowCount = 0;
         std::vector<uint32_t> m_FreeRows;

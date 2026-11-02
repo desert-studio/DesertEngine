@@ -63,7 +63,10 @@
     /* scene views only: the view's grass field lens (ViewFrame::GrassLens, x DistanceScale, y */                 \
     /* PixelsPerUnit) the landscape's far grass cover is laid through, by the raster and a ray hit alike */       \
     FIELD( glm::vec4, GrassLens, GrassLens, { 0.0f } ) /* offset 496 */                                           \
-    /* block size 512 */
+    /* light views only: the shadow wind rule's caster ring (ViewFrame::CasterWindRing, x the inner distance; */  \
+    /* y, z, w the block's tail pad) */                                                                           \
+    FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
+    /* block size 528 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -73,7 +76,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 512 );
+    static_assert( sizeof( Camera ) == 528 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -118,6 +121,7 @@ namespace Desert::Graphic::ShaderProtocols
         ub.PrevPreExposure           = frame.PrevPreExposure;
         ub.FrameIndexMod8            = static_cast<float>( frame.FrameIndex % 8u );
         ub.CasterWindOrigin          = frame.CasterWindOrigin;
+        ub.CasterWindRing            = frame.CasterWindRing;
         ub.GrassLens                 = frame.GrassLens;
         return ub;
     }

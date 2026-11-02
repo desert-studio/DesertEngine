@@ -168,8 +168,7 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame SmrtLocal.x: "
                "VsmLocalVisibilityRay samples, MegaLights vsm visibility)",
                8, Vis::Advanced },
-             { P::ShadowWindAnimationDistance, G::Shadows, "Shadows.WindAnimationDistance", 500, 200000,
-               CL::None,
+             { P::ShadowWindAnimationDistance, G::Shadows, "Shadows.WindAnimationDistance", 500, 200000, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetShadowWindDistance (ShadowIsmInstances: a swaying "
                "caster's movable / still split)",
                15000, Vis::Advanced },
@@ -427,19 +426,29 @@ namespace Common::Scalability
                "the "
                "compute queue family)",
                1, Vis::Advanced },
-             { P::FoliageGrassDensityScalePercent, G::Foliage, "Foliage.GrassDensityScalePercent", 10, 100, CL::None,
-               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::AddVariety (the variety's "
+             { P::FoliageGrassDensityScalePercent, G::Foliage, "Foliage.GrassDensityScalePercent", 10, 100,
+               CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::AddVariety (the "
+               "variety's "
                "grid cell, GrassGenerate)",
                100, Vis::Basic },
-             { P::FoliageGrassCullDistanceScalePercent, G::Foliage, "Foliage.GrassCullDistanceScalePercent", 10, 400,
-               CL::None,
+             { P::FoliageGrassCullDistanceScalePercent, G::Foliage, "Foliage.GrassCullDistanceScalePercent", 10,
+               400, CL::None,
                "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::AddVariety (Start / End "
                "cull distances, GrassGenerate)",
                100, Vis::Basic },
+             { P::FoliageGrassLodScreenPixels, G::Foliage, "Foliage.GrassLodScreenPixels", 0, 256, CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (the far "
+               "LOD's screen size of blades and meshes, GrassGenerate GrassFarLodShare)",
+               16, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",
                Of( EarlyZPassMode::All ), Vis::Advanced },
+             { P::ParallelExecute, G::ViewDistance, "RenderPipeline.ParallelExecute", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
+               "workers into secondary command buffers, replayed in pass order)",
+               1, Vis::Advanced },
              { P::ShadowFoliageLodBias, G::Shadows, "Shadows.FoliageShadowLodBias", 0, 3, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
                "and thinning per cascade, MeshRenderer::BladeShadowSet)",

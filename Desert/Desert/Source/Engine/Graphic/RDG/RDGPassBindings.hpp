@@ -49,9 +49,12 @@ namespace Desert::Graphic::RDG
 {
     // One resolved texture entry: the binding PassContext::GetTexture returned for THIS execution of the pass.
     // Valid only until the exec lambda returns (see PassContext A(3)).
+    // RDG-PARALLEL-9 (RDG-REC-2): ShaderName views the declared entry's name (DeclaredBindingEntry::ShaderName
+    // of the block the pass declared at setup), which the graph keeps unchanged until the exec returns: no
+    // string is copied per entry per exec.
     struct BoundTexture
     {
-        std::string        ShaderName;
+        std::string_view   ShaderName;
         ShaderResourceKind Kind = ShaderResourceKind::Texture;
         TextureBinding     Texture;
         SubresourceRange   Range    = SubresourceRange::All();
@@ -62,7 +65,7 @@ namespace Desert::Graphic::RDG
 
     struct BoundBuffer
     {
-        std::string        ShaderName;
+        std::string_view   ShaderName;
         ShaderResourceKind Kind = ShaderResourceKind::StorageBuffer;
         BufferBinding      Buffer;
         Access             Declared = Access::None;
@@ -140,6 +143,9 @@ namespace Desert::Graphic::RDG
         // from the context alone and filled with Sampled / Storage / Uniform by shader name) is gone, and the
         // RenderGraphCompile census TheNameTakingExecBindingApiStaysDeleted keeps it gone.
         PassBindings( const PassContext& context, BindingBlockRef block );
+        // RDG-PARALLEL-9 (RDG-REC-2): hands the entry storage back to this thread's free lists, so the next block
+        // opened on it allocates nothing once they have grown.
+        ~PassBindings();
 
         PassBindings( const PassBindings& )            = delete;
         PassBindings& operator=( const PassBindings& ) = delete;

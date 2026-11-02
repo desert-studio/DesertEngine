@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -101,15 +102,19 @@ namespace Desert::Graphic::RDG
     private:
         friend class Builder;
         friend class PassBindings; // PassBindings( context, block ) reads the block this pass declared
-        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass )
-             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass )
+        // @p late: the late substitutions of the run recording this pass (the graph's on the calling thread, a
+        // chunk's on a worker); only this pass's own entries are read, and they were added before its exec.
+        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass,
+                     const std::vector<DefaultSubstitution>& late )
+             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass ), m_Late( late )
         {
         }
 
-        const Builder&       m_Builder;
-        const CompileResult& m_Result;
-        IBackend&            m_Backend;
-        uint32_t             m_Pass;
+        const Builder&                          m_Builder;
+        const CompileResult&                    m_Result;
+        IBackend&                               m_Backend;
+        uint32_t                                m_Pass;
+        const std::vector<DefaultSubstitution>& m_Late;
     };
 
     // Declarations of one pass, handed to its setup lambda. A malformed declaration (wrong resource kind,
@@ -161,11 +166,12 @@ namespace Desert::Graphic::RDG
         // PassBindings( context, block.GetRef() ) and names no shader slot itself. A pass recording several draws
         // with different shaders declares one block per shader.
         // @p layout is the kept layout (ShaderBindingLayoutCache / RDG::LayoutCache): the block shares it, no
-        // copy.
+        // copy. @p other is the fill its route keeps (Renderer::GetPipelineRouteFill, MaterialExecutor::
+        // GetRouteFill, NoOtherRouteFill): the block shares it too, so declaring a pass copies no slot name.
         BindingBlockBuilder Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
-                                      OtherRouteFill                                    other );
+                                      std::shared_ptr<const OtherRouteFill>             other );
         // A layout made for this declaration only (tests, a draw list built per frame): the graph takes it over.
-        BindingBlockBuilder Bindings( ShaderBindingLayout layout, OtherRouteFill other );
+        BindingBlockBuilder Bindings( ShaderBindingLayout layout, std::shared_ptr<const OtherRouteFill> other );
 
         // RENDER-THREADS M1. @p prerequisite (a material, a block the exec binds) is made ready before any pass of
         // the graph records (IRecordPrerequisite); the exec only looks it up. A pass that declares any runs its
@@ -245,6 +251,9 @@ namespace Desert::Graphic::RDG
         // (Access::CopyDst), so every pass added after this call that reads the buffer is ordered after the
         // upload by the graph, with its barrier; a reader added before it reads a buffer nothing wrote and is
         // refused ("... before any pass writes it"). The upload is culled with its buffer when nobody reads it.
+        // EXECUTED AT THE GRAPH HEAD (UE: SubmitBufferUploads before the first pass): an upload no earlier pass
+        // depends on (no pass before it touched the buffer) records before every other pass, so an async run
+        // that reads it forks once at the head instead of draining the graphics queue mid-frame.
         // Refused by name - a Declaration fault of the upload pass, whose readers then fault as its dependants -
         // for a handle that is not a buffer of this graph, an empty payload, a payload larger than the buffer,
         // or a size that is not a multiple of 4 bytes (the transfer granularity every GPU API shares).
@@ -326,6 +335,16 @@ namespace Desert::Graphic::RDG
         // RenderPipeline.AsyncCompute (Scalability). On by default. Off, BeginPass strips PassFlags::AsyncCompute from
         // every pass added AFTER the call, so the graph records them on the graphics queue in AddPass order and logs
         // no demotion (UE FRDGBuilder::OverridePassFlags under r.RDG.AsyncCompute 0). Set it before the first pass.
+        // RDG-PARALLEL-3 (UE r.RDG.ParallelExecute): false records every pass on the calling thread even when the
+        // backend records chunks (Scalability RenderPipeline.ParallelExecute).
+        void SetParallelExecute( bool enabled )
+        {
+            m_ParallelExecute = enabled;
+        }
+        [[nodiscard]] bool GetParallelExecute() const
+        {
+            return m_ParallelExecute;
+        }
         void SetAsyncCompute( bool enabled )
         {
             m_AsyncCompute = enabled;
@@ -428,9 +447,13 @@ namespace Desert::Graphic::RDG
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
             std::vector<DeclaredBindingBlock> Blocks;
-            // PassBuilder::Prepares, in declaration order.
-            std::vector<const IRecordPrerequisite*> Prerequisites;
+            // PassBuilder::Prepares, in declaration order: indices into Builder::m_Prerequisites (one entry per
+            // distinct object of the graph), so Execute prepares each object once, by index.
+            std::vector<uint32_t>             Prerequisites;
             std::string                       DeclarationError;
+            // The copy QueueBufferUpload added. Compile moves it to the graph head when no earlier pass touches
+            // its buffer (Compiler::HoistQueuedUploads).
+            bool QueuedUpload = false;
         };
 
         struct ResourceRecord
@@ -478,10 +501,15 @@ namespace Desert::Graphic::RDG
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
+        // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
+        // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
+        std::vector<const IRecordPrerequisite*>                  m_Prerequisites;
+        std::unordered_map<const IRecordPrerequisite*, uint32_t> m_PrerequisiteIndex;
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;
         bool                        m_AsyncCompute = true;
+        bool                        m_ParallelExecute = true;
         // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).

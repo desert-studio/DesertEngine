@@ -43,3 +43,9 @@
 Когда frames 300
 Когда profile-dump
 Тогда-вид 2_wind the same view under Simulate with the scene's wind: the same field, grass and crowns bent along the wind, clouds moved; [Profiler] table B with the same rows as A follows in editor.log
+# FPS-PLAN-100: the same wind view with DLSS Super Resolution in place of Ray Reconstruction (the denoisers
+# RR replaces run instead) - the price of RR against SR + own denoisers, measured, not guessed.
+Когда run Anti-Aliasing "Anti-Aliasing: DLSS"
+Когда frames 300
+Когда profile-dump
+Тогда-вид 3_wind_dlss_sr the 2_wind view with DLSS Super Resolution instead of Ray Reconstruction: the same field, grass, barn, trees and clouds, nothing black; [Profiler] table with GPU: Frame Total; 0 VUID

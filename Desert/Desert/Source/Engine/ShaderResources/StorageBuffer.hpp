@@ -3,11 +3,17 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 #include "BaseBuffer.hpp"
 
 namespace Desert::ShaderResources
 {
-    class StorageBuffer : public BaseBuffer
+    // RDG-PARALLEL-6 (UE: a resource that grows, grows before the graph records). A pass whose EXEC writes a
+    // storage buffer sizes it in its setup (Reserve, on the calling thread) and declares the buffer as its
+    // prerequisite (PassBuilder::Prepares( *buffer )): PrepareForRecording makes the active view's copy for this
+    // frame before any pass records, so the exec only finds it - on whichever chunk worker records it - and
+    // never grows the buffer or creates a VkBuffer there. A growth asked under a RecordingSeal is refused.
+    class StorageBuffer : public BaseBuffer, public Graphic::RDG::IRecordPrerequisite
     {
     public:
         // The ledger row — see Engine/Graphic/ResourceLedger.hpp and the note on UniformBuffer. A
@@ -70,6 +76,12 @@ namespace Desert::ShaderResources
         // Refused where the device has no bufferDeviceAddress (the buffer then carries no SHADER_DEVICE_ADDRESS
         // usage).
         NO_DISCARD virtual Common::ResultStr<uint64_t> GetDeviceAddress() = 0;
+
+        // Grows the buffer to at least @p size bytes BEFORE the graph records (a pass's setup). Per frame: the
+        // copies are re-made at the new size, seeded from the CPU image (nothing written is lost). Persistent:
+        // the size is fixed at creation, so a larger @p size is refused with the reason. Refused under a
+        // RecordingSeal: that is the growth this call exists to move out of recording.
+        NO_DISCARD virtual Common::BoolResultStr Reserve( uint32_t size ) = 0;
 
     private:
         Graphic::ResourceOwnership m_Accounting;

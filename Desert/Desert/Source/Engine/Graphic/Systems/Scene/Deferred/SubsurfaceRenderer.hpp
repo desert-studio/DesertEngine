@@ -279,7 +279,7 @@ namespace Desert::Graphic::System
                 return;
             constexpr RDG::Access kRead = RDG::Access::SampledGraphics;
             const auto            all   = RDG::SubresourceRange::All();
-            pass.Bindings( m_RecombineLayout.Get( m_RecombineShader ), RDG::OtherRouteFill{} )
+            pass.Bindings( m_RecombineLayout.Get( m_RecombineShader ), RDG::NoOtherRouteFill() )
                  .Sampler( SubsurfaceRecombineShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( SubsurfaceRecombineShaderParameters::SubsurfaceDiffuseTexture, inputs.SubsurfaceDiffuse,
                            kRead, all )

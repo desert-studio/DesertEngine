@@ -208,6 +208,14 @@ namespace
         {
             return Common::MakeError<bool>( "a stub has no device copy" );
         }
+        Common::BoolResultStr Reserve( uint32_t ) override
+        {
+            return Common::MakeError<bool>( "a test buffer is not reserved" );
+        }
+        Common::BoolResultStr PrepareForRecording() const override
+        {
+            return Common::MakeError<bool>( "a test buffer is not prepared for recording" );
+        }
         [[nodiscard]] const void* GetData() const override
         {
             return m_Block.GetContents();
@@ -494,6 +502,14 @@ TEST( StorageBufferFields, HasNoneAndTheReferenceOutlivesTheCall )
         Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
         {
             return Common::MakeError<bool>( "a stub has no device copy" );
+        }
+        Common::BoolResultStr Reserve( uint32_t ) override
+        {
+            return Common::MakeError<bool>( "a test buffer is not reserved" );
+        }
+        Common::BoolResultStr PrepareForRecording() const override
+        {
+            return Common::MakeError<bool>( "a test buffer is not prepared for recording" );
         }
         const void* GetData() const override
         {

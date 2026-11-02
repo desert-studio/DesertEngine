@@ -197,11 +197,11 @@ namespace Desert::Editor
         // shown together: three documents can be three views or none, depending on which three.
         ImGui::SameLine( 0.0f, 16.0f );
         {
-            uint64_t held = 0;
-            for ( const Engine::ViewBudget::HeldView& entry : Graphic::ReadBudgetHoldings() ) // views + scenes
-                held += entry.Bytes;
+            // Views + scenes, summed from the ledger's running totals (no per-frame walk of its rows), and the
+            // reading over that same sum: one instant for both numbers on the bar.
+            const uint64_t                    held    = Graphic::ReadBudgetHeldBytes();
             const uint64_t                    pending = PendingViewBytes( m_Documents.Documents().Documents() );
-            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget( held );
 
             // Warned past 90 %: the next document is likely refused, and the user should see that coming
             // before the click rather than after it. ImGuiCol_TextDisabled, not ImGuiCol_Text: the line

@@ -44,6 +44,8 @@ struct TerrainInstance
                                   // (cm / px; 0 = no floor); D = width x CameraUB.GrassLens.y (GRASS-VIS-17)
     vec4 GrassCoverWiden[2];      // per layer, four to a vec4: the share of its grass leaf area that is blades, whose
                                   // survivors widen; the rest meshes shrinking out (GPU-COST-29, GrassFieldCoverageOf)
+    vec4 GrassCoverFarLodRadius[2]; // per layer, four to a vec4: its meshes' bounding radius at their mean scale (cm;
+                                    // 0 = none); far LOD distance = radius x CameraUB.GrassLens.z (GRASS-SHADOW-1)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH

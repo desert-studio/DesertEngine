@@ -18,16 +18,18 @@ namespace Desert::Graphic::Render
 {
     // Carries one landscape tile from the ECS (LandscapeECSSystem) to the TerrainRenderer for this frame.
     // The heightmap is the system's GPU copy of the tile's samples, owned by that system's cache, which
-    // outlives the frame through the allocator's per-frame deletion queue.
+    // outlives the frame through the allocator's per-frame deletion queue. The overrides are the root's, resolved
+    // once per material revision and shared by pointer (LandscapeECSSystem::m_RootOverrides): no copy per tile.
     struct DrawLandscapeTileCommand : RenderCommand
     {
         std::shared_ptr<Image2D>    Heightmap;
         System::LandscapeTileDraw   Tile;
-        MaterialOverrides         Overrides;
+        std::shared_ptr<const MaterialOverrides> Overrides;
         System::LandscapeWeightDraw Weights;
 
         DrawLandscapeTileCommand( std::shared_ptr<Image2D> heightmap, const System::LandscapeTileDraw& tile,
-                                  MaterialOverrides overrides, const System::LandscapeWeightDraw& weights )
+                                  std::shared_ptr<const MaterialOverrides> overrides,
+                                  const System::LandscapeWeightDraw&       weights )
              : Heightmap( std::move( heightmap ) ), Tile( tile ), Overrides( std::move( overrides ) ),
                Weights( weights )
         {

@@ -1,6 +1,8 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -188,6 +190,7 @@ namespace Desert::Graphic::RDG
                      return Common::MakeFormattedError( "{}", target.GetError() );
                  return context.GetBackend().UploadBuffer( target.GetValue().Resource, *payload );
              } );
+        m_Passes.back().QueuedUpload = true;
         if ( !error.empty() )
             RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
     }
@@ -484,9 +487,14 @@ namespace Desert::Graphic::RDG
 
     void PassBuilder::Prepares( const IRecordPrerequisite& prerequisite )
     {
-        std::vector<const IRecordPrerequisite*>& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
-        if ( std::find( declared.begin(), declared.end(), &prerequisite ) == declared.end() )
-            declared.push_back( &prerequisite );
+        // One graph-wide index per distinct object (O(1) here; Execute prepares by index).
+        const auto [entry, inserted] = m_Builder.m_PrerequisiteIndex.try_emplace(
+             &prerequisite, static_cast<uint32_t>( m_Builder.m_Prerequisites.size() ) );
+        if ( inserted )
+            m_Builder.m_Prerequisites.push_back( &prerequisite );
+        std::vector<uint32_t>& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
+        if ( std::find( declared.begin(), declared.end(), entry->second ) == declared.end() )
+            declared.push_back( entry->second );
     }
 
     void PassBuilder::ExternalQueue( const ExternalQueueSync& sync )
@@ -836,7 +844,7 @@ namespace Desert::Graphic::RDG
         // producer declared - the system texture - under the handle the pass declared (DefaultSubstitution).
         uint32_t bound = texture.Index;
         for ( const std::vector<DefaultSubstitution>* list :
-              { &m_Result.Substitutions, &m_Builder.m_LateSubstitutions } )
+              { &m_Result.Substitutions, &m_Late } )
         {
             for ( const DefaultSubstitution& substitution : *list )
             {
@@ -1051,44 +1059,83 @@ namespace Desert::Graphic::RDG
         // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec
         // failed, or it was skipped for a lost input); the value is the pass the chain starts at.
         std::vector<int32_t> lostRoot( m_Passes.size(), -1 );
-        bool                 renderPassOpen = false;
-        const auto           lateFault =
-             [&]( uint32_t pass, PassFaultStage stage, std::string reason, std::optional<uint32_t> root )
+        // RDG-PARALLEL-2: where one run of passes keeps its late faults. The calling thread's run writes the
+        // graph's own lists; a chunk recorded on a worker writes the chunk's (RecordChunk), and the replay merges
+        // them in pass order. A worker never ends the frame: it keeps a backend failure, the replay ends it.
+        struct RecordState
         {
-            lostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
-            m_Report.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
-            m_Report.FaultCulled.push_back( pass );
+            std::vector<int32_t>&             LostRoot; // by pass
+            std::vector<PassFault>&           Faults;
+            std::vector<uint32_t>&            FaultCulled;
+            std::vector<DefaultSubstitution>& Late;
+            bool                              Worker         = false;
+            bool                              RenderPassOpen = false;
+            std::string                       BackendFailure;
+        };
+        RecordState graphState{ lostRoot, m_Report.Faults, m_Report.FaultCulled, m_LateSubstitutions };
+        const auto  lateFault = [&]( RecordState& state, uint32_t pass, PassFaultStage stage, std::string reason,
+                                    std::optional<uint32_t> root )
+        {
+            state.LostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
+            state.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
+            state.FaultCulled.push_back( pass );
+        };
+        // A backend failure abandons the graph on the calling thread; a worker only keeps it.
+        const auto backendFailure = [&]( RecordState& state, std::string reason ) -> Common::BoolResultStr
+        {
+            if ( state.Worker )
+            {
+                state.BackendFailure = std::move( reason );
+                return Common::MakeFormattedError( "{}", state.BackendFailure );
+            }
+            backend.AbandonGraph();
+            return frameFault( std::move( reason ), {} );
         };
 
         // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared (empty = prepared or none).
         std::vector<std::string> prepareFailures( m_Passes.size() );
 
-#if DESERT_DEV_INSTRUMENTS
-        // THE CPU RECORD COST OF EACH PASS, one row per pass (UE: RDG's per-pass CPU event under the pass's
-        // name). Prefixed so it never lands in the row the backend fills with the same pass's GPU time, nor in
-        // a DESERT_PROFILE_PASS row the pass's own lambda opens under that name. Held here, by pass, because the
-        // profiler keeps the name pointer for the scope's life.
-        std::vector<std::string> recordRowNames( m_Passes.size() );
-#endif
+        // The incoming read-after-write edges of each pass, in result.Edges order (CSR: rawIn[rawBegin[p] ..
+        // rawBegin[p + 1]) are pass p's). A late fault walks only the pass's own edges instead of every edge of
+        // the graph per pass.
+        std::vector<uint32_t> rawBegin( m_Passes.size() + 1, 0 );
+        std::vector<uint32_t> rawIn;
+        {
+            for ( const DependencyEdge& edge : result.Edges )
+            {
+                if ( edge.Kind == DependencyKind::ReadAfterWrite && edge.To < m_Passes.size() )
+                    ++rawBegin[edge.To + 1];
+            }
+            for ( size_t p = 0; p < m_Passes.size(); ++p )
+                rawBegin[p + 1] += rawBegin[p];
+            rawIn.resize( rawBegin.back() );
+            std::vector<uint32_t> fill( rawBegin.begin(), rawBegin.end() - 1 );
+            for ( uint32_t e = 0; e < result.Edges.size(); ++e )
+            {
+                const DependencyEdge& edge = result.Edges[e];
+                if ( edge.Kind == DependencyKind::ReadAfterWrite && edge.To < m_Passes.size() )
+                    rawIn[fill[edge.To]++] = e;
+            }
+        }
 
         // One pass inside its segment: barriers, render pass, exec, releases. Only a BACKEND failure abandons
         // the graph; a pass that fails or loses an input is a late fault and the graph goes on.
-        auto recordPass = [&]( const CompiledPass& planned ) -> Common::BoolResultStr
+        auto recordPass = [&]( const CompiledPass& planned, RecordState& state ) -> Common::BoolResultStr
         {
-#if DESERT_DEV_INSTRUMENTS
-            std::string& recordRowName = recordRowNames[planned.Pass];
-            recordRowName              = "RDG Record: " + planned.Name;
-            DESERT_PROFILE_SCOPE_DYNAMIC( recordRowName.c_str() );
-#endif
+            // THE CPU RECORD COST OF EACH PASS, one row per pass (UE: RDG's per-pass CPU event under the pass's
+            // name). Prefixed so it never lands in the row the backend fills with the same pass's GPU time, nor
+            // in a DESERT_PROFILE_PASS row the pass's own lambda opens under that name. The row is interned once
+            // per name and thread; no "RDG Record: <pass>" string is built per pass per frame.
+            DESERT_PROFILE_SCOPE_PREFIXED( "RDG Record: ", planned.Name );
             const uint32_t          p = planned.Pass;
             CompiledPass            adjusted;
             bool                    useAdjusted = false;
             std::optional<uint32_t> skipRoot;
             std::string             skipReason;
-            for ( const DependencyEdge& edge : result.Edges )
+            for ( uint32_t incoming = rawBegin[p]; incoming < rawBegin[p + 1]; ++incoming )
             {
-                if ( edge.To != p || edge.Kind != DependencyKind::ReadAfterWrite || lostRoot[edge.From] < 0 ||
-                     skipRoot )
+                const DependencyEdge& edge = result.Edges[rawIn[incoming]];
+                if ( state.LostRoot[edge.From] < 0 || skipRoot )
                     continue;
                 const ResourceRecord& record     = m_Resources[edge.Resource];
                 const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
@@ -1109,13 +1156,13 @@ namespace Desert::Graphic::RDG
                 }
                 if ( source == kInvalidResource || other )
                 {
-                    skipRoot   = static_cast<uint32_t>( lostRoot[edge.From] );
+                    skipRoot   = static_cast<uint32_t>( state.LostRoot[edge.From] );
                     skipReason = std::format( "reads '{}', which pass '{}' did not produce", record.Name,
                                               m_Passes[edge.From].Name );
                     continue;
                 }
                 if ( sampled )
-                    m_LateSubstitutions.push_back( { p, edge.Resource, source, record.Default, false } );
+                    state.Late.push_back( { p, edge.Resource, source, record.Default, false } );
                 if ( attachment )
                 {
                     if ( !useAdjusted )
@@ -1129,7 +1176,7 @@ namespace Desert::Graphic::RDG
                             decision.Clear = FaultDefaults::GetClear( record.Default );
                         }
                     }
-                    m_LateSubstitutions.push_back( { p, edge.Resource, kInvalidResource, record.Default, true } );
+                    state.Late.push_back( { p, edge.Resource, kInvalidResource, record.Default, true } );
                 }
             }
             const CompiledPass& pass = useAdjusted ? adjusted : planned;
@@ -1139,40 +1186,37 @@ namespace Desert::Graphic::RDG
             {
                 // Recorded even for a skipped pass: the layout chain the plan computed must stay true.
                 backend.RecordBarriers( pass.Barriers );
-                const Common::BoolResultStr recorded = RecordExternalStates( pass.Barriers );
-                if ( !recorded )
+                // A worker's chunk sets the external states at its replay, on the calling thread, in pass order.
+                if ( !state.Worker )
                 {
-                    backend.AbandonGraph();
-                    return frameFault(
-                         std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, recorded.GetError() ), {} );
+                    const Common::BoolResultStr recorded = RecordExternalStates( pass.Barriers );
+                    if ( !recorded )
+                        return backendFailure( state, std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name,
+                                                                   recorded.GetError() ) );
                 }
             }
             const bool rendering =
                  HasFlag( pass.Flags, PassFlags::Raster ) && ( !pass.Attachments.empty() || pass.AreaWidth != 0 );
             if ( skipRoot )
             {
-                if ( renderPassOpen )
+                if ( state.RenderPassOpen )
                     backend.EndRenderPass();
-                renderPassOpen = false;
-                lateFault( p, PassFaultStage::Dependency, std::move( skipReason ), skipRoot );
+                state.RenderPassOpen = false;
+                lateFault( state, p, PassFaultStage::Dependency, std::move( skipReason ), skipRoot );
             }
             else
             {
                 // A pass merged into a render pass that a faulted or skipped pass closed opens its own; merged
                 // passes load every attachment, so the plan's decisions hold.
-                if ( rendering && ( !pass.ContinuesRenderPass || !renderPassOpen || useAdjusted ) )
+                if ( rendering && ( !pass.ContinuesRenderPass || !state.RenderPassOpen || useAdjusted ) )
                 {
-                    if ( renderPassOpen )
+                    if ( state.RenderPassOpen )
                         backend.EndRenderPass();
                     const Common::BoolResultStr started = backend.BeginRenderPass( pass );
                     if ( !started )
-                    {
-                        backend.AbandonGraph();
-                        return frameFault(
-                             std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, started.GetError() ),
-                             {} );
-                    }
-                    renderPassOpen = true;
+                        return backendFailure( state, std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name,
+                                                                   started.GetError() ) );
+                    state.RenderPassOpen = true;
                 }
                 // RENDER-THREADS M1: a pass whose prerequisite could not be prepared does not record; a pass
                 // that declared any records sealed - its exec looks up what the prepare made and creates nothing.
@@ -1180,18 +1224,18 @@ namespace Desert::Graphic::RDG
                 {
                     if ( !prepareFailures[p].empty() )
                         return Common::MakeFormattedError( "{}", prepareFailures[p] );
-                    PassContext                  context( *this, result, backend, p );
+                    PassContext                  context( *this, result, backend, p, state.Late );
                     std::optional<RecordingSeal> seal;
                     if ( !m_Passes[p].Prerequisites.empty() )
                         seal.emplace();
                     return m_Passes[p].Exec( context );
                 }();
                 if ( !outcome )
-                    lateFault( p, PassFaultStage::Execution, outcome.GetError(), std::nullopt );
-                if ( rendering && renderPassOpen && ( !outcome || !pass.KeepsRenderPassOpen ) )
+                    lateFault( state, p, PassFaultStage::Execution, outcome.GetError(), std::nullopt );
+                if ( rendering && state.RenderPassOpen && ( !outcome || !pass.KeepsRenderPassOpen ) )
                 {
                     backend.EndRenderPass();
-                    renderPassOpen = false;
+                    state.RenderPassOpen = false;
                 }
             }
             if ( !pass.EpilogueBarriers.empty() )
@@ -1205,32 +1249,185 @@ namespace Desert::Graphic::RDG
         // a failure faults only the passes that declared it.
         DESERT_PROFILE_PHASE( phases, "RDG: Prepare recording" );
         {
-            std::vector<std::pair<const IRecordPrerequisite*, std::string>> prepared;
+            // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
+            constexpr int8_t         kNotPrepared = -1;
+            std::vector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
+            std::vector<std::string> failures( m_Prerequisites.size() );
             for ( const CompiledPass& planned : result.Passes )
             {
-                for ( const IRecordPrerequisite* prerequisite : m_Passes[planned.Pass].Prerequisites )
+                for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
                 {
-                    const auto done =
-                         std::find_if( prepared.begin(), prepared.end(), [prerequisite]( const auto& entry )
-                                       { return entry.first == prerequisite; } );
-                    std::string failure;
-                    if ( done != prepared.end() )
-                        failure = done->second;
-                    else
+                    if ( prepared[index] == kNotPrepared )
                     {
-                        const Common::BoolResultStr ready = prerequisite->PrepareForRecording();
+                        const Common::BoolResultStr ready = m_Prerequisites[index]->PrepareForRecording();
                         if ( !ready )
-                            failure = ready.GetError();
-                        prepared.emplace_back( prerequisite, failure );
+                            failures[index] = ready.GetError();
+                        prepared[index] = failures[index].empty() ? 1 : 0;
                     }
-                    if ( !failure.empty() && prepareFailures[planned.Pass].empty() )
+                    if ( prepared[index] == 0 && prepareFailures[planned.Pass].empty() )
                         prepareFailures[planned.Pass] =
-                             std::format( "a prerequisite was not prepared: {}", failure );
+                             std::format( "a prerequisite was not prepared: {}", failures[index] );
                 }
             }
+            // UE FRDGBuilder::SetupParallelExecute: what the backend would otherwise create lazily while a pass
+            // records (Vulkan: the render pass, framebuffer and attachment views of every pass that opens one)
+            // exists before the first pass records. A failure here is not reported: the pass's BeginRenderPass
+            // resolves it again and fails at the same point it always did.
+            backend.PrepareRecording( result.Passes );
         }
 
         DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );
+        // RDG-PARALLEL-2 (UE FRDGBuilder::Execute, r.RDG.ParallelExecute). A backend that records in parallel gets
+        // each long segment cut into chunks at render pass boundaries; workers record the chunks, and the calling
+        // thread replays them into the segment's command buffer in pass order. A NeverParallel pass, a short
+        // segment, and every pass after the first late fault record on the calling thread, in order, as before.
+        // A graph with a prerequisite that was not prepared records entirely on the calling thread.
+        struct RecordChunk
+        {
+            RecordChunkDesc                  Desc;
+            std::vector<int32_t>             LostRoot; // by pass; only the chunk's own passes are ever set
+            std::vector<PassFault>           Faults;
+            std::vector<uint32_t>            FaultCulled;
+            std::vector<DefaultSubstitution> Late;
+            std::string                      BackendFailure;
+        };
+        std::vector<RecordChunk> chunks;
+        std::vector<int32_t>     chunkAt; // by position: the chunk starting there, -1 when none
+        const bool               anyPrepareFailure =
+             std::any_of( prepareFailures.begin(), prepareFailures.end(),
+                          []( const std::string& failure ) { return !failure.empty(); } );
+        if ( m_ParallelExecute && backend.SupportsParallelRecording() && !anyPrepareFailure )
+        {
+            // UE: r.RDG.ParallelExecute.PassMin / PassMax. A segment shorter than kSerialSegment is not worth a
+            // worker hand-off (the ImGui / display encode graphs); a chunk grows to about kChunkPasses passes.
+            constexpr uint32_t kSerialSegment = 24;
+            constexpr uint32_t kChunkPasses   = 24;
+            chunkAt.assign( result.Passes.size(), -1 );
+            const auto cuttable = [&]( uint32_t position )
+            {
+                return !result.Passes[position].ContinuesRenderPass &&
+                       !result.Passes[position - 1].KeepsRenderPassOpen;
+            };
+            for ( const PipeSegment& segment : result.Segments )
+            {
+                // Graphics segments only: an AsyncCompute segment's GPU timeline (the profiler's queue and its
+                // "RDG Async" row) is set by BeginPipeSegment on the calling thread, after the chunks record.
+                if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart || segment.OnPipe != Pipe::Graphics ||
+                     segment.LastPosition - segment.FirstPosition + 1 < kSerialSegment )
+                    continue;
+                bool chunkOpen = false;
+                for ( uint32_t position = segment.FirstPosition; position <= segment.LastPosition; )
+                {
+                    // One run: the passes up to the next render pass boundary.
+                    uint32_t runEnd = position;
+                    while ( runEnd < segment.LastPosition && !cuttable( runEnd + 1 ) )
+                        ++runEnd;
+                    bool neverParallel = false;
+                    for ( uint32_t inRun = position; inRun <= runEnd; ++inRun )
+                        neverParallel =
+                             neverParallel || HasFlag( result.Passes[inRun].Flags, PassFlags::NeverParallel );
+                    if ( neverParallel )
+                        chunkOpen = false;
+                    else if ( chunkOpen && chunks.back().Desc.LastPosition + 1 == position &&
+                              chunks.back().Desc.LastPosition + 1 - chunks.back().Desc.FirstPosition < kChunkPasses )
+                        chunks.back().Desc.LastPosition = runEnd;
+                    else
+                    {
+                        RecordChunk chunk;
+                        chunk.Desc       = { segment.OnPipe, position, runEnd };
+                        chunkAt[position] = static_cast<int32_t>( chunks.size() );
+                        chunks.push_back( std::move( chunk ) );
+                        chunkOpen = true;
+                    }
+                    position = runEnd + 1;
+                }
+            }
+        }
+        if ( !chunks.empty() )
+        {
+            std::vector<RecordChunkDesc> descs;
+            descs.reserve( chunks.size() );
+            for ( const RecordChunk& chunk : chunks )
+                descs.push_back( chunk.Desc );
+            const Common::BoolResultStr chunksBegun = backend.BeginChunks( descs );
+            if ( !chunksBegun )
+            {
+                backend.AbandonGraph();
+                return frameFault( std::format( "graph '{}' chunks: {}", m_Name, chunksBegun.GetError() ), {} );
+            }
+            // The active view is per recording thread (ViewResources.cpp t_ActiveView): a chunk recorded on a
+            // worker reads the same view's descriptor sets and block copies as the thread that runs the graph
+            // (UE: a parallel command list set records for its view), not the frame context.
+            ViewResources& recordingView = ViewResourceRegistry::Active();
+            Common::JobSystem::Get().ParallelRanges(
+                 chunks.size(), 1,
+                 [&]( size_t begin, size_t end )
+                 {
+                     const ActiveViewScope viewScope( recordingView );
+                     for ( size_t c = begin; c < end; ++c )
+                     {
+                         RecordChunk& chunk = chunks[c];
+                         chunk.LostRoot.assign( m_Passes.size(), -1 );
+                         RecordState state{ chunk.LostRoot, chunk.Faults, chunk.FaultCulled, chunk.Late };
+                         state.Worker = true;
+                         backend.BeginChunk( static_cast<uint32_t>( c ) );
+                         for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition;
+                               ++position )
+                         {
+                             if ( !recordPass( result.Passes[position], state ) )
+                                 break;
+                         }
+                         backend.EndChunk( static_cast<uint32_t>( c ) );
+                         chunk.BackendFailure = std::move( state.BackendFailure );
+                     }
+                 } );
+        }
+        // Set once any pass faulted late: a chunk recorded on a worker did not see that fault, so every later
+        // chunk is discarded and its passes record again on the calling thread (the rare path).
+        bool discardChunks = false;
+        // The calling thread's replay of one chunk: its passes' external states, its faults, then its commands.
+        const auto replayChunk = [&]( RecordChunk& chunk, uint32_t index ) -> Common::BoolResultStr
+        {
+            for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition; ++position )
+            {
+                const CompiledPass& pass = result.Passes[position];
+                if ( pass.Barriers.empty() )
+                    continue;
+                const Common::BoolResultStr recorded = RecordExternalStates( pass.Barriers );
+                if ( !recorded )
+                {
+                    backend.AbandonGraph();
+                    return frameFault(
+                         std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, recorded.GetError() ), {} );
+                }
+            }
+            for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition; ++position )
+            {
+                const uint32_t p = result.Passes[position].Pass;
+                if ( chunk.LostRoot[p] >= 0 )
+                    lostRoot[p] = chunk.LostRoot[p];
+            }
+            m_Report.Faults.insert( m_Report.Faults.end(), chunk.Faults.begin(), chunk.Faults.end() );
+            m_Report.FaultCulled.insert( m_Report.FaultCulled.end(), chunk.FaultCulled.begin(),
+                                         chunk.FaultCulled.end() );
+            m_LateSubstitutions.insert( m_LateSubstitutions.end(), chunk.Late.begin(), chunk.Late.end() );
+            if ( !chunk.BackendFailure.empty() )
+            {
+                backend.AbandonGraph();
+                return frameFault( std::move( chunk.BackendFailure ), {} );
+            }
+            const Common::BoolResultStr executed = backend.ExecuteChunk( index );
+            if ( !executed )
+            {
+                backend.AbandonGraph();
+                return frameFault( std::format( "graph '{}' chunk at pass '{}': {}", m_Name,
+                                                result.Passes[chunk.Desc.FirstPosition].Name, executed.GetError() ),
+                                   {} );
+            }
+            discardChunks = discardChunks || !chunk.Faults.empty();
+            return Common::MakeSuccess( true );
+        };
+
         for ( const PipeSegment& segment : result.Segments )
         {
             // Amendment B: the prologue has no passes; it records the releases of a fork from the start.
@@ -1247,12 +1444,26 @@ namespace Desert::Graphic::RDG
             }
             if ( prologue )
                 backend.RecordEpilogueBarriers( result.PrologueBarriers );
-            for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition;
-                  ++position )
+            for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition; )
             {
-                Common::BoolResultStr recorded = recordPass( result.Passes[position] );
+                const int32_t chunk = chunkAt.empty() ? -1 : chunkAt[position];
+                if ( chunk >= 0 && !discardChunks )
+                {
+                    RecordChunk&          replayed = chunks[static_cast<uint32_t>( chunk )];
+                    Common::BoolResultStr executed = replayChunk( replayed, static_cast<uint32_t>( chunk ) );
+                    if ( !executed )
+                        return executed;
+                    position = replayed.Desc.LastPosition + 1;
+                    continue;
+                }
+                if ( chunk >= 0 )
+                    backend.DiscardChunk( static_cast<uint32_t>( chunk ) );
+                const size_t          faultsBefore = m_Report.Faults.size();
+                Common::BoolResultStr recorded     = recordPass( result.Passes[position], graphState );
                 if ( !recorded )
                     return recorded;
+                discardChunks = discardChunks || m_Report.Faults.size() != faultsBefore;
+                ++position;
             }
             const Common::BoolResultStr segmentEnded = backend.EndPipeSegment( segment );
             if ( !segmentEnded )
@@ -1263,6 +1474,9 @@ namespace Desert::Graphic::RDG
                                    {} );
             }
         }
+
+        if ( !chunks.empty() )
+            backend.EndChunks();
 
         // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
         // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.

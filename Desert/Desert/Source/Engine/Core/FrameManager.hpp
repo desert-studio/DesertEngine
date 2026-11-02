@@ -1,8 +1,13 @@
 #pragma once
 
 #include <Common/Core/Singleton.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <atomic>
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
 
 namespace Desert::Engine
 {
@@ -49,7 +54,45 @@ namespace Desert::Engine
         void NextFrame()
         {
             m_CurrentFrameIndex.store( ( m_CurrentFrameIndex.load() + 1 ) % m_MaxFramesInFlight.load() );
-            m_AbsoluteFrameCount.fetch_add( 1 );
+            const uint64_t frame = m_AbsoluteFrameCount.fetch_add( 1 ) + 1;
+            // What RetireAfterFrames parked and no frame in flight can read any more dies here, at the frame
+            // boundary (UE: the RHI's pending deletes are flushed once per frame), outside the lock.
+            std::vector<std::shared_ptr<const void>> released;
+            {
+                std::lock_guard lock( m_RetireMutex );
+                m_Retiring.TakeDue( frame, m_MaxFramesInFlight.load(), released );
+            }
+        }
+
+        /**
+         * @brief THE DEFERRED RELEASE OF WHAT A RECORDED FRAME MAY STILL READ. Any thread.
+         *
+         * UE: an RHI object whose last reference the game thread drops is not destroyed then; it goes on the
+         * pending-delete list and dies once no frame in flight names it (FRHIResource deferred deletion). Here a
+         * component's render caches (a procedural or edited mesh, its material instances: the draws of the
+         * frame being recorded name them by raw pointer) are dropped by the interface while the render task
+         * records that frame (RenderTask), and the GPU still reads the frames before it. Parked with the frame
+         * that dropped them, they are released by NextFrame once FrameRetireQueue's margin has passed: the render
+         * task's jobs of that frame have finished (Join precedes the submit) and its fence has been waited on.
+         * Null is ignored. A destructor that runs at release may retire again (the queue is not locked then).
+         */
+        void RetireAfterFrames( std::shared_ptr<const void> object )
+        {
+            if ( !object )
+                return;
+            std::lock_guard lock( m_RetireMutex );
+            m_Retiring.Park( std::move( object ), m_AbsoluteFrameCount.load() );
+        }
+
+        /// Releases everything RetireAfterFrames parked, now. Only for a caller that has idled the device and
+        /// joined the render task (a world's teardown, the application's shutdown before the device dies).
+        void ReleaseRetiredNow()
+        {
+            Assets::FrameRetireQueue<std::shared_ptr<const void>> released;
+            {
+                std::lock_guard lock( m_RetireMutex );
+                std::swap( released, m_Retiring );
+            }
         }
 
         [[nodiscard]] uint32_t GetCurrentFrameIndex() const
@@ -72,6 +115,9 @@ namespace Desert::Engine
         std::atomic<uint32_t> m_MaxFramesInFlight{ 2 };
         std::atomic<uint64_t> m_AbsoluteFrameCount{ 0 };
         bool                  m_CountFixedBySwapchain = false;
+        // See RetireAfterFrames.
+        std::mutex                                            m_RetireMutex;
+        Assets::FrameRetireQueue<std::shared_ptr<const void>> m_Retiring;
     };
 
 } // namespace Desert::Engine

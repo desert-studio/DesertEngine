@@ -292,8 +292,9 @@ namespace Desert::Graphic::API::Vulkan
     int32_t VulkanGpuProfiler::BeginDrawScope( std::string_view pass, std::string_view mesh,
                                                std::string_view material )
     {
+        const std::lock_guard<std::mutex> lock( m_Lock );
         if ( !m_Active || m_Recording == nullptr || !m_Recording->DrawWritten ||
-             m_RecordingTarget == VK_NULL_HANDLE )
+             Target() == VK_NULL_HANDLE )
             return -1;
 
         FrameQueries& frame = *m_Recording;
@@ -310,21 +311,22 @@ namespace Desert::Graphic::API::Vulkan
         frame.DrawScopes.push_back( DrawScope{ .Pass     = GpuViewScopeName( viewName, pass ),
                                                .Mesh     = std::string( mesh ),
                                                .Material = std::string( material ) } );
-        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.DrawPool, index * 2 );
+        vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.DrawPool, index * 2 );
         return static_cast<int32_t>( index );
     }
 
     void VulkanGpuProfiler::EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts )
     {
+        const std::lock_guard<std::mutex> lock( m_Lock );
         if ( handle < 0 || !m_Active || m_Recording == nullptr || !m_Recording->DrawWritten ||
              static_cast<size_t>( handle ) >= m_Recording->DrawScopes.size() ||
-             m_RecordingTarget == VK_NULL_HANDLE )
+             Target() == VK_NULL_HANDLE )
             return;
 
         DrawScope& scope = m_Recording->DrawScopes[static_cast<size_t>( handle )];
         scope.Counts     = counts;
         scope.Ended      = true;
-        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->DrawPool,
+        vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->DrawPool,
                              static_cast<uint32_t>( handle ) * 2 + 1 );
     }
 
@@ -387,13 +389,14 @@ namespace Desert::Graphic::API::Vulkan
 
     int32_t VulkanGpuProfiler::BeginScope( const char* name )
     {
+        const std::lock_guard<std::mutex> lock( m_Lock );
         // FrameTotalWritten doubles as "this frame's queries have been reset". Without it, flipping the
         // toggle on mid-frame would write timestamps into queries nobody reset — undefined, and the kind
         // of thing that reads as a wild number rather than an error.
         // No buffer recording (between ExecuteGraph ending the frame's buffer and the graph arming its first
         // segment, or after a failure disarmed the target): there is nowhere for the timestamp to go.
         if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten ||
-             m_RecordingTarget == VK_NULL_HANDLE )
+             Target() == VK_NULL_HANDLE )
             return -1;
 
         // The owner is whichever view the ActiveViewScope targets, else the frame context. Its NAME is
@@ -405,37 +408,74 @@ namespace Desert::Graphic::API::Vulkan
         // A refused scope (pool full this frame) returns -1, and EndScope's matching -1 leaves the nesting
         // of the scopes that were timed untouched. The refusal raises the high-water mark, so the pool
         // is big enough the next time this frame index comes round.
-        const int32_t index = m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
+        VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
+        const int32_t              index =
+             chunk != nullptr ? m_Recording->Recorder.BeginUnder( GpuViewScopeName( viewName, name ), &active,
+                                                                  chunk->GpuScopes,
+                                                                  ( chunk->GpuOrder << 24 ) | chunk->GpuOrderNext++ )
+                              : m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
         if ( index < 0 )
             return -1;
+        if ( chunk != nullptr )
+            chunk->GpuScopesMade.push_back( index );
 
-        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
+        vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( index ) ) );
         return index;
     }
 
     void VulkanGpuProfiler::EndScope( int32_t handle )
     {
+        const std::lock_guard<std::mutex> lock( m_Lock );
         if ( handle < 0 || !m_Active || m_Recording == nullptr )
             return;
 
         // The handle is the scope's index in the recording frame, and the recorder remembers which view's
         // nesting it belongs to — so a scope closes against the view it opened in even if the active view
         // moved meanwhile.
-        m_Recording->Recorder.End( handle );
+        if ( VulkanRecordContext* const chunk = VulkanRecordContext::Bound(); chunk != nullptr )
+            m_Recording->Recorder.EndUnder( handle, chunk->GpuScopes );
+        else
+            m_Recording->Recorder.End( handle );
         // A scope still open when a failure disarmed the target loses its end query; Resolve already reads a
         // scope whose two queries did not both land as untimed.
-        if ( m_RecordingTarget == VK_NULL_HANDLE )
+        if ( Target() == VK_NULL_HANDLE )
             return;
-        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
+        vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
     }
 
     void VulkanGpuProfiler::SetQueue( Common::Profiling::GpuQueue queue )
     {
+        const std::lock_guard<std::mutex> lock( m_Lock );
         // Outside recording there is no frame for the queue to belong to; Reset starts every frame on Graphics.
         if ( m_Recording != nullptr )
             m_Recording->Recorder.SetQueue( queue );
+    }
+
+    uint64_t VulkanGpuProfiler::ReserveChunkOrder( uint32_t chunks )
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        return m_Recording != nullptr ? m_Recording->Recorder.ReserveOrder( chunks ) : 0;
+    }
+
+    void VulkanGpuProfiler::StampChunkOrder( std::span<const int32_t> scopes )
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( m_Recording == nullptr || scopes.empty() )
+            return;
+        const uint64_t tick = m_Recording->Recorder.ReserveOrder( 1 );
+        for ( size_t k = 0; k < scopes.size(); ++k )
+            m_Recording->Recorder.SetOrder( scopes[k], ( tick << 24 ) | static_cast<uint64_t>( k ) );
+    }
+
+    void VulkanGpuProfiler::RetractChunkScopes( std::span<const int32_t> scopes )
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( m_Recording == nullptr )
+            return;
+        for ( const int32_t index : scopes )
+            m_Recording->Recorder.Retract( index );
     }
 
     void VulkanGpuProfiler::Resolve( FrameQueries& frame )
@@ -451,9 +491,20 @@ namespace Desert::Graphic::API::Vulkan
         // the pass order: two builds on one scene must print the same line.
         {
             std::string order;
-            for ( const GpuScopeRecorder::Scope& scope : scopes )
+            // RDG-PARALLEL-1: in recording order (Scope::Order), not in the order threads opened the scopes.
+            m_OrderScratch.resize( scopes.size() );
+            for ( size_t at = 0; at < scopes.size(); ++at )
+                m_OrderScratch[at] = static_cast<uint32_t>( at );
+            std::stable_sort( m_OrderScratch.begin(), m_OrderScratch.end(), [&scopes]( uint32_t a, uint32_t b )
+                              { return scopes[a].Order < scopes[b].Order; } );
+            for ( const uint32_t at : m_OrderScratch )
             {
-                for ( int32_t parent = scope.Parent; parent != kGpuNoParent; parent = scopes[parent].Parent )
+                const GpuScopeRecorder::Scope& scope = scopes[at];
+                // RDG-PARALLEL-5: a discarded chunk's scope is no row; its passes are in the trace once, inline.
+                if ( scope.Retracted )
+                    continue;
+                for ( int32_t parent = frame.Recorder.LiveParent( static_cast<int32_t>( at ) );
+                      parent != kGpuNoParent; parent = frame.Recorder.LiveParent( parent ) )
                     order += '>';
                 order += scope.Name;
                 order += '|';
@@ -507,7 +558,11 @@ namespace Desert::Graphic::API::Vulkan
         m_Parents.resize( scopeCount );
         for ( size_t i = 0; i < scopeCount; ++i )
         {
-            m_Parents[i]   = scopes[i].Parent;
+            // A retracted scope (a discarded chunk's) is untimed and no one's parent: its queries were never
+            // executed, and the inline re-record timed the same passes under the live enclosing scope.
+            m_Parents[i] = frame.Recorder.LiveParent( static_cast<int32_t>( i ) );
+            if ( scopes[i].Retracted )
+                continue;
             m_Inclusive[i] = pairMs( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
         }
 
@@ -561,6 +616,12 @@ namespace Desert::Graphic::API::Vulkan
         { return Common::Profiling::GpuAsyncSegmentLabelStart( name ) != std::string_view::npos; };
         for ( size_t i = 0; i < scopeCount; ++i )
         {
+            // A retracted scope (a discarded chunk's) covers nothing: it is no member of any timeline.
+            if ( scopes[i].Retracted )
+            {
+                m_Intervals[i] = GpuInterval{};
+                continue;
+            }
             m_Intervals[i]   = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
             const auto index = static_cast<int32_t>( i );
             if ( scopes[i].Queue == GpuQueue::Graphics )

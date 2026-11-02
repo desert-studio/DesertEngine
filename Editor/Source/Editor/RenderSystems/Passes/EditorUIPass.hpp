@@ -49,6 +49,9 @@ namespace Desert::Editor::Render
 
         // The step BeginFrame was last handed — what this view's UI frame advances by.
         float m_FrameDtSeconds = 0.0f;
+        // Whether this view's Gather built the draw list m_Render2D holds (false: Declare and Execute draw nothing).
+        // Written on the game thread before the view's frame is enqueued, read by the render task after.
+        bool m_Gathered = false;
 
         Graphic::Render2D::Render2D m_Render2D;
 

@@ -138,6 +138,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Compile.wait();
         m_Compile = {};
         m_State.store( BuildState::Unbuilt, std::memory_order_release );
+        ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
 
         if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE &&
              m_CompatibleRenderPass == VK_NULL_HANDLE && m_PassVariants.empty() )
@@ -238,6 +239,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !CreateVertexInputState() )
         {
             m_State.store( BuildState::Failed, std::memory_order_release );
+            ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
             return;
         }
         CreatePipelineLayout();
@@ -442,6 +444,7 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
             return base;
+        const std::lock_guard<std::mutex> variants( m_PassVariantsLock );
         if ( const auto found = m_PassVariants.find( openPass ); found != m_PassVariants.end() )
             return found->second;
 
@@ -619,6 +622,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
         m_State.store( BuildState::Compiling, std::memory_order_release );
+        ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
         PipelineBuilds::Get().OnStarted( m_Role );
         m_Compile = Common::JobSystem::Get().Async(
              [this, device, pipelineCache, role = m_Role]
@@ -644,6 +648,7 @@ namespace Desert::Graphic::API::Vulkan
             LOG_ERROR( "[Pipeline] '{}' not created: vkCreateGraphicsPipelines = {}", m_Specification.DebugName,
                        VkResultToString( result ) );
             m_State.store( BuildState::Failed, std::memory_order_release );
+            ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
             return;
         }
 
@@ -653,6 +658,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Pipeline = built;
         // Release: the handle written above is visible to whoever reads Built.
         m_State.store( BuildState::Built, std::memory_order_release );
+        ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
         LOG_INFO( "Created {} VulkanPipeline", m_Specification.DebugName );
     }
 

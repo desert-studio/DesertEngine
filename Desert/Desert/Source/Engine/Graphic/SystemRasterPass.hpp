@@ -44,5 +44,10 @@ namespace Desert::Graphic
         // sample that same depth (UE: FExclusiveDepthStencil::DepthRead with the SceneDepth SRV - the particle
         // depth fade). A read-only depth cannot be cleared: the node must LOAD it.
         bool DepthReadOnly = false;
+
+        // RDG::PassFlags::NeverParallel (UE ERDGPassFlags::NeverParallel): the exec writes CPU state shared with
+        // other passes or objects (Render2D's vertex buffers and flush bookkeeping), so the node records on the
+        // calling thread, in pass order, never in a worker's chunk.
+        bool NeverParallel = false;
     };
 } // namespace Desert::Graphic

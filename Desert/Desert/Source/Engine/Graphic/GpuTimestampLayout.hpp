@@ -129,6 +129,13 @@ namespace Desert::Graphic
             // The queue the scope's timestamps were written on (SetQueue at the time it opened): the
             // timeline its interval belongs to (GpuCoverage).
             Common::Profiling::GpuQueue Queue = Common::Profiling::GpuQueue::Graphics;
+            // RDG-PARALLEL-1: the scope's place in the frame's recording order (the [GpuOrder] trace sorts by it):
+            // Begin takes the next tick << 24; a chunk's scopes take its reserved tick << 24 | its count.
+            uint64_t Order = 0;
+            // RDG-PARALLEL-5: a scope of a chunk the graph discarded (its secondaries never run, and its passes
+            // are recorded again inline as scopes of their own). It is no row of the frame: not in the [GpuOrder]
+            // trace, the tables or the coverage, and no scope's parent (LiveParent).
+            bool Retracted = false;
         };
 
         // Starts a frame with room for @p capacityScopes.
@@ -136,6 +143,7 @@ namespace Desert::Graphic
         {
             m_Capacity  = capacityScopes;
             m_Requested = 0;
+            m_Clock     = 0;
             m_Scopes.clear();
             m_Stacks.clear();
             m_Queue = Common::Profiling::GpuQueue::Graphics;
@@ -166,12 +174,56 @@ namespace Desert::Graphic
             const auto index = static_cast<int32_t>( m_Scopes.size() );
             m_Scopes.push_back(
                  Scope{ std::move( name ), stack.empty() ? kGpuNoParent : stack.back(), stackIndex, m_Queue } );
+            m_Scopes.back().Order = m_Clock++ << 24;
             stack.push_back( index );
             return index;
         }
 
         // Closes @p index. RAII scopes close innermost-first within their own view, so the top of that
         // view's stack is the scope being closed; -1 (a refused scope) is ignored.
+        // RDG-PARALLEL-1 (graph chunks recorded on task workers). @p count ticks of the recording order, in chunk
+        // order, reserved before the chunks record: chunk i's scopes sort after everything begun before the
+        // reservation and before everything begun after it, whichever worker records first.
+        [[nodiscard]] uint64_t ReserveOrder( uint32_t count ) noexcept
+        {
+            const uint64_t first = m_Clock;
+            m_Clock += count;
+            return first;
+        }
+        // A scope opened on a chunk's thread: it nests under @p open (the chunk's own open scopes), the first under
+        // the scope open on its (view, queue) stack - the dispatching thread's, untouched while chunks record - and
+        // is never pushed onto that shared stack. @p order: the chunk's tick << 24 | the chunk's scope count.
+        [[nodiscard]] int32_t BeginUnder( std::string name, const void* owner, std::vector<int32_t>& open,
+                                          uint64_t order )
+        {
+            const uint32_t stackIndex = StackOf( owner, m_Queue );
+            const auto&    shared     = m_Stacks[stackIndex].Open;
+            const int32_t  parent     = !open.empty()    ? open.back()
+                                        : shared.empty() ? kGpuNoParent
+                                                         : shared.back();
+            if ( parent != kGpuNoParent && m_Scopes[static_cast<size_t>( parent )].Name == name )
+                return -1;
+            ++m_Requested;
+            if ( m_Scopes.size() >= m_Capacity )
+                return -1;
+            const auto index = static_cast<int32_t>( m_Scopes.size() );
+            m_Scopes.push_back( Scope{ std::move( name ), parent, stackIndex, m_Queue } );
+            m_Scopes.back().Order = order;
+            open.push_back( index );
+            return index;
+        }
+        // RDG-PARALLEL-3: scope @p index takes @p order (a chunk's scopes, re-stamped as the chunk is replayed).
+        void SetOrder( int32_t index, uint64_t order ) noexcept
+        {
+            if ( index >= 0 && static_cast<size_t>( index ) < m_Scopes.size() )
+                m_Scopes[static_cast<size_t>( index )].Order = order;
+        }
+        void EndUnder( int32_t index, std::vector<int32_t>& open )
+        {
+            if ( !open.empty() && open.back() == index )
+                open.pop_back();
+        }
+
         void End( int32_t index )
         {
             if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
@@ -179,6 +231,26 @@ namespace Desert::Graphic
             auto& stack = m_Stacks[m_Scopes[static_cast<size_t>( index )].Stack].Open;
             if ( !stack.empty() && stack.back() == index )
                 stack.pop_back();
+        }
+
+        // RDG-PARALLEL-5: scope @p index belonged to a discarded chunk; -1 and out-of-range indices are ignored.
+        // A chunk's scopes are never on a shared stack (BeginUnder), so no stack holds it.
+        void Retract( int32_t index ) noexcept
+        {
+            if ( index >= 0 && static_cast<size_t>( index ) < m_Scopes.size() )
+                m_Scopes[static_cast<size_t>( index )].Retracted = true;
+        }
+
+        // The nearest enclosing scope of @p index that was not retracted, or kGpuNoParent: what a scope nests
+        // under once a discarded chunk's scopes are gone. Always an earlier index, as Scope::Parent is.
+        [[nodiscard]] int32_t LiveParent( int32_t index ) const noexcept
+        {
+            if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
+                return kGpuNoParent;
+            int32_t parent = m_Scopes[static_cast<size_t>( index )].Parent;
+            while ( parent != kGpuNoParent && m_Scopes[static_cast<size_t>( parent )].Retracted )
+                parent = m_Scopes[static_cast<size_t>( parent )].Parent;
+            return parent;
         }
 
         [[nodiscard]] const std::vector<Scope>& Scopes() const noexcept
@@ -219,6 +291,7 @@ namespace Desert::Graphic
         Common::Profiling::GpuQueue                               m_Queue = Common::Profiling::GpuQueue::Graphics;
         uint32_t                                                  m_Capacity  = 0;
         uint32_t                                                  m_Requested = 0;
+        uint64_t m_Clock = 0; // the next recording-order tick
         std::vector<Scope>                                        m_Scopes;
         std::vector<OwnerStack>                                   m_Stacks;
     };

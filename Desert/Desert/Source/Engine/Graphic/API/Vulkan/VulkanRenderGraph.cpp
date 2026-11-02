@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
@@ -546,8 +547,11 @@ namespace Desert::Graphic::API::Vulkan
                                                             range.LayerCount, m_Desc.Mips, m_Desc.Layers );
         const auto key = std::make_tuple( range.BaseMip, range.MipCount, range.BaseLayer,
                                           range.LayerCount | ( forAttachment ? 0x80000000u : 0u ) );
-        if ( const auto found = m_Views.find( key ); found != m_Views.end() )
-            return Common::MakeSuccess( found->second );
+        {
+            const std::shared_lock<std::shared_mutex> lookup( m_ViewsLock );
+            if ( const auto found = m_Views.find( key ); found != m_Views.end() )
+                return Common::MakeSuccess( found->second );
+        }
 
         VkImageViewType type = range.LayerCount == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         if ( m_Desc.Dim == RDG::TextureDim::Tex3D )
@@ -565,6 +569,10 @@ namespace Desert::Graphic::API::Vulkan
         info.viewType         = type;
         info.format           = m_Format;
         info.subresourceRange = { m_Aspect, range.BaseMip, range.MipCount, range.BaseLayer, range.LayerCount };
+        // Created under the write lock: two threads asking for the same new view get one view.
+        const std::unique_lock<std::shared_mutex> create( m_ViewsLock );
+        if ( const auto found = m_Views.find( key ); found != m_Views.end() )
+            return Common::MakeSuccess( found->second );
         VkImageView    view   = VK_NULL_HANDLE;
         const VkResult result = vkCreateImageView( m_Device, &info, nullptr, &view );
         if ( result != VK_SUCCESS )
@@ -914,18 +922,30 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgPassDescriptors::VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers,
                                                         uint32_t frameSlots, bool accelerationStructures )
-         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) ), m_SamplerCache( samplers ),
-           m_AccelerationStructures( accelerationStructures )
+         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ), std::vector<SlotPools>( 1 ) ),
+           m_SamplerCache( samplers ), m_AccelerationStructures( accelerationStructures )
     {
     }
 
     VulkanRdgPassDescriptors::~VulkanRdgPassDescriptors()
     {
-        for ( const SlotPools& slot : m_Slots )
+        for ( const std::vector<SlotPools>& slot : m_Slots )
         {
-            for ( VkDescriptorPool pool : slot.Pools )
-                vkDestroyDescriptorPool( m_Device, pool, nullptr );
+            for ( const SlotPools& arena : slot )
+            {
+                for ( VkDescriptorPool pool : arena.Pools )
+                    vkDestroyDescriptorPool( m_Device, pool, nullptr );
+            }
         }
+        // Destroying a pool frees every set still allocated from it (cached and retired alike).
+        for ( VkDescriptorPool pool : m_CachedPools )
+            vkDestroyDescriptorPool( m_Device, pool, nullptr );
+    }
+
+    uint64_t NextRdgPhysicalIdentity() noexcept
+    {
+        static std::atomic<uint64_t> next{ 1 };
+        return next.fetch_add( 1, std::memory_order_relaxed );
     }
 
     namespace
@@ -974,7 +994,17 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )
     {
-        // One pool shape for every pass: a full pool is followed by another, never enlarged in place.
+        // A full pool is followed by another, never enlarged in place.
+        const Common::ResultStr<VkDescriptorPool> pool = CreatePool( 0 );
+        if ( !pool )
+            return pool;
+        slot.Pools.push_back( pool.GetValue() );
+        return pool;
+    }
+
+    Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::CreatePool( VkDescriptorPoolCreateFlags flags )
+    {
+        // One pool shape for every pass.
         constexpr uint32_t                        kSets = 256;
         const std::array<VkDescriptorPoolSize, 6> sizes = {
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
@@ -985,6 +1015,7 @@ namespace Desert::Graphic::API::Vulkan
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, kSets } };
         VkDescriptorPoolCreateInfo info{};
         info.sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        info.flags   = flags;
         info.maxSets = kSets;
         // The acceleration-structure row is last: a device without the extension leaves just that row out.
         info.poolSizeCount      = static_cast<uint32_t>( sizes.size() ) - ( m_AccelerationStructures ? 0u : 1u );
@@ -994,22 +1025,191 @@ namespace Desert::Graphic::API::Vulkan
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<VkDescriptorPool>( "vkCreateDescriptorPool failed ({})",
                                                                  static_cast<int>( result ) );
-        slot.Pools.push_back( pool );
         return Common::MakeSuccess( pool );
     }
 
     void VulkanRdgPassDescriptors::BeginFrameSlot( uint32_t slot )
     {
-        m_Slot           = slot % static_cast<uint32_t>( m_Slots.size() );
-        SlotPools& pools = m_Slots[m_Slot];
-        for ( VkDescriptorPool pool : pools.Pools )
-            vkResetDescriptorPool( m_Device, pool, 0 );
-        pools.Current = 0;
+        m_Slot = slot % static_cast<uint32_t>( m_Slots.size() );
+        for ( SlotPools& arena : m_Slots[m_Slot] )
+        {
+            for ( VkDescriptorPool pool : arena.Pools )
+                vkResetDescriptorPool( m_Device, pool, 0 );
+            arena.Current = 0;
+        }
+        EvictCached();
+    }
+
+    namespace
+    {
+        // A cached set's key hash (splitmix64 per word, folded): the shard and the bucket of the key.
+        uint64_t HashCachedSetKey( std::span<const uint64_t> key )
+        {
+            uint64_t hash = 0x9E3779B97F4A7C15ULL ^ static_cast<uint64_t>( key.size() );
+            for ( const uint64_t word : key )
+            {
+                uint64_t mixed = word + 0x9E3779B97F4A7C15ULL;
+                mixed          = ( mixed ^ ( mixed >> 30 ) ) * 0xBF58476D1CE4E5B9ULL;
+                mixed          = ( mixed ^ ( mixed >> 27 ) ) * 0x94D049BB133111EBULL;
+                mixed          = mixed ^ ( mixed >> 31 );
+                hash           = ( hash ^ mixed ) * 0x100000001B3ULL;
+            }
+            return hash ^ ( hash >> 29 );
+        }
+
+        bool SameCachedSetKey( std::span<const uint64_t> stored, std::span<const uint64_t> key )
+        {
+            return std::ranges::equal( stored, key );
+        }
+    } // namespace
+
+    Common::ResultStr<VulkanRdgPassDescriptors::CachedSet>
+    VulkanRdgPassDescriptors::AcquireCached( VkDescriptorSetLayout layout, std::span<const uint64_t> key )
+    {
+        const uint64_t  hash  = HashCachedSetKey( key );
+        CachedSetShard& shard = m_CachedShards[hash % kCachedSetShards];
+        {
+            const std::scoped_lock lock( shard.Lock );
+            const auto             bucket = shard.Buckets.find( hash );
+            if ( bucket != shard.Buckets.end() )
+            {
+                for ( CachedSetEntry& entry : bucket->second )
+                {
+                    if ( !SameCachedSetKey( entry.Key, key ) )
+                        continue;
+                    entry.LastUsed = m_CacheFrame.load( std::memory_order_relaxed );
+                    return Common::MakeSuccess( CachedSet{ .Set = entry.Set, .Pool = entry.Pool, .Hit = true } );
+                }
+            }
+        }
+
+        // A miss: a fresh set from the cache's own pools (externally synchronized: under m_CachedPoolLock). A
+        // full or fragmented pool hands over to the next one; when every pool refuses, one more is made.
+        const std::scoped_lock lock( m_CachedPoolLock );
+        const auto             allocate = [this, layout]( VkDescriptorPool pool, VkDescriptorSet& set )
+        {
+            VkDescriptorSetAllocateInfo info{};
+            info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            info.descriptorPool     = pool;
+            info.descriptorSetCount = 1;
+            info.pSetLayouts        = &layout;
+            return vkAllocateDescriptorSets( m_Device, &info, &set );
+        };
+        for ( size_t tried = 0; tried < m_CachedPools.size(); ++tried )
+        {
+            const size_t    index  = ( m_CachedPoolCurrent + tried ) % m_CachedPools.size();
+            VkDescriptorSet set    = VK_NULL_HANDLE;
+            const VkResult  result = allocate( m_CachedPools[index], set );
+            if ( result == VK_SUCCESS )
+            {
+                m_CachedPoolCurrent = index;
+                return Common::MakeSuccess( CachedSet{ .Set = set, .Pool = m_CachedPools[index], .Hit = false } );
+            }
+            if ( result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL )
+                return Common::MakeFormattedError<CachedSet>( "vkAllocateDescriptorSets (cached) failed ({})",
+                                                              static_cast<int>( result ) );
+        }
+        const Common::ResultStr<VkDescriptorPool> pool =
+             CreatePool( VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT );
+        if ( !pool )
+            return Common::MakeFormattedError<CachedSet>( "{}", pool.GetError() );
+        m_CachedPools.push_back( pool.GetValue() );
+        m_CachedPoolCurrent    = m_CachedPools.size() - 1;
+        VkDescriptorSet set    = VK_NULL_HANDLE;
+        const VkResult  result = allocate( pool.GetValue(), set );
+        // A layout that does not fit a fresh pool never will.
+        if ( result != VK_SUCCESS )
+            return Common::MakeFormattedError<CachedSet>( "vkAllocateDescriptorSets (cached) failed ({})",
+                                                          static_cast<int>( result ) );
+        return Common::MakeSuccess( CachedSet{ .Set = set, .Pool = pool.GetValue(), .Hit = false } );
+    }
+
+    void VulkanRdgPassDescriptors::PublishCached( std::span<const uint64_t> key, const CachedSet& fresh )
+    {
+        const uint64_t  hash  = HashCachedSetKey( key );
+        CachedSetShard& shard = m_CachedShards[hash % kCachedSetShards];
+        {
+            const std::scoped_lock       lock( shard.Lock );
+            std::vector<CachedSetEntry>& bucket = shard.Buckets[hash];
+            const bool                   taken  = std::ranges::any_of(
+                 bucket, [key]( const CachedSetEntry& entry ) { return SameCachedSetKey( entry.Key, key ); } );
+            if ( !taken )
+            {
+                CachedSetEntry entry;
+                entry.Key.assign( key.begin(), key.end() );
+                entry.Set      = fresh.Set;
+                entry.Pool     = fresh.Pool;
+                entry.LastUsed = m_CacheFrame.load( std::memory_order_relaxed );
+                bucket.push_back( std::move( entry ) );
+                return;
+            }
+        }
+        // An equal set another thread published first stays; this one is bound by this exec, so it is freed only
+        // after the frames in flight.
+        DiscardCached( fresh );
+    }
+
+    void VulkanRdgPassDescriptors::DiscardCached( const CachedSet& fresh )
+    {
+        const std::scoped_lock lock( m_CachedPoolLock );
+        m_RetiredCached.push_back( RetiredCachedSet{ .Set   = fresh.Set,
+                                                     .Pool  = fresh.Pool,
+                                                     .Frame = m_CacheFrame.load( std::memory_order_relaxed ) } );
+    }
+
+    void VulkanRdgPassDescriptors::EvictCached()
+    {
+        // BeginFrameSlot of frame F runs after the fence of frame F - slots, the last frame that shared its slot:
+        // a set last bindable in a frame before that one is bound by no command buffer that can still execute.
+        const uint64_t frame    = m_CacheFrame.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        const uint64_t inFlight = static_cast<uint64_t>( m_Slots.size() );
+        const auto     expired  = [frame, inFlight]( uint64_t used ) { return used + inFlight < frame; };
+        const std::scoped_lock poolLock( m_CachedPoolLock );
+        const auto             release = [this]( VkDescriptorPool pool, VkDescriptorSet set )
+        { vkFreeDescriptorSets( m_Device, pool, 1, &set ); };
+        for ( CachedSetShard& shard : m_CachedShards )
+        {
+            const std::scoped_lock lock( shard.Lock );
+            for ( auto bucket = shard.Buckets.begin(); bucket != shard.Buckets.end(); )
+            {
+                std::erase_if( bucket->second,
+                               [&expired, &release]( const CachedSetEntry& entry )
+                               {
+                                   if ( !expired( entry.LastUsed ) )
+                                       return false;
+                                   release( entry.Pool, entry.Set );
+                                   return true;
+                               } );
+                if ( bucket->second.empty() )
+                    bucket = shard.Buckets.erase( bucket );
+                else
+                    ++bucket;
+            }
+        }
+        std::erase_if( m_RetiredCached,
+                       [&expired, &release]( const RetiredCachedSet& retired )
+                       {
+                           if ( !expired( retired.Frame ) )
+                               return false;
+                           release( retired.Pool, retired.Set );
+                           return true;
+                       } );
+    }
+
+    void VulkanRdgPassDescriptors::ReserveArenas( uint32_t arenas )
+    {
+        std::vector<SlotPools>& slot = m_Slots[m_Slot];
+        if ( slot.size() < arenas )
+            slot.resize( arenas );
     }
 
     Common::ResultStr<VkDescriptorSet> VulkanRdgPassDescriptors::Allocate( VkDescriptorSetLayout layout )
     {
-        SlotPools& pools = m_Slots[m_Slot];
+        std::vector<SlotPools>& slot = m_Slots[m_Slot];
+        if ( t_Arena >= slot.size() )
+            return Common::MakeFormattedError<VkDescriptorSet>( "descriptor arena {} was not reserved (ReserveArenas)",
+                                                                t_Arena );
+        SlotPools& pools = slot[t_Arena];
         for ( ;; )
         {
             bool fresh = false;
@@ -1037,6 +1237,93 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    namespace
+    {
+        // The descriptors queued on this thread (VulkanRdgPassDescriptors::WriteBatch). The infos live in their
+        // own arrays and are pointed at when the batch flushes, so the arrays may grow while writes are queued.
+        struct PendingDescriptorWrites
+        {
+            std::vector<VkWriteDescriptorSet>                         Writes;
+            std::vector<VkDescriptorImageInfo>                        Images;
+            std::vector<VkDescriptorBufferInfo>                       Buffers;
+            std::vector<VkAccelerationStructureKHR>                   Structures;
+            std::vector<VkWriteDescriptorSetAccelerationStructureKHR> StructureWrites;
+            uint32_t                                                  Depth = 0;
+        };
+        thread_local PendingDescriptorWrites t_PendingWrites;
+    } // namespace
+
+    VulkanRdgPassDescriptors::WriteBatch::WriteBatch( VulkanRdgPassDescriptors& descriptors )
+         : m_Descriptors( descriptors )
+    {
+        ++t_PendingWrites.Depth;
+    }
+
+    VulkanRdgPassDescriptors::WriteBatch::~WriteBatch()
+    {
+        --t_PendingWrites.Depth;
+        if ( t_PendingWrites.Depth == 0 )
+            m_Descriptors.Flush();
+    }
+
+    void VulkanRdgPassDescriptors::Queue( const VkWriteDescriptorSet& write, const VkDescriptorImageInfo* image,
+                                          const VkDescriptorBufferInfo* buffer, VkAccelerationStructureKHR structure )
+    {
+        PendingDescriptorWrites& pending = t_PendingWrites;
+        pending.Writes.push_back( write );
+        if ( image != nullptr )
+            pending.Images.push_back( *image );
+        if ( buffer != nullptr )
+            pending.Buffers.push_back( *buffer );
+        if ( write.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR )
+            pending.Structures.push_back( structure );
+        if ( pending.Depth == 0 )
+            Flush();
+    }
+
+    void VulkanRdgPassDescriptors::Flush()
+    {
+        PendingDescriptorWrites& pending = t_PendingWrites;
+        if ( pending.Writes.empty() )
+            return;
+        // Each write takes the next info of its kind, in the order the writes were queued.
+        pending.StructureWrites.resize( pending.Structures.size() );
+        size_t imageAt     = 0;
+        size_t bufferAt    = 0;
+        size_t structureAt = 0;
+        for ( VkWriteDescriptorSet& write : pending.Writes )
+        {
+            if ( write.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR )
+            {
+                VkWriteDescriptorSetAccelerationStructureKHR& chained = pending.StructureWrites[structureAt];
+                chained                            = VkWriteDescriptorSetAccelerationStructureKHR{};
+                chained.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+                chained.accelerationStructureCount = 1;
+                chained.pAccelerationStructures    = &pending.Structures[structureAt];
+                write.pNext                        = &chained;
+                ++structureAt;
+            }
+            else if ( write.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
+                      write.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER )
+            {
+                write.pBufferInfo = &pending.Buffers[bufferAt];
+                ++bufferAt;
+            }
+            else
+            {
+                write.pImageInfo = &pending.Images[imageAt];
+                ++imageAt;
+            }
+        }
+        vkUpdateDescriptorSets( m_Device, static_cast<uint32_t>( pending.Writes.size() ), pending.Writes.data(), 0,
+                                nullptr );
+        pending.Writes.clear();
+        pending.Images.clear();
+        pending.Buffers.clear();
+        pending.Structures.clear();
+        pending.StructureWrites.clear();
+    }
+
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding,
                                                                   VkDescriptorType           type,
                                                                   const RDG::TextureBinding& texture,
@@ -1062,8 +1349,7 @@ namespace Desert::Graphic::API::Vulkan
         write.dstArrayElement = element;
         write.descriptorCount = 1;
         write.descriptorType  = type;
-        write.pImageInfo      = &image;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, &image, nullptr, VK_NULL_HANDLE );
         return Common::MakeSuccess( true );
     }
 
@@ -1076,8 +1362,7 @@ namespace Desert::Graphic::API::Vulkan
         write.dstBinding      = binding;
         write.descriptorCount = 1;
         write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER;
-        write.pImageInfo      = &image;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, &image, nullptr, VK_NULL_HANDLE );
     }
 
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteBuffer( VkDescriptorSet set, uint32_t binding,
@@ -1098,8 +1383,7 @@ namespace Desert::Graphic::API::Vulkan
         write.dstBinding      = binding;
         write.descriptorCount = 1;
         write.descriptorType  = type;
-        write.pBufferInfo     = &info;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, nullptr, &info, VK_NULL_HANDLE );
         return Common::MakeSuccess( true );
     }
 
@@ -1119,18 +1403,14 @@ namespace Desert::Graphic::API::Vulkan
         const VkAccelerationStructureKHR handle = physical.GetValue()->GetAccelerationStructure();
         if ( handle == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "'{}' stores no acceleration structure", tlas.Name );
-        VkWriteDescriptorSetAccelerationStructureKHR structures{};
-        structures.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-        structures.accelerationStructureCount = 1;
-        structures.pAccelerationStructures    = &handle;
+        // Its VkWriteDescriptorSetAccelerationStructureKHR is chained when the batch flushes (Flush).
         VkWriteDescriptorSet write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.pNext           = &structures;
         write.dstSet          = set;
         write.dstBinding      = binding;
         write.descriptorCount = 1;
         write.descriptorType  = type;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, nullptr, nullptr, handle );
         return Common::MakeSuccess( true );
     }
 
@@ -1170,7 +1450,7 @@ namespace Desert::Graphic::API::Vulkan
                                                                 context.GetPassName() );
         // GetKind() is Vulkan (checked above), and VulkanRdgBackend is the one backend that answers so.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-        VkCommandBuffer commandBuffer = static_cast<VulkanRdgBackend&>( backend ).m_CommandBuffer;
+        VkCommandBuffer commandBuffer = static_cast<VulkanRdgBackend&>( backend ).RecordingBuffer();
         if ( commandBuffer == VK_NULL_HANDLE )
             return Common::MakeFormattedError<VkCommandBuffer>( "pass '{}': the backend has no command buffer",
                                                                 context.GetPassName() );
@@ -1185,7 +1465,7 @@ namespace Desert::Graphic::API::Vulkan
                  "pass '{}' is not recorded by the Vulkan backend", context.GetPassName() );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): GetKind() == Vulkan names this exact
         // type
-        return Common::MakeSuccess( &static_cast<VulkanRdgBackend&>( backend ).m_PassSets );
+        return Common::MakeSuccess( &static_cast<VulkanRdgBackend&>( backend ).PassSetsState() );
     }
 
     bool VulkanRdgPassSetMemo::Matches( const Entry& entry, const Key& key )
@@ -1342,7 +1622,18 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
                         graph.Result->Passes[segment.LastPosition].Name + ": " +
-                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes]";
+                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes";
+                // The graphics pass that waits for this segment (its join, RDGCompile CutRunsAtConsumers).
+                for ( const RDG::CrossPipeSync& sync : graph.Result->Syncs )
+                {
+                    if ( sync.IsFork || sync.SignalPosition != segment.LastPosition )
+                        continue;
+                    if ( sync.WaitPosition == RDG::CrossPipeSync::kJoinAtGraphEnd )
+                        line += ", joined at the graph end";
+                    else
+                        line += ", joined before '" + graph.Result->Passes[sync.WaitPosition].Name + "'";
+                }
+                line += "]";
             }
             std::string& logged = m_AsyncSegmentsLogged[std::string( graph.Name )];
             if ( line != logged )
@@ -1492,40 +1783,57 @@ namespace Desert::Graphic::API::Vulkan
     // THE one place a pass is labelled and timed: every graph pass gets both, and no pass records its own.
     void VulkanRdgBackend::BeginPass( const RDG::CompiledPass& pass )
     {
-        m_PassSets.Clear();
+        Chunk* const          chunk         = BoundChunk();
+        const VkCommandBuffer commandBuffer = RecordingBuffer();
+        PassSetsState().Clear();
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
-        if ( m_Device.CmdBeginLabel != nullptr )
+        if ( m_Device.CmdBeginLabel != nullptr && commandBuffer != VK_NULL_HANDLE )
         {
             VkDebugUtilsLabelEXT label{};
             label.sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
             label.pLabelName = pass.Name.c_str();
-            m_Device.CmdBeginLabel( m_CommandBuffer, &label );
+            m_Device.CmdBeginLabel( commandBuffer, &label );
+            if ( chunk != nullptr )
+                chunk->Labels.push_back( pass.Name.c_str() );
         }
 #if DESERT_DEV_INSTRUMENTS
-        m_CpuScopes.push_back( std::make_unique<Common::Profiling::ScopedTimer>( pass.Name.c_str() ) );
+        ( chunk != nullptr ? chunk->CpuScopes : m_CpuScopes )
+             .push_back( std::make_unique<Common::Profiling::ScopedTimer>( pass.Name.c_str() ) );
 #endif
-        m_ProfilerScopes.push_back(
+        ProfilerScopesState().push_back(
              m_Device.Profiler != nullptr ? m_Device.Profiler->BeginScope( pass.Name.c_str() ) : -1 );
     }
 
     void VulkanRdgBackend::EndPass( const RDG::CompiledPass& )
     {
-        m_PassSets.Clear();
+        Chunk* const          chunk         = BoundChunk();
+        const VkCommandBuffer commandBuffer = RecordingBuffer();
+        PassSetsState().Clear();
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
-        if ( !m_ProfilerScopes.empty() )
+        std::vector<int32_t>& scopes = ProfilerScopesState();
+        if ( !scopes.empty() )
         {
             if ( m_Device.Profiler != nullptr )
-                m_Device.Profiler->EndScope( m_ProfilerScopes.back() );
-            m_ProfilerScopes.pop_back();
+                m_Device.Profiler->EndScope( scopes.back() );
+            scopes.pop_back();
 #if DESERT_DEV_INSTRUMENTS
-            if ( !m_CpuScopes.empty() )
-                m_CpuScopes.pop_back();
+            auto& cpuScopes = chunk != nullptr ? chunk->CpuScopes : m_CpuScopes;
+            if ( !cpuScopes.empty() )
+                cpuScopes.pop_back();
 #endif
         }
-        if ( m_Device.CmdEndLabel != nullptr )
-            m_Device.CmdEndLabel( m_CommandBuffer );
+        if ( m_Device.CmdEndLabel != nullptr && commandBuffer != VK_NULL_HANDLE )
+        {
+            if ( chunk == nullptr )
+                m_Device.CmdEndLabel( commandBuffer );
+            else if ( !chunk->Labels.empty() )
+            {
+                m_Device.CmdEndLabel( commandBuffer );
+                chunk->Labels.pop_back();
+            }
+        }
     }
 
     void VulkanRdgBackend::RecordBarriers( std::span<const RDG::Barrier> barriers )
@@ -1608,7 +1916,10 @@ namespace Desert::Graphic::API::Vulkan
                 srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             if ( dstStages == 0 )
                 dstStages = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            vkCmdPipelineBarrier( m_CommandBuffer, srcStages, dstStages, 0, 0, nullptr,
+            const VkCommandBuffer commandBuffer = RecordingBuffer();
+            if ( commandBuffer == VK_NULL_HANDLE )
+                return; // a chunk whose buffer could not be begun: ExecuteChunk reports it
+            vkCmdPipelineBarrier( commandBuffer, srcStages, dstStages, 0, 0, nullptr,
                                   static_cast<uint32_t>( buffers.size() ), buffers.data(),
                                   static_cast<uint32_t>( images.size() ), images.data() );
         }
@@ -1624,7 +1935,56 @@ namespace Desert::Graphic::API::Vulkan
         return created;
     }
 
+    void VulkanRdgBackend::PrepareRecording( std::span<const RDG::CompiledPass> passes )
+    {
+        m_PreparedRenderPasses.clear();
+        uint32_t count = 0;
+        for ( const RDG::CompiledPass& pass : passes )
+            count = std::max( count, pass.Pass + 1 );
+        m_PreparedRenderPasses.resize( count );
+        // Every pass that opens a render pass (a merged pass continues the one its first pass opened; a pass a
+        // fault re-opens resolves in BeginRenderPass). Sequential, before any pass records: no lock.
+        for ( const RDG::CompiledPass& pass : passes )
+        {
+            const bool opens = RDG::HasFlag( pass.Flags, RDG::PassFlags::Raster ) &&
+                               ( !pass.Attachments.empty() || pass.AreaWidth != 0 ) && !pass.ContinuesRenderPass;
+            if ( !opens )
+                continue;
+            PreparedRenderPass& prepared = m_PreparedRenderPasses[pass.Pass];
+            if ( ResolveRenderPass( pass, prepared ) )
+                prepared.Source = &pass;
+            else
+                prepared = PreparedRenderPass{};
+        }
+    }
+
     Common::BoolResultStr VulkanRdgBackend::BeginRenderPass( const RDG::CompiledPass& pass )
+    {
+        // The planned pass PrepareRecording resolved: only looked up. A fault-adjusted copy (Load -> Clear) or a
+        // merged pass re-opening after a fault closed its render pass resolves here, under the lock (the render
+        // pass map and the framebuffer list are shared by every recording thread).
+        if ( RecordingBuffer() == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "graph '{}' pass '{}': the backend has no command buffer", m_GraphName,
+                                               pass.Name );
+        const PreparedRenderPass* prepared = nullptr;
+        PreparedRenderPass        resolved;
+        if ( pass.Pass < m_PreparedRenderPasses.size() && m_PreparedRenderPasses[pass.Pass].Source == &pass )
+            prepared = &m_PreparedRenderPasses[pass.Pass];
+        else
+        {
+            std::lock_guard<std::mutex> lock( m_RenderPassLock );
+            Common::BoolResultStr       made = ResolveRenderPass( pass, resolved );
+            if ( !made )
+                return made;
+            prepared = &resolved;
+        }
+        // RDG-PARALLEL-10: a chunk begins the render pass inline in its own primary, as the calling thread does.
+        RecordBeginRenderPass( *prepared );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::ResolveRenderPass( const RDG::CompiledPass& pass,
+                                                               PreparedRenderPass&      out )
     {
         uint32_t colourCount = 0;
         for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
@@ -1738,7 +2098,11 @@ namespace Desert::Graphic::API::Vulkan
             if ( entry.RenderPass == renderPass.GetValue() && entry.Views == views &&
                  entry.Extent.width == extent.width && entry.Extent.height == extent.height &&
                  entry.Layers == layers )
+            {
+                // Unique: an entry is added only when none matches, and BeginGraph drops the dead ones.
                 framebuffer = entry.Framebuffer;
+                break;
+            }
         }
         if ( framebuffer == VK_NULL_HANDLE )
         {
@@ -1758,15 +2122,27 @@ namespace Desert::Graphic::API::Vulkan
                  { renderPass.GetValue(), views, std::move( textures ), extent, layers, framebuffer } );
         }
 
+        out.RenderPass    = renderPass.GetValue();
+        out.Framebuffer   = framebuffer;
+        out.Extent        = extent;
+        out.Clears        = std::move( clears );
+        out.Compatibility = RdgCompatibilityKey( key );
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::RecordBeginRenderPass( const PreparedRenderPass& prepared )
+    {
+        const VkExtent2D      extent = prepared.Extent;
         VkRenderPassBeginInfo begin{};
         begin.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        begin.renderPass      = renderPass.GetValue();
-        begin.framebuffer     = framebuffer;
+        begin.renderPass      = prepared.RenderPass;
+        begin.framebuffer     = prepared.Framebuffer;
         begin.renderArea      = { { 0, 0 }, extent };
-        begin.clearValueCount = static_cast<uint32_t>( clears.size() );
-        begin.pClearValues    = clears.data();
-        vkCmdBeginRenderPass( m_CommandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE );
-        m_OpenRenderPass = RdgCompatibilityKey( key );
+        begin.clearValueCount = static_cast<uint32_t>( prepared.Clears.size() );
+        begin.pClearValues    = prepared.Clears.data();
+        const VkCommandBuffer commandBuffer = RecordingBuffer(); // the chunk's primary on a worker
+        vkCmdBeginRenderPass( commandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE );
+        OpenRenderPassState() = prepared.Compatibility;
 
         // The whole target: what nearly every pass wants, set once here instead of in every exec lambda. The
         // engine's convention (VulkanRendererAPI::SetViewportAndScissor): negative height, so +Y is up and the
@@ -1778,16 +2154,20 @@ namespace Desert::Graphic::API::Vulkan
                                    0.0f,
                                    1.0f };
         const VkRect2D   scissor{ { 0, 0 }, extent };
-        vkCmdSetViewport( m_CommandBuffer, 0, 1, &viewport );
-        vkCmdSetScissor( m_CommandBuffer, 0, 1, &scissor );
-        return Common::MakeSuccess( true );
+        vkCmdSetViewport( commandBuffer, 0, 1, &viewport );
+        vkCmdSetScissor( commandBuffer, 0, 1, &scissor );
+        // RDG-PARALLEL-4: every graphics pipeline enables VK_DYNAMIC_STATE_LINE_WIDTH (VulkanPipeline). Set at each
+        // render pass begin (on the calling thread and in every chunk), so no draw relies on a width an earlier
+        // pass left - a chunk's freshly begun primary has none. Lines that want another width set it at their draw.
+        vkCmdSetLineWidth( commandBuffer, 1.0f );
     }
 
     Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
     {
-        if ( m_CommandBuffer == VK_NULL_HANDLE )
+        const VkCommandBuffer commandBuffer = RecordingBuffer();
+        if ( commandBuffer == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "graph '{}': buffer upload outside a recording pass", m_GraphName );
-        if ( m_OpenRenderPass.has_value() )
+        if ( OpenRenderPassState().has_value() )
             return Common::MakeFormattedError( "graph '{}': buffer upload inside a render pass", m_GraphName );
         const std::shared_ptr<VulkanRdgBuffer>& target =
              resource < m_Buffers.size() ? m_Buffers[resource] : std::shared_ptr<VulkanRdgBuffer>{};
@@ -1798,7 +2178,7 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
         {
             const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
-            vkCmdUpdateBuffer( m_CommandBuffer, target->GetBuffer(), target->GetOffset() + offset, size,
+            vkCmdUpdateBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + offset, size,
                                bytes.data() + offset );
         }
         return Common::MakeSuccess( true );
@@ -1806,8 +2186,148 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::EndRenderPass()
     {
-        vkCmdEndRenderPass( m_CommandBuffer );
-        m_OpenRenderPass.reset();
+        const VkCommandBuffer commandBuffer = RecordingBuffer(); // the chunk's primary on a worker
+        if ( commandBuffer != VK_NULL_HANDLE )
+            vkCmdEndRenderPass( commandBuffer );
+        OpenRenderPassState().reset();
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::BeginChunks( std::span<const RDG::RecordChunkDesc> chunks )
+    {
+        if ( m_Queues == nullptr || m_Queues->Objects == nullptr || m_Descriptors == nullptr )
+            return Common::MakeFormattedError( "graph '{}': chunks before BeginFrame", m_GraphName );
+        const auto count = static_cast<uint32_t>( chunks.size() );
+        while ( m_Chunks.size() < count )
+            m_Chunks.push_back( std::make_unique<Chunk>() );
+        std::array<uint32_t, 2> perPipe{};
+        for ( uint32_t index = 0; index < count; ++index )
+        {
+            Chunk& chunk = *m_Chunks[index];
+            chunk.Owner  = this;
+            chunk.Desc   = chunks[index];
+            chunk.Arena  = index;
+            chunk.Record.ForgetBoundState();
+            chunk.Record.CommandBuffer = VK_NULL_HANDLE;
+            chunk.Record.GpuScopes.clear();
+            chunk.Record.GpuScopesMade.clear();
+            chunk.Record.GpuOrder     = 0; // re-stamped at replay (StampChunkOrder)
+            chunk.Record.GpuOrderNext = 0;
+            chunk.OpenRenderPass.reset();
+            chunk.PassSets.Clear();
+            chunk.ProfilerScopes.clear();
+#if DESERT_DEV_INSTRUMENTS
+            chunk.CpuScopes.clear();
+#endif
+            chunk.Labels.clear();
+            chunk.CommandBuffer = VK_NULL_HANDLE;
+            chunk.Failure.clear();
+            const size_t pipe = chunk.Desc.OnPipe == RDG::Pipe::Graphics ? 0 : 1;
+            perPipe[pipe]     = index + 1;
+        }
+        for ( size_t pipe = 0; pipe < perPipe.size(); ++pipe )
+        {
+            if ( perPipe[pipe] == 0 )
+                continue;
+            RDG::Pipe onPipe = RDG::Pipe::Graphics;
+            if ( pipe != 0 )
+                onPipe = RDG::Pipe::AsyncCompute;
+            Common::BoolResultStr reserved = m_Queues->Objects->ReserveChunkArenas( onPipe, perPipe[pipe] );
+            if ( !reserved )
+                return reserved;
+        }
+        m_Descriptors->ReserveArenas( count + 1 );
+        m_ChunkCount = count;
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::BeginChunk( uint32_t index )
+    {
+        Chunk& chunk          = *m_Chunks[index];
+        chunk.PreviousChunk   = t_Chunk;
+        chunk.PreviousContext = VulkanRecordContext::Bind( &chunk.Record );
+        chunk.PreviousArena   = VulkanRdgPassDescriptors::BindArena( chunk.Arena + 1 );
+        t_Chunk               = &chunk;
+        chunk.Record.ForgetBoundState(); // a freshly begun primary holds no binding
+        Common::ResultStr<VkCommandBuffer> begun =
+             m_Queues->Objects->BeginChunkCommandBuffer( chunk.Desc.OnPipe, chunk.Arena );
+        if ( !begun )
+        {
+            chunk.Failure              = begun.GetError();
+            chunk.Record.CommandBuffer = VK_NULL_HANDLE;
+            return;
+        }
+        chunk.CommandBuffer        = begun.GetValue();
+        chunk.Record.CommandBuffer = chunk.CommandBuffer;
+    }
+
+    void VulkanRdgBackend::EndChunk( uint32_t index )
+    {
+        Chunk& chunk = *m_Chunks[index];
+        // A pass that failed mid-way leaves its bracket open: it is closed here, as AbandonGraph does inline.
+        if ( chunk.OpenRenderPass )
+            EndRenderPass();
+        while ( !chunk.ProfilerScopes.empty() )
+            EndPass( RDG::CompiledPass{} );
+        chunk.Labels.clear();
+        if ( chunk.CommandBuffer != VK_NULL_HANDLE && vkEndCommandBuffer( chunk.CommandBuffer ) != VK_SUCCESS &&
+             chunk.Failure.empty() )
+            chunk.Failure = "vkEndCommandBuffer of a chunk failed";
+        chunk.Record.CommandBuffer = VK_NULL_HANDLE;
+        t_Chunk = chunk.PreviousChunk;
+        VulkanRecordContext::Bind( chunk.PreviousContext );
+        VulkanRdgPassDescriptors::BindArena( chunk.PreviousArena );
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::ExecuteChunk( uint32_t index )
+    {
+        if ( index >= m_ChunkCount )
+            return Common::MakeFormattedError( "graph '{}': chunk {} was not begun", m_GraphName, index );
+        Chunk& chunk = *m_Chunks[index];
+        if ( !chunk.Failure.empty() )
+            return Common::MakeFormattedError( "{}", chunk.Failure );
+        if ( m_CommandBuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "graph '{}': chunk {} replayed outside a segment", m_GraphName,
+                                               index );
+        if ( m_Queues == nullptr )
+            return Common::MakeFormattedError( "graph '{}': chunk {} replayed without queues", m_GraphName, index );
+        // RDG-PARALLEL-10 (UE: the parallel command lists' primary payloads, submitted in order): what the segment
+        // recorded so far ends, the chunk's primary follows it in the same submission, and recording goes on in a
+        // fresh continuation - no secondary, no render pass re-begun here, no state re-emitted per piece.
+        const Common::ResultStr<VkCommandBuffer> continuation =
+             m_Segments.SpliceChunk( chunk.CommandBuffer, *m_Queues );
+        if ( !continuation )
+        {
+            SetRecording( VK_NULL_HANDLE ); // the ended buffer takes nothing more; the caller abandons the graph
+            return Common::MakeFormattedError( "graph '{}' chunk {}: {}", m_GraphName, index,
+                                               continuation.GetError() );
+        }
+        chunk.CommandBuffer = VK_NULL_HANDLE; // the segment's submission holds it now
+        SetRecording( continuation.GetValue() );
+        if ( m_Device.ChunkOrder != nullptr )
+            m_Device.ChunkOrder->StampChunkOrder( chunk.Record.GpuScopesMade );
+        // The frame recorder's bind cache does not describe the continuation (a freshly begun buffer).
+        if ( m_PassBoundaryListener )
+            m_PassBoundaryListener();
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::DiscardChunk( uint32_t index )
+    {
+        if ( index >= m_ChunkCount )
+            return;
+        // Its primary is never submitted (the arena resets with the slot), so the queries of its scopes are
+        // never written. RDG-PARALLEL-5: its passes are recorded again inline, each with a scope of its own, so
+        // the chunk's scopes are retracted: [GpuOrder] holds every pass once, no duplicate row read untimed.
+        Chunk& chunk = *m_Chunks[index];
+        if ( m_Device.ChunkOrder != nullptr )
+            m_Device.ChunkOrder->RetractChunkScopes( chunk.Record.GpuScopesMade );
+        chunk.Record.GpuScopesMade.clear();
+        chunk.CommandBuffer = VK_NULL_HANDLE; // ended, never submitted: reset with the slot's arena
+    }
+
+    void VulkanRdgBackend::EndChunks()
+    {
+        m_ChunkCount = 0;
     }
 
     Common::BoolResultStr VulkanRdgBackend::EndGraph( std::span<const RDG::Barrier> finalBarriers )
@@ -1827,6 +2347,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::AbandonGraph()
     {
+        // The dispatch has returned, so every chunk secondary is ended; they are simply never executed.
+        m_ChunkCount = 0;
         if ( m_OpenRenderPass )
             EndRenderPass();
         while ( !m_ProfilerScopes.empty() )
@@ -1887,8 +2409,22 @@ namespace Desert::Graphic::API::Vulkan
         // Execute).
         if ( segment.FirstPosition == RDG::CrossPipeSync::kForkAtGraphStart )
             m_PrologueScope = BeginGraphCommandsScope( "fork releases at the graph start" );
-        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
-             m_Device.Profiler != nullptr && m_Result != nullptr &&
+        // A later piece of a run cut at a join (RDGCompile CutRunsAtConsumers), or a run an earlier run's fork
+        // already orders (RDGCompile CreateAsyncSyncs, the newest fork), waits on nothing itself, but it follows
+        // that earlier async segment on the compute queue: its fork orders this one too.
+        bool forked = segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty();
+        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !forked && m_Result != nullptr &&
+             segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
+        {
+            for ( const RDG::PipeSegment& earlier : m_Result->Segments )
+            {
+                if ( earlier.OnPipe == RDG::Pipe::AsyncCompute &&
+                     earlier.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart &&
+                     earlier.FirstPosition < segment.FirstPosition && !earlier.WaitSyncs.empty() )
+                    forked = true;
+            }
+        }
+        if ( forked && m_Device.Profiler != nullptr && m_Result != nullptr &&
              segment.FirstPosition != RDG::CrossPipeSync::kForkAtGraphStart )
         {
             m_SegmentScopeName = std::string( Common::Profiling::kGpuAsyncSegmentScopePrefix ) +
@@ -2018,6 +2554,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::Release()
     {
+        m_PreparedRenderPasses.clear();
         m_Textures.clear();
         m_Buffers.clear();
         // The allocator's open graph ends with the backend's hold (EndGraph, AbandonGraph, a new BeginGraph).

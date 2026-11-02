@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Desert.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialCubemapSphere.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
@@ -72,5 +73,15 @@ namespace Desert::Editor::Render
         float                                           m_Radius   = 50.0f;
         bool                                            m_Backdrop = false;
         bool                                            m_LongLat  = false;
+        // What Gather resolved on the game thread for this view's frame: the only state Execute reads besides
+        // its context (a null cube draws nothing).
+        struct GatheredSource
+        {
+            Graphic::SampledCube Source{};
+            float                Radius   = 50.0f;
+            bool                 Backdrop = false;
+            bool                 LongLat  = false;
+        };
+        GatheredSource m_Gathered;
     };
 } // namespace Desert::Editor::Render

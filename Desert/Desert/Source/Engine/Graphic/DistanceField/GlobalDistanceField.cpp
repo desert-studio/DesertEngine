@@ -179,6 +179,26 @@ namespace Desert::Graphic::DistanceField
 
     } // namespace
 
+    void SealGlobalDistanceFieldObjectSet( GlobalDistanceFieldObjectSet& set )
+    {
+        set.Bounds.clear();
+        set.Bounds.reserve( set.Objects.size() );
+        uint64_t identity = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( set.Objects.size() );
+        for ( const auto& object : set.Objects )
+        {
+            set.Bounds.push_back( Geometry::TransformBounds( object.World, object.Field->LocalSpaceMeshBounds ) );
+            identity = ( identity ^ GdfObjectKey( object ) ) * 0x100000001B3ULL;
+            identity = ( identity ^ ( static_cast<uint64_t>( object.Row ) + 1u ) ) * 0x100000001B3ULL;
+            // The previous world is part of the SET's identity (not of an object's, GdfObjectKey): the kept
+            // placement's DF_OBJECT_ROW_TO_PREVIOUS_WORLD rows are re-derived when an object comes to rest
+            // (PrevWorld := World), though the clipmaps are not.
+            const float* prev = &object.PrevWorld[0][0];
+            for ( int i = 0; i < 16; ++i )
+                identity = ( identity ^ std::bit_cast<uint32_t>( prev[i] ) ) * 0x100000001B3ULL;
+        }
+        set.Identity = identity;
+    }
+
     float ClipmapVoxelSize( const int level )
     {
         return 2.0f * DFShared::GDF_CLIPMAP0_EXTENT * static_cast<float>( 1 << level ) /
@@ -346,20 +366,16 @@ namespace Desert::Graphic::DistanceField
 
     Common::ResultStr<GlobalDistanceField::FrameField>
     GlobalDistanceField::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
-                                          const std::vector<GlobalDistanceFieldObject>& objects,
+                                          const GlobalDistanceFieldObjectSet& objects,
                                           DistanceFieldSceneData& scene, const uint64_t engineFrame,
                                           const uint32_t poolMiB )
     {
         // The owner's rows: the per-frame buffers grow on upload (GdfUpload) inside the asking view's scope.
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
-        // What this call asks for: the camera and the object list's identity (field, transform, foliage flag and
-        // row of each, in order) - the once-per-frame rule compares it with the frame's update.
-        uint64_t inputs = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( objects.size() );
-        for ( const auto& object : objects )
-        {
-            inputs = ( inputs ^ GdfObjectKey( object ) ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ ( static_cast<uint64_t>( object.Row ) + 1u ) ) * 0x100000001B3ULL;
-        }
+        // What this call asks for: the camera and the object set's identity (sealed by the set's owner when it
+        // rebuilt the set, SealGlobalDistanceFieldObjectSet) - the once-per-frame rule compares it with the
+        // frame's update.
+        const uint64_t inputs = objects.Identity;
         if ( m_FrameUpdate && m_FrameUpdate->Frame == engineFrame )
         {
             if ( camera != m_FrameUpdate->Camera || inputs != m_FrameUpdate->Objects )
@@ -378,15 +394,25 @@ namespace Desert::Graphic::DistanceField
             again.MeshFields.BrickAtlas = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
             return Common::MakeSuccess( again );
         }
+        if ( objects.Bounds.size() != objects.Objects.size() )
+            return Common::MakeFormattedError<FrameField>(
+                 "global distance field: the object set was not sealed ({} objects, {} boxes): "
+                 "SealGlobalDistanceFieldObjectSet after every rebuild of its objects",
+                 objects.Objects.size(), objects.Bounds.size() );
 
         // The scene's frame: the first view of it decides the scene's resident fields, every later view finds them as
         // that one left them (DistanceFieldSceneData::BeginViewFrame).
-        // The fields of every distance-field primitive of the scene (the list is the scene's, not culled).
-        std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> fields;
-        fields.reserve( objects.size() );
-        for ( const auto& object : objects )
-            fields.push_back( object.Field );
-        if ( const auto begun = scene.BeginViewFrame( engineFrame, poolMiB, fields ); !begun )
+        // The fields of every distance-field primitive of the scene (the list is the scene's, not culled), kept
+        // with the set: rebuilt only when the set is another one.
+        if ( m_FieldsIdentity != objects.Identity )
+        {
+            m_Fields.clear();
+            m_Fields.reserve( objects.Objects.size() );
+            for ( const auto& object : objects.Objects )
+                m_Fields.push_back( object.Field );
+            m_FieldsIdentity = objects.Identity;
+        }
+        if ( const auto begun = scene.BeginViewFrame( engineFrame, poolMiB, m_Fields ); !begun )
             return Common::MakeError<FrameField>( begun.GetError() );
         // A re-created pool dropped every resident field: everything this view composited from the old atlas is
         // rewritten.
@@ -395,103 +421,127 @@ namespace Desert::Graphic::DistanceField
             m_PoolGeneration = scene.GetPoolGeneration();
             m_ValidCentre.fill( std::nullopt );
             m_Tracked.clear();
+            m_Placement.reset();
         }
 
         // Each object's record in the frame's resident set (its distance from this camera merges into the
-        // scene's next streaming); an object whose field the set lacks waits for the next frame.
+        // scene's next streaming - so every object is looked up every frame, kept placement or not); an object
+        // whose field the set lacks waits for the next frame.
         struct Placed
         {
-            const GlobalDistanceFieldObject* Object;
-            uint32_t                         AssetIndex;
-            Common::Math::AABB               Bounds;
-            uint64_t                         Key;
+            uint32_t Object;
+            uint32_t AssetIndex;
         };
         std::vector<Placed> placed;
-        placed.reserve( objects.size() );
-        for ( const auto& object : objects )
+        placed.reserve( objects.Objects.size() );
+        uint64_t lookups = 0xCBF29CE484222325ULL;
+        for ( uint32_t o = 0; o < static_cast<uint32_t>( objects.Objects.size() ); ++o )
         {
-            const Common::Math::AABB bounds =
-                 Geometry::TransformBounds( object.World, object.Field->LocalSpaceMeshBounds );
+            const Common::Math::AABB& bounds = objects.Bounds[o];
             // The largest per-axis gap between the camera and the box: the camera-centred clipmap box of that
             // half-extent is the smallest one the object overlaps (UE ComputeSquaredDistanceBetweenAABBs <= 0).
-            const glm::vec3 gap   = glm::abs( glm::clamp( camera, bounds.Min, bounds.Max ) - camera );
+            const glm::vec3 gap = glm::abs( glm::clamp( camera, bounds.Min, bounds.Max ) - camera );
             const std::optional<uint32_t> index =
-                 scene.Lookup( object.Field, std::max( { gap.x, gap.y, gap.z } ) );
+                 scene.Lookup( objects.Objects[o].Field, std::max( { gap.x, gap.y, gap.z } ) );
+            lookups = ( lookups ^ ( index ? static_cast<uint64_t>( *index ) + 1u : 0u ) ) * 0x100000001B3ULL;
             if ( !index )
                 continue;
-            placed.push_back( { &object, *index, bounds, 0 } );
+            placed.push_back( { o, *index } );
         }
-        // An object is its field, its transform, how many of the field's mips are resident and the row the object
-        // grid lists it under: a mip streaming in or out, or the instance taking another row, recomposites the
-        // object like a move does.
-        for ( auto& p : placed )
-            p.Key = GdfObjectKey( *p.Object ) ^
-                    ( static_cast<uint64_t>( scene.ResidentMips( p.Object->Field.get() ) ) *
-                      0xC2B2AE3D27D4EB4FULL ) ^
-                    ( ( static_cast<uint64_t>( p.Object->Row ) + 1u ) * 0x165667B19E3779F9ULL );
 
-        // What changed since the clipmaps were written: objects that left and objects that arrived.
-        std::vector<Common::Math::AABB>             changed;
-        std::unordered_map<uint64_t, TrackedObject> current;
-        for ( const auto& p : placed )
+        // The same set, the same resident records (no mip in or out, no pool change) and the same answers of the
+        // lookups make the same placement: no object left or arrived, the rows are the kept ones.
+        std::vector<Common::Math::AABB> changed;
+        const bool kept = m_Placement && m_Placement->SetIdentity == objects.Identity &&
+                          m_Placement->SceneRevision == scene.GetRevision() &&
+                          m_Placement->PoolGeneration == scene.GetPoolGeneration() &&
+                          m_Placement->Lookups == lookups;
+        if ( !kept )
         {
-            auto& tracked  = current[p.Key];
-            tracked.Bounds = p.Bounds;
-            ++tracked.Count;
-        }
-        for ( const auto& [key, tracked] : current )
-            if ( const auto it = m_Tracked.find( key );
-                 it == m_Tracked.end() || it->second.Count != tracked.Count )
-                changed.push_back( tracked.Bounds );
-        for ( const auto& [key, tracked] : m_Tracked )
-            if ( !current.contains( key ) )
-                changed.push_back( tracked.Bounds );
-        m_Tracked = std::move( current );
+            KeptPlacement placement;
+            placement.SetIdentity    = objects.Identity;
+            placement.SceneRevision  = scene.GetRevision();
+            placement.PoolGeneration = scene.GetPoolGeneration();
+            placement.Lookups        = lookups;
+            placement.PlacedBounds.reserve( placed.size() );
+            // An object is its field, its transform, how many of the field's mips are resident and the row the
+            // object grid lists it under: a mip streaming in or out, or the instance taking another row,
+            // recomposites the object like a move does.
+            // What changed since the clipmaps were written: objects that left and objects that arrived.
+            std::unordered_map<uint64_t, TrackedObject> current;
+            current.reserve( placed.size() );
+            for ( const auto& p : placed )
+            {
+                const GlobalDistanceFieldObject& object = objects.Objects[p.Object];
+                const uint64_t                   key =
+                     GdfObjectKey( object ) ^
+                     ( static_cast<uint64_t>( scene.ResidentMips( object.Field.get() ) ) * 0xC2B2AE3D27D4EB4FULL ) ^
+                     ( ( static_cast<uint64_t>( object.Row ) + 1u ) * 0x165667B19E3779F9ULL );
+                auto& tracked  = current[key];
+                tracked.Bounds = objects.Bounds[p.Object];
+                ++tracked.Count;
+                placement.PlacedBounds.push_back( objects.Bounds[p.Object] );
+            }
+            for ( const auto& [key, tracked] : current )
+                if ( const auto it = m_Tracked.find( key );
+                     it == m_Tracked.end() || it->second.Count != tracked.Count )
+                    changed.push_back( tracked.Bounds );
+            for ( const auto& [key, tracked] : m_Tracked )
+                if ( !current.contains( key ) )
+                    changed.push_back( tracked.Bounds );
+            m_Tracked = std::move( current );
 
-        // The object buffer: world -> volume rows, the volume extent with the distance scale, the asset record,
-        // the world box, the flags, the world -> previous world rows.
-        std::vector<glm::vec4> objectData;
-        objectData.reserve( placed.size() * kGdfObjectStride );
-        for ( const auto& p : placed )
-        {
-            const auto&     field         = *p.Object->Field;
-            const float     localToVolume = field.LocalToVolumeScale();
-            const glm::vec3 centre = ( field.LocalSpaceMeshBounds.Min + field.LocalSpaceMeshBounds.Max ) * 0.5f;
-            const glm::mat4 worldToVolume = glm::scale( glm::mat4( 1.0f ), glm::vec3( localToVolume ) ) *
-                                            glm::translate( glm::mat4( 1.0f ), -centre ) *
-                                            glm::inverse( p.Object->World );
-            const glm::mat4 rows = glm::transpose( worldToVolume );
-            // The smallest axis scale keeps the world distance conservative under a non-uniform scale (UE
-            // VolumeToWorldScale uses the minimum scale as well).
-            const glm::mat3 linear( p.Object->World );
-            const glm::vec3 axisScale( glm::length( linear[0] ), glm::length( linear[1] ),
-                                       glm::length( linear[2] ) );
-            const float     minScale = std::min( { axisScale.x, axisScale.y, axisScale.z } );
-            objectData.push_back( rows[0] );
-            objectData.push_back( rows[1] );
-            objectData.push_back( rows[2] );
-            objectData.push_back( glm::vec4( field.VolumePositionExtent(), minScale / localToVolume ) );
-            // Each volume axis' own scale: the box distance (MeshDistanceField.glslh) is exact, not the
-            // smallest's.
-            objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
-            objectData.push_back( glm::vec4( p.Bounds.Min, 0.0f ) ); // DF_OBJECT_ROW_BOUNDS_MIN
-            objectData.push_back( glm::vec4( p.Bounds.Max, 0.0f ) ); // DF_OBJECT_ROW_BOUNDS_MAX
-            const uint32_t flags = p.Object->MostlyTwoSided
-                                        ? static_cast<uint32_t>( DFShared::DF_OBJECT_FLAG_MOSTLY_TWO_SIDED )
-                                        : 0u;
-            // DF_OBJECT_ROW_FLAGS: the flags, then the instance-table row - what the object grid lists and what a
-            // near-field hit reads its cards by (one record for the composite and the trace).
-            objectData.push_back(
-                 glm::vec4( std::bit_cast<float>( flags ), std::bit_cast<float>( p.Object->Row ), 0.0f, 0.0f ) );
-            // DF_OBJECT_ROW_TO_PREVIOUS_WORLD: this frame's world point on the object -> where it was last frame.
-            const glm::mat4 toPrevious = glm::transpose( p.Object->PrevWorld * glm::inverse( p.Object->World ) );
-            objectData.push_back( toPrevious[0] );
-            objectData.push_back( toPrevious[1] );
-            objectData.push_back( toPrevious[2] );
+            // The object buffer: world -> volume rows, the volume extent with the distance scale, the asset
+            // record, the world box, the flags, the world -> previous world rows.
+            std::vector<glm::vec4>& objectData = placement.ObjectData;
+            objectData.reserve( placed.size() * kGdfObjectStride );
+            for ( const auto& p : placed )
+            {
+                const GlobalDistanceFieldObject& object        = objects.Objects[p.Object];
+                const Common::Math::AABB&        bounds        = objects.Bounds[p.Object];
+                const auto&                      field         = *object.Field;
+                const float                      localToVolume = field.LocalToVolumeScale();
+                const glm::vec3 centre = ( field.LocalSpaceMeshBounds.Min + field.LocalSpaceMeshBounds.Max ) * 0.5f;
+                const glm::mat4 worldToLocal  = glm::inverse( object.World );
+                const glm::mat4 worldToVolume = glm::scale( glm::mat4( 1.0f ), glm::vec3( localToVolume ) ) *
+                                                glm::translate( glm::mat4( 1.0f ), -centre ) * worldToLocal;
+                const glm::mat4 rows = glm::transpose( worldToVolume );
+                // The smallest axis scale keeps the world distance conservative under a non-uniform scale (UE
+                // VolumeToWorldScale uses the minimum scale as well).
+                const glm::mat3 linear( object.World );
+                const glm::vec3 axisScale( glm::length( linear[0] ), glm::length( linear[1] ),
+                                           glm::length( linear[2] ) );
+                const float     minScale = std::min( { axisScale.x, axisScale.y, axisScale.z } );
+                objectData.push_back( rows[0] );
+                objectData.push_back( rows[1] );
+                objectData.push_back( rows[2] );
+                objectData.push_back( glm::vec4( field.VolumePositionExtent(), minScale / localToVolume ) );
+                // Each volume axis' own scale: the box distance (MeshDistanceField.glslh) is exact, not the
+                // smallest's.
+                objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
+                objectData.push_back( glm::vec4( bounds.Min, 0.0f ) ); // DF_OBJECT_ROW_BOUNDS_MIN
+                objectData.push_back( glm::vec4( bounds.Max, 0.0f ) ); // DF_OBJECT_ROW_BOUNDS_MAX
+                const uint32_t flags = object.MostlyTwoSided
+                                            ? static_cast<uint32_t>( DFShared::DF_OBJECT_FLAG_MOSTLY_TWO_SIDED )
+                                            : 0u;
+                // DF_OBJECT_ROW_FLAGS: the flags, then the instance-table row - what the object grid lists and
+                // what a near-field hit reads its cards by (one record for the composite and the trace).
+                objectData.push_back(
+                     glm::vec4( std::bit_cast<float>( flags ), std::bit_cast<float>( object.Row ), 0.0f, 0.0f ) );
+                // DF_OBJECT_ROW_TO_PREVIOUS_WORLD: this frame's world point on the object -> where it was last
+                // frame.
+                const glm::mat4 toPrevious = glm::transpose( object.PrevWorld * worldToLocal );
+                objectData.push_back( toPrevious[0] );
+                objectData.push_back( toPrevious[1] );
+                objectData.push_back( toPrevious[2] );
+            }
+            m_Placement = std::move( placement );
         }
+        const std::vector<Common::Math::AABB>& placedBounds = m_Placement->PlacedBounds;
+        const std::vector<glm::vec4>&          objectData   = m_Placement->ObjectData;
 
         FrameField frame;
-        frame.MeshFields.NumObjects = static_cast<uint32_t>( placed.size() );
+        frame.MeshFields.NumObjects = static_cast<uint32_t>( placedBounds.size() );
 
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).
         std::vector<glm::ivec4>                                                 updateBricks;
@@ -527,10 +577,10 @@ namespace Desert::Graphic::DistanceField
             for ( uint32_t i = 0; i < plan.size(); ++i )
                 slotOf.emplace( keyOf( plan[i] ), i );
             std::vector<std::vector<uint32_t>> lists( plan.size() );
-            for ( uint32_t o = 0; o < placed.size(); ++o )
+            for ( uint32_t o = 0; o < static_cast<uint32_t>( placedBounds.size() ); ++o )
             {
-                const Common::Math::AABB grown{ placed[o].Bounds.Min - influence,
-                                                placed[o].Bounds.Max + influence };
+                const Common::Math::AABB grown{ placedBounds[o].Min - influence,
+                                                placedBounds[o].Max + influence };
                 glm::ivec3               blo, bhi;
                 GdfBrickRange( grown, voxel, blo, bhi );
                 blo = glm::max( blo, lo );
@@ -622,7 +672,7 @@ namespace Desert::Graphic::DistanceField
     Common::ResultStr<GlobalDistanceField::FrameField>
     GlobalDistanceFieldView::AddFramePasses( RDG::Builder& graph, GlobalDistanceField& field,
                                              const GlobalDistanceField::ImportImage&       import,
-                                             const std::vector<GlobalDistanceFieldObject>& objects,
+                                             const GlobalDistanceFieldObjectSet&           objects,
                                              DistanceFieldSceneData& scene, const uint64_t engineFrame,
                                              const uint32_t poolMiB, const NearFieldView& view )
     {
@@ -910,7 +960,7 @@ namespace Desert::Graphic::DistanceField
              "Debug: Global Distance Field", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::OtherRouteFill{} );
+                 auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::NoOtherRouteFill() );
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
                      block.Texture( kGlobalDistanceFieldClipmapTextures[level], field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

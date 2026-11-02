@@ -2344,8 +2344,10 @@ namespace Desert::Editor
                 const ImVec2 viewportMax( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
                                           m_ViewportData.ViewportPos.y + m_ViewportData.Size.y );
                 DrawRenderMethodsOverlay( renderer->GetRenderMethods(), viewportMin, viewportMax );
-                DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(),
-                                            renderer->TakeLedgerMemory(), viewportMin, viewportMax );
+                // Only on a frame that traced rays: the overlay draws nothing otherwise, and its ledger reading
+                // is an argument - taken before the overlay could say so.
+                if ( const auto& rtStats = renderer->GetRayTracingScene().GetStats(); rtStats.Built )
+                    DrawRayTracingSceneOverlay( rtStats, renderer->TakeLedgerMemory(), viewportMin, viewportMax );
                 // VFX-16: the effects world's overview (Particle Debugger -> Viewport overview).
                 if ( m_Scene->GetVFXWorld().GetDebugSettings().Overview )
                     DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(),

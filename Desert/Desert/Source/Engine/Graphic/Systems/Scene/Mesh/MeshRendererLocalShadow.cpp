@@ -6,6 +6,7 @@
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 
+#include <bit>
 #include <format>
 
 namespace Desert::Graphic::System
@@ -118,32 +119,8 @@ namespace Desert::Graphic::System
         // for other queues, nothing is keyed and the view redraws.
         if ( !ShadowCastersGathered() )
             return std::nullopt;
-        SignatureHash hash;
-        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
-        {
-            const StaticMeshRenderData& rd = m_StaticQueue[i];
-            if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !CasterInSphere( m_ShadowCasterSetup.Statics[i].WorldBounds, centre, radius ) )
-                continue;
-            hash.Add( rd.Mesh->GetRenderRevision() );
-            hash.Add( rd.Transform );
-            // One entry per section material: which submeshes it casts, and through which slot's route.
-            hash.Add( rd.HiddenSubmeshes );
-            hash.Add( rd.SectionSlot );
-            // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
-            hash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
-        }
-        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
-        {
-            const GenericMeshRenderData& g = m_GenericQueue[i];
-            if ( g.Mesh == nullptr || !g.CastShadows ||
-                 !CasterInSphere( m_ShadowCasterSetup.Generics[i].WorldBounds, centre, radius ) )
-                continue;
-            hash.Add( g.Mesh->GetRenderRevision() );
-            hash.Add( g.Transform );
-            hash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
-        }
-        // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame.
+        // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame (asked
+        // first: no other caster's part is wanted then).
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
@@ -151,6 +128,10 @@ namespace Desert::Graphic::System
                  CasterInSphere( m_ShadowCasterSetup.Skinned[i].WorldBounds, centre, radius ) )
                 return std::nullopt;
         }
+        SignatureHash hash;
+        // The static / generic casters, kept per sphere while the static casters' revision holds
+        // (LocalStaticCasterHash): in a still frame no static caster is walked here.
+        hash.Add( LocalStaticCasterHash( centre, radius ) );
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
@@ -181,6 +162,68 @@ namespace Desert::Graphic::System
             }
         }
         return hash.Value;
+    }
+
+    uint64_t MeshRenderer::LocalStaticCasterHash( const glm::vec3& centre, const float radius )
+    {
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        // Every field hashed below reaches the static casters' revision (StaticCasterTrack: the transform is Moved,
+        // the render revision, hidden submeshes and section slot are Content, CastShadows is Updated; the boxes are
+        // the rows that revision keeps) and the levels the LOD key (StaticLodKey): a part made under both is the
+        // one the walk would make.
+        const bool tracked = StaticCastersTracked();
+        const auto walk    = [this, &setup, &centre, radius]
+        {
+            SignatureHash still;
+            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            {
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                if ( rd.Mesh == nullptr || !rd.CastShadows ||
+                     !CasterInSphere( setup.Statics[i].WorldBounds, centre, radius ) )
+                    continue;
+                still.Add( rd.Mesh->GetRenderRevision() );
+                still.Add( rd.Transform );
+                // One entry per section material: which submeshes it casts, and through which slot's route.
+                still.Add( rd.HiddenSubmeshes );
+                still.Add( rd.SectionSlot );
+                // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
+                still.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
+            }
+            for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
+            {
+                const GenericMeshRenderData& g = m_GenericQueue[i];
+                if ( g.Mesh == nullptr || !g.CastShadows ||
+                     !CasterInSphere( setup.Generics[i].WorldBounds, centre, radius ) )
+                    continue;
+                still.Add( g.Mesh->GetRenderRevision() );
+                still.Add( g.Transform );
+                still.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
+            }
+            return still.Value;
+        };
+        if ( !tracked )
+            return walk();
+        // Once per gather: the spheres no light asked for in kLocalStaticPartGathers gathers leave.
+        if ( m_LocalStaticSweep != setup.Gather )
+        {
+            m_LocalStaticSweep = setup.Gather;
+            std::erase_if( m_LocalStaticParts,
+                           [gather = setup.Gather]( const auto& entry )
+                           { return gather - entry.second.Asked > kLocalStaticPartGathers; } );
+        }
+        LocalStaticKey key;
+        key.Bits = { std::bit_cast<uint32_t>( centre.x ), std::bit_cast<uint32_t>( centre.y ),
+                     std::bit_cast<uint32_t>( centre.z ), std::bit_cast<uint32_t>( radius ) };
+        const auto [found, made] = m_LocalStaticParts.try_emplace( key );
+        LocalStaticPart& part    = found->second;
+        part.Asked               = setup.Gather;
+        if ( made || part.Revision != m_StaticCasters.Revision || part.LodKey != setup.StaticLodKey )
+        {
+            part.Revision = m_StaticCasters.Revision;
+            part.LodKey   = setup.StaticLodKey;
+            part.Hash     = walk();
+        }
+        return part.Hash;
     }
 
     void MeshRenderer::UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,

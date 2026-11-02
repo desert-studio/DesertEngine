@@ -307,7 +307,7 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
                           RDG::ShaderBindingLayout{
                                .ShaderName = "EngineHostFill",
                                .Slots      = { { "Words", RDG::ShaderResourceKind::StorageBuffer } } },
-                          RDG::OtherRouteFill{} )
+                          RDG::NoOtherRouteFill() )
                       .Storage( EngineHostTestFillShaderParameters::Words, words, RDG::Access::StorageWrite );
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -388,7 +388,7 @@ namespace
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
                  // The fullscreen / procedural test shaders read no resource and take no push constants: an empty
                  // block, which ValidatePassBindings checks like any other.
-                 pass.Bindings( RDG::ShaderBindingLayout{ .ShaderName = name }, RDG::OtherRouteFill{} );
+                 pass.Bindings( RDG::ShaderBindingLayout{ .ShaderName = name }, RDG::NoOtherRouteFill() );
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

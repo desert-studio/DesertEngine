@@ -169,7 +169,8 @@ namespace Desert::ECS
         // of the shader's schema defaults. A root without a LandscapeMaterial draws with those defaults.
         struct Surface
         {
-            Graphic::MaterialOverrides Overrides;
+            // Never null: the root's overrides of this material revision (m_RootOverrides), empty for no material.
+            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
             // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
             // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
             // not reported as unknown.
@@ -182,6 +183,39 @@ namespace Desert::ECS
             std::string GroundLayer;
         };
         std::map<uint64_t, Surface> surfaces;
+
+        // The root's overrides, resolved again only when their revision moved (ResolvedOverrides): the handle, the
+        // material service's invalidation version, the content registry's write serial.
+        auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
+        const uint32_t materialVersion =
+             materialService != nullptr ? materialService->GetInvalidationVersion() : 0u;
+        const uint64_t contentSerial = Assets::ContentRegistry::WriteSerial();
+        const auto     overridesOf   = [&]( const uint64_t                rootKey,
+                                        const LandscapeMaterialData* look ) -> std::shared_ptr<const Graphic::MaterialOverrides>
+        {
+            const uint64_t     raw    = look != nullptr ? static_cast<uint64_t>( look->Material ) : 0u;
+            ResolvedOverrides& cached = m_RootOverrides[rootKey];
+            if ( cached.Overrides != nullptr && cached.Material == raw && cached.Service == materialService &&
+                 cached.InvalidationVersion == materialVersion && cached.ContentSerial == contentSerial )
+                return cached.Overrides;
+            auto resolved = std::make_shared<Graphic::MaterialOverrides>();
+            if ( raw != 0u &&
+                 ( materialService == nullptr || !materialService->ResolveOverrides( look->Material, *resolved ) ) &&
+                 m_WarnedMaterials.insert( raw ).second )
+            {
+                // Not a silent default: the scene names a material the asset database does not have, and
+                // the landscape then renders in the shader's defaults. Said once per handle, not per frame.
+                LOG_WARN( "[Landscape] material handle {} does not resolve to a registered material — the "
+                          "landscape renders with the Terrain shader's own defaults.",
+                          raw );
+            }
+            cached.Material            = raw;
+            cached.Service             = materialService;
+            cached.InvalidationVersion = materialVersion;
+            cached.ContentSerial       = contentSerial;
+            cached.Overrides           = std::move( resolved );
+            return cached.Overrides;
+        };
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
         {
             const auto [it, inserted] = surfaces.try_emplace( static_cast<uint64_t>( rootId ) );
@@ -209,27 +243,15 @@ namespace Desert::ECS
                         it->second.LayersPending = true;
                 }
             }
+            const LandscapeMaterialData* look = nullptr;
             for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
             {
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
                     continue;
-                const LandscapeMaterialData& look = registry.get<LandscapeMaterialComponent>( entity ).Data;
-                const auto raw = static_cast<uint64_t>( look.Material );
-                if ( raw == 0 )
-                    break;
-                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-                if ( ( materials == nullptr ||
-                       !materials->ResolveOverrides( look.Material, it->second.Overrides ) ) &&
-                     m_WarnedMaterials.insert( raw ).second )
-                {
-                    // Not a silent default: the scene names a material the asset database does not have, and
-                    // the landscape then renders in the shader's defaults. Said once per handle, not per frame.
-                    LOG_WARN( "[Landscape] material handle {} does not resolve to a registered material — the "
-                              "landscape renders with the Terrain shader's own defaults.",
-                              raw );
-                }
+                look = &registry.get<LandscapeMaterialComponent>( entity ).Data;
                 break;
             }
+            it->second.Overrides = overridesOf( static_cast<uint64_t>( rootId ), look );
             return it->second;
         };
 
@@ -336,6 +358,7 @@ namespace Desert::ECS
                             weights.GrassCoverRange[c] = layer->second.Range;
                             weights.GrassCoverFloorWidth[c] = layer->second.FloorWidth;
                             weights.GrassCoverWiden[c]      = layer->second.WidenShare;
+                            weights.GrassCoverFarLodRadius[c] = layer->second.FarLodRadius;
                         }
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
@@ -442,6 +465,8 @@ namespace Desert::ECS
             float     FloorLai = 0.0f, FloorWidth = 0.0f;
             // GPU-COST-29: the leaf area of the blade varieties, whose survivors widen (GrassFieldShare.glslh).
             float     WidenLai = 0.0f;
+            // GRASS-SHADOW-1: the mesh varieties' leaf area-weighted sum of their far LOD radius.
+            float     FarLodRadius = 0.0f;
             glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
         };
         std::vector<CoverSum> coverSums( grassLayers.size() );
@@ -730,6 +755,7 @@ namespace Desert::ECS
                         const float meanUp  = 0.5f * ( v.ScaleZ.Min + v.ScaleZ.Max );
                         const bool  uniform = p.Scaling == 0u;
                         float       area    = 0.0f;
+                        float       radius  = 0.0f;
                         if ( blade )
                         {
                             float aspect = 0.0f;
@@ -748,6 +774,14 @@ namespace Desert::ECS
                             const Common::Math::AABB bounds = Geometry::LocalBounds( mesh->GetSubmeshes() );
                             area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) *
                                    ( p.Scaling == 1u ? meanX * meanY : meanX * meanX );
+                            // The far LOD's measure of the mean instance (GrassGenerate: the radius at scale 1 x
+                            // the largest of its scales) - uniform: ScaleX; free: any axis; XY locked: X or up.
+                            float scale = meanX;
+                            if ( p.Scaling == 1u )
+                                scale = std::max( { meanX, meanY, meanUp } );
+                            else if ( p.Scaling == 2u )
+                                scale = std::max( meanX, meanUp );
+                            radius = Graphic::System::GrassFarLodRadius( bounds ) * scale;
                         }
                         // Only the share of the ground its patches hold grows it.
                         area *= v.Patches.Coverage;
@@ -759,6 +793,8 @@ namespace Desert::ECS
                         sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
                         if ( blade )
                             sum.WidenLai += lai;
+                        else
+                            sum.FarLodRadius += lai * radius;
                         // The screen-width floor's view-independent half (GrassRenderer measures the same mean
                         // blade, GrassBladeMeanWidth, and the view's pixels per unit, GrassFloorDistance).
                         if ( variety.Blade && variety.Blade->MinScreenWidth > 0.0f )
@@ -799,6 +835,7 @@ namespace Desert::ECS
                                                 sum.Opacity / sum.ColourLai );
             c.FloorWidth        = sum.FloorLai > 0.0f ? sum.FloorWidth / sum.FloorLai : 0.0f;
             c.WidenShare        = sum.WidenLai / sum.Lai;
+            c.FarLodRadius      = sum.Lai > sum.WidenLai ? sum.FarLodRadius / ( sum.Lai - sum.WidenLai ) : 0.0f;
         }
         if ( !draw.Varieties.empty() )
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );

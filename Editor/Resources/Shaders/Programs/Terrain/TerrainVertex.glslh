@@ -1,8 +1,10 @@
 // Terrain vertex stage, shared by the Terrain programs (Terrain = forward, TerrainGBuffer = deferred,
 // TerrainDepth = the forward view's depth prepass, TerrainShadow / TerrainVirtualShadow = casters): ONE statement of where a terrain vertex is, so the surface a cascade sees
 // is the surface the camera sees — same grid, same LOD (chosen on the CPU from the main camera), same morph.
-        // A landscape tile is a grid of cells over its samples, two triangles per cell on Jolt's diagonal,
-        // decoded from gl_VertexIndex (LandscapeLod.glslh; UE's FLandscapeVertexFactory, ported). The tile
+        // A landscape tile is a grid of cells over its samples, two triangles per cell on Jolt's diagonal: its
+        // undiced cells an indexed draw of the grid's shared index buffer, one vertex a grid node (UE
+        // FLandscapeSharedBuffers, TerrainBatch.hpp LandscapeGridIndices), its dice rings decoded from
+        // gl_VertexIndex (LandscapeLod.glslh; UE's FLandscapeVertexFactory, ported). The tile
         // is drawn at the grid of its own LOD, and every vertex morphs between that grid and the next coarser
         // one by its continuous LOD — UE's geomorph, so a LOD change never pops. At LOD 0 the vertices are
         // the samples and the triangles are the cells Jolt collides with.
@@ -70,8 +72,11 @@
 
         void main()
         {
-            // The tile's grid vertex, or a sub-vertex of a diced cell displaced by the layers' heights.
-            LandscapeDisplacedVertex v = LandscapeDisplacedEvaluate( gl_VertexIndex );
+            // The tile's grid vertex, or a sub-vertex of a diced cell displaced by the layers' heights. An indexed
+            // draw of the grid's shared index buffer starts at instance LANDSCAPE_GRID_FIRST_INSTANCE (its vertex is
+            // a grid node, each further instance one row further); the procedural decode is instance 0.
+            int gridRow = gl_InstanceIndex - LANDSCAPE_GRID_FIRST_INSTANCE;
+            LandscapeDisplacedVertex v = LandscapeDisplacedEvaluate( gl_VertexIndex, gridRow );
             vec4 worldPos = vec4( v.WorldPos, 1.0 );
             gl_Position    = m_PushConstants.Transform * worldPos;
 

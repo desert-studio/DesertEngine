@@ -1,6 +1,7 @@
 #include <Engine/Assets/MeshDistanceField.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -378,10 +379,24 @@ namespace Desert::Assets
         return m_Field;
     }
 
+    namespace
+    {
+        std::atomic<uint64_t> s_DfPublishGeneration{ 0 };
+    } // namespace
+
+    uint64_t MeshDistanceFieldSlot::PublishGeneration()
+    {
+        return s_DfPublishGeneration.load( std::memory_order_acquire );
+    }
+
     void MeshDistanceFieldSlot::Publish( std::shared_ptr<const MeshDistanceFieldData> field )
     {
-        const std::lock_guard<std::mutex> lock( m_Mutex );
-        m_Field = std::move( field );
+        {
+            const std::lock_guard<std::mutex> lock( m_Mutex );
+            m_Field = std::move( field );
+        }
+        // After the field is readable: a reader that sees the new generation finds it in the slot.
+        s_DfPublishGeneration.fetch_add( 1, std::memory_order_acq_rel );
     }
 
     namespace

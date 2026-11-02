@@ -513,8 +513,15 @@ namespace Desert::Graphic
         [[nodiscard]] static std::vector<ResourceInstanceCensus> TakeInstances( ResourceInstanceKind kind );
 
         /// The census as lines a person reads, owners first and then the kinds under each. Written for the
-        /// log and for the control channel; the numbers are the same object as `Take()`.
+        /// log and for the control channel; the numbers are the same object as `Take()`. Ends with the
+        /// running-totals check (`CheckInstanceTotals`) when it finds a disagreement.
         [[nodiscard]] static std::string Report();
+
+        /// The running per-instance totals (what `TakeFor` / `TakeInstances` answer from in O(1)) checked
+        /// against a full walk of the rows, under one lock: empty when they agree, else one line per instance
+        /// that differs, both sides named. A non-empty answer is a bookkeeping defect in this file — a row
+        /// mutation that changed a row's instance or size without moving it between the totals.
+        [[nodiscard]] static std::string CheckInstanceTotals();
 
         // TWO MORE QUERIES WERE DRAFTED HERE AND ARE GONE: `AssetBackedHandles()`, which would have given
         // eviction its candidate set, and `RowsFor( handle )`. Neither ever had a caller — the sweep walks
@@ -537,7 +544,9 @@ namespace Desert::Graphic
         /// The census body; the caller holds the lock. @p perInstance (may be null) receives one entry per
         /// live non-None instance, in instance order, from the SAME pass as the census.
         static ResourceCensus TakeLocked( std::vector<ResourceInstanceCensus>* perInstance );
-        static std::size_t    ReadBytes( uint64_t row );
+        /// `CheckInstanceTotals`' body; the caller holds the lock.
+        static std::string CheckInstanceTotalsLocked();
+        static std::size_t ReadBytes( uint64_t row );
     };
 
     // A NAMED detail namespace and INLINE functions, not an anonymous namespace. An anonymous namespace
@@ -574,10 +583,81 @@ namespace Desert::Graphic
             return lock;
         }
 
+        struct InstanceHash
+        {
+            std::size_t operator()( const ResourceOwnerInstance& instance ) const noexcept
+            {
+                return std::hash<uint64_t>{}( ( instance.Id << 2 ) ^ static_cast<uint64_t>( instance.Kind ) );
+            }
+        };
+
+        using InstanceTotalsMap = std::unordered_map<ResourceOwnerInstance, ResourceInstanceCensus, InstanceHash>;
+
+        /// The rows AND the running per-instance totals over them, in ONE object so they share one lifetime
+        /// (a row closed during static destruction must find both alive, or both gone) and are only ever
+        /// changed together, under `Lock()`. The totals are what a per-frame reader asks (the status bar, the
+        /// view budget, a view's held bytes): the UE LLM / RHI-stats model, counters moved when a resource is
+        /// created, destroyed or re-attributed, read in O(1) — never a walk of every live row per frame.
+        /// `CheckInstanceTotals` is the walk that proves them, run when a view closes and in `Report()`.
+        struct LedgerState
+        {
+            std::unordered_map<uint64_t, LedgerRow> Rows;
+            /// Non-None instances with at least one live row; an instance whose last row closes is erased.
+            InstanceTotalsMap Instances;
+        };
+
+        inline LedgerState& State()
+        {
+            static LedgerState state;
+            return state;
+        }
+
         inline std::unordered_map<uint64_t, LedgerRow>& Rows()
         {
-            static std::unordered_map<uint64_t, LedgerRow> rows;
-            return rows;
+            return State().Rows;
+        }
+
+        inline InstanceTotalsMap& InstanceTotals()
+        {
+            return State().Instances;
+        }
+
+        /// Counts @p row into its instance's totals. The caller holds `Lock()`, and calls this after the row is
+        /// in `Rows()` with its final instance and size.
+        inline void AddToInstance( const LedgerRow& row )
+        {
+            if ( row.Instance.IsNone() )
+                return;
+            ResourceInstanceCensus& totals = InstanceTotals().try_emplace( row.Instance ).first->second;
+            totals.Instance                = row.Instance;
+            ++totals.Live;
+            if ( row.BytesKnown )
+            {
+                totals.Bytes += row.Bytes;
+                ++totals.BytesKnownFor;
+            }
+        }
+
+        /// Takes @p row out of its instance's totals (the exact inverse of `AddToInstance`), erasing the entry
+        /// with its last row. The caller holds `Lock()`, and calls this BEFORE the row's instance or size
+        /// changes or the row is erased. A missing entry is a drift `CheckInstanceTotals` names; it is not
+        /// patched here.
+        inline void RemoveFromInstance( const LedgerRow& row )
+        {
+            if ( row.Instance.IsNone() )
+                return;
+            const auto it = InstanceTotals().find( row.Instance );
+            if ( it == InstanceTotals().end() )
+                return;
+            ResourceInstanceCensus& totals = it->second;
+            --totals.Live;
+            if ( row.BytesKnown )
+            {
+                totals.Bytes -= row.Bytes;
+                --totals.BytesKnownFor;
+            }
+            if ( totals.Live == 0 )
+                InstanceTotals().erase( it );
         }
 
         inline uint64_t& NextRowId()
@@ -761,7 +841,7 @@ namespace Desert::Graphic
         row.Instance   = LedgerDetail::AmbientInstance();
         row.Bytes      = bytes;
         row.BytesKnown = bytes != 0;
-        LedgerDetail::Rows().emplace( id, row );
+        LedgerDetail::AddToInstance( LedgerDetail::Rows().emplace( id, std::move( row ) ).first->second );
 
         return id;
     }
@@ -769,7 +849,11 @@ namespace Desert::Graphic
     inline void ResourceLedger::Close( const uint64_t row )
     {
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
-        LedgerDetail::Rows().erase( row );
+        if ( const auto it = LedgerDetail::Rows().find( row ); it != LedgerDetail::Rows().end() )
+        {
+            LedgerDetail::RemoveFromInstance( it->second );
+            LedgerDetail::Rows().erase( it );
+        }
     }
 
     inline void ResourceLedger::Attribute( const uint64_t row, const ResourceOwner owner,
@@ -778,9 +862,12 @@ namespace Desert::Graphic
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
         if ( const auto it = LedgerDetail::Rows().find( row ); it != LedgerDetail::Rows().end() )
         {
+            // The row may move to another instance: out of the old totals, in to the new, in this lock.
+            LedgerDetail::RemoveFromInstance( it->second );
             it->second.Owner    = owner;
             it->second.Asset    = asset;
             it->second.Instance = instance;
+            LedgerDetail::AddToInstance( it->second );
         }
     }
 
@@ -789,8 +876,10 @@ namespace Desert::Graphic
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
         if ( const auto it = LedgerDetail::Rows().find( row ); it != LedgerDetail::Rows().end() )
         {
+            LedgerDetail::RemoveFromInstance( it->second );
             it->second.Bytes      = bytes;
             it->second.BytesKnown = bytes != 0;
+            LedgerDetail::AddToInstance( it->second );
         }
     }
 
@@ -834,18 +923,11 @@ namespace Desert::Graphic
         if ( instance.IsNone() )
             return census;
 
+        // The running totals (LedgerDetail::LedgerState), one lookup: no walk of the rows.
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
-        for ( const auto& [id, row] : LedgerDetail::Rows() )
-        {
-            if ( row.Instance != instance )
-                continue;
-            ++census.Live;
-            if ( row.BytesKnown )
-            {
-                census.Bytes += row.Bytes;
-                ++census.BytesKnownFor;
-            }
-        }
+        if ( const auto it = LedgerDetail::InstanceTotals().find( instance );
+             it != LedgerDetail::InstanceTotals().end() )
+            census = it->second;
         return census;
     }
 
@@ -875,11 +957,12 @@ namespace Desert::Graphic
         if ( kind == ResourceInstanceKind::None )
             return instances;
         {
+            // The running totals: the live instances (a handful), not every live row.
             std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
-            (void)TakeLocked( &instances );
+            for ( const auto& [instance, totals] : LedgerDetail::InstanceTotals() )
+                if ( instance.Kind == kind )
+                    instances.push_back( totals );
         }
-        std::erase_if( instances,
-                       [kind]( const ResourceInstanceCensus& item ) { return item.Instance.Kind != kind; } );
         std::sort( instances.begin(), instances.end(),
                    []( const ResourceInstanceCensus& a, const ResourceInstanceCensus& b )
                    { return a.Instance.Id < b.Instance.Id; } );
@@ -943,13 +1026,65 @@ namespace Desert::Graphic
         return census;
     }
 
+    inline std::string ResourceLedger::CheckInstanceTotalsLocked()
+    {
+        LedgerDetail::InstanceTotalsMap walked;
+        for ( const auto& [id, row] : LedgerDetail::Rows() )
+        {
+            if ( row.Instance.IsNone() )
+                continue;
+            ResourceInstanceCensus& entry = walked.try_emplace( row.Instance ).first->second;
+            entry.Instance                = row.Instance;
+            ++entry.Live;
+            if ( row.BytesKnown )
+            {
+                entry.Bytes += row.Bytes;
+                ++entry.BytesKnownFor;
+            }
+        }
+
+        std::string text;
+        const auto  describe = []( const ResourceInstanceCensus& census )
+        { return std::format( "live={} bytes={} known={}", census.Live, census.Bytes, census.BytesKnownFor ); };
+        const ResourceInstanceCensus           none{};
+        const LedgerDetail::InstanceTotalsMap& totals = LedgerDetail::InstanceTotals();
+        for ( const auto& [instance, rows] : walked )
+        {
+            const auto                    it      = totals.find( instance );
+            const ResourceInstanceCensus& running = it != totals.end() ? it->second : none;
+            if ( running.Live == rows.Live && running.Bytes == rows.Bytes &&
+                 running.BytesKnownFor == rows.BytesKnownFor )
+                continue;
+            std::format_to( std::back_inserter( text ), "{}instance {}: totals {}, rows {}",
+                            text.empty() ? "" : "\n", ResourceOwnerInstanceName( instance ), describe( running ),
+                            describe( rows ) );
+        }
+        for ( const auto& [instance, running] : totals )
+        {
+            if ( walked.contains( instance ) )
+                continue;
+            std::format_to( std::back_inserter( text ), "{}instance {}: totals {}, rows {}",
+                            text.empty() ? "" : "\n", ResourceOwnerInstanceName( instance ), describe( running ),
+                            describe( none ) );
+        }
+        return text;
+    }
+
+    inline std::string ResourceLedger::CheckInstanceTotals()
+    {
+        std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+        return CheckInstanceTotalsLocked();
+    }
+
     inline std::string ResourceLedger::Report()
     {
         std::vector<ResourceInstanceCensus> instances;
         ResourceCensus                      census;
+        std::string                         totalsCheck;
         {
             std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
-            census = TakeLocked( &instances );
+            census      = TakeLocked( &instances );
+            totalsCheck = CheckInstanceTotalsLocked();
         }
 
         std::string text;
@@ -996,6 +1131,11 @@ namespace Desert::Graphic
             std::format_to( std::back_inserter( text ), "\n  instance {} = {} bytes={} known={}",
                             ResourceOwnerInstanceName( instance.Instance ), instance.Live, instance.Bytes,
                             instance.BytesKnownFor );
+
+        // The running totals every per-frame reader uses, against the walk above's instant. Silent when they
+        // agree; a line here means TakeFor / TakeInstances answer something other than the rows.
+        if ( !totalsCheck.empty() )
+            text += "\n  INSTANCE TOTALS DISAGREE WITH THE ROWS:\n" + totalsCheck;
 
         return text;
     }

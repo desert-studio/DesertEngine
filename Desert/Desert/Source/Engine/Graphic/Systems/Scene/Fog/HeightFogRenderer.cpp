@@ -316,7 +316,7 @@ namespace Desert::Graphic::System
             {
                 return;
             }
-            declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
+            declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::NoOtherRouteFill() )
                  .Texture( HeightFogApplyShaderParameters::FogApplyTexture, refs.Transients.HeightFog, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All() )
                  .Sampler( HeightFogApplyShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );

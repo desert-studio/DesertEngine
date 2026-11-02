@@ -207,7 +207,7 @@ namespace
     // The upsample's correct block: samples mip 1 of @p chain, writes mip 0, gives 12 bytes of push constants.
     BindingBlockBuilder DeclareBloomBlock( PassBuilder& pass, TextureRef chain )
     {
-        BindingBlockBuilder block = pass.Bindings( BloomLayout(), OtherRouteFill{} );
+        BindingBlockBuilder block = pass.Bindings( BloomLayout(), NoOtherRouteFill() );
         block.Texture( PassBindingsContractTestBloomShaderParameters::SourceMipTexture, chain,
                        Access::SampledCompute, SubresourceRange::Mip( 1 ) )
              .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
@@ -330,7 +330,7 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
     const BloomRun unknown = RunBloomLikePass(
          []( PassBuilder& pass, TextureRef chain )
          {
-             pass.Bindings( BloomLayout(), OtherRouteFill{} )
+             pass.Bindings( BloomLayout(), NoOtherRouteFill() )
                   .Texture( PassBindingsContractTestBloomShaderParameters::u_Sorce, chain, Access::SampledCompute,
                             SubresourceRange::Mip( 1 ) )
                   .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
@@ -351,7 +351,7 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
     const BloomRun wrongKind = RunBloomLikePass(
          []( PassBuilder& pass, TextureRef chain )
          {
-             pass.Bindings( BloomLayout(), OtherRouteFill{} )
+             pass.Bindings( BloomLayout(), NoOtherRouteFill() )
                   .Texture( PassBindingsContractTestBloomReadShaderParameters::DestinationMipTexture, chain,
                             Access::SampledCompute, SubresourceRange::Mip( 1 ) )
                   .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
@@ -403,7 +403,7 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
     const BloomRun run = RunBloomLikePass(
          []( PassBuilder& pass, TextureRef chain )
          {
-             pass.Bindings( BloomLayout(), OtherRouteFill{} )
+             pass.Bindings( BloomLayout(), NoOtherRouteFill() )
                   .Texture( PassBindingsContractTestBloomShaderParameters::SourceMipTexture, chain,
                             Access::SampledCompute, SubresourceRange::Mip( 1 ) )
                   .Sampler( PassBindingsContractTestBloomShaderParameters::PointClampSampler,
@@ -456,7 +456,7 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
              pass.Bindings(
                       ShaderBindingLayout{ .ShaderName = "ReadsBlack",
                                            .Slots      = { { "SourceMipTexture", ShaderResourceKind::Texture } } },
-                      OtherRouteFill{} )
+                      NoOtherRouteFill() )
                   .Texture( PassBindingsContractTestReadsSystemBlackShaderParameters::SourceMipTexture,
                             system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) )
                   .Sampler( PassBindingsContractTestReadsSystemBlackShaderParameters::LinearClampSampler,

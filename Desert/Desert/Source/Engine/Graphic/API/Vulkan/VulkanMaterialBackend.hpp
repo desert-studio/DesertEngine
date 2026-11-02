@@ -52,6 +52,11 @@ namespace Desert::Graphic::API::Vulkan
             VkDescriptorSet       Set = VK_NULL_HANDLE;
             // Sorted; the set's copy record (DescriptorCopyRecord::GetWrittenBindings), valid until its next write.
             std::span<const uint32_t> Bindings;
+            // RDG-PARALLEL-9: the record's identity and version (DescriptorCopyRecord::GetIdentity/GetVersion).
+            // While both are unchanged, Set holds the same descriptors at Bindings, so a set the graph route
+            // filled from it is cached under them (VulkanRenderer's WriteRdgPassSets).
+            uint64_t Identity = 0;
+            uint64_t Version  = 0;
         };
         Common::ResultStr<WrittenSlots> GetWrittenSlots( uint32_t frameIndex );
 
