@@ -38,8 +38,10 @@
 // DLAA too.
 //
 // RAY RECONSTRUCTION (TemporalMethod::DLSSRR; Streamline sl::kFeatureDLSS_RR) is also the view's denoiser
-// (TakesRawLightingSignals): the renderer hands it the reflection traced at full resolution and the diffuse gather
-// undenoised, composited into the colour as usual, and a third pass, "DLSS-RR: Guides" (DLSSRRGuides.shader),
+// (TakesRawLightingSignals): the renderer hands it the reflection traced at full resolution, undenoised, and the
+// diffuse gather DENOISED (its noise is probe-sized and spatially correlated, which RR - made for per-pixel ray
+// noise - kept as dark blobs coming and going on still walls), composited into the colour as usual, and a third
+// pass, "DLSS-RR: Guides" (DLSSRRGuides.shader),
 // writes the guides it demodulates them with - diffuse and specular albedo from the G-buffer and the split-sum
 // table, the reflection's hit distance from SSR's ray - beside the G-buffer's normal + roughness, tagged as is.
 // On a path-traced view (TemporalUpscalerInputs::PathGuides) "DLSS-RR: Path Guides" (DLSSRRPathGuides.shader)
