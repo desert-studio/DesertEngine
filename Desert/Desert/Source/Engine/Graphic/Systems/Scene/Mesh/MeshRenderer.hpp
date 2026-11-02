@@ -3145,8 +3145,30 @@ namespace Desert::Graphic::System
             // wind can reach and the level, and the instance's index in its field's transforms.
             std::vector<ShadowCasterRow> Instances;
             std::vector<uint32_t>        InstanceIndex;
+            // THE ISM GATHER IS KEPT ACROSS FRAMES (SCENE-CACHE-3) while every input of ShadowIsmInstances is the
+            // one it was made from: IsmKey (IsmGatherKey) and the transforms snapshots, held by owner (a freed
+            // snapshot whose address came back is another one). IsmRevision moves whenever the gather starts over.
+            uint64_t                                                 IsmKey      = 0;
+            uint64_t                                                 IsmRevision = 0;
+            std::vector<std::weak_ptr<const std::vector<glm::mat4>>> IsmSources; // per m_InstancedQueue entry
         };
         ShadowCasterSetup m_ShadowCasterSetup;
+        // The ISM gather's key: the main camera's LODView and lens scale, the shadow wind distance and, per field,
+        // its mesh's render revision, instance count, material, caster flag, cull distance and wind (not its clock:
+        // the gather reads the sway's reach, not its phase). O(fields), never O(instances).
+        [[nodiscard]] uint64_t IsmGatherKey() const;
+        // Each cascade's ISM part of CascadeStaticSignature (the instances the layer keeps of every field), kept
+        // while the gather (ShadowCasterSetup::IsmRevision) and the cascade's caster matrix are the ones it was made
+        // from. Invalid after a part that met an instance at the wind edge: that one keys the gather of its frame.
+        struct CascadeIsmPart
+        {
+            bool      Valid    = false;
+            uint64_t  Revision = 0;
+            glm::mat4 CasterVP{ 1.0f };
+            uint64_t  Hash    = 0;
+            bool      Movable = false;
+        };
+        std::vector<CascadeIsmPart> m_CascadeIsmParts;
         // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each): a queue changed
         // after the last GatherShadowCasters breaks the order SceneRenderer::OnUpdate keeps.
         [[nodiscard]] bool ShadowCastersGathered() const;
