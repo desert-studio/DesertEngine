@@ -1896,6 +1896,11 @@ namespace Desert::Graphic::API::Vulkan
         const VkRect2D   scissor{ { 0, 0 }, extent };
         vkCmdSetViewport( m_CommandBuffer, 0, 1, &viewport );
         vkCmdSetScissor( m_CommandBuffer, 0, 1, &scissor );
+        // RDG-PARALLEL-4: every graphics pipeline enables VK_DYNAMIC_STATE_LINE_WIDTH (VulkanPipeline). Set at each
+        // render pass begin, here and in every chunk's render pass secondary (SwitchChunkPiece), so no draw relies
+        // on a width an earlier pass left in the primary - a secondary inherits none. Lines that want another
+        // width set it at their draw.
+        vkCmdSetLineWidth( m_CommandBuffer, 1.0f );
     }
 
     Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
@@ -2004,6 +2009,7 @@ namespace Desert::Graphic::API::Vulkan
         const VkRect2D   scissor{ { 0, 0 }, extent };
         vkCmdSetViewport( chunk.Record.CommandBuffer, 0, 1, &viewport );
         vkCmdSetScissor( chunk.Record.CommandBuffer, 0, 1, &scissor );
+        vkCmdSetLineWidth( chunk.Record.CommandBuffer, 1.0f ); // as BeginRenderPass on the primary
     }
 
     Common::BoolResultStr VulkanRdgBackend::BeginChunks( std::span<const RDG::RecordChunkDesc> chunks )
