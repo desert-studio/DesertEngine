@@ -16,7 +16,12 @@ Shader "DLSSRRGuides"
         // The demodulation is exact only when the guides are the factors the colour was made with, which is why
         // they are computed here from the same G-buffer, F0 rule and table as the lighting, never approximated.
         // The normal + roughness guide is the G-buffer's own normal target (rgb world normal, a roughness), tagged
-        // as it is (sl::DLSSDNormalRoughnessMode::ePacked). Background pixels (far depth) get zero guides.
+        // as it is (sl::DLSSDNormalRoughnessMode::ePacked).
+        // BACKGROUND PIXELS (far depth: the sky) are pure emission, never demodulated: diffuse albedo ONE, specular
+        // albedo and hit distance zero - RR's "colour = albedo x radiance" factoring then leaves the sky colour as it
+        // is. A zero diffuse albedo there made every silhouette against the sky alternate between a demodulated
+        // surface sample and an undemodulable one with the jitter: the barn roof edge danced 64..106 under RR
+        // while TAA and DLSS SR held it within a few levels (FPS-FIELD-BARN-EDGE, edge spread p99 10.4 -> 2.5).
 
         #include <Common/ReconstructPosition.glslh>
         #include <Mesh/BRDF.glslh>
@@ -61,7 +66,7 @@ Shader "DLSSRRGuides"
         	const float depth = texelFetch(GBufferDepthTexture, pixel, 0).r;
         	if (depth <= 0.0)
         	{
-        		imageStore(DiffuseAlbedoTexture, pixel, vec4(0.0));
+        		imageStore(DiffuseAlbedoTexture, pixel, vec4(1.0));
         		imageStore(SpecularAlbedoTexture, pixel, vec4(0.0));
         		imageStore(SpecularHitDistanceTexture, pixel, vec4(0.0));
         		return;
