@@ -995,6 +995,7 @@ namespace Desert::Runtime
             ++m_BuildRevisions[handle];
         m_Materials.clear();
         m_ViewMaterials.clear();
+        ++m_InvalidationVersion; // every consumer holding a raw Material* or a view copy (GpuInstancedDrawRecord) lets go
         m_BuiltToAsset.clear();
         m_DisplacedBuilt.clear();
         m_MaterialAssets.clear();

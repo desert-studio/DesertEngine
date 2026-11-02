@@ -48,18 +48,24 @@ namespace Desert::Graphic::System
         constexpr uint32_t kGpuInstancedPostViewOffset = 0x04000000u;
 
         // The permutation of a GPU-instanced section's cell for the list it draws: @p ids (the camera's or a
-        // cascade's, GpuInstanceRefs::Ids) - MeshRenderer::SurfaceInstanceIdsVariant of @p permutation, the one
-        // spelling the cook lists too; @p ids false (the full list, drawn directly): @p permutation as it is.
-        Core::ShaderVariant WithInstanceIds( Core::ShaderVariant permutation, const bool ids )
+        // cascade's, GpuInstanceRefs::Ids) - MeshRenderer::SurfaceInstanceIdsVariant, the one spelling the cook
+        // lists too; @p ids false (the full list, drawn directly): the default one. @p depthEqual: over the
+        // G-buffer's SurfaceDepthEqualVariant. Built once (each is a ShaderVariant of heap strings).
+        const Core::ShaderVariant& InstancePermutation( const bool ids, const bool depthEqual )
         {
-            if ( !ids )
-                return permutation;
-            return MeshRenderer::SurfaceInstanceIdsVariant( std::move( permutation ) );
+            static const Core::ShaderVariant s_Plain{};
+            static const Core::ShaderVariant s_Ids   = MeshRenderer::SurfaceInstanceIdsVariant();
+            static const Core::ShaderVariant s_Equal = MeshRenderer::SurfaceDepthEqualVariant();
+            static const Core::ShaderVariant s_EqualIds =
+                 MeshRenderer::SurfaceInstanceIdsVariant( MeshRenderer::SurfaceDepthEqualVariant() );
+            if ( depthEqual )
+                return ids ? s_EqualIds : s_Equal;
+            return ids ? s_Ids : s_Plain;
         }
 
-        // The producer's buffers into the cell: the section's one Instances, @p ids (the drawn list's ids, the
-        // kSurfaceInstanceIdsDefine cell's GpuInstanceIds; null: the full list, drawn directly), and a blade's
-        // shape (MeshPathOwnBinding).
+        // The producer's buffers into a cascade's caster cell: the section's one Instances, @p ids (the drawn
+        // list's ids, the kSurfaceInstanceIdsDefine cell's GpuInstanceIds; null: the full list, drawn directly),
+        // and a blade's shape (MeshPathOwnBinding). The camera passes set them through their kept record's slots.
         void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu,
                                       const std::shared_ptr<ShaderResources::StorageBuffer>& ids )
         {
@@ -72,13 +78,28 @@ namespace Desert::Graphic::System
                 if ( auto* sb = cell.Get<StorageBufferProperty>( kGrassBladeShapeBlock ) )
                     sb->SetBuffer( gpu.BladeShape );
         }
+
+        // MeshRenderer::GpuInstancedDrawRecord's key: the section, the pass, phase 2, the G-buffer's EQUAL half,
+        // and the forward prepass pairing (the companion-less Depth call is the deferred early-Z pass).
+        uint64_t GpuInstancedDrawKey( const uint32_t section, const MeshPass pass, const bool postOcclusion,
+                                      const bool prepassed, const bool paired )
+        {
+            uint64_t key = ( uint64_t{ section } << 32 ) | ( uint64_t{ static_cast<uint32_t>( pass ) } << 8 );
+            if ( postOcclusion )
+                key |= 1u;
+            if ( prepassed )
+                key |= 2u;
+            if ( paired )
+                key |= 4u;
+            return key;
+        }
     } // namespace
 
     MeshRenderer::~MeshRenderer()
     {
         // The section copies hold this view's buffers (the producers' instances, the Materials rows written
         // under the view): their instances first, then the copies, before the view's ledger check.
-        m_GpuInstancedInstances.clear();
+        m_GpuInstancedDraws.clear();
         m_GpuInstancedQueue.clear();
         if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
             materials->ReleaseViewVariants( this );
@@ -99,25 +120,155 @@ namespace Desert::Graphic::System
         return permutation;
     }
 
+    MeshRenderer::GpuInstancedDrawRecord* MeshRenderer::GpuInstancedDrawOf( const GpuInstancedRenderData& gpu,
+                                                                            const MeshPass                pass,
+                                                                            GraphicsPipeline* const       carrier,
+                                                                            const StaticPassCells* const  companion,
+                                                                            const bool postOcclusion,
+                                                                            const bool prepassed )
+    {
+        auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return nullptr;
+        if ( materials->GetInvalidationVersion() != m_GpuInstancedStamp )
+        {
+            // The cells and the templates they copy may be in the graveyard: every record goes.
+            m_GpuInstancedDraws.clear();
+            m_GpuInstancedStamp = materials->GetInvalidationVersion();
+        }
+        const bool              cameraList       = gpu.CameraIds != nullptr && gpu.CameraRefs != nullptr;
+        GraphicsPipeline* const companionCarrier = companion != nullptr ? companion->InstancedState : nullptr;
+        const MeshPass          companionPass    = companion != nullptr ? companion->Pass : MeshPass::Forward;
+        GpuInstancedDrawRecord& record =
+             m_GpuInstancedDraws[GpuInstancedDrawKey( gpu.Key, pass, postOcclusion, prepassed, companion != nullptr )];
+
+        // The revision (GpuInstancedDrawRecord): the producer's instance by OWNER (an expired one never equals a
+        // live one, whatever address the new one took), and every input the resolve below reads apart from the
+        // material service's own state, which its invalidation version covers.
+        const bool sameSource = !record.Source.expired() && !record.Source.owner_before( gpu.Material ) &&
+                                !gpu.Material.owner_before( record.Source );
+        const bool current = sameSource && record.Path == gpu.Path && record.CameraList == cameraList &&
+                             record.Carrier == carrier && record.CompanionCarrier == companionCarrier &&
+                             record.CompanionPass == companionPass &&
+                             record.EqualCarrier == m_InstancedGBufferEqualPipeline.get() &&
+                             record.ForwardVirtual == m_ForwardVirtualLocal && record.EarlyZ == m_EarlyZPass;
+        if ( current )
+        {
+            // A texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE).
+            if ( materials->AwaitsTextures( record.Parent ) )
+                return nullptr;
+            return &record;
+        }
+
+        const DataDrivenMaterial* const parent = SectionTemplate( gpu.Material );
+        // Not resolved while a texture is in flight (the cell would copy the slot defaults): asked again next frame.
+        if ( materials->AwaitsTextures( parent ) )
+        {
+            record = GpuInstancedDrawRecord{};
+            return nullptr;
+        }
+        record                  = GpuInstancedDrawRecord{};
+        record.Source           = gpu.Material;
+        record.Path             = gpu.Path;
+        record.CameraList       = cameraList;
+        record.Carrier          = carrier;
+        record.CompanionCarrier = companionCarrier;
+        record.CompanionPass    = companionPass;
+        record.EqualCarrier     = m_InstancedGBufferEqualPipeline.get();
+        record.ForwardVirtual   = m_ForwardVirtualLocal;
+        record.EarlyZ           = m_EarlyZPass;
+        record.Parent           = parent;
+        // The deferred early-Z pass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the sections
+        // this frame's EarlyZPass admits (EarlyZAdmits: the Masked ones, or under All every opaque one too). A
+        // section it does not admit gets no cell in it (nothing compiles a Depth pipeline it never draws).
+        const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
+        record.Admitted          = !maskedPrepass || EarlyZAdmits( parent );
+        if ( !record.Admitted )
+            return &record;
+
+        const bool owned    = parent != nullptr && materials->Owns( parent );
+        const bool twoSided = gpu.Material != nullptr && gpu.Material->IsTwoSided();
+        // One cell (and instance) per section x view pass.
+        const auto viewOf = [&gpu]( const MeshPass of )
+        { return kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of ); };
+        // This view's copy of the section's (path x pass) cell; the Forward one in its virtual-shadow
+        // permutation (ForwardVirtualCell: a blade or instance under a local light reads the VSM).
+        const auto cellOf = [&]( const MeshPass of ) -> DataDrivenMaterial*
+        {
+            if ( !owned )
+                return nullptr;
+            return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ),
+                                                                  InstancePermutation( cameraList, false ), this ),
+                                       parent, gpu.Path, of, viewOf( of ), cameraList );
+        };
+        // The G-buffer cell of a section the masked prepass drew: the clip-less equal-depth permutation.
+        const auto depthEqualCell = [&]() -> DataDrivenMaterial*
+        {
+            if ( !owned )
+                return nullptr;
+            return materials->GetViewVariant( parent, gpu.Path, MeshPass::GBuffer, viewOf( MeshPass::GBuffer ),
+                                              InstancePermutation( cameraList, true ), this );
+        };
+        record.Cell = prepassed ? depthEqualCell() : cellOf( pass );
+        if ( record.Cell == nullptr )
+            return &record;
+        // The resolve's full-screen triangle is never culled (its carrier is CullMode None).
+        record.Pipeline = CullPermutation( CellPipeline( prepassed ? record.EqualCarrier : carrier, *record.Cell ),
+                                           twoSided || pass == MeshPass::VisibilityResolve );
+        if ( maskedPrepass )
+        {
+            // The masked prepass's G-buffer half (the equal-depth cell's pipeline), asked Ready every frame.
+            DataDrivenMaterial* const equalCell = depthEqualCell();
+            record.EqualRefused                 = equalCell == nullptr;
+            if ( equalCell != nullptr )
+                record.EqualPipeline =
+                     CullPermutation( CellPipeline( record.EqualCarrier, *equalCell ), twoSided );
+        }
+        if ( companion != nullptr )
+        {
+            // The forward prepass pairing's other half: its cell in the companion's pass.
+            DataDrivenMaterial* const other = cellOf( companion->Pass );
+            if ( other != nullptr && companionCarrier != nullptr )
+                record.CompanionPipeline = CullPermutation( CellPipeline( companionCarrier, *other ), twoSided );
+        }
+        // The cell's buffer slots, kept: the producer's buffers are set through them every frame.
+        record.Instance       = record.Cell->CreateInstance( "GpuInstanced" );
+        record.InstancesBlock = record.Cell->Get<StorageBufferProperty>( kInstanceTransformsBlock );
+        if ( cameraList )
+            record.IdsBlock = record.Cell->Get<StorageBufferProperty>( kGpuInstanceIdsBlock );
+        if ( gpu.Path == MeshVertexPath::GrassBlade )
+            record.BladeBlock = record.Cell->Get<StorageBufferProperty>( kGrassBladeShapeBlock );
+        // Find: a surface template with no parameters declares no Materials row block (LendMaterialTable).
+        record.MaterialBlock = record.Cell->Find<StorageBufferProperty>( kMaterialRowBlock );
+        record.Cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
+        return &record;
+    }
+
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                                const MeshPass pass, const SceneFrameBinding& frameState,
                                                const StaticPassCells* companion, const bool postOcclusion )
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
-        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-        if ( materials == nullptr )
-            return;
-        if ( materials->GetInvalidationVersion() != m_GpuInstancedStamp )
-        {
-            m_GpuInstancedInstances.clear();
-            m_GpuInstancedStamp = materials->GetInvalidationVersion();
-        }
 
         // A section with a box is drawn only where the view's frustum meets it (GpuInstancedRenderData::WorldBounds).
         const auto*                        camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         const std::optional<Core::Frustum> frustum =
              camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
+
+        // The deferred early-Z pass is the companion-less Depth call; the forward depth prepass (Depth with a
+        // companion) draws every section. The G-buffer draws a section the early-Z pass drew with an EQUAL depth
+        // test, without writes and without the clip (m_InstancedGBufferEqualPipeline, its cell in
+        // SurfaceDepthEqualVariant: UE's base pass after the early-Z pass).
+        const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
+        // GRASS-VIS: a blade section this frame draws through the visibility buffer (m_GrassVisibilitySections,
+        // chosen by DeclareMaskedDepthDraws) is in the Visibility raster and its resolve and nowhere else of the
+        // deferred geometry: not in the masked prepass, not in the G-buffer. Every other section is in neither.
+        const bool visibilityPass = pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve;
+        // Each phase's G-buffer draws EQUAL exactly the sections its own depth pass drew: phase 1's "Deferred:
+        // Masked Depth Prepass" (m_MaskedPrepassed), phase 2's "Grass: Depth Prepass Post-Occlusion"
+        // (m_MaskedPrepassedPost, the same records the G-buffer post pass draws).
+        std::vector<uint32_t>& phasePrepassed = postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
 
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
@@ -130,73 +281,34 @@ namespace Desert::Graphic::System
                 continue;
             const GpuInstanceRefs& refs     = cameraList ? *gpu.CameraRefs : *gpu.Refs;
             const RDG::BufferRef   drawArgs = postOcclusion ? gpu.PostRefs->Args : refs.Args;
-            const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
-            if ( materials->AwaitsTextures( parent ) )
-                continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
-            // The deferred early-Z pass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the sections
-            // this frame's EarlyZPass admits (EarlyZAdmits: the Masked ones, or under All every opaque one too); the
-            // G-buffer draws a section it drew with an EQUAL depth test, without writes and without the clip
-            // (m_InstancedGBufferEqualPipeline, its cell in SurfaceDepthEqualVariant: UE's base pass after the
-            // early-Z pass). The forward depth prepass (Depth with a companion) draws every one.
-            const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
-            // GRASS-VIS: a blade section this frame draws through the visibility buffer (m_GrassVisibilitySections,
-            // chosen by DeclareMaskedDepthDraws) is in the Visibility raster and its resolve and nowhere else of the
-            // deferred geometry: not in the masked prepass, not in the G-buffer. Every other section is in neither.
-            const bool visibilityPass = pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve;
-            const bool viaVisibility  = gpu.Path == MeshVertexPath::GrassBlade &&
-                                       std::find( m_GrassVisibilitySections.begin(), m_GrassVisibilitySections.end(),
-                                                  gpu.Key ) != m_GrassVisibilitySections.end();
+            const bool             viaVisibility =
+                 gpu.Path == MeshVertexPath::GrassBlade &&
+                 std::find( m_GrassVisibilitySections.begin(), m_GrassVisibilitySections.end(), gpu.Key ) !=
+                      m_GrassVisibilitySections.end();
             if ( visibilityPass && !viaVisibility )
                 continue;
             if ( viaVisibility && ( maskedPrepass || pass == MeshPass::GBuffer ) )
                 continue;
-            if ( maskedPrepass && !EarlyZAdmits( parent ) )
-                continue;
-            // Each phase's G-buffer draws EQUAL exactly the sections its own depth pass drew: phase 1's "Deferred:
-            // Masked Depth Prepass" (m_MaskedPrepassed), phase 2's "Grass: Depth Prepass Post-Occlusion"
-            // (m_MaskedPrepassedPost, the same records the G-buffer post pass draws).
-            std::vector<uint32_t>& phasePrepassed = postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
-            const bool             prepassed      = pass == MeshPass::GBuffer &&
+            const bool prepassed = pass == MeshPass::GBuffer &&
                                    std::find( phasePrepassed.begin(), phasePrepassed.end(), gpu.Key ) !=
                                         phasePrepassed.end();
-            // One cell (and instance) per section x view pass.
-            const auto viewOf = [&gpu]( const MeshPass of )
-            { return kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of ); };
-            // This view's copy of the section's (path x pass) cell; the Forward one in its virtual-shadow
-            // permutation (ForwardVirtualCell: a blade or instance under a local light reads the VSM).
-            const auto cellOf = [&]( const MeshPass of ) -> DataDrivenMaterial*
-            {
-                if ( parent == nullptr || !materials->Owns( parent ) )
-                    return nullptr;
-                return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ),
-                                                                      WithInstanceIds( {}, cameraList ), this ),
-                                           parent, gpu.Path, of, viewOf( of ), cameraList );
-            };
-            // The G-buffer cell of a section the masked prepass drew: the clip-less equal-depth permutation.
-            const auto depthEqualCell = [&]() -> DataDrivenMaterial*
-            {
-                if ( parent == nullptr || !materials->Owns( parent ) )
-                    return nullptr;
-                return materials->GetViewVariant( parent, gpu.Path, MeshPass::GBuffer, viewOf( MeshPass::GBuffer ),
-                                                  WithInstanceIds( SurfaceDepthEqualVariant(), cameraList ),
-                                                  this );
-            };
-            const uint32_t      view = viewOf( pass );
-            DataDrivenMaterial* cell = prepassed ? depthEqualCell() : cellOf( pass );
-            if ( cell == nullptr )
+
+            // The kept record (GpuInstancedDrawOf); null: a texture of its material is in flight.
+            GpuInstancedDrawRecord* const record =
+                 GpuInstancedDrawOf( gpu, pass, instancedPipeline, companion, postOcclusion, prepassed );
+            if ( record == nullptr || !record->Admitted )
+                continue;
+            GpuInstancedDrawRecord& draw = *record;
+            if ( draw.Cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
-                if ( s_Refused.insert( parent ).second )
+                if ( s_Refused.insert( draw.Parent ).second )
                     LOG_ERROR( "[MeshRenderer] a GPU-instanced section's material has no ({} x {}) cell; the "
                                "section is not drawn (MaterialService named the cell it refused).",
                                MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
                 continue;
             }
-            // The resolve's full-screen triangle is never culled (its carrier is CullMode None).
-            GraphicsPipeline* pipeline = CullPermutation(
-                 CellPipeline( prepassed ? m_InstancedGBufferEqualPipeline.get() : instancedPipeline, *cell ),
-                 gpu.Material->IsTwoSided() || pass == MeshPass::VisibilityResolve );
-            if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
+            if ( draw.Pipeline == nullptr || draw.Pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
             if ( maskedPrepass )
             {
@@ -204,11 +316,10 @@ namespace Desert::Graphic::System
                 // (the equal-depth cell's pipeline) is Ready too, since that half shades exactly the texels whose
                 // depth this pass wrote and nothing else would. Until then the G-buffer draws it with its own clip
                 // and depth writes (not recorded in m_MaskedPrepassed).
-                DataDrivenMaterial* const equalCell = depthEqualCell();
-                if ( equalCell == nullptr )
+                if ( draw.EqualRefused )
                 {
                     static std::unordered_set<const DataDrivenMaterial*> s_RefusedEqual;
-                    if ( s_RefusedEqual.insert( parent ).second )
+                    if ( s_RefusedEqual.insert( draw.Parent ).second )
                         LOG_ERROR(
                              "[MeshRenderer] a Masked GPU-instanced section's material has no ({} x GBuffer) "
                              "{} permutation; the section is not in the masked depth prepass and pays its "
@@ -216,10 +327,7 @@ namespace Desert::Graphic::System
                              MeshVertexPathName( gpu.Path ), kSurfaceDepthEqualDefine );
                     continue;
                 }
-                GraphicsPipeline* const equalPipeline =
-                     CullPermutation( CellPipeline( m_InstancedGBufferEqualPipeline.get(), *equalCell ),
-                                      gpu.Material->IsTwoSided() );
-                if ( equalPipeline == nullptr || equalPipeline->GetReadiness() != PipelineReadiness::Ready )
+                if ( draw.EqualPipeline == nullptr || draw.EqualPipeline->GetReadiness() != PipelineReadiness::Ready )
                     continue;
             }
             if ( companion != nullptr )
@@ -234,31 +342,40 @@ namespace Desert::Graphic::System
                 }
                 else
                 {
-                    DataDrivenMaterial* const other = cellOf( companion->Pass );
-                    GraphicsPipeline* const otherPipeline =
-                         other != nullptr && companion->InstancedState != nullptr
-                              ? CullPermutation( CellPipeline( companion->InstancedState, *other ),
-                                                 gpu.Material->IsTwoSided() )
-                              : nullptr;
-                    if ( otherPipeline == nullptr || otherPipeline->GetReadiness() != PipelineReadiness::Ready )
+                    if ( draw.CompanionPipeline == nullptr ||
+                         draw.CompanionPipeline->GetReadiness() != PipelineReadiness::Ready )
                         continue;
                     if ( pass == MeshPass::Depth )
                         m_PrepassGpuSections.insert( static_cast<uint64_t>( gpu.Key ) );
                 }
             }
 
-            // Recreated when the view's cell changed (Shadows.Method switched the Forward cell's permutation).
-            auto& instance = m_GpuInstancedInstances[postOcclusion ? view + kGpuInstancedPostViewOffset : view];
-            if ( !instance || instance->GetParentMaterial() != cell )
-                instance = cell->CreateInstance( "GpuInstanced" );
-            BindGpuInstancedBuffers( *cell, gpu, cameraList ? gpu.CameraIds : nullptr );
-            // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.
-            const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
-            if ( !materialRow || !LendMaterialTable( *cell ) )
+            // The producer's buffers through the kept slots: the section's one Instances, the camera list's ids
+            // (the kSurfaceInstanceIdsDefine cell's GpuInstanceIds), a blade's shape (MeshPathOwnBinding). The
+            // same buffer again is no write (StorageBufferProperty::SetBuffer).
+            if ( draw.InstancesBlock != nullptr )
+                draw.InstancesBlock->SetBuffer( gpu.Instances );
+            if ( draw.IdsBlock != nullptr )
+                draw.IdsBlock->SetBuffer( gpu.CameraIds );
+            if ( draw.BladeBlock != nullptr )
+                draw.BladeBlock->SetBuffer( gpu.BladeShape );
+            // The section's row is the scene material table's (SyncGpuScene claims it every sync), read by the
+            // cell of its template; the table is lent through the kept slot (LendMaterialTable).
+            const std::optional<uint32_t> materialRow = FindMaterialRow( draw.Parent, gpu.Material.get() );
+            if ( !materialRow )
                 continue;
+            if ( draw.MaterialBlock != nullptr )
+            {
+                if ( m_GpuScene == nullptr || m_GpuScene->GetMaterialsBuffer() == nullptr )
+                {
+                    if ( !LendMaterialTable( *draw.Cell ) ) // says why
+                        continue;
+                }
+                else
+                    draw.MaterialBlock->LendViewBuffer( m_GpuScene->GetMaterialsBuffer() );
+            }
             const uint32_t row = *materialRow;
-            frameState.ApplyTo( instance.get() );
-            cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
+            frameState.ApplyTo( draw.Instance.get() );
             if ( maskedPrepass )
                 phasePrepassed.push_back( gpu.Key );
 
@@ -270,10 +387,10 @@ namespace Desert::Graphic::System
             {
                 if ( !m_GrassResolveArgs.IsValid() )
                     continue;
-                list.Add( { .Pipeline           = pipeline,
+                list.Add( { .Pipeline           = draw.Pipeline,
                             .Mesh               = gpu.Mesh,
                             .Transform          = glm::mat4( 1.0f ),
-                            .Material           = cell->GetMaterialExecutor(),
+                            .Material           = draw.Cell->GetMaterialExecutor(),
                             .HiddenSubmeshMask  = SubmeshMask( ~uint64_t{ 1 } ),
                             .IndirectArgs       = m_GrassResolveArgs,
                             .IndirectInstances  = refs.Instances,
@@ -288,10 +405,10 @@ namespace Desert::Graphic::System
 
             // One draw per LOD level the producer sorted its instances into, each reading its level's records.
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-                list.Add( { .Pipeline           = pipeline,
+                list.Add( { .Pipeline           = draw.Pipeline,
                             .Mesh               = gpu.Mesh,
                             .Transform          = glm::mat4( 1.0f ),
-                            .Material           = cell->GetMaterialExecutor(),
+                            .Material           = draw.Cell->GetMaterialExecutor(),
                             .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
                             .IndirectArgs       = drawArgs,
                             .IndirectInstances  = refs.Instances,
@@ -306,30 +423,17 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::GrassVisibilityReady( const GpuInstancedRenderData& gpu )
     {
-        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-        if ( materials == nullptr )
-            return false;
-        const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
-        if ( parent == nullptr || !materials->Owns( parent ) || materials->AwaitsTextures( parent ) )
-            return false;
-        // The same view keys BuildGpuInstancedDraws asks the cells under (one per section x view pass).
+        // The same records BuildGpuInstancedDraws draws the section with in the two passes (GpuInstancedDrawOf):
+        // their cells, and their pipelines through the two carriers, all Ready.
         for ( const auto& [of, carrier] :
               { std::pair{ MeshPass::Visibility, m_InstancedVisibilityPipeline.get() },
                 std::pair{ MeshPass::VisibilityResolve, m_InstancedVisibilityResolvePipeline.get() } } )
         {
             if ( carrier == nullptr )
                 return false;
-            const uint32_t      view = kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of );
-            // The cell BuildGpuInstancedDraws draws the section with: the camera's list is read through its ids.
-            const bool          cameraList = gpu.CameraIds != nullptr && gpu.CameraRefs != nullptr;
-            DataDrivenMaterial* cell       = ForwardVirtualCell(
-                 materials->GetViewVariant( parent, gpu.Path, of, view, WithInstanceIds( {}, cameraList ), this ),
-                 parent, gpu.Path, of, view, cameraList );
-            if ( cell == nullptr )
-                return false;
-            GraphicsPipeline* const pipeline = CullPermutation(
-                 CellPipeline( carrier, *cell ), gpu.Material->IsTwoSided() || of == MeshPass::VisibilityResolve );
-            if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
+            const GpuInstancedDrawRecord* const record = GpuInstancedDrawOf( gpu, of, carrier, nullptr, false, false );
+            if ( record == nullptr || record->Cell == nullptr || record->Pipeline == nullptr ||
+                 record->Pipeline->GetReadiness() != PipelineReadiness::Ready )
                 return false;
         }
         return true;
@@ -423,7 +527,7 @@ namespace Desert::Graphic::System
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
                       ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view,
-                                                   WithInstanceIds( {}, ownList ), this )
+                                                   InstancePermutation( ownList, false ), this )
                       : nullptr;
             if ( caster == nullptr )
             {

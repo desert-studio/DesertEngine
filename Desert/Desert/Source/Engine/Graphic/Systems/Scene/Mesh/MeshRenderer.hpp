@@ -76,6 +76,11 @@ namespace Desert::Runtime
     class ShaderService;
 } // namespace Desert::Runtime
 
+namespace Desert::Graphic
+{
+    class StorageBufferProperty;
+} // namespace Desert::Graphic
+
 namespace Desert::Graphic::System
 {
     class DisplacementCache;
@@ -2863,9 +2868,60 @@ namespace Desert::Graphic::System
         std::vector<InstancedMeshRenderData> m_DisplacedTwinRecords;  // scratch: the twins' records, capacity kept
         std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
-        // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
-        std::unordered_map<uint32_t, MaterialInstancePtr> m_GpuInstancedInstances;
-        uint64_t                                          m_GpuInstancedStamp = 0;
+        // SCENE-CACHE-2, THE CACHED DRAW RECORD of a GPU-instanced section (UE FCachedMeshDrawCommandInfo: the
+        // draw command is built when the primitive is added or its material changes, and a frame only picks the
+        // visible ones). What BuildGpuInstancedDraws and GrassVisibilityReady resolved for one (section Key x pass
+        // x phase x early-Z half x prepassed) - the cell copy, its pipelines through the carriers, the draw's own
+        // instance and the cell's buffer slots - kept across frames and resolved again only when its revision
+        // moved:
+        //   - MaterialService::GetInvalidationVersion (every Invalidate, a material load landing, a live edit,
+        //     a shader swap, MaterialService::Clear): the whole cache goes (m_GpuInstancedStamp), its cells may be
+        //     in the graveyard;
+        //   - the producer's section: another MaterialInstance (Source, owner-compared, so a freed one's address
+        //     reused is still another), another vertex path, a camera list appearing or going (the ids
+        //     permutation);
+        //   - the pass's carriers (the instanced pipeline, the companion's pass and state, the EQUAL G-buffer
+        //   state);
+        //   - the forward VSM choice (m_ForwardVirtualLocal, ForwardVirtualCell) and the early-Z mode
+        //   (EarlyZAdmits).
+        // Still asked EVERY frame (they move without a revision or are this frame's): the frustum, the producer's
+        // RDG refs and buffers (re-set through the kept slots: StorageBufferProperty::SetBuffer of the same buffer
+        // is no write), the material row (SyncGpuScene claims rows per sync), AwaitsTextures, each pipeline's
+        // readiness (a compile finishing is not a revision), the GRASS-VIS and prepass sets, frameState.ApplyTo.
+        struct GpuInstancedDrawRecord
+        {
+            std::weak_ptr<MaterialInstance>       Source;
+            MeshVertexPath                        Path             = MeshVertexPath::Instanced;
+            bool                                  CameraList       = false;
+            GraphicsPipeline*                     Carrier          = nullptr;
+            GraphicsPipeline*                     CompanionCarrier = nullptr;
+            MeshPass                              CompanionPass    = MeshPass::Forward;
+            GraphicsPipeline*                     EqualCarrier     = nullptr;
+            bool                                  ForwardVirtual   = false;
+            ::Common::Scalability::EarlyZPassMode EarlyZ           = ::Common::Scalability::EarlyZPassMode::All;
+            // Resolved under the revision above.
+            const DataDrivenMaterial* Parent            = nullptr;
+            DataDrivenMaterial*       Cell              = nullptr; // null: refused (said once)
+            GraphicsPipeline*         Pipeline          = nullptr;
+            GraphicsPipeline*         EqualPipeline     = nullptr; // the masked prepass's G-buffer half
+            bool                      EqualRefused      = false;   // ... its permutation was refused (said once)
+            GraphicsPipeline*         CompanionPipeline = nullptr; // the forward prepass pairing's other half
+            bool                      Admitted          = true;    // EarlyZAdmits( Parent ) under EarlyZ
+            MaterialInstancePtr       Instance;                    // the draw's own instance of Cell
+            StorageBufferProperty*    InstancesBlock = nullptr;
+            StorageBufferProperty*    IdsBlock       = nullptr;
+            StorageBufferProperty*    BladeBlock     = nullptr;
+            StorageBufferProperty*    MaterialBlock  = nullptr; // null: the cell reads no Materials row block
+        };
+        std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
+        uint32_t                                             m_GpuInstancedStamp = 0;
+        // The record of @p gpu in @p pass through @p carrier (BuildGpuInstancedDraws' arguments; @p prepassed: the
+        // G-buffer draws the section EQUAL after the masked prepass drew it), resolved again when its revision
+        // moved. Null without a material service.
+        [[nodiscard]] GpuInstancedDrawRecord* GpuInstancedDrawOf( const GpuInstancedRenderData& gpu, MeshPass pass,
+                                                                  GraphicsPipeline*      carrier,
+                                                                  const StaticPassCells* companion,
+                                                                  bool postOcclusion, bool prepassed );
         // MeshRendererGpuInstanced.cpp: the GPU-instanced sections into a geometry list (the pass's instanced
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         // @p companion: the other half of the forward prepass pairing (PairsWithPrepass) - the prepass draws a
