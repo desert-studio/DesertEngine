@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
@@ -48,7 +50,8 @@ namespace Desert::Graphic::API::Vulkan
         struct WrittenSlots
         {
             VkDescriptorSet       Set = VK_NULL_HANDLE;
-            std::vector<uint32_t> Bindings; // sorted
+            // Sorted; the set's copy record (DescriptorCopyRecord::GetWrittenBindings), valid until its next write.
+            std::span<const uint32_t> Bindings;
         };
         Common::ResultStr<WrittenSlots> GetWrittenSlots( uint32_t frameIndex );
 

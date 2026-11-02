@@ -288,6 +288,10 @@ namespace Desert::Graphic::RDG
         uint64_t                                UnaliasedBytes = 0; // the same set without any sharing
         // RDG-CONTRACTS A(1). What the backend's ITransientAllocator reserves for this graph (ReserveHeaps).
         std::vector<TransientHeapDesc> Heaps;
+        // CPU-FRAME-5. Resource -> its index in Allocations, -1 for none (external, extracted, unused): sized
+        // to the graph's resource count and filled where Allocations is (Compile's placement), so
+        // CompileResult::FindAllocation is one load, not a scan per subresource and per bound resource.
+        std::vector<int32_t> AllocationOf;
     };
 
     // The state an external or extracted resource is left in, per subresource (layer-major); Execute
@@ -360,12 +364,12 @@ namespace Desert::Graphic::RDG
 
         [[nodiscard]] const Allocation* FindAllocation( uint32_t resource ) const
         {
-            for ( const Allocation& allocation : Aliasing.Allocations )
-            {
-                if ( allocation.Resource == resource )
-                    return &allocation;
-            }
-            return nullptr;
+            if ( resource >= Aliasing.AllocationOf.size() )
+                return nullptr;
+            const int32_t index = Aliasing.AllocationOf[resource];
+            if ( index < 0 )
+                return nullptr;
+            return &Aliasing.Allocations[static_cast<size_t>( index )];
         }
     };
 } // namespace Desert::Graphic::RDG

@@ -579,7 +579,7 @@ TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenS
     ASSERT_TRUE( presented.IsSuccess() ) << presented.GetError();
 
     ASSERT_TRUE( slots.IsSuccess() ) << slots.GetError();
-    const std::vector<uint32_t>& bindings = slots.GetValue().Bindings;
+    const std::span<const uint32_t> bindings = slots.GetValue().Bindings;
     // The positive control: the written buffer is the material's (binding 1), so the check below is not
     // passing because nothing is ever recorded.
     EXPECT_NE( std::find( bindings.begin(), bindings.end(), 1u ), bindings.end() )

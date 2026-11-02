@@ -830,13 +830,43 @@ namespace Desert::Graphic::API::Vulkan
 
     // ── Memory requirements ────────────────────────────────────────────────────────────────────────────
 
+    namespace
+    {
+        // boost::hash_combine's mix: every field moves the whole seed.
+        size_t RdgMemoryKeyMix( const size_t seed, const uint64_t value )
+        {
+            return seed ^ ( std::hash<uint64_t>{}( value ) + 0x9e3779b97f4a7c15ULL + ( seed << 6 ) + ( seed >> 2 ) );
+        }
+    } // namespace
+
+    size_t VulkanRdgMemoryRequirements::KeyHash::operator()( const TextureKey& key ) const noexcept
+    {
+        size_t seed = 0;
+        for ( const uint32_t field : { key.Width, key.Height, key.Depth, key.Format, key.Mips, key.Layers, key.Dim,
+                                       key.Samples, key.AccessMask } )
+            seed = RdgMemoryKeyMix( seed, field );
+        return seed;
+    }
+
+    size_t VulkanRdgMemoryRequirements::KeyHash::operator()( const BufferKey& key ) const noexcept
+    {
+        return RdgMemoryKeyMix( RdgMemoryKeyMix( 0, key.Bytes ), key.AccessMask );
+    }
+
     Common::ResultStr<RDG::MemoryRequirements>
     VulkanRdgMemoryRequirements::GetTextureRequirements( const RDG::TextureDesc& desc, uint32_t accessMask ) const
     {
-        const std::string key = fmt::format( "t{}x{}x{}:{}:{}:{}:{}:{:x}", desc.Size.Width, desc.Size.Height,
-                                             desc.Size.Depth, static_cast<int>( desc.Format ), desc.Mips,
-                                             desc.Layers, static_cast<int>( desc.Dim ), accessMask );
-        if ( const auto found = m_Cache.find( key ); found != m_Cache.end() )
+        TextureKey key;
+        key.Width      = desc.Size.Width;
+        key.Height     = desc.Size.Height;
+        key.Depth      = desc.Size.Depth;
+        key.Format     = static_cast<uint32_t>( desc.Format );
+        key.Mips       = desc.Mips;
+        key.Layers     = desc.Layers;
+        key.Dim        = static_cast<uint32_t>( desc.Dim );
+        key.Samples    = desc.Samples;
+        key.AccessMask = accessMask;
+        if ( const auto found = m_TextureCache.find( key ); found != m_TextureCache.end() )
             return Common::MakeSuccess( found->second );
         const VkImageCreateInfo info = RdgImageInfo( m_Device, desc, accessMask );
         if ( info.format == VK_FORMAT_UNDEFINED || info.usage == 0 )
@@ -852,15 +882,15 @@ namespace Desert::Graphic::API::Vulkan
         vkDestroyImage( m_Device.Device, image, nullptr );
         const RDG::MemoryRequirements out{ requirements.size, requirements.alignment,
                                            requirements.memoryTypeBits };
-        m_Cache.emplace( key, out );
+        m_TextureCache.emplace( key, out );
         return Common::MakeSuccess( out );
     }
 
     Common::ResultStr<RDG::MemoryRequirements>
     VulkanRdgMemoryRequirements::GetBufferRequirements( const RDG::BufferDesc& desc, uint32_t accessMask ) const
     {
-        const std::string key = fmt::format( "b{}:{:x}", desc.Bytes, accessMask );
-        if ( const auto found = m_Cache.find( key ); found != m_Cache.end() )
+        const BufferKey key{ desc.Bytes, accessMask };
+        if ( const auto found = m_BufferCache.find( key ); found != m_BufferCache.end() )
             return Common::MakeSuccess( found->second );
         const VkBufferCreateInfo info = RdgBufferInfo( m_Device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
@@ -876,7 +906,7 @@ namespace Desert::Graphic::API::Vulkan
         vkDestroyBuffer( m_Device.Device, buffer, nullptr );
         const RDG::MemoryRequirements out{ requirements.size, requirements.alignment,
                                            requirements.memoryTypeBits };
-        m_Cache.emplace( key, out );
+        m_BufferCache.emplace( key, out );
         return Common::MakeSuccess( out );
     }
 

@@ -187,6 +187,7 @@ namespace Desert::Graphic::API::Vulkan
             [[nodiscard]] bool operator==( const BoundGeometry& ) const = default;
         };
         std::optional<BoundGeometry> m_BoundGeometry;
+        std::vector<std::byte>       m_SubmeshPush; // WalkMeshSubmeshes' push block, reused by every draw
         // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
         // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
         // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.

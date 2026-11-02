@@ -1024,7 +1024,9 @@ namespace Desert::Graphic::API::Vulkan
         // move past the layout this pipeline holds.
         const auto& pushConstant = graphics->GetPushConstantRange();
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
-        std::vector<std::byte> push;
+        // CPU-FRAME-5: the renderer's scratch (recording is one thread's), so a draw allocates no push block.
+        std::vector<std::byte>& push = m_SubmeshPush;
+        push.clear();
         if ( pushConstant.has_value() && pushConstant->size > 0 )
         {
             if ( pushConstant->size < sizeof( glm::mat4 ) )
@@ -1309,8 +1311,6 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !written )
                     return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
                 materialSlots = written.GetValue();
-                for ( const uint32_t binding : materialSlots.Bindings )
-                    other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
             }
             const auto& pc = material->GetPushConstantBuffer();
             if ( pc.Size != 0u )
@@ -1357,6 +1357,10 @@ namespace Desert::Graphic::API::Vulkan
         const std::vector<VkDescriptorSet>* kept = memo.GetValue()->Find( key );
         if ( kept == nullptr )
         {
+            // CPU-FRAME-5: the other route's filled slots are read only by the resolution, so a draw the memo
+            // serves builds none.
+            for ( const uint32_t binding : materialSlots.Bindings )
+                other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
             const auto resolved = ResolveRdgPassBindings( reflection, shader->GetName(), bindings, other );
             if ( !resolved )
                 return Common::MakeError( resolved.GetError() );

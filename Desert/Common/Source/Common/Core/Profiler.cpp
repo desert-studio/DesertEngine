@@ -80,6 +80,20 @@ namespace Common::Profiling
         m_WindowStart  = now;
     }
 
+    namespace
+    {
+        // CPU-FRAME-5: a scope's row by its name's characters (the map's hash is transparent): a scope whose row
+        // exists - every scope after its first sample in the window - builds no key string.
+        template <class Rows>
+        typename Rows::mapped_type& RowOf( Rows& rows, const std::string_view name )
+        {
+            auto found = rows.find( name );
+            if ( found == rows.end() )
+                found = rows.emplace( std::string( name ), typename Rows::mapped_type{} ).first;
+            return found->second;
+        }
+    } // namespace
+
     void Profiler::AddSample( const char* name, double totalMs, double selfMs, double waitMs, bool outermost )
     {
         if ( !m_Enabled )
@@ -88,7 +102,7 @@ namespace Common::Profiling
         std::lock_guard<std::mutex> lock( m_Mutex );
         if ( outermost && std::this_thread::get_id() == m_FrameThread )
             m_AccumFrameNamedMs += totalMs;
-        auto&                       r = m_Accum[name]; // summed across the whole window, averaged on publish
+        auto&                       r = RowOf( m_Accum, name ); // summed across the whole window, averaged on publish
         if ( r.Name.empty() )
             r.Name = name;
         r.TotalMs += totalMs;
@@ -159,7 +173,7 @@ namespace Common::Profiling
         // frames that shifts the average by the lag divided by the window — well under a per cent — and it
         // keeps the read off the GPU's critical path, which is the whole point.
         std::lock_guard<std::mutex> lock( m_Mutex );
-        auto&                       r = m_Accum[name];
+        auto&                       r = RowOf( m_Accum, name );
         if ( r.Name.empty() )
             r.Name = name;
         r.GpuMs += inclusiveMs;

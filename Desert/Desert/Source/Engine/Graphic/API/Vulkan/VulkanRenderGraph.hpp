@@ -13,6 +13,7 @@
 #include <vulkan/vulkan.h>
 
 #include <atomic>
+#include <unordered_map>
 #include <cstdint>
 #include <compare>
 #include <functional>
@@ -486,7 +487,36 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         const VulkanRdgDevice&                                 m_Device;
-        mutable std::map<std::string, RDG::MemoryRequirements> m_Cache;
+        // CPU-FRAME-5: keyed by the create info's inputs as values - no formatted string and no string compare
+        // per lookup. Samples is part of the image's create info (RdgImageInfo), so it is part of the key.
+        struct TextureKey
+        {
+            uint32_t Width      = 0;
+            uint32_t Height     = 0;
+            uint32_t Depth      = 0;
+            uint32_t Format     = 0;
+            uint32_t Mips       = 0;
+            uint32_t Layers     = 0;
+            uint32_t Dim        = 0;
+            uint32_t Samples    = 0;
+            uint32_t AccessMask = 0;
+
+            bool operator==( const TextureKey& ) const = default;
+        };
+        struct BufferKey
+        {
+            uint64_t Bytes      = 0;
+            uint32_t AccessMask = 0;
+
+            bool operator==( const BufferKey& ) const = default;
+        };
+        struct KeyHash
+        {
+            size_t operator()( const TextureKey& key ) const noexcept;
+            size_t operator()( const BufferKey& key ) const noexcept;
+        };
+        mutable std::unordered_map<TextureKey, RDG::MemoryRequirements, KeyHash> m_TextureCache;
+        mutable std::unordered_map<BufferKey, RDG::MemoryRequirements, KeyHash>  m_BufferCache;
     };
 
     class VulkanRdgBackend final : public RDG::IBackend

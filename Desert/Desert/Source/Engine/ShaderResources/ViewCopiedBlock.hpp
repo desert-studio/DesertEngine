@@ -279,19 +279,17 @@ namespace Desert::ShaderResources
 
         void NoteWritten( const uint32_t binding, const uint64_t resourceId, const uint64_t propertyVersion )
         {
-            m_Bound[binding] = Written{ resourceId, propertyVersion };
+            if ( m_Bound.insert_or_assign( binding, Written{ resourceId, propertyVersion } ).second )
+                m_Written.insert( std::lower_bound( m_Written.begin(), m_Written.end(), binding ), binding );
         }
 
         // Every binding written with a resource of its own (a fresh set holds only fallbacks and has none),
         // sorted.
-        [[nodiscard]] std::vector<uint32_t> GetWrittenBindings() const
+        // CPU-FRAME-5: kept sorted by NoteWritten (the one writer of m_Bound), so a draw reading it allocates
+        // and sorts nothing. Valid until the next NoteWritten.
+        [[nodiscard]] const std::vector<uint32_t>& GetWrittenBindings() const
         {
-            std::vector<uint32_t> bindings;
-            bindings.reserve( m_Bound.size() );
-            for ( const auto& [binding, written] : m_Bound )
-                bindings.push_back( binding );
-            std::sort( bindings.begin(), bindings.end() );
-            return bindings;
+            return m_Written;
         }
 
     private:
@@ -301,5 +299,6 @@ namespace Desert::ShaderResources
             uint64_t Version    = 0;
         };
         std::unordered_map<uint32_t, Written> m_Bound;
+        std::vector<uint32_t>                 m_Written; // m_Bound's bindings, sorted
     };
 } // namespace Desert::ShaderResources

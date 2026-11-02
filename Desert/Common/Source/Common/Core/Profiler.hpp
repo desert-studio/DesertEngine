@@ -18,6 +18,7 @@
 #include <optick.h>
 
 #include <chrono>
+#include <functional>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -281,7 +282,16 @@ namespace Common::Profiling
         using Clock = std::chrono::high_resolution_clock;
 
         std::mutex                                   m_Mutex;
-        std::unordered_map<std::string, ScopeResult> m_Accum; // summed over the current window (not per-frame)
+        // CPU-FRAME-5: transparent, so a sample finds its row by the name's characters with no std::string made.
+        struct ScopeNameHash
+        {
+            using is_transparent = void;
+            size_t operator()( const std::string_view name ) const noexcept
+            {
+                return std::hash<std::string_view>{}( name );
+            }
+        };
+        std::unordered_map<std::string, ScopeResult, ScopeNameHash, std::equal_to<>> m_Accum; // summed over the current window (not per-frame)
         std::vector<ScopeResult>                     m_Display;
         double                                       m_DisplayFrameMs = 0.0;
         double                                       m_AccumFrameNamedMs   = 0.0; // see LastFrameNamedMs

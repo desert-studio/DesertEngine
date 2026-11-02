@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -775,16 +776,30 @@ namespace Desert::Graphic::RDG
     // ── 1. RAW / WAR / WAW edges between executed passes ──────────────────────────────────────────────
     void Builder::Compiler::CollectDependencyEdges()
     {
-        std::set<std::tuple<uint32_t, uint32_t, uint8_t, uint32_t>> seen;
-        std::vector<int32_t>                                        lastWriter( m_SubCount, -1 );
-        std::vector<std::vector<uint32_t>>                          readers( m_SubCount );
+        // CPU-FRAME-5: every edge found while walking pass p ends AT p, and p is walked once, so an edge can only
+        // repeat inside p's own run at the back of Edges (one attempt per subresource of a resource): that run is
+        // searched instead of a set of every edge of the graph - the same edges in the same order. The readers
+        // since each subresource's last write are one list per subresource in a shared pool, in reader order.
+        std::vector<int32_t>                      lastWriter( m_SubCount, -1 );
+        std::vector<int32_t>                      readersHead( m_SubCount, -1 );
+        std::vector<int32_t>                      readersTail( m_SubCount, -1 );
+        std::vector<std::pair<uint32_t, int32_t>> readerPool; // (reader pass, next node or -1)
+        size_t                                    passEdges = 0; // the first edge that ends at the walked pass
         auto addEdge = [&]( uint32_t from, uint32_t to, DependencyKind kind, uint32_t resource )
         {
-            if ( from != to && seen.insert( { from, to, static_cast<uint8_t>( kind ), resource } ).second )
-                m_Result.Edges.push_back( { from, to, kind, resource } );
+            if ( from == to )
+                return;
+            for ( size_t e = m_Result.Edges.size(); e-- > passEdges; )
+            {
+                const DependencyEdge& edge = m_Result.Edges[e];
+                if ( edge.From == from && edge.Kind == kind && edge.Resource == resource )
+                    return;
+            }
+            m_Result.Edges.push_back( { from, to, kind, resource } );
         };
         for ( const uint32_t p : m_Executed )
         {
+            passEdges = m_Result.Edges.size();
             for ( const RdgSubUse& use : m_PassUses[p] )
             {
                 if ( !use.Writes )
@@ -792,16 +807,25 @@ namespace Desert::Graphic::RDG
                     if ( lastWriter[use.Sub] >= 0 )
                         addEdge( static_cast<uint32_t>( lastWriter[use.Sub] ), p, DependencyKind::ReadAfterWrite,
                                  use.Resource );
-                    readers[use.Sub].push_back( p );
+                    const auto node = static_cast<int32_t>( readerPool.size() );
+                    readerPool.emplace_back( p, -1 );
+                    if ( readersTail[use.Sub] >= 0 )
+                        readerPool[static_cast<size_t>( readersTail[use.Sub] )].second = node;
+                    else
+                        readersHead[use.Sub] = node;
+                    readersTail[use.Sub] = node;
                     continue;
                 }
-                for ( const uint32_t reader : readers[use.Sub] )
-                    addEdge( reader, p, DependencyKind::WriteAfterRead, use.Resource );
+                for ( int32_t node = readersHead[use.Sub]; node >= 0;
+                      node         = readerPool[static_cast<size_t>( node )].second )
+                    addEdge( readerPool[static_cast<size_t>( node )].first, p, DependencyKind::WriteAfterRead,
+                             use.Resource );
                 if ( lastWriter[use.Sub] >= 0 )
                     addEdge( static_cast<uint32_t>( lastWriter[use.Sub] ), p, DependencyKind::WriteAfterWrite,
                              use.Resource );
-                readers[use.Sub].clear();
-                lastWriter[use.Sub] = static_cast<int32_t>( p );
+                readersHead[use.Sub] = -1;
+                readersTail[use.Sub] = -1;
+                lastWriter[use.Sub]  = static_cast<int32_t>( p );
             }
         }
     }
@@ -1137,6 +1161,7 @@ namespace Desert::Graphic::RDG
     void Builder::Compiler::PlaceAliasCandidates( std::vector<RdgAliasCandidate>& candidates )
     {
         AliasingPlan& plan = m_Result.Aliasing;
+        plan.AllocationOf.assign( m_ResourceCount, -1 );
         // First come, first placed; larger first on ties so big targets take the low offsets.
         std::sort( candidates.begin(), candidates.end(),
                    [&]( const RdgAliasCandidate& a, const RdgAliasCandidate& b )
@@ -1150,7 +1175,8 @@ namespace Desert::Graphic::RDG
                        return la.Resource < lb.Resource;
                    } );
 
-        std::vector<uint32_t> placedLifetime;
+        std::vector<uint32_t>          placedLifetime;
+        std::vector<const Allocation*> conflicts; // of the candidate being placed; one buffer for all
         for ( const RdgAliasCandidate& candidate : candidates )
         {
             const ResourceLifetime&  lifetime = m_Result.Lifetimes[candidate.Lifetime];
@@ -1166,7 +1192,7 @@ namespace Desert::Graphic::RDG
             if ( heap == plan.Heaps.size() )
                 plan.Heaps.push_back( { fp.Class, fp.MemoryTypeBits, 0, 1 } );
 
-            std::vector<const Allocation*> conflicts;
+            conflicts.clear();
             for ( size_t a = 0; a < plan.Allocations.size(); ++a )
             {
                 const Allocation& placed = plan.Allocations[a];
@@ -1174,19 +1200,19 @@ namespace Desert::Graphic::RDG
                      RdgLifetimesIntersect( m_Result.Lifetimes[placedLifetime[a]], lifetime ) )
                     conflicts.push_back( &placed );
             }
-            uint64_t offset  = 0;
-            bool     changed = true;
-            while ( changed )
+            // The lowest multiple of the alignment clear of every conflict (CPU-FRAME-5: one sweep in offset
+            // order instead of bumping until nothing intersects - each bump there was forced, so that fixpoint is
+            // this same least feasible offset). In offset order, a conflict starting past the placement's end
+            // means every later one does too.
+            std::sort( conflicts.begin(), conflicts.end(),
+                       []( const Allocation* x, const Allocation* y ) { return x->Offset < y->Offset; } );
+            uint64_t offset = 0;
+            for ( const Allocation* conflict : conflicts )
             {
-                changed = false;
-                for ( const Allocation* conflict : conflicts )
-                {
-                    if ( RdgBytesIntersect( offset, fp.Size, conflict->Offset, conflict->Size ) )
-                    {
-                        offset  = RdgAlignOffset( conflict->Offset + conflict->Size, fp.Alignment );
-                        changed = true;
-                    }
-                }
+                if ( offset + fp.Size <= conflict->Offset )
+                    break;
+                if ( RdgBytesIntersect( offset, fp.Size, conflict->Offset, conflict->Size ) )
+                    offset = RdgAlignOffset( conflict->Offset + conflict->Size, fp.Alignment );
             }
 
             Allocation allocation;
@@ -1210,6 +1236,7 @@ namespace Desert::Graphic::RDG
             heapDesc.Bytes     = std::max( heapDesc.Bytes, offset + fp.Size );
             heapDesc.Alignment = std::max( heapDesc.Alignment, fp.Alignment );
             plan.UnaliasedBytes += fp.Size;
+            plan.AllocationOf[lifetime.Resource] = static_cast<int32_t>( plan.Allocations.size() );
             plan.Allocations.push_back( std::move( allocation ) );
             placedLifetime.push_back( candidate.Lifetime );
         }
@@ -1788,28 +1815,43 @@ namespace Desert::Graphic::RDG
         if ( !m_DeclarationError.empty() )
             return Common::MakeError<CompileResult>( m_DeclarationError );
 
+        // CPU-FRAME-5: one row per stage under "RDG: Compile" (PhaseTimer), so the compile's cost reads per stage.
+        DESERT_PROFILE_PHASES( stages );
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: setup" );
         Compiler compiler( *this, memory, pipes );
         if ( const Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
             return Common::MakeError<CompileResult>( defaults.GetError() );
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: validate blocks" );
         compiler.FaultMalformedPasses();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: fold uses and lost inputs" );
         compiler.FoldPassUses();
         compiler.SubstituteLostInputs();
         compiler.ApplyExternalFaultPolicies();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: cull" );
         compiler.CullPasses();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: dependency edges" );
         compiler.CollectDependencyEdges();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: pipes and async runs" );
         compiler.ChoosePipes();
         compiler.FindAsyncRuns();
         compiler.CreateAsyncSyncs();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: lifetimes" );
         compiler.ComputeLifetimes();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: aliasing" );
         if ( Common::BoolResultStr planned = compiler.PlanAliasing(); !planned )
             return Common::MakeError<CompileResult>( planned.GetError() );
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: pass barriers" );
         compiler.CollectPassBarriers();
         compiler.DecideStoreActions();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: render-pass merge" );
         compiler.MergeRenderPasses();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: final and merged barriers" );
         compiler.CollectFinalBarriers();
         compiler.CreatePassBarriers();
+        DESERT_PROFILE_PHASE( stages, "RDG Compile: pipe segments" );
         compiler.FilterStagesPerPipe();
         compiler.BuildPipeSegments();
+        DESERT_PROFILE_PHASE_END( stages );
         return Common::MakeSuccess( compiler.TakeResult() );
     }
 } // namespace Desert::Graphic::RDG

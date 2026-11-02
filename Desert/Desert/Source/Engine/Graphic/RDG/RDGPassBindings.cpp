@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
+#include <string_view>
+#include <vector>
 #include <format>
 
 namespace Desert::Graphic::RDG
@@ -259,6 +262,80 @@ namespace Desert::Graphic::RDG
              "material";
         constexpr std::string_view kPushFormat =
              "push constants: shader '{}' declares {} bytes, the pass gives {}";
+
+        // CPU-FRAME-5: the linear proof that a block's slots are valid, with no string compare per pair of names.
+        // The layout's slot names go into an open-addressing table (a repeated name keeps its first slot, as
+        // find_if does); every entry must land on a slot of its own of its kind, the other route on no entry's
+        // slot, and the two routes together on every slot. True proves the reference walk in
+        // ValidatePassBindings finds no slot fault; false proves nothing, and that walk then names the first
+        // fault in declaration order exactly as before (a layout repeating a slot name ends there too).
+        // Per-thread scratch: a frame's blocks allocate nothing once it has grown.
+        bool SlotsProvenValid( const DeclaredBindingBlock& block )
+        {
+            constexpr uint32_t         kEmpty = 0; // a table cell holds slot index + 1
+            const ShaderBindingLayout& layout = *block.Layout;
+            const size_t               slots  = layout.Slots.size();
+            if ( block.Entries.size() > slots )
+                return false;
+            thread_local std::vector<uint32_t> table;
+            thread_local std::vector<uint8_t>  covered; // 0 open, 1 by the block, 2 by the other route
+            size_t                             capacity = 16;
+            while ( capacity < slots * 2 )
+                capacity *= 2;
+            table.assign( capacity, kEmpty );
+            covered.assign( slots, 0 );
+            const size_t                     mask = capacity - 1;
+            const std::hash<std::string_view> hash{};
+            for ( size_t i = 0; i < slots; ++i )
+            {
+                const std::string_view name = layout.Slots[i].Name;
+                for ( size_t at = hash( name ) & mask;; at = ( at + 1 ) & mask )
+                {
+                    if ( table[at] == kEmpty )
+                    {
+                        table[at] = static_cast<uint32_t>( i + 1 );
+                        break;
+                    }
+                    if ( layout.Slots[table[at] - 1].Name == name )
+                        break;
+                }
+            }
+            // The slot named @p name, or `slots` for none. The table is at least twice the slot count, so a probe
+            // always reaches an empty cell.
+            const auto slotOf = [&]( const std::string_view name ) -> size_t
+            {
+                for ( size_t at = hash( name ) & mask;; at = ( at + 1 ) & mask )
+                {
+                    if ( table[at] == kEmpty )
+                        return slots;
+                    if ( layout.Slots[table[at] - 1].Name == name )
+                        return table[at] - 1;
+                }
+            };
+            size_t filled = 0;
+            for ( const DeclaredBindingEntry& entry : block.Entries )
+            {
+                const size_t slot = slotOf( entry.ShaderName );
+                if ( slot == slots || covered[slot] != 0 || layout.Slots[slot].Kind != entry.Kind )
+                    return false;
+                covered[slot] = 1;
+                ++filled;
+            }
+            for ( const std::string& name : block.Other.Slots )
+            {
+                const size_t slot = slotOf( name );
+                if ( slot == slots )
+                    continue; // the walk asks the other route only about the shader's own slots
+                if ( covered[slot] == 1 )
+                    return false;
+                if ( covered[slot] == 0 )
+                {
+                    covered[slot] = 2;
+                    ++filled;
+                }
+            }
+            return filled == slots;
+        }
     } // namespace
 
     Common::BoolResultStr ValidatePassBindings( const DeclaredBindingBlock& block )
@@ -266,34 +343,39 @@ namespace Desert::Graphic::RDG
         if ( !block.Layout )
             return Common::MakeError( std::string( "the block declares no shader binding layout" ) );
         const ShaderBindingLayout& layout  = *block.Layout;
-        const auto                 byOther = [&]( std::string_view name ) {
-            return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) !=
-                   block.Other.Slots.end();
-        };
-        for ( const DeclaredBindingEntry& entry : block.Entries )
+        // CPU-FRAME-5: the linear proof first; this walk runs only when it cannot prove the slots valid,
+        // and names the first fault in declaration order.
+        if ( !SlotsProvenValid( block ) )
         {
-            const auto sameName = [&]( const DeclaredBindingEntry& e )
-            { return e.ShaderName == entry.ShaderName; };
-            if ( std::count_if( block.Entries.begin(), block.Entries.end(), sameName ) > 1 )
-                return Common::MakeError( std::format( kTwiceFormat, entry.ShaderName, layout.ShaderName ) );
-            const auto slot = std::find_if( layout.Slots.begin(), layout.Slots.end(),
-                                            [&]( const ShaderSlot& s ) { return s.Name == entry.ShaderName; } );
-            if ( slot == layout.Slots.end() )
-                return Common::MakeError( std::format( kNotInShaderFormat, entry.ShaderName, layout.ShaderName ) );
-            if ( slot->Kind != entry.Kind )
-                return Common::MakeError( std::format( kKindFormat, entry.ShaderName,
-                                                       GetShaderResourceKindName( slot->Kind ), layout.ShaderName,
-                                                       GetShaderResourceKindName( entry.Kind ) ) );
-            if ( byOther( entry.ShaderName ) )
-                return Common::MakeError( std::format( kBothRoutesFormat, entry.ShaderName, layout.ShaderName ) );
-        }
-        for ( const ShaderSlot& slot : layout.Slots )
-        {
-            const bool byBlock =
-                 std::any_of( block.Entries.begin(), block.Entries.end(),
-                              [&]( const DeclaredBindingEntry& e ) { return e.ShaderName == slot.Name; } );
-            if ( !byBlock && !byOther( slot.Name ) )
-                return Common::MakeError( std::format( kNeitherRouteFormat, slot.Name, layout.ShaderName ) );
+            const auto                 byOther = [&]( std::string_view name ) {
+                return std::find( block.Other.Slots.begin(), block.Other.Slots.end(), name ) !=
+                       block.Other.Slots.end();
+            };
+            for ( const DeclaredBindingEntry& entry : block.Entries )
+            {
+                const auto sameName = [&]( const DeclaredBindingEntry& e )
+                { return e.ShaderName == entry.ShaderName; };
+                if ( std::count_if( block.Entries.begin(), block.Entries.end(), sameName ) > 1 )
+                    return Common::MakeError( std::format( kTwiceFormat, entry.ShaderName, layout.ShaderName ) );
+                const auto slot = std::find_if( layout.Slots.begin(), layout.Slots.end(),
+                                                [&]( const ShaderSlot& s ) { return s.Name == entry.ShaderName; } );
+                if ( slot == layout.Slots.end() )
+                    return Common::MakeError( std::format( kNotInShaderFormat, entry.ShaderName, layout.ShaderName ) );
+                if ( slot->Kind != entry.Kind )
+                    return Common::MakeError( std::format( kKindFormat, entry.ShaderName,
+                                                           GetShaderResourceKindName( slot->Kind ), layout.ShaderName,
+                                                           GetShaderResourceKindName( entry.Kind ) ) );
+                if ( byOther( entry.ShaderName ) )
+                    return Common::MakeError( std::format( kBothRoutesFormat, entry.ShaderName, layout.ShaderName ) );
+            }
+            for ( const ShaderSlot& slot : layout.Slots )
+            {
+                const bool byBlock =
+                     std::any_of( block.Entries.begin(), block.Entries.end(),
+                                  [&]( const DeclaredBindingEntry& e ) { return e.ShaderName == slot.Name; } );
+                if ( !byBlock && !byOther( slot.Name ) )
+                    return Common::MakeError( std::format( kNeitherRouteFormat, slot.Name, layout.ShaderName ) );
+            }
         }
         const uint32_t declared = layout.PushConstantBytes;
         const uint32_t given    = block.PushConstantBytes;
