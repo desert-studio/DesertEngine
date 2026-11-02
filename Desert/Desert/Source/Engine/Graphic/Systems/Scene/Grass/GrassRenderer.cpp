@@ -141,12 +141,17 @@ namespace Desert::Graphic::System
             // A blade's cards' widths, cm at scale 1 (card i at [i / 4][i % 4], Buckets.z of them): the card an
             // instance draws (Mesh/Surface/GrassBlade.glslh BladeCard) is lifted to the screen-width floor.
             glm::vec4 CardWidths[2];
-            // GPU-COST-21: x = the cascade lists, y = one list's words of Args' layout, z = the cull pad (float
-            // bits)
+            // GPU-COST-21: x = the cascade lists, y = one list's words (Args' layout and its rest twin), z = the
+            // cull pad (float bits), w = the first of a list's rest counts, one per bucket (GRASS-SHADOW-1)
             glm::uvec4 Cascades;
             glm::vec4  CascadePlanes[kGrassCascadeLists * 6u]; // list k's caster box at 6k
+            // GRASS-SHADOW-1: the shadow wind rule's origin (xyz, MeshRenderer::CasterWindOrigin: the main camera),
+            // and list k's ring: x = its inner distance (ShadowWindInnerOf), y = its wind distance
+            // (ShadowWindDistanceOf; 0 = no mover), cm. An instance in [x, y) of the origin is a mover.
+            glm::vec4 CasterWindOrigin;
+            glm::vec4 CascadeRings[kGrassCascadeLists];
         };
-        static_assert( sizeof( GrassParamsGpu ) == 1152 );
+        static_assert( sizeof( GrassParamsGpu ) == 1296 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -448,7 +453,8 @@ namespace Desert::Graphic::System
     }
 
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
-                                                              const ViewFrame& frame, const ViewVolumes& volumes )
+                                                              const ViewFrame& frame, const ViewVolumes& volumes,
+                                                              const MeshRenderer& meshes )
     {
         const GrassPlacement  p    = ScaledPlacement( variety.Placement, m_Quality );
         const float           cell = CellSizeCm( p );
@@ -778,21 +784,27 @@ namespace Desert::Graphic::System
                 gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
             }
             // The cascades' lists (GPU-COST-21): per cascade view this frame draws a copy of the records and the
-            // bucket table, list k's bucket firsts moved by k x capacity into CascadeIds.
-            gpu.CascadeMask     = volumes.CascadeMask;
-            gpu.CascadeArgWords = static_cast<uint32_t>( args.size() );
+            // bucket table, list k's bucket firsts moved by k x capacity into CascadeIds; then its rest twin
+            // (GRASS-SHADOW-1): the records once more, for the rest-pose casters at each bucket's end, and one
+            // rest count per bucket (GrassGenerate.shader appends, GrassFinalize.shader FinalizeCascades).
+            const auto recordsWord = static_cast<uint32_t>( GpuInstanceArgsOffset( 0u ) / 4u );
+            gpu.CascadeMask        = volumes.CascadeMask;
+            gpu.CascadeArgWords    = static_cast<uint32_t>( args.size() ) + ( tableWord - recordsWord ) + buckets;
+            gpu.CascadeRestShift   = argBytes - recordsWord * 4u;
             if ( const auto lists = static_cast<uint32_t>( std::popcount( volumes.CascadeMask ) ); lists > 0u )
             {
                 gpu.CascadeIds = ShaderResources::StorageBuffer::Create(
                      "GrassCascadeIds", std::max( lists * capacity, 1u ) * kGrassIdBytes, 8, true );
                 std::vector<uint32_t> cascadeArgs;
-                cascadeArgs.reserve( args.size() * lists );
+                cascadeArgs.reserve( static_cast<size_t>( gpu.CascadeArgWords ) * lists );
                 for ( uint32_t k = 0; k < lists; ++k )
                 {
                     const size_t at = cascadeArgs.size();
                     cascadeArgs.insert( cascadeArgs.end(), args.begin(), args.end() );
                     for ( uint32_t b = 0; b < buckets; ++b )
                         cascadeArgs[at + tableWord + b * kBucketWords + 1u] += k * capacity;
+                    cascadeArgs.insert( cascadeArgs.end(), args.begin() + recordsWord, args.begin() + tableWord );
+                    cascadeArgs.insert( cascadeArgs.end(), buckets, 0u );
                 }
                 const auto cascadeBytes = static_cast<uint32_t>( cascadeArgs.size() * 4u );
                 gpu.CascadeArgs =
@@ -925,9 +937,25 @@ namespace Desert::Graphic::System
         params.Cascades = glm::uvec4(
              static_cast<uint32_t>( std::popcount( gpu.CascadeMask ) ), gpu.CascadeArgWords,
              std::bit_cast<uint32_t>( variety.Blade ? 0.0f : static_cast<float>( WindBoundsPad( variety.Wind ) ) ),
-             0u );
+             gpu.CascadeArgWords - gpu.Buckets );
         std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
                    std::begin( params.CascadePlanes ) );
+        // GRASS-SHADOW-1, WHO SWAYS IN EACH LIST (BuildGpuInstancedShadowDraws' rule, the same measures): a swaying
+        // variety's instance in the ring [ShadowWindInnerOf( view, Reach ), ShadowWindDistanceOf( view )) of the
+        // main camera sways over the cascade's cache, every other casts its rest pose into the static layer. A
+        // still one, or a view no near receiver samples (wind distance 0), has no mover.
+        const bool sways        = variety.Wind.Sways();
+        params.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
+        for ( uint32_t k = 0; k < kGrassCascadeLists; ++k )
+        {
+            const uint32_t view   = volumes.CascadeViews[k];
+            const bool     listed = k < static_cast<uint32_t>( std::popcount( gpu.CascadeMask ) );
+            if ( listed && sways )
+                params.CascadeRings[k] =
+                     glm::vec4( meshes.ShadowWindInnerOf( view, gpu.Reach ), volumes.CascadeWind[k].w, 0.0f, 0.0f );
+            else
+                params.CascadeRings[k] = glm::vec4( 0.0f );
+        }
         if ( !variety.Blade )
         {
             const Common::Math::AABB bounds   = Geometry::LocalBounds( submeshes );
@@ -1025,6 +1053,10 @@ namespace Desert::Graphic::System
                     const Core::Frustum::Plane& plane    = box.GetPlane( static_cast<Core::FrustumPlane>( i ) );
                     volumes.CascadePlanes[list * 6u + i] = glm::vec4( plane.Normal, plane.Distance );
                 }
+                // GRASS-SHADOW-1: who sways in this list's cascade, by the rule its caster draws keep
+                // (BuildGpuInstancedShadowDraws: the light camera's CasterWindOrigin).
+                volumes.CascadeViews[list] = v;
+                volumes.CascadeWind[list]  = meshes.CasterWindOrigin( v );
                 ++list;
             }
         }
@@ -1071,7 +1103,7 @@ namespace Desert::Graphic::System
                 if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
                      mesh->GetGeometry().IndexCount == 0 )
                     continue;
-                VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame, volumes );
+                VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame, volumes, meshes );
                 if ( gpu == nullptr )
                     continue;
                 Common::BoolResultStr imported = Renderer::ImportBuffer( gpu->Instances, gpu->InstancesImport );
@@ -1160,6 +1192,7 @@ namespace Desert::Graphic::System
                            .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
                            .CascadeMask      = gpu->CascadeMask,
                            .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
+                           .CascadeRestShift = gpu->CascadeRestShift,
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
                            .Levels           = variety.Blade ? 1u : gpu->Buckets,

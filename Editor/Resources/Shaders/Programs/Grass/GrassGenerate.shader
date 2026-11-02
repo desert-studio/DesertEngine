@@ -61,6 +61,7 @@ Shader "GrassGenerate"
         LocalSize(8, 8, 1);
 
         #include <Common/GrassFieldShare.glslh>
+        #include <Common/ShadowWind.glslh>
 
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
@@ -86,9 +87,12 @@ Shader "GrassGenerate"
                              // GrassBladeLodAt, GrassMeshFarLod)
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
             vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
-            uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list's copy of
-                             // Args' layout in CascadeArgs, z = the cull pad (float bits, cm: a mesh's sway past its bounds)
+            uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list in
+                             // CascadeArgs (its copy of Args' layout, then its rest twin), z = the cull pad (float bits,
+                             // cm: a mesh's sway past its bounds), w = a list's first rest count (one per bucket)
             vec4  CascadePlanes[48]; // list k's caster box at 6k..6k+5 (GrassRenderer kGrassCascadeLists = 8 lists)
+            vec4  CasterWindOrigin;  // GRASS-SHADOW-1: xyz = the shadow wind rule's origin (the main camera)
+            vec4  CascadeRings[8];   // list k's movers' ring: x = inner, y = wind distance (0: no mover), cm
         };
 
         ReadBuffer(0) Field
@@ -116,6 +120,12 @@ Shader "GrassGenerate"
         // as Args, list k's copy at k x Cascades.y words, its buckets at k x capacity in CascadeIds (per slot the
         // instance's row of Instances, GPU-COST-22). The
         // cascade draws its list instead of the full one (MeshRenderer::BuildGpuInstancedShadowDraws).
+        // EACH LAYER ITS OWN PART (GRASS-SHADOW-1; UE: a cached shadow's static and movable casters are separate
+        // draw lists): a bucket's movers - the instances in the list's ring CascadeRings[k] of the rule's origin,
+        // the ones that sway over the cascade's cache - fill it from its first slot, counted by the bucket table;
+        // its rest-pose casters fill it from its last slot, counted by the list's rest counts (Cascades.w). The
+        // cache's static layer draws the rest part, the movable layer the movers: neither runs a vertex of the
+        // other's instances. A bucket's two parts never meet: together they hold at most what the full list kept.
         Buffer(8) CascadeIds
         {
             uint GrassCascadeIdsData[];
@@ -522,10 +532,26 @@ Shader "GrassGenerate"
                     }
                     if ( !inside )
                         continue;
+                    // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the instance's point (its root, the
+                    // vertex stage's model[3]): a mover inside the ring [inner, wind distance), else its rest pose.
+                    vec2 ring  = p.CascadeRings[k].xy;
+                    bool mover = ring.y > 0.0 &&
+                                 !ShadowWindCastsRestPose( position, p.CasterWindOrigin.xyz, ring.y ) &&
+                                 ( ring.x <= 0.0 || ShadowWindCastsRestPose( position, p.CasterWindOrigin.xyz, ring.x ) );
                     uint at   = k * p.Cascades.y + table;
-                    uint slot = atomicAdd( CascadeArguments[at], 1u );
-                    if ( slot < CascadeArguments[at + 2u] )
-                        GrassCascadeIdsData[CascadeArguments[at + 1u] + slot] = index;
+                    uint room = CascadeArguments[at + 2u];
+                    if ( mover )
+                    {
+                        uint slot = atomicAdd( CascadeArguments[at], 1u );
+                        if ( slot < room )
+                            GrassCascadeIdsData[CascadeArguments[at + 1u] + slot] = index;
+                    }
+                    else
+                    {
+                        uint slot = atomicAdd( CascadeArguments[k * p.Cascades.y + p.Cascades.w + bucket], 1u );
+                        if ( slot < room )
+                            GrassCascadeIdsData[CascadeArguments[at + 1u] + room - 1u - slot] = index;
+                    }
                 }
             }
         }
