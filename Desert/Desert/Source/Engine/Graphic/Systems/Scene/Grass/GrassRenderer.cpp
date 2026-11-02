@@ -1261,13 +1261,18 @@ namespace Desert::Graphic::System
         gpu.TileEntries.insert( gpu.TileEntries.end(), builds.begin(), builds.end() );
         // The tiles culled, nearest first (GRASS-TILE-2): the cull's groups run in about that order, so the full
         // list - and the camera's, which keeps its order - holds the field front to back, and the depth prepass
-        // and the GBuffer reject the far blades behind the near ones early.
+        // and the GBuffer reject the far blades behind the near ones early. GRASS-TILE-4: not the band past the
+        // radius the residents keep - none of a tile there lies within it (an instance's distance from the eye is
+        // at least nearestOf), and the cull runs a group per cluster of every tile it is given.
         std::vector<std::pair<float, uint32_t>> culled;
         culled.reserve( gpu.Tiles.size() );
         for ( const auto& [key, tile] : gpu.Tiles )
-            culled.emplace_back( nearestOf( static_cast<int32_t>( static_cast<uint32_t>( key >> 32u ) ),
-                                            static_cast<int32_t>( static_cast<uint32_t>( key ) ) ),
-                                 tile.Slot );
+        {
+            const float nearest = nearestOf( static_cast<int32_t>( static_cast<uint32_t>( key >> 32u ) ),
+                                             static_cast<int32_t>( static_cast<uint32_t>( key ) ) );
+            if ( nearest <= radius )
+                culled.emplace_back( nearest, tile.Slot );
+        }
         std::sort( culled.begin(), culled.end() );
         for ( const auto& [nearest, slot] : culled )
             gpu.TileEntries.push_back( glm::uvec4( slot, 0u, 0u, 0u ) );
