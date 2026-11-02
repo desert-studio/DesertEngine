@@ -321,8 +321,13 @@ namespace Desert::Graphic
         // THE DIRECT LIGHTING (UE LumenSceneDirectLighting): the frame's relit pages, lit by exactly what the
         // deferred composite read this frame - its scene view inputs (cascades, cloud map, local shadow atlas),
         // the view's light buffers (AddFrameLightGrid), the composite's ShadowUB and cloud values, the frame sun.
-        const SurfaceCache::SurfaceCacheRenderer::FrameBuffers records =
-             cache->UploadRecords( graph, scene );
+        auto uploaded = cache->UploadRecords( graph, scene );
+        if ( !uploaded )
+        {
+            LOG_ERROR( "[SceneRenderer] Surface Cache: {}", uploaded.GetError() );
+            return;
+        }
+        const SurfaceCache::SurfaceCacheRenderer::FrameBuffers records = uploaded.ExtractValue();
         if ( updated )
         {
             const FrameGraphRefs                                     refs = textures.GraphRefs();

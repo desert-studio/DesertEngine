@@ -12,9 +12,11 @@
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <cstring>
 #include <format>
+#include <limits>
 #include <span>
 #include <utility>
 
@@ -193,7 +195,13 @@ namespace Desert::Graphic::SurfaceCache
         }
     } // namespace
 
-    SurfaceCacheRenderer::SurfaceCacheRenderer( const ResourceOwnerInstance owner ) : m_LedgerInstance( owner ) {}
+    SurfaceCacheRenderer::SurfaceCacheRenderer( const ResourceOwnerInstance owner ) : m_LedgerInstance( owner )
+    {
+        m_RecordTables[0].Name = "SurfaceCache.Cards";
+        m_RecordTables[1].Name = "SurfaceCache.Pages";
+        m_RecordTables[2].Name = "SurfaceCache.MeshCards";
+        m_RecordTables[3].Name = "SurfaceCache.InstanceRows";
+    }
 
     Common::BoolResultStr SurfaceCacheRenderer::Initialize()
     {
@@ -583,14 +591,73 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
-    SurfaceCacheRenderer::FrameBuffers SurfaceCacheRenderer::UploadRecords( RDG::Builder&     graph,
-                                                                            const SceneFrame& frame ) const
+    template <typename T>
+    Common::ResultStr<RDG::BufferRef> SurfaceCacheRenderer::UploadRecordTable( RDG::Builder&         graph,
+                                                                               RecordTable&          table,
+                                                                               const std::vector<T>& rows,
+                                                                               const bool            write )
     {
-        return { .Cards         = UploadBuffer( graph, frame.Records->Cards, "SurfaceCache.Cards" ),
-                 .Pages         = UploadBuffer( graph, frame.Records->Pages, "SurfaceCache.Pages" ),
-                 .MeshCards     = UploadBuffer( graph, frame.Records->MeshCards, "SurfaceCache.MeshCards" ),
-                 .InstanceRows  = UploadBuffer( graph, frame.Records->InstanceRows, "SurfaceCache.InstanceRows" ),
-                 .LightingPages = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" ) };
+        static_assert( sizeof( T ) % 4u == 0u, "a record is a whole number of 32-bit words" );
+        // An empty list is one zero row nobody reads (UploadBuffer's rule: the table is never empty).
+        static const T           zero{};
+        std::span<const T>       items( &zero, 1 );
+        if ( !rows.empty() )
+            items = std::span<const T>( rows.data(), rows.size() );
+        const std::span<const std::byte> bytes = std::as_bytes( items );
+        if ( bytes.size() > std::numeric_limits<uint32_t>::max() )
+            return Common::MakeError<RDG::BufferRef>(
+                 std::format( "{}: {} bytes pass the 4 GiB a buffer is sized by", table.Name, bytes.size() ) );
+        bool upload = write;
+        if ( !table.Buffer || table.Bytes != bytes.size() )
+        {
+            const ResourceAttributionScope owned( ResourceOwner::SceneRenderer, m_LedgerInstance );
+            auto buffer = ShaderResources::StorageBuffer::Create( table.Name, static_cast<uint32_t>( bytes.size() ), 0u,
+                                                                  /*persistent=*/true );
+            if ( !buffer )
+                return Common::MakeError<RDG::BufferRef>( std::format(
+                     "{}: the device buffer of {} bytes could not be created", table.Name, bytes.size() ) );
+            // The old buffer is retired on the frame ring by its API object: a frame in flight still reads it.
+            table.Buffer = std::move( buffer );
+            table.Bytes  = bytes.size();
+            upload       = true;
+        }
+        if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
+            return Common::MakeError<RDG::BufferRef>(
+                 std::format( "{}: the table could not be imported: {}", table.Name, imported.GetError() ) );
+        const RDG::BufferRef ref = graph.RegisterExternal( table.Import, table.Name );
+        if ( upload )
+            graph.QueueBufferUpload( ref, bytes );
+        graph.Extract( ref, table.Import, RDG::Access::StorageRead );
+        return Common::MakeSuccess( ref );
+    }
+
+    Common::ResultStr<SurfaceCacheRenderer::FrameBuffers> SurfaceCacheRenderer::UploadRecords( RDG::Builder& graph,
+                                                                                             const SceneFrame& frame )
+    {
+        // Pointer identity is the records' revision (SceneFrame::Records: the same object while nothing in it
+        // changed); m_UploadedRecords holds the one the tables were written from.
+        const bool   write = frame.Records != m_UploadedRecords;
+        FrameBuffers out;
+        auto         cards = UploadRecordTable( graph, m_RecordTables[0], frame.Records->Cards, write );
+        if ( !cards )
+            return Common::MakeError<FrameBuffers>( cards.GetError() );
+        auto pages = UploadRecordTable( graph, m_RecordTables[1], frame.Records->Pages, write );
+        if ( !pages )
+            return Common::MakeError<FrameBuffers>( pages.GetError() );
+        auto meshCards = UploadRecordTable( graph, m_RecordTables[2], frame.Records->MeshCards, write );
+        if ( !meshCards )
+            return Common::MakeError<FrameBuffers>( meshCards.GetError() );
+        auto instanceRows = UploadRecordTable( graph, m_RecordTables[3], frame.Records->InstanceRows, write );
+        if ( !instanceRows )
+            return Common::MakeError<FrameBuffers>( instanceRows.GetError() );
+        out.Cards        = cards.ExtractValue();
+        out.Pages        = pages.ExtractValue();
+        out.MeshCards    = meshCards.ExtractValue();
+        out.InstanceRows = instanceRows.ExtractValue();
+        // The pages relit this frame change every frame (SurfaceCacheScene: m_Frame % factor): a frame's upload.
+        out.LightingPages = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" );
+        m_UploadedRecords = frame.Records;
+        return Common::MakeSuccess( out );
     }
 
     GlobalIllumination::SurfaceCacheFrame SurfaceCacheRenderer::HitReads( const ImportImage&  import,
