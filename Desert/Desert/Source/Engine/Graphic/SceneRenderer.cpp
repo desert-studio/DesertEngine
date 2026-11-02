@@ -1178,7 +1178,9 @@ namespace Desert::Graphic
                  .DensityScale =
                       0.01f * static_cast<float>( quality.As<int>( Parameter::FoliageGrassDensityScalePercent ) ),
                  .CullDistanceScale = 0.01f * static_cast<float>( quality.As<int>(
-                                                   Parameter::FoliageGrassCullDistanceScalePercent ) ) };
+                                                   Parameter::FoliageGrassCullDistanceScalePercent ) ),
+                 .LodScreenPixels =
+                      static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ) };
             if ( const auto grass = m_RenderSystems.find( "GrassSystem" ); grass != m_RenderSystems.end() )
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 UNIQUE_GET_AS( System::GrassRenderer, grass->second )->SetQuality( grassQuality );

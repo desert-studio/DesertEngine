@@ -393,16 +393,19 @@
         "Foliage": {
             "Low": {
                 "Foliage.GrassDensityScalePercent": 30,
-                "Foliage.GrassCullDistanceScalePercent": 50
+                "Foliage.GrassCullDistanceScalePercent": 50,
+                "Foliage.GrassLodScreenPixels": 48
             },
             "Medium": {
                 "Foliage.GrassDensityScalePercent": 60,
-                "Foliage.GrassCullDistanceScalePercent": 75
+                "Foliage.GrassCullDistanceScalePercent": 75,
+                "Foliage.GrassLodScreenPixels": 32
             },
             "High": {},
             "Epic": {},
             "Cinematic": {
-                "Foliage.GrassCullDistanceScalePercent": 150
+                "Foliage.GrassCullDistanceScalePercent": 150,
+                "Foliage.GrassLodScreenPixels": 8
             }
         }
     },

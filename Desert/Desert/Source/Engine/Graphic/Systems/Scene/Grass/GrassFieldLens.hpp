@@ -23,6 +23,11 @@ namespace Desert::Graphic::System
     {
         float              DensityScale      = 1.0f; // Foliage.GrassDensityScalePercent / 100, 0.1..1
         float              CullDistanceScale = 1.0f; // Foliage.GrassCullDistanceScalePercent / 100, 0.1..4
+        // Foliage.GrassLodScreenPixels, render pixels (0 = none): the screen size of a blade's far LOD - a blade
+        // whose bounding radius projects below it draws its coarsest strip, and the field keeps fewer, wider
+        // blades there (GrassFieldShare.glslh GrassBladeLodAt). Render pixels, so a lower render resolution
+        // reaches it nearer: the LOD follows what the pixels can show.
+        float              LodScreenPixels   = 16.0f;
         [[nodiscard]] bool operator==( const GrassQuality& ) const = default;
     };
 

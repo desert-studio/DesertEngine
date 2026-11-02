@@ -80,7 +80,9 @@ Shader "GrassGenerate"
                              // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
             vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
                              // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
-            vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
+            vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
+                             // a blade's far LOD: z = the distance at which its bounding radius at scale 1 stands at the
+                             // Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh GrassBladeLodAt)
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
             vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
             uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list's copy of
@@ -353,8 +355,20 @@ Shader "GrassGenerate"
             // the last stretch before its own draw drops it - at EndCullDistance too (GPU-COST-29; UE grass HISM:
             // no survivor growth, PerInstanceFadeAmount / scale to zero; GrassMeshShrink, GrassMeshCoverage): its
             // card overdraw falls with distance as the field thins, and the cover takes on what it leaves.
+            // THE BLADE'S LOD (GPU-FRAME-4, GrassFieldShare.glslh GrassBladeLodAt - the one choice): its strip level
+            // and the far LOD's share from its bounding radius on screen - its own height scale, before the
+            // thinning's height and its clump's, over the far LOD's screen size (p.Lod.z: where a blade at scale 1
+            // stands at it). The far LOD drops the blades of the same nested draw the thinning above drops by (an
+            // instance kept at a share is kept at every larger one), so the field thins one blade at a time and
+            // never reshuffles; its survivors widen by 1 / Share below, past the floor's lift.
+            GrassBladeLod lod = GrassBladeLod( 0u, 1.0, 1.0 );
             if ( blade )
             {
+                uint  ring = p.Blade.x > 0.0 ? min( uint( distance / p.Blade.x ), p.Buckets.x - 1u ) : 0u;
+                float size = p.Lod.z > 0.0 ? p.Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
+                lod        = GrassBladeLodAt( size, ring, p.Buckets.x );
+                if ( fade >= min( kept, field.Floor ) * lod.Share )
+                    return;
                 scale.x *= field.Widen;
                 scale.z *= field.Widen;
                 scale.y *= field.Height;
@@ -374,7 +388,7 @@ Shader "GrassGenerate"
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
             // bounding sphere (the camera's own list is GrassCull.shader's).
-            float radius = p.Range.w * max( max( scale.x, floorBound ), max( scale.y, scale.z ) );
+            float radius = p.Range.w * max( max( scale.x, floorBound ) * lod.Widen, max( scale.y, scale.z ) );
             vec3  centre = position + vec3( 0.0, p.ScaleY.z * scale.y, 0.0 );
             for ( int i = 0; i < 4; ++i )
                 if ( dot( p.Planes[i].xyz, centre ) + p.Planes[i].w < -radius )
@@ -405,6 +419,9 @@ Shader "GrassGenerate"
                     float width = p.CardWidths[card / 4u][card % 4u];
                     scale.x     = max( scale.x, p.Lean.w * distance / max( width, 1.0e-3 ) );
                 }
+                // The far LOD's survivor stands for the 1 / Share blades it keeps the place of: its card - lifted to
+                // the floor first - is that much wider, so the field covers what it did.
+                scale.x *= lod.Widen;
             }
             float c = cos( yaw ), s = sin( yaw );
             mat3  basis = mat3( vec3( c, 0.0, -s ), vec3( 0.0, 1.0, 0.0 ), vec3( s, 0.0, c ) );
@@ -431,8 +448,8 @@ Shader "GrassGenerate"
             }
 
             uint bucket = 0u;
-            if ( p.Blade.x > 0.0 )
-                bucket = min( uint( distance / p.Blade.x ), p.Buckets.x - 1u );
+            if ( blade )
+                bucket = lod.Level;
             else if ( p.Buckets.x > 1u )
             {
                 // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::

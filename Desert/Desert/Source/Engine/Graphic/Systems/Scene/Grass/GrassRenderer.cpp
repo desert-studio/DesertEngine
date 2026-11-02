@@ -130,7 +130,9 @@ namespace Desert::Graphic::System
             // floor's width per unit of distance (MinScreenWidth / pixels per unit; 0: none)
             glm::vec4  Lean;
             // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
-            // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic).
+            // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic). A blade's
+            // far LOD (GPU-FRAME-4): z = the distance at which its bounding radius at scale 1 stands at the Foliage
+            // quality's LodScreenPixels (0: none; GrassFieldShare.glslh GrassBladeLodAt).
             glm::vec4 Lod;
             // The variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = the noise seed's
             // bits (shared by a Group).
@@ -502,6 +504,17 @@ namespace Desert::Graphic::System
             boundsRadius =
                  glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
         }
+        // THE BLADE'S FAR LOD (GPU-FRAME-4; UE grass HISM: an instance's LOD by its screen size): the distance at
+        // which a blade's bounding radius at scale 1 stands at the Foliage quality's LodScreenPixels render pixels
+        // through this view's lens (GrassFieldLens::PixelsPerUnit - render pixels, so the LOD follows the pixels the
+        // view has). GrassGenerate reads it as p.Lod.z into GrassFieldShare.glslh GrassBladeLodAt - the one choice of
+        // an instance's strip level and far-LOD share, written into its bucket and its scale, so the GBuffer, the
+        // masked depth prepass and every shadow cascade draw the same. 0 = no far LOD: no quality value, an
+        // orthographic lens or no render extent (PixelsPerUnit 0).
+        const GrassFieldLens fieldLens        = UnpackGrassFieldLens( frame.GrassLens );
+        float                bladeLodDistance = 0.0f;
+        if ( variety.Blade && m_Quality.LodScreenPixels > 0.0f && fieldLens.PixelsPerUnit > 0.0f )
+            bladeLodDistance = boundsRadius * fieldLens.PixelsPerUnit / m_Quality.LodScreenPixels;
         // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off;
         // scatter carries the blade up to 2 * Scatter grid cells before that.
         const double moved = variety.Blade
@@ -603,8 +616,15 @@ namespace Desert::Graphic::System
         {
             // A blade's level is a ring of distance; a mesh level's screen size reaches anywhere in the disc (a
             // large instance keeps its detail farther than a small one), so it is bounded by the whole disc.
-            const bool   ring  = variety.Blade && buckets > 1u;
-            const double inner = ring ? static_cast<double>( b ) * lodDistance : 0.0;
+            const bool ring  = variety.Blade && buckets > 1u;
+            double     inner = ring ? static_cast<double>( b ) * lodDistance : 0.0;
+            // The coarsest level also holds the far LOD's instances (GrassBladeLodAt), from where the smallest
+            // blade's radius stands at its screen size.
+            if ( ring && b + 1u == buckets && bladeLodDistance > 0.0f )
+            {
+                const float minScale = std::min( { p.ScaleX.x, p.ScaleY.x, p.ScaleZ.x } );
+                inner = std::min( inner, static_cast<double>( bladeLodDistance ) * std::max( minScale, 0.0f ) );
+            }
             const double outer = !ring || b + 1u == buckets ? static_cast<double>( radius )
                                                             : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
             uint32_t     needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
@@ -876,8 +896,7 @@ namespace Desert::Graphic::System
         // orthographic lens, no render extent.
         // GrassFloorDistance through the view's lens (ViewFrame::GrassLens, made once per view by SceneRenderer):
         // the ground's far cover reads its D by the same two (CameraUB::GrassLens).
-        const GrassFieldLens fieldLens     = UnpackGrassFieldLens( frame.GrassLens );
-        float                floorDistance = 0.0f;
+        float floorDistance = 0.0f;
         if ( variety.Blade )
             floorDistance = GrassFloorDistance( meanBladeWidth, variety.Blade->MinScreenWidth, fieldLens );
         if ( floorDistance > 0.0f )
@@ -914,6 +933,8 @@ namespace Desert::Graphic::System
             params.Lod = glm::vec4( multiple * 0.5f * glm::length( bounds.Max - bounds.Min ),
                                     std::abs( frame.Projection[2][3] ), 0.0f, 0.0f );
         }
+        else
+            params.Lod = glm::vec4( 0.0f, 0.0f, bladeLodDistance, 0.0f );
         if ( const auto wrote = gpu.Params->SetData( &params, sizeof( params ) ); !wrote.IsSuccess() )
         {
             LOG_ERROR( "[Grass] the variety's parameters were not written: {}", wrote.GetError() );
