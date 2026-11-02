@@ -190,6 +190,7 @@ namespace Desert::Graphic::RDG
                      return Common::MakeFormattedError( "{}", target.GetError() );
                  return context.GetBackend().UploadBuffer( target.GetValue().Resource, *payload );
              } );
+        m_Passes.back().QueuedUpload = true;
         if ( !error.empty() )
             RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
     }

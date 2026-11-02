@@ -251,6 +251,9 @@ namespace Desert::Graphic::RDG
         // (Access::CopyDst), so every pass added after this call that reads the buffer is ordered after the
         // upload by the graph, with its barrier; a reader added before it reads a buffer nothing wrote and is
         // refused ("... before any pass writes it"). The upload is culled with its buffer when nobody reads it.
+        // EXECUTED AT THE GRAPH HEAD (UE: SubmitBufferUploads before the first pass): an upload no earlier pass
+        // depends on (no pass before it touched the buffer) records before every other pass, so an async run
+        // that reads it forks once at the head instead of draining the graphics queue mid-frame.
         // Refused by name - a Declaration fault of the upload pass, whose readers then fault as its dependants -
         // for a handle that is not a buffer of this graph, an empty payload, a payload larger than the buffer,
         // or a size that is not a multiple of 4 bytes (the transfer granularity every GPU API shares).
@@ -448,6 +451,9 @@ namespace Desert::Graphic::RDG
             // distinct object of the graph), so Execute prepares each object once, by index.
             std::vector<uint32_t>             Prerequisites;
             std::string                       DeclarationError;
+            // The copy QueueBufferUpload added. Compile moves it to the graph head when no earlier pass touches
+            // its buffer (Compiler::HoistQueuedUploads).
+            bool QueuedUpload = false;
         };
 
         struct ResourceRecord
