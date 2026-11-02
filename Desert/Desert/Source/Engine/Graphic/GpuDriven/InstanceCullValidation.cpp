@@ -241,11 +241,20 @@ namespace Desert::Graphic::GpuDriven
                     // InstanceCull.shader's cascade-cache layer split, per instance.
                     // GpuCull_CastsRestPose: a caster view's swaying instance past the shadow wind distance stands
                     // still there.
-                    const bool restPose =
-                         ( view.Gpu.Flags & CullViewFlags::kShadowCaster ) != 0u && primitive.Wind.z > 0.0f &&
-                         ShadowWindCastsRestPose(
-                              ShadowWindInstancePoint( world, glm::vec3( primitive.LocalBoundsCenter ) ),
-                              glm::vec3( view.Gpu.LodOrigin ), view.Gpu.LodOrigin.w );
+                    // In a cascade c >= 2 also one nearer the camera than its ring's inner distance (CasterRing).
+                    bool restPose = false;
+                    if ( ( view.Gpu.Flags & CullViewFlags::kShadowCaster ) != 0u && primitive.Wind.z > 0.0f )
+                    {
+                        const glm::vec3 windPoint =
+                             ShadowWindInstancePoint( world, glm::vec3( primitive.LocalBoundsCenter ) );
+                        const glm::vec3 windOrigin( view.Gpu.LodOrigin );
+                        const float     ringInner = ShadowWindRingInner(
+                             view.Gpu.CasterRing,
+                             ShadowWindCasterReach( world, glm::vec3( primitive.LocalBoundsExtent ),
+                                                    primitive.LocalBoundsCenter.w ) );
+                        restPose = ShadowWindCastsRestPose( windPoint, windOrigin, view.Gpu.LodOrigin.w ) ||
+                                   ShadowWindInsideRing( windPoint, windOrigin, ringInner );
+                    }
                     const bool movableCaster =
                          ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose;
                     if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||

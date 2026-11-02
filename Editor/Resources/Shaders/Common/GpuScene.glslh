@@ -187,7 +187,7 @@ struct GpuOccludedInstance
     uint View;     // offset 4
 };
 
-// Per (view x pass) the cull serves. 352 bytes.
+// Per (view x pass) the cull serves. 368 bytes.
 struct GpuCullView
 {
     mat4  ViewProjection;     // offset 0   — unjittered
@@ -201,6 +201,7 @@ struct GpuCullView
     uint  Flags;              // offset 340 — DESERT_GPU_CULL_VIEW_*
     uint  VsmLevel;           // offset 344
     uint  ViewIndex;          // offset 348 — the caller's view index
+    vec4  CasterRing;         // offset 352 — x = cascade c-2's split (cm), y = the light's fall; 0 = no ring
 };
 
 // WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)
@@ -212,8 +213,16 @@ bool GpuCull_CastsRestPose( const GpuCullView view, const GpuScenePrimitive prim
 {
     if ( ( view.Flags & DESERT_GPU_CULL_VIEW_SHADOW_CASTER ) == 0u || !( primitive.Wind.z > 0.0 ) )
         return false;
-    return ShadowWindCastsRestPose( ShadowWindInstancePoint( instanceToWorld, primitive.LocalBoundsCenter.xyz ),
-                                    view.LodOrigin.xyz, view.LodOrigin.w );
+    const vec3 point = ShadowWindInstancePoint( instanceToWorld, primitive.LocalBoundsCenter.xyz );
+    if ( ShadowWindCastsRestPose( point, view.LodOrigin.xyz, view.LodOrigin.w ) )
+        return true;
+    // THE CASTER'S REACH (GPU-FRAME-7, MeshRenderer::ShadowWindRingOf): nearer the camera than the cascade's ring
+    // lets its sway reach a receiver of it, the instance casts its rest pose too (the CPU walk's
+    // ShadowWindRingSideOf: the same functions on the same bounds and pad).
+    const vec2  reach = ShadowWindCasterReach( instanceToWorld, primitive.LocalBoundsExtent.xyz,
+                                               primitive.LocalBoundsCenter.w );
+    const float inner = ShadowWindRingInner( view.CasterRing, reach );
+    return ShadowWindInsideRing( point, view.LodOrigin.xyz, inner );
 }
 
 // THE SCENE'S PRIMITIVE TABLE (GpuDriven::GpuScene, one per scene, stable rows): a view-pass draw reads its row

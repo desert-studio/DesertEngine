@@ -265,8 +265,12 @@ namespace Desert::Graphic::GpuDriven
         uint32_t   VsmLevel  = 0;              // 344 — its row of the frame's page masks (kVsmPageMask): the level
                                                //     (static mask), LevelCount + level for a movers' layer (drawn)
         uint32_t   ViewIndex = 0;              // 348 — the view's index in the caller's CullViewInput list
+        glm::vec4  CasterRing{ 0.0f };         // 352 THE CASTER'S REACH (MeshRenderer::ShadowWindRingOf): x = cascade
+                                               //     c-2's split (cm), y = the light's fall across / down; zero = no
+                                               //     ring (Common/ShadowWind.glslh ShadowWindRingInner)
     };
-    static_assert( sizeof( GpuCullView ) == 352, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 368, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, CasterRing ) == 352, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, FrustumPlanes ) == 192, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, HzbExtent ) == 320, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, ViewIndex ) == 348, "Common/GpuScene.glslh" );
@@ -289,7 +293,8 @@ namespace Desert::Graphic::GpuDriven
     // ONE rule of Editor/Resources/Shaders/Common/ShadowWind.glslh (its bounds centre in the world against
     // LodOrigin.xyz, the main camera's position, and LodOrigin.w, the shadow wind distance), compiled as GLSL by
     // GpuCull_CastsRestPose and as C++ by the CPU walk (MeshRenderer::ShadowIsmInstances) and the cull's reference
-    // (InstanceCullValidation.cpp). A primitive with kMovableCaster moves by itself in a view unless it casts its
+    // (InstanceCullValidation.cpp); in a cascade c >= 2 also one nearer the camera than its ring's inner distance
+    // (CasterRing, the caster's reach: its sway shadows no receiver of the cascade). A primitive with kMovableCaster moves by itself in a view unless it casts its
     // rest pose there: what a cached cascade's layers split on (InstanceCull.shader).
 
     // One word per (view, instance) the cull writes (InstanceCull.shader Visibility[]; GLSL
