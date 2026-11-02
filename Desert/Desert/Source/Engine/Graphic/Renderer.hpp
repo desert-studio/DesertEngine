@@ -183,9 +183,12 @@ namespace Desert::Graphic
         // is recorded. GetBindingLayout: the resource slots and push-constant range @p shader reflects (names and
         // kinds only). GetPipelineRouteFill: the slots a compute pipeline's own setters (asset textures,
         // out-of-graph buffers) hold, by shader name - the other route of DispatchCompute. A graphics draw's
-        // other route is its material's (MaterialExecutor::GetRouteFill).
+        // other route is its material's (MaterialExecutor::GetRouteFill). ROUTEFILL: the fill is the one the
+        // pipeline keeps (VulkanPipelineCompute::GetRouteFill), rebuilt only when its bound slots or its shader
+        // change - a pass's setup shares it, never derives it.
         [[nodiscard]] static RDG::ShaderBindingLayout GetBindingLayout( const Shader& shader );
-        [[nodiscard]] static RDG::OtherRouteFill      GetPipelineRouteFill( const ComputePipeline& pipeline );
+        [[nodiscard]] static std::shared_ptr<const RDG::OtherRouteFill>
+        GetPipelineRouteFill( const ComputePipeline& pipeline );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).

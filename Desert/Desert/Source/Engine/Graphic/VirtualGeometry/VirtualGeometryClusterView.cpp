@@ -95,7 +95,7 @@ namespace Desert::Graphic::VirtualGeometry
         using P          = ClusterViewShaderParameters;
         constexpr auto R = RDG::Access::StorageRead;
         pass.Read( draw.RasterArgs, RDG::Access::IndirectArgs );
-        (void)pass.Bindings( m_Layout.Get( m_Shader ), RDG::OtherRouteFill{} )
+        (void)pass.Bindings( m_Layout.Get( m_Shader ), RDG::NoOtherRouteFill() )
              .Storage( P::VgClusters, draw.Clusters, R )
              .Storage( P::VgDags, draw.Dags, R )
              .Storage( P::VgPrimitives, draw.Primitives, R )

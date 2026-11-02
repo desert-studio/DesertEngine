@@ -253,7 +253,7 @@ namespace Desert::Graphic::GpuDriven
 
                 const std::shared_ptr<ComputePipeline> compute = pipeline.GetValue();
                 const auto&               layout = upload.Layout.Get( compute->GetSpecification().Shader );
-                const RDG::OtherRouteFill fill   = Renderer::GetPipelineRouteFill( *compute );
+                const std::shared_ptr<const RDG::OtherRouteFill> fill = Renderer::GetPipelineRouteFill( *compute );
                 const uint64_t            words  = static_cast<uint64_t>( count ) * table.RowWords;
                 const auto groups = static_cast<uint32_t>( ( words + kUploadGroupSize - 1u ) / kUploadGroupSize );
                 const uint32_t groupsX = std::min( groups, kMaxGroupsPerAxis );

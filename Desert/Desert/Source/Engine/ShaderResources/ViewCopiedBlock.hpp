@@ -330,6 +330,22 @@ namespace Desert::ShaderResources
     class DescriptorCopyRecord
     {
     public:
+        // RDG-PARALLEL-9 (UE: the descriptor cache keys a material's set by what it holds): the process-unique
+        // number of this record. With GetVersion it names the descriptors the record's set holds: a set copied
+        // from it (VulkanRenderer's graph route, set 0 of a material draw) is cached under the pair and found
+        // again only while the pair is unchanged. A copy or a move is another set's record and takes an identity
+        // of its own (RecordIdentity), so two records never share one.
+        [[nodiscard]] uint64_t GetIdentity() const noexcept
+        {
+            return m_Identity.Get();
+        }
+
+        // Raised by every NoteWritten: any write into the record's set, also of an equal resource, is a new version.
+        [[nodiscard]] uint64_t GetVersion() const noexcept
+        {
+            return m_Version;
+        }
+
         [[nodiscard]] bool NeedsWrite( const uint32_t binding, const uint64_t resourceId,
                                        const uint64_t propertyVersion ) const
         {
@@ -342,6 +358,7 @@ namespace Desert::ShaderResources
         {
             if ( m_Bound.insert_or_assign( binding, Written{ resourceId, propertyVersion } ).second )
                 m_Written.insert( std::lower_bound( m_Written.begin(), m_Written.end(), binding ), binding );
+            ++m_Version;
         }
 
         // Every binding written with a resource of its own (a fresh set holds only fallbacks and has none),
@@ -359,7 +376,43 @@ namespace Desert::ShaderResources
             uint64_t ResourceId = 0;
             uint64_t Version    = 0;
         };
+        // A number no other record of the process holds: taken afresh on construction, copy and move (both
+        // directions of an assignment included), so the record stays rule-of-zero.
+        class RecordIdentity
+        {
+        public:
+            RecordIdentity() noexcept : m_Value( Next() ) {}
+            RecordIdentity( const RecordIdentity& /*other*/ ) noexcept : m_Value( Next() ) {}
+            RecordIdentity( RecordIdentity&& /*other*/ ) noexcept : m_Value( Next() ) {}
+            RecordIdentity& operator=( const RecordIdentity& /*other*/ ) noexcept
+            {
+                m_Value = Next();
+                return *this;
+            }
+            RecordIdentity& operator=( RecordIdentity&& /*other*/ ) noexcept
+            {
+                m_Value = Next();
+                return *this;
+            }
+            ~RecordIdentity() = default;
+
+            [[nodiscard]] uint64_t Get() const noexcept
+            {
+                return m_Value;
+            }
+
+        private:
+            static uint64_t Next() noexcept
+            {
+                static std::atomic<uint64_t> s_Next{ 1 };
+                return s_Next.fetch_add( 1, std::memory_order_relaxed );
+            }
+            uint64_t m_Value;
+        };
+
         std::unordered_map<uint32_t, Written> m_Bound;
         std::vector<uint32_t>                 m_Written; // m_Bound's bindings, sorted
+        RecordIdentity                        m_Identity;
+        uint64_t                              m_Version = 0; // raised by NoteWritten
     };
 } // namespace Desert::ShaderResources

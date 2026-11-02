@@ -18,6 +18,8 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
@@ -533,31 +535,100 @@ namespace Desert::Graphic::API::Vulkan
                        "pipeline was built from an earlier compile of the shader and was not rebuilt",
                        pipeline.GetSpecification().DebugName, layoutStages, shaderName, shaderStages );
         }
+        // RDG-PARALLEL-9 (RDG-REC-2): by the layout's table, not a walk of its bindings.
         const VkDescriptorSetLayoutBinding* FindLayoutBinding( const VulkanDescriptorSetLayout& layout,
                                                                uint32_t                         binding )
         {
-            for ( const VkDescriptorSetLayoutBinding& entry : layout.Bindings() )
-            {
-                if ( entry.binding == binding )
-                    return &entry;
-            }
-            return nullptr;
+            return layout.FindBinding( binding );
         }
 
-        // One descriptor set per set of @p layouts, allocated for THIS exec from the graph's per-frame pools,
-        // with every resolved PassBindings entry written at its slot. The caller fills the other route's slots
-        // into the returned sets before they are bound.
+        // A non-dispatchable handle as a key word: its value is compared, never turned back into a handle.
+        template <typename Handle>
+        uint64_t HandleWord( Handle handle )
+        {
+            if constexpr ( std::is_pointer_v<Handle> )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): compared, never dereferenced
+                return static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( handle ) );
+            }
+            else
+            {
+                return static_cast<uint64_t>( handle );
+            }
+        }
+
+        // RDG-PARALLEL-7 (RDG-REC-3b): one set of the pipeline's layout in the exec being written.
+        struct RdgSetPlan
+        {
+            std::vector<uint64_t>               Key;           // VulkanRdgPassDescriptors::AcquireCached's
+            VulkanRdgPassDescriptors::CachedSet Cached;        // Set is bound; Hit: nothing is written into it
+            bool                                Fresh = false; // a cache miss, published after its writes
+        };
+        // Per thread (chunk workers write their own execs), reused so that a steady frame allocates nothing here.
+        struct RdgSetScratch
+        {
+            std::vector<RdgSetPlan>       Sets;
+            std::vector<VkDescriptorType> Types;    // per entry: its layout binding's descriptor type
+            std::vector<VkSampler>        Samplers; // per entry: a Sampler entry's shared sampler
+        };
+        thread_local RdgSetScratch t_SetScratch;
+
+        // The material's written slots (@p material) copied from the material's own set into @p set, set 0 of the
+        // sets WriteRdgPassSets writes for one exec (a set that is not a cache hit, before it is published).
+        // RDG-PARALLEL-9: the copies are built in a per-thread scratch, so a steady miss allocates nothing here.
+        Common::BoolResultStr CopyMaterialSlots( VkDescriptorSet set, const VulkanDescriptorSetLayout& layout,
+                                                 const VulkanMaterialBackend::WrittenSlots& material,
+                                                 std::string_view                           pass )
+        {
+            thread_local std::vector<VkCopyDescriptorSet> t_Copies;
+            std::vector<VkCopyDescriptorSet>&             copies = t_Copies;
+            copies.clear();
+            for ( const uint32_t binding : material.Bindings )
+            {
+                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( layout, binding );
+                if ( entry == nullptr )
+                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
+                                                       pass, binding );
+                VkCopyDescriptorSet copy{};
+                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+                copy.srcSet          = material.Set;
+                copy.srcBinding      = binding;
+                copy.dstSet          = set;
+                copy.dstBinding      = binding;
+                copy.descriptorCount = entry->descriptorCount;
+                copies.push_back( copy );
+            }
+            if ( copies.empty() )
+                return Common::MakeSuccess( true );
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
+            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
+            return Common::MakeSuccess( true );
+        }
+
+        // RDG-PARALLEL-9: the first word of a set-0 key's material part (WriteRdgPassSets). Every entry's part
+        // starts with (binding << 32) | element, which is never all ones, so a key of entries alone never equals
+        // a key with a material.
+        constexpr uint64_t kMaterialKeyMarker = ~uint64_t{ 0 };
+
+        // One descriptor set per set of @p layouts with every resolved PassBindings entry written at its slot.
+        // RDG-PARALLEL-7 (RDG-REC-3b; UE FVulkanDescriptorSetCache): a set that holds only the pass's entries
+        // comes from the content cache (VulkanRdgPassDescriptors::AcquireCached), keyed by the identities of what
+        // the entries name; an equal set an earlier exec wrote is bound again with nothing allocated or written,
+        // a miss is written here and published once its batch flushed. @p otherRouteFillsSetZero: the caller
+        // writes the other route's slots into set 0 after this returns (pipeline setters), so that set is
+        // allocated for THIS exec from the graph's per-frame pools, as before. @p material (null for compute and
+        // trace): RDG-PARALLEL-9 (UE: a material's descriptor set is cached by what it holds) - the material's
+        // written slots are copied into set 0 here, and set 0 is cached like any other, its key carrying the
+        // material set and its copy record's identity and version; an equal key binds the set the first exec
+        // wrote and copied, with nothing allocated, written or copied.
         Common::ResultStr<std::vector<VkDescriptorSet>>
         WriteRdgPassSets( VulkanRdgPassDescriptors&                  descriptors,
                           const std::vector<DescriptorSetLayoutRef>& layouts,
-                          std::span<const RdgResolvedEntry> entries, std::string_view pass )
+                          std::span<const RdgResolvedEntry> entries, std::string_view pass,
+                          bool otherRouteFillsSetZero, const VulkanMaterialBackend::WrittenSlots* material )
         {
             using Sets = std::vector<VkDescriptorSet>;
-            // RDG-PARALLEL-6 (RDG-REC-3a): every descriptor of these sets goes out in one vkUpdateDescriptorSets
-            // when this returns, before the caller binds them (was one call per descriptor).
-            VulkanRdgPassDescriptors::WriteBatch batch( descriptors );
-            Sets sets;
-            sets.reserve( layouts.size() );
             // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
             // bound as it is, and slots written into it later reach commands already recorded. A layout is the
             // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
@@ -570,24 +641,42 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
-                if ( isBindless( index ) )
-                {
-                    sets.push_back( bindless->GetDescriptorSet() );
-                    continue;
-                }
-                const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
-                if ( !set )
-                    return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
-                sets.push_back( set.GetValue() );
             }
-            for ( const RdgResolvedEntry& entry : entries )
+            RdgSetScratch& scratch = t_SetScratch;
+            scratch.Sets.resize( layouts.size() );
+            for ( size_t index = 0; index < layouts.size(); ++index )
             {
-                const std::string_view name = entry.Texture != nullptr
-                                                   ? std::string_view( entry.Texture->ShaderName )
-                                                   : std::string_view( entry.Buffer->ShaderName );
-                if ( entry.Slot.Set >= sets.size() )
+                RdgSetPlan& plan = scratch.Sets[index];
+                plan.Key.clear();
+                plan.Key.push_back( HandleWord( layouts[index]->Handle() ) );
+                plan.Cached = VulkanRdgPassDescriptors::CachedSet{};
+                plan.Fresh  = false;
+            }
+            scratch.Types.assign( entries.size(), VK_DESCRIPTOR_TYPE_MAX_ENUM );
+            scratch.Samplers.assign( entries.size(), VK_NULL_HANDLE );
+            const auto nameOf = []( const RdgResolvedEntry& entry )
+            {
+                if ( entry.Texture != nullptr )
+                    return std::string_view( entry.Texture->ShaderName );
+                return std::string_view( entry.Buffer->ShaderName );
+            };
+            const auto layoutOf = []( const RdgResolvedEntry& entry )
+            {
+                if ( entry.Kind == RDG::ShaderResourceKind::StorageTexture )
+                    return VK_IMAGE_LAYOUT_GENERAL;
+                return RdgVulkanLayout( RDG::GetAccessState( entry.Texture->Declared ).Layout );
+            };
+
+            // 1. Every entry is checked against the layout and appends what it names to its set's key: its slot,
+            //    kind and type, then the identity of the resource (never a view or buffer handle) and its range,
+            //    layout or sampler. Nothing is allocated yet.
+            for ( size_t at = 0; at < entries.size(); ++at )
+            {
+                const RdgResolvedEntry& entry = entries[at];
+                const std::string_view  name  = nameOf( entry );
+                if ( entry.Slot.Set >= layouts.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
-                                                             pass, name, entry.Slot.Set, sets.size() );
+                                                             pass, name, entry.Slot.Set, layouts.size() );
                 if ( isBindless( entry.Slot.Set ) )
                     return Common::MakeFormattedError<Sets>(
                          "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
@@ -599,11 +688,15 @@ namespace Desert::Graphic::API::Vulkan
                     return Common::MakeFormattedError<Sets>(
                          "{}: '{}' (set {}, binding {}) is not in the pipeline's layout", pass, name,
                          entry.Slot.Set, entry.Slot.Binding );
-                VkDescriptorSet       set     = sets[entry.Slot.Set];
-                Common::BoolResultStr written = Common::MakeSuccess( true );
+                scratch.Types[at]          = binding->descriptorType;
+                std::vector<uint64_t>& key = scratch.Sets[entry.Slot.Set].Key;
+                key.push_back( ( static_cast<uint64_t>( entry.Slot.Binding ) << 32U ) | entry.Slot.Element );
+                key.push_back( ( static_cast<uint64_t>( entry.Kind ) << 32U ) |
+                               static_cast<uint64_t>( binding->descriptorType ) );
                 if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
                 {
-                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER. The sampler cache
+                    // owns it for the device's life, so its handle is its identity.
                     if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
                         return Common::MakeFormattedError<Sets>(
                              "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
@@ -611,36 +704,166 @@ namespace Desert::Graphic::API::Vulkan
                     const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
                     if ( !made )
                         return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                    scratch.Samplers[at] = made.GetValue();
+                    key.push_back( HandleWord( made.GetValue() ) );
                 }
                 else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
-                    const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
-                    const VkImageLayout      layout =
-                         storage ? VK_IMAGE_LAYOUT_GENERAL
-                                      : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
                     if ( texture.Sampler )
                         return Common::MakeFormattedError<Sets>(
                              "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
                              "texture is read through a Sampler slot of the pass",
                              pass, name, static_cast<int>( binding->descriptorType ) );
-                    written =
-                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
-                }
-                else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
-                {
-                    written = descriptors.WriteAccelerationStructure(
-                         set, entry.Slot.Binding, binding->descriptorType, entry.Buffer->Buffer );
+                    const Common::ResultStr<VulkanRdgTexture*> physical =
+                         VulkanRdgBackend::TextureOf( texture.Texture );
+                    if ( !physical )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, physical.GetError() );
+                    key.push_back( physical.GetValue()->GetIdentity() );
+                    key.push_back( ( static_cast<uint64_t>( texture.Range.BaseMip ) << 32U ) |
+                                   texture.Range.MipCount );
+                    key.push_back( ( static_cast<uint64_t>( texture.Range.BaseLayer ) << 32U ) |
+                                   texture.Range.LayerCount );
+                    key.push_back( static_cast<uint64_t>( layoutOf( entry ) ) );
                 }
                 else
                 {
-                    written = descriptors.WriteBuffer( set, entry.Slot.Binding, binding->descriptorType,
-                                                       entry.Buffer->Buffer );
+                    // A buffer range or an acceleration structure: fixed for the wrapping object's life.
+                    const Common::ResultStr<VulkanRdgBuffer*> physical =
+                         VulkanRdgBackend::BufferOf( entry.Buffer->Buffer );
+                    if ( !physical )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, physical.GetError() );
+                    key.push_back( physical.GetValue()->GetIdentity() );
+                    key.push_back( physical.GetValue()->GetOffset() );
+                    key.push_back( physical.GetValue()->GetSize() );
+                    key.push_back( HandleWord( physical.GetValue()->GetAccelerationStructure() ) );
                 }
-                if ( !written.IsSuccess() )
-                    return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, written.GetError() );
+            }
+
+            // 1b. The material's part of set 0's key, after every entry's: the material set, then its copy
+            //     record's identity and version (DescriptorCopyRecord). While they are unchanged the material set
+            //     holds the same descriptors at the same bindings, so the copies of an earlier exec are current.
+            const bool copiesMaterial = material != nullptr && !material->Bindings.empty();
+            if ( copiesMaterial )
+            {
+                if ( layouts.empty() )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: the material fills set 0, which the pipeline has not", pass );
+                if ( isBindless( 0 ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: the material fills set 0, the bindless texture table's", pass );
+                std::vector<uint64_t>& key = scratch.Sets[0].Key;
+                key.push_back( kMaterialKeyMarker );
+                key.push_back( HandleWord( material->Set ) );
+                key.push_back( material->Identity );
+                key.push_back( material->Version );
+            }
+
+            // 2. The sets: the bindless table's as it is, set 0 of an other-route caller from this frame's pools,
+            //    every other one from the cache.
+            Sets       sets( layouts.size(), VK_NULL_HANDLE );
+            const auto discardFresh = [&descriptors, &scratch]()
+            {
+                for ( const RdgSetPlan& plan : scratch.Sets )
+                {
+                    if ( plan.Fresh )
+                        descriptors.DiscardCached( plan.Cached );
+                }
+            };
+            for ( size_t index = 0; index < layouts.size(); ++index )
+            {
+                RdgSetPlan& plan = scratch.Sets[index];
+                if ( isBindless( index ) )
+                {
+                    sets[index]     = bindless->GetDescriptorSet();
+                    plan.Cached.Hit = true; // no entry of the pass is written into it (refused above)
+                    continue;
+                }
+                if ( index == 0 && otherRouteFillsSetZero )
+                {
+                    const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
+                    if ( !set )
+                    {
+                        discardFresh();
+                        return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
+                    }
+                    sets[index] = set.GetValue();
+                    continue;
+                }
+                const Common::ResultStr<VulkanRdgPassDescriptors::CachedSet> cached =
+                     descriptors.AcquireCached( layouts[index]->Handle(), plan.Key );
+                if ( !cached )
+                {
+                    discardFresh();
+                    return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, cached.GetError() );
+                }
+                plan.Cached = cached.GetValue();
+                plan.Fresh  = !plan.Cached.Hit;
+                sets[index] = plan.Cached.Set;
+            }
+
+            // 3. The entries of every set that is not a cache hit. RDG-PARALLEL-6 (RDG-REC-3a): they go out in one
+            //    vkUpdateDescriptorSets when the batch closes, before the caller binds them. No caller holds a
+            //    batch open around this, so the batch flushes here.
+            std::string failure;
+            {
+                VulkanRdgPassDescriptors::WriteBatch batch( descriptors );
+                for ( size_t at = 0; at < entries.size() && failure.empty(); ++at )
+                {
+                    const RdgResolvedEntry& entry = entries[at];
+                    if ( scratch.Sets[entry.Slot.Set].Cached.Hit )
+                        continue;
+                    const VkDescriptorSet  set     = sets[entry.Slot.Set];
+                    const VkDescriptorType type    = scratch.Types[at];
+                    Common::BoolResultStr  written = Common::MakeSuccess( true );
+                    if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                    {
+                        descriptors.WriteSampler( set, entry.Slot.Binding, scratch.Samplers[at] );
+                    }
+                    else if ( entry.Texture != nullptr )
+                    {
+                        const RDG::BoundTexture& texture = *entry.Texture;
+                        written = descriptors.WriteTexture( set, entry.Slot.Binding, type, texture.Texture,
+                                                            texture.Range, layoutOf( entry ), entry.Slot.Element );
+                    }
+                    else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
+                    {
+                        written = descriptors.WriteAccelerationStructure( set, entry.Slot.Binding, type,
+                                                                          entry.Buffer->Buffer );
+                    }
+                    else
+                    {
+                        written = descriptors.WriteBuffer( set, entry.Slot.Binding, type, entry.Buffer->Buffer );
+                    }
+                    if ( !written.IsSuccess() )
+                        failure = std::format( "{}: '{}': {}", pass, nameOf( entry ), written.GetError() );
+                }
+            }
+            if ( !failure.empty() )
+            {
+                discardFresh();
+                return Common::MakeFormattedError<Sets>( "{}", failure );
+            }
+
+            // 3b. The material's slots into set 0 when it is not a cache hit: after the batch flushed and before
+            //     step 4 publishes the set. The pass's entries never name these bindings (the resolution refused
+            //     a slot both routes fill), so the order of the two writes does not matter.
+            if ( copiesMaterial && !scratch.Sets[0].Cached.Hit )
+            {
+                const Common::BoolResultStr copied = CopyMaterialSlots( sets[0], *layouts[0], *material, pass );
+                if ( !copied )
+                {
+                    discardFresh();
+                    return Common::MakeFormattedError<Sets>( "{}", copied.GetError() );
+                }
+            }
+
+            // 4. Findable only now that their descriptors are submitted: another chunk never binds a set that is
+            //    still being written (an update after a bind would invalidate its command buffer).
+            for ( const RdgSetPlan& plan : scratch.Sets )
+            {
+                if ( plan.Fresh )
+                    descriptors.PublishCached( plan.Key, plan.Cached );
             }
             return Common::MakeSuccess( std::move( sets ) );
         }
@@ -651,41 +874,6 @@ namespace Desert::Graphic::API::Vulkan
                                                         std::span<const std::byte> other )
         {
             return bindings.GetPushConstants().empty() ? other : bindings.GetPushConstants();
-        }
-
-        // The material's written slots (@p material) copied from the material's own set into @p sets' set 0, the
-        // sets WriteRdgPassSets wrote for one exec; nothing to copy when it wrote none.
-        Common::BoolResultStr CopyMaterialSlots( const std::vector<VkDescriptorSet>&        sets,
-                                                 const std::vector<DescriptorSetLayoutRef>& layouts,
-                                                 const VulkanMaterialBackend::WrittenSlots& material,
-                                                 std::string_view                           pass )
-        {
-            if ( material.Bindings.empty() )
-                return Common::MakeSuccess( true );
-            if ( sets.empty() )
-                return Common::MakeFormattedError( "{}: the material fills set 0, which the pipeline has not",
-                                                   pass );
-            std::vector<VkCopyDescriptorSet> copies;
-            copies.reserve( material.Bindings.size() );
-            for ( const uint32_t binding : material.Bindings )
-            {
-                const VkDescriptorSetLayoutBinding* entry = FindLayoutBinding( *layouts[0], binding );
-                if ( entry == nullptr )
-                    return Common::MakeFormattedError( "{}: material binding {} is not in the pipeline's set 0",
-                                                       pass, binding );
-                VkCopyDescriptorSet copy{};
-                copy.sType           = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-                copy.srcSet          = material.Set;
-                copy.srcBinding      = binding;
-                copy.dstSet          = sets[0];
-                copy.dstBinding      = binding;
-                copy.descriptorCount = entry->descriptorCount;
-                copies.push_back( copy );
-            }
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                   ->GetVulkanLogicalDevice();
-            vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
-            return Common::MakeSuccess( true );
         }
 
         // RDG-PARALLEL-6: the shader's slot table (VulkanShader::GetRdgSlots). A shader that was never reflected
@@ -707,19 +895,11 @@ namespace Desert::Graphic::API::Vulkan
         return MakeShaderBindingLayout( vulkan.GetReflectionData(), SlotsOf( vulkan ), vulkan.GetName() );
     }
 
-    RDG::OtherRouteFill VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
+    std::shared_ptr<const RDG::OtherRouteFill>
+    VulkanRendererAPI::GetPipelineRouteFill( const ComputePipeline& pipeline ) const
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
-        const auto& compute = static_cast<const VulkanPipelineCompute&>( pipeline );
-        const auto* shader  = dynamic_cast<const VulkanShader*>( compute.GetShader().get() );
-        if ( shader == nullptr )
-            return {};
-        // The same set-0 keys DispatchCompute hands ResolveRdgPassBindings as the other route.
-        RdgOtherRoute other;
-        for ( const uint32_t binding : compute.GetBoundBindings() )
-            other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
-        other.PushConstants = !compute.GetBoundPushConstants().empty();
-        return MakeOtherRouteFill( SlotsOf( *shader ), other );
+        return static_cast<const VulkanPipelineCompute&>( pipeline ).GetRouteFill();
     }
 
     Common::BoolResultStr VulkanRendererAPI::DispatchCompute( const RDG::PassBindings& bindings,
@@ -798,7 +978,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), compute.GetLayouts(), resolved.GetValue(), pass );
+             WriteRdgPassSets( *descriptors.GetValue(), compute.GetLayouts(), resolved.GetValue(), pass,
+                               !other.Filled.empty(), nullptr );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
         if ( !other.Filled.empty() )
@@ -856,7 +1037,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
+             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass, false,
+                               nullptr );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
 
@@ -1418,13 +1600,12 @@ namespace Desert::Graphic::API::Vulkan
                  ResolveRdgPassBindings( reflection, SlotsOf( *shader ), shader->GetName(), bindings, other );
             if ( !resolved )
                 return Common::MakeError( resolved.GetError() );
-            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass );
+            // RDG-PARALLEL-9: set 0 with the material's slots comes from the descriptor cache as well; the copies
+            // are made inside, on a miss only.
+            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass, false,
+                                             &materialSlots );
             if ( !written )
                 return Common::MakeError( written.GetError() );
-            if ( const Common::BoolResultStr copied =
-                      CopyMaterialSlots( written.GetValue(), layouts, materialSlots, pass );
-                 !copied )
-                return copied;
             memo.GetValue()->Keep( key, written.ExtractValue() );
             kept = memo.GetValue()->Find( key );
         }

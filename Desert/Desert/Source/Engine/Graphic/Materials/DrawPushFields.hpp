@@ -34,56 +34,108 @@ namespace Desert::Graphic
     public:
         static constexpr uint32_t kMaxFieldBytes = sizeof( glm::mat4 );
 
+        // RDG-PARALLEL-7 (RDG-REC-4; UE lays a shader's parameters out once per shader, FShaderParameterMap): the
+        // closed set of per-draw fields the setters below write. A draw places them through its layout's
+        // Placement, built once per layout, instead of finding each field by name.
+        enum class FieldId : uint8_t
+        {
+            Transform,
+            PrimitiveIndex,
+            MaterialIndex,
+            PrimitiveFlags,
+            WindA,
+            WindB,
+            BoneOffset,
+            ShadowSlope,
+            SkinCacheVertexCount,
+            SkinCacheAddressLo,
+            SkinCacheAddressHi,
+            Count
+        };
+        static constexpr size_t kFieldCount = static_cast<size_t>( FieldId::Count );
+        // The push field each FieldId names in a cell's MaterialLayout.
+        static constexpr std::array<std::string_view, kFieldCount> kFieldNames = {
+             "Transform", "PrimitiveIndex", "MaterialIndex", "PrimitiveFlags",       "WindA",
+             "WindB",     "BoneOffset",     "ShadowSlope",   "SkinCacheVertexCount", "SkinCacheAddressLo",
+             "SkinCacheAddressHi" };
+
         struct Field
         {
             std::string_view                      Name; // a literal: the command outlives no name it holds
             uint32_t                              Size     = 0;
             bool                                  Required = false;
             std::array<std::byte, kMaxFieldBytes> Value{};
+            FieldId                               Id = FieldId::Count;
         };
+
+        // Where every FieldId lands in one MaterialLayout (its push field, found by name once): what
+        // MaterialBinder::ResolvePush would answer for each, with the layout's size kept so a draw's size check
+        // is the same.
+        struct Placement
+        {
+            struct Slot
+            {
+                bool     Present = false;
+                uint32_t Offset  = 0;
+                uint32_t Size    = 0;
+            };
+            std::array<Slot, kFieldCount> Slots{};
+        };
+        [[nodiscard]] static Placement Place( const Core::Formats::MaterialLayout& layout )
+        {
+            Placement placement;
+            for ( size_t id = 0; id < kFieldCount; ++id )
+            {
+                const Core::Formats::MaterialLayoutPushField* field = layout.FindPush( kFieldNames[id] );
+                if ( field != nullptr )
+                    placement.Slots[id] = Placement::Slot{ .Present = true, .Offset = field->Offset,
+                                                           .Size = field->Size };
+            }
+            return placement;
+        }
 
         // Material::SetPushMatrix.
         DrawPushFields& Transform( const glm::mat4& matrix )
         {
-            return Write( "Transform", matrix, false );
+            return Write( FieldId::Transform, matrix, false );
         }
         // Material::SetPrimitiveIndex (required: every cell that draws a motion row declares it).
         DrawPushFields& PrimitiveIndex( const uint32_t row )
         {
-            return Write( "PrimitiveIndex", row, true );
+            return Write( FieldId::PrimitiveIndex, row, true );
         }
         // Material::SetMaterialIndex.
         DrawPushFields& MaterialIndex( const uint32_t row )
         {
-            return Write( "MaterialIndex", row, false );
+            return Write( FieldId::MaterialIndex, row, false );
         }
         // Material::SetPrimitiveFlags.
         DrawPushFields& PrimitiveFlags( const uint32_t flags )
         {
-            return Write( "PrimitiveFlags", flags, false );
+            return Write( FieldId::PrimitiveFlags, flags, false );
         }
         // Material::SetInstancedWind.
         DrawPushFields& Wind( const InstanceWindPush& wind )
         {
-            Write( "WindA", wind.A, false );
-            return Write( "WindB", wind.B, false );
+            Write( FieldId::WindA, wind.A, false );
+            return Write( FieldId::WindB, wind.B, false );
         }
         // Material::SetSkinnedBoneOffset (required) and the shadow / silhouette cells' SetBoneOffset (not).
         DrawPushFields& BoneOffset( const uint32_t firstBone, const bool required )
         {
-            return Write( "BoneOffset", firstBone, required );
+            return Write( FieldId::BoneOffset, firstBone, required );
         }
         // Material::SetShadowSlopeBias (required: a light-view caster cell that is handed a slope declares it).
         DrawPushFields& ShadowSlope( const float slopeBias, const float slopeClamp )
         {
-            return Write( "ShadowSlope", glm::vec2( slopeBias, slopeClamp ), true );
+            return Write( FieldId::ShadowSlope, glm::vec2( slopeBias, slopeClamp ), true );
         }
         // MaterialShadowSkinned / MaterialSilhouetteSkinned::SetSkinCache.
         DrawPushFields& SkinCache( const uint64_t address, const uint32_t vertexCount )
         {
-            Write( "SkinCacheVertexCount", vertexCount, false );
-            Write( "SkinCacheAddressLo", static_cast<uint32_t>( address & 0xffffffffu ), false );
-            return Write( "SkinCacheAddressHi", static_cast<uint32_t>( address >> 32u ), false );
+            Write( FieldId::SkinCacheVertexCount, vertexCount, false );
+            Write( FieldId::SkinCacheAddressLo, static_cast<uint32_t>( address & 0xffffffffu ), false );
+            return Write( FieldId::SkinCacheAddressHi, static_cast<uint32_t>( address >> 32u ), false );
         }
 
         [[nodiscard]] bool IsEmpty() const
@@ -99,37 +151,68 @@ namespace Desert::Graphic
             {
                 const MaterialBinder::PushSlot slot =
                      MaterialBinder::ResolvePush( layout, field.Name, field.Size );
-                switch ( slot.Status )
+                if ( Common::BoolResultStr laid = Lay( push, field, slot ); !laid )
+                    return laid;
+            }
+            return Common::MakeSuccess( true );
+        }
+        // The same, through @p placement: Place of the layout the draw records with (no lookup by name).
+        [[nodiscard]] Common::BoolResultStr WriteInto( std::span<std::byte> push, const Placement& placement ) const
+        {
+            for ( const Field& field : m_Fields )
+            {
+                const Placement::Slot&   placed = placement.Slots[static_cast<size_t>( field.Id )];
+                MaterialBinder::PushSlot slot;
+                if ( placed.Present )
                 {
-                    case MaterialBinder::PushWrite::Written:
-                        if ( static_cast<size_t>( slot.Offset ) + field.Size > push.size() )
-                            return Common::MakeFormattedError(
-                                 "push field '{}' at byte {} (+{}) is past the {}-byte push block", field.Name,
-                                 slot.Offset, field.Size, push.size() );
-                        std::memcpy( push.data() + slot.Offset, field.Value.data(), field.Size );
-                        break;
-                    case MaterialBinder::PushWrite::SizeMismatch:
-                        return Common::MakeFormattedError( "push field '{}' is not {} bytes in the cell's layout",
-                                                           field.Name, field.Size );
-                    case MaterialBinder::PushWrite::Absent:
-                        if ( field.Required )
-                            return Common::MakeFormattedError( "the cell has no push field '{}'", field.Name );
-                        break;
+                    slot.Offset = placed.Offset;
+                    slot.Status = MaterialBinder::PushWrite::SizeMismatch;
+                    if ( placed.Size == field.Size )
+                        slot.Status = MaterialBinder::PushWrite::Written;
                 }
+                if ( Common::BoolResultStr laid = Lay( push, field, slot ); !laid )
+                    return laid;
             }
             return Common::MakeSuccess( true );
         }
 
     private:
+        // One field at @p slot (MaterialBinder::ResolvePush's answer for it).
+        [[nodiscard]] static Common::BoolResultStr Lay( std::span<std::byte> push, const Field& field,
+                                                        const MaterialBinder::PushSlot& slot )
+        {
+            switch ( slot.Status )
+            {
+                case MaterialBinder::PushWrite::Written:
+                    if ( static_cast<size_t>( slot.Offset ) + field.Size > push.size() )
+                        return Common::MakeFormattedError(
+                             "push field '{}' at byte {} (+{}) is past the {}-byte push block", field.Name,
+                             slot.Offset, field.Size, push.size() );
+                    std::memcpy( push.data() + slot.Offset, field.Value.data(), field.Size );
+                    break;
+                case MaterialBinder::PushWrite::SizeMismatch:
+                    return Common::MakeFormattedError( "push field '{}' is not {} bytes in the cell's layout",
+                                                       field.Name, field.Size );
+                case MaterialBinder::PushWrite::Absent:
+                    if ( field.Required )
+                        return Common::MakeFormattedError( "the cell has no push field '{}'", field.Name );
+                    break;
+            }
+            return Common::MakeSuccess( true );
+        }
+
         template <typename T>
-        DrawPushFields& Write( const std::string_view name, const T& value, const bool required )
+        DrawPushFields& Write( const FieldId id, const T& value, const bool required )
         {
             static_assert( sizeof( T ) <= kMaxFieldBytes );
-            Field field{ .Name = name, .Size = static_cast<uint32_t>( sizeof( T ) ), .Required = required };
+            Field field{ .Name     = kFieldNames[static_cast<size_t>( id )],
+                         .Size     = static_cast<uint32_t>( sizeof( T ) ),
+                         .Required = required,
+                         .Id       = id };
             std::memcpy( field.Value.data(), &value, sizeof( T ) );
             // A later write of the same field replaces the earlier one (the order the setters ran in).
             for ( Field& held : m_Fields )
-                if ( held.Name == name )
+                if ( held.Id == id )
                 {
                     held = field;
                     return *this;

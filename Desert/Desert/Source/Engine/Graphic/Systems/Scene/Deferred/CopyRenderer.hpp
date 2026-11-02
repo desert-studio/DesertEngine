@@ -54,7 +54,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_Pipeline )
                 return;
-            pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::NoOtherRouteFill() )
                  .Texture( CopyBindingShaderParameters::SourceColorTexture, source, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All() )
                  .Sampler( CopyBindingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );

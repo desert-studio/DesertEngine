@@ -398,8 +398,8 @@ namespace Desert::Graphic::System
         const std::shared_ptr<ComputePipeline> emit    = m_EmitPipeline;
         const auto&               heightsLayout        = m_HeightsLayout.Get( heights->GetSpecification().Shader );
         const auto&               emitLayout           = m_EmitLayout.Get( emit->GetSpecification().Shader );
-        const RDG::OtherRouteFill heightsFill          = Renderer::GetPipelineRouteFill( *heights );
-        const RDG::OtherRouteFill emitFill             = Renderer::GetPipelineRouteFill( *emit );
+        const std::shared_ptr<const RDG::OtherRouteFill> heightsFill = Renderer::GetPipelineRouteFill( *heights );
+        const std::shared_ptr<const RDG::OtherRouteFill> emitFill = Renderer::GetPipelineRouteFill( *emit );
         const uint32_t pointGroups  = ( pointCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
         const uint32_t vertexGroups = ( vertexCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
         graph.AddPass(
@@ -685,8 +685,8 @@ namespace Desert::Graphic::System
         const std::shared_ptr<ComputePipeline> skinned    = m_SkinnedPipeline;
         const auto&                            poseLayout = m_PoseLayout.Get( pose->GetSpecification().Shader );
         const auto&               skinLayout = m_SkinnedLayout.Get( skinned->GetSpecification().Shader );
-        const RDG::OtherRouteFill poseFill   = Renderer::GetPipelineRouteFill( *pose );
-        const RDG::OtherRouteFill skinFill   = Renderer::GetPipelineRouteFill( *skinned );
+        const std::shared_ptr<const RDG::OtherRouteFill> poseFill = Renderer::GetPipelineRouteFill( *pose );
+        const std::shared_ptr<const RDG::OtherRouteFill> skinFill = Renderer::GetPipelineRouteFill( *skinned );
         const uint32_t weldGroups = ( buffers.Welds + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
         const uint32_t vertexGroups =
              ( geometry.VertexCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;

@@ -814,7 +814,7 @@ namespace Desert::Graphic
              "TSR.ClearPrevTextures", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( TsrClearPrevTexturesLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( TsrClearPrevTexturesLayout(), RDG::NoOtherRouteFill() )
                       .Storage( TSRClearPrevTexturesShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
                       .Storage( TSRClearPrevTexturesShaderParameters::TSRPrevAtomicBuffer, prevAtomic,
@@ -826,7 +826,7 @@ namespace Desert::Graphic
              "TSR.DilateVelocity", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( TsrDilateVelocityLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( TsrDilateVelocityLayout(), RDG::NoOtherRouteFill() )
                       .Storage( TSRDilateVelocityShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
                       .Texture( TSRDilateVelocityShaderParameters::SceneDepthTexture, inputs.SceneDepth, sampled,
@@ -851,7 +851,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  RDG::BindingBlockBuilder bindings =
-                      pass.Bindings( TsrDecimateHistoryLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
+                      pass.Bindings( TsrDecimateHistoryLayout( quality.ThinGeometryDetection ),
+                                     RDG::NoOtherRouteFill() );
                  bindings
                       .Storage( TSRDecimateHistoryShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
@@ -893,7 +894,7 @@ namespace Desert::Graphic
                  [&]( RDG::PassBuilder& pass )
                  {
                      RDG::BindingBlockBuilder bindings =
-                          pass.Bindings( TsrDetectThinGeometryLayout( intensityLines ), RDG::OtherRouteFill{} );
+                          pass.Bindings( TsrDetectThinGeometryLayout( intensityLines ), RDG::NoOtherRouteFill() );
                      bindings
                           .Storage( TSRDetectThinGeometryShaderParameters::TSRParamsBuffer, buffer,
                                     RDG::Access::StorageRead )
@@ -921,7 +922,7 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  RDG::BindingBlockBuilder bindings =
-                      pass.Bindings( TsrRejectShadingLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
+                      pass.Bindings( TsrRejectShadingLayout( quality.ThinGeometryDetection ), RDG::NoOtherRouteFill() );
                  bindings
                       .Storage( TSRRejectShadingShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
@@ -956,7 +957,7 @@ namespace Desert::Graphic
              "TSR.SpatialAntiAliasing", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( TsrSpatialAntiAliasingLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( TsrSpatialAntiAliasingLayout(), RDG::NoOtherRouteFill() )
                       .Storage( TSRSpatialAntiAliasingShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
                       .Texture( TSRSpatialAntiAliasingShaderParameters::AntiAliasInputTexture, antiAliasInput,
@@ -972,7 +973,7 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  RDG::BindingBlockBuilder bindings =
-                      pass.Bindings( TsrUpdateHistoryLayout( historyIsOutput ), RDG::OtherRouteFill{} );
+                      pass.Bindings( TsrUpdateHistoryLayout( historyIsOutput ), RDG::NoOtherRouteFill() );
                  bindings
                       .Storage( TSRUpdateHistoryShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
@@ -1010,7 +1011,7 @@ namespace Desert::Graphic
                  "TSR.ResolveHistory", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     pass.Bindings( TsrResolveHistoryLayout(), RDG::OtherRouteFill{} )
+                     pass.Bindings( TsrResolveHistoryLayout(), RDG::NoOtherRouteFill() )
                           .Storage( TSRResolveHistoryShaderParameters::TSRParamsBuffer, buffer,
                                     RDG::Access::StorageRead )
                           .Texture( TSRResolveHistoryShaderParameters::ExposureTexture, inputs.Exposure, sampled,
@@ -1034,7 +1035,7 @@ namespace Desert::Graphic
                      name, RDG::PassFlags::Compute,
                      [&]( RDG::PassBuilder& pass )
                      {
-                         pass.Bindings( TsrRecordPersistentFrameLayout(), RDG::OtherRouteFill{} )
+                         pass.Bindings( TsrRecordPersistentFrameLayout(), RDG::NoOtherRouteFill() )
                               .Storage( TSRResurrectionRecordShaderParameters::TSRParamsBuffer, buffer,
                                         RDG::Access::StorageRead )
                               .Texture( TSRResurrectionRecordShaderParameters::ExposureTexture, inputs.Exposure,
@@ -1096,7 +1097,7 @@ namespace Desert::Graphic
              "TSR.MeasureFlickeringLuma", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( TsrMeasureFlickeringLumaLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( TsrMeasureFlickeringLumaLayout(), RDG::NoOtherRouteFill() )
                       .Storage( TSRMeasureFlickeringLumaShaderParameters::TSRParamsBuffer, buffer,
                                 RDG::Access::StorageRead )
                       .Texture( TSRMeasureFlickeringLumaShaderParameters::SceneColorTexture, inputs.SceneColor,

@@ -264,7 +264,7 @@ namespace
              "PostFX: BloomUpsample1", PassFlags::Compute | PassFlags::NeverCull,
              [&]( PassBuilder& pass )
              {
-                 BindingBlockBuilder declared = pass.Bindings( believed, OtherRouteFill{} );
+                 BindingBlockBuilder declared = pass.Bindings( believed, NoOtherRouteFill() );
                  fill( declared, chain );
                  declared.PushConstantBytes( believed.PushConstantBytes );
              },
@@ -444,7 +444,7 @@ TEST( RenderGraphVulkanPassBindings, ATlasEntryResolvesToTheReflectedAcceleratio
          "RayQuery", PassFlags::Compute | PassFlags::NeverCull,
          [&]( PassBuilder& pass )
          {
-             pass.Bindings( believed, OtherRouteFill{} )
+             pass.Bindings( believed, NoOtherRouteFill() )
                   .AccelerationStructure(
                        RenderGraphVulkanPassBindingsTestRayQueryShaderParameters::SceneColorTexture, tlas );
          },

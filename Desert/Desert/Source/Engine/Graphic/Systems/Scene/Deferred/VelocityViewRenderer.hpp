@@ -71,7 +71,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_Current )
                 return;
-            pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
+            pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::NoOtherRouteFill() )
                  .Texture( VelocityViewBindingShaderParameters::VelocityTexture, velocity,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                  .Sampler( VelocityViewBindingShaderParameters::LinearRepeatSampler,

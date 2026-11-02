@@ -13,6 +13,7 @@
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <atomic>
 #include <unordered_map>
 #include <cstdint>
@@ -118,6 +119,12 @@ namespace Desert::Graphic::API::Vulkan
     // THE render pass builder: the backend's cached passes and the pipelines' canonical passes come from it.
     Common::ResultStr<VkRenderPass> CreateRdgRenderPass( VkDevice device, const RdgRenderPassKey& key );
 
+    // RDG-PARALLEL-7 (UE FVulkanView::ViewId / FVulkanBuffer id): a physical graph resource's identity, unique for
+    // the process and never reused. A cache keyed by what a descriptor names (VulkanRdgPassDescriptors::
+    // AcquireCached) keys by it, not by the Vulkan handle: a destroyed image's or buffer's handle value can come
+    // back for a new object, an identity cannot, so a stale entry never matches and simply ages out.
+    [[nodiscard]] uint64_t NextRdgPhysicalIdentity() noexcept;
+
     class VulkanRdgTexture final : public RDG::IPhysicalTexture
     {
     public:
@@ -177,9 +184,16 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_AccessMask;
         }
+        // NextRdgPhysicalIdentity: this object's image and every view GetView made of it.
+        [[nodiscard]] uint64_t GetIdentity() const
+        {
+            return m_Identity;
+        }
 
     private:
         VulkanRdgTexture() = default;
+
+        uint64_t           m_Identity   = NextRdgPhysicalIdentity();
 
         VkDevice           m_Device     = VK_NULL_HANDLE;
         VmaAllocator       m_Allocator  = nullptr; // null for a wrapped image
@@ -256,6 +270,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_AccessMask;
         }
+        // NextRdgPhysicalIdentity: this object's buffer range (and acceleration structure), fixed for its life.
+        [[nodiscard]] uint64_t GetIdentity() const
+        {
+            return m_Identity;
+        }
         // VK_NULL_HANDLE unless made by WrapAccelerationStructure.
         [[nodiscard]] VkAccelerationStructureKHR GetAccelerationStructure() const
         {
@@ -278,6 +297,8 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         VulkanRdgBuffer() = default;
+
+        uint64_t      m_Identity   = NextRdgPhysicalIdentity();
 
         VmaAllocator  m_Allocator  = nullptr;
         VmaAllocation m_Allocation = nullptr;
@@ -370,8 +391,11 @@ namespace Desert::Graphic::API::Vulkan
     // RDG-CONTRACTS A(3). Descriptor sets for graph resources, allocated from a pool per frame slot that is reset
     // when the slot is re-begun. The one way a pass binds a transient to a pipeline: allocate a set for the
     // pipeline's layout inside exec, write the pass's bindings into it, bind it, forget it.
+    // RDG-PARALLEL-7 (RDG-REC-3b): a set no other route writes into comes from the content cache instead
+    // (AcquireCached), which keeps it across frames for every exec that would write the same descriptors.
     // Never: return a set to a caller outside the exec lambda that allocated it; write a set with a view of a
-    // resource the pass did not declare (the binding comes from PassContext::GetTexture, which refuses those).
+    // resource the pass did not declare (the binding comes from PassContext::GetTexture, which refuses those);
+    // write into a cached set after it was published.
     class VulkanRdgPassDescriptors
     {
     public:
@@ -427,7 +451,32 @@ namespace Desert::Graphic::API::Vulkan
         void Flush();
 
     public:
-        // The frame loop, after the slot's fence: resets that slot's pools (every arena).
+        // RDG-PARALLEL-7 (RDG-REC-3b; UE FVulkanDescriptorSetCache, keyed like FVulkanHashableDescriptorInfo): a
+        // set written with exactly the descriptors @p key names lives across frames, and every exec whose key is
+        // equal binds it again with no allocation and no vkUpdateDescriptorSets. @p key: the layout handle first,
+        // then per descriptor its slot, type, the identity of what it names (VulkanRdgTexture/VulkanRdgBuffer::
+        // GetIdentity, never a view or buffer handle: those are reused after a destroy) and its range/layout. So
+        // a change of resource or view is a new key, never a stale hit; an entry no exec found for longer than
+        // the frames in flight is freed (BeginFrameSlot). Safe for chunks: the cache is sharded under locks, and
+        // a fresh set is seen only by the thread that allocated it until that thread's batch wrote it and it
+        // calls PublishCached.
+        struct CachedSet
+        {
+            VkDescriptorSet  Set  = VK_NULL_HANDLE;
+            VkDescriptorPool Pool = VK_NULL_HANDLE;
+            bool             Hit  = false; // written before: bind it as it is and write nothing into it
+        };
+        Common::ResultStr<CachedSet> AcquireCached( VkDescriptorSetLayout layout, std::span<const uint64_t> key );
+        // After the WriteBatch that wrote @p fresh (Hit false) has flushed: makes it findable under @p key. When
+        // another thread published an equal key first, that entry stays and @p fresh is freed once no frame in
+        // flight can bind it.
+        void PublishCached( std::span<const uint64_t> key, const CachedSet& fresh );
+        // A fresh set that is not published (an error return before its writes ended): freed once no frame in
+        // flight can bind it.
+        void DiscardCached( const CachedSet& fresh );
+
+        // The frame loop, after the slot's fence: resets that slot's pools (every arena) and frees the cached
+        // sets no frame in flight can bind any more.
         void BeginFrameSlot( uint32_t slot );
         // RDG-PARALLEL-3 (UE: a descriptor pool per parallel command list context): arena 0 is the calling
         // thread's, arena 1 + i graph chunk i's (VulkanRdgBackend::BeginChunk binds it to its worker), so no two
@@ -454,6 +503,30 @@ namespace Desert::Graphic::API::Vulkan
         };
 
         Common::ResultStr<VkDescriptorPool> AddPool( SlotPools& slot );
+        // One pool shape for every pool of this object; @p flags: FREE_DESCRIPTOR_SET for the cache's pools.
+        Common::ResultStr<VkDescriptorPool> CreatePool( VkDescriptorPoolCreateFlags flags );
+        // BeginFrameSlot: frees the cached and retired sets last bound before the oldest frame in flight.
+        void EvictCached();
+
+        struct CachedSetEntry
+        {
+            std::vector<uint64_t> Key;
+            VkDescriptorSet       Set      = VK_NULL_HANDLE;
+            VkDescriptorPool      Pool     = VK_NULL_HANDLE;
+            uint64_t              LastUsed = 0; // m_CacheFrame of the last exec that acquired it
+        };
+        struct CachedSetShard
+        {
+            std::mutex                                                Lock;
+            std::unordered_map<uint64_t, std::vector<CachedSetEntry>> Buckets; // by the key's hash
+        };
+        struct RetiredCachedSet
+        {
+            VkDescriptorSet  Set   = VK_NULL_HANDLE;
+            VkDescriptorPool Pool  = VK_NULL_HANDLE;
+            uint64_t         Frame = 0; // m_CacheFrame it was last bindable in
+        };
+        static constexpr size_t kCachedSetShards = 16;
 
         VkDevice                            m_Device = VK_NULL_HANDLE;
         std::vector<std::vector<SlotPools>> m_Slots; // per frame slot, its arenas (0: the calling thread's)
@@ -461,6 +534,13 @@ namespace Desert::Graphic::API::Vulkan
         static inline thread_local uint32_t t_Arena = 0;
         VulkanSamplerCache&    m_SamplerCache;
         bool                   m_AccelerationStructures = false;
+        // The content cache (AcquireCached). Its pools allow vkFreeDescriptorSets and are never reset.
+        std::array<CachedSetShard, kCachedSetShards> m_CachedShards;
+        std::mutex                    m_CachedPoolLock; // m_CachedPools, m_CachedPoolCurrent, m_RetiredCached
+        std::vector<VkDescriptorPool> m_CachedPools;
+        size_t                        m_CachedPoolCurrent = 0;
+        std::vector<RetiredCachedSet> m_RetiredCached;
+        std::atomic<uint64_t>         m_CacheFrame{ 1 }; // advanced by BeginFrameSlot
     };
 
     // THE PASS'S BOUND SETS (GPU-COST-36; UE FMeshDrawShaderBindings: a mesh draw command's descriptor bindings

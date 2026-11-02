@@ -257,7 +257,7 @@ namespace Desert::Graphic
                  [&]( RDG::PassBuilder& pass )
                  {
                      // texelFetch only: the Catmull-Rom weights are the filter, the sampler filters nothing.
-                     pass.Bindings( SupersampleResolveLayout(), RDG::OtherRouteFill{} )
+                     pass.Bindings( SupersampleResolveLayout(), RDG::NoOtherRouteFill() )
                           .Texture( TemporalUpscalerSupersampleResolveShaderParameters::SourceColorTexture, source,
                                     RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Sampler( TemporalUpscalerSupersampleResolveShaderParameters::PointClampSampler,

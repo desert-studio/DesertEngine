@@ -159,7 +159,7 @@ namespace Desert::Graphic
         return s_RendererAPI->GetBindingLayout( shader );
     }
 
-    RDG::OtherRouteFill Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline )
+    std::shared_ptr<const RDG::OtherRouteFill> Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline )
     {
         return s_RendererAPI->GetPipelineRouteFill( pipeline );
     }

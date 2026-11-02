@@ -10,6 +10,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
@@ -32,33 +33,40 @@ namespace Desert::Graphic::API::Vulkan
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
                                                       RDG::SubresourceRange range )
     {
-        m_BoundInputs[binding] = { image, declared, range };
+        if ( m_BoundInputs.insert_or_assign( binding, InputBinding{ image, declared, range } ).second )
+            ++m_BoundKeysVersion;
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetSampler( uint32_t binding, const RDG::SamplerDesc& desc )
     {
-        m_BoundSamplers.insert_or_assign( binding, desc );
+        if ( m_BoundSamplers.insert_or_assign( binding, desc ).second )
+            ++m_BoundKeysVersion;
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetOutput( uint32_t binding, Image* image, uint32_t mip )
     {
-        m_BoundOutputs[binding] = { image, mip };
+        if ( m_BoundOutputs.insert_or_assign( binding, OutputBinding{ image, mip } ).second )
+            ++m_BoundKeysVersion;
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetStorageBuffer( uint32_t                        binding,
                                                               ShaderResources::StorageBuffer* buffer )
     {
-        m_BoundStorageBuffers[binding] = buffer;
+        if ( m_BoundStorageBuffers.insert_or_assign( binding, buffer ).second )
+            ++m_BoundKeysVersion;
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetPushConstants( const void* data, uint32_t size )
     {
         const auto* bytes = reinterpret_cast<const std::byte*>( data );
+        const bool  had   = !m_BoundPushConstants.empty();
         m_BoundPushConstants.assign( bytes, bytes + size );
+        if ( had == m_BoundPushConstants.empty() )
+            ++m_BoundKeysVersion;
         return *this;
     }
 
@@ -335,6 +343,29 @@ namespace Desert::Graphic::API::Vulkan
                                                      .descriptorSetCount = kBatchRingSize,
                                                      .pSetLayouts        = layouts.data() };
         VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_BatchRing.data() ) );
+    }
+
+    std::shared_ptr<const RDG::OtherRouteFill> VulkanPipelineCompute::GetRouteFill() const
+    {
+        const auto* shader = dynamic_cast<const VulkanShader*>( m_Specification.Shader.get() );
+        if ( shader == nullptr )
+            return RDG::NoOtherRouteFill();
+        const std::shared_ptr<const RdgSlotTable>& slots = shader->GetRdgSlots();
+        const std::scoped_lock                     lock( m_RouteFillLock );
+        if ( m_RouteFill.Fill && m_RouteFill.Slots == slots && m_RouteFill.BoundKeysVersion == m_BoundKeysVersion )
+            return m_RouteFill.Fill;
+        // The same set-0 keys DispatchCompute hands ResolveRdgPassBindings as the other route.
+        RdgOtherRoute other;
+        for ( const uint32_t binding : GetBoundBindings() )
+            other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
+        other.PushConstants = !m_BoundPushConstants.empty();
+        // A shader that was never reflected has no table: the table of an empty reflection is the empty table.
+        static const RdgSlotTable kUnreflected;
+        const RdgSlotTable&       table = slots ? *slots : kUnreflected;
+        m_RouteFill.Fill = std::make_shared<const RDG::OtherRouteFill>( MakeOtherRouteFill( table, other ) );
+        m_RouteFill.Slots            = slots;
+        m_RouteFill.BoundKeysVersion = m_BoundKeysVersion;
+        return m_RouteFill.Fill;
     }
 
     std::vector<uint32_t> VulkanPipelineCompute::GetBoundBindings() const

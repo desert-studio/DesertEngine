@@ -160,7 +160,7 @@ namespace Desert::Graphic::VirtualGeometry
     {
         if ( !m_Depth || !words.IsValid() )
             return;
-        pass.Bindings( m_DepthLayout.Get( m_Depth->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_DepthLayout.Get( m_Depth->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Storage( VisibilityDepthShaderParameters::Visibility, words, RDG::Access::StorageRead );
     }
 

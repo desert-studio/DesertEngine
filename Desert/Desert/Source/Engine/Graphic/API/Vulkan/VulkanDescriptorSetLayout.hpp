@@ -84,13 +84,28 @@ namespace Desert::Graphic::API::Vulkan
             return m_Bindings;
         }
 
+        // RDG-PARALLEL-9 (RDG-REC-2): the binding of this layout numbered @p binding (the first, as a walk of
+        // Bindings() finds it), or null when it has none. O(1): a table by binding number, built with the layout.
+        const VkDescriptorSetLayoutBinding* FindBinding( uint32_t binding ) const
+        {
+            if ( binding >= m_IndexOfBinding.size() )
+                return nullptr;
+            const uint32_t at = m_IndexOfBinding[binding];
+            if ( at == kNoBinding )
+                return nullptr;
+            return &m_Bindings[at];
+        }
+
     private:
+        static constexpr uint32_t kNoBinding = ~uint32_t{ 0 };
+
         VkDevice                                  m_Device          = VK_NULL_HANDLE;
         VkDescriptorSetLayout                     m_Layout          = VK_NULL_HANDLE;
         uint32_t                                  m_Set             = 0;
         uint32_t                                  m_DescriptorCount = 0;
         std::vector<VkDescriptorSetLayoutBinding> m_Bindings;
         std::string                               m_Owner;
+        std::vector<uint32_t> m_IndexOfBinding; // by binding number: its index in m_Bindings, or kNoBinding
     };
 
     // How every consumer holds a layout. `const` because a built layout is a finished contract: the

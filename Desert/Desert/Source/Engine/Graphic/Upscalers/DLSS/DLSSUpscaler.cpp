@@ -422,7 +422,7 @@ namespace Desert::Graphic
              kGuidesPassName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( GuidesLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( GuidesLayout(), RDG::NoOtherRouteFill() )
                       .Texture( DLSSRRGuidesShaderParameters::GBufferAlbedoTexture, inputs.GBufferAlbedo,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Texture( DLSSRRGuidesShaderParameters::GBufferNormalTexture, inputs.GBufferNormal,
@@ -484,7 +484,7 @@ namespace Desert::Graphic
              kPathGuidesPassName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( PathGuidesLayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( PathGuidesLayout(), RDG::NoOtherRouteFill() )
                       .Storage( P::GuideAlbedoTexture, sums.Albedo, RDG::Access::StorageRead, 0 )
                       .Storage( P::GuideNormalTexture, sums.Normal, RDG::Access::StorageRead, 0 )
                       .Storage( P::GuideSpecularTexture, sums.Specular, RDG::Access::StorageRead, 0 )

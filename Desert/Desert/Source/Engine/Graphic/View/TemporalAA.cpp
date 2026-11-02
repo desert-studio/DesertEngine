@@ -180,7 +180,7 @@ namespace Desert::Graphic
              {
                  // Every texture is read at texel centres or filtered inside the shader; the linear sampler on
                  // the history is its bilinear fetch (Low / Medium) and the Catmull-Rom taps (High).
-                 pass.Bindings( TemporalAALayout(), RDG::OtherRouteFill{} )
+                 pass.Bindings( TemporalAALayout(), RDG::NoOtherRouteFill() )
                       .Texture( TemporalAAShaderParameters::SceneColorTexture, inputs.SceneColor,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Sampler( TemporalAAShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )

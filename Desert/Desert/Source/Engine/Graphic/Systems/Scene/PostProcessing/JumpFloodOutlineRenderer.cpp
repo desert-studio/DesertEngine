@@ -141,7 +141,7 @@ namespace Desert::Graphic::System
         if ( !m_InitPipeline )
             return; // RecordInit refuses by name
         // No material: the other route fills nothing.
-        pass.Bindings( m_InitLayout.Get( m_InitPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_InitLayout.Get( m_InitPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Texture( JumpFloodOutlineInitShaderParameters::StencilTexture, mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( JumpFloodOutlineInitShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
     }
@@ -158,7 +158,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_StepPipeline )
             return; // RecordStep refuses by name
-        pass.Bindings( m_StepLayout.Get( m_StepPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
+        pass.Bindings( m_StepLayout.Get( m_StepPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Texture( JumpFloodOutlineStepShaderParameters::SeedMapTexture, source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( JumpFloodOutlineStepShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( int32_t ) ) );

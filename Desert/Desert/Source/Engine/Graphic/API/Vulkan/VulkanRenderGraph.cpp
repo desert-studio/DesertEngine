@@ -937,6 +937,15 @@ namespace Desert::Graphic::API::Vulkan
                     vkDestroyDescriptorPool( m_Device, pool, nullptr );
             }
         }
+        // Destroying a pool frees every set still allocated from it (cached and retired alike).
+        for ( VkDescriptorPool pool : m_CachedPools )
+            vkDestroyDescriptorPool( m_Device, pool, nullptr );
+    }
+
+    uint64_t NextRdgPhysicalIdentity() noexcept
+    {
+        static std::atomic<uint64_t> next{ 1 };
+        return next.fetch_add( 1, std::memory_order_relaxed );
     }
 
     namespace
@@ -985,7 +994,17 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )
     {
-        // One pool shape for every pass: a full pool is followed by another, never enlarged in place.
+        // A full pool is followed by another, never enlarged in place.
+        const Common::ResultStr<VkDescriptorPool> pool = CreatePool( 0 );
+        if ( !pool )
+            return pool;
+        slot.Pools.push_back( pool.GetValue() );
+        return pool;
+    }
+
+    Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::CreatePool( VkDescriptorPoolCreateFlags flags )
+    {
+        // One pool shape for every pass.
         constexpr uint32_t                        kSets = 256;
         const std::array<VkDescriptorPoolSize, 6> sizes = {
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
@@ -996,6 +1015,7 @@ namespace Desert::Graphic::API::Vulkan
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, kSets } };
         VkDescriptorPoolCreateInfo info{};
         info.sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        info.flags   = flags;
         info.maxSets = kSets;
         // The acceleration-structure row is last: a device without the extension leaves just that row out.
         info.poolSizeCount      = static_cast<uint32_t>( sizes.size() ) - ( m_AccelerationStructures ? 0u : 1u );
@@ -1005,7 +1025,6 @@ namespace Desert::Graphic::API::Vulkan
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<VkDescriptorPool>( "vkCreateDescriptorPool failed ({})",
                                                                  static_cast<int>( result ) );
-        slot.Pools.push_back( pool );
         return Common::MakeSuccess( pool );
     }
 
@@ -1018,6 +1037,163 @@ namespace Desert::Graphic::API::Vulkan
                 vkResetDescriptorPool( m_Device, pool, 0 );
             arena.Current = 0;
         }
+        EvictCached();
+    }
+
+    namespace
+    {
+        // A cached set's key hash (splitmix64 per word, folded): the shard and the bucket of the key.
+        uint64_t HashCachedSetKey( std::span<const uint64_t> key )
+        {
+            uint64_t hash = 0x9E3779B97F4A7C15ULL ^ static_cast<uint64_t>( key.size() );
+            for ( const uint64_t word : key )
+            {
+                uint64_t mixed = word + 0x9E3779B97F4A7C15ULL;
+                mixed          = ( mixed ^ ( mixed >> 30 ) ) * 0xBF58476D1CE4E5B9ULL;
+                mixed          = ( mixed ^ ( mixed >> 27 ) ) * 0x94D049BB133111EBULL;
+                mixed          = mixed ^ ( mixed >> 31 );
+                hash           = ( hash ^ mixed ) * 0x100000001B3ULL;
+            }
+            return hash ^ ( hash >> 29 );
+        }
+
+        bool SameCachedSetKey( std::span<const uint64_t> stored, std::span<const uint64_t> key )
+        {
+            return std::ranges::equal( stored, key );
+        }
+    } // namespace
+
+    Common::ResultStr<VulkanRdgPassDescriptors::CachedSet>
+    VulkanRdgPassDescriptors::AcquireCached( VkDescriptorSetLayout layout, std::span<const uint64_t> key )
+    {
+        const uint64_t  hash  = HashCachedSetKey( key );
+        CachedSetShard& shard = m_CachedShards[hash % kCachedSetShards];
+        {
+            const std::scoped_lock lock( shard.Lock );
+            const auto             bucket = shard.Buckets.find( hash );
+            if ( bucket != shard.Buckets.end() )
+            {
+                for ( CachedSetEntry& entry : bucket->second )
+                {
+                    if ( !SameCachedSetKey( entry.Key, key ) )
+                        continue;
+                    entry.LastUsed = m_CacheFrame.load( std::memory_order_relaxed );
+                    return Common::MakeSuccess( CachedSet{ .Set = entry.Set, .Pool = entry.Pool, .Hit = true } );
+                }
+            }
+        }
+
+        // A miss: a fresh set from the cache's own pools (externally synchronized: under m_CachedPoolLock). A
+        // full or fragmented pool hands over to the next one; when every pool refuses, one more is made.
+        const std::scoped_lock lock( m_CachedPoolLock );
+        const auto             allocate = [this, layout]( VkDescriptorPool pool, VkDescriptorSet& set )
+        {
+            VkDescriptorSetAllocateInfo info{};
+            info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            info.descriptorPool     = pool;
+            info.descriptorSetCount = 1;
+            info.pSetLayouts        = &layout;
+            return vkAllocateDescriptorSets( m_Device, &info, &set );
+        };
+        for ( size_t tried = 0; tried < m_CachedPools.size(); ++tried )
+        {
+            const size_t    index  = ( m_CachedPoolCurrent + tried ) % m_CachedPools.size();
+            VkDescriptorSet set    = VK_NULL_HANDLE;
+            const VkResult  result = allocate( m_CachedPools[index], set );
+            if ( result == VK_SUCCESS )
+            {
+                m_CachedPoolCurrent = index;
+                return Common::MakeSuccess( CachedSet{ .Set = set, .Pool = m_CachedPools[index], .Hit = false } );
+            }
+            if ( result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL )
+                return Common::MakeFormattedError<CachedSet>( "vkAllocateDescriptorSets (cached) failed ({})",
+                                                              static_cast<int>( result ) );
+        }
+        const Common::ResultStr<VkDescriptorPool> pool =
+             CreatePool( VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT );
+        if ( !pool )
+            return Common::MakeFormattedError<CachedSet>( "{}", pool.GetError() );
+        m_CachedPools.push_back( pool.GetValue() );
+        m_CachedPoolCurrent    = m_CachedPools.size() - 1;
+        VkDescriptorSet set    = VK_NULL_HANDLE;
+        const VkResult  result = allocate( pool.GetValue(), set );
+        // A layout that does not fit a fresh pool never will.
+        if ( result != VK_SUCCESS )
+            return Common::MakeFormattedError<CachedSet>( "vkAllocateDescriptorSets (cached) failed ({})",
+                                                          static_cast<int>( result ) );
+        return Common::MakeSuccess( CachedSet{ .Set = set, .Pool = pool.GetValue(), .Hit = false } );
+    }
+
+    void VulkanRdgPassDescriptors::PublishCached( std::span<const uint64_t> key, const CachedSet& fresh )
+    {
+        const uint64_t  hash  = HashCachedSetKey( key );
+        CachedSetShard& shard = m_CachedShards[hash % kCachedSetShards];
+        {
+            const std::scoped_lock       lock( shard.Lock );
+            std::vector<CachedSetEntry>& bucket = shard.Buckets[hash];
+            const bool                   taken  = std::ranges::any_of(
+                 bucket, [key]( const CachedSetEntry& entry ) { return SameCachedSetKey( entry.Key, key ); } );
+            if ( !taken )
+            {
+                CachedSetEntry entry;
+                entry.Key.assign( key.begin(), key.end() );
+                entry.Set      = fresh.Set;
+                entry.Pool     = fresh.Pool;
+                entry.LastUsed = m_CacheFrame.load( std::memory_order_relaxed );
+                bucket.push_back( std::move( entry ) );
+                return;
+            }
+        }
+        // An equal set another thread published first stays; this one is bound by this exec, so it is freed only
+        // after the frames in flight.
+        DiscardCached( fresh );
+    }
+
+    void VulkanRdgPassDescriptors::DiscardCached( const CachedSet& fresh )
+    {
+        const std::scoped_lock lock( m_CachedPoolLock );
+        m_RetiredCached.push_back( RetiredCachedSet{ .Set   = fresh.Set,
+                                                     .Pool  = fresh.Pool,
+                                                     .Frame = m_CacheFrame.load( std::memory_order_relaxed ) } );
+    }
+
+    void VulkanRdgPassDescriptors::EvictCached()
+    {
+        // BeginFrameSlot of frame F runs after the fence of frame F - slots, the last frame that shared its slot:
+        // a set last bindable in a frame before that one is bound by no command buffer that can still execute.
+        const uint64_t frame    = m_CacheFrame.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        const uint64_t inFlight = static_cast<uint64_t>( m_Slots.size() );
+        const auto     expired  = [frame, inFlight]( uint64_t used ) { return used + inFlight < frame; };
+        const std::scoped_lock poolLock( m_CachedPoolLock );
+        const auto             release = [this]( VkDescriptorPool pool, VkDescriptorSet set )
+        { vkFreeDescriptorSets( m_Device, pool, 1, &set ); };
+        for ( CachedSetShard& shard : m_CachedShards )
+        {
+            const std::scoped_lock lock( shard.Lock );
+            for ( auto bucket = shard.Buckets.begin(); bucket != shard.Buckets.end(); )
+            {
+                std::erase_if( bucket->second,
+                               [&expired, &release]( const CachedSetEntry& entry )
+                               {
+                                   if ( !expired( entry.LastUsed ) )
+                                       return false;
+                                   release( entry.Pool, entry.Set );
+                                   return true;
+                               } );
+                if ( bucket->second.empty() )
+                    bucket = shard.Buckets.erase( bucket );
+                else
+                    ++bucket;
+            }
+        }
+        std::erase_if( m_RetiredCached,
+                       [&expired, &release]( const RetiredCachedSet& retired )
+                       {
+                           if ( !expired( retired.Frame ) )
+                               return false;
+                           release( retired.Pool, retired.Set );
+                           return true;
+                       } );
     }
 
     void VulkanRdgPassDescriptors::ReserveArenas( uint32_t arenas )

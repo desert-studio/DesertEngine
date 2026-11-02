@@ -166,11 +166,12 @@ namespace Desert::Graphic::RDG
         // PassBindings( context, block.GetRef() ) and names no shader slot itself. A pass recording several draws
         // with different shaders declares one block per shader.
         // @p layout is the kept layout (ShaderBindingLayoutCache / RDG::LayoutCache): the block shares it, no
-        // copy.
+        // copy. @p other is the fill its route keeps (Renderer::GetPipelineRouteFill, MaterialExecutor::
+        // GetRouteFill, NoOtherRouteFill): the block shares it too, so declaring a pass copies no slot name.
         BindingBlockBuilder Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
-                                      OtherRouteFill                                    other );
+                                      std::shared_ptr<const OtherRouteFill>             other );
         // A layout made for this declaration only (tests, a draw list built per frame): the graph takes it over.
-        BindingBlockBuilder Bindings( ShaderBindingLayout layout, OtherRouteFill other );
+        BindingBlockBuilder Bindings( ShaderBindingLayout layout, std::shared_ptr<const OtherRouteFill> other );
 
         // RENDER-THREADS M1. @p prerequisite (a material, a block the exec binds) is made ready before any pass of
         // the graph records (IRecordPrerequisite); the exec only looks it up. A pass that declares any runs its
