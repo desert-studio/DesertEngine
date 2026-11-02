@@ -475,8 +475,8 @@ void main()
             info.waitSemaphoreCount   = static_cast<uint32_t>( entry.WaitSemaphores.size() );
             info.pWaitSemaphores      = entry.WaitSemaphores.data();
             info.pWaitDstStageMask    = entry.WaitStages.data();
-            info.commandBufferCount   = 1;
-            info.pCommandBuffers      = &entry.CommandBuffer;
+            info.commandBufferCount   = static_cast<uint32_t>( entry.CommandBuffers.size() );
+            info.pCommandBuffers      = entry.CommandBuffers.data();
             info.signalSemaphoreCount = static_cast<uint32_t>( entry.SignalSemaphores.size() );
             info.pSignalSemaphores    = entry.SignalSemaphores.data();
             vkQueueSubmit( entry.Queue, 1, &info, i + 1 == segments.size() ? fence : VK_NULL_HANDLE );
@@ -2559,8 +2559,8 @@ void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })
             info.waitSemaphoreCount   = static_cast<uint32_t>( entry.WaitSemaphores.size() );
             info.pWaitSemaphores      = entry.WaitSemaphores.data();
             info.pWaitDstStageMask    = entry.WaitStages.data();
-            info.commandBufferCount   = 1;
-            info.pCommandBuffers      = &entry.CommandBuffer;
+            info.commandBufferCount   = static_cast<uint32_t>( entry.CommandBuffers.size() );
+            info.pCommandBuffers      = entry.CommandBuffers.data();
             info.signalSemaphoreCount = static_cast<uint32_t>( entry.SignalSemaphores.size() );
             info.pSignalSemaphores    = entry.SignalSemaphores.data();
             vkQueueSubmit( entry.Queue, 1, &info, VK_NULL_HANDLE );

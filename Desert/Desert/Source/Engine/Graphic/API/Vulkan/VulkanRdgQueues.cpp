@@ -51,7 +51,7 @@ namespace Desert::Graphic::API::Vulkan
                 if ( pipe.Pool != VK_NULL_HANDLE )
                     vkDestroyCommandPool( m_Device, pipe.Pool, nullptr ); // frees its command buffers
             }
-            for ( const std::vector<PipePool>& arenas : slot.Secondary )
+            for ( const std::vector<PipePool>& arenas : slot.ChunkArenas )
             {
                 for ( const PipePool& arena : arenas )
                 {
@@ -78,7 +78,7 @@ namespace Desert::Graphic::API::Vulkan
                                                        static_cast<int>( reset ) ) );
             pipe.Used = 0;
         }
-        for ( std::vector<PipePool>& arenas : frameSlot.Secondary )
+        for ( std::vector<PipePool>& arenas : frameSlot.ChunkArenas )
         {
             for ( PipePool& arena : arenas )
             {
@@ -93,10 +93,10 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRdgQueueObjects::ReserveSecondaryArenas( RDG::Pipe pipe, uint32_t arenas )
+    Common::BoolResultStr VulkanRdgQueueObjects::ReserveChunkArenas( RDG::Pipe pipe, uint32_t arenas )
     {
         const size_t           index  = PipeIndex( pipe );
-        std::vector<PipePool>& pools  = m_Slots[m_Slot].Secondary[index];
+        std::vector<PipePool>& pools  = m_Slots[m_Slot].ChunkArenas[index];
         const auto&            family = m_Families[index];
         if ( !family )
             return Common::MakeError(
@@ -117,12 +117,10 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<VkCommandBuffer> VulkanRdgQueueObjects::BeginSecondary(
-         RDG::Pipe pipe, uint32_t arena, const VkCommandBufferInheritanceInfo& inheritance,
-         VkCommandBufferUsageFlags usage )
+    Common::ResultStr<VkCommandBuffer> VulkanRdgQueueObjects::BeginChunkCommandBuffer( RDG::Pipe pipe, uint32_t arena )
     {
         using Out                    = VkCommandBuffer;
-        std::vector<PipePool>& pools = m_Slots[m_Slot].Secondary[PipeIndex( pipe )];
+        std::vector<PipePool>& pools = m_Slots[m_Slot].ChunkArenas[PipeIndex( pipe )];
         if ( arena >= pools.size() )
             return Common::MakeError<Out>( std::format(
                  "RDG queue objects: chunk arena {} of the {} pipe was not reserved", arena, PipeName( pipe ) ) );
@@ -132,20 +130,19 @@ namespace Desert::Graphic::API::Vulkan
             VkCommandBufferAllocateInfo allocate{};
             allocate.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             allocate.commandPool        = pool.Pool;
-            allocate.level              = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+            allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocate.commandBufferCount = 1;
             VkCommandBuffer buffer      = VK_NULL_HANDLE;
             if ( vkAllocateCommandBuffers( m_Device, &allocate, &buffer ) != VK_SUCCESS )
-                return Common::MakeError<Out>( "RDG queue objects: vkAllocateCommandBuffers (secondary) failed" );
+                return Common::MakeError<Out>( "RDG queue objects: vkAllocateCommandBuffers (chunk) failed" );
             pool.Buffers.push_back( buffer );
         }
         VkCommandBuffer          buffer = pool.Buffers[pool.Used++];
         VkCommandBufferBeginInfo begin{};
-        begin.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags            = usage;
-        begin.pInheritanceInfo = &inheritance;
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         if ( vkBeginCommandBuffer( buffer, &begin ) != VK_SUCCESS )
-            return Common::MakeError<Out>( "RDG queue objects: vkBeginCommandBuffer (secondary) failed" );
+            return Common::MakeError<Out>( "RDG queue objects: vkBeginCommandBuffer (chunk) failed" );
         return Common::MakeSuccess( buffer );
     }
 
@@ -255,7 +252,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<Out>( opened.GetError() );
         if ( !m_Open.has_value() )
             return Common::MakeError<Out>( "the segment did not open" );
-        return Common::MakeSuccess( m_Open->CommandBuffer );
+        return Common::MakeSuccess( m_Open->CommandBuffers.back() );
     }
 
     Common::ResultStr<VkSemaphore> VulkanRdgSegmentRecorder::SemaphoreOf( uint32_t                 sync,
@@ -286,7 +283,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Open.emplace();
         m_Open->OnPipe        = pipe;
         m_Open->Queue         = queue;
-        m_Open->CommandBuffer = buffer.GetValue();
+        m_Open->CommandBuffers.push_back( buffer.GetValue() );
         return Common::MakeSuccess( true );
     }
 
@@ -294,7 +291,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !m_Open.has_value() )
             return Common::MakeError( "no segment is open" );
-        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffer );
+        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
         if ( ended != VK_SUCCESS )
         {
             m_Open.reset();
@@ -304,6 +301,30 @@ namespace Desert::Graphic::API::Vulkan
         m_Submissions.push_back( std::move( *m_Open ) );
         m_Open.reset();
         return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::SpliceChunk( VkCommandBuffer          chunk,
+                                                                              const VulkanRdgQueueSet& queues )
+    {
+        using Out = VkCommandBuffer;
+        if ( !m_Open.has_value() || m_Open->CommandBuffers.empty() )
+            return Common::MakeError<Out>( "a chunk replayed while no segment is open" );
+        if ( queues.Objects == nullptr )
+            return Common::MakeError<Out>( "the queue set has no per-slot queue objects" );
+        if ( chunk == VK_NULL_HANDLE )
+            return Common::MakeError<Out>( "a chunk with no command buffer replayed" );
+        // A failure leaves the open submission half-spliced: the caller abandons the graph (AbandonGraph drops
+        // it, its buffers reset with the slot's pools).
+        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
+        if ( ended != VK_SUCCESS )
+            return Common::MakeError<Out>(
+                 std::format( "vkEndCommandBuffer before a chunk failed ({})", static_cast<int>( ended ) ) );
+        m_Open->CommandBuffers.push_back( chunk );
+        const Common::ResultStr<VkCommandBuffer> next = queues.Objects->BeginCommandBuffer( m_Open->OnPipe );
+        if ( !next )
+            return Common::MakeError<Out>( next.GetError() );
+        m_Open->CommandBuffers.push_back( next.GetValue() );
+        return Common::MakeSuccess( next.GetValue() );
     }
 
     Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::BeginSegment( const RDG::PipeSegment&  segment,
@@ -360,7 +381,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Open->SignalValues.push_back( segment.SignalExternal->Value );
             m_Open->ExternalSignals.push_back( *segment.SignalExternal );
         }
-        return Common::MakeSuccess( m_Open->CommandBuffer );
+        return Common::MakeSuccess( m_Open->CommandBuffers.back() );
     }
 
     Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::EndSegment( const RDG::PipeSegment&  segment,
@@ -380,7 +401,7 @@ namespace Desert::Graphic::API::Vulkan
         // A segment that signals another API's timeline is submitted as it is: nothing may record after the
         // signal.
         if ( last && segment.OnPipe == RDG::Pipe::Graphics && endJoins.empty() && !segment.SignalExternal )
-            return Common::MakeSuccess( m_Open->CommandBuffer ); // the final barriers record into it
+            return Common::MakeSuccess( m_Open->CommandBuffers.back() ); // the final barriers record into it
 
         if ( const Common::BoolResultStr closed = Close(); !closed )
             return Common::MakeError<Out>( closed.GetError() );
@@ -399,7 +420,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Open->WaitSemaphores.push_back( semaphore.GetValue() );
             m_Open->WaitStages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
         }
-        return Common::MakeSuccess( m_Open->CommandBuffer );
+        return Common::MakeSuccess( m_Open->CommandBuffers.back() );
     }
 
     void VulkanRdgSegmentRecorder::EndGraph()

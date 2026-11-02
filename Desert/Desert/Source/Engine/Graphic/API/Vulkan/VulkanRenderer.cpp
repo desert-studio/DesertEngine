@@ -174,7 +174,7 @@ namespace Desert::Graphic::API::Vulkan
             VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
             // The frame's graphics tail: the last submission, which signals RenderComplete and the fence.
             m_FrameSubmissions.push_back(
-                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
+                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
             m_CurrentCommandBuffer = nullptr;
         }
         return BOOLSUCCESS;
@@ -1850,7 +1850,7 @@ namespace Desert::Graphic::API::Vulkan
                  std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
         }
         m_FrameSubmissions.push_back(
-             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
+             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
