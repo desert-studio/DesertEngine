@@ -1,6 +1,12 @@
 #pragma once
 
+#include <Engine/Core/Camera.hpp>
+
+#include <atomic>
+#include <mutex>
+#include <string_view>
 #include <unordered_set>
+#include <vector>
 
 #include <Engine/Graphic/VirtualGeometry/VisibilityBuffer.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
@@ -527,10 +533,14 @@ namespace Desert::Graphic
         //
         // Call it BEFORE BeginScene: the flags reach the mesh renderer from there, so a push afterwards
         // lands one frame late.
-        void SetDebugView( const DebugViewState& state )
-        {
-            m_DebugView = state;
-        }
+        //
+        // EVERY SETTER THE INTERFACE CALLS (this one, SetQuality, SetOutlineSettings, SetEnvironment,
+        // ResetTemporalHistory, WatchPrimitive, SetLODPreview) CHANGES THE VIEW BETWEEN RECORDINGS (UE:
+        // ENQUEUE_RENDER_COMMAND): while this view records on the render task the write waits for the fence
+        // (RenderTask::AfterJoin), which runs before the next BeginScene of any view; with nothing in flight it
+        // applies now, exactly as before. A Debug build reports a write that lands inside a recording
+        // (CheckWriteBetweenRecordings).
+        void SetDebugView( const DebugViewState& state );
 
 #if DESERT_DEV_INSTRUMENTS
         // THE GAMEPLAY DEBUGGER'S RENDERING CATEGORY (Graphic/PrimitiveReadout.hpp): asks this view to describe
@@ -563,10 +573,8 @@ namespace Desert::Graphic
         // could not change it.
         //
         // Call it BEFORE BeginScene: the values reach the systems from there.
-        void SetQuality( const Common::Scalability::ResolvedQuality& quality )
-        {
-            m_Quality = quality;
-        }
+        // Between recordings, as SetDebugView says.
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality );
         // The GI / reflection / shadow methods this view renders and why any came out below its request — what
         // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
         // VFX-PORT-2: this view's particle cull (ParticleRenderer::ViewEmitterCulls); empty without the system.
@@ -767,8 +775,11 @@ namespace Desert::Graphic
 
         // CSM debug: a cascade's static-caster cache (MeshRenderer::GetCascadeCacheImage), for the editor's
         // cascade viewer; the sampled maps are layers of one graph array, which ImGui does not show.
-        std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade );
-        uint32_t                 GetShadowCascadeCount();
+        // THE LAST FINISHED FRAME'S CASCADES, published at EndScene: the interface reads them while the next frame
+        // records on the render task, and that frame's OnUpdate may re-budget the shadows (RebudgetShadowsFor
+        // re-makes the maps). A published image stays alive in the snapshot until the next EndScene replaces it.
+        [[nodiscard]] std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade ) const;
+        [[nodiscard]] uint32_t                 GetShadowCascadeCount() const;
 
         const std::shared_ptr<Image2D>      GetFinalImage();
         // THE DISPLAY-REFERRED FINAL IMAGE'S FRAMEBUFFER: the last post pass's output (tonemap, or FXAA / SMAA
@@ -1084,6 +1095,20 @@ namespace Desert::Graphic
             int      FramesLeft = 0;
         };
         LODPreviewLease m_LODPreview;
+        // GetViewTrianglesDrawn's answer: the mesh renderer's count as of the last EndScene (the interface reads it
+        // while the next frame records on the render task).
+        std::atomic<uint64_t> m_PublishedViewTriangles{ 0 };
+        // GetShadowCascadeCacheImage / GetShadowCascadeCount's answer: the mesh renderer's cascade caches as of
+        // the last EndScene (written on the render task, read by the interface: hence the lock; one short copy
+        // each).
+        mutable std::mutex                    m_PublishedCascadesMutex;
+        std::vector<std::shared_ptr<Image2D>> m_PublishedCascadeCaches;
+        // True while this view records on the render task: from the head of OnUpdate there to the end of
+        // EndScene. CheckWriteBetweenRecordings reads it (the Debug write check).
+        std::atomic<bool> m_RecordingOnTask{ false };
+        // DEBUG WRITE CHECK (DESERT_CONFIG_DEBUG): a field the render task reads is written on another thread
+        // while this view records there. Logs once per @p site; a no-op in Release.
+        void CheckWriteBetweenRecordings( std::string_view site ) const;
         // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
         float m_LastExposure = 0.0f;
         // The AverageLocalExposure the eye adaptation read back with it (1 = none): pre-exposure follows it.
@@ -1808,6 +1833,8 @@ namespace Desert::Graphic
         // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
         // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
         const ExtensionPassRegistry* m_FrameExtensions = nullptr;
+        // The view's camera as BeginScene saw it; m_SceneInfo.ActiveCamera points here (RenderTask).
+        Core::FrozenCamera m_FrozenCamera;
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;

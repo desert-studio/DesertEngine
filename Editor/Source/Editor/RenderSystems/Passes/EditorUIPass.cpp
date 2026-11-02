@@ -53,27 +53,30 @@ namespace Desert::Editor::Render
         Graphic::ExtensionPass pass;
         pass.Name                  = "EditorUI2D";
         pass.Point                 = Graphic::RDG::ExtensionPoint::UI;
-        // THE FRAME'S UI IS GATHERED IN SETUP (UE: Slate's elements are batched before the render pass that draws
-        // them). The canvas walk - input feed, clicks, the draw list - runs while the frame graph is built, so the
-        // node can declare one binding block per batch it will draw (Render2D::DeclareBindings) and the graph
-        // validates them before anything is recorded; the exec only uploads and draws the list (Render2D::Flush).
-        // Once per frame per view, as before: a view's graph is built and executed before the next view's.
+        // THE FRAME'S UI IS GATHERED ON THE GAME THREAD (UE: Slate's elements are batched on the game thread, and
+        // the render thread only draws the batches). The canvas walk - registry, input feed, clipboard (GLFW),
+        // clicks, the draw list - runs when the view opens its frame (ExtensionPass::Gather, BeginScene), never
+        // on the render task the graph is built and executed on. Declare then names one binding block per batch
+        // (Render2D::DeclareBindings) and the graph validates them before anything is recorded; the exec only
+        // uploads and draws the list (Render2D::Flush). Once per frame per view, as before: BeginScene joins a
+        // view's frame before the next view gathers.
         //
         // Render2D samples the backdrop pyramid behind a blurred panel: an engine image the frame graph's blur
         // nodes write as storage, so the pass names it and the graph brings it to a sampled layout before the UI
         // draws.
-        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
+        pass.Gather = [this]( const Graphic::ExtensionPassGatherContext& ctx )
         {
+            m_Gathered       = false;
             const auto scene = m_Scene.lock();
-            if ( !scene || !ctx.Target )
+            if ( !scene )
                 return;
 
-            // THE CANVAS IS THE NODE'S RENDER AREA (RenderPassDeclaration::TargetExtent), not ctx.Target's size:
-            // the UI draws into the OUTPUT-extent final image. Laid out at the render extent, the canvas filled
+            // THE CANVAS IS THE NODE'S RENDER AREA (ctx.OutputExtent, the TargetExtent its node gets), not the
+            // scene target's size: the UI draws into the OUTPUT-extent final image. Laid out at the render extent, the canvas filled
             // only the render-scale corner of the image (87 % screen percentage: 1248x746 of 1435x857). UE: UMG's
             // root fills the viewport's output size (SConstraintCanvas under the DPI scale), never the scene's
             // internal resolution.
-            const glm::uvec2 extent = declared.TargetExtent();
+            const glm::uvec2 extent = ctx.OutputExtent;
             const float      w      = static_cast<float>( extent.x );
             const float      h      = static_cast<float>( extent.y );
 
@@ -293,13 +296,6 @@ namespace Desert::Editor::Render
             if ( const auto* wait = scene->GetRegistry().try_ctx<::Desert::Core::WorldStreamingWait>();
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
-            // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
-            // of this view's graph (ctx.Graph): each glass batch's block names it (BackdropTexture).
-            if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
-                declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
-                               Graphic::RDG::SubresourceRange::All() );
-            m_Render2D.DeclareBindings( declared, ctx.Graph.Transients.BackdropBlur );
-
             // A button fired in preview: report it; quit / open-URL are NOT executed here — they would close
             // the editor or leave it. Scene-load is, in Play, through Core::OpenLevel (below). Interactive
             // toggles/sliders/inputs already mutated in the walk. Everything that is NOT one of those three
@@ -329,14 +325,27 @@ namespace Desert::Editor::Render
                 LOG_INFO( "[UI Preview] {}", msg );
                 UI::UIMessageQueue::Get().Push( msg ); // scripts hear preview messages too, if any run
             }
+            m_Gathered = true;
+        };
+        // The render task's half: the draw list Gather built is all it reads.
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
+        {
+            if ( !m_Gathered || !ctx.Target )
+                return;
+            // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
+            // of this view's graph (ctx.Graph): each glass batch's block names it (BackdropTexture).
+            if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
+                declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
+                               Graphic::RDG::SubresourceRange::All() );
+            m_Render2D.DeclareBindings( declared, ctx.Graph.Transients.BackdropBlur );
         };
         // Draws the list the setup gathered, over the blocks it declared. The backdrop pyramid is only built when
         // the canvas asked for it LAST frame, so hand the flag back after flushing.
         pass.Execute = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext&           node ) -> Common::BoolResultStr
         {
-            if ( m_Scene.expired() || ctx.Target == nullptr )
-                return BOOLSUCCESS; // the setup gathered nothing either
+            if ( !m_Gathered || ctx.Target == nullptr )
+                return BOOLSUCCESS; // the game thread gathered nothing either
             const Common::BoolResultStr flushed = m_Render2D.Flush( node, ctx.Graph.Transients.BackdropBlur, 0 );
             if ( auto* renderer = ctx.Renderer )
                 renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );

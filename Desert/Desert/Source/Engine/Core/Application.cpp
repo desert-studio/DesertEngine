@@ -1,11 +1,14 @@
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
@@ -114,6 +117,10 @@ namespace Desert::Engine
 
         m_EngineSubsystems.reset();
 
+        // The render caches the worlds parked as their components died (FrameManager::RetireAfterFrames) are
+        // released while the device that owns them is alive: the queue is a static and would outlive it.
+        FrameManager::GetInstance().ReleaseRetiredNow();
+
         // Everything the renderer generated at Init() (the BRDF LUT, the fallback textures, the API
         // object) and every GPU resource the registries handed out lives in a static that outlives this
         // object. Released here, while the device and the allocator are still alive, because a static
@@ -185,6 +192,14 @@ namespace Desert::Engine
         // Loop state rather than a member: nothing outside this loop has a use for it, and the whole of
         // what it remembers is whether the PREVIOUS iteration stood down (see 1b below).
         Graphic::DrawableAreaGate drawableArea;
+        // A shared view resource forgotten by the game thread while a view records on the render task waits for
+        // it (ViewResourceRegistry::SetForgetFence).
+        Graphic::ViewResourceRegistry::SetForgetFence( [] { ::Desert::Engine::RenderTask::Get().JoinOnGameThread(); } );
+        // THE SCENE VIEWS RECORD ON THE RENDER TASK, overlapping the interface (UE: the rendering thread records
+        // the view family while the game thread ticks and paints Slate). What the views read from the world is
+        // gathered on this thread first (ExtensionPass::Gather, BeginScene's snapshots); the palette's
+        // "Debug.Scene record: serial" puts them back inline for a frame compare.
+        RenderTask::Get().SetOverlapped( true );
         while ( m_IsRunningApplication )
         {
             // Frame boundary for the profiler (publishes last frame, flips Optick's frame). Placed at the
@@ -355,6 +370,10 @@ namespace Desert::Engine
                     if ( !rendered.IsSuccess() )
                         ReportLayerFailure( "OnUIRender", layer.get(), rendered.GetError() );
                 }
+                // THE FRAME'S FENCE (RenderTask): every view the layers handed the render task has recorded before
+                // the deferred events run and the frame is submitted. The editor joined already, before its
+                // interface graph (VulkanImGui::End); an application without one joins here.
+                RenderTask::Get().Join();
                 m_Events.RouteDeferred();
             }
 
@@ -400,6 +419,10 @@ namespace Desert::Engine
                 m_FramePacer.WaitForNextFrame();
             }
         }
+
+        // The render task's thread ends with the loop, before the layers release what its jobs recorded with.
+        RenderTask::Get().Shutdown();
+        Graphic::ViewResourceRegistry::SetForgetFence( nullptr );
 
         // Window closed: detach layers (top-down) so each releases its resources and clears its
         // session state — e.g. EditorLayer::OnDetach removes the crash-recovery lock. Nothing else

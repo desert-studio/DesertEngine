@@ -21,10 +21,16 @@ namespace Desert::Graphic
         {
             std::mutex                  Lock;
             std::vector<ViewResources*> Live;
-            // null = the frame context. Atomic because Active() is read on every bind without the lock, while
-            // a view destroyed on another thread clears it under the lock (Unregister).
-            std::atomic<ViewResources*> ActiveView{ nullptr };
         };
+
+        // THE ACTIVE VIEW IS PER RECORDING THREAD (RenderTask): the render task records a scene view inside its
+        // ActiveViewScope while the game thread records outside every view (or a preview inside its own); one
+        // process-wide pointer sent the other thread's per-frame writes into the wrong copies. null = the frame
+        // context.
+        thread_local ViewResources* t_ActiveView = nullptr;
+
+        // ViewResourceRegistry::SetForgetFence's function (null until the application installs one).
+        std::atomic<ViewResourceRegistry::ForgetFence> s_ForgetFence{ nullptr };
 
         RegistryState& State()
         {
@@ -118,8 +124,16 @@ namespace Desert::Graphic
         return static_cast<uint32_t>( state.Live.size() );
     }
 
+    void ViewResourceRegistry::SetForgetFence( const ForgetFence fence )
+    {
+        s_ForgetFence.store( fence, std::memory_order_release );
+    }
+
     uint32_t ViewResourceRegistry::Forget( const ViewResourceKey key )
     {
+        // Before the lock: the fence may run deferred commands (RenderTask::AfterJoin) that forget again.
+        if ( const ForgetFence fence = s_ForgetFence.load( std::memory_order_acquire ) )
+            fence();
         RegistryState&                    state = State();
         const std::lock_guard<std::mutex> guard( state.Lock );
         uint32_t                          dropped = FrameContext().Forget( key );
@@ -139,8 +153,7 @@ namespace Desert::Graphic
 
     ViewResources& ViewResourceRegistry::Active()
     {
-        ViewResources* const view = State().ActiveView.load( std::memory_order_acquire );
-        return view != nullptr ? *view : FrameContext();
+        return t_ActiveView != nullptr ? *t_ActiveView : FrameContext();
     }
 
     void ViewResourceRegistry::Register( ViewResources& view )
@@ -157,13 +170,15 @@ namespace Desert::Graphic
         std::erase( state.Live, &view );
         // A view destroyed while it is the active one must not leave a dangling target behind: the next
         // write outside a view would land in freed memory.
-        ViewResources* expected = &view;
-        state.ActiveView.compare_exchange_strong( expected, nullptr, std::memory_order_acq_rel );
+        if ( t_ActiveView == &view )
+            t_ActiveView = nullptr;
     }
 
     ViewResources* ViewResourceRegistry::ExchangeActive( ViewResources* view )
     {
-        return State().ActiveView.exchange( view, std::memory_order_acq_rel );
+        ViewResources* const previous = t_ActiveView;
+        t_ActiveView                  = view;
+        return previous;
     }
 
     void ViewResourceRegistry::RestoreActive( ViewResources* previous )
@@ -174,7 +189,7 @@ namespace Desert::Graphic
         // then would re-arm a dangling pointer, so a view no longer on the live list restores the frame context.
         const bool stillLive = previous != nullptr &&
                                std::find( state.Live.begin(), state.Live.end(), previous ) != state.Live.end();
-        state.ActiveView.store( stillLive ? previous : nullptr, std::memory_order_release );
+        t_ActiveView = stillLive ? previous : nullptr;
     }
 
     ActiveViewScope::ActiveViewScope( ViewResources& view ) noexcept

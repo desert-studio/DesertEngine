@@ -459,4 +459,21 @@ namespace Desert::Core
              glm::translate( glm::mat4( 1.0f ), position ) * glm::toMat4( glm::quat( eulerRotation ) );
         SetView( CameraEntityViewOf( world, fovDegrees, nearPlane, farPlane ), width, height, kNoSourceEntity );
     }
+
+    void Camera::CopyViewFrom( const Camera& live )
+    {
+        // Through the virtual getters: a camera may compute its matrices rather than store them.
+        m_ProjectionMatrix = live.GetProjectionMatrix();
+        m_ViewMatrix       = live.GetViewMatrix();
+        m_Position         = live.m_Position;
+        m_SourceEntity     = live.m_SourceEntity;
+        m_FrozenSource     = live.GetSourceId();
+        m_FOV              = live.m_FOV;
+        m_NearPlane        = live.m_NearPlane;
+        m_FarPlane         = live.m_FarPlane;
+        m_ProjectionType   = live.m_ProjectionType;
+        m_OrthoSize        = live.m_OrthoSize;
+        m_ViewportWidth    = live.m_ViewportWidth;
+        m_ViewportHeight   = live.m_ViewportHeight;
+    }
 } // namespace Desert::Core

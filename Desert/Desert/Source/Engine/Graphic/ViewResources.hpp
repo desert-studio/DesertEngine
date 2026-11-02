@@ -173,6 +173,14 @@ namespace Desert::Graphic
         // copies were dropped.
         static uint32_t Forget( ViewResourceKey key );
 
+        // THE FENCE Forget raises before it touches any view's copies. The render task records a view's frame
+        // (Acquire, Find) while the game thread draws the interface, which is when a panel destroys or recreates
+        // a shared resource; the application installs RenderTask::JoinOnGameThread here (Application::Run). A
+        // function rather than a call into the render task, so this file stays free of the engine (the
+        // ViewResources suite compiles it alone). Null - a tool, a suite - means one thread records.
+        using ForgetFence = void ( * )();
+        static void SetForgetFence( ForgetFence fence );
+
         // The owner of every per-frame write made outside a view. Lives for the whole process.
         [[nodiscard]] static ViewResources& FrameContext();
 

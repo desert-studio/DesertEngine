@@ -1,4 +1,5 @@
 #include <Engine/Graphic/GpuInstances.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSharedGpuMemory.hpp>
@@ -246,6 +247,8 @@ namespace Desert::Graphic::API::Vulkan
 
     bool VulkanRendererAPI::IsRecording()
     {
+        // A game-thread record while the views record on the render task joins them first (RenderTask).
+        ::Desert::Engine::RenderTask::RecordGuard( "a graphics API recording entry point" );
         if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
             m_CurrentCommandBuffer = nullptr;
         return m_CurrentCommandBuffer != nullptr;

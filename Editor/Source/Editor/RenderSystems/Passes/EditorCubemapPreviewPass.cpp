@@ -47,18 +47,12 @@ namespace Desert::Editor::Render
         pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext&           context ) -> Common::BoolResultStr
         {
-            if ( !ctx.Camera || !m_ResolveCube )
+            const Graphic::SampledCube& source = m_Gathered.Source;
+            if ( !ctx.Camera || source.Cube == nullptr )
                 return BOOLSUCCESS;
 
-            // Resolved EVERY frame on purpose — the pass owns no copy of the material's state, so a
-            // cubemap dropped onto (or cleared from) the subject shows next frame with no
-            // invalidation protocol. The closure is two map lookups; see the header.
-            const Graphic::SampledCube source = m_ResolveCube();
-            if ( source.Cube == nullptr )
-                return BOOLSUCCESS;
-
-            m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius, m_Backdrop, source.Lod,
-                                m_LongLat );
+            m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Gathered.Radius, m_Gathered.Backdrop,
+                                source.Lod, m_Gathered.LongLat );
             // The block declared in setup (pass.Declare below).
             return Graphic::Renderer::GetInstance().DrawFullscreen(
                  Graphic::RDG::PassBindings( context, context.GetBindingBlock( 0 ) ), *m_Pipeline,
@@ -70,6 +64,19 @@ namespace Desert::Editor::Render
         // frame the pass exists: the block names no graph resource, and the exec opens it only when it draws.
         // The material's VALUES stay per view (Update( camera, cube, ... ) in the exec): one pass object serves
         // every view of the scene.
+        // Resolved EVERY frame on purpose - the pass owns no copy of the material's state, so a cubemap dropped
+        // onto (or cleared from) the subject shows next frame with no invalidation protocol. The closure is two
+        // map lookups; see the header. ON THE GAME THREAD (ExtensionPass::Gather): the panel sets the source
+        // and its look while the view records on the render task, and the closure reads the material.
+        pass.Gather = [this]( const Graphic::ExtensionPassGatherContext& )
+        {
+            m_Gathered          = GatheredSource{};
+            m_Gathered.Radius   = m_Radius;
+            m_Gathered.Backdrop = m_Backdrop;
+            m_Gathered.LongLat  = m_LongLat;
+            if ( m_ResolveCube )
+                m_Gathered.Source = m_ResolveCube();
+        };
         pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& )
         {
             // RENDER-THREADS M1: the material's view sets and block copies exist before the graph records; the

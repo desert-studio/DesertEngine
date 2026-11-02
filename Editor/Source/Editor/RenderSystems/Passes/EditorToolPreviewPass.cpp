@@ -20,8 +20,10 @@ namespace Desert::Editor::Render
 
         struct Shown
         {
-            ToolPreviewMesh Mesh;
-            int             Frame = 0; // the editor (ImGui) frame that showed it
+            // Immutable once shown and SHARED: the pass's Gather holds this frame's mesh for the render task
+            // while the tool may already Show the next one (a replacement makes a new mesh, never edits this).
+            std::shared_ptr<const ToolPreviewMesh> Mesh;
+            int                                    Frame = 0; // the editor (ImGui) frame that showed it
         };
 
         // Keyed by the scene the preview stands in; the entry goes with the scene's pass (~EditorToolPreviewPass).
@@ -84,7 +86,8 @@ namespace Desert::Editor::Render
 
     void ToolPreview::Show( const ::Desert::Core::Scene& scene, ToolPreviewMesh mesh )
     {
-        Previews()[&scene] = { std::move( mesh ), ::ImGui::GetFrameCount() };
+        Previews()[&scene] = { std::make_shared<const ToolPreviewMesh>( std::move( mesh ) ),
+                               ::ImGui::GetFrameCount() };
     }
 
     void ToolPreview::Hide( const ::Desert::Core::Scene& scene )
@@ -94,6 +97,11 @@ namespace Desert::Editor::Render
 
     const ToolPreviewMesh* ToolPreview::Current( const ::Desert::Core::Scene& scene )
     {
+        return Snapshot( scene ).get();
+    }
+
+    std::shared_ptr<const ToolPreviewMesh> ToolPreview::Snapshot( const ::Desert::Core::Scene& scene )
+    {
         const auto found = Previews().find( &scene );
         if ( found == Previews().end() )
             return nullptr;
@@ -101,7 +109,7 @@ namespace Desert::Editor::Render
         // in the previous editor frame is this frame's; one older than that has no tool updating it.
         if ( found->second.Frame < ::ImGui::GetFrameCount() - 1 )
             return nullptr;
-        return &found->second.Mesh;
+        return found->second.Mesh;
     }
 
     EditorToolPreviewPass::~EditorToolPreviewPass()
@@ -178,6 +186,16 @@ namespace Desert::Editor::Render
                                                  m_EdgeMaterial->GetMaterialExecutor() );
             return BOOLSUCCESS;
         };
+        // THE TOOL'S PREVIEW IS TAKEN ON THE GAME THREAD (ExtensionPass::Gather): the tool shows it from a panel,
+        // and ToolPreview's map and ImGui's frame counter are the interface's, not the render task's.
+        pass.Gather = [this]( const Graphic::ExtensionPassGatherContext& ctx )
+        {
+            m_GatheredMesh.reset();
+            const auto scene = m_Scene.lock();
+            if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
+                return;
+            m_GatheredMesh = ToolPreview::Snapshot( *scene );
+        };
         // RENDER-THREADS M1 (UE: a pass's buffers are filled before the graph records): the faces and the lifted
         // edges are written into their materials in the node's setup - the write may grow a storage buffer, which
         // drops its view copies - and each material that draws is prepared, so the exec creates nothing. A view's
@@ -187,14 +205,11 @@ namespace Desert::Editor::Render
             m_FaceVertices = 0;
             m_EdgeVertices = 0;
             m_EdgeFault.clear();
-            const auto scene = m_Scene.lock();
-            if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
+            const ToolPreviewMesh* mesh = m_GatheredMesh.get();
+            if ( mesh == nullptr || !ctx.Renderer )
                 return;
             const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
             if ( view == nullptr )
-                return;
-            const ToolPreviewMesh* mesh = ToolPreview::Current( *scene );
-            if ( mesh == nullptr )
                 return;
 
             if ( !mesh->Triangles.empty() )
