@@ -22,6 +22,7 @@ namespace
     // (GpuCull_CastsRestPose), compiled as C++ (the shader root is on the Engine include path, premake5.lua).
     using glm::dot;
     using glm::mat4;
+    using glm::vec2;
     using glm::vec3;
     using glm::vec4;
     DESERT_GLSL_AS_CPP_BEGIN
@@ -33,6 +34,30 @@ namespace
     // which side the GPU decided, so the instance is keyed as both (MeshRenderer::ShadowCasterRow::NearWindEdge).
     // Float's relative error of a squared distance is ~1e-6; 1e-3 is 1 m at 1 km.
     constexpr float kShadowWindEdge = 1e-3f;
+
+    // THE RING'S SIDE of a gathered swaying instance in a caster view (GPU-FRAME-7: Common/ShadowWind.glslh's
+    // ShadowWindRingInner / ShadowWindInsideRing, the text GpuCull_CastsRestPose runs): Rest = inside the inner
+    // distance by more than the two sides' rounding may differ (kShadowWindEdge of the ring's split, the size of
+    // the terms the inner distance is made of), Edge = within it (the GPU may have taken either side: the CPU walk
+    // keys and draws it as a mover, CascadeStaticSignature redraws the static layer each frame it is there),
+    // Mover otherwise (and in every view with no ring).
+    enum class ShadowWindRingSide : uint8_t
+    {
+        Mover,
+        Edge,
+        Rest
+    };
+    ShadowWindRingSide ShadowWindRingSideOf( const glm::vec3& point, const glm::vec2& casterReach,
+                                             const glm::vec4& ring, const glm::vec3& viewOrigin )
+    {
+        const float inner = ShadowWindRingInner( ring, casterReach );
+        const float band  = ring.x * kShadowWindEdge;
+        if ( ShadowWindInsideRing( point, viewOrigin, inner - band ) )
+            return ShadowWindRingSide::Rest;
+        if ( ShadowWindInsideRing( point, viewOrigin, inner + band ) )
+            return ShadowWindRingSide::Edge;
+        return ShadowWindRingSide::Mover;
+    }
 } // namespace
 
 namespace Desert::Graphic::System
@@ -709,24 +734,30 @@ namespace Desert::Graphic::System
 
     float MeshRenderer::ShadowWindInnerOf( const uint32_t view, const float reach ) const
     {
+        // A section's instance point is its root, its every point within @p reach of it: spread = height = reach.
+        const float rooted = std::max( reach, 0.0f );
+        return ShadowWindRingInner( ShadowWindRingOf( view ), glm::vec2( rooted, rooted ) );
+    }
+
+    glm::vec4 MeshRenderer::ShadowWindRingOf( const uint32_t view ) const
+    {
         // The cascade's receivers as ShadowWindDistanceOf reads them (a movable layer is its cascade's).
         uint32_t cascadeView = view;
         if ( cascadeView >= kCascadeMovableViewBase && cascadeView < kCascadeMovableViewBase + kCascadeViews )
             cascadeView -= kCascadeMovableViewBase;
         if ( cascadeView >= kCascadeViews )
-            return 0.0f;
+            return glm::vec4( 0.0f );
         const uint32_t               cascade = cascadeView % kMaxCascades;
         const DirectionalShadowSlot& slot    = m_DirectionalShadow[cascadeView / kMaxCascades];
         if ( cascade < 2u || cascade >= slot.Fitted )
-            return 0.0f;
+            return glm::vec4( 0.0f );
         // The light's fall per unit across (Travel points along the light): a point h above the ground under it
         // shadows the ground h x across / down away; no fall, no bound on how far a shadow runs.
         const float down   = -slot.Travel.y;
         const float across = glm::length( glm::vec2( slot.Travel.x, slot.Travel.z ) );
         if ( !( down > 0.0f ) )
-            return 0.0f;
-        const float shadowReach = std::max( reach, 0.0f ) * ( 1.0f + across / down );
-        return std::max( 0.0f, slot.SplitFar[static_cast<glm::length_t>( cascade - 2u )] - shadowReach );
+            return glm::vec4( 0.0f );
+        return glm::vec4( slot.SplitFar[static_cast<glm::length_t>( cascade - 2u )], across / down, 0.0f, 0.0f );
     }
 
     glm::vec4 MeshRenderer::CasterWindOrigin( const uint32_t view ) const
@@ -772,6 +803,10 @@ namespace Desert::Graphic::System
         const glm::vec3 boundsCentre = ( localBounds.Min + localBounds.Max ) * 0.5f;
         const float     inner        = m_ShadowWindDistance * ( 1.0f - kShadowWindEdge );
         const float     outer        = m_ShadowWindDistance * ( 1.0f + kShadowWindEdge );
+        // THE CASTER'S REACH (GPU-FRAME-7): a swaying instance's point and reach, from the same bounds and pad as
+        // its GpuScene row (LocalBoundsExtent, LocalBoundsCenter.w = WindBoundsPad), for the per-cascade ring.
+        const glm::vec3 boundsExtent = ( localBounds.Max - localBounds.Min ) * 0.5f;
+        const float     windPad      = WindBoundsPad( ism.Wind );
         for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
         {
             const std::optional<Common::Math::AABB> reach =
@@ -781,13 +816,18 @@ namespace Desert::Graphic::System
             const glm::vec3 point    = ShadowWindInstancePoint( transforms[k], boundsCentre );
             const bool      nearEdge = fieldSways && ShadowWindCastsRestPose( point, lodView.Origin, inner ) &&
                                   !ShadowWindCastsRestPose( point, lodView.Origin, outer );
+            glm::vec2 casterReach( 0.0f );
+            if ( fieldSways )
+                casterReach = ShadowWindCasterReach( transforms[k], boundsExtent, windPad );
             setup.Instances.push_back(
                  { .WorldBounds  = *reach,
                    .LodLevel     = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
                                                                   ism.Mesh->GetLODScreenSizes(), -1, 0 ),
                    .Sways        = fieldSways && ( nearEdge || !ShadowWindCastsRestPose( point, lodView.Origin,
                                                                                          m_ShadowWindDistance ) ),
-                   .NearWindEdge = nearEdge } );
+                   .NearWindEdge = nearEdge,
+                   .WindPoint    = point,
+                   .CasterReach  = casterReach } );
             setup.InstanceIndex.push_back( k );
         }
         caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
@@ -881,6 +921,12 @@ namespace Desert::Graphic::System
         // distance keys the layer and the kept ISM part, so a cascade the wind starts or stops reaching redraws it.
         const float cascadeWind = ShadowWindDistanceOf( cascade );
         hash.Add( cascadeWind );
+        // THE CASTER'S REACH (GPU-FRAME-7, the ring GpuCull_CastsRestPose and the GPU-instanced sections read): a
+        // swaying instance nearer the camera than its ring's inner distance casts its rest pose into the static
+        // layer and is keyed like a still one, so the ring keys the layer and the kept ISM part too.
+        const glm::vec4 cascadeRing = ShadowWindRingOf( cascade );
+        const glm::vec3 ringOrigin( CasterWindOrigin( cascade ) );
+        hash.Add( cascadeRing );
         // THE ISM FIELDS' PART (SCENE-CACHE-3), kept per cascade while the gather it walks (IsmRevision: the
         // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in a
         // still frame no instance of any field is walked again here. A part that met an instance at the wind edge
@@ -889,7 +935,7 @@ namespace Desert::Graphic::System
             m_CascadeIsmParts.resize( static_cast<std::size_t>( cascade ) + 1u );
         CascadeIsmPart& part = m_CascadeIsmParts[cascade];
         if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision ||
-             part.CasterVP != m_CascadeCasterVP[cascade] || part.Wind != cascadeWind )
+             part.CasterVP != m_CascadeCasterVP[cascade] || part.Wind != cascadeWind || part.Ring != cascadeRing )
         {
             SignatureHash ismHash;
             bool          ismMovable = false;
@@ -919,8 +965,18 @@ namespace Desert::Graphic::System
                     }
                     if ( row.Sways && cascadeWind > 0.0f )
                     {
-                        ismMovable = true;
-                        continue;
+                        const ShadowWindRingSide side =
+                             ShadowWindRingSideOf( row.WindPoint, row.CasterReach, cascadeRing, ringOrigin );
+                        if ( side == ShadowWindRingSide::Edge )
+                        {
+                            ismHash.Add( m_ShadowCasterSetup.Gather );
+                            nearEdge = true;
+                        }
+                        if ( side != ShadowWindRingSide::Rest )
+                        {
+                            ismMovable = true;
+                            continue;
+                        }
                     }
                     ismHash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
                     ismHash.Add( row.LodLevel );
@@ -930,6 +986,7 @@ namespace Desert::Graphic::System
             part.Revision = m_ShadowCasterSetup.IsmRevision;
             part.CasterVP = m_CascadeCasterVP[cascade];
             part.Wind     = cascadeWind;
+            part.Ring     = cascadeRing;
             part.Hash     = ismHash.Value;
             part.Movable  = ismMovable;
         }
@@ -1414,10 +1471,20 @@ namespace Desert::Graphic::System
         // Whether gathered instance @p k sways in this view: the shadow wind distance's rule (the gather's Sways),
         // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by
         // GpuCull_CastsRestPose, the same function), a VSM level, a local light's view and the rain occlusion; none
-        // in a cascade the wind does not reach (ShadowWindDistanceOf 0), whose static layer holds the rest poses.
-        const bool viewSways     = viewWind.w > 0.0f;
-        const auto instanceSways = [&gathered, viewSways]( const uint32_t k )
-        { return viewSways && gathered.Instances[k].Sways; };
+        // in a cascade the wind does not reach (ShadowWindDistanceOf 0), whose static layer holds the rest poses;
+        // nor nearer the camera than the view's ring lets its sway reach a receiver of it (ShadowWindRingOf: the
+        // rule CascadeStaticSignature keys and GpuCull_CastsRestPose splits the GPU bins by; one at the ring's edge
+        // sways, as the key draws it).
+        const bool      viewSways     = viewWind.w > 0.0f;
+        const glm::vec4 viewRing      = ShadowWindRingOf( c );
+        const glm::vec3 viewOrigin    = glm::vec3( viewWind );
+        const auto      instanceSways = [&gathered, viewSways, viewRing, viewOrigin]( const uint32_t k )
+        {
+            const auto& row = gathered.Instances[k];
+            return viewSways && row.Sways &&
+                   ShadowWindRingSideOf( row.WindPoint, row.CasterReach, viewRing, viewOrigin ) !=
+                        ShadowWindRingSide::Rest;
+        };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
