@@ -132,6 +132,10 @@ namespace Desert::Graphic
             // RDG-PARALLEL-1: the scope's place in the frame's recording order (the [GpuOrder] trace sorts by it):
             // Begin takes the next tick << 24; a chunk's scopes take its reserved tick << 24 | its count.
             uint64_t Order = 0;
+            // RDG-PARALLEL-5: a scope of a chunk the graph discarded (its secondaries never run, and its passes
+            // are recorded again inline as scopes of their own). It is no row of the frame: not in the [GpuOrder]
+            // trace, the tables or the coverage, and no scope's parent (LiveParent).
+            bool Retracted = false;
         };
 
         // Starts a frame with room for @p capacityScopes.
@@ -227,6 +231,26 @@ namespace Desert::Graphic
             auto& stack = m_Stacks[m_Scopes[static_cast<size_t>( index )].Stack].Open;
             if ( !stack.empty() && stack.back() == index )
                 stack.pop_back();
+        }
+
+        // RDG-PARALLEL-5: scope @p index belonged to a discarded chunk; -1 and out-of-range indices are ignored.
+        // A chunk's scopes are never on a shared stack (BeginUnder), so no stack holds it.
+        void Retract( int32_t index ) noexcept
+        {
+            if ( index >= 0 && static_cast<size_t>( index ) < m_Scopes.size() )
+                m_Scopes[static_cast<size_t>( index )].Retracted = true;
+        }
+
+        // The nearest enclosing scope of @p index that was not retracted, or kGpuNoParent: what a scope nests
+        // under once a discarded chunk's scopes are gone. Always an earlier index, as Scope::Parent is.
+        [[nodiscard]] int32_t LiveParent( int32_t index ) const noexcept
+        {
+            if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
+                return kGpuNoParent;
+            int32_t parent = m_Scopes[static_cast<size_t>( index )].Parent;
+            while ( parent != kGpuNoParent && m_Scopes[static_cast<size_t>( parent )].Retracted )
+                parent = m_Scopes[static_cast<size_t>( parent )].Parent;
+            return parent;
         }
 
         [[nodiscard]] const std::vector<Scope>& Scopes() const noexcept

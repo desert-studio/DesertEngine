@@ -1370,7 +1370,9 @@ namespace Desert::Graphic::System
             const OidnKey                key  = m_Oidn.ShownKey;
             const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
             graph.AddPass(
-                 "PathTracing: OIDN", RDG::PassFlags::Copy,
+                 // NeverParallel: the exec hands the shared image to OIDN (EnqueueShared, an external queue's
+                 // timeline) and sets m_Oidn.Phase on a refusal.
+                 "PathTracing: OIDN", RDG::PassFlags::Copy | RDG::PassFlags::NeverParallel,
                  [input, output, sync]( RDG::PassBuilder& pass )
                  {
                      // OIDN reads and writes the shared memory as raw bytes: Copy accesses.
@@ -1673,7 +1675,9 @@ namespace Desert::Graphic::System
                  grid.Grid,
                  grid.Size };
             graph.AddPass(
-                 "PathTracing: Trace", RDG::PassFlags::Compute,
+                 // NeverParallel with "PathTracing: Resolve": the exec sets m_TraceFailed, which the resolve's exec
+                 // reads in the same frame; both record on the calling thread, in pass order.
+                 "PathTracing: Trace", RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
                  [&]( RDG::PassBuilder& pass )
                  {
                      constexpr RDG::Access kR = RDG::Access::StorageRead;
@@ -1981,7 +1985,8 @@ namespace Desert::Graphic::System
         {
             const ResolvePush push { preExposure };
             graph.AddPass(
-                 "PathTracing: Resolve", RDG::PassFlags::Raster,
+                 // NeverParallel: reads m_TraceFailed, set by "PathTracing: Trace"'s exec this frame.
+                 "PathTracing: Resolve", RDG::PassFlags::Raster | RDG::PassFlags::NeverParallel,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ), RDG::OtherRouteFill{} )

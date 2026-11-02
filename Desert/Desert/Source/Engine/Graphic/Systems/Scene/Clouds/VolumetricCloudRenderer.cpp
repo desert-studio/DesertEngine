@@ -1128,9 +1128,10 @@ namespace Desert::Graphic::System
                  Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
                                             GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
                                             GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
-            // A march that did not run leaves bytes no key describes: the next frame marches again.
+            // A march that did not run leaves bytes no key describes: the next frame's setup marches again
+            // (DeclareSkyOcclusionIfStale takes the flag; the exec writes no renderer field).
             if ( !dispatched )
-                m_SkyOcclusionBuilt = false;
+                m_SkyOcclusionMarchFailed.store( true, std::memory_order_release );
             return dispatched;
         };
         return occlusion;
@@ -1187,6 +1188,9 @@ namespace Desert::Graphic::System
         const uint64_t inputs = key.Get();
 
         m_SkyOcclusionPendingKey.reset();
+        // The previous frame's march that did not run (its exec set the flag after the graph joined).
+        if ( m_SkyOcclusionMarchFailed.exchange( false, std::memory_order_acq_rel ) )
+            m_SkyOcclusionBuilt = false;
         if ( m_SkyOcclusionBuilt && m_SkyOcclusionBuiltKey == inputs )
             return;
         nodes.push_back( SkyOcclusionNode() );
@@ -1255,6 +1259,16 @@ namespace Desert::Graphic::System
         m_ShadowMapValid   = false;
         m_ShadowMapPending = false;
         m_ShadowMap        = nullptr;
+
+        // THE PREVIOUS FRAME'S OUTCOME, taken before anything reads the refresh state: a shadow march whose
+        // dispatch did not run (its exec set the flag on a worker; the graph has joined since) left bytes no key
+        // describes, so both copies are re-marched whole and the hero patch with them.
+        if ( m_ShadowMarchFailed.exchange( false, std::memory_order_acq_rel ) )
+        {
+            m_ShadowRefresh       = {};
+            m_ShadowHeroBuilt     = false;
+            m_ShadowHeroFrontRect = {};
+        }
 
         if ( !m_ShadowMapPipeline || !m_ShadowParamsBuffer )
             return nodes;
@@ -1472,12 +1486,9 @@ namespace Desert::Graphic::System
                      bindings, *m_ShadowMapPipeline, GroupCount( columns, kMarchWorkGroupSize ),
                      GroupCount( rows, kMarchWorkGroupSize ), 1 );
                 // A march that did not run leaves bytes no key describes: both copies are re-marched next frame.
+                // Only the outcome is written here; DeclareShadowMapNodes drops the state in the next setup.
                 if ( !dispatched )
-                {
-                    m_ShadowRefresh       = {};
-                    m_ShadowHeroBuilt     = false;
-                    m_ShadowHeroFrontRect = {};
-                }
+                    m_ShadowMarchFailed.store( true, std::memory_order_release );
                 return dispatched;
             };
         };

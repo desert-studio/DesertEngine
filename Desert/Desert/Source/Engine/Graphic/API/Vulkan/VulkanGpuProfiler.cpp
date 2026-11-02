@@ -469,6 +469,15 @@ namespace Desert::Graphic::API::Vulkan
             m_Recording->Recorder.SetOrder( scopes[k], ( tick << 24 ) | static_cast<uint64_t>( k ) );
     }
 
+    void VulkanGpuProfiler::RetractChunkScopes( std::span<const int32_t> scopes )
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( m_Recording == nullptr )
+            return;
+        for ( const int32_t index : scopes )
+            m_Recording->Recorder.Retract( index );
+    }
+
     void VulkanGpuProfiler::Resolve( FrameQueries& frame )
     {
         if ( !frame.FrameTotalWritten )
@@ -491,7 +500,11 @@ namespace Desert::Graphic::API::Vulkan
             for ( const uint32_t at : m_OrderScratch )
             {
                 const GpuScopeRecorder::Scope& scope = scopes[at];
-                for ( int32_t parent = scope.Parent; parent != kGpuNoParent; parent = scopes[parent].Parent )
+                // RDG-PARALLEL-5: a discarded chunk's scope is no row; its passes are in the trace once, inline.
+                if ( scope.Retracted )
+                    continue;
+                for ( int32_t parent = frame.Recorder.LiveParent( static_cast<int32_t>( at ) );
+                      parent != kGpuNoParent; parent = frame.Recorder.LiveParent( parent ) )
                     order += '>';
                 order += scope.Name;
                 order += '|';
@@ -545,7 +558,11 @@ namespace Desert::Graphic::API::Vulkan
         m_Parents.resize( scopeCount );
         for ( size_t i = 0; i < scopeCount; ++i )
         {
-            m_Parents[i]   = scopes[i].Parent;
+            // A retracted scope (a discarded chunk's) is untimed and no one's parent: its queries were never
+            // executed, and the inline re-record timed the same passes under the live enclosing scope.
+            m_Parents[i] = frame.Recorder.LiveParent( static_cast<int32_t>( i ) );
+            if ( scopes[i].Retracted )
+                continue;
             m_Inclusive[i] = pairMs( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
         }
 
@@ -599,6 +616,12 @@ namespace Desert::Graphic::API::Vulkan
         { return Common::Profiling::GpuAsyncSegmentLabelStart( name ) != std::string_view::npos; };
         for ( size_t i = 0; i < scopeCount; ++i )
         {
+            // A retracted scope (a discarded chunk's) covers nothing: it is no member of any timeline.
+            if ( scopes[i].Retracted )
+            {
+                m_Intervals[i] = GpuInterval{};
+                continue;
+            }
             m_Intervals[i]   = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
             const auto index = static_cast<int32_t>( i );
             if ( scopes[i].Queue == GpuQueue::Graphics )

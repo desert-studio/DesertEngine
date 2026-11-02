@@ -793,7 +793,9 @@ namespace Desert::Graphic::Render2D
             Render2D*             layerRenderer = target.Renderer.get();
             const DrawList2D*     layer         = job->Layer;
             graph.AddPass(
-                 "UIRetainedLayer", RDG::PassFlags::Raster,
+                 // NeverParallel: FlushList grows and writes the layer renderer's vertex / index buffers and its
+                 // flush bookkeeping (m_UsedBackdrop, m_PreparedList) while it records.
+                 "UIRetainedLayer", RDG::PassFlags::Raster | RDG::PassFlags::NeverParallel,
                  [layerRef, layerRenderer, layer]( RDG::PassBuilder& pass )
                  {
                      // Transparent: the layer is premultiplied.
