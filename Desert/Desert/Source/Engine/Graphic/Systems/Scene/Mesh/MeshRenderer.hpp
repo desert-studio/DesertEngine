@@ -918,9 +918,21 @@ namespace Desert::Graphic::System
         {
             m_FoliageShadowLodBias = steps;
         }
-        // The rule's measure as a light camera carries it (ViewFrame::CasterWindOrigin): xyz the main camera's
-        // origin - the point ShadowIsmInstances measures from - w the shadow wind distance.
-        [[nodiscard]] glm::vec4 CasterWindOrigin() const;
+        // WHO SWAYS IN WHICH CASCADE (UE: WPO off in the clipmap levels / cascades no receiver near the camera
+        // samples; r.Shadow.Virtual.Clipmap.WPODisableDistance): the shadow wind distance shadow view @p view
+        // measures its swaying casters by. A sun cascade no receiver within Shadows.WindAnimationDistance of the
+        // camera can sample gets 0 - every caster casts its rest pose, the cascade's static layer holds them and
+        // the wind neither redraws nor invalidates it; every other view (the near cascades, their movable layers,
+        // the VSM levels, the local and rain views) gets Shadows.WindAnimationDistance. Cascade c >= 2 is such a
+        // cascade when the distance is within cascade c-2's split: a visible receiver at a view depth up to it lies
+        // in a slice of a tighter cascade, inside that cascade's square (the sphere fit), so it picks that one or
+        // tighter (Mesh/CascadedShadow.glslh chooseCascade) and cross-fades at most into cascade c-1; a receiver
+        // within the distance is at a view depth no larger. One answer for the CPU walk (CascadeStaticSignature,
+        // BuildShadowCascadeDraws), the GPU cull's caster views (LodOrigin.w) and the vertex stage (CasterWindOrigin).
+        [[nodiscard]] float ShadowWindDistanceOf( uint32_t view ) const;
+        // The rule's measure as shadow view @p view's light camera carries it (ViewFrame::CasterWindOrigin): xyz the
+        // main camera's origin - the point ShadowIsmInstances measures from - w ShadowWindDistanceOf( view ).
+        [[nodiscard]] glm::vec4 CasterWindOrigin( uint32_t view ) const;
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
         void SetSkinCacheEnabled( const bool enabled )
         {
@@ -2478,6 +2490,7 @@ namespace Desert::Graphic::System
             float     SourceTanHalf = 0.0f;
             glm::vec4 WorldPerTexel = glm::vec4( 1.0f ); // per cascade: world size of one map texel (2*radius/res)
             glm::vec4 DepthRange    = glm::vec4( 1.0f ); // per cascade: world length of the [0,1] light depth
+            glm::vec4 SplitFar      = glm::vec4( 0.0f ); // per cascade: the view depth its slice ends at (cm)
             glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];

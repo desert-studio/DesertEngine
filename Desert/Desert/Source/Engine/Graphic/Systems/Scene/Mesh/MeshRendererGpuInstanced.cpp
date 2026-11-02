@@ -449,6 +449,10 @@ namespace Desert::Graphic::System
         // The cascade's caster box (as BuildShadowCascadeDraws culls the static casters): a section with a box casts
         // only into the cascades it meets.
         const Core::Frustum cascadeFrustum( m_CascadeCasterVP[shadowView], glm::mat4( 1.0f ) );
+        // The rule's measure in this cascade (ShadowWindDistanceOf): 0 where no receiver near the camera samples
+        // it, every instance then casting its rest pose into the static layer and none left for the movable one.
+        const glm::vec4 viewWind  = CasterWindOrigin( shadowView );
+        const bool      viewSways = viewWind.w > 0.0f;
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
             if ( !gpu.CastShadows )
@@ -472,7 +476,7 @@ namespace Desert::Graphic::System
             }
             else if ( layer == ShadowCasterLayer::Movable )
             {
-                if ( still && !sways )
+                if ( still && !( sways && viewSways ) )
                     continue;
                 split = still ? CasterWindLayer::kRule | CasterWindLayer::kDropFar : 0u;
             }
@@ -518,7 +522,7 @@ namespace Desert::Graphic::System
                 continue;
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, CasterWindOrigin() );
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind );
             BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =
