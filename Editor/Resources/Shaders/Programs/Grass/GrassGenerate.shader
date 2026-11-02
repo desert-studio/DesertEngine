@@ -638,17 +638,17 @@ Shader "GrassGenerate"
 
         // THE TILE CULL of one candidate (GRASS-TILE-1): everything the view decides - the generation's own rules,
         // moved from the build.
-        void CullCandidate( TileRecord r, GrassParams p )
+        void CullCandidate( TileRecord r )
         {
             vec2  world  = r.Position.xz;
             float height = r.Position.y;
-            if ( r.Thin >= p.ScaleZ.w && r.Thin >= LensShare( world, height, p ) )
+            if ( r.Thin >= GrassParamsData[0].ScaleZ.w && r.Thin >= LensShare( world, height, GrassParamsData[0] ) )
                 return;
-            uint flags = floatBitsToUint( p.ScaleX.w );
+            uint flags = floatBitsToUint( GrassParamsData[0].ScaleX.w );
             bool blade = ( flags & kFlagBlade ) != 0u;
             vec3  position = r.Position;
-            float distance = length( position - p.Camera.xyz );
-            if ( distance > p.Cull.y )
+            float distance = length( position - GrassParamsData[0].Camera.xyz );
+            if ( distance > GrassParamsData[0].Cull.y )
                 return;
             // The share of the field kept at this distance (GRASS-DENSITY, Common/GrassFieldShare.glslh - the one
             // law the ground's far cover reads too): beyond StartCullDistance S it falls with the square of the
@@ -657,7 +657,7 @@ Shader "GrassGenerate"
             // top of that UE's fade, down to nothing at EndCullDistance. Nested: an instance kept at d is kept
             // nearer, so walking does not reshuffle the field, only thins it; before S every instance is kept.
             float                 fade  = r.Fade;
-            const GrassFieldShare field = GrassFieldShareAt( distance, p.Cull.x, p.Cull.y, p.Spread.w );
+            const GrassFieldShare field = GrassFieldShareAt( distance, GrassParamsData[0].Cull.x, GrassParamsData[0].Cull.y, GrassParamsData[0].Spread.w );
             float                 kept  = field.Kept;
             // The screen-width floor (GRASS-WIDTH; GoT / UE landscape grass LOD): past D the mean blade would stand
             // narrower than MinScreenWidth pixels, so the field keeps (D / d)^2 of its blades - the law the thinning
@@ -684,9 +684,9 @@ Shader "GrassGenerate"
             GrassBladeLod lod = GrassBladeLod( 0u, 1.0, 1.0 );
             if ( blade )
             {
-                uint  ring = p.Blade.x > 0.0 ? min( uint( distance / p.Blade.x ), p.Buckets.x - 1u ) : 0u;
-                float size = p.Lod.z > 0.0 ? p.Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
-                lod        = GrassBladeLodAt( size, ring, p.Buckets.x );
+                uint  ring = GrassParamsData[0].Blade.x > 0.0 ? min( uint( distance / GrassParamsData[0].Blade.x ), GrassParamsData[0].Buckets.x - 1u ) : 0u;
+                float size = GrassParamsData[0].Lod.z > 0.0 ? GrassParamsData[0].Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
+                lod        = GrassBladeLodAt( size, ring, GrassParamsData[0].Buckets.x );
                 float share = min( kept, field.Floor ) * lod.Share;
                 if ( fade >= share )
                     return;
@@ -703,8 +703,8 @@ Shader "GrassGenerate"
                 // share by its bounding radius on screen - its largest axis scale over the far LOD's screen size
                 // (p.Lod.z: where the mesh at scale 1 stands at it) - on top of the distance thinning, and the
                 // instance it drops shrinks to nothing first (GrassMeshShrink over both shares).
-                float           size    = p.Lod.z > 0.0
-                                              ? p.Lod.z * max( scale.x, max( scale.y, scale.z ) ) / max( distance, 1.0 )
+                float           size    = GrassParamsData[0].Lod.z > 0.0
+                                              ? GrassParamsData[0].Lod.z * max( scale.x, max( scale.y, scale.z ) ) / max( distance, 1.0 )
                                               : 0.0;
                 GrassFieldShare reached = GrassMeshFarLod( field, size );
                 if ( fade >= reached.Kept )
@@ -714,20 +714,20 @@ Shader "GrassGenerate"
             // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
             // narrowest card's: the sphere tests take the widest the instance can become.
             float floorBound = 0.0;
-            if ( p.Lean.w > 0.0 )
+            if ( GrassParamsData[0].Lean.w > 0.0 )
             {
                 float narrowest = 1.0e30;
-                for ( uint i = 0u; i < min( p.Buckets.z, 8u ); ++i )
-                    narrowest = min( narrowest, p.CardWidths[i / 4u][i % 4u] );
-                floorBound = p.Lean.w * distance / max( narrowest, 1.0e-3 );
+                for ( uint i = 0u; i < min( GrassParamsData[0].Buckets.z, 8u ); ++i )
+                    narrowest = min( narrowest, GrassParamsData[0].CardWidths[i / 4u][i % 4u] );
+                floorBound = GrassParamsData[0].Lean.w * distance / max( narrowest, 1.0e-3 );
             }
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
             // bounding sphere (the camera's own list is GrassCull.shader's).
-            float radius = p.Range.w * max( max( scale.x, floorBound ) * lod.Widen, max( scale.y, scale.z ) );
-            vec3  centre = position + vec3( 0.0, p.ScaleY.z * scale.y, 0.0 );
+            float radius = GrassParamsData[0].Range.w * max( max( scale.x, floorBound ) * lod.Widen, max( scale.y, scale.z ) );
+            vec3  centre = position + vec3( 0.0, GrassParamsData[0].ScaleY.z * scale.y, 0.0 );
             for ( int i = 0; i < 4; ++i )
-                if ( dot( p.Planes[i].xyz, centre ) + p.Planes[i].w < -radius )
+                if ( dot( GrassParamsData[0].Planes[i].xyz, centre ) + GrassParamsData[0].Planes[i].w < -radius )
                     return;
             vec3 draws = r.Draws;
             if ( blade )
@@ -736,12 +736,12 @@ Shader "GrassGenerate"
                 // The screen-width floor (GRASS-WIDTH): the card this instance draws (Mesh/Surface/GrassBlade.glslh
                 // BladeCard, from draws.x) stands at least MinScreenWidth pixels wide - its width scale lifted to
                 // Lean.w x d / its width - so no strip of the blade goes sub-pixel.
-                if ( p.Lean.w > 0.0 && p.Buckets.z > 0u )
+                if ( GrassParamsData[0].Lean.w > 0.0 && GrassParamsData[0].Buckets.z > 0u )
                 {
-                    uint  count = min( p.Buckets.z, 8u );
+                    uint  count = min( GrassParamsData[0].Buckets.z, 8u );
                     uint  card  = min( uint( draws.x * float( count ) ), count - 1u );
-                    float width = p.CardWidths[card / 4u][card % 4u];
-                    scale.x     = max( scale.x, p.Lean.w * distance / max( width, 1.0e-3 ) );
+                    float width = GrassParamsData[0].CardWidths[card / 4u][card % 4u];
+                    scale.x     = max( scale.x, GrassParamsData[0].Lean.w * distance / max( width, 1.0e-3 ) );
                 }
                 // The far LOD's survivor stands for the 1 / Share blades it keeps the place of: its card - lifted to
                 // the floor first - is that much wider, so the field covers what it did.
@@ -752,16 +752,16 @@ Shader "GrassGenerate"
             uint bucket = 0u;
             if ( blade )
                 bucket = lod.Level;
-            else if ( p.Buckets.x > 1u )
+            else if ( GrassParamsData[0].Buckets.x > 1u )
             {
                 // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
                 // SelectLODFromBounds): the coarsest whose screen size the instance's bounding sphere is still below.
-                float r        = p.Lod.x * max( scale.x, max( scale.y, scale.z ) );
-                vec3  d        = centre - p.Camera.xyz;
-                float screenSq = r * r / max( 1.0, dot( d, d ) * p.Lod.y );
-                for ( uint level = p.Buckets.x - 1u; level > 0u; --level )
+                float r        = GrassParamsData[0].Lod.x * max( scale.x, max( scale.y, scale.z ) );
+                vec3  d        = centre - GrassParamsData[0].Camera.xyz;
+                float screenSq = r * r / max( 1.0, dot( d, d ) * GrassParamsData[0].Lod.y );
+                for ( uint level = GrassParamsData[0].Buckets.x - 1u; level > 0u; --level )
                 {
-                    float halfSize = uintBitsToFloat( Arguments[p.Buckets.y + level * 4u + 3u] );
+                    float halfSize = uintBitsToFloat( Arguments[GrassParamsData[0].Buckets.y + level * 4u + 3u] );
                     if ( halfSize * halfSize > screenSq )
                     {
                         bucket = level;
@@ -769,14 +769,14 @@ Shader "GrassGenerate"
                     }
                 }
             }
-            uint table = p.Buckets.y + bucket * 4u;
+            uint table = GrassParamsData[0].Buckets.y + bucket * 4u;
             uint index = WaveAppend( false, table );
             if ( index >= Arguments[table + 2u] )
                 return;
             index += Arguments[table + 1u];
             // The world's snow (Common/WeatherSnow.glslh) lies p.Lean.z deep over the ground: the root sinks by it,
             // so the instance shows only what stands above the snow and one shorter than it is buried whole.
-            position.y -= p.Lean.z;
+            position.y -= GrassParamsData[0].Lean.z;
             // A blade's forward axis carries the height multiplier (its lean is a share of its height) and the
             // columns' w its three draws (Vertex_GrassBlade.glslh); a mesh's are its scaled axes.
             mat4 instance;
@@ -793,16 +793,16 @@ Shader "GrassGenerate"
             // the light and the slice is inside) the instance's reach meets: a sphere about the root - after the
             // snow sank it - holding its bounds at the final scale, the clump's height included, plus a mesh's sway.
             // A list's bucket gets at most what the full list's kept, so it never passes the capacity they share.
-            if ( p.Cascades.x != 0u )
+            if ( GrassParamsData[0].Cascades.x != 0u )
             {
-                float reach = ( abs( p.ScaleY.z ) + p.Range.w ) * max( scale.x, max( scale.y, scale.z ) ) +
-                              uintBitsToFloat( p.Cascades.z );
-                for ( uint k = 0u; k < p.Cascades.x; ++k )
+                float reach = ( abs( GrassParamsData[0].ScaleY.z ) + GrassParamsData[0].Range.w ) * max( scale.x, max( scale.y, scale.z ) ) +
+                              uintBitsToFloat( GrassParamsData[0].Cascades.z );
+                for ( uint k = 0u; k < GrassParamsData[0].Cascades.x; ++k )
                 {
                     bool inside = true;
                     for ( uint i = 0u; i < 6u && inside; ++i )
                     {
-                        vec4 plane = p.CascadePlanes[k * 6u + i];
+                        vec4 plane = GrassParamsData[0].CascadePlanes[k * 6u + i];
                         inside     = dot( plane.xyz, position ) + plane.w >= -reach;
                     }
                     if ( !inside )
@@ -811,15 +811,15 @@ Shader "GrassGenerate"
                     // vertex stage's model[3]): a mover inside the ring [inner, wind distance), else its rest pose.
                     // The ring is Common/ShadowWind.glslh's one rule (ShadowWindInsideRing, as GpuCull_CastsRestPose
                     // and the CPU walk read it); x = ShadowWindInnerOf = ShadowWindRingInner( ShadowWindRingOf ).
-                    vec2 ring  = p.CascadeRings[k].xy;
+                    vec2 ring  = GrassParamsData[0].CascadeRings[k].xy;
                     bool mover = ring.y > 0.0 &&
-                                 !ShadowWindCastsRestPose( position, p.CasterWindOrigin.xyz, ring.y ) &&
-                                 !ShadowWindInsideRing( position, p.CasterWindOrigin.xyz, ring.x );
+                                 !ShadowWindCastsRestPose( position, GrassParamsData[0].CasterWindOrigin.xyz, ring.y ) &&
+                                 !ShadowWindInsideRing( position, GrassParamsData[0].CasterWindOrigin.xyz, ring.x );
                     // One append site for both counters (WaveAppend gathers the invocations by the counter): a
                     // mover's from the bucket's first slot, a rest caster's from its last.
-                    uint at      = k * p.Cascades.y + table;
+                    uint at      = k * GrassParamsData[0].Cascades.y + table;
                     uint room    = CascadeArguments[at + 2u];
-                    uint counter = mover ? at : k * p.Cascades.y + p.Cascades.w + bucket;
+                    uint counter = mover ? at : k * GrassParamsData[0].Cascades.y + GrassParamsData[0].Cascades.w + bucket;
                     uint slot    = WaveAppend( true, counter );
                     if ( slot < room )
                         GrassCascadeIdsData[CascadeArguments[at + 1u] + ( mover ? slot : room - 1u - slot )] = index;
@@ -863,7 +863,7 @@ Shader "GrassGenerate"
                 uint record = TileRecordAt( header, first + lane );
                 if ( unpackUnorm2x16( TilePoolData[record * kTilePoolWords].w ).x >= min( at.Kept, at.Floor ) )
                     return;
-                CullCandidate( LoadRecord( record ), GrassParamsData[0] );
+                CullCandidate( LoadRecord( record ) );
                 return;
             }
             // The pass's own copy of the params (the camera cull, GrassCull.shader, makes none).
