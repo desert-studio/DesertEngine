@@ -139,7 +139,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>( "the frame's command buffer: {}", frame.GetError() );
         }
         m_CurrentCommandBuffer = frame.GetValue();
-        m_BoundGeometry.reset(); // a freshly begun buffer holds no geometry binding
+        ForgetBoundState(); // a freshly begun buffer holds no binding
 
         // Resolve the previous results and reset this frame's queries. Must be here: vkCmdResetQueryPool
         // is illegal inside a render pass, and this is the one point in the frame where the command buffer
@@ -385,7 +385,13 @@ namespace Desert::Graphic::API::Vulkan
         auto* vulkanPipeline = const_cast<VulkanPipeline*>( static_cast<const VulkanPipeline*>( pipeline ) );
         if ( VkPipeline bound = vulkanPipeline->GetVkPipelineFor( *openPass ); bound != VK_NULL_HANDLE )
         {
-            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
+            // CPU-FRAME-6: recorded only when the command buffer holds another pipeline (m_BoundGraphics).
+            m_BoundGraphics.On( m_CurrentCommandBuffer );
+            if ( m_BoundGraphics.Pipeline != bound )
+            {
+                vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
+                m_BoundGraphics.Pipeline = bound;
+            }
             return true;
         }
         // Still in the driver (PSO1): not an error, and not drawn. An ENGINE pipeline is counted by
@@ -473,6 +479,8 @@ namespace Desert::Graphic::API::Vulkan
                 return;
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+            // The material binds its own sets past the renderer's record of what is bound (m_BoundGraphics).
+            m_BoundGraphics.ForgetSets();
             if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
                                                  VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
                 return;
@@ -849,7 +857,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
                                                bindings.GetContext().GetPassName(), vertexCount, instanceCount );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, material, push, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
         // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
@@ -877,7 +886,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !buffer )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
                                                buffer.GetError() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, material, push, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
         vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
@@ -894,7 +904,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( indexCount == 0u )
             return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
                                                bindings.GetContext().GetPassName() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, {} );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, material, {}, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
         const VkDeviceSize offsets[] = { 0 };
@@ -1001,12 +1012,26 @@ namespace Desert::Graphic::API::Vulkan
         const MeshGeometry& geometry = mesh.GetGeometry();
         if ( !geometry.IsResident() )
             return Common::MakeFormattedError( "{}: mesh has no vertices on the GPU", pass );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material, drawPush );
-             !bound || !bound.GetValue() )
-            return bound;
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        const auto& submeshes = mesh.GetSubmeshes();
+        // CPU-FRAME-6: the loop below pushes the layout's whole range (same stages, offset and size as the bind's
+        // push, which is never larger) before each submesh's draw, so when one is drawn at all the bind's push of
+        // the draw's block is dead: overwritten before any draw reads it. Without a visible submesh nothing is
+        // drawn and the bind pushes as before.
+        const auto& pushConstant  = graphics->GetPushConstantRange();
+        bool        drawsAnything = false;
+        for ( size_t si = 0; si < submeshes.size() && !drawsAnything; ++si )
+            drawsAnything = !hiddenSubmeshMask.Hides( si );
+        const PassStatePush bindPush =
+             drawsAnything && pushConstant.has_value() && pushConstant->size >= sizeof( glm::mat4 )
+                  ? PassStatePush::CallerCoversRange
+                  : PassStatePush::Record;
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, &material, drawPush, bindPush );
+             !bound || !bound.GetValue() )
+            return bound;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
 
@@ -1021,8 +1046,7 @@ namespace Desert::Graphic::API::Vulkan
         // values over it, MeshDrawList::Record; the pipeline layout's full range, zero past what it holds) with
         // the submesh's transform over the first mat4. Stages and size are the LAYOUT's
         // (VulkanPipeline::GetPushConstantRange), never the shader's current reflection, which a recompile can
-        // move past the layout this pipeline holds.
-        const auto& pushConstant = graphics->GetPushConstantRange();
+        // move past the layout this pipeline holds (pushConstant, above).
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
         // CPU-FRAME-5: the renderer's scratch (recording is one thread's), so a draw allocates no push block.
         std::vector<std::byte>& push = m_SubmeshPush;
@@ -1039,8 +1063,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
-        const auto& submeshes = mesh.GetSubmeshes();
-        uint32_t    drawn     = 0;
+        uint32_t drawn = 0;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
             if ( hiddenSubmeshMask.Hides( si ) )
@@ -1175,7 +1198,8 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError( "{}: {} draw split labels for an indirect group of {} records",
                                                pass, draw.SplitLabels.size(), draw.MaxDraws );
 
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material, {} );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, draw.Material, {}, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
         // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
@@ -1246,7 +1270,8 @@ namespace Desert::Graphic::API::Vulkan
                                                "`.VirtualGeometry` cell",
                                                pass, pipeline.GetSpecification().DebugName );
 
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material, {} );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, draw.Material, {}, PassStatePush::Record );
              !bound || !bound.GetValue() )
             return bound;
         // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is consumed,
@@ -1265,7 +1290,8 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings&         bindings,
                                                                     const GraphicsPipeline&          pipeline,
                                                                     const MaterialExecutor*          material,
-                                                                    const std::span<const std::byte> drawPush )
+                                                                    const std::span<const std::byte> drawPush,
+                                                                    const PassStatePush              pushMode )
     {
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
@@ -1383,10 +1409,20 @@ namespace Desert::Graphic::API::Vulkan
         if ( !BindGraphicsPipeline( &pipeline ) )
             return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
                                                pass, pipeline.GetSpecification().DebugName );
+        // CPU-FRAME-6: the sets are recorded only when the command buffer does not hold exactly these, bound with
+        // this layout (m_BoundGraphics; a layout that differs is never assumed compatible).
         if ( !sets.empty() )
-            vkCmdBindDescriptorSets(
-                 cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, graphics->GetVkPipelineLayout(), 0,
-                 static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
+        {
+            const VkPipelineLayout layout = graphics->GetVkPipelineLayout();
+            m_BoundGraphics.On( cmd.GetValue() );
+            if ( m_BoundGraphics.SetsLayout != layout || !std::ranges::equal( m_BoundGraphics.Sets, sets ) )
+            {
+                vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
+                                         static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
+                m_BoundGraphics.SetsLayout = layout;
+                m_BoundGraphics.Sets.assign( sets.begin(), sets.end() );
+            }
+        }
         // Stages and size are the pipeline LAYOUT's range (VulkanPipeline::GetPushConstantRange), not the shader's
         // current reflection: the two part ways when the shader is re-reflected while this pipeline keeps its
         // layout.
@@ -1399,8 +1435,9 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeFormattedError( "{}: pipeline '{}' push range is {} bytes, the pass pushes {}",
                                                    pass, pipeline.GetSpecification().DebugName, pushRange->size,
                                                    push.size() );
-            vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(), pushRange->stageFlags,
-                                pushRange->offset, static_cast<uint32_t>( push.size() ), push.data() );
+            if ( pushMode == PassStatePush::Record )
+                vkCmdPushConstants( cmd.GetValue(), graphics->GetVkPipelineLayout(), pushRange->stageFlags,
+                                    pushRange->offset, static_cast<uint32_t>( push.size() ), push.data() );
         }
         return Common::MakeSuccess( true );
     }
@@ -1629,7 +1666,7 @@ namespace Desert::Graphic::API::Vulkan
             return fail( next.GetError() );
         }
         m_CurrentCommandBuffer = next.GetValue();
-        m_BoundGeometry.reset(); // a freshly begun buffer holds no geometry binding
+        ForgetBoundState(); // a freshly begun buffer holds no binding
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
@@ -1652,7 +1689,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         m_CurrentCommandBuffer = commandBuffer;
         // A segment's buffer may be one begun again since it last recorded (same handle, empty state).
-        m_BoundGeometry.reset();
+        ForgetBoundState();
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()
@@ -1677,6 +1714,9 @@ namespace Desert::Graphic::API::Vulkan
             // (ended before the graph) or another segment's. ExecuteGraph re-arms a fresh one after.
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
+            // CPU-FRAME-6: a pass exec may record through anything (ImGui, NGX), so what this API last bound is
+            // not known across a pass's begin or end (m_BoundGraphics).
+            m_RdgBackend->SetPassBoundaryListener( [this]() { ForgetBoundState(); } );
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
             m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>(
                  m_RdgDevice.Device, EngineSamplerCache(), slots, device->GetRayTracingFunctions().Complete() );

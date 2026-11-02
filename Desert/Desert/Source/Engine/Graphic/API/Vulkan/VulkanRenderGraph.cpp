@@ -1493,6 +1493,8 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRdgBackend::BeginPass( const RDG::CompiledPass& pass )
     {
         m_PassSets.Clear();
+        if ( m_PassBoundaryListener )
+            m_PassBoundaryListener();
         if ( m_Device.CmdBeginLabel != nullptr )
         {
             VkDebugUtilsLabelEXT label{};
@@ -1510,6 +1512,8 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRdgBackend::EndPass( const RDG::CompiledPass& )
     {
         m_PassSets.Clear();
+        if ( m_PassBoundaryListener )
+            m_PassBoundaryListener();
         if ( !m_ProfilerScopes.empty() )
         {
             if ( m_Device.Profiler != nullptr )

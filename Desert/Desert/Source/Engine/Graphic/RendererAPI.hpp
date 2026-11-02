@@ -186,7 +186,8 @@ namespace Desert::Graphic
 
         // Vertexless draw in the pipeline's topology (the vertex stage pulls from a storage buffer by index).
         // Code outside the renderer bound vertex / index buffers on the current command buffer (the ImGui
-        // backend): the next mesh draw must bind its geometry, whatever the renderer last bound.
+        // backend): the next mesh draw must bind its geometry, whatever the renderer last bound - and its pipeline
+        // and descriptor sets (CPU-FRAME-6: the API's bind cache is forgotten whole, not the geometry alone).
         virtual void InvalidateGeometryBinding() = 0;
 
         virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
