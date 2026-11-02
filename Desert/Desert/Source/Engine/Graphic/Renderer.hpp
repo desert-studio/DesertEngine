@@ -15,6 +15,7 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
+#include <Engine/Graphic/ProceduralIndexedRange.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 
 namespace Desert::ShaderResources

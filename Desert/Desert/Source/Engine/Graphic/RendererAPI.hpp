@@ -8,6 +8,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/DrawSplitLabel.hpp>
+#include <Engine/Graphic/ProceduralIndexedRange.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
@@ -66,18 +67,6 @@ namespace Desert::Graphic
         // per record (MaxDraws), and each record is its own call bracketed by its own timestamp pair. Empty =
         // MaxDrawsPerCall records per call, untimed.
         std::span<const DrawSplitLabel> SplitLabels{};
-    };
-
-    // One vkCmdDrawIndexed of a vertex-buffer-less indexed draw (RendererAPI::DrawProceduralIndexed): @p
-    // IndexCount (> 0) uint32 indices from @p FirstIndex, each vertex's gl_VertexIndex = its index + @p
-    // VertexOffset, x @p InstanceCount (> 0) instances from @p FirstInstance (gl_InstanceIndex counts from it).
-    struct ProceduralIndexedRange
-    {
-        uint32_t IndexCount    = 0;
-        uint32_t FirstIndex    = 0;
-        int32_t  VertexOffset  = 0;
-        uint32_t InstanceCount = 1;
-        uint32_t FirstInstance = 0;
     };
 
     // One material group of the virtual-geometry raster (VirtualGeometry::RasterBins): ONE non-indexed
