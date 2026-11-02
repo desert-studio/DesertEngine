@@ -166,7 +166,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( handles.empty() )
             return Common::MakeFormattedError<WrittenSlots>( "material of shader '{}' has no set 0",
                                                              m_VulkanShader->GetName() );
-        return Common::MakeSuccess( WrittenSlots{ handles[0], sets->BoundCopies.GetWrittenBindings() } );
+        return Common::MakeSuccess( WrittenSlots{ .Set      = handles[0],
+                                                  .Bindings = sets->BoundCopies.GetWrittenBindings(),
+                                                  .Identity = sets->BoundCopies.GetIdentity(),
+                                                  .Version  = sets->BoundCopies.GetVersion() } );
     }
 
     void VulkanMaterialBackend::NoteDescriptorWrite( IViewDescriptorSetCopy& sets, const uint32_t binding,
