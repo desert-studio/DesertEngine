@@ -210,6 +210,16 @@ namespace Desert::Graphic
         return s_RendererAPI->DrawProceduralIndirect( bindings, pipeline, material, push, args, offset );
     }
 
+    Common::BoolResultStr Renderer::DrawProceduralIndexed( const RDG::PassBindings& bindings,
+                                                           const GraphicsPipeline&  pipeline,
+                                                           const MaterialExecutor*  material,
+                                                           IndexBuffer&             indexBuffer,
+                                                           const std::span<const ProceduralIndexedRange> ranges,
+                                                           const std::span<const std::byte>              push )
+    {
+        return s_RendererAPI->DrawProceduralIndexed( bindings, pipeline, material, push, indexBuffer, ranges );
+    }
+
     Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings,
                                                  const GraphicsPipeline&  pipeline,
                                                  const MaterialExecutor* material, VertexBuffer& vertexBuffer,

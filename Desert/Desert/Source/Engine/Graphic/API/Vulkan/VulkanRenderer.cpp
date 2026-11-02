@@ -1104,6 +1104,44 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr
+    VulkanRendererAPI::DrawProceduralIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                              const MaterialExecutor*          material,
+                                              const std::span<const std::byte> push, IndexBuffer& indexBuffer,
+                                              const std::span<const ProceduralIndexedRange> ranges )
+    {
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        if ( ranges.empty() )
+            return Common::MakeFormattedError( "{}: an indexed procedural draw of no range", pass );
+        const uint64_t indices = indexBuffer.GetCount();
+        for ( const ProceduralIndexedRange& range : ranges )
+        {
+            if ( range.IndexCount == 0u || range.InstanceCount == 0u )
+                return Common::MakeFormattedError( "{}: an indexed procedural draw of {} indices x {} instances",
+                                                   pass, range.IndexCount, range.InstanceCount );
+            if ( uint64_t{ range.FirstIndex } + range.IndexCount > indices )
+                return Common::MakeFormattedError( "{}: indices [{}, {}) past the end of a {}-index buffer", pass,
+                                                   range.FirstIndex,
+                                                   uint64_t{ range.FirstIndex } + range.IndexCount, indices );
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+        VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
+        if ( ibuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError(
+                 "{}: the index buffer of an indexed procedural draw is not uploaded", pass );
+        if ( const Common::BoolResultStr bound =
+                  BindGraphicsPassState( bindings, pipeline, material, push, PassStatePush::Record );
+             !bound || !bound.GetValue() )
+            return bound;
+        vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, 0, VK_INDEX_TYPE_UINT32 );
+        Recording().BoundGeometry.reset(); // the index buffer now holds this draw's, not a mesh's
+        // No vertex buffer: the vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
+        for ( const ProceduralIndexedRange& range : ranges )
+            DrawIndexedCounted( range.IndexCount, range.InstanceCount, range.FirstIndex, range.VertexOffset,
+                                range.FirstInstance );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::DrawIndexed( const RDG::PassBindings& bindings,
                                                           const GraphicsPipeline&  pipeline,
                                                           const MaterialExecutor*  material,

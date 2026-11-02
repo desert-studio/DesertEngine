@@ -402,6 +402,127 @@ namespace Desert::Graphic::System
         return total + all - inner * 6u;
     }
 
+    // ── THE TILE'S GRID, INDEXED (TERRAIN-GPU-2) ────────────────────────────────────────────────────────
+    //
+    // UE FLandscapeSharedBuffers: one index buffer per grid size, shared by every tile drawn at it, over the
+    // grid's (cells + 1)^2 nodes - each node one vertex, which the post-transform cache shades once for the
+    // triangles around it (about twice along 255-cell rows), where the procedural decode (six vertices a cell)
+    // evaluated every node six times, ten heightmap fetches each. The undiced cells of every tile draw through it
+    // (TerrainRenderer::RecordDraws); the dice rings keep the procedural decode - their sub-vertices are the dice
+    // pool's, read and not evaluated, and their layout moves with the camera every frame.
+    //
+    // The vertex stage tells the two apart by the draw's first instance (TerrainVertex.glslh): an indexed grid
+    // draw starts at kLandscapeGridFirstInstance and every instance past it is one grid row further (a strip of
+    // rows beside the rings is one instanced draw of one row's index range); the procedural draws, the virtual
+    // shadow map's indirect ones included, are instance 0. LandscapeDisplacement.glslh
+    // LANDSCAPE_GRID_FIRST_INSTANCE is the same number.
+    inline constexpr uint32_t kLandscapeGridFirstInstance = 1u;
+
+    // Cells a side of a tile's grid at grid LOD @p gridLod (LandscapeLodVertexCount's: the last cell is narrower
+    // when the stride does not divide the quads).
+    inline uint32_t LandscapeLodCells( uint32_t quadsPerTile, uint32_t gridLod )
+    {
+        const uint32_t stride = 1u << gridLod;
+        return ( quadsPerTile + stride - 1u ) / stride;
+    }
+
+    // The grid's index buffer: cells row-major (z outer), six indices a cell in LandscapeLod.glslh's corner order
+    // (LandscapeLodCornerX / Z: (0,0) (1,1) (1,0), (0,0) (0,1) (1,1) - the procedural decode's two triangles, same
+    // diagonal, same winding), node (x, z) = z * (cells + 1) + x.
+    inline std::vector<uint32_t> LandscapeGridIndices( uint32_t cells )
+    {
+        constexpr std::array<uint32_t, 6> cornerX{ 0u, 1u, 1u, 0u, 0u, 1u };
+        constexpr std::array<uint32_t, 6> cornerZ{ 0u, 1u, 0u, 0u, 1u, 1u };
+        const uint32_t                    pitch = cells + 1u;
+        std::vector<uint32_t>             indices;
+        indices.reserve( static_cast<size_t>( cells ) * cells * 6u );
+        for ( uint32_t z = 0; z < cells; ++z )
+            for ( uint32_t x = 0; x < cells; ++x )
+                for ( size_t c = 0; c < cornerX.size(); ++c )
+                    indices.push_back( ( z + cornerZ[c] ) * pitch + x + cornerX[c] );
+        return indices;
+    }
+
+    // A tile's draw, split: the head of the procedural decode - the dice rings, finest first
+    // (LandscapeDisplacement.glslh LandscapeDecodeDrawVertex) - and the grid's cells outside the outermost ring's
+    // square (Hole), which the decode would draw after them and the grid index buffer draws instead.
+    struct LandscapeDrawSplit
+    {
+        uint32_t   Cells        = 0; // the grid's cells a side: its index buffer
+        uint32_t   RingVertices = 0; // the procedural draw: vertices [0, RingVertices) of the decode
+        glm::ivec4 Hole{ 0 };        // [x0, x1) x [z0, z1): the cells the rings draw; empty = no ring
+    };
+
+    // The split of the row's draw at grid LOD @p gridLod: LandscapeDicedVertexCount's walk, kept as the decode
+    // keeps it (a ring with no cells leaves the finer square the inner one). RingVertices + (Cells^2 - Hole's
+    // cells) x 6 is LandscapeDicedVertexCount.
+    inline LandscapeDrawSplit LandscapeDrawSplitOf( uint32_t quadsPerTile, uint32_t gridLod,
+                                                    const TerrainInstance& row )
+    {
+        LandscapeDrawSplit split;
+        split.Cells = LandscapeLodCells( quadsPerTile, gridLod );
+        if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
+            return split;
+        const int  cells = static_cast<int>( split.Cells );
+        glm::ivec4 inner( 0 );
+        for ( int level = kLandscapeDiceLevels - 1; level >= 0; --level )
+        {
+            const glm::ivec4 outer = LandscapeDiceRingRect( row, level, cells );
+            const uint32_t   area  = LandscapeDiceRectArea( outer );
+            if ( area == 0u )
+                continue;
+            split.RingVertices +=
+                 ( area - std::min( LandscapeDiceRectArea( inner ), area ) ) * ( 1u << ( 2 * level ) ) * 6u;
+            inner = outer;
+        }
+        split.Hole = inner;
+        return split;
+    }
+
+    // One indexed draw of a grid's index buffer: IndexCount indices from FirstIndex, the nodes offset by FirstRow
+    // whole rows (the draw's vertex offset), Rows instances, each one row further.
+    struct LandscapeGridRange
+    {
+        uint32_t FirstIndex = 0;
+        uint32_t IndexCount = 0;
+        uint32_t FirstRow   = 0;
+        uint32_t Rows       = 1;
+    };
+
+    struct LandscapeGridRanges
+    {
+        std::array<LandscapeGridRange, 4> Ranges{};
+        uint32_t                          Count = 0;
+    };
+
+    // The grid's cells outside @p split.Hole (all of them when it is empty) as index ranges: the rows below the
+    // hole and the rows above it are each one contiguous range; the hole's rows left of it and right of it are
+    // each one range of row 0's indices, instanced once per row. Every cell outside the hole once, none inside it.
+    inline LandscapeGridRanges LandscapeGridRangesOf( const LandscapeDrawSplit& split )
+    {
+        LandscapeGridRanges ranges;
+        const uint32_t      cells = split.Cells;
+        const auto          add   = [&]( uint32_t first, uint32_t count, uint32_t firstRow, uint32_t rows )
+        {
+            if ( count > 0u && rows > 0u )
+                ranges.Ranges[ranges.Count++] = LandscapeGridRange{ first, count, firstRow, rows };
+        };
+        if ( LandscapeDiceRectArea( split.Hole ) == 0u )
+        {
+            add( 0u, cells * cells * 6u, 0u, 1u );
+            return ranges;
+        }
+        const uint32_t x0 = static_cast<uint32_t>( split.Hole.x );
+        const uint32_t z0 = static_cast<uint32_t>( split.Hole.y );
+        const uint32_t x1 = static_cast<uint32_t>( split.Hole.z );
+        const uint32_t z1 = static_cast<uint32_t>( split.Hole.w );
+        add( 0u, z0 * cells * 6u, 0u, 1u );                          // the rows below the hole
+        add( 0u, x0 * 6u, z0, z1 - z0 );                             // its rows, left of it
+        add( x1 * 6u, ( cells - x1 ) * 6u, z0, z1 - z0 );            // its rows, right of it
+        add( z1 * cells * 6u, ( cells - z1 ) * cells * 6u, 0u, 1u ); // the rows above it
+        return ranges;
+    }
+
     // The dice pool's vertices for the row (LandscapeDisplacement.glslh LandscapeDecodePoolVertex walks the same
     // order): each ring's cells outside the finer ring, (dice + 1)^2 sub-vertices a cell; 0 when it is not diced.
     inline uint32_t LandscapeDicePoolVertexCount( uint32_t quadsPerTile, uint32_t gridLod,

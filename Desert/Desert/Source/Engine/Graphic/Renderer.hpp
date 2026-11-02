@@ -142,6 +142,15 @@ namespace Desert::Graphic
                                                                            const MaterialExecutor*  material,
                                                                            RDG::BufferRef args, uint64_t offset,
                                                                            std::span<const std::byte> push = {} );
+        // DrawProcedural through a shared index buffer (RendererAPI::DrawProceduralIndexed, UE
+        // DrawIndexedPrimitive over FLandscapeSharedBuffers): the landscape tile's grid, each grid node one vertex
+        // the post-transform cache shades once for the triangles around it (TerrainRenderer::RecordDraws). Every
+        // range of @p ranges is one indexed draw of @p indexBuffer with the same pass state and @p push.
+        [[nodiscard]] static Common::BoolResultStr
+        DrawProceduralIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                               const MaterialExecutor* material, IndexBuffer& indexBuffer,
+                               std::span<const ProceduralIndexedRange> ranges,
+                               std::span<const std::byte>              push = {} );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling BackdropTexture from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.

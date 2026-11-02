@@ -406,33 +406,59 @@ struct LandscapeDisplacedVertex
 #ifndef LANDSCAPE_DICE_POOL_READ
 LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride, int iquads );
 #endif
+LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cells, int stride, int iquads );
 
-LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
+// THE GRID, INDEXED (TerrainBatch.hpp kLandscapeGridFirstInstance, TERRAIN-GPU-2; UE FLandscapeSharedBuffers): a draw
+// whose first instance is this one is an indexed draw of the tile grid's shared index buffer - its vertex is grid
+// node z * (cells + 1) + x, and every instance past this one is one grid row further. Instance 0 is the procedural
+// decode below (the dice rings, and the virtual shadow map's indirect draws).
+#define LANDSCAPE_GRID_FIRST_INSTANCE 1
+
+// Vertex @p vertex of the tile's draw: grid node @p vertex @p gridRow rows further (an indexed grid draw,
+// @p gridRow >= 0) or draw vertex @p vertex of the procedural decode (@p gridRow < 0).
+LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex, int gridRow )
 {
     int iquads  = int( CurrentTerrain.LandscapeTile.z + 0.5 );
     int gridLod = int( CurrentTerrain.Params.w + 0.5 );
     int stride  = LandscapeLodStride( gridLod );
     int cells   = ( iquads + stride - 1 ) / stride;
-    LandscapeDrawVertex d = LandscapeDecodeDrawVertex( vertex, cells );
 
-    int x0 = LandscapeCellCorner( d.CellX, stride, iquads );
-    int z0 = LandscapeCellCorner( d.CellZ, stride, iquads );
-    int x1 = LandscapeCellCorner( d.CellX + 1, stride, iquads );
-    int z1 = LandscapeCellCorner( d.CellZ + 1, stride, iquads );
-
-    // An undiced cell's vertex is its grid vertex, as TerrainVertex.glslh always drew it, and is never displaced:
-    // undiced cells lie outside the fade (or the tile's grid is past LOD 0, or displacement is off).
-    if ( !d.Diced )
+    // The grid vertex (x, z), cell corners on the tile's LOD grid, of an undiced vertex.
+    int gx;
+    int gz;
+    if ( gridRow >= 0 )
     {
-        LandscapeMorphedVertex m = LandscapeEvaluateVertex( d.SubX == 1 ? x1 : x0, d.SubZ == 1 ? z1 : z0 );
-        vec2 g0 = LandscapeVertexGradient( m );
-        LandscapeDisplacedVertex u;
-        u.WorldPos = m.WorldPos;
-        u.Normal   = normalize( vec3( -g0.x, 1.0, -g0.y ) );
-        u.Local    = m.Local;
-        return u;
+        int pitch = cells + 1;
+        int node  = vertex + gridRow * pitch;
+        int nz    = node / pitch;
+        gx        = node - nz * pitch;
+        gz        = nz;
+    }
+    else
+    {
+        LandscapeDrawVertex d = LandscapeDecodeDrawVertex( vertex, cells );
+        if ( d.Diced )
+            return LandscapeDicedEvaluate( d, cells, stride, iquads );
+        gx = d.CellX + d.SubX;
+        gz = d.CellZ + d.SubZ;
     }
 
+    // An undiced cell's vertex is its grid vertex, as TerrainVertex.glslh always drew it, and is never displaced:
+    // undiced cells lie outside the fade (or the tile's grid is past LOD 0, or displacement is off). ONE evaluation
+    // for both draws, so the indexed node and the decoded corner are the same expression bit for bit.
+    LandscapeMorphedVertex m = LandscapeEvaluateVertex( LandscapeCellCorner( gx, stride, iquads ),
+                                                        LandscapeCellCorner( gz, stride, iquads ) );
+    vec2 g0 = LandscapeVertexGradient( m );
+    LandscapeDisplacedVertex u;
+    u.WorldPos = m.WorldPos;
+    u.Normal   = normalize( vec3( -g0.x, 1.0, -g0.y ) );
+    u.Local    = m.Local;
+    return u;
+}
+
+// A diced cell's sub-vertex @p d (LandscapeDisplacedEvaluate's procedural decode).
+LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cells, int stride, int iquads )
+{
     // Edge vertices snap to the neighbour's coarser dice (the stitch); corners stay corners.
     if ( d.Dice > 1 )
     {
