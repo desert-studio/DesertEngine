@@ -425,6 +425,23 @@ namespace Desert::Graphic::System
         // rasters draw (TerrainGBuffer, the forward depth prepass and base pass). The casters, the dice pool and
         // the virtual shadow map keep m_FrameDraws: a tile outside the view still casts into it.
         std::vector<FrameDraw>       m_ViewDraws;
+        // THE VIRTUAL SHADOW MAP'S CASTER (TURN-CACHE-2; UE: a cached VSM page is invalidated by a caster change,
+        // never by the camera's step): per queued tile, under Shadows.Method VirtualMaps, the row and draw "VSM:
+        // Raster" draws - the camera's tile, LOD and dice rings, with the displacement faded from m_VsmAnchor
+        // instead of the eye (LandscapeVirtualShadowRow). Its own dice-pool job evaluates it; its signature
+        // (AppendVirtualShadowEntries) moves with the anchor, not the eye. Empty when the frame's shadows are not
+        // virtual.
+        std::vector<FrameDraw>       m_VsmDraws;
+        std::vector<TerrainInstance> m_VsmInstances;
+        // The point the virtual shadow map's displacement fade is measured from: the eye where it last left
+        // kLandscapeVsmAnchorReachCm of the anchor (PrepareVirtualShadowRows). Every eye within the reach sees a
+        // surface at or above the caster's (the shader's lower envelope), so the cached pages hold while it walks.
+        glm::vec3 m_VsmAnchor{ 0.0f };
+        bool      m_VsmAnchored = false;
+        // The rows above for this frame's eye @p eye; @p diceWidthPerCm is DiceWindow.w (DicingRate pixels' width
+        // in cm per cm of distance). After PrepareFrame's camera rows, so a group's instance rows past its param
+        // rows are casters' only.
+        void                         PrepareVirtualShadowRows( const glm::vec3& eye, float diceWidthPerCm );
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
         // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a
         // view with no cascade this frame.
@@ -443,6 +460,10 @@ namespace Desert::Graphic::System
         };
         std::vector<DicePoolJob>         m_DicePoolJobs;
         uint32_t                         m_DicePoolVertices = 0;
+        // Puts @p row's pooled vertices (@p pooled > 0, LandscapeDicePoolVertexCount) at the pool's end: sets its
+        // DicePool.x and adds its job with tile @p t's maps and @p layers' height array.
+        void PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t, const TerrainLayerInputs& layers,
+                              uint32_t pooled );
         // THE GRIDS' SHARED INDEX BUFFERS (UE FLandscapeSharedBuffers), by cells a side: one per grid size any tile
         // has drawn at (a 255-quad landscape's eight LOD grids, 2.1 MB), kept for the renderer's life. Written
         // only in PrepareFrame / PrepareLocalShadowViews, read by RecordDraws.
