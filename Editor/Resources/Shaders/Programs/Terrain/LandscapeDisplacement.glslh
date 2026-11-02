@@ -518,16 +518,27 @@ LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride,
     float magnitude = CurrentTerrain.Displacement.x;
     if ( magnitude == 0.0 )
         return v;
-    float lod   = a.Lod * wa + b.Lod * wb + c.Lod * wc;
-    float dist  = length( v.WorldPos - CurrentTerrain.DisplacementView.xyz );
-    float fade  = 1.0 - smoothstep( CurrentTerrain.Displacement.z, max( CurrentTerrain.Displacement.w, CurrentTerrain.Displacement.z + 1.0 ), dist );
-    float scale = fade * LandscapeDisplacementLodScale( lod );
-    if ( scale <= 0.0 )
+    float lod  = a.Lod * wa + b.Lod * wb + c.Lod * wc;
+    float dist = length( v.WorldPos - CurrentTerrain.DisplacementView.xyz );
+    // THE FADE'S ENVELOPE (TURN-CACHE-2): the virtual shadow map's row (DisplacementView.w = 1 + reach,
+    // TerrainRenderer LandscapeVirtualShadowRow) measures from its anchor, and the eye is anywhere within the reach of
+    // it - up to `reach` nearer (the largest fade) or farther (the smallest). A camera or cascade row has reach 0:
+    // both fades are its own, bit for bit.
+    float reach    = max( CurrentTerrain.DisplacementView.w - 1.0, 0.0 );
+    float fadeEnd  = max( CurrentTerrain.Displacement.w, CurrentTerrain.Displacement.z + 1.0 );
+    float fadeNear = 1.0 - smoothstep( CurrentTerrain.Displacement.z, fadeEnd, max( dist - reach, 0.0 ) );
+    float fadeFar  = 1.0 - smoothstep( CurrentTerrain.Displacement.z, fadeEnd, dist + reach );
+    float lodScale = LandscapeDisplacementLodScale( lod );
+    if ( fadeNear * lodScale <= 0.0 )
         return v;
     // The height's mip from the vertex's own screen footprint (DicingRate pixels at its distance), not from its
     // cell's dice: two cells of different dice share edge vertices, and a vertex must read the same height in both.
     float edgeCm = dist * CurrentTerrain.DiceWindow.w;
     float h      = LandscapeDisplacementHeight( v.WorldPos, v.Local, dist, max( edgeCm, 1.0 ) );
+    // The LOWER envelope: a bump (above Center) at the smallest fade, a pit at the largest. No eye within the reach
+    // draws its surface under this one, so a cached virtual shadow page never shadows its own receiver; what the band
+    // loses is some of the relief's self-shadow.
+    float scale = ( h > CurrentTerrain.Displacement.y ? fadeFar : fadeNear ) * lodScale;
     v.WorldPos += v.Normal * ( ( h - CurrentTerrain.Displacement.y ) * magnitude * scale );
     return v;
 }

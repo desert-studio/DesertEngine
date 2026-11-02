@@ -254,6 +254,58 @@ namespace Desert::Graphic::System
                                            cellOf( foot.w, l.OriginZ, camera.z, l.FirstSampleZ ) + 1.0f + margin );
         }
 
+        // THE VIRTUAL SHADOW MAP'S ROW of a tile (TURN-CACHE-2): the camera's row @p camera - its LOD, its dice
+        // rings and their clip, so the caster's triangles are the receivers' - with the displacement faded from @p
+        // anchor as the lower envelope over every eye within @p reachCm of it (DisplacementView.w = 1 + reach,
+        // LandscapeDisplacement.glslh). The dice-1 square grows to every cell that envelope displaces: the fade's
+        // end plus the reach from the anchor, which is itself within the reach of the eye @p eye whose cell the
+        // rings are centred on - so a tile the camera does not dice yet may be diced here. @p diceWidthPerCm is
+        // DiceWindow.w (DicingRate pixels' width in cm per cm of distance, as ApplyLandscapeDisplacement puts it).
+        // A tile with no displacement, or drawn past its LOD-0 grid (where the relief is zero), is the camera's.
+        TerrainInstance LandscapeVirtualShadowRow( const TerrainInstance& camera, const LandscapeTileDraw& l,
+                                                   const glm::vec3& eye, const glm::vec3& anchor,
+                                                   const float reachCm, const float diceWidthPerCm )
+        {
+            TerrainInstance row = camera;
+            if ( camera.Displacement.x <= 0.0f || camera.Params.w > 0.5f || l.SpacingCm <= 0.0f )
+                return row;
+            const float squareCells = std::ceil( ( camera.Displacement.w + 2.0f * reachCm ) / l.SpacingCm ) + 1.0f;
+            const float cx =
+                 std::floor( ( eye.x - l.OriginX ) / l.SpacingCm ) - static_cast<float>( l.FirstSampleX );
+            const float cz =
+                 std::floor( ( eye.z - l.OriginZ ) / l.SpacingCm ) - static_cast<float>( l.FirstSampleZ );
+            const float cells = static_cast<float>( l.QuadsPerTile );
+            if ( cx + squareCells < 0.0f || cz + squareCells < 0.0f || cx - squareCells >= cells ||
+                 cz - squareCells >= cells )
+                return row;
+            if ( camera.DisplacementView.w < 0.5f )
+            {
+                // Not diced by the camera: the square alone, dice 1 (DiceRings and DiceClip stay none).
+                row.DiceWindow = glm::vec4( cx, cz, squareCells, diceWidthPerCm );
+                row.DiceRings  = glm::vec4( -1.0f );
+            }
+            else
+                row.DiceWindow.z = std::max( camera.DiceWindow.z, squareCells );
+            row.DisplacementView = glm::vec4( anchor, 1.0f + reachCm );
+            return row;
+        }
+
+        // Whether tile @p l has a cell the virtual shadow map's envelope displaces (LandscapeVirtualShadowRow):
+        // one within the fade's end plus the reach of the anchor. Only these tiles' caster changes with the
+        // anchor.
+        bool TileMeetsVsmEnvelope( const LandscapeTileDraw& l, const glm::vec3& anchor, const float fadeEndCm,
+                                   const float reachCm )
+        {
+            const float x0     = l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm );
+            const float z0     = l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm );
+            const float extent = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
+            const float dx     = std::max(
+                 { std::min( x0, x0 + extent ) - anchor.x, 0.0f, anchor.x - std::max( x0, x0 + extent ) } );
+            const float dz = std::max(
+                 { std::min( z0, z0 + extent ) - anchor.z, 0.0f, anchor.z - std::max( z0, z0 + extent ) } );
+            return ( dx * dx ) + ( dz * dz ) <= ( fadeEndCm + reachCm ) * ( fadeEndCm + reachCm );
+        }
+
         // The landscape material a tile drew with, for the landscape's ray tracing hit group: the values the
         // ground reads (Common/LandscapeSurface.glslh LandscapeMaterial) out of the drawn @p surface's row, and
         // each input's maps as the bindless slots of the images @p layers' arrays copied. Terrain.shader and
@@ -634,6 +686,66 @@ namespace Desert::Graphic::System
         EnsureGridIndices( draw.Split.Cells );
     }
 
+    void TerrainRenderer::PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t,
+                                           const TerrainLayerInputs& layers, const uint32_t pooled )
+    {
+        row.DicePool.x = static_cast<float>( m_DicePoolVertices );
+        m_DicePoolJobs.push_back( { .Row          = row,
+                                    .Heightmap    = t.Heightmap,
+                                    .Weightmap    = t.Weights.Weightmap != nullptr
+                                                         ? std::shared_ptr<Image>( t.Weights.Weightmap )
+                                                         : FallbackTextures::Get().GetFallbackTexture2D(
+                                                             Core::Formats::ImageFormat::RGBA8F ),
+                                    .HasWeightmap = t.Weights.Weightmap != nullptr,
+                                    .LayerHeights = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
+                                    .Vertices     = pooled } );
+        m_DicePoolVertices += pooled;
+    }
+
+    void TerrainRenderer::PrepareVirtualShadowRows( const glm::vec3& eye, const float diceWidthPerCm )
+    {
+        // The anchor stays bit for bit while the eye is within the reach (an ulp would be a new signature).
+        if ( !m_VsmAnchored || glm::distance( eye, m_VsmAnchor ) > kLandscapeVsmAnchorReachCm )
+        {
+            m_VsmAnchor   = eye;
+            m_VsmAnchored = true;
+        }
+        DESERT_VERIFY( m_FrameDraws.empty() ||
+                            ( m_FrameDraws.size() == m_Queue.size() && m_FrameInstances.size() == m_Queue.size() ),
+                       "the terrain's camera draws and rows are one per queued tile" );
+        if ( m_FrameDraws.size() != m_Queue.size() || m_FrameInstances.size() != m_Queue.size() )
+            return;
+        m_VsmDraws.reserve( m_Queue.size() );
+        m_VsmInstances.reserve( m_Queue.size() );
+        for ( std::size_t i = 0; i < m_Queue.size(); ++i )
+        {
+            const TerrainDrawData&   t      = m_Queue[i];
+            const LandscapeTileDraw& l      = t.Landscape;
+            const FrameDraw&         camera = m_FrameDraws[i];
+            TerrainInstance          row    = LandscapeVirtualShadowRow( m_FrameInstances[i], l, eye, m_VsmAnchor,
+                                                                         kLandscapeVsmAnchorReachCm, diceWidthPerCm );
+            if ( row.DisplacementView == m_FrameInstances[i].DisplacementView )
+            {
+                // Not displaced: the camera's own row and draw (its fade has no eye to follow).
+                m_VsmDraws.push_back( camera );
+                m_VsmInstances.push_back( row );
+                continue;
+            }
+            FrameGroup&    group   = m_FrameGroups[camera.Group];
+            const uint32_t gridLod = static_cast<uint32_t>( row.Params.w );
+            if ( const uint32_t pooled = LandscapeDicePoolVertexCount( l.QuadsPerTile, gridLod, row );
+                 pooled > 0u )
+                PushDicePoolJob( row, t, *group.Layers, pooled );
+            FrameDraw draw   = camera;
+            draw.Row         = static_cast<uint32_t>( group.Instances.size() );
+            draw.VertexCount = LandscapeDicedVertexCount( l.QuadsPerTile, gridLod, row );
+            SplitDraw( draw, l.QuadsPerTile, gridLod, row );
+            group.Instances.push_back( row );
+            m_VsmDraws.push_back( draw );
+            m_VsmInstances.push_back( row );
+        }
+    }
+
     void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
         // Last frame's group slots (ClearQueue pooled them): reused below with their vectors' capacity.
@@ -647,6 +759,8 @@ namespace Desert::Graphic::System
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
+        m_VsmDraws.clear();
+        m_VsmInstances.clear();
         if ( m_Queue.empty() )
         {
             m_FrameGroups.clear();
@@ -840,19 +954,7 @@ namespace Desert::Graphic::System
             if ( const uint32_t pooled = LandscapeDicePoolVertexCount(
                       t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
                  pooled > 0u )
-            {
-                instance.DicePool.x = static_cast<float>( m_DicePoolVertices );
-                m_DicePoolJobs.push_back(
-                     { .Row       = instance,
-                       .Heightmap = t.Heightmap,
-                       .Weightmap = t.Weights.Weightmap != nullptr ? std::shared_ptr<Image>( t.Weights.Weightmap )
-                                                                   : FallbackTextures::Get().GetFallbackTexture2D(
-                                                                          Core::Formats::ImageFormat::RGBA8F ),
-                       .HasWeightmap = t.Weights.Weightmap != nullptr,
-                       .LayerHeights = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
-                       .Vertices     = pooled } );
-                m_DicePoolVertices += pooled;
-            }
+                PushDicePoolJob( instance, t, layers, pooled );
 
             FrameDraw draw;
             draw.Group       = materials.GroupIndex;
@@ -880,6 +982,18 @@ namespace Desert::Graphic::System
 
         // The slots past this frame's groups go (the set count shrank).
         m_FrameGroups.resize( groupCount );
+
+        // The virtual shadow map's own rows and pool jobs, past every camera row of their groups (a draw's Row
+        // names its param row too, and these have none), before AddDicePoolPass reads the jobs.
+        // Every method whose frame may raster virtual shadow pages: VirtualMaps (the sun and the local lights),
+        // Stochastic (its lights resolved to vsm+screen, LocalLightsVirtualPages - known only after this).
+        const Common::Scalability::ShadowMethod shadows = m_SceneRenderer->GetRenderMethods().Shadows.Effective;
+        if ( LocalShadowsVirtual( m_SceneRenderer->GetRenderMethods() ) ||
+             shadows == Common::Scalability::ShadowMethod::Stochastic )
+        {
+            const float pixelsPerCm = frame.Projection[1][1] * 0.5f * static_cast<float>( viewHeight );
+            PrepareVirtualShadowRows( frame.CameraPosition, static_cast<float>( dicingRate ) / pixelsPerCm );
+        }
 
         // ── Upload every group's material rows, still before any draw ───────────────────────────────────
         // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
@@ -1592,8 +1706,8 @@ namespace Desert::Graphic::System
     {
         // A tile's depth changes with its heightmap's pixels (HeightRevision), its holes (the weightmap's Revision
         // and its visibility layer), where it sits and the grid it is drawn with: its LOD grid (Params.w) and the
-        // whole LODs its borders stitch to (LodEdges / LodCorners), the main camera's (PrepareFrame; the frame's
-        // instances are parallel to the queue). A grid change redraws the tile's pages (UE: a landscape LOD change
+        // whole LODs its borders stitch to (LodEdges / LodCorners), the main camera's (the virtual shadow rows,
+        // PrepareVirtualShadowRows, are parallel to the queue). A grid change redraws the tile's pages (UE: a landscape LOD change
         // invalidates its virtual shadow pages); the morph inside one grid is not tracked (REMAINDER).
         for ( size_t index = 0; index < m_Queue.size(); ++index )
         {
@@ -1625,38 +1739,57 @@ namespace Desert::Graphic::System
             add( tile.Weights.Weightmap.get() );
             add( tile.Weights.Revision );
             add( tile.Weights.VisibilityLayer );
-            if ( m_FrameInstances.size() == m_Queue.size() )
+            const VsmTileBox box = TileBox( at );
+            if ( m_VsmInstances.size() == m_Queue.size() )
             {
-                const TerrainInstance& instance = m_FrameInstances[index];
+                const TerrainInstance& instance = m_VsmInstances[index];
                 add( instance.Params.w );
                 add( glm::floor( instance.LodEdges ) );
                 add( glm::floor( instance.LodCorners ) );
-                // A displaced tile's depth follows the main camera (the fade, the dice window).
-                if ( instance.DisplacementView.w > 0.5f )
+                // THE DISPLACED RELIEF (TURN-CACHE-2, LandscapeVirtualShadowRow): its own entry, over the square the
+                // fade's envelope reaches around the anchor, keyed by the tile, the material's values and the anchor
+                // - never the eye. Not the camera's dice rings and their clip either (they re-triangulate the same
+                // surface; REMAINDER-TURN-CACHE-2), nor whether the camera dices the tile yet (a cell past the
+                // envelope is its plain grid either way). A new anchor redraws the old square's pages and the new's.
+                const float fadeEnd = instance.Displacement.w;
+                if ( instance.Displacement.x > 0.0f && instance.Params.w < 0.5f &&
+                     TileMeetsVsmEnvelope( at, m_VsmAnchor, fadeEnd, kLandscapeVsmAnchorReachCm ) )
                 {
+                    // The relief's key goes on from the tile's (its placement, maps and LOD), in its own key space.
+                    const uint64_t tileKey = hash;
+                    hash ^= 0x52454C494546ull; // "RELIEF"
                     add( instance.Displacement );
-                    add( instance.DisplacementView );
-                    add( instance.DiceWindow );
-                    add( instance.DiceRings );
+                    add( instance.DisplacementTiling );
+                    add( instance.InputTileSize );
+                    add( instance.InputBlend );
+                    add( m_VsmAnchor );
+                    add( kLandscapeVsmAnchorReachCm );
+                    const uint64_t relief = hash;
+                    hash                  = tileKey;
+                    const float reach     = fadeEnd + kLandscapeVsmAnchorReachCm;
+                    entries.push_back(
+                         { .Signature = relief,
+                           .Min       = glm::vec3( std::max( box.Min.x, m_VsmAnchor.x - reach ), box.Min.y,
+                                                   std::max( box.Min.z, m_VsmAnchor.z - reach ) ),
+                           .Max       = glm::vec3( std::min( box.Max.x, m_VsmAnchor.x + reach ), box.Max.y,
+                                                   std::min( box.Max.z, m_VsmAnchor.z + reach ) ) } );
                 }
             }
-
-            const VsmTileBox box = TileBox( at );
             entries.push_back( { .Signature = hash, .Min = box.Min, .Max = box.Max } );
         }
     }
 
     void TerrainRenderer::AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const
     {
-        // RecordVirtualShadow draws m_FrameDraws in order, one per queued tile (PrepareFrame).
-        DESERT_VERIFY( m_FrameDraws.empty() || m_FrameDraws.size() == m_Queue.size(),
-                       "the terrain's frame draws are one per queued tile" );
-        for ( size_t k = 0; k < m_FrameDraws.size(); ++k )
+        // RecordVirtualShadow draws m_VsmDraws in order, one per queued tile (PrepareVirtualShadowRows).
+        DESERT_VERIFY( m_VsmDraws.empty() || m_VsmDraws.size() == m_Queue.size(),
+                       "the terrain's virtual shadow draws are one per queued tile" );
+        for ( size_t k = 0; k < m_VsmDraws.size(); ++k )
         {
             const VsmTileBox box = TileBox( m_Queue[k].Landscape );
             draws.push_back( { .Min       = box.Min,
                                .Max       = box.Max,
-                               .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
+                               .Arguments = { m_VsmDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
         }
     }
 
@@ -1726,7 +1859,7 @@ namespace Desert::Graphic::System
     uint32_t TerrainRenderer::DeclareVirtualShadow( RDG::PassBuilder&                   pass,
                                                     const VirtualShadowBlockParameters& parameters )
     {
-        if ( m_FrameDraws.empty() )
+        if ( m_VsmDraws.empty() )
             return 0;
         const GraphicsPipeline* pipeline = VirtualShadowPipeline();
         if ( pipeline == nullptr )
@@ -1750,13 +1883,13 @@ namespace Desert::Graphic::System
                                                                 const RDG::BufferRef    arguments,
                                                                 const uint32_t          firstRecord )
     {
-        if ( !m_VirtualShadowPipeline || m_FrameDraws.empty() )
+        if ( !m_VirtualShadowPipeline || m_VsmDraws.empty() )
             return BOOLSUCCESS;
         // No caster bias in the virtual shadow map: its receivers are offset along their normals instead
         // (kVsmNormalBiasTexels, "VSM: Project").
         DESERT_PROFILE_PASS( "TerrainVirtualShadow" );
         return RecordDraws( context, firstBlock, *m_VirtualShadowPipeline, &ProgramMaterials::VirtualShadow,
-                            levelViewProj, m_FrameDraws, glm::vec2( 0.0f, 0.0f ),
+                            levelViewProj, m_VsmDraws, glm::vec2( 0.0f, 0.0f ),
                             VirtualShadowIndirect{ .Arguments = arguments, .FirstRecord = firstRecord } );
     }
 

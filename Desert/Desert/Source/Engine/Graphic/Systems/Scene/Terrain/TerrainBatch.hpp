@@ -101,8 +101,11 @@ namespace Desert::Graphic::System
         // layers' height x Magnitude around Center, faded out with distance). x = DisplacementMagnitude (cm; 0 = the
         // tile is drawn flat), y = DisplacementCenter, z = DisplacementFadeStart, w = DisplacementFadeEnd (cm).
         glm::vec4 Displacement{ 0.0f };
-        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every caster view, so a cascade sees
+        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every cascade view, so a cascade sees
         // the surface the camera sees. w = 1: the tile is drawn diced in rings (DiceRings), 0: its plain LOD grid.
+        // The virtual shadow map's row (LandscapeVirtualShadowRow) holds its anchor in xyz and 1 + the reach (cm)
+        // in w: its fade is the lower envelope of the fades of every eye within the reach of the anchor
+        // (LandscapeDisplacement.glslh LandscapeDicedPoint), so its cached pages do not follow the eye's step.
         glm::vec4 DisplacementView{ 0.0f };
         // THE DICE RINGS (LandscapeDisplacement.glslh), square rings of cells around the main camera on the tile's
         // LOD-0 grid, each diced finer than the ring outside it (UE Nanite: finer where a triangle is larger on
@@ -364,6 +367,15 @@ namespace Desert::Graphic::System
     // The dice rings (LandscapeDisplacement.glslh): dice 1, 2, 4, 8, 16 sub-cells a side - the finest puts a
     // vertex every 6.25 cm on a 1 m landscape.
     constexpr int kLandscapeDiceLevels = 5;
+
+    // THE VIRTUAL SHADOW MAP'S ANCHOR REACH (TURN-CACHE-2; UE: a landscape's cached VSM pages are invalidated by a
+    // LOD change only past its height-error threshold, never by the eye's step): how far the eye walks from the
+    // anchor before the displaced landscape's virtual shadow pages are redrawn. The caster takes, in the fade's
+    // band, the lowest surface any eye within the reach would draw (bumps at the smallest fade, pits at the
+    // largest), so no receiver lies under it; the price is the relief's self-shadow missing in that band widened
+    // by the reach. 4 m: one redraw per 40 frames of FPS-FIELD-BARN-WALK's 10 cm step, and the relief nearer
+    // than DisplacementFadeStart - 4 m (11 m by default) is exact.
+    constexpr float kLandscapeVsmAnchorReachCm = 400.0f;
 
     // Dice ring @p level (dice 1 << level) of a row, clamped to the tile's @p cells x @p cells grid: [x0, x1) x
     // [z0, z1); empty when the ring is absent. LandscapeDisplacement.glslh LandscapeDiceRingRect is the same.
