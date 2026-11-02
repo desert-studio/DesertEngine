@@ -401,6 +401,32 @@ namespace Desert::Graphic::API::Vulkan
         // VkWriteDescriptorSetAccelerationStructureKHR.
         Common::BoolResultStr WriteAccelerationStructure( VkDescriptorSet set, uint32_t binding,
                                                           VkDescriptorType type, const RDG::BufferBinding& tlas );
+
+        // RDG-PARALLEL-6 (UE FVulkanDescriptorSetWriter): the Write* calls above QUEUE their descriptor on the
+        // calling thread; one vkUpdateDescriptorSets per WriteBatch submits them all. A batch is opened around
+        // the writes of one exec's sets and flushed when it closes, before the sets are bound. Per thread, so
+        // two chunk workers writing the sets of their own arenas never share the queue. Nestable: the outermost
+        // flushes.
+        class WriteBatch
+        {
+        public:
+            explicit WriteBatch( VulkanRdgPassDescriptors& descriptors );
+            ~WriteBatch();
+            WriteBatch( const WriteBatch& )            = delete;
+            WriteBatch& operator=( const WriteBatch& ) = delete;
+
+        private:
+            VulkanRdgPassDescriptors& m_Descriptors;
+        };
+
+    private:
+        // Queues @p write (its info pointers are patched when the batch flushes); with no batch open on this
+        // thread it is written at once, so a write is never left unsubmitted.
+        void Queue( const VkWriteDescriptorSet& write, const VkDescriptorImageInfo* image,
+                    const VkDescriptorBufferInfo* buffer, VkAccelerationStructureKHR structure );
+        void Flush();
+
+    public:
         // The frame loop, after the slot's fence: resets that slot's pools (every arena).
         void BeginFrameSlot( uint32_t slot );
         // RDG-PARALLEL-3 (UE: a descriptor pool per parallel command list context): arena 0 is the calling

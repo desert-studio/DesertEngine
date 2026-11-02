@@ -1061,6 +1061,93 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    namespace
+    {
+        // The descriptors queued on this thread (VulkanRdgPassDescriptors::WriteBatch). The infos live in their
+        // own arrays and are pointed at when the batch flushes, so the arrays may grow while writes are queued.
+        struct PendingDescriptorWrites
+        {
+            std::vector<VkWriteDescriptorSet>                         Writes;
+            std::vector<VkDescriptorImageInfo>                        Images;
+            std::vector<VkDescriptorBufferInfo>                       Buffers;
+            std::vector<VkAccelerationStructureKHR>                   Structures;
+            std::vector<VkWriteDescriptorSetAccelerationStructureKHR> StructureWrites;
+            uint32_t                                                  Depth = 0;
+        };
+        thread_local PendingDescriptorWrites t_PendingWrites;
+    } // namespace
+
+    VulkanRdgPassDescriptors::WriteBatch::WriteBatch( VulkanRdgPassDescriptors& descriptors )
+         : m_Descriptors( descriptors )
+    {
+        ++t_PendingWrites.Depth;
+    }
+
+    VulkanRdgPassDescriptors::WriteBatch::~WriteBatch()
+    {
+        --t_PendingWrites.Depth;
+        if ( t_PendingWrites.Depth == 0 )
+            m_Descriptors.Flush();
+    }
+
+    void VulkanRdgPassDescriptors::Queue( const VkWriteDescriptorSet& write, const VkDescriptorImageInfo* image,
+                                          const VkDescriptorBufferInfo* buffer, VkAccelerationStructureKHR structure )
+    {
+        PendingDescriptorWrites& pending = t_PendingWrites;
+        pending.Writes.push_back( write );
+        if ( image != nullptr )
+            pending.Images.push_back( *image );
+        if ( buffer != nullptr )
+            pending.Buffers.push_back( *buffer );
+        if ( write.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR )
+            pending.Structures.push_back( structure );
+        if ( pending.Depth == 0 )
+            Flush();
+    }
+
+    void VulkanRdgPassDescriptors::Flush()
+    {
+        PendingDescriptorWrites& pending = t_PendingWrites;
+        if ( pending.Writes.empty() )
+            return;
+        // Each write takes the next info of its kind, in the order the writes were queued.
+        pending.StructureWrites.resize( pending.Structures.size() );
+        size_t imageAt     = 0;
+        size_t bufferAt    = 0;
+        size_t structureAt = 0;
+        for ( VkWriteDescriptorSet& write : pending.Writes )
+        {
+            if ( write.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR )
+            {
+                VkWriteDescriptorSetAccelerationStructureKHR& chained = pending.StructureWrites[structureAt];
+                chained                            = VkWriteDescriptorSetAccelerationStructureKHR{};
+                chained.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+                chained.accelerationStructureCount = 1;
+                chained.pAccelerationStructures    = &pending.Structures[structureAt];
+                write.pNext                        = &chained;
+                ++structureAt;
+            }
+            else if ( write.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
+                      write.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER )
+            {
+                write.pBufferInfo = &pending.Buffers[bufferAt];
+                ++bufferAt;
+            }
+            else
+            {
+                write.pImageInfo = &pending.Images[imageAt];
+                ++imageAt;
+            }
+        }
+        vkUpdateDescriptorSets( m_Device, static_cast<uint32_t>( pending.Writes.size() ), pending.Writes.data(), 0,
+                                nullptr );
+        pending.Writes.clear();
+        pending.Images.clear();
+        pending.Buffers.clear();
+        pending.Structures.clear();
+        pending.StructureWrites.clear();
+    }
+
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding,
                                                                   VkDescriptorType           type,
                                                                   const RDG::TextureBinding& texture,
@@ -1086,8 +1173,7 @@ namespace Desert::Graphic::API::Vulkan
         write.dstArrayElement = element;
         write.descriptorCount = 1;
         write.descriptorType  = type;
-        write.pImageInfo      = &image;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, &image, nullptr, VK_NULL_HANDLE );
         return Common::MakeSuccess( true );
     }
 
@@ -1100,8 +1186,7 @@ namespace Desert::Graphic::API::Vulkan
         write.dstBinding      = binding;
         write.descriptorCount = 1;
         write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER;
-        write.pImageInfo      = &image;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, &image, nullptr, VK_NULL_HANDLE );
     }
 
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteBuffer( VkDescriptorSet set, uint32_t binding,
@@ -1122,8 +1207,7 @@ namespace Desert::Graphic::API::Vulkan
         write.dstBinding      = binding;
         write.descriptorCount = 1;
         write.descriptorType  = type;
-        write.pBufferInfo     = &info;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, nullptr, &info, VK_NULL_HANDLE );
         return Common::MakeSuccess( true );
     }
 
@@ -1143,18 +1227,14 @@ namespace Desert::Graphic::API::Vulkan
         const VkAccelerationStructureKHR handle = physical.GetValue()->GetAccelerationStructure();
         if ( handle == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "'{}' stores no acceleration structure", tlas.Name );
-        VkWriteDescriptorSetAccelerationStructureKHR structures{};
-        structures.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
-        structures.accelerationStructureCount = 1;
-        structures.pAccelerationStructures    = &handle;
+        // Its VkWriteDescriptorSetAccelerationStructureKHR is chained when the batch flushes (Flush).
         VkWriteDescriptorSet write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.pNext           = &structures;
         write.dstSet          = set;
         write.dstBinding      = binding;
         write.descriptorCount = 1;
         write.descriptorType  = type;
-        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        Queue( write, nullptr, nullptr, handle );
         return Common::MakeSuccess( true );
     }
 

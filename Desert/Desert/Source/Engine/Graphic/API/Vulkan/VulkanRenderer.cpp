@@ -550,6 +550,9 @@ namespace Desert::Graphic::API::Vulkan
                           std::span<const RdgResolvedEntry> entries, std::string_view pass )
         {
             using Sets = std::vector<VkDescriptorSet>;
+            // RDG-PARALLEL-6 (RDG-REC-3a): every descriptor of these sets goes out in one vkUpdateDescriptorSets
+            // when this returns, before the caller binds them (was one call per descriptor).
+            VulkanRdgPassDescriptors::WriteBatch batch( descriptors );
             Sets sets;
             sets.reserve( layouts.size() );
             // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
