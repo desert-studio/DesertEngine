@@ -1805,7 +1805,7 @@ namespace Desert::Editor
     void ViewportPanel::OnUIRender()
     {
         {
-            DESERT_PROFILE_PASS( "Viewport: Async loads" );
+            DESERT_PROFILE_SCOPE( "Viewport: Async loads" );
             UpdateAsyncLoads(); // spawn any meshes whose background cook just finished (+ progress bar)
         }
 
@@ -1821,7 +1821,7 @@ namespace Desert::Editor
         // contextual skeleton toggle, camera gear on the right). Nothing floats over the scene
         // pixels anymore, so the picture is clean and picking never fights an overlay window.
         {
-            DESERT_PROFILE_PASS( "Viewport: Toolbar" );
+            DESERT_PROFILE_SCOPE( "Viewport: Toolbar" );
             DrawViewportToolbar();
         }
 
@@ -1903,7 +1903,7 @@ namespace Desert::Editor
         // Render scene
         const auto finalImage = m_Scene->GetFinalImage( ViewIndex() );
         {
-            DESERT_PROFILE_PASS( "Viewport: Scene image" );
+            DESERT_PROFILE_SCOPE( "Viewport: Scene image" );
             m_UIHelper->Image( finalImage, { m_ViewportData.Size.x, m_ViewportData.Size.y } );
         }
         // The image's own pixel size travels with the rect: shot-viewport writes this image, so a drag aimed
@@ -2023,7 +2023,7 @@ namespace Desert::Editor
             {
                 pv.Enabled = false;
                 {
-                    DESERT_PROFILE_PASS( "Viewport: UI in scene" );
+                    DESERT_PROFILE_SCOPE( "Viewport: UI in scene" );
                     DrawUIInScene();
                 }
             }
@@ -2107,7 +2107,7 @@ namespace Desert::Editor
             else if ( m_Gizmo.IsActive() && !selectedIsUI && !Core::ActiveAuthoringContext().ShowsControls() )
             {
                 {
-                    DESERT_PROFILE_PASS( "Viewport: Object gizmo" );
+                    DESERT_PROFILE_SCOPE( "Viewport: Object gizmo" );
                     m_Gizmo.RenderObject( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
                 }
             }
@@ -2287,7 +2287,7 @@ namespace Desert::Editor
         // running game view is clean. Simulate In Editor keeps them: it is the editor's view of a running world.
         if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit || m_Scene->IsSimulating() )
         {
-            DESERT_PROFILE_PASS( "Viewport: Editor icons" );
+            DESERT_PROFILE_SCOPE( "Viewport: Editor icons" );
             m_LightGizmoRenderer->Render( ViewCamera(), m_ViewportData.Size.x, m_ViewportData.Size.y,
                                           m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
                                           m_AuthoringOwner, m_Authoring );
@@ -2322,7 +2322,7 @@ namespace Desert::Editor
         }
 
         {
-            DESERT_PROFILE_PASS( "Viewport: Pilot overlay" );
+            DESERT_PROFILE_SCOPE( "Viewport: Pilot overlay" );
             DrawPilotOverlay();
         }
 
@@ -2331,7 +2331,7 @@ namespace Desert::Editor
         // stores the decision nowhere, so no save can find it and no call site can forget to fence it.
         if ( !m_Modes.UI2D )
             {
-                DESERT_PROFILE_PASS( "Viewport: View axis" );
+                DESERT_PROFILE_SCOPE( "Viewport: View axis" );
                 DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
 

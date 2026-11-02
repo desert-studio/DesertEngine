@@ -2,6 +2,7 @@
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -9,6 +10,7 @@
 #include <Engine/Graphic/ViewResources.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -387,9 +389,28 @@ namespace Desert::Graphic::API::Vulkan
         m_Recording = nullptr;
     }
 
+    bool VulkanGpuProfiler::OwnsRecordingTarget()
+    {
+        // Only the game thread enqueues render work, so the game thread reading InFlight() false cannot race the
+        // render task starting; workers follow RenderTask::RecordGuard's rule (they never fence).
+        return ::Desert::Engine::RenderTask::OnRenderThread() || !::Desert::Engine::RenderTask::Get().InFlight();
+    }
+
     int32_t VulkanGpuProfiler::BeginScope( const char* name )
     {
         const std::lock_guard<std::mutex> lock( m_Lock );
+        // A GPU scope on a thread that owns no recording target (the game thread while the views record on the
+        // render task) times nothing: CPU-only code takes DESERT_PROFILE_SCOPE. Named once, so the call site is
+        // fixed instead of the frame quietly losing a row.
+        if ( m_Active && VulkanRecordContext::Bound() == nullptr && !OwnsRecordingTarget() )
+        {
+            static std::atomic<bool> reported{ false };
+            if ( !reported.exchange( true ) )
+                LOG_WARN( "[GpuProfiler] GPU scope '{}' opened on a thread that owns no command buffer while the views "
+                          "record on the render task: not timed. CPU-only code takes DESERT_PROFILE_SCOPE.",
+                          name );
+            return -1;
+        }
         // FrameTotalWritten doubles as "this frame's queries have been reset". Without it, flipping the
         // toggle on mid-frame would write timestamps into queries nobody reset — undefined, and the kind
         // of thing that reads as a wild number rather than an error.
