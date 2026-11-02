@@ -32,4 +32,42 @@ bool ShadowWindCastsRestPose( const vec3 instancePoint, const vec3 viewOrigin, c
     return dot( offset, offset ) > windDistance * windDistance;
 }
 
+// THE CASTER'S REACH (GPU-FRAME-6/7; UE r.Shadow.Virtual.Clipmap.WPODisableDistance keeps WPO only in the levels its
+// receivers read). A cascade c >= 2 carries its ring (MeshRenderer::ShadowWindRingOf; GpuCullView.CasterRing):
+// x = cascade c-2's split (cm; 0 = no ring: cascades 0/1, every other view, a light at or below the horizon), y = the
+// light's fall across / down (1 / tan(elevation)). A receiver no farther from the camera than x is at a view depth no
+// larger, so it picks a tighter cascade (MeshRenderer::ShadowWindDistanceOf says why). A caster's reach (x = spread,
+// y = height, cm) bounds where its shadow can land: on the flat ground it stands on, no farther from its instance
+// point than spread + height x fall. A swaying instance nearer the camera than the ring's inner distance shadows no
+// receiver of the cascade with its sway, so it casts its rest pose into the static layer; the cascade's movers are
+// only the ring [inner, the shadow wind distance).
+//
+// The reach of an instance whose drawn points lie in its mesh bounds carried into the world, grown by the wind's
+// horizontal pad (InstanceWind WindBoundsPad, GpuScenePrimitive.LocalBoundsCenter.w): E = the world box's half size
+// around the instance point; a drawn point lies within |E.xz| across of it, the point within E.y over the ground
+// (the ground not below the box's bottom), and a drawn point within 2 E.y over the ground.
+vec2 ShadowWindCasterReach( const mat4 instanceToWorld, const vec3 localBoundsExtent, const float windPad )
+{
+    const vec3 extent = abs( vec3( instanceToWorld[0] ) ) * localBoundsExtent.x +
+                        abs( vec3( instanceToWorld[1] ) ) * localBoundsExtent.y +
+                        abs( vec3( instanceToWorld[2] ) ) * localBoundsExtent.z + vec3( windPad, 0.0f, windPad );
+    return vec2( length( vec3( extent.x, 0.0f, extent.z ) ) + extent.y, 2.0f * extent.y );
+}
+
+// The inner distance of @p ring's movers for a caster of reach @p casterReach (0 = no ring).
+float ShadowWindRingInner( const vec4 ring, const vec2 casterReach )
+{
+    if ( !( ring.x > 0.0f ) )
+        return 0.0f;
+    const float inner = ring.x - ( casterReach.x + casterReach.y * ring.y );
+    return inner > 0.0f ? inner : 0.0f;
+}
+
+// Whether a swaying instance at @p instancePoint casts its rest pose by the ring: no farther from @p viewOrigin than
+// @p inner (ShadowWindRingInner; 0 = never).
+bool ShadowWindInsideRing( const vec3 instancePoint, const vec3 viewOrigin, const float inner )
+{
+    return inner > 0.0f && !ShadowWindCastsRestPose( instancePoint, viewOrigin, inner );
+}
+
 #endif

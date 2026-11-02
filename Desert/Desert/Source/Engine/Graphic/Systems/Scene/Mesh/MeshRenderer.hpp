@@ -948,6 +948,13 @@ namespace Desert::Graphic::System
         // cascades 0 and 1, every other view and a light at or below the horizon. Read by the vertex stage's split
         // (ViewFrame::CasterWindRing, CasterWindLayer.glslh) and the same section's CascadeStaticSignature.
         [[nodiscard]] float ShadowWindInnerOf( uint32_t view, float reach ) const;
+        // The ring of shadow view @p view as Common/ShadowWind.glslh reads it (ShadowWindRingInner): x = cascade
+        // c-2's split (cm), y = the light's fall across / down; zero (no ring) where ShadowWindInnerOf is 0 for
+        // every reach. ONE ring for every caster path (GPU-FRAME-7): the GPU-instanced sections
+        // (ShadowWindInnerOf), the CPU ISM walk (ShadowIsmInstances' WindPoint / CasterReach,
+        // CascadeStaticSignature, BuildShadowCascadeDraws) and the GPU cull's caster views
+        // (GpuCullView::CasterRing, GpuCull_CastsRestPose).
+        [[nodiscard]] glm::vec4 ShadowWindRingOf( uint32_t view ) const;
         // The rule's measure as shadow view @p view's light camera carries it (ViewFrame::CasterWindOrigin): xyz
         // the main camera's origin - the point ShadowIsmInstances measures from - w ShadowWindDistanceOf( view ).
         [[nodiscard]] glm::vec4 CasterWindOrigin( uint32_t view ) const;
@@ -3244,6 +3251,12 @@ namespace Desert::Graphic::System
             // (Sways), and a cached cascade it reaches redraws both layers each frame (CascadeStaticSignature),
             // since the GPU bins may have put it in either.
             bool NearWindEdge = false;
+            // A swaying instance's point (ShadowWindInstancePoint) and reach (ShadowWindCasterReach), what the
+            // per-cascade ring reads (ShadowWindRingOf, ShadowIsmRingRest): nearer the camera than the ring's
+            // inner distance it casts its rest pose in that cascade, as GpuCull_CastsRestPose decides on the GPU.
+            // Zero for every other row.
+            glm::vec3 WindPoint{ 0.0f };
+            glm::vec2 CasterReach{ 0.0f };
         };
         struct ShadowIsmField
         {
@@ -3292,6 +3305,7 @@ namespace Desert::Graphic::System
             uint64_t  Hash    = 0;
             bool      Movable = false;
             float     Wind    = -1.0f; // the cascade's ShadowWindDistanceOf the part was made with
+            glm::vec4 Ring{ -1.0f };   // the cascade's ShadowWindRingOf the part was made with
         };
         std::vector<CascadeIsmPart> m_CascadeIsmParts;
         // THE STATIC CASTERS' REVISION (SCENE-CACHE-4; UE FCachedShadowMapData: the static layer is redrawn when a

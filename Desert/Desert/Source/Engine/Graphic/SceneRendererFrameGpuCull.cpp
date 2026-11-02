@@ -321,6 +321,7 @@ namespace Desert::Graphic
                                                    Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
                                                    meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
+                    views.back().View.CasterRing = meshes->ShadowWindRingOf( view ); // the caster's reach
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
                     bins.CutViewOf.push_back( cutViews++ ); // the still casters' clusters, into the cache
@@ -331,6 +332,7 @@ namespace Desert::Graphic
                                                    Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
                                                    meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
+                    views.back().View.CasterRing = meshes->ShadowWindRingOf( view ); // the caster's reach
                     viewKeys.push_back( System::MeshRenderer::CascadeMovableView( view ) );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}Movable", c ) );
                     // The movable layer cuts its VG movers too (UE Nanite: a World Position Offset caster goes
@@ -618,6 +620,7 @@ namespace Desert::Graphic
                                                meshes->ShadowWindDistanceOf( view ),
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
+                views.back().View.CasterRing = meshes->ShadowWindRingOf( view ); // the caster's reach
                 viewNames.push_back( std::format( "cascade {}", c ) );
             }
         }
