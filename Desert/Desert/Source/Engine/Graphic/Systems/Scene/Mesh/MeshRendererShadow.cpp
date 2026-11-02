@@ -707,6 +707,28 @@ namespace Desert::Graphic::System
         return m_ShadowWindDistance;
     }
 
+    float MeshRenderer::ShadowWindInnerOf( const uint32_t view, const float reach ) const
+    {
+        // The cascade's receivers as ShadowWindDistanceOf reads them (a movable layer is its cascade's).
+        uint32_t cascadeView = view;
+        if ( cascadeView >= kCascadeMovableViewBase && cascadeView < kCascadeMovableViewBase + kCascadeViews )
+            cascadeView -= kCascadeMovableViewBase;
+        if ( cascadeView >= kCascadeViews )
+            return 0.0f;
+        const uint32_t               cascade = cascadeView % kMaxCascades;
+        const DirectionalShadowSlot& slot    = m_DirectionalShadow[cascadeView / kMaxCascades];
+        if ( cascade < 2u || cascade >= slot.Fitted )
+            return 0.0f;
+        // The light's fall per unit across (Travel points along the light): a point h above the ground under it
+        // shadows the ground h x across / down away; no fall, no bound on how far a shadow runs.
+        const float down   = -slot.Travel.y;
+        const float across = glm::length( glm::vec2( slot.Travel.x, slot.Travel.z ) );
+        if ( !( down > 0.0f ) )
+            return 0.0f;
+        const float shadowReach = std::max( reach, 0.0f ) * ( 1.0f + across / down );
+        return std::max( 0.0f, slot.SplitFar[static_cast<glm::length_t>( cascade - 2u )] - shadowReach );
+    }
+
     glm::vec4 MeshRenderer::CasterWindOrigin( const uint32_t view ) const
     {
         // The origin ShadowIsmInstances measures its Sways from (its LODView: the main camera, none = the
@@ -956,6 +978,13 @@ namespace Desert::Graphic::System
             hash.Add( windOrigin );
             if ( !( windOrigin.w > 0.0f ) )
                 continue; // every instance casts its rest pose into the static layer: no mover
+            // THE CASTER'S REACH (ShadowWindInnerOf): the instances nearer than the ring's inner distance cast
+            // their rest pose into the static layer too (the vertex stage's split reads the same value), so the
+            // distance keys the layer, and a ring past the wind distance holds no mover.
+            const float inner = ShadowWindInnerOf( cascade, gpu.Still->Reach );
+            hash.Add( inner );
+            if ( inner >= windOrigin.w )
+                continue;
             const glm::vec3 moverReach( windOrigin.w + gpu.Still->Reach );
             const glm::vec3 origin( windOrigin );
             if ( frustum.Intersects( Common::Math::AABB{ origin - moverReach, origin + moverReach } ) )

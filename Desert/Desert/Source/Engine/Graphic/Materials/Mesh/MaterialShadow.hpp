@@ -19,9 +19,11 @@ namespace Desert::Graphic
     // @p parallax is the scene view's (ViewFrame::Parallax): a parallax caster marches the relief with the steps
     // the view marches it with. @p casterWindOrigin is the shadow wind rule's measure (ViewFrame::CasterWindOrigin:
     // the main camera, Shadows.WindAnimationDistance), the one the caster cull views carry as LodOrigin.
+    // @p casterWindRing is the movers' ring of a draw whose vertex stage splits its instances (ViewFrame::
+    // CasterWindRing, GPU-FRAME-6: x the inner distance; 0 = none, every other caster draw).
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
                            double timeSeconds, const CascadeCasterBias& bias, const ParallaxQuality& parallax,
-                           const glm::vec4& casterWindOrigin );
+                           const glm::vec4& casterWindOrigin, const glm::vec4& casterWindRing = glm::vec4( 0.0f ) );
 
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).

@@ -938,6 +938,16 @@ namespace Desert::Graphic::System
         // (CascadeStaticSignature, BuildShadowCascadeDraws), the GPU cull's caster views (LodOrigin.w) and the
         // vertex stage (CasterWindOrigin).
         [[nodiscard]] float ShadowWindDistanceOf( uint32_t view ) const;
+        // THE CASTER'S REACH (GPU-FRAME-6; UE r.Shadow.Virtual.Clipmap.WPODisableDistance keeps WPO only in the
+        // levels its receivers read): the inner distance of shadow view @p view's movers' ring for a caster whose
+        // every point lies within @p reach (cm) of its instance point - the instance point nearer the main camera
+        // than it casts its rest pose into the static layer too. In cascade c >= 2 its shadow then falls within
+        // reach x (1 + 1 / tan(elevation)) of it on the ground it stands on, so on receivers no farther from the
+        // camera - at no larger view depth - than cascade c-2's split, which pick a tighter cascade (the rule
+        // above): the cascade's movers are only the ring [inner, Shadows.WindAnimationDistance). 0 (no ring) for
+        // cascades 0 and 1, every other view and a light at or below the horizon. Read by the vertex stage's split
+        // (ViewFrame::CasterWindRing, CasterWindLayer.glslh) and the same section's CascadeStaticSignature.
+        [[nodiscard]] float ShadowWindInnerOf( uint32_t view, float reach ) const;
         // The rule's measure as shadow view @p view's light camera carries it (ViewFrame::CasterWindOrigin): xyz
         // the main camera's origin - the point ShadowIsmInstances measures from - w ShadowWindDistanceOf( view ).
         [[nodiscard]] glm::vec4 CasterWindOrigin( uint32_t view ) const;

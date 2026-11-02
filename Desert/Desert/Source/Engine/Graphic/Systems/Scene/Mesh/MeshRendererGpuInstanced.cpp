@@ -597,7 +597,13 @@ namespace Desert::Graphic::System
             // whole over the cache, as before the cache knew them.
             const bool still = gpu.Still.has_value();
             const bool sways = gpu.Wind.Sways();
-            uint32_t   split = 0;
+            // THE CASTER'S REACH (ShadowWindInnerOf, GPU-FRAME-6): in a far cascade the instances nearer than the
+            // ring's inner distance cast their rest pose too - their shadows fall on receivers a tighter cascade
+            // serves - so only the ring [inner, wind distance) sways over the cache; a ring past the wind distance
+            // leaves no mover. The vertex stage reads it from the light camera (ViewFrame::CasterWindRing).
+            const float inner     = still && sways ? ShadowWindInnerOf( shadowView, gpu.Still->Reach ) : 0.0f;
+            const bool  ringSways = viewSways && inner < viewWind.w;
+            uint32_t    split     = 0;
             if ( layer == ShadowCasterLayer::Static )
             {
                 if ( !still )
@@ -606,7 +612,7 @@ namespace Desert::Graphic::System
             }
             else if ( layer == ShadowCasterLayer::Movable )
             {
-                if ( still && !( sways && viewSways ) )
+                if ( still && !( sways && ringSways ) )
                     continue;
                 split = still ? CasterWindLayer::kRule | CasterWindLayer::kDropFar : 0u;
             }
@@ -652,7 +658,8 @@ namespace Desert::Graphic::System
                 continue;
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind );
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind,
+                              glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
             BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =

@@ -25,9 +25,15 @@ bool DesertCasterWindLayer( const vec3 instanceOrigin, inout vec4 windA )
     if ( ( split & DESERT_CASTER_WIND_RULE ) == 0u )
         return true;
     // GpuCull_CastsRestPose's rule (Common/ShadowWind.glslh) on a blade: it sways only with Wind.z > 0, and its
-    // origin is its instance point (a blade's bounds centre is its origin at this scale).
-    const bool rest = windA.z > 0.0 && ShadowWindCastsRestPose( instanceOrigin, cameraUB.CasterWindOrigin.xyz,
-                                                                cameraUB.CasterWindOrigin.w );
+    // origin is its instance point (a blade's bounds centre is its origin at this scale). THE CASTER'S REACH
+    // (GPU-FRAME-6, MeshRenderer::ShadowWindInnerOf): nearer than the ring's inner distance its shadow falls on no
+    // receiver that samples this cascade, so it casts its rest pose too - from the cached static layer.
+    const float inner = cameraUB.CasterWindRing.x;
+    const bool  rest  = windA.z > 0.0 &&
+                      ( ShadowWindCastsRestPose( instanceOrigin, cameraUB.CasterWindOrigin.xyz,
+                                                 cameraUB.CasterWindOrigin.w ) ||
+                        ( inner > 0.0 && !ShadowWindCastsRestPose( instanceOrigin, cameraUB.CasterWindOrigin.xyz,
+                                                                   inner ) ) );
     if ( rest ? ( split & DESERT_CASTER_WIND_DROP_FAR ) != 0u
               : windA.z > 0.0 && ( split & DESERT_CASTER_WIND_DROP_NEAR ) != 0u )
         return false;
