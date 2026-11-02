@@ -23,7 +23,9 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <memory>
 #include <optional>
+#include <vector>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::System
@@ -326,6 +328,59 @@ namespace Desert::Graphic::System
                 }
                 group.Add( draws, perInstance ? triangles : triangles * draw.InstanceCount, perInstance );
             }
+
+            // RDG-PARALLEL-9 (RDG-REC-2; UE: pass parameters live in the graph's allocator, never the heap per
+            // draw list): the binding blocks a list record opens, in slots this thread keeps. A record leases the
+            // next slots for its blocks and closes them when it returns (a nested record on the thread leases the
+            // ones after), so a steady frame opens its blocks with no allocation: the slot is kept, and the block's
+            // entry storage comes back from RDG::PassBindings' own per-thread lists. Each slot is a heap object of
+            // its own, so growing the list moves no open block. A block is never kept past its record.
+            struct OpenBlockSlots
+            {
+                std::vector<std::unique_ptr<std::optional<RDG::PassBindings>>> Slots;
+                size_t                                                          Used = 0;
+            };
+            thread_local OpenBlockSlots t_OpenBlocks;
+
+            class OpenBlocks
+            {
+            public:
+                OpenBlocks( const RDG::PassContext& context, size_t count )
+                     : m_Base( t_OpenBlocks.Used ), m_Count( count )
+                {
+                    OpenBlockSlots& open = t_OpenBlocks;
+                    while ( open.Slots.size() < m_Base + m_Count )
+                        open.Slots.push_back( std::make_unique<std::optional<RDG::PassBindings>>() );
+                    open.Used = m_Base + m_Count;
+                    for ( size_t index = 0; index < m_Count; ++index )
+                        open.Slots[m_Base + index]->emplace( context,
+                                                             context.GetBindingBlock( static_cast<uint32_t>( index ) ) );
+                }
+                ~OpenBlocks()
+                {
+                    OpenBlockSlots& open = t_OpenBlocks;
+                    for ( size_t index = 0; index < m_Count; ++index )
+                        open.Slots[m_Base + index]->reset();
+                    open.Used = m_Base;
+                }
+                OpenBlocks( const OpenBlocks& )            = delete;
+                OpenBlocks& operator=( const OpenBlocks& ) = delete;
+                OpenBlocks( OpenBlocks&& )                 = delete;
+                OpenBlocks& operator=( OpenBlocks&& )      = delete;
+
+                [[nodiscard]] size_t Count() const
+                {
+                    return m_Count;
+                }
+                [[nodiscard]] const RDG::PassBindings& At( size_t index ) const
+                {
+                    return **t_OpenBlocks.Slots[m_Base + index];
+                }
+
+            private:
+                size_t m_Base  = 0;
+                size_t m_Count = 0;
+            };
         } // namespace
 
         void MeshDrawList::Clear()
@@ -606,11 +661,7 @@ namespace Desert::Graphic::System
             std::optional<MeshPassScope> counted;
             if ( m_CountedPass )
                 counted.emplace( static_cast<uint32_t>( *m_CountedPass ) );
-            std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
-            blocks.reserve( m_Blocks.size() );
-            for ( uint32_t index = 0; index < m_Blocks.size(); ++index )
-                blocks.push_back(
-                     std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
+            const OpenBlocks blocks( context, m_Blocks.size() );
             std::vector<std::byte> push;
             // RDG-PARALLEL-7 (RDG-REC-4): the draws' push fields are placed through one table per cell layout
             // (DrawPushFields::Place), found by the layout's address: a list draws few cells, and the materials
@@ -672,7 +723,7 @@ namespace Desert::Graphic::System
                 {
                     static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
                               push, draw.IndirectArgs, draw.IndirectArgsOffset, draw.HiddenSubmeshMask,
                               MeshDrawArgumentsOrder::Submesh );
                          !drawn.IsSuccess() )
@@ -682,7 +733,7 @@ namespace Desert::Graphic::System
                 if ( m_IndirectArguments.IsValid() )
                 {
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
                               push, m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
                               draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Drawn );
                          !drawn.IsSuccess() )
@@ -690,7 +741,7 @@ namespace Desert::Graphic::System
                     continue;
                 }
                 if ( auto drawn = Renderer::RenderMesh(
-                          *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
+                          blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
                           draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
                      !drawn.IsSuccess() )
                     return drawn;
@@ -702,8 +753,8 @@ namespace Desert::Graphic::System
             {
                 std::vector<const RDG::PassBindings*> groupBindings( m_Binned->Table->Groups.size(), nullptr );
                 for ( size_t group = 0; group < groupBindings.size(); ++group )
-                    if ( m_GroupBlock[group] < blocks.size() )
-                        groupBindings[group] = blocks[m_GroupBlock[group]].get();
+                    if ( m_GroupBlock[group] < blocks.Count() )
+                        groupBindings[group] = &blocks.At( m_GroupBlock[group] );
                 RendererAPI& api = *Renderer::GetInstance().GetRendererAPI();
                 if ( m_Binned->BinsIssued )
                     if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings,
@@ -719,7 +770,7 @@ namespace Desert::Graphic::System
                     const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
                     for ( size_t group = 0; group < m_VgGroupBlock.size(); ++group )
                     {
-                        if ( m_VgGroupBlock[group] >= blocks.size() )
+                        if ( m_VgGroupBlock[group] >= blocks.Count() )
                             continue;
                         const GraphicsPipeline&        pipeline = *vg.GroupPipeline( *m_Binned->Table, group );
                         // The cluster raster's group: one indirect draw whose triangles only the GPU knows.
@@ -737,7 +788,7 @@ namespace Desert::Graphic::System
                                                              .Rows     = vg.Rows,
                                                              .Material = vg.GroupCarriers[group] };
                         if ( auto drawn =
-                                  api.RenderClusterIndirectGroup( *blocks[m_VgGroupBlock[group]], pipeline, draw );
+                                  api.RenderClusterIndirectGroup( blocks.At( m_VgGroupBlock[group] ), pipeline, draw );
                              !drawn )
                             return drawn;
                     }

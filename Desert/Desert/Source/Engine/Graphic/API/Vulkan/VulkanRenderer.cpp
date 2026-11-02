@@ -532,15 +532,11 @@ namespace Desert::Graphic::API::Vulkan
                        "pipeline was built from an earlier compile of the shader and was not rebuilt",
                        pipeline.GetSpecification().DebugName, layoutStages, shaderName, shaderStages );
         }
+        // RDG-PARALLEL-9 (RDG-REC-2): by the layout's table, not a walk of its bindings.
         const VkDescriptorSetLayoutBinding* FindLayoutBinding( const VulkanDescriptorSetLayout& layout,
                                                                uint32_t                         binding )
         {
-            for ( const VkDescriptorSetLayoutBinding& entry : layout.Bindings() )
-            {
-                if ( entry.binding == binding )
-                    return &entry;
-            }
-            return nullptr;
+            return layout.FindBinding( binding );
         }
 
         // A non-dispatchable handle as a key word: its value is compared, never turned back into a handle.
