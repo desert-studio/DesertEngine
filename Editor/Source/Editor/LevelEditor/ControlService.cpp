@@ -318,6 +318,21 @@ namespace Desert::Editor
         if ( !m_ControlSocket.IsListening() )
             return;
 
+        // Camera.Spin: the turn advances once per frame, before any request of this frame is read, so a
+        // `profile-dump` taken while it runs measures a camera that moved every frame.
+        if ( m_CameraSpinDegreesPerFrame != 0.0f )
+        {
+            if ( ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera() )
+            {
+                const float     angle   = glm::radians( m_CameraSpinDegreesPerFrame );
+                const float     c       = std::cos( angle );
+                const float     s       = std::sin( angle );
+                const glm::vec3 forward = camera->GetDirection();
+                const glm::vec3 turned( c * forward.x + s * forward.z, forward.y, -s * forward.x + c * forward.z );
+                PlaceEditorCamera( *camera, camera->GetPosition(), turned );
+            }
+        }
+
         // A held nn-check reply goes out the frame its graph completed in; until then nothing else is read.
         if ( ServiceNnCheck() )
             return;
@@ -1002,7 +1017,8 @@ namespace Desert::Editor
                               DescribeViewportCamera( viewCamera->GetPosition(), forward, viewCamera->GetFOV(),
                                                       debugView.ValidateGpuCulling,
                                                       debugView.ForceVirtualGeometryCutRefusal,
-                                                      debugView.ForceVirtualGeometryPostCutRefusal ) ) );
+                                                      debugView.ForceVirtualGeometryPostCutRefusal,
+                                                      m_CameraSpinDegreesPerFrame ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1517,6 +1533,17 @@ namespace Desert::Editor
         }
 
         ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
+
+        // The turn belongs to the editor camera alone: a Play view is the game's, and turning it from here
+        // would be a second driver of the gameplay camera.
+        if ( which.GetValue() == ViewportCameraWrite::Spin )
+        {
+            if ( camera == nullptr )
+                return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+            m_CameraSpinDegreesPerFrame = request.Value[0];
+            return Control::Response::Success( request.Id );
+        }
+
         if ( camera == nullptr )
         {
             if ( m_Workspace.ActiveScene() && m_Play.InPlayMode() )

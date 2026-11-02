@@ -168,6 +168,8 @@ namespace Desert::Editor
         // are one thing: a reply parked without its request could not say what it was answering, and a
         // request parked without its reply would have to be re-run to produce one.
         std::optional<Control::Request>  m_ControlInFlight;
+        // Camera.Spin: degrees per frame the editor camera turns about world up, applied in ServiceChannel.
+        float m_CameraSpinDegreesPerFrame = 0.0f;
         std::optional<Control::Response> m_ControlPendingReply;
 
         struct PendingNnCheck
