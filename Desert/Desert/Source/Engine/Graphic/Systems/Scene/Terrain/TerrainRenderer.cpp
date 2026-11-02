@@ -3,6 +3,7 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -326,6 +327,27 @@ namespace Desert::Graphic::System
                       glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ), std::max( z0, z0 + extent ) ) };
         }
 
+        // A tile's world box as the camera's rasters draw it (m_ViewDraws, UE's per-component frustum cull): its
+        // quads, the heights its samples reach (the LOD morph and the border stitch only interpolate between
+        // them), widened on every axis by the displacement's reach along the normal - @p displacementCm, the
+        // row's magnitude (ApplyLandscapeDisplacement: 0 when the tile is not displaced); (height - Center) x
+        // Magnitude never leaves +-Magnitude.
+        Common::Math::AABB TileViewBox( const LandscapeTileDraw& at, const float displacementCm )
+        {
+            const float        x0     = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
+            const float        z0     = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
+            const float        extent = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
+            const float        reach  = std::max( displacementCm, 0.0f );
+            Common::Math::AABB box;
+            box.Min = glm::vec3( std::min( x0, x0 + extent ), std::min( at.MinY, at.MaxY ),
+                                 std::min( z0, z0 + extent ) ) -
+                      glm::vec3( reach );
+            box.Max = glm::vec3( std::max( x0, x0 + extent ), std::max( at.MinY, at.MaxY ),
+                                 std::max( z0, z0 + extent ) ) +
+                      glm::vec3( reach );
+            return box;
+        }
+
         struct TileKey
         {
             float   OriginX                            = 0.0f;
@@ -581,6 +603,7 @@ namespace Desert::Graphic::System
         if ( m_FrameGroups.empty() )
             std::swap( m_FrameGroups, m_FrameGroupPool );
         m_FrameDraws.clear();
+        m_ViewDraws.clear();
         // The lights' draws are PrepareLocalShadowViews' (after UpdateLocalShadows gave the lights their views).
         m_LocalLightDraws.clear();
         m_FrameInstances.clear();
@@ -631,7 +654,11 @@ namespace Desert::Graphic::System
         // A tile whose GPU copy died (unloaded, its landscape removed) leaves its proxy: owner liveness, no compare.
         std::erase_if( m_TileProxies, []( const auto& entry ) { return entry.second.Heightmap.expired(); } );
         m_FrameDraws.reserve( m_Queue.size() );
+        m_ViewDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
+        // The camera's frustum from the matrix its rasters draw with (RenderGBufferManual / GeometryPass /
+        // RenderDepthManual: the view's jittered view-projection), so the cull and the clip agree to the pixel.
+        const Core::Frustum cameraFrustum( frame.JitteredViewProjection, glm::mat4( 1.0f ) );
         m_FrameMaterials.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
@@ -796,6 +823,11 @@ namespace Desert::Graphic::System
             draw.VertexCount = LandscapeDicedVertexCount( t.Landscape.QuadsPerTile,
                                                           static_cast<uint32_t>( instance.Params.w ), instance );
             m_FrameDraws.push_back( draw );
+            // FPS-FIELD-BARN (TERRAIN-GPU-1): a tile wholly outside the camera's frustum costs the camera's
+            // rasters its whole grid of vertex work for no pixel - 6 of FIELD_Barn's 20 tiles (1.76 M of 5.47 M
+            // vertices) at the measured eye. Its row, its dice-pool job and its caster draws stay (m_FrameDraws).
+            if ( cameraFrustum.Intersects( TileViewBox( t.Landscape, instance.Displacement.x ) ) )
+                m_ViewDraws.push_back( draw );
 
             // One GetParamRow (it rewrites the row's texture slots on every call).
             const auto& paramRow = surface->GetParamRow();
@@ -1296,14 +1328,14 @@ namespace Desert::Graphic::System
                                    if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
                                        return BOOLSUCCESS;
                                    const auto* camera = m_SceneRenderer->GetMainCamera();
-                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() || m_ForwardRefused )
+                                   if ( ( camera == nullptr ) || m_ViewDraws.empty() || m_ForwardRefused )
                                        return BOOLSUCCESS;
                                    // Through the blocks declared below (the scene/view inputs Terrain.shader
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
                                    return RecordDraws( context, 0, *BasePassPipeline(), ForwardProgram(),
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
-                                                       m_FrameDraws );
+                                                       m_ViewDraws );
                                },
                                .TargetFramebuffer = targetFb };
         pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
@@ -1311,7 +1343,7 @@ namespace Desert::Graphic::System
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
             // scene/view inputs its shader has slots for (a block entry IS the read).
             if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() || m_ForwardRefused )
+                 m_SceneRenderer->GetMainCamera() == nullptr || m_ViewDraws.empty() || m_ForwardRefused )
             {
                 return;
             }
@@ -1329,21 +1361,21 @@ namespace Desert::Graphic::System
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
-        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_FrameDraws.empty() )
+        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_ViewDraws.empty() )
             return BOOLSUCCESS;
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
         // Through the blocks DeclareGBufferDraws declared.
         return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
     }
 
     void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
     {
         // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples no scene/view input.
         if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr || !m_GBufferPipeline ||
-             m_FrameDraws.empty() )
+             m_ViewDraws.empty() )
         {
             return;
         }
@@ -1355,10 +1387,10 @@ namespace Desert::Graphic::System
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
     {
         // Exactly when RenderDepthManual draws: the forward path's frames that draw the terrain at all
-        // ("TerrainPass" draws the same m_FrameDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
+        // ("TerrainPass" draws the same m_ViewDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
         // no scene/view input.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
+             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
              m_ForwardRefused || WireframeView() )
         {
             return;
@@ -1372,12 +1404,12 @@ namespace Desert::Graphic::System
     {
         // The wireframe view's base pass writes its own depth (BasePassPipeline): not prepassed, as the meshes'.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
+             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
              m_ForwardRefused || WireframeView() )
             return BOOLSUCCESS;
         // The base pass's very matrix (GeometryPass), so both rasterise the same depth.
         return RecordDraws( context, 0, *m_DepthPipeline, &ProgramMaterials::Depth,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
     }
 
     const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const

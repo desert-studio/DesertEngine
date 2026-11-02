@@ -226,6 +226,7 @@ namespace Desert::Graphic::System
             std::swap( m_FrameGroups, m_FrameGroupPool );
             m_FrameGroups.clear();
             m_FrameDraws.clear();
+            m_ViewDraws.clear();
             m_LocalLightDraws.clear();
             m_CascadeDraws.clear();
         }
@@ -409,6 +410,11 @@ namespace Desert::Graphic::System
         // Counts PrepareFrame calls: ProgramMaterials::GroupFrame names the frame a set's group opened in.
         uint64_t m_PrepareSerial = 0u;
         std::vector<FrameDraw>       m_FrameDraws;
+        // THE CAMERA'S DRAWS (UE: every landscape component is a primitive the view's frustum culls): the tiles of
+        // m_FrameDraws whose displaced box meets the camera's frustum, in queue order - what the camera's own
+        // rasters draw (TerrainGBuffer, the forward depth prepass and base pass). The casters, the dice pool and
+        // the virtual shadow map keep m_FrameDraws: a tile outside the view still casts into it.
+        std::vector<FrameDraw>       m_ViewDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
         // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a
         // view with no cascade this frame.
