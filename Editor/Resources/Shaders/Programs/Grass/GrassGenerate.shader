@@ -81,8 +81,9 @@ Shader "GrassGenerate"
             vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
                              // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
             vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
-                             // a blade's far LOD: z = the distance at which its bounding radius at scale 1 stands at the
-                             // Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh GrassBladeLodAt)
+                             // the far LOD of a blade or a mesh: z = the distance at which its bounding radius at scale 1
+                             // stands at the Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh
+                             // GrassBladeLodAt, GrassMeshFarLod)
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
             vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
             uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list's copy of
@@ -378,7 +379,19 @@ Shader "GrassGenerate"
                 lod.Widen *= GrassBladeFadeWiden( share );
             }
             else
-                scale *= GrassMeshShrink( field, fade );
+            {
+                // THE MESH'S FAR LOD (GPU-FRAME-6, GrassFieldShare.glslh GrassMeshFarLod): the blade's far-LOD
+                // share by its bounding radius on screen - its largest axis scale over the far LOD's screen size
+                // (p.Lod.z: where the mesh at scale 1 stands at it) - on top of the distance thinning, and the
+                // instance it drops shrinks to nothing first (GrassMeshShrink over both shares).
+                float           size    = p.Lod.z > 0.0
+                                              ? p.Lod.z * max( scale.x, max( scale.y, scale.z ) ) / max( distance, 1.0 )
+                                              : 0.0;
+                GrassFieldShare reached = GrassMeshFarLod( field, size );
+                if ( fade >= reached.Kept )
+                    return;
+                scale *= GrassMeshShrink( reached, fade );
+            }
             // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
             // narrowest card's: the sphere tests take the widest the instance can become.
             float floorBound = 0.0;
