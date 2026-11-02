@@ -102,15 +102,19 @@ namespace Desert::Graphic::RDG
     private:
         friend class Builder;
         friend class PassBindings; // PassBindings( context, block ) reads the block this pass declared
-        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass )
-             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass )
+        // @p late: the late substitutions of the run recording this pass (the graph's on the calling thread, a
+        // chunk's on a worker); only this pass's own entries are read, and they were added before its exec.
+        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass,
+                     const std::vector<DefaultSubstitution>& late )
+             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass ), m_Late( late )
         {
         }
 
-        const Builder&       m_Builder;
-        const CompileResult& m_Result;
-        IBackend&            m_Backend;
-        uint32_t             m_Pass;
+        const Builder&                          m_Builder;
+        const CompileResult&                    m_Result;
+        IBackend&                               m_Backend;
+        uint32_t                                m_Pass;
+        const std::vector<DefaultSubstitution>& m_Late;
     };
 
     // Declarations of one pass, handed to its setup lambda. A malformed declaration (wrong resource kind,

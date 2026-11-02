@@ -143,6 +143,16 @@ namespace Desert::Graphic::RDG
         uint32_t m_LinesLogged = 0;
     };
 
+    // RDG-PARALLEL-2 (UE FRDGBuilder::Execute, r.RDG.ParallelExecute): a run of consecutive passes of one segment
+    // that a worker records apart from the segment's command buffer; the calling thread replays it there in pass
+    // order. A chunk starts and ends outside every render pass and holds no NeverParallel pass.
+    struct RecordChunkDesc
+    {
+        Pipe     OnPipe        = Pipe::Graphics;
+        uint32_t FirstPosition = 0; // CompileResult::Passes positions, inclusive
+        uint32_t LastPosition  = 0;
+    };
+
     class IBackend
     {
     public:
@@ -191,6 +201,48 @@ namespace Desert::Graphic::RDG
         virtual void PrepareRecording( std::span<const CompiledPass> passes )
         {
             static_cast<void>( passes );
+        }
+
+        // ── RDG-PARALLEL-2: chunked parallel recording (UE FRDGBuilder parallel execute) ─────────────────
+        // True when the backend records chunks on workers. False (the default): Execute records every pass on
+        // the calling thread and calls none of the chunk methods below.
+        [[nodiscard]] virtual bool SupportsParallelRecording() const
+        {
+            return false;
+        }
+        // Calling thread, after PrepareRecording, before any worker starts: everything the chunks record into
+        // (per-chunk command buffers, descriptor arenas, profiler order) exists when this returns.
+        virtual Common::BoolResultStr BeginChunks( std::span<const RecordChunkDesc> chunks )
+        {
+            static_cast<void>( chunks );
+            return Common::MakeFormattedError( "{}", "this backend does not record chunks" );
+        }
+        // On the worker recording chunk @p chunk: every BeginPass .. EndPass between them records into that
+        // chunk. Different chunks run concurrently; one chunk's calls come from one thread.
+        virtual void BeginChunk( uint32_t chunk )
+        {
+            static_cast<void>( chunk );
+        }
+        virtual void EndChunk( uint32_t chunk )
+        {
+            static_cast<void>( chunk );
+        }
+        // Calling thread, in pass order, inside the chunk's segment: what the chunk recorded goes into the
+        // segment's command buffer.
+        virtual Common::BoolResultStr ExecuteChunk( uint32_t chunk )
+        {
+            static_cast<void>( chunk );
+            return Common::MakeFormattedError( "{}", "this backend does not record chunks" );
+        }
+        // Calling thread: chunk @p chunk was recorded but will not be executed (an earlier pass faulted, so its
+        // passes record again on the calling thread). Its GPU profiler scopes must not stay open or be read.
+        virtual void DiscardChunk( uint32_t chunk )
+        {
+            static_cast<void>( chunk );
+        }
+        // Calling thread, after the last segment (AbandonGraph also ends them).
+        virtual void EndChunks()
+        {
         }
 
         // Label and timestamp open around the pass.

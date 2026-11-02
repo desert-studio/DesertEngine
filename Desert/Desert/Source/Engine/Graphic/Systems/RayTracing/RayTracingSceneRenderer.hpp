@@ -264,7 +264,7 @@ namespace Desert::Graphic::RayTracing
         const uint32_t       count     = frame.InstanceCount;
         const bool           updates   = frame.Updated;
         graph.AddPass(
-             kTlasPassName, RDG::PassFlags::Compute,
+             kTlasPassName, RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( instances, RDG::Access::AccelStructBuildInput );

@@ -344,7 +344,7 @@ namespace Desert::Graphic
         const TemporalUpscalerInputs in          = inputs;
         const RDG::TextureRef        exposureRef = exposure.GetValue();
         graph.AddPass(
-             "FSR3.Upscale", RDG::PassFlags::Compute,
+             "FSR3.Upscale", RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( in.SceneColor, RDG::Access::SampledCompute );
