@@ -106,6 +106,15 @@ namespace Desert
         {
             return m_LODScreenSizes;
         }
+        // THE SAME CHAIN FOR A GRASS FIELD (UE landscape grass: the grass type's own LOD sizes, not the static
+        // mesh's): the density rule counts the pixels LOD 0's triangles cover (Geometry::LODScreenCoverage), not
+        // the bounding disc. A field's neighbours fill what a sparse card leaves open, so its coarse levels read
+        // the same at that size; a standalone mesh (a tree crown, a fence) keeps GetLODScreenSizes, because its
+        // coarse levels draw its silhouette alone. Authored sizes are the same in both.
+        [[nodiscard]] const std::vector<float>& GetFieldLODScreenSizes() const
+        {
+            return m_FieldLODScreenSizes;
+        }
         [[nodiscard]] const std::optional<std::vector<float>>& GetAuthoredLODScreenSizes() const
         {
             return m_AuthoredLODScreenSizes;
@@ -244,14 +253,18 @@ namespace Desert
         // Called by every subclass that (re)builds its LOD chain: the resolved sizes follow the level count.
         void ResolveLODScreenSizes()
         {
-            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( Geometry::LODTriangleCounts( m_Submeshes ),
-                                                                m_AuthoredLODScreenSizes, m_LODScreenCoverage );
+            const auto levelTriangles = Geometry::LODTriangleCounts( m_Submeshes );
+            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, 1.0f );
+            m_FieldLODScreenSizes =
+                 Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, m_LODScreenCoverage );
         }
         // Geometry::LODScreenCoverage of the mesh's LOD 0 triangles, set by the subclass that holds them before it
-        // resolves the sizes (1: the bounding disc, a mesh whose triangles it does not measure).
+        // resolves the sizes (1: the bounding disc, a mesh whose triangles it does not measure); only the field
+        // chain (GetFieldLODScreenSizes) reads it.
         float                             m_LODScreenCoverage = 1.0f;
         std::optional<std::vector<float>> m_AuthoredLODScreenSizes;
         std::vector<float>                m_LODScreenSizes;
+        std::vector<float>                m_FieldLODScreenSizes;
 
         std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> m_RayTracingGeometry;
 

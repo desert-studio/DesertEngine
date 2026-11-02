@@ -489,7 +489,9 @@ namespace Desert::Graphic::System
         // level of its LOD chain, every instance in the coarsest level whose screen size it is still below (UE
         // grass HISM: the instance's LOD by ComputeStaticMeshLOD's screen size, Geometry::SelectLODFromBounds) -
         // the levels are the mesh asset's own, its records (level L x submesh) each draw that level's index range.
-        const std::vector<float>& screenSizes = mesh.GetLODScreenSizes();
+        // The sizes are the field chain (Mesh::GetFieldLODScreenSizes): a field's sparse cards coarsen by the
+        // pixels they cover.
+        const std::vector<float>& screenSizes = mesh.GetFieldLODScreenSizes();
         const uint32_t            levels =
              variety.Blade ? 1u
                                       : std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
