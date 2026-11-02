@@ -17,7 +17,8 @@ Shader "DLSSRRPathGuides"
         //   SpecularHitDistanceTexture - the first bounce's length weighted by its specular share (world units,
         //                                centimetres; kPathTracingDenoiseMissHitDistance for a bounce that left the
         //                                scene), 0 where no specular share was traced.
-        // A pixel no path of which met a surface (s = 0: the sky) gets zero guides, as the raster's background.
+        // A pixel no path of which met a surface (s = 0: the sky) gets the raster's background guides
+        // (DLSSRRGuides.shader): diffuse albedo one - pure emission RR leaves as it is - and zero elsewhere.
 
         LocalSize(8, 8, 1);
 
@@ -48,7 +49,7 @@ Shader "DLSSRRPathGuides"
         	const float paths  = albedo.a;
         	if (paths <= 0.0)
         	{
-        		imageStore(DiffuseAlbedoTexture, pixel, vec4(0.0));
+        		imageStore(DiffuseAlbedoTexture, pixel, vec4(1.0));
         		imageStore(SpecularAlbedoTexture, pixel, vec4(0.0));
         		imageStore(NormalRoughnessTexture, pixel, vec4(0.0));
         		imageStore(SpecularHitDistanceTexture, pixel, vec4(0.0));
