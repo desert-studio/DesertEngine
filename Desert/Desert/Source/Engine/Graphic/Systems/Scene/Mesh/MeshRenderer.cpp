@@ -1670,6 +1670,70 @@ namespace Desert::Graphic::System
              pipeline, pipeline != nullptr ? BinFallback::None : BinFallback::PipelineUnavailable };
     }
 
+    void MeshRenderer::TrackStaticCasters( const GpuDriven::GpuScene& scene )
+    {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::TrackStaticCasters" );
+        StaticCasterTrack& track = m_StaticCasters;
+        // The queues' primitives in queue order (identity, not content: what each record draws is the stream's):
+        // the kept rows and cascade parts are per queue entry, so another set or order is another revision.
+        uint64_t   order = 0xCBF29CE484222325ull;
+        const auto fold  = [&order]( const uint64_t value ) { order = ( order ^ value ) * 0x100000001B3ull; };
+        fold( m_StaticQueue.size() );
+        fold( m_GenericQueue.size() );
+        for ( const auto& data : m_StaticQueue )
+            fold( data.GpuPrimitive );
+        for ( const auto& data : m_GenericQueue )
+            fold( data.GpuPrimitive );
+        // Another stream (a scene re-created), a lost window (not read for kPrimitiveChangeFrames), the frame put
+        // back (Discarded) or any change of a primitive the queues hold: a new revision. A change of a primitive
+        // they do not hold (a skinned character walking, an ISM field, a landscape tile) is not theirs.
+        bool changed = track.Revision == 0u || track.Stream != scene.GetStreamId() || track.Order != order;
+        if ( !changed )
+        {
+            const auto changes = scene.ChangesSince( track.Cursor );
+            if ( !changes )
+            {
+                changed = true;
+            }
+            else
+            {
+                for ( const GpuDriven::PrimitiveChange& change : *changes )
+                {
+                    if ( change.Kind == GpuDriven::PrimitiveChangeKind::Discarded ||
+                         ( change.Primitive < track.Member.size() && track.Member[change.Primitive] != 0u ) )
+                    {
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        track.Stream = scene.GetStreamId();
+        track.Cursor = scene.GetChangeSerial();
+        if ( changed )
+        {
+            ++track.Revision;
+            track.Order = order;
+            // The primitives the queues hold now: the next frames' changes are filtered by them. Made again only
+            // with a new revision (the set is the order word's).
+            std::fill( track.Member.begin(), track.Member.end(), uint8_t{ 0 } );
+            const auto hold = [&track]( const uint32_t primitive )
+            {
+                if ( primitive == GpuDriven::kInvalidIndex )
+                    return;
+                if ( primitive >= track.Member.size() )
+                    track.Member.resize( static_cast<std::size_t>( primitive ) + 1u, uint8_t{ 0 } );
+                track.Member[primitive] = 1u;
+            };
+            for ( const auto& data : m_StaticQueue )
+                hold( data.GpuPrimitive );
+            for ( const auto& data : m_GenericQueue )
+                hold( data.GpuPrimitive );
+        }
+        track.Gather = m_ShadowCasterSetup.Gather;
+        FinishStaticCasterRows();
+    }
+
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
@@ -1717,6 +1781,9 @@ namespace Desert::Graphic::System
                 Value( mesh->GetSubmeshes().size() );
                 Value( mesh->GetGeometry().IndexCount );
                 Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+                // A content change of the same mesh object (a sculpt, a reload into it): its render identity
+                // (MeshRenderRevision) is what the static casters' shadow parts key it by (SCENE-CACHE-4).
+                Value( mesh->GetRenderRevision() );
             }
         };
         const auto staticContent = []( const StaticMeshRenderData& data )
@@ -1724,6 +1791,9 @@ namespace Desert::Graphic::System
             ContentWords words;
             words.MeshOf( data.Mesh );
             words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
+            // The slot whose submeshes the entry shades with: a reader of the entry's section (the cascades'
+            // static part, CascadeStaticSignature) keys it, so it is part of the record's content.
+            words.Value( static_cast<uint64_t>( data.SectionSlot ) );
             return words.Hash;
         };
         const auto genericContent = []( const GenericMeshRenderData& data )
@@ -1838,6 +1908,9 @@ namespace Desert::Graphic::System
         m_OtherGpuInstances.reserve( otherRigid.size() );
         for ( size_t other = 0; other < otherRigid.size(); ++other )
             m_OtherGpuInstances.push_back( rows.RigidInstances[record++] );
+        // The static casters' revision and rows (SCENE-CACHE-4): this view's records are synced and every
+        // static / generic entry names its primitive.
+        TrackStaticCasters( scene );
         for ( size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             m_SkinnedQueue[i].GpuPrimitive = rows.SkinnedPrimitives[i];

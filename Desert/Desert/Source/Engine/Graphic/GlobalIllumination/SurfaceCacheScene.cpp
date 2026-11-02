@@ -16,6 +16,10 @@ namespace Desert::Graphic::SurfaceCache
         // UE GetCardMaxResolution clamps the viewer distance to a metre: a card the camera stands inside is not
         // asked for infinite texels.
         constexpr float kMinViewerDistance = 100.0f; // cm
+        // How far a viewer moves before the cards' resolutions are measured again (SurfaceCacheScene::Update):
+        // a quarter of the nearest distance a card is measured at, so a card at that distance asks at most a
+        // third more texels than its last pass gave it before the pass runs again.
+        constexpr float kViewerSettleDistance = 0.25f * kMinViewerDistance; // cm
         // "No card": an eviction for a low mip, which outranks every high mip whatever its distance.
         constexpr uint32_t kNoCard = std::numeric_limits<uint32_t>::max();
 
@@ -156,6 +160,9 @@ namespace Desert::Graphic::SurfaceCache
         if ( !atlasChanged )
             return;
         m_Allocator.Reset( budget.AtlasSize );
+        // Every mip is gone: the allocation is made again (and the kept order with it).
+        ++m_AtlasSerial;
+        m_Settled = false;
         for ( auto& [key, instance] : m_Instances )
             for ( Card& card : instance.Cards )
             {
@@ -179,6 +186,8 @@ namespace Desert::Graphic::SurfaceCache
 
     void SurfaceCacheScene::FreeMip( CardMip& mip )
     {
+        if ( mip.ResX != 0 || !mip.Pages.empty() )
+            ++m_AtlasSerial;
         for ( const AtlasRect& page : mip.Pages )
             m_Allocator.Free( page );
         mip = {};
@@ -215,6 +224,7 @@ namespace Desert::Graphic::SurfaceCache
         mip.PagesY       = pagesY;
         mip.Captured     = false;
         mip.CaptureFrame = 0;
+        ++m_AtlasSerial;
         return true;
     }
 
@@ -233,79 +243,9 @@ namespace Desert::Graphic::SurfaceCache
         m_ExecutedCaptureFrames.push_back( frame );
     }
 
-    SceneFrame SurfaceCacheScene::Update( const std::vector<SceneInstance>& instances,
-                                          const std::span<const glm::vec3>  viewers )
+    void SurfaceCacheScene::AllocateCards( const std::span<const glm::vec3> viewers )
     {
-        ++m_Frame;
-        SceneFrame frame;
-        if ( m_Budget.AtlasSize < kPhysicalPageSize || m_CaptureAtlasSize == 0 )
-            return frame;
-
-        // ADD / MOVE. A key that comes back with another mesh or another card build is a new instance.
-        for ( const SceneInstance& in : instances )
-        {
-            if ( !in.Cards || in.Cards->Cards.empty() )
-                continue;
-            auto it = m_Instances.find( in.Key );
-            if ( it != m_Instances.end() && ( it->second.Mesh != in.Mesh || it->second.Build != in.Cards ) )
-            {
-                for ( Card& card : it->second.Cards )
-                    FreeCard( card );
-                FreeRow( it->second.Row );
-                m_Instances.erase( it );
-                ++m_PlacementRevision;
-                it = m_Instances.end();
-            }
-            if ( it == m_Instances.end() )
-            {
-                Instance fresh;
-                fresh.Mesh       = in.Mesh;
-                fresh.Build      = in.Cards;
-                fresh.World      = in.World;
-                fresh.SurfaceKey = in.SurfaceKey;
-                fresh.Row        = AllocateRow();
-                PlaceCards( fresh );
-                it = m_Instances.emplace( in.Key, std::move( fresh ) ).first;
-                ++m_PlacementRevision;
-            }
-            else if ( it->second.World != in.World )
-            {
-                // Moved: the captured texels are card space and stay; the card frames follow the world.
-                it->second.World = in.World;
-                PlaceCards( it->second );
-                ++m_PlacementRevision;
-            }
-            if ( it->second.SurfaceKey != in.SurfaceKey )
-            {
-                // Another surface: the texels hold the old material; the pages stay, the cards are recaptured.
-                it->second.SurfaceKey = in.SurfaceKey;
-                for ( Card& card : it->second.Cards )
-                    for ( CardMip* mip : { &card.Low, &card.High } )
-                    {
-                        mip->Captured     = false;
-                        mip->CaptureFrame = 0;
-                    }
-            }
-            for ( Card& card : it->second.Cards )
-                card.Ready = in.CaptureReady;
-            it->second.Source    = in.Source;
-            it->second.SeenFrame = m_Frame;
-        }
-        // REMOVE: every instance the frame no longer has gives its pages back.
-        for ( auto it = m_Instances.begin(); it != m_Instances.end(); )
-        {
-            if ( it->second.SeenFrame == m_Frame )
-            {
-                ++it;
-                continue;
-            }
-            for ( Card& card : it->second.Cards )
-                FreeCard( card );
-            FreeRow( it->second.Row );
-            it = m_Instances.erase( it );
-            ++m_PlacementRevision;
-        }
-
+        m_SettledMissing = 0;
         // RESOLUTIONS. Each side a power of two, at least the smallest card side - a thin card's thin side
         // included (a kerb keeps its eight texels across) - at most the largest and the capture atlas.
         const uint32_t minRes =
@@ -313,7 +253,8 @@ namespace Desert::Graphic::SurfaceCache
         const uint32_t maxRes = std::max(
              minRes, std::bit_floor( std::max( 1u, std::min( { m_Budget.CardMaxResolution, m_CaptureAtlasSize,
                                                                ResLevelResolution( kMaxResLevel ) } ) ) ) );
-        std::vector<Card*> cards;
+        std::vector<Card*>& cards = m_SortedCards;
+        cards.clear();
         for ( auto& [key, instance] : m_Instances )
             for ( Card& card : instance.Cards )
             {
@@ -401,7 +342,7 @@ namespace Desert::Graphic::SurfaceCache
                 const std::size_t page = farthestPage( kNoCard );
                 if ( page == occupants.size() )
                 {
-                    ++frame.MissingMinimumCards;
+                    ++m_SettledMissing;
                     break;
                 }
                 evictPage( page );
@@ -465,6 +406,103 @@ namespace Desert::Graphic::SurfaceCache
                 evictPage( page );
             }
         }
+    }
+
+    SceneFrame SurfaceCacheScene::Update( const std::vector<SceneInstance>& instances,
+                                          const std::span<const glm::vec3>  viewers )
+    {
+        ++m_Frame;
+        SceneFrame frame;
+        if ( m_Budget.AtlasSize < kPhysicalPageSize || m_CaptureAtlasSize == 0 )
+            return frame;
+
+        // ADD / MOVE. A key that comes back with another mesh or another card build is a new instance.
+        for ( const SceneInstance& in : instances )
+        {
+            if ( !in.Cards || in.Cards->Cards.empty() )
+                continue;
+            auto it = m_Instances.find( in.Key );
+            if ( it != m_Instances.end() && ( it->second.Mesh != in.Mesh || it->second.Build != in.Cards ) )
+            {
+                for ( Card& card : it->second.Cards )
+                    FreeCard( card );
+                FreeRow( it->second.Row );
+                m_Instances.erase( it );
+                ++m_PlacementRevision;
+                it = m_Instances.end();
+            }
+            if ( it == m_Instances.end() )
+            {
+                Instance fresh;
+                fresh.Mesh       = in.Mesh;
+                fresh.Build      = in.Cards;
+                fresh.World      = in.World;
+                fresh.SurfaceKey = in.SurfaceKey;
+                fresh.Row        = AllocateRow();
+                PlaceCards( fresh );
+                it = m_Instances.emplace( in.Key, std::move( fresh ) ).first;
+                ++m_PlacementRevision;
+            }
+            else if ( it->second.World != in.World )
+            {
+                // Moved: the captured texels are card space and stay; the card frames follow the world.
+                it->second.World = in.World;
+                PlaceCards( it->second );
+                ++m_PlacementRevision;
+            }
+            if ( it->second.SurfaceKey != in.SurfaceKey )
+            {
+                // Another surface: the texels hold the old material; the pages stay, the cards are recaptured.
+                it->second.SurfaceKey = in.SurfaceKey;
+                for ( Card& card : it->second.Cards )
+                    for ( CardMip* mip : { &card.Low, &card.High } )
+                    {
+                        mip->Captured     = false;
+                        mip->CaptureFrame = 0;
+                    }
+            }
+            for ( Card& card : it->second.Cards )
+                card.Ready = in.CaptureReady;
+            it->second.Source    = in.Source;
+            it->second.SeenFrame = m_Frame;
+        }
+        // REMOVE: every instance the frame no longer has gives its pages back.
+        for ( auto it = m_Instances.begin(); it != m_Instances.end(); )
+        {
+            if ( it->second.SeenFrame == m_Frame )
+            {
+                ++it;
+                continue;
+            }
+            for ( Card& card : it->second.Cards )
+                FreeCard( card );
+            FreeRow( it->second.Row );
+            it = m_Instances.erase( it );
+            ++m_PlacementRevision;
+        }
+
+        // RESOLUTIONS AND ALLOCATION (AllocateCards), made again only when what they read moved (SCENE-CACHE-4;
+        // UE FLumenSceneData: a card's resolution is re-evaluated on a primitive's add / move / remove and when a
+        // view origin moved, not by re-sorting the scene every frame): an instance added, moved or removed
+        // (m_PlacementRevision: the cards' frames, and the sorted list's pointers into them), the budget or the
+        // capture atlas, the viewers' count, a viewer farther than kViewerSettleDistance from where the last pass
+        // measured it, or a last pass that changed the atlas (a mip allocated or freed, m_AtlasSerial: the next
+        // pass may place what it freed). A pass that changed nothing is settled: the same inputs make nothing new.
+        bool settled = m_Settled && m_SettledPlacement == m_PlacementRevision && m_SettledBudget == m_Budget &&
+                       m_SettledCaptureAtlas == m_CaptureAtlasSize && m_SettledViewers.size() == viewers.size();
+        for ( std::size_t v = 0; settled && v < viewers.size(); ++v )
+            settled = glm::length( viewers[v] - m_SettledViewers[v] ) <= kViewerSettleDistance;
+        if ( !settled )
+        {
+            const uint64_t atlasBefore = m_AtlasSerial;
+            AllocateCards( viewers );
+            m_Settled             = m_AtlasSerial == atlasBefore;
+            m_SettledPlacement    = m_PlacementRevision;
+            m_SettledBudget       = m_Budget;
+            m_SettledCaptureAtlas = m_CaptureAtlasSize;
+            m_SettledViewers.assign( viewers.begin(), viewers.end() );
+        }
+        frame.MissingMinimumCards = m_SettledMissing;
 
         // CONFIRMED CAPTURES (GI-SURFACE-CACHE-4). A capture becomes the card's surface only once the graph that
         // drew it EXECUTED (ConfirmCapturesExecuted, from the copy pass's exec): a frame whose graph was dropped
@@ -525,13 +563,13 @@ namespace Desert::Graphic::SurfaceCache
             frame.Captures.push_back( entry );
             mip.CaptureFrame = m_Frame;
         };
-        for ( Card* card : cards )
+        for ( Card* card : m_SortedCards )
         {
             if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
                 break;
             capture( *card, card->Low );
         }
-        for ( Card* card : cards )
+        for ( Card* card : m_SortedCards )
         {
             if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
                 break;

@@ -168,6 +168,14 @@ namespace Desert::Graphic::System
                 continue;
             const uint64_t field =
                  HashCombine( HashCombine( 0x84222325CBF29CE4ull, ism.Entity ), PointerBits( ism.Mesh ) );
+            // The field's surface identity and readiness, asked once for all its instances (SCENE-CACHE-4): every
+            // instance is the same (surface, instance, path), so the answer is the same; asked per instance it
+            // cost a variant lookup, a build revision, a texture wait and a cell choice per instance per frame.
+            uint64_t fieldSurfaceKey = 0;
+            bool     fieldReady      = false;
+            surfaceOf( shading.Surface, shading.Instance, MeshVertexPath::Instanced, fieldSurfaceKey, fieldReady );
+            const std::optional<std::pair<uint64_t, bool>> fieldSurface( std::in_place, fieldSurfaceKey,
+                                                                         fieldReady );
             for ( std::size_t i = 0; i < ism.Transforms->size(); ++i )
             {
                 // Bit 63 set: never an entity key (entity << 24 stays below it).
@@ -175,7 +183,7 @@ namespace Desert::Graphic::System
                 addSection(
                      key, ism.Mesh, cards, ( *ism.Transforms )[i], MeshVertexPath::Instanced,
                      { .Instance = shading.Instance, .Surface = shading.Surface, .Hidden = ism.HiddenSubmeshes },
-                     std::nullopt );
+                     fieldSurface );
             }
         }
         // GENERIC DRAWS (UE: every primitive is in the Lumen scene): a slot material that is not the standard
