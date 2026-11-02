@@ -64,7 +64,7 @@ namespace Desert::Graphic::API::Vulkan
 
         void InvalidateGeometryBinding() override
         {
-            m_BoundGeometry.reset();
+            ForgetBoundState();
         }
 
         virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
@@ -159,10 +159,18 @@ namespace Desert::Graphic::API::Vulkan
         // @p drawPush: the draw's own push block (a copy of @p material's with the draw's values over it, built by
         // the caller - RENDER-THREADS M2b, the shared material is not written to record a draw); empty = the
         // material's block as it stands.
+        // @p push: Record pushes the chosen block; CallerCoversRange only checks it - the caller records the
+        // pipeline layout's WHOLE push range before every draw it makes (WalkMeshSubmeshes: the per-submesh
+        // transform over the draw's block), so a push here would be overwritten before any draw reads it.
+        enum class PassStatePush : uint8_t
+        {
+            Record,
+            CallerCoversRange,
+        };
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings&   bindings,
                                                      const GraphicsPipeline&    pipeline,
                                                      const MaterialExecutor*    material,
-                                                     std::span<const std::byte> drawPush );
+                                                     std::span<const std::byte> drawPush, PassStatePush pushMode );
         // Binds @p geometry's vertex buffer (binding 0), its streams or the shared default (binding 1, when
         // @p pipeline's vertex input has it) and its index buffer, each at its byte offset, unless exactly those
         // are bound already for this pipeline on this command buffer (m_BoundGeometry); then the instance id
@@ -187,7 +195,51 @@ namespace Desert::Graphic::API::Vulkan
             [[nodiscard]] bool operator==( const BoundGeometry& ) const = default;
         };
         std::optional<BoundGeometry> m_BoundGeometry;
-        std::vector<std::byte>       m_SubmeshPush; // WalkMeshSubmeshes' push block, reused by every draw
+        // CPU-FRAME-6 (UE: FVulkanCommandListContext's pending graphics state - a bind of what is bound already
+        // records nothing): the pipeline and descriptor sets last recorded at the GRAPHICS bind point of
+        // CommandBuffer. Vulkan keeps both across render passes and a pipeline bind does not disturb the sets, so
+        // a draw whose pipeline handle, or whose layout and set handles, equal these records no bind. Every
+        // dynamic state the engine sets (viewport, scissor, line width) is dynamic in every graphics pipeline
+        // (VulkanPipeline::m_DynamicStates), so a skipped pipeline bind keeps no stale static state. Forgotten
+        // (ForgetBoundState) wherever m_BoundGeometry is - a buffer (re)armed, code outside the renderer bound
+        // its own (InvalidateGeometryBinding) - and at every graph pass's begin and end (a pass exec may record
+        // through anything: ImGui, NGX, a test's raw vkCmd*); the sets alone after SubmitPulled's material
+        // bound its own.
+        struct BoundGraphics
+        {
+            VkCommandBuffer              CommandBuffer = VK_NULL_HANDLE;
+            VkPipeline                   Pipeline      = VK_NULL_HANDLE;
+            VkPipelineLayout             SetsLayout    = VK_NULL_HANDLE;
+            std::vector<VkDescriptorSet> Sets; // bound at set 0 on; the capacity is kept across forgets
+
+            // Tracks @p commandBuffer from here: what another buffer held is forgotten.
+            void On( VkCommandBuffer commandBuffer )
+            {
+                if ( CommandBuffer == commandBuffer )
+                    return;
+                Forget();
+                CommandBuffer = commandBuffer;
+            }
+            void ForgetSets()
+            {
+                SetsLayout = VK_NULL_HANDLE;
+                Sets.clear();
+            }
+            void Forget()
+            {
+                CommandBuffer = VK_NULL_HANDLE;
+                Pipeline      = VK_NULL_HANDLE;
+                ForgetSets();
+            }
+        };
+        BoundGraphics m_BoundGraphics;
+        // Everything the renderer knows bound on the current command buffer (geometry, pipeline, sets).
+        void ForgetBoundState()
+        {
+            m_BoundGeometry.reset();
+            m_BoundGraphics.Forget();
+        }
+        std::vector<std::byte> m_SubmeshPush; // WalkMeshSubmeshes' push block, reused by every draw
         // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
         // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
         // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.

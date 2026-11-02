@@ -542,6 +542,14 @@ namespace Desert::Graphic::API::Vulkan
         // goes through) records a pass into the command buffer of the segment the pass runs on, as a pass
         // context would: it is told the backend's recording command buffer each time that changes (a
         // segment begins or ends, the graph begins, is abandoned or hands its submissions over).
+        // CPU-FRAME-6: told at every pass's begin and end, before anything the backend records there: the bound
+        // state of the recording command buffer is not known across a pass exec (it may record through anything,
+        // ImGui or NGX), so the engine recorder forgets its bind cache (VulkanRendererAPI::m_BoundGraphics).
+        using PassBoundaryListener = std::function<void()>;
+        void SetPassBoundaryListener( PassBoundaryListener listener )
+        {
+            m_PassBoundaryListener = std::move( listener );
+        }
         using RecordingListener = std::function<void( VkCommandBuffer )>;
         void SetRecordingListener( RecordingListener listener )
         {
@@ -624,6 +632,7 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgMemoryRequirements m_Memory;
         VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
         RecordingListener           m_RecordingListener;
+        PassBoundaryListener        m_PassBoundaryListener;
         // Every change of m_CommandBuffer goes through here, so the listener never records into a stale one.
         void                         SetRecording( VkCommandBuffer commandBuffer );
         VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions
