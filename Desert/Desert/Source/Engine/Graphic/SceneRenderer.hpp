@@ -719,6 +719,12 @@ namespace Desert::Graphic
         // views draw it, and never inside a view's entry. The budget's scene entries (ViewBudgetGate).
         [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> SceneHoldings();
 
+        // The SUMS of LiveHoldings and SceneHoldings, with no names, strings or vectors: the per-frame readers
+        // (the status bar, ReadViewBudget) need the total, not the list, and these answer it from the ledger's
+        // running per-instance totals — one lookup per live view, one walk of the live scene instances.
+        [[nodiscard]] static uint64_t LiveHeldBytes();
+        [[nodiscard]] static uint64_t SceneHeldBytes();
+
         const auto& GetMainCamera() const
         {
             return m_SceneInfo.ActiveCamera;

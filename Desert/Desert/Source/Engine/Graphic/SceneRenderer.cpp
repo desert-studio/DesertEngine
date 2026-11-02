@@ -781,6 +781,15 @@ namespace Desert::Graphic
                            ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
+        // The read above (and every per-frame budget read) answers from the ledger's running per-instance
+        // totals. A view's close is where they are proven against a full walk of the rows: a disagreement is
+        // a bookkeeping defect in ResourceLedger, and the budget has been reading wrong numbers since.
+        if ( const std::string disagreement = ResourceLedger::CheckInstanceTotals(); !disagreement.empty() )
+        {
+            LOG_ERROR(
+                 "[Resources] CheckInstanceTotals at {} close: the running totals disagree with the rows:\n{}",
+                 ResourceOwnerInstanceName( Instance ), disagreement );
+        }
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
@@ -800,14 +809,28 @@ namespace Desert::Graphic
         return held;
     }
 
-    std::string SceneRenderer::DescribeLiveViews()
+    uint64_t SceneRenderer::LiveHeldBytes()
+    {
+        const std::scoped_lock lock( LiveRenderersMutex() );
+        uint64_t               held = 0;
+        // The same entries as LiveHoldings: a capture face view (Borrowed) holds 0 of its own (HeldBytes).
+        for ( const SceneRenderer* renderer : LiveRenderers() )
+            held += renderer->HeldBytes();
+        return held;
+    }
+
+    uint64_t SceneRenderer::SceneHeldBytes()
     {
         uint64_t held = 0;
-        for ( const Engine::ViewBudget::HeldView& view : LiveHoldings() )
-            held += view.Bytes;
-        uint64_t shared = 0;
-        for ( const Engine::ViewBudget::HeldView& scene : SceneHoldings() )
-            shared += scene.Bytes;
+        for ( const ResourceInstanceCensus& scene : ResourceLedger::TakeInstances( ResourceInstanceKind::Scene ) )
+            held += scene.Bytes;
+        return held;
+    }
+
+    std::string SceneRenderer::DescribeLiveViews()
+    {
+        const uint64_t held   = LiveHeldBytes();
+        const uint64_t shared = SceneHeldBytes();
         return std::format( "{} live, {:.1f} MiB; scenes {:.1f} MiB shared", ViewResourceRegistry::LiveCount(),
                             static_cast<double>( held ) / ( 1024.0 * 1024.0 ),
                             static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );

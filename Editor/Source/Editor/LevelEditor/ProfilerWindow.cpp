@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <format>
 #include <string>
 #include <string_view>
@@ -360,6 +361,50 @@ namespace Desert::Editor
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 
+    void ProfilerWindow::RefreshTable()
+    {
+        const auto&                                          prof = ::Common::Profiling::Profiler::Get();
+        const std::vector<::Common::Profiling::ScopeResult>& rows = prof.LastFrame();
+        if ( m_TablePublish == prof.PublishCount() && m_TableRows.size() == rows.size() )
+            return;
+        m_TablePublish = prof.PublishCount();
+
+        const double frameMs = prof.LastFrameMs();
+        // The whole-frame GPU bracket the backend records around the command buffer. It is the denominator
+        // the per-pass GPU column is checked against: the passes should tile it, not exceed it.
+        m_TableGpuFrameMs = 0.0;
+        m_TableRows.resize( rows.size() );
+        for ( size_t i = 0; i < rows.size(); ++i )
+        {
+            const ::Common::Profiling::ScopeResult& s     = rows[i];
+            TableRow&                               cells = m_TableRows[i];
+            if ( s.Name == ::Common::Profiling::kGpuFrameTotalScope )
+                m_TableGpuFrameMs = s.GpuMs;
+
+            const double pct = frameMs > 0.0001 ? ( s.TotalMs / frameMs ) * 100.0 : 0.0;
+            cells.Waited     = s.WaitMs > 0.0005;
+            cells.Timed      = s.GpuCalls > 0;
+            cells.Hot        = pct > 25.0;
+            std::snprintf( cells.Cpu.data(), cells.Cpu.size(), "%.3f", s.TotalMs );
+            if ( cells.Waited )
+                std::snprintf( cells.Wait.data(), cells.Wait.size(), "%.3f", s.WaitMs );
+            else
+                std::snprintf( cells.Wait.data(), cells.Wait.size(), "-" );
+            if ( cells.Timed )
+            {
+                std::snprintf( cells.Gpu.data(), cells.Gpu.size(), "%.3f", s.GpuMs );
+                std::snprintf( cells.GpuSelf.data(), cells.GpuSelf.size(), "%.3f", s.GpuSelfMs );
+            }
+            else
+            {
+                std::snprintf( cells.Gpu.data(), cells.Gpu.size(), "-" );
+                std::snprintf( cells.GpuSelf.data(), cells.GpuSelf.size(), "-" );
+            }
+            std::snprintf( cells.Pct.data(), cells.Pct.size(), "%.1f", pct );
+            std::snprintf( cells.Calls.data(), cells.Calls.size(), "%u", s.Calls );
+        }
+    }
+
     void ProfilerWindow::DrawProfilerWindow()
     {
         namespace ImGui = ::ImGui;
@@ -405,18 +450,13 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 160.0f );
         ImGui::SliderFloat( "Avg window (s)", &prof.AvgWindowSeconds(), 0.1f, 2.0f, "%.1f" );
 
-        // The whole-frame GPU bracket the backend records around the command buffer. It is the denominator
-        // the per-pass GPU column is checked against: the passes should tile it, not exceed it.
-        double gpuFrameMs = 0.0;
-        for ( const auto& s : prof.LastFrame() )
-            if ( s.Name == ::Common::Profiling::kGpuFrameTotalScope )
-                gpuFrameMs = s.GpuMs;
+        RefreshTable();
 
         ImGui::Text( "Frame: %.3f ms  (%.0f FPS)   [avg]", frameMs, fps );
-        if ( gpuFrameMs > 0.0 )
+        if ( m_TableGpuFrameMs > 0.0 )
         {
             ImGui::SameLine();
-            ImGui::TextColored( ImVec4( 0.55f, 0.80f, 1.0f, 1.0f ), "GPU: %.3f ms", gpuFrameMs );
+            ImGui::TextColored( ImVec4( 0.55f, 0.80f, 1.0f, 1.0f ), "GPU: %.3f ms", m_TableGpuFrameMs );
         }
         ImGui::SameLine();
         if ( ImGui::Button( "Dump to Log" ) )
@@ -449,45 +489,54 @@ namespace Desert::Editor
             ImGui::TableSetupColumn( "x", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize( "000" ).x );
             ImGui::TableHeadersRow();
 
-            for ( const auto& s : prof.LastFrame() )
+            // One cell's pre-formatted text in @p color (TextColored / TextDisabled without the printf).
+            const auto cell = []( const std::array<char, 16>& text, const ImVec4& color )
             {
-                const double pct = frameMs > 0.0001 ? ( s.TotalMs / frameMs ) * 100.0 : 0.0;
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted( s.Name.c_str() );
-                // Docked at its usual width the name column clips, and "Clouds: Sha" / "Clouds: Exe" are
-                // two different passes. The full name on hover costs nothing and settles it.
-                if ( ImGui::IsItemHovered() )
-                    ImGui::SetTooltip( "%s", s.Name.c_str() );
-                ImGui::TableNextColumn();
-                ImGui::Text( "%.3f", s.TotalMs );
-                ImGui::TableNextColumn();
-                if ( s.WaitMs > 0.0005 )
-                    ImGui::TextColored( ImVec4( 1.0f, 0.62f, 0.40f, 1.0f ), "%.3f", s.WaitMs );
-                else
-                    ImGui::TextDisabled( "-" );
-                ImGui::TableNextColumn();
-                // A dash, not 0.000: a scope that records no GPU work and a scope the GPU timer could not
-                // reach are different states, and printing zero for both invents a measurement.
-                if ( s.GpuCalls > 0 )
-                    ImGui::TextColored( ImVec4( 0.55f, 0.80f, 1.0f, 1.0f ), "%.3f", s.GpuMs );
-                else
-                    ImGui::TextDisabled( "-" );
-                ImGui::TableNextColumn();
-                // Nested passes subtracted — the column that can be added up.
-                if ( s.GpuCalls > 0 )
-                    ImGui::TextColored( ImVec4( 0.45f, 0.70f, 0.95f, 1.0f ), "%.3f", s.GpuSelfMs );
-                else
-                    ImGui::TextDisabled( "-" );
-                ImGui::TableNextColumn();
-                // Tint hot scopes (>25% of the frame) red.
-                if ( pct > 25.0 )
-                    ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%.1f", pct );
-                else
-                    ImGui::Text( "%.1f", pct );
-                ImGui::TableNextColumn();
-                ImGui::Text( "%u", s.Calls );
-            }
+                ImGui::PushStyleColor( ImGuiCol_Text, color );
+                ImGui::TextUnformatted( text.data() );
+                ImGui::PopStyleColor();
+            };
+            const ImVec4 disabled = ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled );
+
+            // VIRTUALISED (UE SListView): only the rows inside the window's visible rect are submitted. The
+            // table holds the whole published window - hundreds of rows - and the docked panel shows a few
+            // dozen; every row is one line, so the clipper's step over the rest is exact.
+            const std::vector<::Common::Profiling::ScopeResult>& rows = prof.LastFrame();
+            ImGuiListClipper                                     clipper;
+            clipper.Begin( static_cast<int>( rows.size() ) );
+            while ( clipper.Step() )
+                for ( int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i )
+                {
+                    const ::Common::Profiling::ScopeResult& s     = rows[static_cast<size_t>( i )];
+                    const TableRow&                         cells = m_TableRows[static_cast<size_t>( i )];
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted( s.Name.c_str() );
+                    // Docked at its usual width the name column clips, and "Clouds: Sha" / "Clouds: Exe" are
+                    // two different passes. The full name on hover costs nothing and settles it.
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "%s", s.Name.c_str() );
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted( cells.Cpu.data() );
+                    ImGui::TableNextColumn();
+                    cell( cells.Wait, cells.Waited ? ImVec4( 1.0f, 0.62f, 0.40f, 1.0f ) : disabled );
+                    ImGui::TableNextColumn();
+                    // A dash, not 0.000: a scope that records no GPU work and a scope the GPU timer could not
+                    // reach are different states, and printing zero for both invents a measurement.
+                    cell( cells.Gpu, cells.Timed ? ImVec4( 0.55f, 0.80f, 1.0f, 1.0f ) : disabled );
+                    ImGui::TableNextColumn();
+                    // Nested passes subtracted — the column that can be added up.
+                    cell( cells.GpuSelf, cells.Timed ? ImVec4( 0.45f, 0.70f, 0.95f, 1.0f ) : disabled );
+                    ImGui::TableNextColumn();
+                    // Tint hot scopes (>25% of the frame) red.
+                    if ( cells.Hot )
+                        cell( cells.Pct, ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ) );
+                    else
+                        ImGui::TextUnformatted( cells.Pct.data() );
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted( cells.Calls.data() );
+                }
+            clipper.End();
             ImGui::EndTable();
         }
 

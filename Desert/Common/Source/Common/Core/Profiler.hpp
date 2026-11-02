@@ -18,8 +18,10 @@
 #include <optick.h>
 
 #include <chrono>
-#include <functional>
 #include <cstdint>
+#include <deque>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -30,6 +32,24 @@
 
 namespace Common::Profiling
 {
+    // THE INTERNED SCOPE NAME (UE: a stat's FName / TStatId). Every row of the profiler is keyed by a small id
+    // the name table hands out once per distinct name; a closing scope adds to its row BY ID, so no scope end
+    // hashes, compares or allocates a string. Text is the table's copy of the name: the table never frees or
+    // moves one, so it is valid for the process' life (Optick's dynamic events and the published rows read it).
+    inline constexpr uint32_t kNoScopeName = UINT32_MAX;
+    struct InternedScopeName
+    {
+        uint32_t    Id   = kNoScopeName;
+        const char* Text = nullptr;
+    };
+
+    namespace Detail
+    {
+        // One thread's sample buffer (Profiler.cpp; UE FThreadStats). Owned by the profiler, written by its
+        // thread alone, read by the publishing thread only on the half its thread has stopped writing.
+        struct ThreadStats;
+    } // namespace Detail
+
     struct ScopeResult
     {
         std::string Name;
@@ -163,26 +183,47 @@ namespace Common::Profiling
         virtual void    EndDrawScope( int32_t handle, const DrawSplitCounts& counts ) = 0;
     };
 
-    // Main-thread oriented CPU scope aggregator. Thread-safe (cheap mutex) so worker-thread scopes don't
-    // corrupt the map, but it's designed around the render/update thread.
+    // THE CPU SCOPE AGGREGATOR, built the way UE's stats system is (FThreadStats -> the stats thread's frame):
+    //   - a scope's name is interned ONCE (InternedScopeName): a DESERT_PROFILE_SCOPE call site holds its id in a
+    //     static, a runtime name finds it in its thread's own name cache (LocalScopeName) - no lock either way;
+    //   - a closing scope adds to ITS THREAD's buffer (Detail::ThreadStats), never to a shared map: no mutex, no
+    //     string, and the render-graph workers recording in parallel never serialise on one lock;
+    //   - the buffers are merged only when a window is PUBLISHED (BeginFrame): the publisher flips each thread's
+    //     half and reads the half that thread has stopped writing.
+    // Every thread may open scopes; the thread calling BeginFrame is the frame thread (LastFrameNamedMs).
     class Profiler
     {
     public:
         static Profiler& Get();
+
+        Profiler();
+        ~Profiler();
+        Profiler( const Profiler& )            = delete;
+        Profiler& operator=( const Profiler& ) = delete;
 
         // Per-frame boundary. Accumulates scope times across all frames in the current averaging window;
         // when the window (AvgWindowSeconds) elapses it publishes the AVERAGE per-frame time of each scope.
         // Averaging makes the numbers readable at high FPS (per-frame values flicker too fast to read).
         void BeginFrame();
 
-        // One closed CPU scope: @p totalMs inclusive, @p selfMs with nested scopes subtracted, @p waitMs the
-        // part of totalMs spent in Wait scopes (ScopeResult). @p outermost: no scope of the same thread was
-        // open around it - on the frame thread such a scope adds to LastFrameNamedMs.
-        void AddSample( const char* name, double totalMs, double selfMs, double waitMs, bool outermost );
+        // THE NAME TABLE. @p name's id, interned on its first sight under the table's lock: what a call site's
+        // static calls once (DESERT_PROFILE_SCOPE). The same characters always get the same id, so two call
+        // sites, a CPU and a GPU sample of one name share one row, as they did when rows were keyed by string.
+        [[nodiscard]] InternedScopeName InternScopeName( std::string_view name );
+        // The id of the name @p prefix + @p name, for a RUNTIME name (a render-graph pass, a backend row): found
+        // in the calling thread's own cache by the two parts' characters, so neither the concatenation is built
+        // nor a lock taken once this thread has seen the name; the first sight interns it (InternScopeName).
+        [[nodiscard]] InternedScopeName LocalScopeName( std::string_view prefix, std::string_view name );
+
+        // One closed CPU scope of row @p nameId (InternedScopeName::Id): @p totalMs inclusive, @p selfMs with
+        // nested scopes subtracted, @p waitMs the part of totalMs spent in Wait scopes (ScopeResult).
+        // @p outermost: no scope of the same thread was open around it - on the frame thread such a scope adds
+        // to LastFrameNamedMs. Into the calling thread's buffer: no lock.
+        void AddSample( uint32_t nameId, double totalMs, double selfMs, double waitMs, bool outermost );
 
         // Resolved GPU time for a scope, fed by the backend once the queries for a finished frame are
         // readable. Lands in the same row as the CPU sample of the same name. @p inclusiveMs covers nested
-        // passes, @p selfMs has them subtracted.
+        // passes, @p selfMs has them subtracted. Into the calling thread's buffer, like AddSample.
         void AddGpuSample( const char* name, double inclusiveMs, double selfMs );
 
         // Installed once by the graphics backend; null in a build with no GPU timing (or a device whose
@@ -248,6 +289,13 @@ namespace Common::Profiling
         {
             return m_Display;
         }
+        // How many windows have been published (UE: the stats thread's condensed frame number). LastFrame and
+        // every Last* answer change only when this does, so a reader that formats them (the Profiler window)
+        // formats once per publication, not once per paint.
+        [[nodiscard]] uint64_t PublishCount() const
+        {
+            return m_PublishCount;
+        }
         double LastFrameMs() const
         {
             return m_DisplayFrameMs;
@@ -281,22 +329,26 @@ namespace Common::Profiling
     private:
         using Clock = std::chrono::high_resolution_clock;
 
-        std::mutex                                   m_Mutex;
-        // CPU-FRAME-5: transparent, so a sample finds its row by the name's characters with no std::string made.
-        struct ScopeNameHash
-        {
-            using is_transparent = void;
-            size_t operator()( const std::string_view name ) const noexcept
-            {
-                return std::hash<std::string_view>{}( name );
-            }
-        };
-        std::unordered_map<std::string, ScopeResult, ScopeNameHash, std::equal_to<>> m_Accum; // summed over the current window (not per-frame)
+        // The calling thread's buffer, registered on its first sample; null once the thread is exiting (its
+        // buffer retired, see Profiler.cpp), when a sample has nowhere left to go.
+        Detail::ThreadStats* LocalStats();
+
+        // THE NAME TABLE (InternScopeName). A deque, so a name's characters never move: m_NameIds' keys and
+        // every InternedScopeName::Text point into it for the process' life.
+        std::mutex                                     m_NameMutex;
+        std::deque<std::string>                        m_NameText; // by id
+        std::unordered_map<std::string_view, uint32_t> m_NameIds;
+
+        // THE THREAD BUFFERS: every thread that ever closed a scope, until its exit retires its buffer and the
+        // next publication merges what it left and drops it.
+        std::mutex                                        m_ThreadsMutex;
+        std::vector<std::unique_ptr<Detail::ThreadStats>> m_Threads;
+
+        std::mutex                                       m_Mutex; // the mesh draw split's accumulation
         std::vector<ScopeResult>                     m_Display;
+        uint64_t                                         m_PublishCount        = 0;
         double                                       m_DisplayFrameMs = 0.0;
-        double                                       m_AccumFrameNamedMs   = 0.0; // see LastFrameNamedMs
-        double                                       m_DisplayFrameNamedMs = 0.0;
-        std::thread::id                              m_FrameThread;               // the BeginFrame caller
+        double                                           m_DisplayFrameNamedMs = 0.0; // see LastFrameNamedMs
         Clock::time_point                            m_WindowStart;
         uint32_t                                     m_WindowFrames  = 0;
         bool                                         m_WindowStarted = false;
@@ -318,7 +370,11 @@ namespace Common::Profiling
     class ScopedTimer
     {
     public:
+        // A RUNTIME name (DESERT_PROFILE_SCOPE_DYNAMIC, the backend's pass rows): @p name must outlive the
+        // scope; its row is found in the thread's name cache when the scope closes (Profiler::LocalScopeName).
         explicit ScopedTimer( const char* name, ScopeKind kind = ScopeKind::Work );
+        // An INTERNED name (a call site's static, DESERT_PROFILE_SCOPE_PREFIXED): its row is known already.
+        explicit ScopedTimer( const InternedScopeName& name, ScopeKind kind = ScopeKind::Work );
         ~ScopedTimer();
 
         ScopedTimer( const ScopedTimer& )            = delete;
@@ -326,6 +382,7 @@ namespace Common::Profiling
 
     private:
         const char*                                    m_Name;
+        uint32_t                                       m_NameId    = kNoScopeName; // kNoScopeName: resolve m_Name
         ScopedTimer*                                   m_Enclosing = nullptr;
         std::chrono::high_resolution_clock::time_point m_Start;
         double                                         m_NestedMs = 0.0; // inclusive time of the direct children
@@ -371,7 +428,8 @@ namespace Common::Profiling
     class PhaseTimer
     {
     public:
-        void Next( const char* name )
+        // @p name: the phase's interned name (DESERT_PROFILE_PHASE interns its literal once, in a static).
+        void Next( const InternedScopeName& name )
         {
             m_Current.reset();
             m_Current.emplace( name );
@@ -411,6 +469,7 @@ namespace Common::Profiling
 #define DESERT_PROFILE_SCOPE( NAME )
 #define DESERT_PROFILE_WAIT( NAME )
 #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
+#define DESERT_PROFILE_SCOPE_PREFIXED( PREFIX, NAME )
 #define DESERT_PROFILE_FUNC()
 #define DESERT_PROFILE_PASS( NAME )
 #define DESERT_PROFILE_PASS_DYNAMIC( CSTR )
@@ -424,31 +483,53 @@ namespace Common::Profiling
 #define DESERT_PROF_CONCAT_( a, b ) a##b
 #define DESERT_PROF_CONCAT( a, b ) DESERT_PROF_CONCAT_( a, b )
 
+// THE CALL SITE'S INTERNED NAME (UE: the TStatId a DECLARE_SCOPE_CYCLE_COUNTER holds): a function-local static,
+// so the name table is asked once per call site for the process' life and every later pass reads the id. The
+// same reason OPTICK_EVENT keeps a static EventDescription per call site, and the same rule: NAME is a literal.
+#define DESERT_PROF_INTERNED_( VAR, NAME )                                                                        \
+    static const ::Common::Profiling::InternedScopeName VAR =                                                     \
+         ::Common::Profiling::Profiler::Get().InternScopeName( NAME )
+
 // Time a scope: feeds BOTH Optick (external GUI) and the in-engine aggregator (editor panel + logs).
 #define DESERT_PROFILE_SCOPE( NAME )                                                                              \
     OPTICK_EVENT( NAME );                                                                                         \
-    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProf_, __LINE__ )( NAME )
+    DESERT_PROF_INTERNED_( DESERT_PROF_CONCAT( _desertProfName_, __LINE__ ), NAME );                              \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProf_, __LINE__ )(                          \
+         DESERT_PROF_CONCAT( _desertProfName_, __LINE__ ) )
 
 // A scope whose time is the thread BLOCKED (ScopeKind::Wait): a fence, an acquire, a present, a pacer sleep.
 // Its own row as DESERT_PROFILE_SCOPE, plus its time in the WaitMs column of every enclosing row; Optick
 // draws it in its Wait category. Wrap only the blocking call, so the row is the wait and nothing else.
 #define DESERT_PROFILE_WAIT( NAME )                                                                               \
     OPTICK_CATEGORY( NAME, ::Optick::Category::Wait );                                                            \
+    DESERT_PROF_INTERNED_( DESERT_PROF_CONCAT( _desertWaitName_, __LINE__ ), NAME );                              \
     const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertWait_, __LINE__ )(                          \
-         NAME, ::Common::Profiling::ScopeKind::Wait )
+         DESERT_PROF_CONCAT( _desertWaitName_, __LINE__ ), ::Common::Profiling::ScopeKind::Wait )
 
 // Like DESERT_PROFILE_SCOPE but for a runtime name (e.g. a render-pass name). The const char* must stay
-// valid for the duration of the scope.
+// valid for the duration of the scope; its row is found in the thread's name cache when the scope closes.
 #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )                                                                      \
     OPTICK_EVENT_DYNAMIC( CSTR );                                                                                 \
     const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfDyn_, __LINE__ )( CSTR )
 
+// A runtime NAME under a literal PREFIX, as the row "<PREFIX><NAME>" ("RDG Record: " + a pass's name), WITHOUT
+// building that string: the thread's name cache finds the row by the two parts' characters
+// (Profiler::LocalScopeName), and Optick is handed the table's interned copy, which outlives every scope.
+#define DESERT_PROFILE_SCOPE_PREFIXED( PREFIX, NAME )                                                             \
+    const ::Common::Profiling::InternedScopeName DESERT_PROF_CONCAT( _desertProfPreName_, __LINE__ ) =            \
+         ::Common::Profiling::Profiler::Get().LocalScopeName( PREFIX, NAME );                                     \
+    OPTICK_EVENT_DYNAMIC( DESERT_PROF_CONCAT( _desertProfPreName_, __LINE__ ).Text );                             \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfPre_, __LINE__ )(                       \
+         DESERT_PROF_CONCAT( _desertProfPreName_, __LINE__ ) )
+
 // Times the enclosing function, named automatically from the function name — drop one line at the top of
-// any method you want to track (don't blanket EVERY tiny getter: the clock read + map insert per call adds
-// up and drowns the signal — instrument meaningful methods).
+// any method you want to track (don't blanket EVERY tiny getter: the clock read per call adds up and drowns
+// the signal — instrument meaningful methods).
 #define DESERT_PROFILE_FUNC()                                                                                     \
     OPTICK_EVENT();                                                                                               \
-    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfFn_, __LINE__ )( __FUNCTION__ )
+    DESERT_PROF_INTERNED_( DESERT_PROF_CONCAT( _desertProfFnName_, __LINE__ ), __FUNCTION__ );                    \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfFn_, __LINE__ )(                        \
+         DESERT_PROF_CONCAT( _desertProfFnName_, __LINE__ ) )
 
 // A RENDER PASS: exactly DESERT_PROFILE_SCOPE plus device timestamps around the same scope, under the
 // same name, landing in the same row of the same panel. There is no separate list of pass names anywhere
@@ -474,8 +555,16 @@ namespace Common::Profiling
 
 // Consecutive phases of one body (PhaseTimer): DESERT_PROFILE_PHASES declares the timer, each
 // DESERT_PROFILE_PHASE closes the running phase and opens NAME; the last one closes at the end of the scope.
+// The phase's name is interned once per call site, in a static of a lambda (an expression, so the macro stays
+// one statement wherever it is written).
 #define DESERT_PROFILE_PHASES( VAR ) ::Common::Profiling::PhaseTimer VAR
-#define DESERT_PROFILE_PHASE( VAR, NAME ) VAR.Next( NAME )
+#define DESERT_PROFILE_PHASE( VAR, NAME )                                                                         \
+    VAR.Next(                                                                                                     \
+         []() -> const ::Common::Profiling::InternedScopeName&                                                    \
+         {                                                                                                        \
+             DESERT_PROF_INTERNED_( interned, NAME );                                                             \
+             return interned;                                                                                     \
+         }() )
 #define DESERT_PROFILE_PHASE_END( VAR ) VAR.End()
 
 #endif // DESERT_DEV_INSTRUMENTS

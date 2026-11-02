@@ -24,6 +24,11 @@ namespace Desert::Graphic
 
     Engine::ViewBudget::Reading ReadViewBudget()
     {
+        return ReadViewBudget( ReadBudgetHeldBytes() );
+    }
+
+    Engine::ViewBudget::Reading ReadViewBudget( const uint64_t heldBytes )
+    {
         const auto                 device = EngineContext::GetInstance().GetDevice();
         Engine::DeviceMemoryReport report;
         if ( device )
@@ -34,16 +39,21 @@ namespace Desert::Graphic
             if ( heap.DeviceLocal )
                 heapSize += heap.Size;
 
-        uint64_t held = 0;
-        for ( const Engine::ViewBudget::HeldView& entry : ReadBudgetHoldings() )
-            held += entry.Bytes;
-
         const Engine::ViewBudget::Reading reading = Engine::ViewBudget::ReadCeiling(
              report.BudgetKnown, report.DeviceLocalBudget(), report.DeviceLocalUsage(), heapSize,
-             g_OverrideMiB.load() * 1024ull * 1024ull, held );
+             g_OverrideMiB.load() * 1024ull * 1024ull, heldBytes );
         if ( !g_CeilingLogged.exchange( true ) )
+        {
             LOG_INFO( "[ViewBudget] {}.", Engine::ViewBudget::DescribeCeiling( reading ) );
+        }
         return reading;
+    }
+
+    uint64_t ReadBudgetHeldBytes()
+    {
+        // The same two parts as ReadBudgetHoldings, summed with no names: views' own rows, then each scene's
+        // shared rows once. Both answer from the ledger's running per-instance totals (ResourceLedger::TakeFor).
+        return SceneRenderer::LiveHeldBytes() + SceneRenderer::SceneHeldBytes();
     }
 
     std::vector<Engine::ViewBudget::HeldView> ReadBudgetHoldings()
