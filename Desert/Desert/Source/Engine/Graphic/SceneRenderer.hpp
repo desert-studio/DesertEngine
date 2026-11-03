@@ -1421,8 +1421,15 @@ namespace Desert::Graphic
         // built before the translucent draws). Called once the OPAQUE scene is complete - after the deferred
         // composite and the generic/skinned forward meshes, before the scene copy, the water, the glass and the
         // particles - in both render paths: the scene depth resolve (MSAA > 1), the sky's AP/LUT nodes, the
-        // volumetric fog's froxels, then AddFrameAtmosphericFog.
-        void AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // volumetric fog's froxels, then AddFrameAtmosphericFog. The deferred lit frame adds the froxels earlier,
+        // between the traced GI's async fork and its join (they read nothing the GI writes): @p froxels says so.
+        enum class OpaqueFogFroxels : uint8_t
+        {
+            AddHere,     // the froxels are added here, before the height fog that composes them
+            AddedEarlier // this frame's AddFrameVolumetricFog already declared them
+        };
+        void AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                OpaqueFogFroxels froxels );
         // The cloud march and its noise bake. Issued after the opaque fog and the water/glass: in-frame compute
         // outside an open render pass, once the scene depth (water included) is final and this frame's atmosphere
         // LUTs have been filled. The composite itself is the first node of AddFrameTranslucency, over the fogged
@@ -1757,7 +1764,9 @@ namespace Desert::Graphic
         // fog over it; the translucency's fog inputs are still published).
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         // The volumetric fog's two compute nodes (VolumetricFogRenderer), after the light grid and the shadow
-        // depths, before AddFrameAtmosphericFog, which composes its integrated volume.
+        // depths, before AddFrameAtmosphericFog, which composes its integrated volume: on the deferred lit frame
+        // while the traced GI gathers on the async pipe (UE ComputeVolumetricFog before the lights), otherwise
+        // inside AddFrameOpaqueFog.
         void AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the

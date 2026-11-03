@@ -275,10 +275,12 @@ namespace Desert::Graphic
                          volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual() ) );
     }
 
-    void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                           const OpaqueFogFroxels froxels )
     {
         AddFrameSceneDepthResolve( graph, textures );
-        AddFrameVolumetricFog( graph, textures, frame );
+        if ( froxels == OpaqueFogFroxels::AddHere )
+            AddFrameVolumetricFog( graph, textures, frame );
         AddFrameAtmosphericFog( graph, textures );
     }
 
