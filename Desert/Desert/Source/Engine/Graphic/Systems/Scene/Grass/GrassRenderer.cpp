@@ -6,6 +6,7 @@
 // the mesh renderer's instanced cells (GpuInstances.hpp) instead of a HISM component.
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Device.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Frustum.hpp>
@@ -1149,13 +1150,25 @@ namespace Desert::Graphic::System
                     LOG_ERROR( "[Grass] the tile pool's feedback was not cleared: {}", wrote.GetError() );
             }
         }
-        // THE POOL'S SIZE (GRASS-TILE-2): the most the resident tiles hold. A tile built for the nearest b keeps the
-        // cells whose fade draw beats the field's share there (GrassFieldShare.glslh GrassFieldShareAt: (S / b)^2
-        // past StartCullDistance S, UE's fade to nothing at EndCullDistance, the screen-width floor): a binomial
-        // count over its cells, bounded by its mean and three deviations at full layer weight. The pool is made
-        // half again that size, so a settling field does not outgrow it - every doubling is a new pool and every
-        // tile built again - and doubles once the bound passes three quarters of it (the feedback above still
-        // doubles it for a field that outgrows the bound).
+        // THE POOL'S SIZE (GRASS-TILE-2): the most the resident tiles hold. A tile built for the nearest b keeps
+        // the cells whose fade draw beats the field's share there (GrassFieldShare.glslh GrassFieldShareAt: (S /
+        // b)^2 past StartCullDistance S, UE's fade to nothing at EndCullDistance, the screen-width floor): a
+        // binomial count over its cells, bounded by its mean and three deviations at full layer weight. The pool
+        // is made half again that size, so a settling field does not outgrow it - every doubling is a new pool and
+        // every tile built again - and doubles once the bound passes three quarters of it (the feedback above
+        // still doubles it for a field that outgrows the bound). TURN-CPU-SETUP-1: the bound and the walk below
+        // read only the walk's inputs (VarietyGpu::TileWalkKey); the same inputs give the same bound, and - after
+        // a walk that changed no tile - the same table.
+        const std::array<uint32_t, 8> walkKey{ std::bit_cast<uint32_t>( eye.x ),
+                                               std::bit_cast<uint32_t>( eye.y ),
+                                               std::bit_cast<uint32_t>( cell ),
+                                               std::bit_cast<uint32_t>( radius ),
+                                               std::bit_cast<uint32_t>( stray ),
+                                               thin[0],
+                                               thin[1],
+                                               thin[2] };
+        const bool                    sameWalk = gpu.TileBoundKnown && gpu.TileWalkKey == walkKey;
+        if ( !sameWalk )
         {
             const float startCull  = std::bit_cast<float>( thin[0] );
             const float endCull    = std::bit_cast<float>( thin[1] );
@@ -1178,9 +1191,12 @@ namespace Desert::Graphic::System
                     const float most = std::min( cells, mean + 3.0f * std::sqrt( mean ) );
                     bound += static_cast<uint32_t>( std::ceil( most / static_cast<float>( kGrassTilePageRecords ) ) );
                 }
-            if ( 4u * bound > 3u * pages )
-                pages = std::max( 2u * pages, bound + bound / 2u );
+            gpu.TileBound      = bound;
+            gpu.TileWalkKey    = walkKey;
+            gpu.TileBoundKnown = true;
         }
+        if ( 4u * gpu.TileBound > 3u * pages )
+            pages = std::max( 2u * pages, gpu.TileBound + gpu.TileBound / 2u );
 
         // A NEW POOL - another placement or field, another grid, more tiles than slots, more pages: every page
         // free, every tile built again, nearest first (GrassGenerate.shader Init).
@@ -1188,10 +1204,11 @@ namespace Desert::Graphic::System
                         slots > gpu.TileSlots || pages != gpu.TilePages;
         if ( gpu.PoolFresh )
         {
-            gpu.TileSlots    = slots;
-            gpu.TilePages    = pages;
-            gpu.TileSide     = side;
-            gpu.PlacementKey = std::move( placement );
+            gpu.TileWalkSettled = false; // a new pool's tiles are all built again: no table is kept
+            gpu.TileSlots       = slots;
+            gpu.TilePages       = pages;
+            gpu.TileSide        = side;
+            gpu.PlacementKey    = std::move( placement );
             gpu.Tiles.clear();
             gpu.FreeSlots.clear();
             for ( uint32_t s = slots; s > 0u; --s )
@@ -1256,7 +1273,8 @@ namespace Desert::Graphic::System
         {
             LOG_ERROR( "[Grass] a variety's tile table, feedback, pool, pool words or chunks were not made; its "
                        "pool is made anew next frame" );
-            gpu.TilePoolMade = false;
+            gpu.TilePoolMade    = false;
+            gpu.TileWalkSettled = false;
             return false;
         }
         // Another lens or Foliage quality thins by other distances: every tile keeps drawing until rebuilt.
@@ -1265,6 +1283,18 @@ namespace Desert::Graphic::System
             for ( auto& [key, tile] : gpu.Tiles )
                 tile.Stale = true;
             gpu.ThinKey = std::move( thin );
+        }
+        // TURN-CPU-SETUP-1: the same inputs as the last walk, which freed and built nothing in this pool - so the
+        // resident tiles, their slots and their BuiltNear are what that walk read: it frees none, builds none
+        // (every tile it wants still waits for a slot) and culls the same tiles in the same order. Its table
+        // stands as written (the header, no frees, no builds, TileCulls tiles nearest first); nothing is uploaded
+        // for it (AddFrame writes the table only on a frame that frees or builds).
+        if ( sameWalk && !gpu.PoolFresh && gpu.TileWalkSettled )
+        {
+            gpu.TileFrees  = 0u;
+            gpu.TileBuilds = 0u;
+            m_Settling     = m_Settling || gpu.TilePending;
+            return true;
         }
 
         // The table: the header, the slots freed (the tiles past the radius by more than a tile - the band keeps
@@ -1360,13 +1390,21 @@ namespace Desert::Graphic::System
         gpu.TileCulls = static_cast<uint32_t>( culled.size() );
         if ( gpu.PoolFresh || gpu.TileFrees != 0u || gpu.TileBuilds != 0u )
             ++gpu.TileVersion;
-        m_Settling = m_Settling || pending;
+        // The next frame keeps this table while the walk's inputs stay (TileWalkSettled): only a walk that changed
+        // no tile walks to itself again.
+        gpu.TileWalkSettled = !gpu.PoolFresh && gpu.TileFrees == 0u && gpu.TileBuilds == 0u;
+        gpu.TilePending     = pending;
+        m_Settling          = m_Settling || pending;
         return true;
     }
 
     void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes,
                                   const bool rayTracing, const GrassOcclusion& occlusion )
     {
+        // TURN-CPU-SETUP-1: the frame's grass by stage, one profile row each (inside SceneRenderer's "Setup:
+        // Grass").
+        DESERT_PROFILE_PHASES( grassPhases );
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: View volumes" );
         const bool testsHzb = occlusion.Hzb.IsValid();
         // The two volumes (GRASS-VIS-6): the camera's side planes, and the same planes swept along every light
         // whose cascades this frame fitted (UpdateCascades ran before this) for the full list the cascades and
@@ -1423,6 +1461,7 @@ namespace Desert::Graphic::System
         if ( m_Queue.empty() || !m_Generate || !m_Cull )
             return;
 
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Prepare varieties" );
         for ( const GrassFieldDraw& field : m_Queue )
         {
             if ( !field.Field || field.Field->Words.size() < 8 )
@@ -1617,6 +1656,7 @@ namespace Desert::Graphic::System
         // block and ONE dispatch for all its varieties, whose buffers it reads and writes by device address through
         // this frame's variety table (WriteVarietyTable). Each still declares every variety buffer it reads or writes
         // (PassBuilder::Read / Write): the graph places the barriers by them.
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Variety table" );
         const auto cullRows = static_cast<uint32_t>( m_FrameCull.size() );
         if ( cullRows != 0u )
         {
@@ -1633,6 +1673,7 @@ namespace Desert::Graphic::System
 
         // GRASS-TILE-1, THE TILE PASSES (GrassGenerate.shader): every variety's binding block is the same; the
         // builds write the pool, its words and the chunks (GRASS-VIEW-LAW-1).
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Tile + cull passes" );
         const auto bindGenerate = [this]( RDG::PassBuilder& pass, const VarietyGpu& gpu )
         {
             const RDG::Access pool = RDG::Access::StorageWrite;
@@ -1808,6 +1849,7 @@ namespace Desert::Graphic::System
 
         // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
         // builds (SceneRenderer).
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Blade BLAS pass" );
         if ( const Common::BoolResultStr blades = m_BladeRayTracing.AddPass( graph ); !blades )
             LOG_ERROR( "[Grass] the blade grass is not in the view's TLAS; rays miss it this frame: {}",
                        blades.GetError() );
