@@ -515,7 +515,7 @@ Shader "GrassGenerate"
                 barrier();
                 if ( lane == 0u )
                     WriteTileChunk( header, cluster, entry.x * kTileClusters +
-                                                         gl_WorkGroupID.y * kTileClusterSide + gl_WorkGroupID.x );
+                                                         gl_WorkGroupID.y * kTileClusterSide + gl_WorkGroupID.x, s_ClusterScale );
                 if ( !placed )
                     return;
                 uint rank = 0u;

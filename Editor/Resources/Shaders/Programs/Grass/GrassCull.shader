@@ -447,14 +447,14 @@ Shader "GrassCull"
             float radius = bounds.x * scale + bounds.z;
             vec3  centre = instance[3].xyz + bounds.y * instance[1].xyz;
             // The shadow views first: an instance outside the camera's volume still casts into a cascade.
-            bool cast   = CascadeCull( r, b, table, record, instance[3].xyz, scale, met );
+            bool casts   = CascadeCull( r, b, table, record, instance[3].xyz, scale, met );
             bool inside = seen;
             for ( int i = 0; i < 4 && inside; ++i )
             {
                 vec4 plane = VarietyCameraPlanes[i];
                 inside     = dot( plane.xyz, centre ) + plane.w >= -radius;
             }
-            if ( !cast && !inside )
+            if ( !casts && !inside )
                 return;
             GrassInstanceRows( VarietyRows[r].Instances ).Rows[record] = instance;
             if ( !held )
