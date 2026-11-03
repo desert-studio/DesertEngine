@@ -203,7 +203,7 @@
                     "MotionBlurAmount": 0.5,
                     "MotionBlurMax": 5.0,
                     "MotionBlurTargetFPS": 30.0,
-                    "EnableLensFlare": true,
+                    "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
