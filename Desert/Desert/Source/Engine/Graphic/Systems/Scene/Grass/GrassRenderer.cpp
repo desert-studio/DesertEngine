@@ -1366,7 +1366,8 @@ namespace Desert::Graphic::System
             {
                 if ( ( boxes.Live & ( 1u << v ) ) == 0u )
                     continue;
-                const Core::Frustum box( boxes.ViewProj[v], glm::mat4( 1.0f ) );
+                // Without the sun's side: the blades draw pancaked into a sun cascade (CascadeCasterFrustum).
+                const Core::Frustum box = CascadeCasterFrustum( boxes.ViewProj[v] );
                 glm::vec4           planes[6];
                 for ( uint32_t i = 0; i < 6u; ++i )
                 {

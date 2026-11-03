@@ -2227,13 +2227,9 @@ namespace Desert::Graphic::System
         // caster takes the shared program (opaque, or no batched-path material).
         DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
                                                   uint32_t cascade ) const;
-        // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
-        // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
-        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
-                                                MeshPass pass );
         // The shared caster pipelines of shadow view @p view, by path, and the cell pass they draw: ShadowDepth
-        // for a cascade or local view, VirtualShadowDepth for a virtual shadow map level. Null where that caster
-        // is off.
+        // for a cascade or local view (a sun cascade's pancaked, SetupShadowPass), VirtualShadowDepth for a
+        // virtual shadow map level. Null where that caster is off.
         struct CasterPipelines
         {
             GraphicsPipeline* Static    = nullptr;
@@ -2242,6 +2238,11 @@ namespace Desert::Graphic::System
             MeshPass          Pass      = MeshPass::ShadowDepth;
         };
         [[nodiscard]] CasterPipelines CasterPipelinesOf( uint32_t view );
+        // The pipeline of one masked caster cell: the shared caster's state of @p casters (the view's) for @p path
+        // with the cell's shader, built on first use and kept per cell shader and shared state. Null (logged once
+        // per shader) when it cannot.
+        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
+                                                const CasterPipelines& casters );
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
@@ -2510,6 +2511,12 @@ namespace Desert::Graphic::System
         // like the two above, and every skinned caster's pose packed into its single Bones buffer.
         // Optional — null if the Skinned.ShadowDepth cell is missing, and then skinned shadows are simply off.
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
+        // The three caster states above with depth clamp: what a sun cascade's two layers draw with
+        // (SetupShadowPass, CasterPipelinesOf), so a caster nearer the sun than a level's depth range is pancaked,
+        // not clipped.
+        std::shared_ptr<GraphicsPipeline>                   m_CascadeShadowPipeline;
+        std::shared_ptr<GraphicsPipeline>                   m_CascadeShadowInstancedPipeline;
+        std::shared_ptr<GraphicsPipeline>                   m_CascadeShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
         std::vector<std::unique_ptr<MaterialShadowSkinned>> m_ShadowSkinnedMaterial =
              std::vector<std::unique_ptr<MaterialShadowSkinned>>( kFixedShadowViews );

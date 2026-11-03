@@ -1572,8 +1572,12 @@ namespace Desert::Graphic::System
         if ( feed == nullptr || submesh >= feed->Surfaces.size() || feed->Surfaces[submesh].Surface == nullptr )
             return fallback( BinFallback::NoMaterialRow );
         const RowSurface&                            row = feed->Surfaces[submesh];
-        const std::array<const GraphicsPipeline*, 3> casterStates{
-             m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get() };
+        // A sun cascade's casters draw pancaked (SetupShadowPass: depth clamp); every other depth view clips.
+        std::array<const GraphicsPipeline*, 3> casterStates{ m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(),
+                                                             m_ShadowSkinnedPipeline.get() };
+        if ( pass == GpuDriven::MeshPass::ShadowCascade )
+            casterStates = { m_CascadeShadowPipeline.get(), m_CascadeShadowInstancedPipeline.get(),
+                             m_CascadeShadowSkinnedPipeline.get() };
         // The virtual shadow map's caster states (EnsureVirtualShadowPipelines: no attachment, depth clamp), its
         // own table's (VIRT-GEOM step 17): what its groups' `.VirtualGeometry` twins draw the clusters of every
         // level with. Built on first ask; a refusal leaves the pass unbinned (its casters are the CPU walk's).
