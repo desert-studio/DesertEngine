@@ -296,6 +296,20 @@ namespace Desert::Graphic::GlobalIllumination
         // (SceneRenderer::AddFrameTracedGI); AddPasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
+        // The grid the NEXT AddPasses places its probes on (asked before it, in the same frame): every level's
+        // positions lie on its finest grid (MakeScreenProbeLayout: Levels = log2(downsample) - 1, level l spaced
+        // downsample >> l), all shifted by the jitter AddPasses will take. The radiance cache's Mark stamps the
+        // reads of every probe that can sit there before the gather traces
+        // (RadianceCacheUpdateInputs::ScreenProbes).
+        [[nodiscard]] static uint32_t PlacementSpacing( const uint32_t downsample )
+        {
+            return downsample >> ( static_cast<uint32_t>( std::countr_zero( downsample ) ) - 2u );
+        }
+        [[nodiscard]] glm::uvec2 NextPlacementJitter( const uint32_t downsample ) const
+        {
+            return ScreenProbeJitter( m_FrameIndex + 1u, downsample );
+        }
+
         // Every program under the layout permutation of @p downsample / @p tracedTexels (rebuilt on a change;
         // the trace legs re-acquired by EnsureTraceProgram). Public so the view validates the layout ONCE, when
         // it chooses the screen-probe method and before the trace legs are compiled under it

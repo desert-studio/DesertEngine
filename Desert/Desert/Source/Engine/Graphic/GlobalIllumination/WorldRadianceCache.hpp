@@ -83,9 +83,17 @@ namespace Desert::Graphic::GlobalIllumination
         // World points read in the six axis directions besides the pixels (cm): the reflection captures' points,
         // whose stored diffuse is measured from this cache (ReflectionCaptures/ReflectionCaptureRenderer.hpp).
         std::vector<glm::vec3> MarkPoints;
-        // The screen probes read this frame's cache RADIANCE (RadianceCacheRadianceAt) around their unbiased
-        // positions: the Mark stamps those cells too, besides the irradiance read's (RadianceCacheMark.shader).
-        bool                   MarkRadianceReads = false;
+        // THIS FRAME'S SCREEN PROBES (UE MarkRadianceProbesUsedByScreenProbes): the gather that follows reads the
+        // cache's RADIANCE (RadianceCacheRadianceAt) around every probe it places, and places them only on the
+        // pixels of its finest grid at the frame's jitter (ScreenProbeGather::NextPlacementGrid). The Mark stamps
+        // the cells of that read on every such pixel this frame (RadianceCacheMark.shader). Spacing 0: no screen
+        // probes this frame.
+        struct ScreenProbeGrid
+        {
+            uint32_t   Spacing = 0;  // px between the grid's positions
+            glm::uvec2 Jitter{ 0u }; // px, the whole grid's offset this frame
+        };
+        ScreenProbeGrid        ScreenProbes;
         glm::vec3              CameraPosition{ 0.0f };
         glm::uvec2             Extent{ 0u };
         // The directional lights of the frame (the same values GIFrame carries): a significant change from the

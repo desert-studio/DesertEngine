@@ -72,9 +72,10 @@ namespace Desert::Graphic::GlobalIllumination
             float    History      = RadianceCache::kHistoryWeight;
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
             uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
-            uint32_t MarkRadianceReads = 0; // RadianceCacheUpdateInputs::MarkRadianceReads
+            uint32_t ScreenProbeSpacing = 0; // RadianceCacheUpdateInputs::ScreenProbes.Spacing (0 = none)
+            uint32_t ScreenProbeJitter  = 0; // its Jitter, x | y << 16
         };
-        static_assert( sizeof( RadianceCachePush ) == 40 );
+        static_assert( sizeof( RadianceCachePush ) == 44 );
 
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
         // The list holds up to every probe slot: the new probes read this frame are traced past the budget
@@ -273,8 +274,8 @@ namespace Desert::Graphic::GlobalIllumination
         if ( fullUpdate )
             m_LightingFrame = push.FrameIndex;
         push.LightingFrame = m_LightingFrame;
-        if ( inputs.MarkRadianceReads )
-            push.MarkRadianceReads = 1u;
+        push.ScreenProbeSpacing = inputs.ScreenProbes.Spacing;
+        push.ScreenProbeJitter  = inputs.ScreenProbes.Jitter.x | ( inputs.ScreenProbes.Jitter.y << 16u );
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;

@@ -4,10 +4,16 @@
 // in each clipmap its dither may pick) is stamped with this frame. Until screen probes exist (GI-FINAL-GATHER) the
 // readers are the G-buffer's pixels themselves; one pixel of each 2x2 block per frame, the four in turn, so every
 // pixel marks within four frames — inside the eight a probe stays allocated unread.
-// With screen probes (MarkRadianceReads) a pixel is also where a probe sits, and the probe's far field reads the
-// cache's RADIANCE (RadianceCacheRadianceAt, ScreenProbeTrace.shader) around its UNBIASED position in the clipmap
-// its coverage picked: those eight cells are stamped as well, at both ends of the same dither (UE
-// MarkRadianceProbesUsedByScreenProbes marks the probe's own position, the point its read interpolates around).
+// THIS FRAME'S SCREEN PROBES (ScreenProbeSpacing != 0; UE MarkRadianceProbesUsedByScreenProbes, which marks from
+// the probes the frame placed): a probe's far field reads the cache's RADIANCE (RadianceCacheRadianceAt,
+// ScreenProbeTrace.shader) around its UNBIASED position, in the clipmap its dither picks. Every probe of the gather
+// that follows - uniform or adaptive - sits on a pixel of the finest placement grid at this frame's jitter
+// (ScreenProbePlace.shader: SPProbePixel, the uniform one clamped into the view), so every pixel of that grid stamps
+// the eight cells of that read at both ends of the dither, in THIS frame. The pixels' 2x2 rotation cannot stand in
+// for it: under a camera turn the probes land each frame on surfaces the rotation has not reached yet (a strip
+// entering the view, a twig against the sky), their cells are empty, and every ray of theirs the far field hands
+// to the cache went on to the full trace distance (ScreenProbes: Trace Cache Miss 0.06 -> 1.26 ms on a 1-degree
+// turn of FIELD_Barn, PROBE-TURN-1).
 // The other readers are the REFLECTION CAPTURES' points (ReflectionCaptureDiffuse.shader reads the cache there in
 // the six axis directions): one thread stamps them every frame, since a capture hangs in the air where no pixel reads.
 Shader "RadianceCacheMark"
@@ -66,17 +72,40 @@ Shader "RadianceCacheMark"
             MarkCells( IrradianceReadBase( p, N, V, clipmap ), clipmap );
         }
 
-        // A pixel: the irradiance read's eight cells and, where a screen probe there reads the radiance, that
-        // read's (RadianceCacheRadianceAt: around the unbiased position) when they are other cells.
-        void MarkPixelClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
+        // The radiance read's lower corner (RadianceCacheRadianceAt: around the UNBIASED @p p).
+        ivec3 RadianceReadBase( vec3 p, uint clipmap )
         {
-            const ivec3 irradiance = IrradianceReadBase( p, N, V, clipmap );
-            MarkCells( irradiance, clipmap );
-            if ( MarkRadianceReads == 0u )
+            return ivec3( floor( RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5 ) );
+        }
+
+        // The surface a pixel holds (world cm) and its normal; false where it holds none (the G-buffer is cleared
+        // to zero).
+        bool PixelSurface( uvec2 pixel, out vec3 p, out vec3 N )
+        {
+            const vec3 normal = texelFetch( GBufferBTexture, ivec2( pixel ), 0 ).rgb;
+            if ( dot( normal, normal ) <= 0.001 )
+                return false;
+            const vec2 uv = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+            p = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, ivec2( pixel ), 0 ).r,
+                                          giFrame.invViewProjection );
+            N = normalize( normal );
+            return true;
+        }
+
+        // A screen probe on @p pixel (ScreenProbePlace.shader puts it there from the same depth and matrix): the
+        // eight cells of its radiance read, in the finest and in the coarsest clipmap its dither may pick.
+        void MarkScreenProbe( uvec2 pixel )
+        {
+            vec3 p;
+            vec3 N;
+            if ( !PixelSurface( pixel, p, N ) )
                 return;
-            const ivec3 radiance = ivec3( floor( RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5 ) );
-            if ( any( notEqual( radiance, irradiance ) ) )
-                MarkCells( radiance, clipmap );
+            const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
+            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, kCoarsestDither );
+            if ( fine < radianceCache.shape.x )
+                MarkCells( RadianceReadBase( p, fine ), fine );
+            if ( coarse != fine && coarse < radianceCache.shape.x )
+                MarkCells( RadianceReadBase( p, coarse ), coarse );
         }
 
         // A point read in the six axis directions with the bias along the normal (V = N), at both ends of the
@@ -101,24 +130,33 @@ Shader "RadianceCacheMark"
             if ( gl_GlobalInvocationID.x == 0u && gl_GlobalInvocationID.y == 0u )
                 for ( uint i = 0u; i < MarkPointHeader.x; ++i )
                     MarkPoint( MarkPointsData[i].xyz );
+            // This frame's screen probe grid: thread (x, y) stands for its position (x, y) - the cell's corner plus
+            // the jitter, clamped into the view as ScreenProbePlace clamps a uniform probe the jitter pushed out.
+            // The dispatch covers it: a thread per 2x2 block, and the grid is at least 4 px apart.
+            if ( ScreenProbeSpacing != 0u )
+            {
+                const uvec2 corner = gl_GlobalInvocationID.xy * ScreenProbeSpacing;
+                if ( corner.x < Width && corner.y < Height )
+                {
+                    const uvec2 jitter = uvec2( ScreenProbeJitter & 0xFFFFu, ScreenProbeJitter >> 16u );
+                    MarkScreenProbe( min( corner + jitter, uvec2( Width, Height ) - 1u ) );
+                }
+            }
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
             if ( pixel.x >= Width || pixel.y >= Height )
                 return;
-            const vec3 normal = texelFetch( GBufferBTexture, ivec2( pixel ), 0 ).rgb;
-            if ( dot( normal, normal ) <= 0.001 ) // no geometry (the G-buffer is cleared to zero)
+            vec3 p;
+            vec3 N;
+            if ( !PixelSurface( pixel, p, N ) )
                 return;
-            const vec2  uv    = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p     = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, ivec2( pixel ), 0 ).r,
-                                                          giFrame.invViewProjection );
-            const vec3  N     = normalize( normal );
-            const vec3  V     = normalize( giFrame.camera.xyz - p );
+            const vec3 V = normalize( giFrame.camera.xyz - p );
             // The two ends of the dither: the finest clipmap any pixel here may read and the coarsest.
             const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
             const uint coarse = RadianceCacheClipmapAt( radianceCache, p, kCoarsestDither );
             if ( fine < radianceCache.shape.x )
-                MarkPixelClipmap( p, N, V, fine );
+                MarkClipmap( p, N, V, fine );
             if ( coarse != fine && coarse < radianceCache.shape.x )
-                MarkPixelClipmap( p, N, V, coarse );
+                MarkClipmap( p, N, V, coarse );
         }
     }
 }
