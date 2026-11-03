@@ -38,7 +38,7 @@ namespace Desert::Graphic::System
     class MeshRenderer;
 
     // GPU-COST-21: the cascade views a variety keeps a list of its own for, at most (every shadowed directional
-    // light's cascades; MeshRenderer::kCascadeViews). GrassGenerate.shader CascadePlanes and GrassFinalize.shader
+    // light's cascades; MeshRenderer::kCascadeViews). GrassGenerate.shader CascadePlanes and GrassCull.shader
     // kCascadeViews are sized by it.
     inline constexpr uint32_t kGrassCascadeLists = SceneResources::kMaxCascadeViews;
 
@@ -273,7 +273,7 @@ namespace Desert::Graphic::System
             // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.
             uint32_t              PrepassBuckets = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
-            // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
+            // GPU-count feedback (GrassCull FinalizeFull): per frame in flight, each bucket's unclamped count and a written
             // mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a row its
             // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
             std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
@@ -282,7 +282,7 @@ namespace Desert::Graphic::System
             // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
             uint32_t                                        SettleReads = 0;
             bool                                            Truncated   = false;
-            // GRASS-VIS-7: the drawn counts this frame's Feedback copy held (GrassFinalize, FramesInFlight frames
+            // GRASS-VIS-7: the drawn counts this frame's Feedback copy held (GrassCull FinalizeFull, FramesInFlight frames
             // ago): the full list's, the camera's phase 1's, phase 2's appended; none before its first write.
             std::optional<glm::uvec3>                       Drawn;
             // GPU-COST-21: the same copy's drawn count of each cascade view's list (0: the view had none).
@@ -344,6 +344,11 @@ namespace Desert::Graphic::System
             GpuInstanceRefs                                 CascadeRefs;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;
+            // GRASS-VIEW-LAW-1: the field's buffer this frame (the variety table's Field address) and the full list
+            // (GrassCull.shader CullInstance: the records the views keep, in Args' buckets; Refs.Ids).
+            std::shared_ptr<ShaderResources::StorageBuffer> FieldBuffer;
+            std::shared_ptr<ShaderResources::StorageBuffer> FullIds;
+            RDG::ExternalBuffer                             FullIdsImport;
             uint32_t                                        Index = 0; // stable section key base
             // GRASS-TILE-1, THE TILE CACHE (UE LandscapeGrass.cpp: a component's grass is built once by
             // FAsyncGrassBuilder into its HISM and kept while the component is within the cull distance, the
@@ -403,13 +408,10 @@ namespace Desert::Graphic::System
             // GrassGenerate's tile cull's inputs this frame (FrameKey: the params, the tiles' version, the
             // capacity, the buffers, the field's revision) and the ones Instances / Args were last culled from
             // (GenerateKey). Equal inputs keep equal instances, so a frame with the same ones dispatches nothing -
-            // turning the camera changes the planes and re-culls, it builds no tile. StableGenerations counts the
-            // frames in a row from GenerateKey: the first generates (m_FrameGenerate), the next FramesInFlight - 1
-            // run GrassFinalize alone (m_FrameRefinalize, GRASS-VIEW-LAW-1), so every frame in flight's feedback
-            // copy holds the generation's counts and the capacity read back stays the one they ask for.
+            // turning the camera changes the planes and re-culls, it builds no tile. GRASS-VIEW-LAW-1: a new
+            // generation re-culls the cascades and the full list (WriteVarietyTable's CascadeKey).
             std::vector<uint32_t> FrameKey;
             std::vector<uint32_t> GenerateKey;
-            uint32_t              StableGenerations = 0;
             // Counts the GenerateKey changes: the identity of what the field holds, which a cached cascade's static
             // layer is keyed by (MeshRenderer::GpuInstancedRenderData::Still). CSM-SCROLL-3: it holds whatever the
             // view - FrameKey carries no view volume (GRASS-CULL-UNIFY-1: the camera's planes and the cascades' boxes
@@ -436,13 +438,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement,
                                         std::vector<uint32_t> thin, glm::vec2 eye, float cell, float radius,
                                         float stray );
-        // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows, then
-        // m_FrameGenerate's, then m_FrameRefinalize's, written into m_Table and imported into @p graph (m_TableRef).
+        // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows,
+        // written into m_Table and imported into @p graph (m_TableRef).
         // Refused when a variety's buffer has no device address.
         [[nodiscard]] Common::BoolResultStr WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes );
-        // The one binding block of a pass over the table: GrassFinalize's; GrassCull's, @p hzb the texture it tests
-        // and @p dispatch its access to this frame's dispatch buffer (m_FrameDispatch).
-        void BindFinalize( RDG::PassBuilder& pass );
+        // The one binding block of a pass over the table, GrassCull's: @p hzb the texture it tests and @p dispatch
+        // its access to this frame's dispatch buffer (m_FrameDispatch).
         void BindCull( RDG::PassBuilder& pass, RDG::TextureRef hzb, RDG::Access dispatch );
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
@@ -453,11 +454,6 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
-        std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
-        // GRASS-VIEW-LAW-1: this frame's that generated on one of the last FramesInFlight - 1 frames and keep their
-        // inputs: GrassFinalize alone runs for them (Instances, the kept counts and the chunks are still the
-        // generation's), so this frame in flight's Feedback copy gets the generation's counts.
-        std::vector<VarietyGpu*>         m_FrameRefinalize;
         // GRASS-VIS-24: this frame's whose camera list is culled (an HZB-tested frame: every one with a list; by
         // the planes alone: those that generate)
         std::vector<VarietyGpu*>         m_FrameCull;
@@ -480,10 +476,8 @@ namespace Desert::Graphic::System
         };
         std::array<CascadeGuard, kGrassCascadeLists> m_CascadeGuards{};
         std::shared_ptr<ComputePipeline> m_Generate;
-        std::shared_ptr<ComputePipeline> m_Finalize;
         std::shared_ptr<ComputePipeline> m_Cull; // GRASS-CULL-2: the camera cull and phase 2 (GrassCull.shader)
         mutable ShaderBindingLayoutCache m_GenerateLayout;
-        mutable ShaderBindingLayoutCache m_FinalizeLayout;
         mutable ShaderBindingLayoutCache m_CullLayout;
         // GRASS-CULL-2: the variety table (per frame in flight, WriteVarietyTable) and the last AddFrame graph's
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).

@@ -31,7 +31,7 @@ namespace Desert::Graphic
     // submesh of the mesh at the drawn level, then per BUCKET four words (count the generator appended, first
     // instance, capacity, 0). A bucket is a range of Instances: a mesh has one, drawn by every section; a grass
     // blade strip one per level, drawn by the submesh of that level (GRASS-BLADE). Programs/Grass/
-    // GrassFinalize.shader writes each record's instanceCount and firstInstance from its bucket.
+    // GrassCull.shader writes each record's instanceCount and firstInstance from its bucket.
     // A blade strip's records come in SETS, one per strip level (GPU-COST-20, UE's shadow LOD bias): record
     // k x levels + s draws bucket s with strip level max(s, k). Set 0 is the camera's (level s for bucket s); a
     // cascade draws the set its texel size asks for (MeshRenderer::BuildGpuInstancedShadowDraws), so a blade is

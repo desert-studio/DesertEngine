@@ -40,7 +40,7 @@ namespace Desert::Graphic
         uint32_t BinsIssued = 0; ///< bin records those calls named (a culled-empty bin included)
     };
 
-    // GRASS-VIS-7: the grass instances the GPU drew (GrassFinalize's drawn counts, read back without a wait
+    // GRASS-VIS-7: the grass instances the GPU drew (GrassCull's drawn counts, read back without a wait
     // FramesInFlight frames after their generation, UE's GPU-culling stats the same way), summed over every view
     // and variety a GrassRenderer::AddFrame of the frame drew. Full: the list the cascades and the TLAS draw (the
     // camera's side planes swept along the shadowed suns); Camera: the camera's phase-1 list (the full list's

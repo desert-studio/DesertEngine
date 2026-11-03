@@ -48,7 +48,7 @@ namespace Desert::Graphic::RayTracing
             uint32_t SbtAndFlags  = 0; // sbtOffset:24 | flags:8 (the primitive's first segment record)
             uint32_t AddressLo    = 0; // the BLAS device address
             uint32_t AddressHi    = 0;
-            uint32_t Pad          = 0;
+            uint32_t ThroughIds   = 0; // 1: the source's Ids holds each slot's row (GpuInstanceRefs::Ids)
         };
         constexpr uint32_t kGpuInstanceRowsGroupSize = 64; // the program's LocalSize
 
@@ -59,7 +59,9 @@ namespace Desert::Graphic::RayTracing
             DESERT_SHADER_PARAMETER( StorageBuffer, Transforms );
             DESERT_SHADER_PARAMETER( StorageBuffer, Args );
             DESERT_SHADER_PARAMETER( StorageBuffer, TlasRows );
-            static constexpr std::array kAll{ RDG::Erase( Transforms ), RDG::Erase( Args ), RDG::Erase( TlasRows ) };
+            DESERT_SHADER_PARAMETER( StorageBuffer, Ids );
+            static constexpr std::array kAll{ RDG::Erase( Transforms ), RDG::Erase( Args ), RDG::Erase( TlasRows ),
+                                              RDG::Erase( Ids ) };
         };
 
         class GpuInstanceRows final : public RayTracingGpuInstanceRows
@@ -116,6 +118,8 @@ namespace Desert::Graphic::RayTracing
                     push.SbtAndFlags  = primitive.FirstSegmentRecord & kMaxSegmentRecord;
                     push.AddressLo    = static_cast<uint32_t>( address );
                     push.AddressHi    = static_cast<uint32_t>( address >> 32u );
+                    if ( source.Refs->Ids.IsValid() )
+                        push.ThroughIds = 1u;
                     m_Sources.push_back( { *source.Refs, push } );
                     m_Rows += source.Rows;
                     for ( const uint64_t value : { address, uint64_t{ source.Rows }, uint64_t{ push.Record },
@@ -148,11 +152,18 @@ namespace Desert::Graphic::RayTracing
                      {
                          const auto& layout = m_Layout.Get( m_Program->GetSpecification().Shader );
                          for ( const Source& source : sources )
+                         {
+                             // GRASS-VIEW-LAW-1: a source without ids binds its Transforms as the Ids stand-in.
+                             RDG::BufferRef ids = source.Refs.Instances;
+                             if ( source.Refs.Ids.IsValid() )
+                                 ids = source.Refs.Ids;
                              pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Program ) )
                                   .Storage( GpuInstanceRowsShaderParameters::Transforms, source.Refs.Instances, RDG::Access::StorageRead )
                                   .Storage( GpuInstanceRowsShaderParameters::Args, source.Refs.Args, RDG::Access::StorageRead )
                                   .Storage( GpuInstanceRowsShaderParameters::TlasRows, instances, RDG::Access::StorageWrite )
+                                  .Storage( GpuInstanceRowsShaderParameters::Ids, ids, RDG::Access::StorageRead )
                                   .PushConstantBytes( static_cast<uint32_t>( sizeof( GpuInstanceRowsPush ) ) );
+                         }
                      },
                      [program = m_Program, sources]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {

@@ -12,108 +12,45 @@
 // (UE's RandomStream.GetFraction), its patches let it grow, and its fade draw beats the field's share at the nearest
 // the tile is built for (TileEntries' w): the thinning below is nested, so an instance dropped there is dropped at
 // every farther view - and the renderer rebuilds a tile the eye comes nearer than that.
-// THE TILE CULL (Cull: one group per cluster of a resident tile and one thread per record of its run - GRASS-TILE-4, UE
-// InstanceCulling's thread per instance and one atomic per wave and list; each frame the view's inputs change -
-// GrassRenderer VarietyGpu::GenerateKey) is everything view-dependent, the rules the generation applied before
-// (GRASS-TILE-1 moved them unchanged). GRASS-TILE-2, TWO LEVELS (UE HISM: the cluster tree's bounds are culled first,
-// then only the instances of the clusters that passed): a tile is built as kTileClusters clusters of
-// kTileClusterCells^2 cells - one build thread group each - with their own root box and their records in a run of the
-// tile's records SORTED BY THEIR FADE DRAW; the cull skips a tile, then a cluster, whose box lies past the cull radius
-// or outside the full list's volume, and of a cluster it reads only the run's head whose fade draw beats the share at
-// the box's nearest point (the thinning is nested and the share only falls with distance: the tail is dropped at any
-// point of the box: a thread whose record is in the tail leaves before the rest of the record is read). So the cull's
-// work follows the instances the view keeps, not the disc, and no group walks a tile's records in rounds. An instance
-// is kept when it is inside the view's side planes, and - past StartCullDistance - when its fade draw beats the
-// distance share: (Start / d)^2, a blade's screen area (GRASS-DENSITY), times UE's fade to zero at EndCullDistance -
-// and a kept blade widens by that share and lowers over the band's last fifth, a kept mesh shrinks to nothing before
-// its draw drops it (GPU-COST-29), UE's (and past the distance D where its mean blade stands MinScreenWidth pixels
-// wide, (D / d)^2 kept and each card lifted to that width - GRASS-WIDTH, no sub-pixel strip), PerInstanceFadeAmount as
-// its grass materials spend it (scale to nothing at EndCullDistance), so the field thins and lowers into the ground
-// instead of ending at a line. Kept instances are appended to their bucket of Instances (one mat4 each, the
-// InstanceTransforms of Mesh/Surface/Vertex_Instanced.glslh / Vertex_GrassBlade.glslh): a mesh has one bucket per level
-// of its LOD chain, chosen by the instance's screen size (UE grass HISM), a blade one per level of its strip, chosen by
-// distance (GRASS-BLADE). A blade also follows its clump - the nearest of a jittered grid of clump points (GoT's
-// Voronoi clumps) lends it its facing, height and tint, and pulls it towards itself by ClumpPull, so blades gather into
-// tufts with open ground between them. Scatter moves a blade past its own cell and Patchiness thins the field by broad
-// world patches. FacingJitter turns each blade's facing back off its clump's and Tilt stands its root off the vertical
-// in a direction of its own. GrassFinalize copies each bucket's count into its draw records.
-// OCCLUSION PER VIEW (GRASS-VIS; UE Nanite / the GPU instance cull): Instances / Args hold every kept instance: the
-// cascades and the TLAS draw them, so grass the camera cannot see still casts and reflects. The camera's own list
-// (CameraIds / CameraArgs, the same bucket table) is GrassCull.shader's pass over those kept instances
-// (GRASS-CULL-1/2: one thread per KEPT instance, indirect; two-phase HZB). THE LISTS HOLD IDS (GPU-COST-22; UE GPU
-// Scene InstanceIdBuffer): an instance is written ONCE, into its row of Instances; the camera's list and every
-// cascade's hold that row (one uint each), and the vertex stage reads Instances through the id. THE TWO VOLUMES
-// (GRASS-VIS-6; UE: the casters of a whole-scene shadow are culled by the cascade's volume swept along the light):
-// Planes bound the full list - the camera's side planes, each moved out along every shadowed directional light by
-// that light's caster reach - and CameraPlanes the camera's own list (GrassCull's).
+// THE VIEW LAW (GRASS-VIEW-LAW-1; UE landscape grass: a component's instances are built once, every view culls,
+// LODs and fades them per frame) is not here: the build writes each cluster's chunk (WriteTileChunk) and
+// GrassCull.shader applies the law per view and frame to the records of the chunks a view meets (GrassViewLaw:
+// the distance thinning, the screen-width floor, the far LOD, the blade's widening and lowering, a mesh's
+// level and shrink), writes the instance into its row of Instances (the row IS the pool record) and appends
+// that row to the camera's, the cascades' and the full list (FullIds, the union RT and the list-less draws
+// read). Turning or stepping the view rebuilds nothing; only a tile entering the radius or a nearer view than it
+// was built for builds.
 Shader "GrassGenerate"
 {
     Compute
     {
-        // AppendInstance: one atomic per subgroup and counter (subgroupBallot / subgroupElect /
-        // subgroupBroadcastFirst), and its run's box (subgroupMin / subgroupMax).
-        #extension GL_KHR_shader_subgroup_basic : require
-        #extension GL_KHR_shader_subgroup_ballot : require
-        #extension GL_KHR_shader_subgroup_arithmetic : require
-
         LocalSize(8, 8, 1);
 
         #include <Common/GrassFieldShare.glslh>
         #include <Common/GrassVarietyRows.glslh>
 
-        // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
-        struct GrassParams
-        {
-            vec4  Camera;    // xyz = the field eye (cm: the camera snapped to the tile grid, GrassRenderer FieldEye), w = EndCullDistance through the lens
-            vec4  Cull;      // x, y = Start/EndCullDistance through the lens (DrawDistanceScale), z = cell (cm), w = max jitter (cells)
-            vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
-            vec4  ScaleX;    // x/y = ScaleX range, z = scaling (0 uniform, 1 free, 2 lock XY), w = flags
-            vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
-            vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the floor of the lens share (1 / DrawDistanceScale, at most 1; LensShare)
-            uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
-            uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count
-            vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
-            vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm,
-                             // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
-            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
-                             // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
-            vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
-                             // the far LOD of a blade or a mesh: z = the distance at which its bounding radius at scale 1
-                             // stands at the Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh
-                             // GrassBladeLodAt, GrassMeshFarLod)
-            vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
-            vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
-        };
-
         ReadBuffer(0) Field
         {
             uint FieldData[]; // GrassFieldLayout (LandscapeGrassField.hpp)
         };
+        #define GRASS_FIELD_WORD( i ) FieldData[i]
+        #include <Common/GrassTileRecord.glslh>
+
 
         ReadBuffer(1) Params
         {
             GrassParams GrassParamsData[];
         };
 
-        Buffer(2) Instances
-        {
-            mat4 GrassInstancesData[];
-        };
-
-        Buffer(3) Args
-        {
-            uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, half screen size (a mesh level)
-        };
-
-        // GRASS-CULL-HIER-1: the camera cull's chunks (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the tile
-        // cull appends one per run of Instances it takes (AppendInstance); word 2 of the header = the chunks it has
-        // room for (GrassRenderer VarietyGpu::Chunks, written once).
+        // GRASS-VIEW-LAW-1: the build's chunks, one per (tile slot, cluster) (Common/GrassVarietyRows.glslh, the
+        // chunk contract): Write writes a built cluster's, Free empties a freed slot's; the view law reads them.
+        // Word 2 of the header = the chunks it has room for (GrassRenderer VarietyGpu::Chunks, made with the pool).
         Buffer(8) Chunks
         {
             uint GrassChunkData[];
         };
 
-        // GRASS-TILE-1, THE TILE POOL: kTilePoolWords uvec4 per record (TileRecord: StoreRecord / LoadRecord), in
+        // GRASS-TILE-1, THE TILE POOL: kTilePoolWords uvec4 per record (TileRecord: StoreRecord, Common/GrassTileRecord.glslh GrassUnpackRecord), in
         // pages of kTilePageRecords records; a tile holds up to kTilePages of them (its TileWords header).
         Buffer(10) TilePool
         {
@@ -151,24 +88,18 @@ Shader "GrassGenerate"
                         // w = the pool's pages
         };
 
-        const uint kFlagRandomRotation = 1u;
-        const uint kFlagAlignToSurface = 2u;
-        const uint kFlagWeightAttenuates = 4u;
-        const uint kFlagBlade = 8u;
-        const float kNoHeight = -1.0e30;
         // GrassRenderer.cpp kGrassTileMode*.
         const uint kModeInit     = 0u;
         const uint kModeFree     = 1u;
         const uint kModeCount    = 2u;
         const uint kModeAllocate = 3u;
         const uint kModeWrite    = 4u;
-        const uint kModeCull     = 5u;
         // Mirror GrassRenderer.cpp kGrassTile*.
         const uint kTileCells       = 32u;
-        const uint kTilePageRecords = 64u;
+        const uint kTilePageRecords = kGrassTilePageRecords;
         const uint kTilePages       = kTileCells * kTileCells / kTilePageRecords;
         const uint kTilePageWord    = 16u;
-        const uint kTilePoolWords   = 3u;
+        const uint kTilePoolWords   = kGrassTilePoolWords;
         // GRASS-TILE-2, a tile's clusters: kTileClusterCells^2 cells, one build thread group (LocalSize) each; per
         // cluster kTileClusterWords header words from kTileClusterWord: its records, its first record in the tile,
         // its root box (min xyz, max xyz, OrderedBits).
@@ -182,6 +113,7 @@ Shader "GrassGenerate"
         const float kMaxClumpHeight = 1.3;
 
         // The build's cluster (Count: its count and box; Write: its records' fade draws, ranked).
+        shared uint  s_ClusterScale;
         shared uint  s_ClusterCount;
         shared uint  s_ClusterBox[6];
         shared float s_Fade[64];
@@ -217,89 +149,6 @@ Shader "GrassGenerate"
                    3.0;
         }
 
-        uint SamplesX() { return FieldData[0]; }
-        uint SamplesZ() { return FieldData[1]; }
-        float HeightAt( uint x, uint z ) { return uintBitsToFloat( FieldData[8u + z * SamplesX() + x] ); }
-        float WeightAt( uint layer, uint x, uint z )
-        {
-            uint count = SamplesX() * SamplesZ();
-            uint index = z * SamplesX() + x;
-            uint word  = FieldData[8u + count + layer * ( ( count + 3u ) / 4u ) + index / 4u];
-            return float( ( word >> ( 8u * ( index & 3u ) ) ) & 0xffu ) * ( 1.0 / 255.0 );
-        }
-
-        // Bilinear height and layer weight at world XZ; false outside the field or over a missing tile.
-        bool SampleField( vec2 world, uint layer, out float height, out float weight )
-        {
-            vec2  origin  = vec2( uintBitsToFloat( FieldData[4] ), uintBitsToFloat( FieldData[5] ) );
-            float spacing = uintBitsToFloat( FieldData[6] );
-            vec2  local   = ( world - origin ) / spacing;
-            if ( local.x < 0.0 || local.y < 0.0 || local.x >= float( SamplesX() - 1u ) || local.y >= float( SamplesZ() - 1u ) )
-                return false;
-            uvec2 i = uvec2( floor( local ) );
-            vec2  f = local - vec2( i );
-            float h00 = HeightAt( i.x, i.y ), h10 = HeightAt( i.x + 1u, i.y );
-            float h01 = HeightAt( i.x, i.y + 1u ), h11 = HeightAt( i.x + 1u, i.y + 1u );
-            if ( min( min( h00, h10 ), min( h01, h11 ) ) <= kNoHeight )
-                return false;
-            height = mix( mix( h00, h10, f.x ), mix( h01, h11, f.x ), f.y );
-            weight = mix( mix( WeightAt( layer, i.x, i.y ), WeightAt( layer, i.x + 1u, i.y ), f.x ),
-                          mix( WeightAt( layer, i.x, i.y + 1u ), WeightAt( layer, i.x + 1u, i.y + 1u ), f.x ), f.y );
-            return true;
-        }
-
-        vec3 FieldNormal( vec2 world, uint layer, float centre )
-        {
-            float spacing = uintBitsToFloat( FieldData[6] );
-            float hx, hz, w;
-            if ( !SampleField( world + vec2( spacing, 0.0 ), layer, hx, w ) )
-                hx = centre;
-            if ( !SampleField( world + vec2( 0.0, spacing ), layer, hz, w ) )
-                hz = centre;
-            return normalize( vec3( centre - hx, spacing, centre - hz ) );
-        }
-
-        // The share of cells a zoomed lens (DrawDistanceScale k > 1) keeps at @p world: the one that puts as many
-        // instances on a pixel as the authored 90-degree lens puts there when it views the same ground patch from
-        // the same height at 1/k the horizontal distance (where the patch fills the same screen size). A ground
-        // patch of area A at distance d, seen at cosine s = dot(V, N) between the eye direction and the TERRAIN
-        // normal, covers A s / d^2 of the view through a lens that magnifies k^2 times; equal instances per pixel
-        // then means share = k^2 (s / s') (d' / d)^2 for the authored view's s', d'. Flat ground far away gives
-        // 1/k (the floor, p.ScaleZ.w); a slope facing the camera - or ground under it - gives the full density,
-        // which a flat 1/k share thinned visibly. Ground facing away keeps the floor.
-        float LensShare( vec2 world, float height, GrassParams p )
-        {
-            float k     = 1.0 / p.ScaleZ.w;
-            vec3  toEye = p.Camera.xyz - vec3( world.x, height, world.y );
-            float rise  = toEye.y;
-            vec2  across = toEye.xz;
-            float d2    = dot( toEye, toEye );
-            vec3  n     = FieldNormal( world, p.Info.x, height );
-            float s     = dot( toEye, n ) * inversesqrt( max( d2, 1.0 ) );
-            if ( s <= 0.0 )
-                return p.ScaleZ.w;
-            vec3  authored  = vec3( across.x / k, rise, across.y / k );
-            float authored2 = dot( authored, authored );
-            float s2        = dot( authored, n ) * inversesqrt( max( authored2, 1.0 ) );
-            if ( s2 <= s / k )
-                return 1.0;
-            return clamp( k * k * ( s / s2 ) * ( authored2 / max( d2, 1.0 ) ), p.ScaleZ.w, 1.0 );
-        }
-
-        // GRASS-TILE-1: what the tile pool holds of an instance - everything the view does not change: its root
-        // (before the snow), its fade and lens-share draws, its scale before the view's thinning, a blade's clump
-        // height, its rotation (yaw, tilt, surface alignment) and a blade's three draws.
-        struct TileRecord
-        {
-            vec3  Position;
-            float Fade;
-            float Thin;
-            vec3  Scale;
-            float Clump;
-            vec4  Rotation;
-            vec3  Draws;
-        };
-
         // The rotation of an orthonormal basis (Shepperd's), and back.
         vec4 QuatFromBasis( mat3 m )
         {
@@ -322,14 +171,6 @@ Shader "GrassGenerate"
             float s = sqrt( 1.0 + m[2][2] - m[0][0] - m[1][1] ) * 2.0;
             return vec4( ( m[2][0] + m[0][2] ) / s, ( m[2][1] + m[1][2] ) / s, 0.25 * s, ( m[0][1] - m[1][0] ) / s );
         }
-        mat3 BasisFromQuat( vec4 q )
-        {
-            q       = normalize( q );
-            float x = q.x, y = q.y, z = q.z, w = q.w;
-            return mat3( vec3( 1.0 - 2.0 * ( y * y + z * z ), 2.0 * ( x * y + w * z ), 2.0 * ( x * z - w * y ) ),
-                         vec3( 2.0 * ( x * y - w * z ), 1.0 - 2.0 * ( x * x + z * z ), 2.0 * ( y * z + w * x ) ),
-                         vec3( 2.0 * ( x * z + w * y ), 2.0 * ( y * z - w * x ), 1.0 - 2.0 * ( x * x + y * y ) ) );
-        }
 
         // Draws in [0, 1) on the pool's 16-bit grid (rounded down: they stay below 1 and pack exactly).
         vec2 OnUnorm16( vec2 v )
@@ -345,22 +186,6 @@ Shader "GrassGenerate"
             TilePoolData[at * kTilePoolWords + 2u] =
                  uvec4( packSnorm2x16( r.Rotation.xy ), packSnorm2x16( r.Rotation.zw ), packUnorm2x16( r.Draws.xy ),
                         packUnorm2x16( vec2( r.Draws.z, 0.0 ) ) );
-        }
-        TileRecord LoadRecord( uint at )
-        {
-            uvec4      a = TilePoolData[at * kTilePoolWords];
-            uvec4      b = TilePoolData[at * kTilePoolWords + 1u];
-            uvec4      c = TilePoolData[at * kTilePoolWords + 2u];
-            TileRecord r;
-            r.Position = uintBitsToFloat( a.xyz );
-            vec2 drawn = unpackUnorm2x16( a.w );
-            r.Fade     = drawn.x;
-            r.Thin     = drawn.y;
-            r.Scale    = uintBitsToFloat( b.xyz );
-            r.Clump    = uintBitsToFloat( b.w );
-            r.Rotation = vec4( unpackSnorm2x16( c.x ), unpackSnorm2x16( c.y ) );
-            r.Draws    = vec3( unpackUnorm2x16( c.z ), unpackUnorm2x16( c.w ).x );
-            return r;
         }
 
         // Floats as uints that order like them (the tile box's atomicMin / atomicMax), and back.
@@ -454,7 +279,7 @@ Shader "GrassGenerate"
                 return false;
 
 
-            // The draw the view's thinning drops the instance by (CullCandidate), on the pool's grid; the tile keeps
+            // The draw the view's thinning drops the instance by (GrassCull.shader GrassViewLaw), on the pool's grid; the tile keeps
             // only the instances its nearest view can keep (the thinning is nested).
             float fade   = Fraction( state );
             vec2  drawn  = OnUnorm16( vec2( fade, thinDraw ) );
@@ -522,22 +347,6 @@ Shader "GrassGenerate"
             return true;
         }
 
-        // A root box (tile or cluster) none of whose candidates the cull can keep: past the cull radius of the field
-        // eye. GRASS-CULL-UNIFY-1: no view volume - what this cull keeps is the field about the field eye, the same
-        // for every view and every turn of the camera; each view culls it by its own volume (GrassCull.shader: the
-        // camera's planes and HZB, the cascades' caster boxes). GRASS-TILE-4: the params are read in place.
-        bool BoxCulled( vec3 lo, vec3 hi )
-        {
-            const vec3 eye = GrassParamsData[0].Camera.xyz;
-            return length( clamp( eye, lo, hi ) - eye ) > GrassParamsData[0].Cull.y;
-        }
-
-        vec3 BoxWords( uint at )
-        {
-            return vec3( FromOrderedBits( TileWordsData[at] ), FromOrderedBits( TileWordsData[at + 1u] ),
-                         FromOrderedBits( TileWordsData[at + 2u] ) );
-        }
-
         // Record @p slot of the tile whose header is at @p header: its index in the pool.
         uint TileRecordAt( uint header, uint slot )
         {
@@ -545,238 +354,36 @@ Shader "GrassGenerate"
                    slot % kTilePageRecords;
         }
 
-        // GRASS-CULL-HIER-1: chunk @p first.. (@p count slots of Instances) into Chunks - its roots' box @p lo..@p hi
-        // and its largest axis scale @p scale (Common/GrassVarietyRows.glslh kGrassChunkWords). A chunk holds one
-        // slot at least, so the room (one chunk per slot) is never short; past it a chunk is not written.
-        void WriteChunk( uint first, uint count, vec3 lo, vec3 hi, float scale )
+        // GRASS-VIEW-LAW-1, THE BUILD'S CHUNK of cluster @p cluster (its header words) of the tile at @p header, chunk
+        // @p chunk of Chunks (Common/GrassVarietyRows.glslh, the chunk contract): its records' root box, the largest
+        // axis scale @p scale of its records (RecordScale bits), its first record in the pool, its count and the page
+        // its run continues on. A run is one cluster's, at most one page long, so it spans two pages at most.
+        void WriteTileChunk( uint header, uint cluster, uint chunk, uint scale )
         {
-            uint chunk = atomicAdd( GrassChunkData[0], 1u );
-            if ( chunk >= GrassChunkData[2] )
-                return;
-            uint at                 = kGrassChunkHeader + chunk * kGrassChunkWords;
-            GrassChunkData[at]      = floatBitsToUint( lo.x );
-            GrassChunkData[at + 1u] = floatBitsToUint( lo.y );
-            GrassChunkData[at + 2u] = floatBitsToUint( lo.z );
-            GrassChunkData[at + 3u] = floatBitsToUint( scale );
-            GrassChunkData[at + 4u] = floatBitsToUint( hi.x );
-            GrassChunkData[at + 5u] = floatBitsToUint( hi.y );
-            GrassChunkData[at + 6u] = floatBitsToUint( hi.z );
-            GrassChunkData[at + 7u] = ( first << kGrassChunkCountBits ) | count;
+            uint first = TileWordsData[cluster + 1u];
+            uint room  = TileWordsData[header + 1u] * kTilePageRecords;
+            uint count = first < room ? min( TileWordsData[cluster], room - first ) : 0u;
+            uint at    = GrassChunkAt( chunk );
+            for ( uint i = 0u; i < 6u; ++i )
+                GrassChunkData[at + kGrassChunkBoxWord + i] = floatBitsToUint( FromOrderedBits( TileWordsData[cluster + 2u + i] ) );
+            GrassChunkData[at + kGrassChunkScaleWord] = scale;
+            GrassChunkData[at + kGrassChunkFirstWord] = count != 0u ? TileRecordAt( header, first ) : 0u;
+            uint next = first / kTilePageRecords + 1u;
+            GrassChunkData[at + kGrassChunkPageWord] =
+                 count != 0u && next < kTilePages ? TileWordsData[header + kTilePageWord + next] : 0u;
+            GrassChunkData[at + kGrassChunkCountWord] = count;
         }
 
-        // THE WAVE'S APPEND (GRASS-TILE-4; GrassCull.shader WaveAppend, UE InstanceCulling: one atomic per wave and
-        // counter): every invocation that calls it takes one slot of the bucket whose table is at word @p table of
-        // Arguments. The subgroup's invocations that name the same bucket add their number with ONE atomicAdd and
-        // each takes its rank among them - one round per distinct bucket among the callers (a subgroup's instances
-        // fall into a few buckets). GRASS-CULL-HIER-1: the run of slots that add takes, inside the bucket's
-        // capacity, is one chunk for GrassCull's camera cull (WriteChunk): the box of the callers' roots @p root and
-        // the largest of their axis scales @p scale - instances of one tile cluster, since a workgroup is one.
-        // Returns the slot's index in the bucket: the counter before the subgroup's add, plus the rank.
-        uint AppendInstance( uint table, vec3 root, float scale )
+        // The largest axis scale record @p r can draw at before the view law widens it (GrassViewLaw: a blade's
+        // height takes its clump's, a mesh only shrinks).
+        float RecordScale( TileRecord r, GrassParams p )
         {
-            uint index = 0u;
-            for ( ;; )
-            {
-                if ( subgroupBroadcastFirst( table ) == table )
-                {
-                    uvec4 ballot = subgroupBallot( true );
-                    uint  count  = subgroupBallotBitCount( ballot );
-                    vec3  lo     = subgroupMin( root );
-                    vec3  hi     = subgroupMax( root );
-                    float most   = subgroupMax( scale );
-                    uint  base   = 0u;
-                    if ( subgroupElect() )
-                    {
-                        base          = atomicAdd( Arguments[table], count );
-                        uint capacity = Arguments[table + 2u];
-                        if ( base < capacity )
-                            WriteChunk( Arguments[table + 1u] + base, min( count, capacity - base ), lo, hi, most );
-                    }
-                    index = subgroupBroadcastFirst( base ) + subgroupBallotExclusiveBitCount( ballot );
-                    break;
-                }
-            }
-            return index;
-        }
-
-        // THE TILE CULL of one candidate (GRASS-TILE-1): everything the view decides - the generation's own rules,
-        // moved from the build.
-        void CullCandidate( TileRecord r )
-        {
-            vec2  world  = r.Position.xz;
-            float height = r.Position.y;
-            if ( r.Thin >= GrassParamsData[0].ScaleZ.w && r.Thin >= LensShare( world, height, GrassParamsData[0] ) )
-                return;
-            uint flags = floatBitsToUint( GrassParamsData[0].ScaleX.w );
-            bool blade = ( flags & kFlagBlade ) != 0u;
-            vec3  position = r.Position;
-            float distance = length( position - GrassParamsData[0].Camera.xyz );
-            if ( distance > GrassParamsData[0].Cull.y )
-                return;
-            // The share of the field kept at this distance (GRASS-DENSITY, Common/GrassFieldShare.glslh - the one
-            // law the ground's far cover reads too): beyond StartCullDistance S it falls with the square of the
-            // distance, (S / d)^2, so the instances a band of ground spends stay those it spent at S (UE's grass
-            // HISM keeps the full density out to its cull distance and spends it on sub-pixel instances) - and on
-            // top of that UE's fade, down to nothing at EndCullDistance. Nested: an instance kept at d is kept
-            // nearer, so walking does not reshuffle the field, only thins it; before S every instance is kept.
-            float                 fade  = r.Fade;
-            const GrassFieldShare field = GrassFieldShareAt( distance, GrassParamsData[0].Cull.x, GrassParamsData[0].Cull.y, GrassParamsData[0].Spread.w );
-            float                 kept  = field.Kept;
-            // The screen-width floor (GRASS-WIDTH; GoT / UE landscape grass LOD): past D the mean blade would stand
-            // narrower than MinScreenWidth pixels, so the field keeps (D / d)^2 of its blades - the law the thinning
-            // above widens by (a survivor widened 1/sqrt(share): d / D here) - and each kept blade's own card is
-            // lifted to the floor width (below), so no blade strip goes sub-pixel. The same nested draw: a blade
-            // kept at d is kept nearer.
-            if ( fade >= min( kept, field.Floor ) )
-                return;
-            vec3 scale = r.Scale;
-            // Coverage kept through the thinning (GoT / UE-style distance thinning; GrassFieldShare): a BLADE
-            // survivor stands for the 1/share blades dropped around it, so its width grows by 1/sqrt(share) - at its
-            // own height the field keeps sqrt(share) of its covered area, and the ground's far cover takes on the
-            // rest (LandscapeGrassCover, GrassFieldCoverage); the height drops only over the last 20 % of the range.
-            // A MESH survivor's cards cost their pixels, so it keeps its size and shrinks uniformly to nothing over
-            // the last stretch before its own draw drops it - at EndCullDistance too (GPU-COST-29; UE grass HISM:
-            // no survivor growth, PerInstanceFadeAmount / scale to zero; GrassMeshShrink, GrassMeshCoverage): its
-            // card overdraw falls with distance as the field thins, and the cover takes on what it leaves.
-            // THE BLADE'S LOD (GPU-FRAME-4, GrassFieldShare.glslh GrassBladeLodAt - the one choice): its strip level
-            // and the far LOD's share from its bounding radius on screen - its own height scale, before the
-            // thinning's height and its clump's, over the far LOD's screen size (p.Lod.z: where a blade at scale 1
-            // stands at it). The far LOD drops the blades of the same nested draw the thinning above drops by (an
-            // instance kept at a share is kept at every larger one), so the field thins one blade at a time and
-            // never reshuffles; its survivors widen by 1 / Share below, past the floor's lift.
-            GrassBladeLod lod = GrassBladeLod( 0u, 1.0, 1.0 );
-            if ( blade )
-            {
-                uint  ring = GrassParamsData[0].Blade.x > 0.0 ? min( uint( distance / GrassParamsData[0].Blade.x ), GrassParamsData[0].Buckets.x - 1u ) : 0u;
-                float size = GrassParamsData[0].Lod.z > 0.0 ? GrassParamsData[0].Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
-                lod        = GrassBladeLodAt( size, ring, GrassParamsData[0].Buckets.x );
-                float share = min( kept, field.Floor ) * lod.Share;
-                if ( fade >= share )
-                    return;
-                scale.x *= field.Widen;
-                scale.z *= field.Widen;
-                // The blade the thinning is about to drop lowers into the ground first (GrassBladeFade: stable per
-                // instance, no pop), and the survivors widen by what that lowering takes from the field's area.
-                scale.y *= field.Height * GrassBladeFade( share, fade );
-                lod.Widen *= GrassBladeFadeWiden( share );
-            }
-            else
-            {
-                // THE MESH'S FAR LOD (GPU-FRAME-6, GrassFieldShare.glslh GrassMeshFarLod): the blade's far-LOD
-                // share by its bounding radius on screen - its largest axis scale over the far LOD's screen size
-                // (p.Lod.z: where the mesh at scale 1 stands at it) - on top of the distance thinning, and the
-                // instance it drops shrinks to nothing first (GrassMeshShrink over both shares).
-                float           size    = GrassParamsData[0].Lod.z > 0.0
-                                              ? GrassParamsData[0].Lod.z * max( scale.x, max( scale.y, scale.z ) ) / max( distance, 1.0 )
-                                              : 0.0;
-                GrassFieldShare reached = GrassMeshFarLod( field, size );
-                if ( fade >= reached.Kept )
-                    return;
-                scale *= GrassMeshShrink( reached, fade );
-            }
-            // The bounding sphere's centre (a mesh's level below); no view volume here (BoxCulled).
-            vec3 centre = position + vec3( 0.0, GrassParamsData[0].ScaleY.z * scale.y, 0.0 );
-            vec3 draws = r.Draws;
-            if ( blade )
-            {
-                scale.y *= r.Clump;
-                // The screen-width floor (GRASS-WIDTH): the card this instance draws (Mesh/Surface/GrassBlade.glslh
-                // BladeCard, from draws.x) stands at least MinScreenWidth pixels wide - its width scale lifted to
-                // Lean.w x d / its width - so no strip of the blade goes sub-pixel.
-                if ( GrassParamsData[0].Lean.w > 0.0 && GrassParamsData[0].Buckets.z > 0u )
-                {
-                    uint  count = min( GrassParamsData[0].Buckets.z, 8u );
-                    uint  card  = min( uint( draws.x * float( count ) ), count - 1u );
-                    float width = GrassParamsData[0].CardWidths[card / 4u][card % 4u];
-                    scale.x     = max( scale.x, GrassParamsData[0].Lean.w * distance / max( width, 1.0e-3 ) );
-                }
-                // The far LOD's survivor stands for the 1 / Share blades it keeps the place of: its card - lifted to
-                // the floor first - is that much wider, so the field covers what it did.
-                scale.x *= lod.Widen;
-            }
-            mat3 basis = BasisFromQuat( r.Rotation );
-
-            uint bucket = 0u;
-            if ( blade )
-                bucket = lod.Level;
-            else if ( GrassParamsData[0].Buckets.x > 1u )
-            {
-                // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
-                // SelectLODFromBounds): the coarsest whose screen size the instance's bounding sphere is still below.
-                float r        = GrassParamsData[0].Lod.x * max( scale.x, max( scale.y, scale.z ) );
-                vec3  d        = centre - GrassParamsData[0].Camera.xyz;
-                float screenSq = r * r / max( 1.0, dot( d, d ) * GrassParamsData[0].Lod.y );
-                for ( uint level = GrassParamsData[0].Buckets.x - 1u; level > 0u; --level )
-                {
-                    float halfSize = uintBitsToFloat( Arguments[GrassParamsData[0].Buckets.y + level * 4u + 3u] );
-                    if ( halfSize * halfSize > screenSq )
-                    {
-                        bucket = level;
-                        break;
-                    }
-                }
-            }
-            // The world's snow (Common/WeatherSnow.glslh) lies p.Lean.z deep over the ground: the root sinks by it,
-            // so the instance shows only what stands above the snow and one shorter than it is buried whole.
-            position.y -= GrassParamsData[0].Lean.z;
-            // A blade's forward axis carries the height multiplier (its lean is a share of its height) and the
-            // columns' w its three draws (Vertex_GrassBlade.glslh); a mesh's are its scaled axes.
-            mat4 instance;
-            if ( blade )
-                instance = mat4( vec4( basis[0] * scale.x, draws.x ), vec4( basis[1] * scale.y, draws.y ),
-                                 vec4( basis[2] * scale.y, draws.z ), vec4( position, 1.0 ) );
-            else
-                instance = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
-                                 vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
-            // The chunk's bound holds what GrassCull reads of the instance: its root and its largest axis scale.
-            float most  = max( length( instance[0].xyz ), max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
-            uint  table = GrassParamsData[0].Buckets.y + bucket * 4u;
-            uint  index = AppendInstance( table, instance[3].xyz, most );
-            if ( index >= Arguments[table + 2u] )
-                return;
-            GrassInstancesData[Arguments[table + 1u] + index] = instance;
+            float clump = ( floatBitsToUint( p.ScaleX.w ) & kFlagBlade ) != 0u ? r.Clump : 1.0;
+            return max( r.Scale.x, max( r.Scale.y * clump, r.Scale.z ) );
         }
 
         void main()
         {
-            if ( Mode.x == kModeCull )
-            {
-                // One group per cluster of a resident tile (x: the cluster, y: the tile), one thread per record of
-                // the cluster's run - a cluster is one build group's cells, at most one record each: the tile whole
-                // by its candidates' root box, then the cluster by its own (both uniform over the group), then each
-                // thread its record, so no group walks a tile in rounds and the GPU holds every cluster's records at
-                // once (GRASS-TILE-4). It runs before main's copy of the params: the threads that leave on the
-                // tests below read only the words they name (BoxCulled), the threads with a record copy them.
-                uint header  = HeaderBase() + TileEntries[Mode.y + gl_WorkGroupID.y].x * kTileHeaderWords;
-                uint records = min( TileWordsData[header], TileWordsData[header + 1u] * kTilePageRecords );
-                if ( records == 0u || BoxCulled( BoxWords( header + 4u ), BoxWords( header + 7u ) ) )
-                    return;
-                uint word  = header + kTileClusterWord + gl_WorkGroupID.x * kTileClusterWords;
-                uint first = TileWordsData[word + 1u];
-                if ( first >= records )
-                    return;
-                uint lane = gl_LocalInvocationIndex;
-                if ( lane >= min( TileWordsData[word], records - first ) )
-                    return;
-                vec3 lo = BoxWords( word + 2u );
-                vec3 hi = BoxWords( word + 5u );
-                if ( BoxCulled( lo, hi ) )
-                    return;
-                // The run is sorted by fade draw: its records from the first one the share at the box's nearest point
-                // drops are dropped at every point of the box (CullCandidate's thinning), so a thread in that tail
-                // leaves on its record's first word.
-                const vec3            eye     = GrassParamsData[0].Camera.xyz;
-                const vec4            cull    = GrassParamsData[0].Cull;
-                float                 nearest = length( clamp( eye, lo, hi ) - eye );
-                const GrassFieldShare at =
-                     GrassFieldShareAt( nearest, cull.x, cull.y, GrassParamsData[0].Spread.w );
-                uint record = TileRecordAt( header, first + lane );
-                if ( unpackUnorm2x16( TilePoolData[record * kTilePoolWords].w ).x >= min( at.Kept, at.Floor ) )
-                    return;
-                CullCandidate( LoadRecord( record ) );
-                return;
-            }
-            // The pass's own copy of the params (the camera cull, GrassCull.shader, makes none).
             GrassParams p    = GrassParamsData[0];
             uint        serial = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
             if ( Mode.x == kModeInit )
@@ -800,6 +407,10 @@ Shader "GrassGenerate"
                 uint at     = atomicAdd( TileWordsData[0], held );
                 for ( uint k = 0u; k < held; ++k )
                     TileWordsData[1u + at + k] = TileWordsData[header + kTilePageWord + k];
+                // Its chunks are emptied too: the view law reads no record of a freed slot.
+                for ( uint c = 0u; c < kTileClusters; ++c )
+                    GrassChunkData[GrassChunkAt( TileEntries[Mode.y + serial].x * kTileClusters + c ) +
+                                   kGrassChunkCountWord] = 0u;
                 for ( uint w = 0u; w < kTilePageWord; ++w )
                     TileWordsData[header + w] = InitialHeaderWord( w );
                 return;
@@ -894,8 +505,17 @@ Shader "GrassGenerate"
                 }
                 // Write: the cluster's run, its records ranked by their fade draw (ties by lane), so the cull reads
                 // only the head of the run the view's share keeps. A cell with no instance ranks past every one.
-                s_Fade[lane] = placed ? r.Fade : 2.0;
+                // The chunk (WriteTileChunk) takes the largest axis scale of the cluster's records.
+                if ( lane == 0u )
+                    s_ClusterScale = 0u;
                 barrier();
+                s_Fade[lane] = placed ? r.Fade : 2.0;
+                if ( placed )
+                    atomicMax( s_ClusterScale, floatBitsToUint( RecordScale( r, p ) ) );
+                barrier();
+                if ( lane == 0u )
+                    WriteTileChunk( header, cluster, entry.x * kTileClusters +
+                                                         gl_WorkGroupID.y * kTileClusterSide + gl_WorkGroupID.x );
                 if ( !placed )
                     return;
                 uint rank = 0u;

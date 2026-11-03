@@ -490,8 +490,10 @@ namespace Desert::Graphic::System
             // (CascadeCasterBoxSet), its records one copy of Refs' layout of CascadeArgBytes, the k-th set bit's
             // at k x CascadeArgBytes; that cascade draws them (BuildGpuInstancedShadowDraws) through its
             // kSurfaceInstanceIdsDefine caster cell. A view without its bit, or CascadeRefs null, draws Instances
-            // / Refs directly.
+            // / Refs directly - through FullIds when the producer's full list holds ids (GRASS-VIEW-LAW-1: grass's
+            // rows are its pool's records; Refs.Ids is FullIds' graph ref).
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
+            std::shared_ptr<ShaderResources::StorageBuffer> FullIds;
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;
             uint32_t                                        CascadeMask     = 0;
             uint32_t                                        CascadeArgBytes = 0;
@@ -500,7 +502,7 @@ namespace Desert::Graphic::System
             // ShadowWindInnerOf .. ShadowWindDistanceOf) apart from its rest-pose casters - the movers drawn by the
             // list's records, the rest by their twins CascadeRestShift bytes after them. The static layer then
             // draws the rest part, the movable layer the movers, each with no per-instance rule in its vertex
-            // stage (GrassGenerate.shader splits, GrassFinalize.shader counts).
+            // stage (GrassGenerate.shader splits, GrassCull.shader counts).
             uint32_t                                        CascadeRestShift = 0;
             // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
             // the producer (RayTracingGpuInstanceSource::Rows).

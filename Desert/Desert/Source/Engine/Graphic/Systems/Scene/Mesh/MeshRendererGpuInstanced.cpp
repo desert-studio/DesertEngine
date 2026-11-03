@@ -649,10 +649,16 @@ namespace Desert::Graphic::System
             const bool drawsTwins   = parted && layer != ShadowCasterLayer::Movable;
             if ( parted )
                 split = 0u;
+            // GRASS-VIEW-LAW-1: a cascade without a list of its own draws the full list - through its ids when the
+            // producer's full list holds them (FullIds).
+            std::shared_ptr<ShaderResources::StorageBuffer> listIds = gpu.FullIds;
+            if ( ownList )
+                listIds = gpu.CascadeIds;
+            const bool          throughIds = listIds != nullptr;
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
                       ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view,
-                                                   InstancePermutation( ownList, false ), this )
+                                                   InstancePermutation( throughIds, false ), this )
                       : nullptr;
             if ( caster == nullptr )
             {
@@ -679,7 +685,7 @@ namespace Desert::Graphic::System
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality, casterOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
-            BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
+            BindGpuInstancedBuffers( *caster, gpu, listIds );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =
                  ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *

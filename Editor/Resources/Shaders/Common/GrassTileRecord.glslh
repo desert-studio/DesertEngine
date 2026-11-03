@@ -1,0 +1,158 @@
+#ifndef DESERT_GRASS_TILE_RECORD_GLSLH
+#define DESERT_GRASS_TILE_RECORD_GLSLH
+
+// GRASS-VIEW-LAW-1: what the tile build (Programs/Grass/GrassGenerate.shader) and the view law
+// (Programs/Grass/GrassCull.shader GrassViewLaw) share: the variety's params, the field's samples and the
+// tile pool's record. The includer defines GRASS_FIELD_WORD( i ), word i of the field (GrassFieldLayout,
+// LandscapeGrassField.hpp) - the build its Field binding, the cull the row's Field address - and includes this
+// after that binding.
+#ifndef GRASS_FIELD_WORD
+#error "define GRASS_FIELD_WORD( i ) before including GrassTileRecord.glslh"
+#endif
+
+// Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
+struct GrassParams
+{
+    vec4  Camera;    // xyz = the field eye (cm: the camera snapped to the tile grid, GrassRenderer FieldEye), w = EndCullDistance through the lens
+    vec4  Cull;      // x, y = Start/EndCullDistance through the lens (DrawDistanceScale), z = cell (cm), w = max jitter (cells)
+    vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
+    vec4  ScaleX;    // x/y = ScaleX range, z = scaling (0 uniform, 1 free, 2 lock XY), w = flags
+    vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
+    vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the floor of the lens share (1 / DrawDistanceScale, at most 1; LensShare)
+    uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
+    uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count
+    vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
+    vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm,
+                     // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
+    vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
+                     // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
+    vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
+                     // the far LOD of a blade or a mesh: z = the distance at which its bounding radius at scale 1
+                     // stands at the Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh
+                     // GrassBladeLodAt, GrassMeshFarLod)
+    vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
+    vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
+};
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassParamsRef
+{
+    GrassParams Data[];
+};
+
+const uint kFlagRandomRotation = 1u;
+const uint kFlagAlignToSurface = 2u;
+const uint kFlagWeightAttenuates = 4u;
+const uint kFlagBlade = 8u;
+const float kNoHeight = -1.0e30;
+// Mirror GrassRenderer.cpp kGrassTilePageRecords / kGrassTileRecordBytes: a pool page's records, a record's
+// uvec4 words.
+const uint kGrassTilePageRecords = 64u;
+const uint kGrassTilePoolWords   = 3u;
+
+uint SamplesX() { return GRASS_FIELD_WORD( 0 ); }
+uint SamplesZ() { return GRASS_FIELD_WORD( 1 ); }
+float HeightAt( uint x, uint z ) { return uintBitsToFloat( GRASS_FIELD_WORD( 8u + z * SamplesX() + x ) ); }
+float WeightAt( uint layer, uint x, uint z )
+{
+    uint count = SamplesX() * SamplesZ();
+    uint index = z * SamplesX() + x;
+    uint word  = GRASS_FIELD_WORD( 8u + count + layer * ( ( count + 3u ) / 4u ) + index / 4u );
+    return float( ( word >> ( 8u * ( index & 3u ) ) ) & 0xffu ) * ( 1.0 / 255.0 );
+}
+
+// Bilinear height and layer weight at world XZ; false outside the field or over a missing tile.
+bool SampleField( vec2 world, uint layer, out float height, out float weight )
+{
+    vec2  origin  = vec2( uintBitsToFloat( GRASS_FIELD_WORD( 4 ) ), uintBitsToFloat( GRASS_FIELD_WORD( 5 ) ) );
+    float spacing = uintBitsToFloat( GRASS_FIELD_WORD( 6 ) );
+    vec2  local   = ( world - origin ) / spacing;
+    if ( local.x < 0.0 || local.y < 0.0 || local.x >= float( SamplesX() - 1u ) || local.y >= float( SamplesZ() - 1u ) )
+        return false;
+    uvec2 i = uvec2( floor( local ) );
+    vec2  f = local - vec2( i );
+    float h00 = HeightAt( i.x, i.y ), h10 = HeightAt( i.x + 1u, i.y );
+    float h01 = HeightAt( i.x, i.y + 1u ), h11 = HeightAt( i.x + 1u, i.y + 1u );
+    if ( min( min( h00, h10 ), min( h01, h11 ) ) <= kNoHeight )
+        return false;
+    height = mix( mix( h00, h10, f.x ), mix( h01, h11, f.x ), f.y );
+    weight = mix( mix( WeightAt( layer, i.x, i.y ), WeightAt( layer, i.x + 1u, i.y ), f.x ),
+                  mix( WeightAt( layer, i.x, i.y + 1u ), WeightAt( layer, i.x + 1u, i.y + 1u ), f.x ), f.y );
+    return true;
+}
+
+vec3 FieldNormal( vec2 world, uint layer, float centre )
+{
+    float spacing = uintBitsToFloat( GRASS_FIELD_WORD( 6 ) );
+    float hx, hz, w;
+    if ( !SampleField( world + vec2( spacing, 0.0 ), layer, hx, w ) )
+        hx = centre;
+    if ( !SampleField( world + vec2( 0.0, spacing ), layer, hz, w ) )
+        hz = centre;
+    return normalize( vec3( centre - hx, spacing, centre - hz ) );
+}
+
+// The share of cells a zoomed lens (DrawDistanceScale k > 1) keeps at @p world: the one that puts as many
+// instances on a pixel as the authored 90-degree lens puts there when it views the same ground patch from
+// the same height at 1/k the horizontal distance (where the patch fills the same screen size). A ground
+// patch of area A at distance d, seen at cosine s = dot(V, N) between the eye direction and the TERRAIN
+// normal, covers A s / d^2 of the view through a lens that magnifies k^2 times; equal instances per pixel
+// then means share = k^2 (s / s') (d' / d)^2 for the authored view's s', d'. Flat ground far away gives
+// 1/k (the floor, p.ScaleZ.w); a slope facing the camera - or ground under it - gives the full density,
+// which a flat 1/k share thinned visibly. Ground facing away keeps the floor.
+float LensShare( vec2 world, float height, GrassParams p )
+{
+    float k     = 1.0 / p.ScaleZ.w;
+    vec3  toEye = p.Camera.xyz - vec3( world.x, height, world.y );
+    float rise  = toEye.y;
+    vec2  across = toEye.xz;
+    float d2    = dot( toEye, toEye );
+    vec3  n     = FieldNormal( world, p.Info.x, height );
+    float s     = dot( toEye, n ) * inversesqrt( max( d2, 1.0 ) );
+    if ( s <= 0.0 )
+        return p.ScaleZ.w;
+    vec3  authored  = vec3( across.x / k, rise, across.y / k );
+    float authored2 = dot( authored, authored );
+    float s2        = dot( authored, n ) * inversesqrt( max( authored2, 1.0 ) );
+    if ( s2 <= s / k )
+        return 1.0;
+    return clamp( k * k * ( s / s2 ) * ( authored2 / max( d2, 1.0 ) ), p.ScaleZ.w, 1.0 );
+}
+
+// GRASS-TILE-1: what the tile pool holds of an instance - everything the view does not change: its root
+// (before the snow), its fade and lens-share draws, its scale before the view's thinning, a blade's clump
+// height, its rotation (yaw, tilt, surface alignment) and a blade's three draws.
+struct TileRecord
+{
+    vec3  Position;
+    float Fade;
+    float Thin;
+    vec3  Scale;
+    float Clump;
+    vec4  Rotation;
+    vec3  Draws;
+};
+
+mat3 BasisFromQuat( vec4 q )
+{
+    q       = normalize( q );
+    float x = q.x, y = q.y, z = q.z, w = q.w;
+    return mat3( vec3( 1.0 - 2.0 * ( y * y + z * z ), 2.0 * ( x * y + w * z ), 2.0 * ( x * z - w * y ) ),
+                 vec3( 2.0 * ( x * y - w * z ), 1.0 - 2.0 * ( x * x + z * z ), 2.0 * ( y * z + w * x ) ),
+                 vec3( 2.0 * ( x * z + w * y ), 2.0 * ( y * z - w * x ), 1.0 - 2.0 * ( x * x + y * y ) ) );
+}
+
+// A record from its kGrassTilePoolWords words (GrassGenerate.shader StoreRecord packs them).
+TileRecord GrassUnpackRecord( uvec4 a, uvec4 b, uvec4 c )
+{
+    TileRecord r;
+    r.Position = uintBitsToFloat( a.xyz );
+    vec2 drawn = unpackUnorm2x16( a.w );
+    r.Fade     = drawn.x;
+    r.Thin     = drawn.y;
+    r.Scale    = uintBitsToFloat( b.xyz );
+    r.Clump    = uintBitsToFloat( b.w );
+    r.Rotation = vec4( unpackSnorm2x16( c.x ), unpackSnorm2x16( c.y ) );
+    r.Draws    = vec3( unpackUnorm2x16( c.z ), unpackUnorm2x16( c.w ).x );
+    return r;
+}
+
+#endif
