@@ -1422,6 +1422,9 @@ namespace Desert::Graphic::System
             {
                 if ( ( boxes.Live & ( 1u << v ) ) == 0u )
                     continue;
+                // The CLOSED box here: the guard band needs its eight corners (BoxCorners), which an open side has
+                // not; the list's copy below opens the sun's side (the blades draw pancaked,
+                // CascadeCasterFrustum).
                 const Core::Frustum box( boxes.ViewProj[v], glm::mat4( 1.0f ) );
                 glm::vec4           planes[6];
                 for ( uint32_t i = 0; i < 6u; ++i )
@@ -1442,6 +1445,9 @@ namespace Desert::Graphic::System
                     GuardBox( planes, glm::vec3( volumes.CascadeWind[list] ), guard.Planes );
                 }
                 std::copy( std::begin( guard.Planes ), std::end( guard.Planes ), volumes.CascadePlanes + list * 6u );
+                // Without the sun's side, as Graphic::CascadeCasterFrustum culls a sun cascade's casters: a zero
+                // plane (Frustum::Open) holds every blade.
+                volumes.CascadePlanes[list * 6u + Core::PLANE_FAR] = glm::vec4( 0.0f );
                 ++list;
             }
             // A list no view draws this frame forgets its guard box: the view it draws next grows its own.

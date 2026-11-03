@@ -761,6 +761,15 @@ namespace Desert::Graphic::System
         if ( !pipeline )
             return Common::MakeError( "TerrainRenderer: the shadow caster pipeline: " + pipeline.GetError() );
         m_ShadowPipeline = pipeline.GetValue();
+        // A sun cascade's terrain draws pancaked, as its meshes do (MeshRenderer::SetupShadowPass: depth clamp):
+        // ground nearer the sun than a level's depth range writes the range's sun-side end, not clipped. A local
+        // light's view keeps the clipped state, its near plane leaving the light's fixture out (LocalShadowNear).
+        spec.DebugName        = "TerrainShadowPipelinePancaked";
+        spec.DepthClampEnable = true;
+        const auto pancaked   = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pancaked )
+            return Common::MakeError( "TerrainRenderer: the cascade caster pipeline: " + pancaked.GetError() );
+        m_CascadeShadowPipeline = pancaked.GetValue();
         return BOOLSUCCESS;
     }
 
@@ -1796,7 +1805,9 @@ namespace Desert::Graphic::System
             return ShadowSignatureHash{}.Value; // nothing drawn into the view: the hash of nothing
         if ( m_FrameDraws.size() != m_Queue.size() )
             return std::nullopt;
-        const Core::Frustum box( casterViewProj, glm::mat4( 1.0f ) );
+        // The tiles the view's casters reach: a sun cascade's without its sun side (CascadeCasterFrustum, pancaked).
+        const Core::Frustum box = IsDirectionalCasterView( casterViewProj ) ? CascadeCasterFrustum( casterViewProj )
+                                                                            : Core::Frustum( casterViewProj, glm::mat4( 1.0f ) );
         ShadowSignatureHash hash;
         for ( std::size_t i = 0; i < m_Queue.size(); ++i )
         {
@@ -1859,7 +1870,7 @@ namespace Desert::Graphic::System
             std::vector<Core::Frustum> strips;
             strips.reserve( region.size() );
             for ( const glm::mat4& strip : region )
-                strips.emplace_back( strip, glm::mat4( 1.0f ) );
+                strips.push_back( CascadeCasterFrustum( strip ) ); // a scrolled sun cascade's: pancaked
             for ( std::size_t i = 0; i < viewDraws.size(); ++i )
             {
                 const FrameDraw&   draw = viewDraws[i];
@@ -1896,7 +1907,11 @@ namespace Desert::Graphic::System
         // Its own row inside the view's: the terrain's share of the shadow cost, summed over views.
         DESERT_PROFILE_PASS( "TerrainShadowView" );
         // Through the blocks DeclareShadowView declared on this view's node.
-        return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, casterViewProj,
+        // A sun cascade (orthographic: IsDirectionalCasterView) draws pancaked; a local light's view clips.
+        auto* caster = m_ShadowPipeline.get();
+        if ( IsDirectionalCasterView( casterViewProj ) && m_CascadeShadowPipeline )
+            caster = m_CascadeShadowPipeline.get();
+        return RecordDraws( context, firstBlock, *caster, &ProgramMaterials::Shadow, casterViewProj,
                             draws, glm::vec2( bias.SlopeBias, bias.SlopeClamp ) );
     }
 

@@ -28,10 +28,9 @@ namespace
 {
     // A camera looking down -Z from the origin with the engine's own defaults (near 10 cm, far 50 km).
     //
-    // THE PROJECTION MUST COME FROM THE ENGINE'S OWN FACTORY. ComputeShadowCascades unprojects NDC
-    // corners, so it reads the camera's depth convention; a glm::perspective here would hand it an
-    // OpenGL [-1,1] matrix, the near and far rings would swap, and the test would happily pin cascades
-    // fitted behind the observer.
+    // THE PROJECTION COMES FROM THE ENGINE'S OWN FACTORY. ComputeShadowCascades reads the lens from it
+    // (the half-diagonal slope; this 45-degree 16:9 lens is under 1, so every radius is its split) and the
+    // eye from the view, and the cascades are pinned for the camera the engine builds.
     CascadeSetup DefaultSetup()
     {
         CascadeSetup s;
@@ -135,8 +134,9 @@ TEST( ShadowCascades, WorldPerTexelMatchesRadiusAndMapSize )
 
 // The texel snap is what stops shadows crawling as the camera moves: the cascade centre may only travel
 // in WHOLE shadow-map texels along the light's own axes, so the sampling grid stays world-locked. It does
-// NOT mean the centre never moves — it follows the camera along the view axis, and the light-space depth
-// axis is deliberately not snapped. So the assertion is about the light-space X/Y being on the grid.
+// NOT mean the centre never moves — it is the camera's position (ComputeShadowCascades: the clipmap
+// law, so a turn on the spot leaves it where it is), and the light-space depth axis is deliberately not
+// snapped. So the assertion is about the light-space X/Y being on the grid.
 TEST( ShadowCascades, CentreMovesInWholeTexelsAlongTheLightAxes )
 {
     CascadeSetup setup = DefaultSetup();

@@ -390,6 +390,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
+        // m_ShadowPipeline with depth clamp: a sun cascade's terrain, pancaked (EnsureShadowPipeline,
+        // RecordShadowView).
+        std::shared_ptr<GraphicsPipeline> m_CascadeShadowPipeline;
         // The virtual shadow map's caster: no attachment, no depth test, depth clamp (the mesh renderer's VSM
         // casters' state). Built on the first level that draws the terrain; a refusal is logged once and kept.
         [[nodiscard]] const GraphicsPipeline* VirtualShadowPipeline();

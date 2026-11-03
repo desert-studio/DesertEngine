@@ -278,6 +278,34 @@ namespace Desert::Graphic::System
             LOG_WARN( "[MeshRenderer] Skinned shadow-depth cell missing — skinned meshes will cast no shadow." );
         }
 
+        // THE SUN'S CASCADES PANCAKE (ComputeShadowCascades; UE: a VSM level's depth clamp, a CSM's
+        // bClampToNearPlane): the same three caster states with depth clamp, so a caster nearer the sun than a
+        // level's depth range writes the range's sun-side end instead of being clipped, and the range holds only
+        // the level's receivers. The local lights keep the clipped states above: their near plane is placed to
+        // leave the light's own fixture out (LocalShadowNear), which a clamp would flatten across the whole view.
+        const auto pancaked = []( const std::shared_ptr<GraphicsPipeline>& clipped )
+        {
+            std::shared_ptr<GraphicsPipeline> made;
+            if ( !clipped )
+                return made;
+            GraphicsPipelineSpecification cspec = clipped->GetSpecification();
+            cspec.DebugName += " Pancaked";
+            cspec.DepthClampEnable = true;
+            if ( const auto created = GraphicsPipeline::Create( cspec ) )
+            {
+                made = created.GetValue();
+            }
+            else
+            {
+                LOG_ERROR( "[MeshRenderer] '{}' casts into no sun cascade: {}", cspec.DebugName,
+                           created.GetError() );
+            }
+            return made;
+        };
+        m_CascadeShadowPipeline          = pancaked( m_ShadowPipeline );
+        m_CascadeShadowInstancedPipeline = pancaked( m_ShadowInstancedPipeline );
+        m_CascadeShadowSkinnedPipeline   = pancaked( m_ShadowSkinnedPipeline );
+
         EnsureCascadeCasterMaterials();
         return true;
     }
@@ -426,7 +454,6 @@ namespace Desert::Graphic::System
             setup.CameraFar        = camera->GetFar();
             setup.LightDirection   = light->Direction;
             ApplyShadowQuality( setup, m_Shadow );
-            setup.SplitLambda = light->SplitLambda;
 
             CascadeFit     fits[kMaxShadowCascades];
             const uint32_t n = ComputeShadowCascades( setup, fits );
@@ -861,7 +888,8 @@ namespace Desert::Graphic::System
             movable = true;
             return 0;
         }
-        const Core::Frustum frustum( casterVP, glm::mat4( 1.0f ) );
+        // Open on the sun's side, as that walk's (CascadeCasterFrustum: a sun cascade's casters draw pancaked).
+        const Core::Frustum frustum = CascadeCasterFrustum( casterVP );
         // The gathered boxes (GatherShadowCasters), the ones BuildShadowCascadeDraws culls with.
         const auto reaches = [&frustum]( const ShadowCasterRow& row )
         { return IsVisibleInView( frustum, row.WorldBounds ); };
@@ -1444,12 +1472,16 @@ namespace Desert::Graphic::System
         if ( IsVirtualShadowView( view ) )
             return { m_VsmPipeline.get(), m_VsmInstancedPipeline.get(), m_VsmSkinnedPipeline.get(),
                      MeshPass::VirtualShadowDepth };
+        // A sun cascade's two layers draw pancaked (SetupShadowPass); the rain occlusion and the local views clip.
+        if ( view < kVsmViewBase )
+            return { m_CascadeShadowPipeline.get(), m_CascadeShadowInstancedPipeline.get(),
+                     m_CascadeShadowSkinnedPipeline.get(), MeshPass::ShadowDepth };
         return { m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get(),
                  MeshPass::ShadowDepth };
     }
 
     GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
-                                                          const MeshPass pass )
+                                                          const CasterPipelines& casters )
     {
         // GPU-COST-30 (UE FShaderParameterBindings: a draw binds what ITS compiled permutation declares): the
         // pipeline is built over the program the cell material was made from. A permutation of the cell
@@ -1463,8 +1495,10 @@ namespace Desert::Graphic::System
             LOG_ERROR( "[Shadows] masked caster '{}' will not draw: its material holds no program", name );
             return nullptr;
         }
-        const std::string key =
-             std::format( "{}#{:016x}", name, static_cast<unsigned long long>( program->GetVariant().Hash() ) );
+        // Per shared state too: a sun cascade's caster is pancaked, a local view's clips (CasterPipelinesOf).
+        const std::string key = std::format( "{}#{:016x}@{}", name,
+                                             static_cast<unsigned long long>( program->GetVariant().Hash() ),
+                                             static_cast<const void*>( casters.Static ) );
         if ( const auto found = m_MaskedCasterPipelines.find( key ); found != m_MaskedCasterPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_MaskedCasterPipelines[key];
@@ -1472,8 +1506,6 @@ namespace Desert::Graphic::System
         // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or
         // the virtual map's render area) — only the program differs, which is the whole difference between an
         // opaque and a masked caster. The cell's name names its pass, its variant hash the permutation.
-        const CasterPipelines casters =
-             CasterPipelinesOf( pass == MeshPass::VirtualShadowDepth ? kVsmViewBase : 0u );
         const GraphicsPipeline* shared = nullptr;
         switch ( path )
         {
@@ -1550,24 +1582,24 @@ namespace Desert::Graphic::System
         // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeCasterVP[c]`, the
         // exact matrix the caster vertex shader multiplies by (SetLightMatrix above passes
         // it as Projection with an identity View, and so does this). The cascade projection
-        // is a FINITE orthographic box — `glm::orthoRH_ZO(-radius, radius, -radius, radius,
-        // 10 cm, 4 * radius)` in ShadowCascades.hpp — so a caster outside that box is
-        // already clipped by the rasterizer today. This skips exactly the geometry the GPU
-        // was going to throw away, which is why it is provable rather than plausible.
+        // is a FINITE orthographic box across the light — `glm::orthoRH_ZO(-radius, radius,
+        // -radius, radius, ...)` in ShadowCascades.hpp — so a caster outside it sideways is
+        // already clipped by the rasterizer; along the light only the far side clips, the
+        // sun's side is pancaked (below). This skips exactly the geometry the GPU was going to
+        // throw away, which is why it is provable rather than plausible.
         //
         // The plane extraction is convention-agnostic here and that is not luck: the
         // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
         // which of the two derived planes is "near" and which is "far" — the SET of six
         // half-spaces is the same one either way, and Intersects tests all six by value.
         Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
-        // A virtual shadow map level keeps the casters on the sun's side of its depth range: they draw with depth
-        // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the
-        // level's standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone,
-        // Frustum::Rebuild).
+        // A sun cascade's two layers and a virtual shadow map level keep the casters on the sun's side of their
+        // depth range: they draw with depth clamp and land on its sun-side end (SetupShadowPass's pancaked
+        // states, EnsureVirtualShadowPipelines), so the cull opens that side (Graphic::CascadeCasterFrustum).
         // A local light's mip is a perspective view from the light: its near-plane casters are clamped and
         // dropped by the raster (Common/VirtualShadowRaster.glslh), nothing lies beyond its far plane.
-        if ( c >= kVsmViewBase && c < kRainOcclusionView )
-            cascadeFrustum.Open( Core::PLANE_FAR );
+        if ( c < kRainOcclusionView )
+            cascadeFrustum = CascadeCasterFrustum( m_CascadeCasterVP[c] );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is deliberate rather than
         // convenient: a caster drawn into the cascade at a coarser level than the object the camera sees casts a
@@ -1580,7 +1612,7 @@ namespace Desert::Graphic::System
         std::vector<Core::Frustum> strips;
         if ( layer == ShadowCasterLayer::Static && c < kCascadeViews && m_CascadeCache[c].Scroll )
             for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount; ++s )
-                strips.emplace_back( m_CascadeCache[c].Strips[s], glm::mat4( 1.0f ) );
+                strips.push_back( CascadeCasterFrustum( m_CascadeCache[c].Strips[s] ) );
         const auto inView = [&cascadeFrustum, &strips]( const Common::Math::AABB& box )
         {
             if ( !IsVisibleInView( cascadeFrustum, box ) )
@@ -1800,7 +1832,7 @@ namespace Desert::Graphic::System
                     ismHidden = *walk;
                 }
 
-                // Per-instance, against this cascade. A cascade covers a slice of the view,
+                // Per-instance, against this cascade. A cascade covers a square around the camera,
                 // so a forest spread over the map has most of its instances outside every
                 // one of the four — and the batch is a single draw whose cost is entirely
                 // its instance count. The instances the main camera's cull distance keeps, with the box the
@@ -2122,7 +2154,7 @@ namespace Desert::Graphic::System
             // and the composite reading the cascades with it. Refused (null; MaskedCasterPipeline said why, once)
             // or failed in the driver: that caster casts no shadow. Still compiling: not drawn THIS frame, and the
             // static cache is marked stale so the cascade redraws it once the pipeline is ready.
-            GraphicsPipeline* const pipeline = MaskedCasterPipeline( *material, draw.Path, casters.Pass );
+            GraphicsPipeline* const pipeline = MaskedCasterPipeline( *material, draw.Path, casters );
             if ( pipeline == nullptr || pipeline->GetReadiness() == PipelineReadiness::Failed )
                 continue;
             if ( pipeline->GetReadiness() == PipelineReadiness::Compiling )

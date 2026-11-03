@@ -98,14 +98,20 @@ vec3 cascadeDebugColor(int c)
 }
 
 // First cascade (tightest→loosest) whose light-space projection contains worldPos. -1 = outside all.
+// Inside along the light too, both ends: a receiver nearer the sun than a level's depth range (ndc.z < 0) has its
+// occluders pancaked onto that range's start (ShadowCascades.hpp ComputeShadowCascades), so it reads a wider level.
+// Not within the receiver's normal offset of that start either (kCascadeReceiverOffsetTexels: sampleCascade's
+// largest offset, ShadowCascades.hpp's range margin): its offset sample would cross depth 0 and read lit.
+const float kCascadeReceiverOffsetTexels = 4.0;
 int chooseCascade(int light, vec3 worldPos)
 {
 	for (int c = 0; c < int(DirectionalShadow[light].z); ++c)
 	{
-		vec4 lc  = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
-		vec3 ndc = lc.xyz / lc.w;
-		vec2 uv  = ndc.xy * 0.5 + 0.5;
-		if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z <= 1.0)
+		vec4  lc     = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
+		vec3  ndc    = lc.xyz / lc.w;
+		vec2  uv     = ndc.xy * 0.5 + 0.5;
+		float margin = kCascadeReceiverOffsetTexels * CascadeTexelWorld[light][c] / max(CascadeDepthRange[light][c], 1e-3);
+		if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z >= margin && ndc.z <= 1.0)
 			return c;
 	}
 	return -1;

@@ -305,7 +305,8 @@ namespace Desert::Graphic
             const uint32_t cascades = meshes->DirectionalShadows()[SceneResources::kDirectionalShadowSun].Count;
             // Each cascade in the cache's two layers (MeshRenderer::PlanCascadeCache): the static layer the frame
             // the cache is redrawn, the movable layer every frame it has movers, the same pass's bins split by
-            // PrimitiveFlags::kMovableCaster. Frustum only: the static layer is redrawn when its matrix moved,
+            // PrimitiveFlags::kMovableCaster. Frustum only, open on the sun's side (CascadeCasterFrustum: the casters
+            // draw pancaked): the static layer is redrawn when its matrix moved,
             // so last frame's cascade depth is no HZB of this one (UE's cached CSM culls its casters the same
             // way).
             const uint32_t casterFlags =
@@ -318,7 +319,7 @@ namespace Desert::Graphic
                 if ( meshes->CascadeBinsDrawn( view ) )
                 {
                     views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
-                                                   Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                                   CascadeCasterFrustum( vp ), lod, lensScale,
                                                    meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
                     views.back().View.CasterRing = meshes->ShadowWindRingOf( view ); // the caster's reach
@@ -328,7 +329,7 @@ namespace Desert::Graphic
                     const std::span<const glm::mat4> strips = meshes->CascadeScrolledStrips( view );
                     views.back().StripCount                 = static_cast<uint32_t>( strips.size() );
                     for ( size_t s = 0; s < strips.size(); ++s )
-                        views.back().Strips[s] = Core::Frustum( strips[s], glm::mat4( 1.0f ) );
+                        views.back().Strips[s] = CascadeCasterFrustum( strips[s] );
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
                     bins.CutViewOf.push_back( cutViews++ ); // the still casters' clusters, into the cache
@@ -336,7 +337,7 @@ namespace Desert::Graphic
                 if ( meshes->CascadeMovableBinsDrawn( view ) )
                 {
                     views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
-                                                   Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                                   CascadeCasterFrustum( vp ), lod, lensScale,
                                                    meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
                     views.back().View.CasterRing = meshes->ShadowWindRingOf( view ); // the caster's reach
@@ -622,8 +623,9 @@ namespace Desert::Graphic
             {
                 const uint32_t   view = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c;
                 const glm::mat4& vp   = meshes->GetCasterViewProjection( view );
+                // Open on the sun's side, as the casters' cull (CascadeCasterFrustum: they draw pancaked).
                 views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
-                                               Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                               CascadeCasterFrustum( vp ), lod, lensScale,
                                                meshes->ShadowWindDistanceOf( view ),
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
