@@ -758,11 +758,6 @@ namespace Desert::Graphic::System
                     return nullptr;
                 }
             }
-            else
-            {
-                gpu.CameraIds       = ShaderResources::StorageBuffer::Create( "GrassCameraIds", 16u, 5, true );
-                gpu.CameraArgs      = ShaderResources::StorageBuffer::Create( "GrassCameraArgs", 16u, 6, true );
-            }
             if ( volumes.List == CameraList::PlanesAndHzb )
             {
                 gpu.Candidates = ShaderResources::StorageBuffer::Create(
