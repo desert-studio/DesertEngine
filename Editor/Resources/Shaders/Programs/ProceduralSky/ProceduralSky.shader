@@ -210,6 +210,7 @@ Shader "ProceduralSky"
     {
         #include <Common/FullscreenTriangle.glslh>
         #include <Common/CameraUB.glslh>
+        #include <Common/ViewRay.glslh>
 
         // World-space view ray for this fullscreen pixel (un-normalized; normalized in the fragment).
         Out(0) vec3 v_RayDir;
@@ -230,9 +231,10 @@ Shader "ProceduralSky"
             // That subtraction of two large world-space points loses float precision and, as the camera MOVES, makes
             // the ray direction jitter frame-to-frame → the tiny sun/stars "boil". Unproject to VIEW space, then
             // rotate to world with mat3(invView). Correct for this sky, which depends only on direction.
-            vec4 viewH   = inverse(cameraUB.Projection) * position;
-            vec3 viewRay = viewH.xyz / viewH.w;
-            v_RayDir     = mat3(inverse(cameraUB.View)) * viewRay;
+            // Through the view's TEMPORAL JITTER, like every raster pass the upscaler resolves the sky with: the ray
+            // of the pixel centre put the sun disc where the upscaler was not told it was sampled, and its halo
+            // pulsed with the jitter's 2-frame x parity (Common/ViewRay.glslh WorldViewRayJittered).
+            v_RayDir     = WorldViewRayJittered(cameraUB.Projection, cameraUB.JitterNdc, cameraUB.View, position);
             v_CameraPos  = cameraUB.CameraPos;
             v_PreExposure = cameraUB.PreExposure;
         }

@@ -82,8 +82,9 @@ Shader "Skybox"
             // That carries the camera's TRANSLATION and adds cameraPos/near to every ray: with a 10 cm
             // near plane a camera 200 cm up drowned the ray under a term twenty times longer, and the
             // background showed a single direction -- the camera's own position -- on all six sides.
-            // See Common/ViewRay.glslh, and Tests/Engine/DepthConvention for the rule.
-        	v_ViewRay = WorldViewRay(cameraUB.Projection, cameraUB.View, position);
+            // See Common/ViewRay.glslh, and Tests/Engine/DepthConvention for the rule. Through the view's temporal
+            // jitter, as the geometry the upscaler resolves the backdrop with (WorldViewRayJittered).
+        	v_ViewRay = WorldViewRayJittered(cameraUB.Projection, cameraUB.JitterNdc, cameraUB.View, position);
         	v_PreExposure = cameraUB.PreExposure;
         }
     }

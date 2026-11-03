@@ -38,3 +38,22 @@ vec3 WorldViewRay(mat4 projection, mat4 view, vec4 clipPosition)
     vec4 viewH = inverse(projection) * clipPosition;
     return mat3(inverse(view)) * (vec3(viewH) / viewH.w);
 }
+
+// THE RAY OF THE SAMPLE A PIXEL HOLDS, under a temporal method's jitter - the one a background drawn in the view's
+// raster passes uses (ProceduralSky, Skybox). Every raster pass of the view draws through JitteredViewProjection,
+// ApplyJitter( Projection, JitterNdc ) = translate( JitterNdc ) * Projection (Graphic/View/ViewFrame.cpp), so the
+// pixel at NDC p holds the direction whose UNJITTERED NDC is p - JitterNdc, and the temporal resolve / upscaler is
+// told exactly that (ViewFrame::JitterPixels). A background unprojected through the unjittered Projection holds its
+// pixel CENTRE's direction instead: for the upscaler the sky then moves by -jitter every frame, and with the Halton
+// base-2 x jitter flipping its sign every frame the sun disc's reconstruction - and the bloom, light shafts and flare
+// that read it - pulsed with a 2-frame period at a still view (SUN-HALO-PARITY-1). Unreal reconstructs the sky's ray
+// through View.SVPositionToTranslatedWorld, the jittered view-projection, for the same reason.
+//
+// Taking JitterNdc * w off the clip point IS the inverse of that translation, so no jittered inverse is needed, and
+// @p jitterNdc = 0 (a view without a temporal method, a capture's face) is WorldViewRay exactly.
+vec3 WorldViewRayJittered(mat4 projection, vec2 jitterNdc, mat4 view, vec4 clipPosition)
+{
+    return WorldViewRay(projection, view,
+                        vec4(clipPosition.x - jitterNdc.x * clipPosition.w,
+                             clipPosition.y - jitterNdc.y * clipPosition.w, clipPosition.z, clipPosition.w));
+}
