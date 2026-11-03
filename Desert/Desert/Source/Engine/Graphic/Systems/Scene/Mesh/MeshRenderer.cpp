@@ -1246,6 +1246,13 @@ namespace Desert::Graphic::System
                m_CascadeCache[view].Rebuild && m_CascadeCache[view].RedrawStatic;
     }
 
+    std::span<const glm::mat4> MeshRenderer::CascadeScrolledStrips( const uint32_t view ) const
+    {
+        if ( view >= kCascadeViews || !m_CascadeCache[view].Scroll )
+            return {};
+        return { m_CascadeCache[view].Strips, std::min<size_t>( m_CascadeCache[view].StripCount, 2u ) };
+    }
+
     bool MeshRenderer::CascadeMovableBinsDrawn( const uint32_t view ) const
     {
         // The sun's cascade whose movable layer ShadowCascadePasses draws this frame (state.Rebuild && Movable).

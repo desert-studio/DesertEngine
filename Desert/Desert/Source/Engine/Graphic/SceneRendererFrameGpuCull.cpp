@@ -322,6 +322,13 @@ namespace Desert::Graphic
                                                    meshes->ShadowWindDistanceOf( view ),
                                                    casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
                     views.back().View.CasterRing = meshes->ShadowWindRingOf( view ); // the caster's reach
+                    // A SCROLLED cascade (PlanCascadeCache, CSM-SCROLL-3; UE's CSM scrolling): its static layer
+                    // draws only the casters reaching the strips its shift uncovered - the rest is its cache,
+                    // copied in shifted (the CPU walk's strip test, BuildShadowCascadeDraws).
+                    const std::span<const glm::mat4> strips = meshes->CascadeScrolledStrips( view );
+                    views.back().StripCount                 = static_cast<uint32_t>( strips.size() );
+                    for ( size_t s = 0; s < strips.size(); ++s )
+                        views.back().Strips[s] = Core::Frustum( strips[s], glm::mat4( 1.0f ) );
                     viewKeys.push_back( view );
                     bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
                     bins.CutViewOf.push_back( cutViews++ ); // the still casters' clusters, into the cache

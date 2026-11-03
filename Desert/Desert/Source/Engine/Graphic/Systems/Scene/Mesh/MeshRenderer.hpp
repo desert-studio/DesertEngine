@@ -750,6 +750,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
         [[nodiscard]] GpuDriven::MeshPass                              MainViewPass() const;
         [[nodiscard]] bool                                             CascadeBinsDrawn( uint32_t view ) const;
+        // A SCROLLED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its shift
+        // uncovered), which its static layer's GPU cull keeps the casters of; empty - not scrolled.
+        [[nodiscard]] std::span<const glm::mat4> CascadeScrolledStrips( uint32_t view ) const;
         [[nodiscard]] bool CascadeMovableBinsDrawn( uint32_t view ) const;
         // The caster view of cascade view @p view's movable layer (ShadowCascadePasses' "<cascade>.Movable").
         [[nodiscard]] static constexpr uint32_t CascadeMovableView( const uint32_t view )
