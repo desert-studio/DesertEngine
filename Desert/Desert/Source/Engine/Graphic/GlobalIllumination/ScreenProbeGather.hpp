@@ -333,6 +333,7 @@ namespace Desert::Graphic::GlobalIllumination
             CompactTraces,
             TraceNearField, // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
             TraceFarField,  // the same program's far-field leg
+            TraceCacheMiss, // the same program's leg past the radiance cache, for the rays it did not answer
             Disocclusion,
             SpatialFilter,
             Filter,
