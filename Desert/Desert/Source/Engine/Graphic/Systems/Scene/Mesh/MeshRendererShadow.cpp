@@ -888,7 +888,8 @@ namespace Desert::Graphic::System
             movable = true;
             return 0;
         }
-        const Core::Frustum frustum( casterVP, glm::mat4( 1.0f ) );
+        // Open on the sun's side, as that walk's (CascadeCasterFrustum: a sun cascade's casters draw pancaked).
+        const Core::Frustum frustum = CascadeCasterFrustum( casterVP );
         // The gathered boxes (GatherShadowCasters), the ones BuildShadowCascadeDraws culls with.
         const auto reaches = [&frustum]( const ShadowCasterRow& row )
         { return IsVisibleInView( frustum, row.WorldBounds ); };

@@ -623,8 +623,9 @@ namespace Desert::Graphic
             {
                 const uint32_t   view = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c;
                 const glm::mat4& vp   = meshes->GetCasterViewProjection( view );
+                // Open on the sun's side, as the casters' cull (CascadeCasterFrustum: they draw pancaked).
                 views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
-                                               Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                               CascadeCasterFrustum( vp ), lod, lensScale,
                                                meshes->ShadowWindDistanceOf( view ),
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );

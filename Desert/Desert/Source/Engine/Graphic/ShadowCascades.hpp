@@ -303,6 +303,11 @@ namespace Desert::Graphic
     // barn or a ridge between the sun and the camera, however far - writes the range's sun-side end (depth 0) and
     // still occludes every receiver behind it. The range then has to hold only the RECEIVERS of the level: the
     // points within its reach of the camera, eyeDistance +- radius along the light.
+    //
+    // The most a receiver's normal offset moves its sample, in its level's texels (CascadedShadow.glslh
+    // sampleCascade: ( 1.5 + 2.5 * ( 1 - NdotL ) ) texels, and its chooseCascade's kCascadeReceiverOffsetTexels).
+    inline constexpr float kCascadeReceiverOffsetTexels = 4.0f;
+
     inline uint32_t ComputeShadowCascades( const CascadeSetup& setup, CascadeFit* out )
     {
         const uint32_t count = std::min( setup.CascadeCount, kMaxShadowCascades );
@@ -355,8 +360,15 @@ namespace Desert::Graphic
             // every step inside one quantum. A world point's depth is then one number in every fit with the same
             // DepthOrigin: turning on the spot never changes it, walking changes it once per quantum. The casters
             // on the sun's side of the range are pancaked onto its start (see above), never clipped.
+            // THE RECEIVERS' NORMAL OFFSET is the range's sun-side margin: a receiver samples up to
+            // kCascadeReceiverOffsetTexels texels sunward of itself (CascadedShadow.glslh sampleCascade), and one
+            // whose sample crossed depth 0 would compare in front of every pancaked caster and read lit.
+            // chooseCascade leaves a receiver inside the margin to the next level; the margin keeps every point
+            // within the reach in this level all the same. The margins double with the levels as the radii do, so
+            // each level's range still lies inside the next one's (the cross-fade band samples both).
             const float quantum     = 2.0f * radius;
-            const float depthOrigin = std::floor( eyeDistance / quantum ) * quantum - radius;
+            const float margin      = kCascadeReceiverOffsetTexels * worldPerTexel;
+            const float depthOrigin = std::floor( eyeDistance / quantum ) * quantum - radius - margin;
 
             // The light view: the light basis moved to the snapped texel across the light and to the anchored plane
             // along it (lightBasis looks at the origin from -lightDir: its own z is -dot( p, lightDir ) - 1), so the
@@ -371,7 +383,7 @@ namespace Desert::Graphic
             // these maps and a re-tuned shadow bias. The pass that consumes this matrix says so too
             // (MeshRenderer::SetupShadowPass) and clears its depth to 1 rather than the engine's 0.
             // Depth 0 is the plane the pancaked casters land on.
-            const float     depthFar = 2.0f * radius + quantum;
+            const float     depthFar = 2.0f * radius + quantum + margin;
             const glm::mat4 proj     = glm::orthoRH_ZO( -radius, radius, -radius, radius, 0.0f, depthFar );
 
             out[c].ViewProj      = proj * view;

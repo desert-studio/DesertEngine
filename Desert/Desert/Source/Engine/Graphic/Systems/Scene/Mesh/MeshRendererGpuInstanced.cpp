@@ -577,9 +577,11 @@ namespace Desert::Graphic::System
         if ( materials == nullptr )
             return false;
         bool pending = false;
-        // The cascade's caster box (as BuildShadowCascadeDraws culls the static casters): a section with a box casts
-        // only into the cascades it meets.
-        const Core::Frustum cascadeFrustum( m_CascadeCasterVP[shadowView], glm::mat4( 1.0f ) );
+        // The cascade's caster box (as BuildShadowCascadeDraws culls the static casters): a section with a box
+        // casts only into the cascades it meets. Open on the sun's side, and drawn with the view's pancaked caster
+        // states (CasterPipelinesOf): a section nearer the sun than the level's depth range lands on its start.
+        const Core::Frustum   cascadeFrustum = CascadeCasterFrustum( m_CascadeCasterVP[shadowView] );
+        const CasterPipelines casterStates   = CasterPipelinesOf( shadowView );
         // The rule's measure in this cascade (ShadowWindDistanceOf): 0 where no receiver near the camera samples
         // it, every instance then casting its rest pose into the static layer and none left for the movable one.
         const glm::vec4 viewWind  = CasterWindOrigin( shadowView );
@@ -669,7 +671,7 @@ namespace Desert::Graphic::System
                                MeshVertexPathName( gpu.Path ) );
                 continue;
             }
-            GraphicsPipeline* pipeline = MaskedCasterPipeline( *caster, gpu.Path, MeshPass::ShadowDepth );
+            GraphicsPipeline* pipeline = MaskedCasterPipeline( *caster, gpu.Path, casterStates );
             if ( pipeline != nullptr && pipeline->GetReadiness() == PipelineReadiness::Compiling )
                 pending = pending || keeps;
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
