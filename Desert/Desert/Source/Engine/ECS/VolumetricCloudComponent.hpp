@@ -495,11 +495,14 @@ namespace Desert::ECS
                   Tooltip( "Ceiling on the number of samples along a view ray. The count itself rises "
                            "with the length of the segment inside the layer and saturates at this "
                            "value, so it is a cost ceiling rather than a fixed cost." ) )
-        // 256, WHICH IS AFFORDABLE ONLY BECAUSE OF THE SKIP. The march has two step sizes and spends the
-        // coarse one — four times longer — on empty sky, so a ray that crosses mostly clear air finishes
-        // in a quarter of these iterations. Raising the ceiling therefore buys resolution INSIDE cloud
-        // without charging for it outside, which is the opposite of what raising it did before the skip
-        // existed.
+        // 256, NOT UNREAL'S 96, AND THE DIFFERENCE IS THE LIBRARY. The count follows Unreal's law (it
+        // saturates at CLOUD_DISTANCE_TO_MAX_STEPS_KM, 16 km), so this ceiling is Unreal's
+        // SampleCountMax = 96 x ViewSampleCountScale at a scale of 2.67. It cannot be 96: the finest chord
+        // the march can FIND is 32 km / Max Steps (CloudFinestResolvableChordKm), 125 m here and 333 m at
+        // 96, and the two tightest shipped types place a median chord of 137 m — CloudQualityScale's note
+        // and Desert/Tests/Engine/CloudType hold that relation. On empty sky past the saturation distance
+        // the stride is four steps long, so a long ray that crosses mostly clear air finishes in a quarter
+        // of these iterations.
         int32_t MaxSteps = 256;
 
         PROPERTY( DisplayName( "Stop Transmittance" ), Category( "Quality" ), Range( 0.0f, 0.2f ), Advanced,

@@ -465,11 +465,11 @@ namespace Desert::Graphic
     // THE MARCH'S SEARCH RESOLUTION, ON THE C++ SIDE
     // ---------------------------------------------------------------------------------------------
     //
-    // Mirrored from CLOUD_DISTANCE_TO_MAX_STEPS_KM and CLOUD_COARSE_STEP_MULTIPLIER in
-    // Common/CloudGeometry.glslh, and Desert/Tests/Engine/CloudGeometry asserts the pair agrees with the
-    // shader's own — which it can, because that suite compiles the header as C++. Mirroring rather than
-    // including is the arrangement kCloudWorldUnitsPerKm above already records, and for the same reason:
-    // the engine does not put the shader root on its include path.
+    // Mirrored from CLOUD_DISTANCE_TO_MAX_STEPS_KM in Common/CloudGeometry.glslh (the suites that compile
+    // that header as C++ — CloudType, CloudShadow — read the shader's own CloudFinestResolvableChordKm;
+    // this one is what the generator reads). Mirroring rather than including is the arrangement
+    // kCloudWorldUnitsPerKm above already records, and for the same reason: the engine does not put the
+    // shader root on its include path.
     //
     // WHY THE ENGINE NEEDS IT AT ALL, which it did not before phase Э5. The procedural producer's lumps
     // are now placed on the CPU, and how small a lump may be is decided by what the march can FIND rather
@@ -477,15 +477,19 @@ namespace Desert::Graphic
     // the fine tier once a coarse sample has already found material, so a body that fits between two
     // coarse samples is never seen and whether it fits is decided by the ray's jitter. The generator
     // clamps against this, so lowering Max Steps buys coarser clouds instead of speckle.
-    inline constexpr float kCloudDistanceToMaxStepsKm = 4.0f;
-    inline constexpr float kCloudCoarseStepMultiplier = 4.0f;
+    //
+    // ONE CONSTANT, NOT TWO, since CLOUD-MARCH-COST-1: on a short segment the search stride IS the fine
+    // step, CLOUD_DISTANCE_TO_MAX_STEPS_KM over the ceiling, so the coarse multiplier no longer enters the
+    // finest chord (it bounds the stride on long segments only, which no chord bound reads).
+    inline constexpr float kCloudDistanceToMaxStepsKm = 16.0f;
 
     /// The finest chord the schedule can resolve anywhere, kilometres. @p maxCount is the component's
-    /// Max Steps. Two coarse steps — Nyquist against the SEARCH lattice, not the integration one.
+    /// Max Steps. Two search strides — Nyquist against the SEARCH lattice, whose finest stride is the
+    /// short-segment fine step.
     inline float CloudFinestResolvableChordKm( float maxCount )
     {
-        const float fineStepKm = kCloudDistanceToMaxStepsKm / std::max( maxCount, 1.0f );
-        return 2.0f * kCloudCoarseStepMultiplier * fineStepKm;
+        const float searchStepKm = kCloudDistanceToMaxStepsKm / std::max( maxCount, 1.0f );
+        return 2.0f * searchStepKm;
     }
 
     /**

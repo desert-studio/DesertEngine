@@ -623,20 +623,26 @@ Shader "CloudRaymarch"
             int   stepTotal = int(stepCount);
 
             // TWO STEP SIZES, and the whole point is that they are spent in different places. The fine
-            // step is the finest the march ever goes; the coarse one is a multiple of it and is used only
-            // while the ray is outside cloud, where the answer is exactly zero and any step size gives it
-            // correctly.
+            // step is Unreal's StepT — the segment over the count — and every lit sample is integrated over
+            // it; the coarse one is the search stride, used only while the ray is outside cloud, where the
+            // answer is exactly zero and any step size gives it correctly. On a short segment the two are
+            // equal (the fine step already IS the search lattice the library is calibrated on); on a long
+            // one the stride is up to CLOUD_COARSE_STEP_MULTIPLIER fine steps.
             //
-            // The budget therefore stops being a resolution and becomes a resolution WHERE IT MATTERS: a
-            // ray that crosses mostly empty sky finishes in a fraction of the iterations, and a ray inside
-            // cloud gets to spend all of them on the part that has something in it.
-            //
-            // The multiplier and its partner constant live in Common/CloudGeometry.glslh, together and
-            // next to the relation they have to satisfy — they are two numbers that must agree, and here
-            // they were two literals a hundred lines apart in a file no test can compile.
+            // The schedule's constants live in Common/CloudGeometry.glslh, together and next to the
+            // relations they have to satisfy — they are numbers that must agree, and here they were
+            // literals a hundred lines apart in a file no test can compile.
             float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                                  CLOUD_DISTANCE_TO_MAX_STEPS_KM);
-            float coarseStepKm = CloudCoarseStepKm(stepKm);
+            float coarseStepKm = CloudCoarseStepKm(length_km, stepKm, max(CloudMarch.x, CLOUD_MIN_STEPS));
+
+            // THE ITERATION CEILING IS TWICE THE COUNT, and the count is still the cost: a lit sample
+            // advances one fine step and none re-marches another's, so no ray integrates more than about
+            // stepTotal of them. The second half pays for the step-backs — each entry into a body
+            // re-marches (coarse - fine) of the segment — on a ray that enters many bodies and has few
+            // empty strides to buy them back with; bounded by the count alone that ray ended its march
+            // before the shell's far side. Every other ray leaves at segment.y first.
+            int   iterationTotal = 2 * stepTotal;
 
             // The start offset inside the first step, so the sample planes of neighbouring pixels do not
             // line up. Without it the uniform schedule draws the layer as a set of concentric shells —
@@ -804,7 +810,7 @@ Shader "CloudRaymarch"
             // Desert/Tests/Engine/CloudGeometry asserts it stays positive.
             const int kEmptyFineSamplesBeforeCoarse = CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE;
 
-            for (int i = 0; i < stepTotal; ++i)
+            for (int i = 0; i < iterationTotal; ++i)
             {
                 if (t >= segment.y)
                     break;
@@ -823,19 +829,27 @@ Shader "CloudRaymarch"
 
                 if (!fine)
                 {
-                    // Outside cloud: keep striding. On the first hit, step BACK one coarse step and drop
-                    // to fine, so the material between the last coarse sample and this one is not skipped
-                    // — that gap is a whole coarse step of cloud and its absence reads as a flat face.
+                    // Outside cloud: keep striding. On the first hit, drop to fine and step BACK to the
+                    // first fine position past the last empty coarse sample, so the material between that
+                    // sample and this one is not skipped — that gap is up to a whole coarse step of cloud
+                    // and its absence reads as a flat face. Where the stride IS the fine step there is no
+                    // gap: this sample is the next fine one, and it is integrated where it stands rather
+                    // than fetched a second time.
                     if (field.Profile > 0.0f)
                     {
                         fine     = true;
                         emptyRun = 0;
-                        t        = max(segment.x, t - coarseStepKm);
+                        if (coarseStepKm > stepKm)
+                        {
+                            t = max(segment.x, t - coarseStepKm + stepKm);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        t += coarseStepKm;
                         continue;
                     }
-
-                    t += coarseStepKm;
-                    continue;
                 }
 
                 if (field.Profile <= 0.0f)

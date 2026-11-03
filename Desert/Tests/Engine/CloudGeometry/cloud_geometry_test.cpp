@@ -553,19 +553,38 @@ TEST( CloudGeometrySteps, TheResolvableChordIsTwoCOARSEStepsAndNotTwoFineOnes )
     // THE DISTINCTION THIS FILE EXISTS TO KEEP. The fine step is what the march INTEGRATES at; the coarse
     // step is what it SEARCHES at, because outside cloud it strides coarsely and only drops to fine after
     // a coarse sample has found something. Nyquist against the search lattice is therefore two COARSE
-    // steps, and reading it as two fine steps understates the march's blindness by the multiplier — the
-    // factor of four that put five of nine shipped types past Nyquist while the fine step said all nine
-    // were inside it.
-    for ( const float fineStepKm : { 0.0001f, 0.0156f, 0.0586f, 0.234f, 1.0f } )
+    // steps, and reading it as two fine steps understates the march's blindness by the stride's ratio —
+    // the factor of four that put five of nine shipped types past Nyquist while the fine step said all
+    // nine were inside it.
+    //
+    // Asserted over segments from far below the saturation distance to far past it: the stride is the
+    // fine step on a short segment and up to CLOUD_COARSE_STEP_MULTIPLIER of them on a long one, and the
+    // relation has to hold at both ends and between them.
+    for ( const float segmentKm : { 0.05f, 0.4f, 1.5f, 6.0f, 15.0f, 40.0f, 400.0f } )
     {
-        EXPECT_FLOAT_EQ( CloudResolvableChordKm( fineStepKm ), 2.0f * CLOUD_COARSE_STEP_MULTIPLIER * fineStepKm );
-        EXPECT_GT( CloudResolvableChordKm( fineStepKm ), 2.0f * fineStepKm )
-             << "the search lattice is coarser than the integration lattice; a chord bound written "
-                "against the fine step is optimistic by the coarse multiplier";
+        const float fineStepKm =
+             CloudFineStepKm( segmentKm, CLOUD_MIN_STEPS, kMaxCount, CLOUD_DISTANCE_TO_MAX_STEPS_KM );
+        const float coarseStepKm = CloudCoarseStepKm( segmentKm, fineStepKm, kMaxCount );
+
+        EXPECT_FLOAT_EQ( CloudResolvableChordKm( coarseStepKm ), 2.0f * coarseStepKm ) << "segment " << segmentKm;
+        EXPECT_GE( CloudResolvableChordKm( coarseStepKm ), 2.0f * fineStepKm )
+             << "segment " << segmentKm
+             << " km: the search lattice is finer than the integration lattice, so a chord bound written "
+                "against the search stride would be one the fine tier cannot integrate";
+        EXPECT_LE( coarseStepKm, CLOUD_COARSE_STEP_MULTIPLIER * fineStepKm * ( 1.0f + 1e-5f ) )
+             << "segment " << segmentKm << " km: the stride outgrew its ceiling of "
+             << CLOUD_COARSE_STEP_MULTIPLIER << " fine steps";
+
+        // The library's own bound is the FINEST chord, so no segment long enough to hold one may be
+        // searched finer than it.
+        if ( segmentKm >= CloudFinestResolvableChordKm( kMaxCount ) )
+            EXPECT_GE( CloudResolvableChordKm( coarseStepKm ),
+                       CloudFinestResolvableChordKm( kMaxCount ) * ( 1.0f - 1e-5f ) )
+                 << "segment " << segmentKm;
     }
 
-    // The library's own bound: the finest chord the schedule resolves anywhere. Every ray shorter than the
-    // saturation distance is marched at exactly this resolution and no ray is ever marched finer.
+    // The library's own bound: the finest chord the schedule resolves anywhere. Every segment shorter than
+    // the saturation distance over the multiplier is searched at exactly this resolution.
     EXPECT_FLOAT_EQ( CloudFinestResolvableChordKm( kMaxCount ),
                      CloudResolvableChordKm( CLOUD_DISTANCE_TO_MAX_STEPS_KM / kMaxCount ) );
 
@@ -619,30 +638,42 @@ TEST( CloudGeometrySteps, TheStepSizeTheMarchDerivesIsAlwaysPositiveAndBoundedBy
 
 TEST( CloudGeometryTwoTier, OneExcursionIntoTheFineTierAdvancesTheRayRatherThanReturningItWhereItWas )
 {
-    // THE INVARIANT. Dropping to the fine tier costs one coarse step BACKWARDS — the step-back that stops
-    // a coarse step of cloud from being skipped — and buys CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE fine
-    // steps forwards before the tier flips again. If the coarse multiplier ever reaches the sample count,
-    // the net advance is zero and the march stands exactly where it started while spending its entire
-    // step budget; past it, the march walks backwards and every ray costs its ceiling.
+    // THE INVARIANT. Dropping to the fine tier costs (coarse - fine) BACKWARDS — the step-back that stops
+    // a coarse step of cloud from being skipped — and buys the landing sample plus
+    // CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE fine steps forwards before the tier flips again. If the
+    // stride ever reaches that many fine steps, the net advance is zero and the march stands exactly where
+    // it started while spending its entire step budget; past it, the march walks backwards and every ray
+    // costs its ceiling.
     //
-    // Asserted over the whole range of fine steps the schedule can produce — a segment of a metre divided
-    // by the 256-step ceiling at one end, and a 400 km grazing segment divided by the two-step floor at
-    // the other — because a relation that holds only at one step size is not the relation.
+    // Asserted over the whole range of segments the schedule can be handed — a metre at one end, a 400 km
+    // grazing segment at the other — with the stride the march itself derives for each, because a relation
+    // that holds only at one step size is not the relation.
     for ( const float segmentKm : { 0.001f, 0.1f, 1.0f, 7.5f, 15.0f, 60.0f, 400.0f } )
     {
-        const float count = CloudStepCount( segmentKm, 2.0f, 256.0f, 15.0f );
+        const float count = CloudStepCount( segmentKm, CLOUD_MIN_STEPS, kMaxCount, CLOUD_DISTANCE_TO_MAX_STEPS_KM );
         ASSERT_GT( count, 0.0f );
 
-        const float fineStepKm = segmentKm / count;
+        const float fineStepKm   = segmentKm / count;
+        const float coarseStepKm = CloudCoarseStepKm( segmentKm, fineStepKm, kMaxCount );
 
-        EXPECT_GT( CloudTwoTierCycleAdvanceKm( fineStepKm ), 0.0f )
-             << "segment " << segmentKm << " km (fine step " << fineStepKm
+        EXPECT_GT( CloudTwoTierCycleAdvanceKm( fineStepKm, coarseStepKm ), 0.0f )
+             << "segment " << segmentKm << " km (fine step " << fineStepKm << " km, stride " << coarseStepKm
              << " km): a fine excursion that finds nothing returns the ray to where it started or behind "
                 "it, so the march burns its whole budget standing still";
 
-        // And the coarse step is a real stride rather than a rounding of the fine one, which is the other
-        // half of what makes the tier worth having.
-        EXPECT_GT( CloudCoarseStepKm( fineStepKm ), fineStepKm ) << "segment " << segmentKm;
+        // And the stride is never shorter than the step it searches for: a stride below the fine step
+        // would make the step-back a step FORWARD and skip the material it exists to recover.
+        EXPECT_GE( coarseStepKm, fineStepKm ) << "segment " << segmentKm;
+    }
+
+    // Past the saturation distance the stride is a real one — CLOUD_COARSE_STEP_MULTIPLIER fine steps —
+    // which is the half of the tier that buys a grazing ray its empty sky.
+    {
+        const float segmentKm  = 4.0f * CLOUD_DISTANCE_TO_MAX_STEPS_KM;
+        const float fineStepKm =
+             CloudFineStepKm( segmentKm, CLOUD_MIN_STEPS, kMaxCount, CLOUD_DISTANCE_TO_MAX_STEPS_KM );
+        EXPECT_NEAR( CloudCoarseStepKm( segmentKm, fineStepKm, kMaxCount ),
+                     CLOUD_COARSE_STEP_MULTIPLIER * fineStepKm, fineStepKm * 1e-4f );
     }
 }
 
@@ -650,21 +681,24 @@ TEST( CloudGeometryTwoTier, TheAdvanceIsExactlyTheDifferenceOfTheTwoConstantsAnd
 {
     // Stated as the algebra rather than as a number, so that changing either constant moves this
     // assertion's expectation with it and only the SIGN test above can fail. What must never change is
-    // that the advance is (samples - multiplier) fine steps.
+    // that the advance is (samples + 1) fine steps less one stride, and that the widest stride the
+    // schedule produces — CLOUD_COARSE_STEP_MULTIPLIER fine steps — still leaves it positive.
     constexpr float kSamples = static_cast<float>( CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE );
 
     for ( const float fineStepKm : { 0.0005f, 0.01f, 0.25f, 3.0f } )
     {
-        EXPECT_FLOAT_EQ( CloudTwoTierCycleAdvanceKm( fineStepKm ),
-                         ( kSamples - CLOUD_COARSE_STEP_MULTIPLIER ) * fineStepKm )
+        const float widestStrideKm = CLOUD_COARSE_STEP_MULTIPLIER * fineStepKm;
+        EXPECT_FLOAT_EQ( CloudTwoTierCycleAdvanceKm( fineStepKm, widestStrideKm ),
+                         ( kSamples + 1.0f - CLOUD_COARSE_STEP_MULTIPLIER ) * fineStepKm )
              << "fine step " << fineStepKm;
     }
 
     // The relation in its bare form, so that the failure message names the two numbers rather than a
     // distance. A reader who changes one of them sees this line first.
-    EXPECT_LT( CLOUD_COARSE_STEP_MULTIPLIER, kSamples )
+    EXPECT_LT( CLOUD_COARSE_STEP_MULTIPLIER, kSamples + 1.0f )
          << "the coarse step multiplier (" << CLOUD_COARSE_STEP_MULTIPLIER
-         << ") must be strictly below the number of empty fine samples before the march returns to coarse ("
+         << ") must be strictly below one more than the number of empty fine samples before the march "
+            "returns to coarse ("
          << kSamples << ")";
 }
 

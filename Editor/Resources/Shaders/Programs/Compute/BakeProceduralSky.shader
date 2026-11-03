@@ -353,7 +353,10 @@ Shader "BakeProceduralSky"
 
             float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                                  CLOUD_DISTANCE_TO_MAX_STEPS_KM);
-            float coarseStepKm = CloudCoarseStepKm(stepKm);
+            float coarseStepKm = CloudCoarseStepKm(length_km, stepKm, max(CloudMarch.x, CLOUD_MIN_STEPS));
+
+            // Twice the count, for the step-backs — the reason is CloudRaymarch.shader's, beside the same line.
+            int   iterationTotal = 2 * stepTotal;
 
             vec3  sunDir       = normalize(CloudSun.xyz);
             float phase        = CloudPhaseDualLobe(dot(dir, sunDir), CloudWind.w,
@@ -395,7 +398,7 @@ Shader "BakeProceduralSky"
             bool fine     = false;
             int  emptyRun = 0;
 
-            for (int i = 0; i < stepTotal; ++i)
+            for (int i = 0; i < iterationTotal; ++i)
             {
                 if (t >= segment.y)
                     break;
@@ -411,16 +414,23 @@ Shader "BakeProceduralSky"
 
                 if (!fine)
                 {
+                    // Back to the first fine position past the last empty coarse sample, or — where the
+                    // stride is the fine step — integrated in place (CloudRaymarch.shader's note).
                     if (field.Profile > 0.0f)
                     {
                         fine     = true;
                         emptyRun = 0;
-                        t        = max(segment.x, t - coarseStepKm);
+                        if (coarseStepKm > stepKm)
+                        {
+                            t = max(segment.x, t - coarseStepKm + stepKm);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        t += coarseStepKm;
                         continue;
                     }
-
-                    t += coarseStepKm;
-                    continue;
                 }
 
                 if (field.Profile <= 0.0f)

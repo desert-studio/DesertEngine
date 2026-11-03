@@ -221,29 +221,28 @@ float CloudAltitudeKm( CloudLayer layer, vec3 positionKm )
 
 // Segment length at which the step count saturates. Unreal's r.VolumetricCloud.DistanceToSampleMaxCount.
 //
-// FOUR KILOMETRES AND NOT FIFTEEN, AND THE FOUR IS MEASURED. Below this length the fine step is
-// `distanceToMax / maxCount` — a constant, independent of the segment — so this number, and not the
-// segment, is what sets the march's resolution for every ray that crosses a THIN SHELL. That covers most
-// of the library: after the profile became a table the shell is the species' own envelope, and six of the
-// nine shipped types are under 1.5 km thick.
+// UNREAL'S LAW, AT SIXTEEN KILOMETRES (CLOUD-MARCH-COST-1). Below this length the fine step is
+// `distanceToMax / maxCount` — a constant, independent of the segment — and it is the step every lit
+// sample is integrated over. Unreal's StepT is the same quotient (VolumetricCloud.usf: StepCount =
+// max(SampleCountMin, SampleCountMax * saturate(L / DistanceToSampleMaxCount)), StepT = L / StepCount).
 //
-// At fifteen kilometres that resolution was 58.6 m fine and 234 m coarse, and the coarse one is what
-// decides whether a cloud is FOUND at all (see the two-tier note below). Measured on the shipped library,
-// Clouds_Demo's layer, 2304 rays per elevation, three elevations, the median chord of cloud along a view
-// ray against that 234 m: five of the nine types were past Nyquist — Cirrus by 3.66x with 75 per cent of
-// its chords thinner than one coarse step, then Altocumulus 2.13x, Cumulus Humilis 1.99x, Stratocumulus
-// 1.72x and Lenticular 1.56x. The budget was not the reason: those same rays were spending 12 to 43 steps
-// of the 256 the component grants them, because a 0.4 km shell crossed at any elevation is a segment
-// nowhere near fifteen kilometres and the count had barely left its floor.
+// WHY THE INTEGRATION STEP IS NO LONGER THE SEARCH STEP. The schedule used to saturate at four kilometres,
+// which made the fine step 15.6 m and the empty-space step four of them, 62.5 m. The 62.5 m is the number
+// that decides whether a cloud is FOUND at all (the two-tier note below), it is the one the library is
+// calibrated against (CloudFinestResolvableChordKm: 32 km / Max Steps, 125 m at 256; measured per type in
+// Docs/Clouds/CALIBRATION.md section QT), and it is the only one of the two any relation needs. The 15.6 m
+// was a second, four-times-finer lattice spent on the lit sample — the shadow ray, the ambient, the
+// erosion — which is what the march's time is made of: 256 steps over four kilometres paid four lit
+// samples where Unreal pays one.
 //
-// Four kilometres spends that budget where it was already allotted. The fine step becomes 15.6 m and the
-// coarse one 62.5 m, every one of the nine types clears Nyquist at all three elevations (the worst is
-// Cirrus at 0.98x, where it was 3.66x), and the fraction of chords no jitter phase ever samples falls from
-// 10.6 to 3.4 per cent on Cirrus and from 7.6 to 5.2 on Stratocumulus. NO RAY COSTS MORE THAN BEFORE in
-// the sense that matters: the ceiling is `maxCount`, it is unchanged, and a ray that was already saturated
-// — every cumulonimbus ray, every grazing ray — is untouched, because for a segment longer than this
-// number the step is the segment over the ceiling and this number does not enter.
-#define CLOUD_DISTANCE_TO_MAX_STEPS_KM 4.0f
+// SIXTEEN AND NOT UNREAL'S FIFTEEN, because sixteen is where Unreal's StepT on a short segment equals
+// the search step the library is calibrated on: 16 km / 256 = 62.5 m, so the finest resolvable chord
+// stays 125 m exactly, every lump floor the generator derives from it is unchanged and the baked
+// volume is byte-identical. Fifteen would re-cut every lump floor by six per cent for six per cent of
+// cost. The search lattice itself is not this number's business any more: CloudCoarseStepKm below keeps
+// it at Max Steps / CLOUD_COARSE_STEP_MULTIPLIER strides per segment, floored at this step, which is the
+// lattice the four-kilometre schedule searched on, segment for segment.
+#define CLOUD_DISTANCE_TO_MAX_STEPS_KM 16.0f
 
 // How many steps this ray is allowed. Unreal's heuristic, and the reason to prefer it over anything
 // adaptive is that it is PREDICTABLE: the count depends only on the length of the segment, so the cost of
@@ -260,8 +259,8 @@ float CloudStepCount( float segmentLengthKm, float minCount, float maxCount, flo
 }
 
 // The fine step the march derives from that count, as ONE function rather than as a division the shader
-// performs and a test restates. Everything downstream — the coarse stride, the jitter, the resolvable
-// chord — is a multiple of this, so it is the quantity worth naming.
+// performs and a test restates. It is the step every lit sample is integrated over and the unit the
+// start-offset jitter is a fraction of; the search stride below is never finer than it.
 float CloudFineStepKm( float segmentLengthKm, float minCount, float maxCount, float distanceToMaxKm )
 {
     return segmentLengthKm / CloudStepCount( segmentLengthKm, minCount, maxCount, distanceToMaxKm );
@@ -276,26 +275,41 @@ float CloudFineStepKm( float segmentLengthKm, float minCount, float maxCount, fl
 //
 // The march spends the coarse step only where the answer is exactly zero — outside cloud, where any step
 // size gives it correctly — and the fine step everywhere the medium has something in it. On the first
-// coarse sample that finds material it steps BACK one coarse step and drops to fine, so the material
-// between the last two coarse samples is not skipped; it climbs back out after
-// CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE consecutive fine samples that find nothing.
+// coarse sample that finds material it steps BACK to the first fine position past the last empty coarse
+// sample and drops to fine, so the material between the last two coarse samples is not skipped; where
+// the two steps are equal there is nothing between them and it drops to fine IN PLACE. It climbs back
+// out after CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE consecutive fine samples that find nothing.
 //
-// THE RELATION THAT HOLDS THE WHOLE THING UP: the number of empty fine samples must EXCEED the coarse
-// multiplier. One excursion into the fine tier costs one coarse step backwards and buys that many fine
-// steps forwards, so the net advance per cycle is (samples - multiplier) fine steps. At equality the
-// march stands exactly still; below it, it walks backwards. Either way it burns its entire step budget
-// without moving, and the symptom is not a wrong picture but a frame that costs its ceiling everywhere.
+// This is Unreal's StepSizeOnZeroConservativeDensity arrangement with the un-eroded profile as the
+// conservative density, and with one difference that is the reason the multiplier is not a constant
+// ratio here: Unreal's conservative density is wide enough to be searched at any stride its artist picks,
+// ours is the profile itself, so the stride is held at the lattice the library is calibrated against
+// (CloudResolvableChordKm) rather than scaled with the integration step.
+//
+// THE RELATION THAT HOLDS THE WHOLE THING UP: one excursion into the fine tier that finds nothing costs
+// (coarse - fine) backwards and buys CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE + 1 fine steps forwards
+// (the sample it lands on, then the empty run), so the net advance per cycle is
+// (samples + 1) * fine - coarse, and the coarse step is at most CLOUD_COARSE_STEP_MULTIPLIER fine ones.
+// At zero the march stands exactly still; below it, it walks backwards. Either way it burns its entire
+// step budget without moving, and the symptom is not a wrong picture but a frame that costs its ceiling.
 // ---------------------------------------------------------------------------------------------------
 
-// How much longer the coarse step is than the fine one.
+// How many integration steps the empty-space stride spans on a SATURATED segment, and its ceiling on any
+// other: the search lattice is the segment over (maxCount / this), floored at the fine step.
 #define CLOUD_COARSE_STEP_MULTIPLIER 4.0f
 
 // Consecutive fine samples with no profile after which the march returns to the coarse tier.
 #define CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE 6
 
-float CloudCoarseStepKm( float fineStepKm )
+// The empty-space stride for a segment of @p segmentLengthKm whose fine step is @p fineStepKm, under the
+// ceiling @p maxCount. Max Steps / CLOUD_COARSE_STEP_MULTIPLIER strides per segment — sixty-four at the
+// component's 256, the lattice the four-kilometre schedule searched on for every segment past four
+// kilometres — and never finer than the fine step, which is what it is on every segment shorter than
+// CLOUD_DISTANCE_TO_MAX_STEPS_KM / CLOUD_COARSE_STEP_MULTIPLIER: there the integration step is already
+// the search step and the two tiers are one.
+float CloudCoarseStepKm( float segmentLengthKm, float fineStepKm, float maxCount )
 {
-    return fineStepKm * CLOUD_COARSE_STEP_MULTIPLIER;
+    return max( fineStepKm, CLOUD_COARSE_STEP_MULTIPLIER * segmentLengthKm / max( maxCount, 1.0f ) );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -310,17 +324,19 @@ float CloudCoarseStepKm( float fineStepKm )
 // speckle.
 //
 // So the chord the march can be relied on to find is TWO coarse steps, Nyquist against the search
-// lattice, and this function is that statement. It exists so the relation can be asserted rather than
-// remembered: Desert/Tests/Engine/CloudType holds every shipped `.decloudtype` against it, and if either
-// side moves — a schedule constant here, a placement scale there — the test says so.
-float CloudResolvableChordKm( float fineStepKm )
+// lattice, and this function is that statement; @p coarseStepKm is CloudCoarseStepKm's answer. It exists
+// so the relation can be asserted rather than remembered: Desert/Tests/Engine/CloudType holds every
+// shipped `.decloudtype` against it, and if either side moves — a schedule constant here, a placement
+// scale there — the test says so.
+float CloudResolvableChordKm( float coarseStepKm )
 {
-    return 2.0f * CloudCoarseStepKm( fineStepKm );
+    return 2.0f * coarseStepKm;
 }
 
 // The finest chord the schedule can resolve anywhere, which is the bound the library is calibrated
-// against: a segment shorter than CLOUD_DISTANCE_TO_MAX_STEPS_KM is marched at that distance over the
-// ceiling, and no ray is ever marched finer than that.
+// against: on a segment shorter than CLOUD_DISTANCE_TO_MAX_STEPS_KM / CLOUD_COARSE_STEP_MULTIPLIER the
+// search stride is the fine step, CLOUD_DISTANCE_TO_MAX_STEPS_KM over the ceiling, and no segment long
+// enough to hold a chord is ever searched finer than that.
 //
 // @p maxCount is the component's Max Steps. It is a QUALITY TIER — an artist who lowers it is buying
 // speed with resolution, deliberately — so the library is calibrated against the component's DEFAULT and
@@ -331,12 +347,12 @@ float CloudFinestResolvableChordKm( float maxCount )
 }
 
 // The distance the march advances over one complete excursion into the fine tier that finds nothing:
-// one coarse step back, then a full run of fine steps before the tier flips again. It is the quantity
-// the two constants above exist to keep POSITIVE, and it is a function so that the test drives the
-// arithmetic the march performs rather than restating it.
-float CloudTwoTierCycleAdvanceKm( float fineStepKm )
+// (coarse - fine) back, then the landing sample and a full run of fine steps before the tier flips
+// again. It is the quantity the two constants above exist to keep POSITIVE, and it is a function so
+// that the test drives the arithmetic the march performs rather than restating it.
+float CloudTwoTierCycleAdvanceKm( float fineStepKm, float coarseStepKm )
 {
-    return float( CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE ) * fineStepKm - CloudCoarseStepKm( fineStepKm );
+    return float( CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE + 1 ) * fineStepKm - coarseStepKm;
 }
 
 #endif // CLOUD_GEOMETRY_GLSLH
