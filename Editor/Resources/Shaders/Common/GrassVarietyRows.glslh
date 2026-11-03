@@ -45,6 +45,10 @@ struct GrassVarietyRow
     uvec2 Field;
     uvec2 TilePool;
     uvec2 FullIds;
+    // GRASS-CULL-COST-2: the generation of the view law's inputs (GrassRenderer VarietyGpu::Generation: the params
+    // with the field eye, the field, the tiles, the pool; never 0) - a chunk whose law words carry it was lawed from
+    // the same inputs (GrassCull.shader LawChunk), so its rows, codes and reach box stand.
+    uint  LawGeneration;
     // The row ends here; std430 rounds it to its 16-byte alignment.
 };
 
@@ -62,17 +66,27 @@ const uint kGrassRowCascadesHeld = 2u;
 //   0..2 the box of its records' roots (min xyz, floats, before the snow sinks them), 3..5 the box's far corner,
 //   6 the largest axis scale of its records before the law widens them (float; a blade's height with its clump),
 //   7 its first record in the pool, 8 its record count (0: empty; at most kGrassTilePageRecords, one cluster's run
-//   in fade-draw order), 9 the pool page the run continues on past its first page's end, 10..11 zero.
+//   in fade-draw order), 9 the pool page the run continues on past its first page's end.
 // Lane i < count reads record GrassChunkRecord( first, page, i ); the records' fade draws ascend along the run.
+// THE LAW'S WORDS (GRASS-CULL-COST-2; GrassCull.shader LawChunk, the camera cull alone writes them): 10 the
+//   generation they were lawed in (GrassVarietyRow::LawGeneration; 0: never - the build writes 0 with the chunk),
+//   11..13 / 14..16 the box of the reach of every instance the law kept (min / max xyz, floats: its root after the
+//   snow, +- ( |centre height| + radius ) x its largest axis scale + pad), 17..24 each record's bucket + 1 (0: the
+//   law drops it) in four bit planes - plane b's bit i at word 17 + 2b (records 0..31) / 18 + 2b (32..63).
 // THE ROWS: Instances[record] is that record's instance after the law; every list (CameraIds, CascadeIds, FullIds)
 // holds records, so a list held from an earlier frame still names the rows it was culled from.
 const uint kGrassChunkHeader    = 4u;
-const uint kGrassChunkWords     = 12u;
+const uint kGrassChunkWords     = 25u;
 const uint kGrassChunkBoxWord   = 0u;
 const uint kGrassChunkScaleWord = 6u;
 const uint kGrassChunkFirstWord = 7u;
 const uint kGrassChunkCountWord = 8u;
 const uint kGrassChunkPageWord  = 9u;
+const uint kGrassChunkLawWord   = 10u;
+const uint kGrassChunkReachWord = 11u;
+const uint kGrassChunkCodeWord  = 17u;
+// The buckets a record's code holds: four bit planes, 0 for a dropped record (GrassRenderer kLawBuckets).
+const uint kGrassLawBuckets = 15u;
 
 uint GrassChunkAt( uint chunk )
 {
@@ -94,6 +108,12 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
     mat4 Transforms[];
 };
 layout( buffer_reference, std430, buffer_reference_align = 16 ) writeonly buffer GrassInstanceRows
+{
+    mat4 Rows[];
+};
+// GRASS-CULL-COST-2: the rows as GrassCull's camera cull writes them (LawChunk) and its lanes read them back in the same
+// pass (coherent: a subgroup's lanes read the rows its other lanes wrote, after a subgroup memory barrier).
+layout( buffer_reference, std430, buffer_reference_align = 16 ) coherent buffer GrassLawRows
 {
     mat4 Rows[];
 };

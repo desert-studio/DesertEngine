@@ -126,13 +126,17 @@ namespace Desert::Graphic::System
             glm::uvec2 Field;
             glm::uvec2 TilePool;
             glm::uvec2 FullIds;
-            glm::uvec2 Pad{ 0u };
+            // GRASS-CULL-COST-2: the generation of the view law's inputs (VarietyGpu::Generation, never 0): a chunk
+            // whose law words carry it keeps its rows, codes and kept box (GrassCull.shader LawChunk).
+            uint32_t LawGeneration = 0u;
+            uint32_t Pad           = 0u;
         };
         static_assert(
              sizeof( GrassVarietyRowGpu ) == 224,
              "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
              "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
-             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, std430's 8 bytes of padding at 216" );
+             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, uint LawGeneration at 216, std430's 4 bytes "
+             "of padding at 220" );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
@@ -152,7 +156,10 @@ namespace Desert::Graphic::System
         // GrassVarietyRows.glslh kGrassChunkHeader / kGrassChunkWords (the chunk contract): Chunks' header (x = the
         // chunks, one per tile slot and cluster, y = 0, z = the room, w = 0) and the words of one chunk.
         constexpr uint32_t kChunkHeaderWords = 4u;
-        constexpr uint32_t kChunkWords       = 12u;
+        // GRASS-CULL-COST-2: words 10..24 are the camera cull's law words (the generation, the kept box, the codes).
+        constexpr uint32_t kChunkWords       = 25u;
+        // GrassVarietyRows.glslh kGrassLawBuckets: a chunk's law words keep each record's bucket + 1 in four bits.
+        constexpr uint32_t kLawBuckets       = 15u;
         // GrassCull's dispatch buffer (GrassCull.shader CullDispatch, a buffer of this frame's graph): the camera
         // cull's and phase 2's VkDispatchIndirectCommand, each on a uvec4 (w: its groups), then per culled row a
         // uvec4 of its first groups. The CPU never reads it.
@@ -569,6 +576,12 @@ namespace Desert::Graphic::System
                                       : std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
                                                                 static_cast<uint32_t>( screenSizes.size() ) ) );
         const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : levels;
+        if ( buckets > kLawBuckets )
+        {
+            LOG_ERROR( "[Grass] a variety draws {} buckets; GrassCull's law words hold at most {} - it is not drawn",
+                       buckets, kLawBuckets );
+            return nullptr;
+        }
         // A blade's records come in sets, one per strip level (GpuInstances.hpp): set k
         // draws bucket s with level max(s, k) - set 0 is the camera's, a cascade draws the set its texel size asks
         // for (MeshRenderer::BladeShadowSet). A mesh has one set of records per level of its LOD chain.
@@ -1749,7 +1762,7 @@ namespace Desert::Graphic::System
                      pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
-                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead );
+                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite ); // the law words (LawChunk)
                          pass.Read( gpu->TilePoolRef, RDG::Access::StorageRead );
                          pass.Read( gpu->ParamsRef, RDG::Access::StorageRead );
                          pass.Read( gpu->FieldRef, RDG::Access::StorageRead );
@@ -1837,6 +1850,8 @@ namespace Desert::Graphic::System
                 if ( gpu->Shape )
                     flags = kRowBlade;
                 row.Info   = glm::uvec4( gpu->Buckets, gpu->TableWord, flags, gpu->CascadeMask );
+                // Never 0 (a chunk the build wrote carries 0), and consecutive generations differ.
+                row.LawGeneration = static_cast<uint32_t>( gpu->Generation % 0xFFFFFFFFull ) + 1u;
                 row.Bounds = gpu->CullBounds;
                 row.CascadeWords = glm::uvec2( gpu->CascadeArgWords, gpu->CascadeArgWords - gpu->Buckets );
                 for ( uint32_t k = 0; k < kGrassCascadeLists; k += 2u )
