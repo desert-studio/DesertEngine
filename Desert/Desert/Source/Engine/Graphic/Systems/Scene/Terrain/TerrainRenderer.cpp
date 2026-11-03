@@ -82,6 +82,102 @@ namespace Desert::Graphic::System
                      glm::vec3( x0 + 2.0f * side, l.MaxY + side, z0 + 2.0f * side ) };
         }
 
+        // A SCROLLED CASCADE'S STRIP ON A TILE (RecordShadowView; UE: a scrolled cached map renders the region
+        // its shift exposed alone, culling every primitive outside it): the patches of kStripPatchCells cells a
+        // side of the tile's grid that a strip reaches, as windows of LandscapeDrawSplit::Window's form - a run of
+        // reached patches of one patch row, grown down by the run of the next row with the same columns - and
+        // whether the rings reach one. A patch's box is its samples' square over the tile's undisplaced slab,
+        // grown by what moves a vertex off it: the LOD snap and morph across (a vertex snaps down to its LOD's
+        // grid and morphs down to the next one, LandscapeLod.glslh: less than two cells of the coarsest grid any
+        // vertex of the tile takes - the tile's LOD, its borders' and its corners'), and the displacement's reach
+        // along the normal every way ((height - Center) x Magnitude never leaves +-Magnitude, TileViewBox's rule).
+        constexpr int32_t kStripPatchCells = 16;
+
+        struct StripPatches
+        {
+            std::vector<glm::ivec4> Windows; // [x0, x1) x [z0, z1) cells of the draw's grid
+            bool                    Rings = false;
+        };
+
+        [[nodiscard]] StripPatches StripPatchesOf( const std::span<const Core::Frustum> strips,
+                                                   const LandscapeTileDraw& l, const TerrainInstance& row,
+                                                   const LandscapeDrawSplit& split )
+        {
+            StripPatches  patches;
+            const int32_t cells = static_cast<int32_t>( split.Cells );
+            if ( cells <= 0 || strips.empty() )
+                return patches;
+            const int32_t gridLod = std::clamp( static_cast<int32_t>( row.Params.w ), 0, 16 );
+            const int32_t stride  = 1 << gridLod;
+            float         lodMax  = std::max( row.Params.y, 0.0f );
+            for ( glm::length_t k = 0; k < 4; ++k )
+                lodMax = std::max( { lodMax, row.LodEdges[k], row.LodCorners[k] } );
+            const int32_t morphLod     = static_cast<int32_t>( std::floor( std::min( lodMax, 16.0f ) ) ) + 1;
+            const float   morphSamples = std::ldexp( 1.0f, morphLod );
+            const float   reach        = std::max( row.Displacement.x, 0.0f );
+            const float   acrossCm     = morphSamples * std::abs( l.SpacingCm ) + reach;
+            const float   tileX        = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
+            const float   tileZ        = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
+            const int32_t quads        = static_cast<int32_t>( l.QuadsPerTile );
+            const float   lowY         = std::min( l.MinY, l.MaxY ) - reach;
+            const float   highY        = std::max( l.MinY, l.MaxY ) + reach;
+            // Whether a strip reaches the grid's cells [cx0, cx1) x [cz0, cz1).
+            const auto reaches = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
+            {
+                const float ax = tileX + static_cast<float>( std::min( cx0 * stride, quads ) ) * l.SpacingCm;
+                const float bx = tileX + static_cast<float>( std::min( cx1 * stride, quads ) ) * l.SpacingCm;
+                const float az = tileZ + static_cast<float>( std::min( cz0 * stride, quads ) ) * l.SpacingCm;
+                const float bz = tileZ + static_cast<float>( std::min( cz1 * stride, quads ) ) * l.SpacingCm;
+                const Common::Math::AABB box{
+                     glm::vec3( std::min( ax, bx ) - acrossCm, lowY, std::min( az, bz ) - acrossCm ),
+                     glm::vec3( std::max( ax, bx ) + acrossCm, highY, std::max( az, bz ) + acrossCm ) };
+                for ( const Core::Frustum& strip : strips )
+                    if ( strip.Intersects( box ) )
+                        return true;
+                return false;
+            };
+            if ( !reaches( 0, cells, 0, cells ) )
+                return patches;
+            // The rings exist on the LOD-0 grid only: the hole is in the draw's cells.
+            if ( split.RingVertices > 0u && split.Hole.z > split.Hole.x && split.Hole.w > split.Hole.y )
+                patches.Rings = reaches( split.Hole.x, split.Hole.z, split.Hole.y, split.Hole.w );
+            const int32_t side = ( cells + kStripPatchCells - 1 ) / kStripPatchCells;
+            for ( int32_t pz = 0; pz < side; ++pz )
+            {
+                const int32_t cz0      = pz * kStripPatchCells;
+                const int32_t cz1      = std::min( cz0 + kStripPatchCells, cells );
+                int32_t       runStart = -1;
+                for ( int32_t px = 0; px <= side; ++px )
+                {
+                    bool kept = false;
+                    if ( px < side )
+                        kept = reaches( px * kStripPatchCells, std::min( ( px + 1 ) * kStripPatchCells, cells ),
+                                        cz0, cz1 );
+                    if ( kept && runStart < 0 )
+                        runStart = px;
+                    if ( kept || runStart < 0 )
+                        continue;
+                    // The run [runStart, px) ends: the window above with the same columns grows down to it.
+                    const int32_t cx0    = runStart * kStripPatchCells;
+                    const int32_t cx1    = std::min( px * kStripPatchCells, cells );
+                    bool          merged = false;
+                    for ( glm::ivec4& window : patches.Windows )
+                    {
+                        if ( window.x == cx0 && window.z == cx1 && window.w == cz0 )
+                        {
+                            window.w = cz1;
+                            merged   = true;
+                            break;
+                        }
+                    }
+                    if ( !merged )
+                        patches.Windows.emplace_back( cx0, cz0, cx1, cz1 );
+                    runStart = -1;
+                }
+            }
+            return patches;
+        }
+
         // THE VIEW IS THE VIEW BLOCK'S (GPU-COST-26; UE: the landscape's base pass reads
         // FViewUniformShaderParameters like every pass of the view): the surface programs read their matrices, the
         // eye, PreExposure and the grass field lens from CameraUB (Common/CameraUB.glslh,
@@ -1752,27 +1848,40 @@ namespace Desert::Graphic::System
         const std::vector<FrameDraw>& viewDraws = ShadowViewDraws( view );
         if ( !m_ShadowPipeline || viewDraws.empty() )
             return BOOLSUCCESS;
-        // A SCROLLED CASCADE fills only its strips (MeshRenderer::PlanCascadeCache): a tile whose box none of them
-        // reaches is already in the cache copied in. A cascade's draws are parallel to the queue
-        // (CascadeShadowSignature). The box is the one the content key reaches the tile by (TileCasterBox).
+        // A SCROLLED CASCADE fills only its strips (MeshRenderer::PlanCascadeCache), one a call under the strip's
+        // scissor (MeshRenderer's scroll pass): the rest of the layer is the cache copied in. A tile's draw keeps
+        // the patches of its grid a strip reaches and its rings when they reach it (StripPatchesOf); a tile none
+        // reaches is left out. A cascade's draws are parallel to the queue (CascadeShadowSignature) and to the
+        // camera's rows (PrepareFrame), whose LOD, borders and displacement they draw.
         std::vector<FrameDraw> regionDraws;
-        if ( !region.empty() && viewDraws.size() == m_Queue.size() )
+        if ( !region.empty() && viewDraws.size() == m_Queue.size() && m_FrameInstances.size() == m_Queue.size() )
         {
             std::vector<Core::Frustum> strips;
+            strips.reserve( region.size() );
             for ( const glm::mat4& strip : region )
                 strips.emplace_back( strip, glm::mat4( 1.0f ) );
             for ( std::size_t i = 0; i < viewDraws.size(); ++i )
             {
-                // The tile's own square (TileCasterBox): the root's origin alone put every tile's box at the
-                // root's corner, so the strips drew all tiles or none.
-                const Common::Math::AABB box = TileCasterBox( m_Queue[i].Landscape );
-                for ( const Core::Frustum& strip : strips )
+                const FrameDraw&   draw = viewDraws[i];
+                const StripPatches patches =
+                     StripPatchesOf( strips, m_Queue[i].Landscape, m_FrameInstances[i], draw.Split );
+                // The rings ride with the first window.
+                bool rings = patches.Rings;
+                for ( const glm::ivec4& window : patches.Windows )
                 {
-                    if ( strip.Intersects( box ) )
-                    {
-                        regionDraws.push_back( viewDraws[i] );
-                        break;
-                    }
+                    FrameDraw part    = draw;
+                    part.Split.Window = window;
+                    if ( !rings )
+                        part.Split.RingVertices = 0u;
+                    rings = false;
+                    regionDraws.push_back( part );
+                }
+                if ( rings )
+                {
+                    // No patch of the grid outside the rings is reached: the rings alone.
+                    FrameDraw part    = draw;
+                    part.Split.Window = glm::ivec4( 0 );
+                    regionDraws.push_back( part );
                 }
             }
             if ( regionDraws.empty() )
