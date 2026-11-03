@@ -50,13 +50,16 @@ Shader "GrassGenerate"
 {
     Compute
     {
-        // WaveAppend: one atomic per subgroup and counter (subgroupBallot / subgroupElect / subgroupBroadcastFirst).
+        // AppendInstance: one atomic per subgroup and counter (subgroupBallot / subgroupElect /
+        // subgroupBroadcastFirst), and its run's box (subgroupMin / subgroupMax).
         #extension GL_KHR_shader_subgroup_basic : require
         #extension GL_KHR_shader_subgroup_ballot : require
+        #extension GL_KHR_shader_subgroup_arithmetic : require
 
         LocalSize(8, 8, 1);
 
         #include <Common/GrassFieldShare.glslh>
+        #include <Common/GrassVarietyRows.glslh>
 
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
@@ -100,6 +103,14 @@ Shader "GrassGenerate"
         Buffer(3) Args
         {
             uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, half screen size (a mesh level)
+        };
+
+        // GRASS-CULL-HIER-1: the camera cull's chunks (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the tile
+        // cull appends one per run of Instances it takes (AppendInstance); word 2 of the header = the chunks it has
+        // room for (GrassRenderer VarietyGpu::Chunks, written once).
+        Buffer(8) Chunks
+        {
+            uint GrassChunkData[];
         };
 
         // GRASS-TILE-1, THE TILE POOL: kTilePoolWords uvec4 per record (TileRecord: StoreRecord / LoadRecord), in
@@ -532,23 +543,52 @@ Shader "GrassGenerate"
                    slot % kTilePageRecords;
         }
 
+        // GRASS-CULL-HIER-1: chunk @p first.. (@p count slots of Instances) into Chunks - its roots' box @p lo..@p hi
+        // and its largest axis scale @p scale (Common/GrassVarietyRows.glslh kGrassChunkWords). A chunk holds one
+        // slot at least, so the room (one chunk per slot) is never short; past it a chunk is not written.
+        void WriteChunk( uint first, uint count, vec3 lo, vec3 hi, float scale )
+        {
+            uint chunk = atomicAdd( GrassChunkData[0], 1u );
+            if ( chunk >= GrassChunkData[2] )
+                return;
+            uint at                 = kGrassChunkHeader + chunk * kGrassChunkWords;
+            GrassChunkData[at]      = floatBitsToUint( lo.x );
+            GrassChunkData[at + 1u] = floatBitsToUint( lo.y );
+            GrassChunkData[at + 2u] = floatBitsToUint( lo.z );
+            GrassChunkData[at + 3u] = floatBitsToUint( scale );
+            GrassChunkData[at + 4u] = floatBitsToUint( hi.x );
+            GrassChunkData[at + 5u] = floatBitsToUint( hi.y );
+            GrassChunkData[at + 6u] = floatBitsToUint( hi.z );
+            GrassChunkData[at + 7u] = ( first << kGrassChunkCountBits ) | count;
+        }
+
         // THE WAVE'S APPEND (GRASS-TILE-4; GrassCull.shader WaveAppend, UE InstanceCulling: one atomic per wave and
-        // counter): every invocation that calls it takes one entry of the counter at word @p at of Arguments. The
-        // subgroup's invocations that name the same counter add their number with ONE atomicAdd and each takes its
-        // rank among them - one round per distinct counter among the callers (a subgroup's instances fall into a
-        // few buckets). Returns the entry's index: the counter before the subgroup's add, plus the rank.
-        uint WaveAppend( uint at )
+        // counter): every invocation that calls it takes one slot of the bucket whose table is at word @p table of
+        // Arguments. The subgroup's invocations that name the same bucket add their number with ONE atomicAdd and
+        // each takes its rank among them - one round per distinct bucket among the callers (a subgroup's instances
+        // fall into a few buckets). GRASS-CULL-HIER-1: the run of slots that add takes, inside the bucket's
+        // capacity, is one chunk for GrassCull's chunk cull (WriteChunk): the box of the callers' roots @p root and
+        // the largest of their axis scales @p scale - instances of one tile cluster, since a workgroup is one.
+        // Returns the slot's index in the bucket: the counter before the subgroup's add, plus the rank.
+        uint AppendInstance( uint table, vec3 root, float scale )
         {
             uint index = 0u;
             for ( ;; )
             {
-                if ( subgroupBroadcastFirst( at ) == at )
+                if ( subgroupBroadcastFirst( table ) == table )
                 {
                     uvec4 ballot = subgroupBallot( true );
+                    uint  count  = subgroupBallotBitCount( ballot );
+                    vec3  lo     = subgroupMin( root );
+                    vec3  hi     = subgroupMax( root );
+                    float most   = subgroupMax( scale );
                     uint  base   = 0u;
                     if ( subgroupElect() )
                     {
-                        base = atomicAdd( Arguments[at], subgroupBallotBitCount( ballot ) );
+                        base          = atomicAdd( Arguments[table], count );
+                        uint capacity = Arguments[table + 2u];
+                        if ( base < capacity )
+                            WriteChunk( Arguments[table + 1u] + base, min( count, capacity - base ), lo, hi, most );
                     }
                     index = subgroupBroadcastFirst( base ) + subgroupBallotExclusiveBitCount( ballot );
                     break;
@@ -674,11 +714,6 @@ Shader "GrassGenerate"
                     }
                 }
             }
-            uint table = GrassParamsData[0].Buckets.y + bucket * 4u;
-            uint index = WaveAppend( table );
-            if ( index >= Arguments[table + 2u] )
-                return;
-            index += Arguments[table + 1u];
             // The world's snow (Common/WeatherSnow.glslh) lies p.Lean.z deep over the ground: the root sinks by it,
             // so the instance shows only what stands above the snow and one shorter than it is buried whole.
             position.y -= GrassParamsData[0].Lean.z;
@@ -691,7 +726,13 @@ Shader "GrassGenerate"
             else
                 instance = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
                                  vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
-            GrassInstancesData[index] = instance;
+            // The chunk's bound holds what GrassCull reads of the instance: its root and its largest axis scale.
+            float most  = max( length( instance[0].xyz ), max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
+            uint  table = GrassParamsData[0].Buckets.y + bucket * 4u;
+            uint  index = AppendInstance( table, instance[3].xyz, most );
+            if ( index >= Arguments[table + 2u] )
+                return;
+            GrassInstancesData[Arguments[table + 1u] + index] = instance;
         }
 
         void main()

@@ -70,13 +70,15 @@ Shader "GrassFinalize"
             args.Words[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
         }
 
-        // Mode 1, row @p r: Args' kept counts zeroed before the generation counts anew.
+        // Mode 1, row @p r: Args' kept counts and the camera cull's chunks (GRASS-CULL-HIER-1) zeroed before the
+        // generation counts and appends anew.
         void Reset( uint r )
         {
             GrassWords args    = GrassWords( VarietyRows[r].Args );
             uint       tableAt = 4u + args.Words[2] * 5u;
             for ( uint b = 0u; b < args.Words[0]; ++b )
                 args.Words[tableAt + b * 4u] = 0u;
+            GrassWords( VarietyRows[r].Chunks ).Words[0] = 0u;
         }
 
         void main()

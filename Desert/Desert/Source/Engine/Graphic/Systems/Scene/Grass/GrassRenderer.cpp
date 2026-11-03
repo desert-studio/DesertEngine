@@ -118,11 +118,16 @@ namespace Desert::Graphic::System
             glm::uvec2 CascadeIds;
             glm::uvec2 CascadeWords;
             glm::vec4  CascadeRings[kGrassCascadeLists / 2u];
+            // GRASS-CULL-HIER-1, the camera cull's chunks: Chunks' address, x = the chunks and threads it has room
+            // for (VarietyGpu::ChunkRoom), y = its thread map's first word (kChunkHeaderWords + room x kChunkWords).
+            glm::uvec2 Chunks;
+            glm::uvec2 ChunkWords;
         };
         static_assert(
-             sizeof( GrassVarietyRowGpu ) == 176,
+             sizeof( GrassVarietyRowGpu ) == 192,
              "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
-             "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112" );
+             "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
+             "uvec2 ChunkWords at 184" );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
@@ -136,17 +141,29 @@ namespace Desert::Graphic::System
                        "VarietyCascadePlanes[48], VarietyCasterWindOrigin before the rows" );
         // GrassVarietyRows.glslh kGrassRowBlade: a blade strip's records, sets of one record per bucket.
         constexpr uint32_t kRowBlade = 1u;
+        // GrassVarietyRows.glslh kGrassRowCascadesHeld: the row's cascade lists hold from an earlier frame
+        // (VarietyGpu::CascadeKey), GrassCull neither culls nor finalizes them.
+        constexpr uint32_t kRowCascadesHeld = 2u;
+        // GrassVarietyRows.glslh kGrassChunkHeader / kGrassChunkWords: Chunks' header (x = the chunks written, y =
+        // this frame's camera cull threads, z = the room, w = 0), the words of one chunk, and of one thread of the
+        // thread map (its slot, what its chunk met).
+        constexpr uint32_t kChunkHeaderWords = 4u;
+        constexpr uint32_t kChunkWords       = 8u;
+        constexpr uint32_t kChunkThreadWords = 2u;
         // GrassCull's dispatch buffer (GrassCull.shader CullDispatch, a buffer of this frame's graph): the camera
         // cull's and phase 2's VkDispatchIndirectCommand, each on a uvec4 (w: its groups), then per culled row a
         // uvec4 of its first groups. The CPU never reads it.
-        constexpr uint32_t kCullDispatchHeader = 2u;
-        constexpr uint64_t kPostDispatchOffset = sizeof( glm::uvec4 );
+        constexpr uint32_t kCullDispatchHeader   = 3u;
+        constexpr uint64_t kPostDispatchOffset   = sizeof( glm::uvec4 );
+        constexpr uint64_t kCameraDispatchOffset = 2u * sizeof( glm::uvec4 );
         // GrassCull.shader's modes (Hzb.w).
         constexpr uint32_t kCullModeDispatch       = 0u;
         constexpr uint32_t kCullModeCameraCull     = 1u;
         constexpr uint32_t kCullModeCameraFinalize = 2u;
         constexpr uint32_t kCullModePostOcclusion  = 3u;
         constexpr uint32_t kCullModePostFinalize   = 4u;
+        constexpr uint32_t kCullModeChunkCull      = 5u;
+        constexpr uint32_t kCullModeChunkDispatch  = 6u;
         // GrassFinalize.shader's modes (Mode.x).
         constexpr uint32_t kFinalizeModeAfterGeneration = 0u;
         constexpr uint32_t kFinalizeModeReset           = 1u;
@@ -259,6 +276,7 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, TileWords );
             DESERT_SHADER_PARAMETER( StorageBuffer, Tiles );
             DESERT_SHADER_PARAMETER( StorageBuffer, TileFeedback );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Chunks );
         };
 
         // GrassGenerate's push block, std430 (Programs/Grass/GrassGenerate.shader PushConstants).
@@ -773,6 +791,22 @@ namespace Desert::Graphic::System
             {
                 gpu.Candidates = ShaderResources::StorageBuffer::Create( "GrassCandidates", 16u, 7, true );
                 gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
+            }
+            // GRASS-CULL-HIER-1, the camera cull's chunks (GrassVarietyRowGpu::Chunks): room for one chunk and one
+            // thread map entry per slot of Instances (a chunk holds one slot at least, and the threads are the
+            // chunks' slots, so neither runs out); the header's room word tells the tile cull.
+            {
+                gpu.ChunkRoom = std::max( capacity, 1u );
+                std::vector<uint32_t> chunks(
+                     kChunkHeaderWords + static_cast<size_t>( gpu.ChunkRoom ) * ( kChunkWords + kChunkThreadWords ), 0u );
+                chunks[2]             = gpu.ChunkRoom;
+                const auto chunkBytes = static_cast<uint32_t>( chunks.size() * 4u );
+                gpu.Chunks            = ShaderResources::StorageBuffer::Create( "GrassChunks", chunkBytes, 8, true );
+                if ( const auto wrote = gpu.Chunks->SetData( chunks.data(), chunkBytes ); !wrote.IsSuccess() )
+                {
+                    LOG_ERROR( "[Grass] the camera cull's chunks were not written: {}", wrote.GetError() );
+                    return nullptr;
+                }
             }
             // The cascades' lists (GPU-COST-21): per cascade view this frame draws a copy of the records and the
             // bucket table, list k's bucket firsts moved by k x capacity into CascadeIds; then its rest twin
@@ -1311,6 +1345,7 @@ namespace Desert::Graphic::System
                 for ( const auto& [buffer, into] : { std::pair{ &gpu->CameraIds, &gpu->CameraIdsImport },
                                                      std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
                                                      std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
+                                                     std::pair{ &gpu->Chunks, &gpu->ChunksImport },
                                                      std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
                                                      std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
                                                      std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
@@ -1332,6 +1367,7 @@ namespace Desert::Graphic::System
                 gpu->CameraRefs.Ids        = graph.RegisterExternal( gpu->CameraIdsImport, "GrassCameraIds" );
                 gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
                 gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
+                gpu->ChunksRef            = graph.RegisterExternal( gpu->ChunksImport, "GrassChunks" );
                 gpu->PostRefs.Instances    = gpu->Refs.Instances;
                 gpu->PostRefs.Ids          = gpu->CameraRefs.Ids;
                 gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
@@ -1511,6 +1547,7 @@ namespace Desert::Graphic::System
                  .Storage( GrassGenerateShaderParameters::TileWords, gpu.TileWordsRef, pool )
                  .Storage( GrassGenerateShaderParameters::Tiles, gpu.TileTableRef, RDG::Access::StorageRead )
                  .Storage( GrassGenerateShaderParameters::TileFeedback, gpu.TileFeedbackRef, pool )
+                 .Storage( GrassGenerateShaderParameters::Chunks, gpu.ChunksRef, lists )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
         };
         // One dispatch per variety of @p list, with the push and the groups @p shape gives it (no groups: none).
@@ -1599,7 +1636,10 @@ namespace Desert::Graphic::System
                  {
                      BindFinalize( pass );
                      for ( const VarietyGpu* gpu : m_FrameGenerate )
+                     {
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
+                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );
+                     }
                  },
                  [this, reset]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return DispatchOneGroup( context, *m_Finalize, &reset, sizeof( reset ) ); } );
@@ -1646,8 +1686,11 @@ namespace Desert::Graphic::System
         }
 
         // THE CAMERA CULL (GRASS-VIS-24; UE: the instance cull of every frame over instances built once), one
-        // dispatch over every culled variety (GrassCull.shader): the rows' groups from their kept counts, the
-        // camera's list from the kept instances, then its records, phase words and phase 2's groups.
+        // dispatch over every culled variety (GrassCull.shader). GRASS-CULL-HIER-1, two levels (UE InstanceCulling /
+        // Nanite: a node's bound before its instances): the rows' groups from their chunks, the chunk cull (a thread
+        // per chunk: the cascades' boxes, the camera's planes and last frame's HZB, its slots into the thread map),
+        // the camera's list and the cascades' from a thread per slot of the map, then the records, phase words and
+        // phase 2's groups. Its cost follows the instances the views can take, not the field.
         if ( m_FrameTable && cullRows != 0u )
         {
             RDG::BufferDesc dispatchDesc;
@@ -1660,20 +1703,52 @@ namespace Desert::Graphic::System
             layOut.Hzb  = testsHzb ? glm::uvec4( occlusion.Extent, kCullModeDispatch )
                                    : glm::uvec4( 0u, 0u, 0u, kCullModeDispatch );
             layOut.Rows = glm::uvec4( cullRows, 0u, 0u, 0u );
-            GrassCullPush cull     = layOut;
-            cull.Hzb.w             = kCullModeCameraCull;
-            GrassCullPush finalize = layOut;
-            finalize.Hzb.w         = kCullModeCameraFinalize;
+            GrassCullPush chunkCull = layOut;
+            chunkCull.Hzb.w         = kCullModeChunkCull;
+            GrassCullPush chunkLayOut = layOut;
+            chunkLayOut.Hzb.w         = kCullModeChunkDispatch;
+            GrassCullPush cull        = layOut;
+            cull.Hzb.w                = kCullModeCameraCull;
+            GrassCullPush finalize    = layOut;
+            finalize.Hzb.w            = kCullModeCameraFinalize;
             graph.AddPass(
                  "Grass: Cull Dispatch", RDG::PassFlags::Compute,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageWrite );
                      for ( const VarietyGpu* gpu : m_FrameCull )
-                         pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
+                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead );
                  },
                  [this, layOut]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return DispatchOneGroup( context, *m_Cull, &layOut, sizeof( layOut ) ); } );
+
+            graph.AddPass(
+                 "Grass: Chunk Cull", RDG::PassFlags::Compute,
+                 [this, hzb]( RDG::PassBuilder& pass )
+                 {
+                     BindCull( pass, hzb, RDG::Access::StorageRead );
+                     pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
+                     for ( const VarietyGpu* gpu : m_FrameCull )
+                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );
+                 },
+                 [this, chunkCull, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     // One thread per chunk of every row: the groups the Cull Dispatch laid out.
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &chunkCull, sizeof( chunkCull ) );
+                     return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
+                 } );
+
+            graph.AddPass(
+                 "Grass: Chunk Dispatch", RDG::PassFlags::Compute,
+                 [this, hzb]( RDG::PassBuilder& pass )
+                 {
+                     BindCull( pass, hzb, RDG::Access::StorageWrite );
+                     for ( const VarietyGpu* gpu : m_FrameCull )
+                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead );
+                 },
+                 [this, chunkLayOut]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return DispatchOneGroup( context, *m_Cull, &chunkLayOut, sizeof( chunkLayOut ) ); } );
 
             graph.AddPass(
                  "Grass: Camera Cull", RDG::PassFlags::Compute,
@@ -1685,6 +1760,7 @@ namespace Desert::Graphic::System
                      {
                          pass.Read( gpu->Refs.Instances, RDG::Access::StorageRead );
                          pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
+                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead );
                          pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->CandidatesRef, RDG::Access::StorageWrite );
@@ -1694,10 +1770,12 @@ namespace Desert::Graphic::System
                  },
                  [this, cull, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     // One thread per kept instance of every row: the groups the Cull Dispatch laid out.
+                     // One thread per instance of a chunk a view met (the thread map): the groups the Chunk Dispatch
+                     // laid out.
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &cull, sizeof( cull ) );
-                     return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
+                     return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer,
+                                                               kCameraDispatchOffset );
                  } );
 
             graph.AddPass(
@@ -1710,6 +1788,7 @@ namespace Desert::Graphic::System
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
+                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );
                      }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1732,9 +1811,10 @@ namespace Desert::Graphic::System
         header.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
         std::vector<uint8_t> image( sizeof( GrassVarietyTableGpu ) );
         std::memcpy( image.data(), &header, sizeof( header ) );
+        const uint32_t framesInFlight = EngineContext::GetInstance().GetMaxFramesInFlight();
         for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull, &m_FrameGenerate } )
         {
-            for ( const VarietyGpu* gpu : *list )
+            for ( VarietyGpu* gpu : *list )
             {
                 GrassVarietyRowGpu row{};
                 for ( const auto& [into, buffer] :
@@ -1745,7 +1825,8 @@ namespace Desert::Graphic::System
                         std::pair{ &row.PostArgs, gpu->PostArgs.get() },
                         std::pair{ &row.Feedback, gpu->Feedback.get() },
                         std::pair{ &row.CascadeArgs, gpu->CascadeArgs.get() },
-                        std::pair{ &row.CascadeIds, gpu->CascadeIds.get() } } )
+                        std::pair{ &row.CascadeIds, gpu->CascadeIds.get() },
+                        std::pair{ &row.Chunks, gpu->Chunks.get() } } )
                 {
                     if ( buffer == nullptr )
                         return Common::MakeError( "a variety's buffer was not made" );
@@ -1764,6 +1845,46 @@ namespace Desert::Graphic::System
                 row.CascadeWords = glm::uvec2( gpu->CascadeArgWords, gpu->CascadeArgWords - gpu->Buckets );
                 for ( uint32_t k = 0; k < kGrassCascadeLists; k += 2u )
                     row.CascadeRings[k / 2u] = glm::vec4( gpu->CascadeRings[k], gpu->CascadeRings[k + 1u] );
+                row.ChunkWords = glm::uvec2( gpu->ChunkRoom, kChunkHeaderWords + gpu->ChunkRoom * kChunkWords );
+                // GRASS-CULL-HIER-1, THE CASCADES' LISTS FOLLOW CHANGE (UE: a cached shadow's casters are culled when
+                // the cache is redrawn, not every frame): what GrassCull's cascade cull reads - the caster boxes, the
+                // wind origin, the row's buffers, counts, bounds and rings, and the instances' generation. A frame
+                // the tile cull rewrites Instances (its slots may land in another order) culls them anew; so does any
+                // other change. Once the lists were culled from the same inputs on a frame of every feedback copy in
+                // flight, they hold (kRowCascadesHeld): a still or turning camera culls no cascade.
+                if ( list == &m_FrameCull )
+                {
+                    std::vector<uint32_t> key;
+                    const auto            append = [&key]( const auto& value )
+                    {
+                        static_assert( sizeof( std::remove_cvref_t<decltype( value )> ) % sizeof( uint32_t ) == 0u );
+                        const size_t at = key.size();
+                        key.resize( at + sizeof( value ) / sizeof( uint32_t ) );
+                        std::memcpy( key.data() + at, &value, sizeof( value ) );
+                    };
+                    append( header.CascadePlanes );
+                    append( header.CasterWindOrigin );
+                    append( row.Instances );
+                    append( row.Args );
+                    append( row.CascadeArgs );
+                    append( row.CascadeIds );
+                    append( row.Info );
+                    append( row.Bounds );
+                    append( row.CascadeWords );
+                    append( row.CascadeRings );
+                    append( gpu->Generation );
+                    const bool rewritten =
+                         std::find( m_FrameGenerate.begin(), m_FrameGenerate.end(), gpu ) != m_FrameGenerate.end();
+                    if ( rewritten || key != gpu->CascadeKey )
+                    {
+                        gpu->CascadeKey     = std::move( key );
+                        gpu->StableCascades = 0;
+                    }
+                    if ( gpu->StableCascades >= framesInFlight )
+                        row.Info.z |= kRowCascadesHeld;
+                    else
+                        ++gpu->StableCascades;
+                }
                 const size_t at = image.size();
                 image.resize( at + sizeof( GrassVarietyRowGpu ) );
                 std::memcpy( image.data() + at, &row, sizeof( row ) );

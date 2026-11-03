@@ -304,6 +304,19 @@ namespace Desert::Graphic::System
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs     PostRefs;   // phase 2's: CameraIds through PostArgs
             RDG::BufferRef      CandidatesRef;
+            // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the
+            // tile cull's runs of Instances - one subgroup's slots of one bucket, one tile cluster's - with their
+            // roots' box, culled whole by GrassCull's chunk cull before a thread per instance of the chunks a view
+            // meets (the thread map); room for ChunkRoom chunks and threads (one per slot of Instances).
+            std::shared_ptr<ShaderResources::StorageBuffer> Chunks;
+            RDG::ExternalBuffer                             ChunksImport;
+            RDG::BufferRef                                  ChunksRef;
+            uint32_t                                        ChunkRoom = 0;
+            // GRASS-CULL-HIER-1: what the cascades' lists were last culled from (GrassRenderer::WriteVarietyTable:
+            // the caster boxes, the wind origin, the row's buffers and rings, Generation) and the frames in a row
+            // culled from it; at the frames in flight the lists hold (kGrassRowCascadesHeld) until it changes.
+            std::vector<uint32_t> CascadeKey;
+            uint32_t              StableCascades = 0;
             // GRASS-CULL-2: what the camera cull reads of the params, through the variety table (GrassRenderer.cpp
             // GrassVarietyRowGpu): x = the bounds radius, y = the bounds centre height (local), z = the cull pad (cm),
             // and the bucket table's first word in Args.
