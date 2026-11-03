@@ -2438,6 +2438,19 @@ namespace Desert::Graphic
                 meshRenderer->SetEarlyZPass( m_Quality.As<Common::Scalability::EarlyZPassMode>(
                      Common::Scalability::Parameter::EarlyZPass ) );
             }
+            // The ground joins the same early-Z pass ("Deferred: Terrain Depth Prepass", AddFrameGBuffer), which
+            // exists only beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer"
+            // writes its own depth.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* ground = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+                 ground != nullptr )
+            {
+                Common::Scalability::EarlyZPassMode terrainEarlyZ = Common::Scalability::EarlyZPassMode::Off;
+                if ( meshRenderer != nullptr )
+                    terrainEarlyZ = m_Quality.As<Common::Scalability::EarlyZPassMode>(
+                         Common::Scalability::Parameter::EarlyZPass );
+                ground->SetEarlyZPass( terrainEarlyZ );
+            }
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );

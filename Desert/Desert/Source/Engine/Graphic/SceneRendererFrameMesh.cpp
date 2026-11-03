@@ -460,6 +460,21 @@ namespace Desert::Graphic
              { return meshRenderer->RenderMaskedDepthManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
+        // THE GROUND IN THE SAME EARLY-Z PASS (UE: the depth pass draws the landscape, an opaque occluder, under
+        // every r.EarlyZPass mode that runs one; TERRAIN-GBUFFER-COST-1): the camera's tiles through
+        // TerrainDepth.shader, LOADing what the meshes wrote, whenever the frame runs an early-Z pass
+        // (TerrainRenderer::PrepassesGBuffer). "TerrainGBuffer" then tests CloserOrEqual and writes none, so the
+        // ground under the grass and the meshes is rejected before its layers are fetched - with its own depth
+        // write, its pixel shader's hole discard left early-Z to the driver and every covered texel was shaded.
+        // The meshes' G-buffer below tests the ground's depth too.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        if ( terrain != nullptr && terrain->PrepassesGBuffer() )
+            AddRaster(
+                 graph, "Deferred: Terrain Depth Prepass", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
         AddRaster(
              graph, "Deferred: GBuffer", *targets,
              textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),

@@ -617,9 +617,9 @@ namespace Desert::Graphic::System
 
     namespace
     {
-        // Whether a pipeline draws the forward BASE PASS over the view's depth prepass: then it tests
-        // CloserOrEqual (its own prepassed depth passes) and writes no depth (UE: the base pass after a full
-        // depth prepass, DepthRead).
+        // Whether a pipeline draws the BASE PASS over the view's depth prepass (the forward "TerrainPass", the
+        // deferred "TerrainGBuffer" under an early-Z pass): then it tests CloserOrEqual (its own prepassed depth
+        // passes) and writes no depth (UE: the base pass after a full depth prepass, DepthRead).
         enum class TerrainDepthState : uint8_t
         {
             Shader,   // the shader's own `State` block
@@ -723,6 +723,19 @@ namespace Desert::Graphic::System
                                                    GBufferLayout(), error, TerrainDepthState::Shader );
         if ( !m_GBufferPipeline )
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
+        // The deferred path's early-Z pair (UE: the landscape in the depth pass, its base pass testing that depth
+        // without writes): TerrainDepth.shader into the G-buffer depth ("Deferred: Terrain Depth Prepass"), then
+        // the same G-buffer program CloserOrEqual with no depth write (PrepassesGBuffer).
+        m_GBufferDepthPipeline =
+             CreateTerrainPipeline( m_SceneRenderer, "TerrainDepth", "TerrainGBufferDepthPipeline",
+                                    GBufferDepthLayout(), error, TerrainDepthState::Shader );
+        if ( !m_GBufferDepthPipeline )
+            return Common::MakeError( "TerrainRenderer: the G-buffer depth prepass pipeline: " + error );
+        m_GBufferPrepassedPipeline =
+             CreateTerrainPipeline( m_SceneRenderer, "TerrainGBuffer", "TerrainGBufferPrepassedPipeline",
+                                    GBufferLayout(), error, TerrainDepthState::BasePass );
+        if ( !m_GBufferPrepassedPipeline )
+            return Common::MakeError( "TerrainRenderer: the prepassed G-buffer pipeline: " + error );
 
         // Terrain materials are created lazily, one set per texture key, in PrepareFrame — a material made
         // now would only ever serve one key.
@@ -1654,54 +1667,85 @@ namespace Desert::Graphic::System
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
-        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_ViewDraws.empty() )
+        const GraphicsPipeline* const pipeline = GBufferPassPipeline();
+        if ( !gbuffer || ( camera == nullptr ) || pipeline == nullptr || m_ViewDraws.empty() )
             return BOOLSUCCESS;
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
-        // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
-        // Through the blocks DeclareGBufferDraws declared.
-        return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
+        // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against -
+        // under an early-Z pass the ground's own prepassed depth ("Deferred: Terrain Depth Prepass"), tested
+        // CloserOrEqual without writes, so a texel the grass or a mesh covers is rejected before the layers are
+        // fetched. Through the blocks DeclareGBufferDraws declared (both pipelines run the one TerrainGBuffer
+        // shader, so one layout).
+        return RecordDraws( context, 0, *pipeline, &ProgramMaterials::GBuffer,
                             m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
     }
 
     void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
     {
         // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples no scene/view input.
-        if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr || !m_GBufferPipeline ||
-             m_ViewDraws.empty() )
+        const GraphicsPipeline* const pipeline = GBufferPassPipeline();
+        if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr ||
+             pipeline == nullptr || m_ViewDraws.empty() )
         {
             return;
         }
         const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::GBuffer );
         PrepareGroupExecutors( pass, executors );
-        (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout, executors, nullptr, m_DicePool );
+        (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, nullptr, m_DicePool );
+    }
+
+    bool TerrainRenderer::PrepassesGBuffer() const
+    {
+        return m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && m_GBufferDepthPipeline &&
+               m_GBufferPrepassedPipeline;
+    }
+
+    const GraphicsPipeline* TerrainRenderer::GBufferPassPipeline() const
+    {
+        if ( PrepassesGBuffer() )
+            return m_GBufferPrepassedPipeline.get();
+        return m_GBufferPipeline.get();
+    }
+
+    const GraphicsPipeline* TerrainRenderer::ViewDepthPipeline() const
+    {
+        if ( m_SceneRenderer->GetMainCamera() == nullptr || m_ViewDraws.empty() )
+            return nullptr;
+        // Deferred: under the frame's early-Z pass, into the G-buffer depth ("TerrainGBuffer" then tests it).
+        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+        {
+            if ( !m_SceneRenderer->GetGBuffer() || !PrepassesGBuffer() )
+                return nullptr;
+            return m_GBufferDepthPipeline.get();
+        }
+        // Forward: the frames that draw the terrain at all ("TerrainPass" draws the same m_ViewDraws,
+        // CloserOrEqual against this depth); the wireframe view's base pass writes its own depth
+        // (BasePassPipeline): not prepassed, as the meshes'.
+        if ( m_ForwardRefused || WireframeView() )
+            return nullptr;
+        return m_DepthPipeline.get();
     }
 
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
     {
-        // Exactly when RenderDepthManual draws: the forward path's frames that draw the terrain at all
-        // ("TerrainPass" draws the same m_ViewDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
-        // no scene/view input.
-        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
-             m_ForwardRefused || WireframeView() )
-        {
+        // Exactly when RenderDepthManual draws (ViewDepthPipeline). TerrainDepth.shader samples no scene/view
+        // input; both its pipelines run the one shader, so one layout.
+        const GraphicsPipeline* const pipeline = ViewDepthPipeline();
+        if ( pipeline == nullptr )
             return;
-        }
         const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Depth );
         PrepareGroupExecutors( pass, executors );
-        (void)DeclareGroupBlocks( pass, m_DepthPipeline.get(), m_DepthLayout, executors, nullptr, m_DicePool );
+        (void)DeclareGroupBlocks( pass, pipeline, m_DepthLayout, executors, nullptr, m_DicePool );
     }
 
     Common::BoolResultStr TerrainRenderer::RenderDepthManual( const RDG::PassContext& context )
     {
-        // The wireframe view's base pass writes its own depth (BasePassPipeline): not prepassed, as the meshes'.
-        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
-             m_ForwardRefused || WireframeView() )
+        const GraphicsPipeline* const pipeline = ViewDepthPipeline();
+        if ( pipeline == nullptr )
             return BOOLSUCCESS;
-        // The base pass's very matrix (GeometryPass), so both rasterise the same depth.
-        return RecordDraws( context, 0, *m_DepthPipeline, &ProgramMaterials::Depth,
+        // The base pass's very matrix (GeometryPass / "TerrainGBuffer"), so both rasterise the same depth.
+        return RecordDraws( context, 0, *pipeline, &ProgramMaterials::Depth,
                             m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
     }
 
