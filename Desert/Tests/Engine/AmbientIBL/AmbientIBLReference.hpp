@@ -30,6 +30,7 @@ namespace Desert::Tests::AmbientIBLRef
         using vec3 = glm::vec3;
         using vec4 = glm::vec4;
 
+        using glm::abs;
         using glm::clamp;
         using glm::max;
         using glm::min;

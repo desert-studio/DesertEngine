@@ -248,7 +248,7 @@ struct DesertAmbient
 {
     vec3  Irradiance;   // diffuse irradiance cube at S.N (sky look applied)
     vec3  Prefiltered;  // GGX-prefiltered cube at reflect(-S.V, S.N), mip by S.Roughness (sky look applied)
-    vec2  SpecularBRDF; // split-sum LUT .rg at (max(dot(S.N, S.V), 0), S.Roughness)
+    vec2  SpecularBRDF; // split-sum LUT .rg at (DesertAmbientNoV(S.N, S.V), S.Roughness) (Mesh/AmbientIBL.glslh)
     vec3  Indirect;     // one-bounce INCIDENT light (the deferred GI gather); vec3( 0.0 ) in the forward passes
     float Occlusion;    // the material's AmbientOcclusion times SSAO where the pass has it (DeferredLighting.shader:250)
     // 1 when Irradiance and Prefiltered are a TRACED final gather (the screen probes: UE's Lumen diffuse indirect

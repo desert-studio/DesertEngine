@@ -1,0 +1,34 @@
+# FPS-FIELD-BARN-RAISE: owner 11-03 "если чуть поднять камеру то вся трава будет черная" - the barn view raised
+# in steps (+100, +300, +800 cm) and tilted down, under the owner's DLSS Ray Reconstruction (machine.json), then
+# the highest view under DLSS Super Resolution: the grass must stay lit, and RR must not darken it against SR.
+# RR is chosen explicitly (the defect lives only in its diffuse albedo guide) and the tail stores it back: every
+# Anti-Aliasing command saves machine.json, and the owner's method is DLSSRayReconstruction.
+# Pixel numbers below: python scripts/Dev/frames_compare.py / pcmp.py on the run's frames; p_0 is
+# FPS-FIELD-BARN-PITCH's level view at 1.7 m.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано run Anti-Aliasing "Anti-Aliasing: DLSSRayReconstruction"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 200
+Тогда-вид r_0 level view at 1.7 m: field grass lit green-yellow, not black, as p_0; bottom quarter <= 0.2 % pixels below 8/255
+Когда --subject viewport set Camera.Position 0,270,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда frames 120
+Тогда-вид r_1 raised +1 m, tilted down 8 deg: the grass below lit as in r_0, not black; bottom third mean >= 0.85 of r_0's, <= 0.5 % pixels below 8/255
+Когда --subject viewport set Camera.Position 0,470,2500
+Когда frames 120
+Тогда-вид r_2 raised +3 m: the grass lit, no black specks between the blades; bottom third mean >= 0.85 of r_0's, <= 0.5 % pixels below 8/255
+Когда --subject viewport set Camera.Position 0,970,2500
+Когда frames 120
+Тогда-вид r_3 raised +8 m: the whole field lit from above, not black; grass mean >= 0.8 of r_0's, <= 0.5 % pixels below 8/255
+Когда --subject viewport set Camera.Direction 0.15,-0.4,-1
+Когда frames 120
+Тогда-вид r_4 raised +8 m, looking down 21 deg: the field under the camera lit, not black; bottom half mean within 10 % of r_4_sr's, <= 0.5 % pixels below 8/255
+Когда run Anti-Aliasing "Anti-Aliasing: DLSS"
+Когда frames 120
+Тогда-вид r_4_sr the r_4 view under DLSS Super Resolution: the same lit field (the brightness reference for r_4); editor.log 0 VUID, 0 shader errors
+# --- tail: machine.json back to the owner's Ray Reconstruction
+Когда run Anti-Aliasing "Anti-Aliasing: DLSSRayReconstruction"
+Тогда rr_restored Anti-Aliasing back on DLSSRayReconstruction; editor.log 0 VUID over the whole run

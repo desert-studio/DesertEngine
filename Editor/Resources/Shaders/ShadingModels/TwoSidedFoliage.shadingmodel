@@ -87,7 +87,7 @@ vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
     // model's: GetSpecularOcclusion( NoV, Roughness^2, AO ) on the specular, the AO on the diffuse. With the AO on it
     // linearly, a leaf inside the crown seen edge-on (Fresnel near 1, the lobe leaning into the occluded hemisphere)
     // kept most of the open sky: Bistro's sparkling, pale-blue foliage.
-    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    const float specularOcclusion = DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
     // The light through the leaf from its far side: the irradiance from -N times SubsurfaceColor. Under the SKY
     // LIGHT it is the sky cube's (UE SkyLightingDiffuseShared.ush, TWOSIDED_FOLIAGE); under a TRACED gather the
     // gather's own backface irradiance, occluded as the trace sees it (UE DiffuseIndirectComposite.usf with
