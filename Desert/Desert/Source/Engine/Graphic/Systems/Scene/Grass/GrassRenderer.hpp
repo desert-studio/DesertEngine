@@ -405,6 +405,18 @@ namespace Desert::Graphic::System
             uint32_t                TileCulls  = 0;
             // Counts the frames whose tiles changed (built, freed): the tile cull's input (FrameKey).
             uint32_t TileVersion = 0;
+            // TURN-CPU-SETUP-1, THE WALK IS KEPT WHILE ITS INPUTS ARE (UE FScene: what does not change between
+            // frames is held, not rebuilt each frame): the inputs of the last walk of the tiles around the eye
+            // (the eye on the ground, the cell, the cull radius, the stray, the thinning's three words:
+            // TileWalkKey) and the pool bound they give (TileBound). A frame with the same inputs, after a walk
+            // that neither freed nor built a tile in the same pool (TileWalkSettled - a camera that only turns),
+            // walks to the same table: UpdateTiles keeps TileEntries, TileCulls and the tiles still waiting for a
+            // slot (TilePending) instead of walking every tile of the square around the eye again.
+            std::array<uint32_t, 8> TileWalkKey{};
+            uint32_t                TileBound       = 0;
+            bool                    TileBoundKnown  = false;
+            bool                    TileWalkSettled = false;
+            bool                    TilePending     = false;
             // GrassGenerate's tile cull's inputs this frame (FrameKey: the params, the tiles' version, the
             // capacity, the buffers, the field's revision) and the ones Instances / Args were last culled from
             // (GenerateKey). Equal inputs keep equal instances, so a frame with the same ones dispatches nothing -

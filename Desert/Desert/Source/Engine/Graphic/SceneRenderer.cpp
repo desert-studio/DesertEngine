@@ -1715,6 +1715,10 @@ namespace Desert::Graphic
         // no child scope accounts for.
         DESERT_PROFILE_PHASES( phases );
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
+        // The setup, by stage (TURN-CPU-SETUP-1): one row per stage inside "Frame setup", contiguous from here to
+        // the plan, so the phase's own self is only the timer's; every stage below names what it costs.
+        DESERT_PROFILE_PHASES( setupPhases );
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Graph + view resolution" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
         // RenderPipeline.AsyncCompute: the AsyncCompute passes below (the PreOpaque particle simulation chain,
@@ -1818,6 +1822,7 @@ namespace Desert::Graphic
                                    : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
         inputs.LastExposure                      = m_LastExposure * m_LastAverageLocalExposure;
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: View BeginFrame" );
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -1852,6 +1857,7 @@ namespace Desert::Graphic
             shafts->SetPreExposure( frame.PreExposure );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Resize render targets" );
         ResizeRenderTargets( frame.Split.Render );
         // GetViewFrame() answers `frame` from here until OnUpdate returns, by every path (the destructor clears
         // it), so a writer can never read a finished frame's view.
@@ -1868,6 +1874,7 @@ namespace Desert::Graphic
 
         // The water's tiles, once, before its node records: the quadtree walked from the main camera. After the
         // view frame is current: PrepareFrame uploads this frame's view-projection pair from it.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Water + terrain frame" );
         {
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -1889,6 +1896,7 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame( frame );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
         if ( const Common::BoolResultStr physical =
                   m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
              !physical )
@@ -1897,20 +1905,26 @@ namespace Desert::Graphic
                        m_ViewResources.GetName(), physical.GetError() );
             return;
         }
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Frame textures" );
         FrameTextures textures( graph );
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Sky light" );
         AddFrameSkyLight( graph, textures );
         // The per-view sky LUTs (Sky-View, aerial perspective) right after the cached pair they sample, ahead of
         // every reader (UE RenderSkyAtmosphereLookUpTables, before the base pass): the sky behind the scene, the
         // clouds wherever they are added, the fog, the translucency - all read this frame's LUTs.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Sky atmosphere LUTs" );
         AddFrameSkyAtmosphereLuts( graph, textures );
         m_FrameCloudsTraced = false;
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Scene view textures" );
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Reflection captures" );
         if ( m_FrameReflectionCaptures )
             m_FrameReflectionCaptures->AddPasses( graph, textures, ReadsReflectionCaptures() );
         // The landscape's dice pool (its displaced sub-vertices, evaluated once), before any node that draws the
         // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual
         // shadows.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
@@ -1923,6 +1937,7 @@ namespace Desert::Graphic
         // kGBufferVelocitySlot) — never of a light view (cascades) or a debug target. Created before any node
         // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
         // A target at another extent than the view's is refused by name: the frame is not drawn.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: View transients" );
         if ( m_TargetFramebuffer )
         {
             const FramebufferSpecification& target = m_TargetFramebuffer->GetSpecification();
@@ -1968,6 +1983,7 @@ namespace Desert::Graphic
         // AddFrameGrassPostOcclusion, and draws the found ones through the visibility buffer or their cells), with
         // the grass visibility buffer or without it - so it is this graph's first reader of that HZB
         // (FramePrevHzb, reset here for the frame).
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
         m_FramePrevHzb = {};
         if ( !m_ViewProfile.SceneCapture )
         {
@@ -1998,6 +2014,7 @@ namespace Desert::Graphic
             const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             // Every landscape tile is a GPU-scene primitive too (its TLAS custom index): world-space vertices, so
             // an identity World.
+            DESERT_PROFILE_PHASE( setupPhases, "Setup: Skin cache + displacement" );
             m_ScratchTileMotions.clear();
             for ( const System::TerrainDrawData& tile : terrain->GetQueue() )
                 m_ScratchTileMotions.push_back(
@@ -2033,6 +2050,7 @@ namespace Desert::Graphic
                            m_ViewResources.GetName() );
                 return;
             }
+            DESERT_PROFILE_PHASE( setupPhases, "Setup: GPU scene sync" );
             if ( const Common::BoolResultStr rows =
                       meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber );
                  !rows )
@@ -2056,6 +2074,8 @@ namespace Desert::Graphic
                      "SceneColor" } } );
         };
 
+        // Every setup stage closes before the enclosing phase moves on (PhaseTimer::End).
+        DESERT_PROFILE_PHASE_END( setupPhases );
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
