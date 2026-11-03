@@ -16,10 +16,10 @@
 // LODs and fades them per frame) is not here: the build writes each cluster's chunk (WriteTileChunk) and
 // GrassCull.shader applies the law per view and frame to the records of the chunks a view meets (GrassViewLaw:
 // the distance thinning, the screen-width floor, the far LOD, the blade's widening and lowering, a mesh's
-// level and shrink), writes the instance into its row of Instances (the row IS the pool record) and appends
-// that row to the camera's, the cascades' and the full list (FullIds, the union RT and the list-less draws
-// read). Turning or stepping the view rebuilds nothing; only a tile entering the radius or a nearer view than it
-// was built for builds.
+// level and shrink), writes the instance into its row of Instances (REGRESS-CACHE-1: a row of the lists'
+// regions, Common/GrassVarietyRows.glslh THE ROWS) and appends that row to the camera's, the cascades' and the
+// full list (FullIds, the union RT and the list-less draws read). Turning or stepping the view rebuilds nothing;
+// only a tile entering the radius or a nearer view than it was built for builds.
 Shader "GrassGenerate"
 {
     Compute

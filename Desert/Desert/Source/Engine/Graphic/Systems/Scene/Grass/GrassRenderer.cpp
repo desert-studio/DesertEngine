@@ -771,8 +771,8 @@ namespace Desert::Graphic::System
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
             // GRASS-VIEW-LAW-1: the id lists below are written and read by the GPU alone, so they live in
-            // device-local memory (StorageBuffer::CreateDeviceLocal), not in the host-visible device heap. Instances
-            // is the pool's (UpdateTiles: one row per pool record).
+            // device-local memory (StorageBuffer::CreateDeviceLocal), not in the host-visible device heap, and so
+            // do the rows they name (Instances, REGRESS-CACHE-1: three regions of the lists' capacity, below).
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
@@ -834,12 +834,19 @@ namespace Desert::Graphic::System
                 // CullInstance). One row per pool record had spent 64 B on every resident record (~1.7 GB on
                 // FIELD_Barn, past the VRAM budget).
                 constexpr uint32_t kGrassRowRegions = 3u; // the full list's, the camera's own, its candidates'
-                gpu.Instances = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                     "GrassInstances",
-                     static_cast<uint32_t>( kGrassRowRegions * std::max( capacity, 1u ) * sizeof( glm::mat4 ) ), 2 );
+                const uint64_t     rowBytes =
+                     static_cast<uint64_t>( kGrassRowRegions ) * std::max( capacity, 1u ) * sizeof( glm::mat4 );
+                gpu.Instances.reset();
+                if ( rowBytes <= UINT32_MAX )
+                    gpu.Instances = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                         "GrassInstances", static_cast<uint32_t>( rowBytes ), 2 );
                 if ( !gpu.CameraIds || !gpu.FullIds || !gpu.Instances )
                 {
-                    LOG_ERROR( "[Grass] variety {:016x}: its id lists or rows were not made", variety.Key );
+                    // No Args: this block runs again next frame, as a pool that was not made is (UpdateTiles).
+                    LOG_ERROR( "[Grass] variety {:016x}: its id lists or rows ({} bytes, at most a storage buffer's "
+                               "4 GB) were not made; they are made anew next frame",
+                               variety.Key, rowBytes );
+                    gpu.Args.reset();
                     return nullptr;
                 }
                 std::vector<uint32_t> cameraArgs = args;

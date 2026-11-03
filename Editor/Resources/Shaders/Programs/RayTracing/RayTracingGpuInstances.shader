@@ -21,8 +21,8 @@ Shader "RayTracingGpuInstances"
         };
 
         // GRASS-VIEW-LAW-1: the producer's ids (GpuInstanceRefs::Ids: per drawn slot its row of Transforms) when
-        // ThroughIds is 1 - grass's full list, whose rows are its pool's records; else Transforms bound as a stand-in,
-        // never read (the slot is the row).
+        // ThroughIds is 1 - grass's full list, its rows of Instances (GrassCull.shader CullInstance); else Transforms
+        // bound as a stand-in, never read (the slot is the row).
         ReadBuffer(3) Ids
         {
             uint InstanceIds[];

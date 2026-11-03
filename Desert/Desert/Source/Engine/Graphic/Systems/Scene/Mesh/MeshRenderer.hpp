@@ -491,7 +491,7 @@ namespace Desert::Graphic::System
             // at k x CascadeArgBytes; that cascade draws them (BuildGpuInstancedShadowDraws) through its
             // kSurfaceInstanceIdsDefine caster cell. A view without its bit, or CascadeRefs null, draws Instances
             // / Refs directly - through FullIds when the producer's full list holds ids (GRASS-VIEW-LAW-1: grass's
-            // rows are its pool's records; Refs.Ids is FullIds' graph ref).
+            // full list names its rows of Instances, GrassCull.shader CullInstance; Refs.Ids is FullIds' graph ref).
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             std::shared_ptr<ShaderResources::StorageBuffer> FullIds;
             const GpuInstanceRefs*                          CascadeRefs     = nullptr;

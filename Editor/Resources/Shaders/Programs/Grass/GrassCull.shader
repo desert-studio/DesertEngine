@@ -319,29 +319,20 @@ Shader "GrassCull"
             return max( scale, 4.0 * width );
         }
 
-        // Mode 1, a lane's instance of a chunk; true when a list took it.
-        // GRASS-CULL-UNIFY-1, THE CASCADES' LISTS (UE: each shadow view culls the same instances by its own volume;
-        // moved here from GrassGenerate's tile cull, which no longer sees any view): instance @p slot of row @p r,
-        // in bucket @p b (its table word @p table), goes into each cascade list whose caster box its reach meets - a
-        // sphere about its root (after the snow sank it) holding its bounds at the instance's scale @p scale, plus a
-        // mesh's sway (Bounds.z), of the lists whose box met its chunk (bit k of @p met, CullChunk).
-        // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the root: a mover inside the
-        // list's ring [inner, wind distance), else its rest pose (Common/ShadowWind.glslh, the one rule). A mover is
-        // appended from the bucket's first slot, a rest caster from its last; a list's bucket never passes the room
-        // the full list's bucket has, so the lists share its capacity.
-        bool CascadeCull( uint r, uint b, uint table, uint slot, vec3 root, float scale, uint met )
+        // THE CASCADES' PLANE RULE (GRASS-CULL-UNIFY-1; UE: each shadow view culls the same instances by its own
+        // volume): the cascade lists (bit k: list k) whose caster box an instance's reach meets - a sphere about its
+        // root @p root (after the snow sank it) holding its bounds at the instance's scale @p scale, plus a mesh's sway
+        // (Bounds.z) - of the lists whose box met its chunk (bit k of @p met, CullChunk; none while the lists hold).
+        // The one statement of it: the full list keeps an instance some list holds (CullInstance), CascadeCull
+        // appends it to exactly those lists.
+        uint CascadeHolds( uint r, vec3 root, float scale, uint met )
         {
-            uint mask = VarietyRows[r].Info.w;
-            if ( mask == 0u || met == 0u )
-                return false;
-            bool took = false;
-            vec4       bounds  = VarietyRows[r].Bounds;
-            float      reach   = ( abs( bounds.y ) + bounds.x ) * scale + bounds.z;
-            uint       words   = VarietyRows[r].CascadeWords.x;
-            uint       rests   = VarietyRows[r].CascadeWords.y;
-            GrassWords cascade = GrassWords( VarietyRows[r].CascadeArgs );
-            GrassWords ids     = GrassWords( VarietyRows[r].CascadeIds );
-            uint       lists   = uint( bitCount( mask ) );
+            uint holds = 0u;
+            if ( VarietyRows[r].Info.w == 0u || met == 0u )
+                return holds;
+            vec4  bounds = VarietyRows[r].Bounds;
+            float reach  = ( abs( bounds.y ) + bounds.x ) * scale + bounds.z;
+            uint  lists  = uint( bitCount( VarietyRows[r].Info.w ) );
             for ( uint k = 0u; k < lists; ++k )
             {
                 bool inside = ( met & ( 1u << k ) ) != 0u;
@@ -350,7 +341,30 @@ Shader "GrassCull"
                     vec4 plane = VarietyCascadePlanes[k * 6u + i];
                     inside     = dot( plane.xyz, root ) + plane.w >= -reach;
                 }
-                if ( !inside )
+                if ( inside )
+                    holds |= 1u << k;
+            }
+            return holds;
+        }
+
+        // Mode 1, a lane's instance of a chunk.
+        // GRASS-CULL-UNIFY-1, THE CASCADES' LISTS (moved here from GrassGenerate's tile cull, which no longer sees any
+        // view): the instance at row @p slot of Instances (REGRESS-CACHE-1: its full list's slot) of row @p r, in
+        // bucket @p b (its table word @p table), goes into each cascade list of @p holds (CascadeHolds).
+        // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the root @p root: a mover inside the
+        // list's ring [inner, wind distance), else its rest pose (Common/ShadowWind.glslh, the one rule). A mover is
+        // appended from the bucket's first slot, a rest caster from its last; a list's bucket never passes the room
+        // the full list's bucket has, so the lists share its capacity.
+        void CascadeCull( uint r, uint b, uint table, uint slot, vec3 root, uint holds )
+        {
+            uint       words   = VarietyRows[r].CascadeWords.x;
+            uint       rests   = VarietyRows[r].CascadeWords.y;
+            GrassWords cascade = GrassWords( VarietyRows[r].CascadeArgs );
+            GrassWords ids     = GrassWords( VarietyRows[r].CascadeIds );
+            uint       lists   = uint( bitCount( VarietyRows[r].Info.w ) );
+            for ( uint k = 0u; k < lists; ++k )
+            {
+                if ( ( holds & ( 1u << k ) ) == 0u )
                     continue;
                 vec4 rings = VarietyRows[r].CascadeRings[k / 2u];
                 vec2 ring  = ( k & 1u ) == 0u ? rings.xy : rings.zw;
@@ -365,10 +379,8 @@ Shader "GrassCull"
                 {
                     uint offset = mover ? index : room - 1u - index;
                     ids.Words[cascade.Words[at + 1u] + offset] = slot;
-                    took        = true;
                 }
             }
-            return took;
         }
 
         // Row @p r's cascade lists after CascadeCull (moved from GrassFinalize.shader with the lists): each list's
@@ -428,32 +440,9 @@ Shader "GrassCull"
             return dot( plane.xyz, centre ) + plane.w >= -dot( abs( plane.xyz ), extent );
         }
 
-        // Whether a cascade list whose box met the chunk (bit k of @p met) holds the sphere about @p root at the
-        // instance's scale @p scale (CascadeCull's planes, before it appends): the full list then keeps the instance.
-        bool CascadeMeets( uint r, vec3 root, float scale, uint met )
-        {
-            if ( VarietyRows[r].Info.w == 0u || met == 0u )
-                return false;
-            vec4  bounds = VarietyRows[r].Bounds;
-            float reach  = ( abs( bounds.y ) + bounds.x ) * scale + bounds.z;
-            uint  lists  = uint( bitCount( VarietyRows[r].Info.w ) );
-            for ( uint k = 0u; k < lists; ++k )
-            {
-                bool inside = ( met & ( 1u << k ) ) != 0u;
-                for ( uint i = 0u; i < 6u && inside; ++i )
-                {
-                    vec4 plane = VarietyCascadePlanes[k * 6u + i];
-                    inside     = dot( plane.xyz, root ) + plane.w >= -reach;
-                }
-                if ( inside )
-                    return true;
-            }
-            return false;
-        }
-
         const uint kNoGrassRow = 0xFFFFFFFFu;
 
-        // Mode 1, one lane: record @p record of row @p r, its instance @p instance after the law in bucket @p b, of a
+        // Mode 1, one lane: row @p r's instance @p instance (a pool record after the law) in bucket @p b, of a
         // chunk that met the cascade lists @p met (bit k: list k), the camera's side planes (@p seen) and - inside
         // them - was hidden whole by the previous frame's HZB (@p chunkHidden); @p held: the row's cascades and its
         // full list hold from an earlier frame. A view that keeps it gets its ROW (REGRESS-CACHE-1; UE: the culled
@@ -464,7 +453,7 @@ Shader "GrassCull"
         // grass the camera cannot see still casts and reflects) take the full slot; the camera takes it too when the
         // full list took the instance this frame. A held full list keeps the rows of the frame that culled it, as
         // its cascades keep their depth.
-        void CullInstance( uint r, uint b, uint record, mat4 instance, uint met, bool seen, bool chunkHidden, bool held )
+        void CullInstance( uint r, uint b, mat4 instance, uint met, bool seen, bool chunkHidden, bool held )
         {
             uint       tables   = VarietyRows[r].Info.y;
             uint       buckets  = VarietyRows[r].Info.x;
@@ -478,14 +467,14 @@ Shader "GrassCull"
             float radius = bounds.x * scale + bounds.z;
             vec3  centre = instance[3].xyz + bounds.y * instance[1].xyz;
             // The shadow views first: an instance outside the camera's volume still casts into a cascade.
-            bool casts  = CascadeMeets( r, instance[3].xyz, scale, met );
+            uint holds  = CascadeHolds( r, instance[3].xyz, scale, met );
             bool inside = seen;
             for ( int i = 0; i < 4 && inside; ++i )
             {
                 vec4 plane = VarietyCameraPlanes[i];
                 inside     = dot( plane.xyz, centre ) + plane.w >= -radius;
             }
-            if ( !casts && !inside )
+            if ( holds == 0u && !inside )
                 return;
             uint row = kNoGrassRow;
             if ( !held )
@@ -496,7 +485,7 @@ Shader "GrassCull"
                     row = first + full;
                     GrassInstanceRows( VarietyRows[r].Instances ).Rows[row] = instance;
                     GrassWords( VarietyRows[r].FullIds ).Words[row] = row;
-                    CascadeCull( r, b, table, row, instance[3].xyz, scale, met );
+                    CascadeCull( r, b, table, row, instance[3].xyz, holds );
                 }
             }
             if ( !inside )
@@ -612,7 +601,7 @@ Shader "GrassCull"
                 mat4 instance;
                 uint b;
                 if ( GrassViewLaw( p, args, tile, instance, b ) )
-                    CullInstance( r, b, record, instance, met, seen, hidden, held );
+                    CullInstance( r, b, instance, met, seen, hidden, held );
             }
         }
 
