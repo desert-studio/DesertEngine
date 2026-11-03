@@ -19,13 +19,46 @@ layout( location = 4 ) out vec4 oVelocity;
 // writes the view's depth, so it says what material won it.
 #include <Common/ThinGeometryCoverage.glslh>
 layout( location = 5 ) out float oThinGeometryCoverage;
+// The stored roughness is floored, then widened by the shading normal's spread across the pixel (the specular AA).
+#include <Common/SpecularAA.glslh>
+
+#if defined( DESERT_SURFACE_PASS_VisibilityResolve )
+// THE RESOLVE'S NORMAL FOOTPRINT: a quad of the full-screen resolve spans several blades, so dFdx of its normal is
+// not the surface's (as its UV0 gradient, SurfaceTypes.glslh g_DesertVisibilityUVdx). Pass_VisibilityResolve.glslh
+// sets the analytic change of the TBN it interpolates across one pixel in x and y (each unit column's turn, through
+// the barycentrics' derivative at the pixel), and the shading normal's change is that frame turn applied to the
+// pixel's own tangent normal: the mesh's curvature across the pixel, which on a blade narrower than the pixel is
+// the whole of its width's turn.
+mat3 g_DesertVisibilityTBNdx = mat3( 0.0 );
+mat3 g_DesertVisibilityTBNdy = mat3( 0.0 );
+#endif
+
+// The shading normal @p N's change across one pixel in x (@p dNdx) and y (@p dNdy), for the specular AA.
+void DesertSurfaceNormalFootprint( const SurfaceInput i, const SurfaceOutput s, const vec3 N, out vec3 dNdx,
+                                   out vec3 dNdy )
+{
+#if defined( DESERT_SURFACE_PASS_VisibilityResolve )
+    // N = normalize( TBN t ): its derivative is the frame's turn of t with the part along N removed, over |TBN t|.
+    const float frameLength = max( length( i.TBN * s.Normal ), 1.0e-4 );
+    const vec3  turnX       = g_DesertVisibilityTBNdx * s.Normal;
+    const vec3  turnY       = g_DesertVisibilityTBNdy * s.Normal;
+    dNdx                    = ( turnX - N * dot( N, turnX ) ) / frameLength;
+    dNdy                    = ( turnY - N * dot( N, turnY ) ) / frameLength;
+#else
+    dNdx = dFdx( N );
+    dNdy = dFdy( N );
+#endif
+}
 
 // @p castsContactShadow: the primitive's contact-shadow cast (UE bCastContactShadow), as its draw states it.
 void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
                          const float objectMoved, const bool castsContactShadow )
 {
+    const vec3 N = DesertSurfaceWorldNormal( i, s );
+    vec3       dNdx, dNdy;
+    DesertSurfaceNormalFootprint( i, s, N, dNdx, dNdy );
     oGBufferA = vec4( s.BaseColor, s.Metallic );
-    oGBufferB = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, kDesertMinRoughness ) );
+    oGBufferB = vec4( N, DesertSpecularAA( max( s.Roughness, kDesertMinRoughness ), dNdx, dNdy ) );
     const uvec2 word =
          DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );

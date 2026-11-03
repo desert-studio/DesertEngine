@@ -145,6 +145,9 @@ Shader "TerrainGBuffer"
         #include <Generated/ShadingModels.glslh>
         #include <Common/WeatherSnow.glslh>
         #include <Common/ThinGeometryCoverage.glslh>
+        // The stored roughness is widened by the ground normal's spread across the pixel, as every G-buffer writer's
+        // is (Mesh/Surface/GBufferOutputs.glslh): the specular AA.
+        #include <Common/SpecularAA.glslh>
 
         void main()
         {
@@ -171,7 +174,7 @@ Shader "TerrainGBuffer"
             // EncodeSubsurfaceColor), so the transmitted light fades in with the cover and bare ground stays
             // DefaultLit.
             oGBufferA        = vec4( s.Albedo, 0.0 );
-            oGBufferB        = vec4( s.N, s.Roughness );
+            oGBufferB        = vec4( s.N, DesertSpecularAA( s.Roughness, s.N ) );
             const vec3 sss   = sqrt( clamp( transmission, 0.0, 1.0 ) );
             oGBufferShadingWord = cover > 0.0
                                        ? DesertPackShadingWord( SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE, 0.0, 0.5,

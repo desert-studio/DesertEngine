@@ -268,6 +268,9 @@ Shader "Terrain"
         // the whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this pass
         // without DesertSampleAmbient (as Mesh/Surface/Pass_Forward.glslh orders them).
         #include <Common/ThinGeometryCoverage.glslh>
+        // The roughness this pass shades with is the one TerrainGBuffer stores for the same texel: widened by the
+        // ground normal's spread across the pixel (the specular AA).
+        #include <Common/SpecularAA.glslh>
         // The local lights and the ambient: the one statement every forward-lit opaque cell shades them with.
         #include <Mesh/ForwardSceneLighting.glslh>
 
@@ -296,8 +299,9 @@ Shader "Terrain"
 
             // The eye: the view block's (CameraUB).
             const vec3          eye     = cameraUB.CameraPos;
-            const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, s.Roughness,
-                                                             0.5 ); // UE's default Specular, as TerrainGBuffer packs
+            const float         roughness = DesertSpecularAA( s.Roughness, N );
+            const DesertSurface surface   = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, roughness,
+                                                               0.5 ); // UE's default Specular, as TerrainGBuffer packs
             const vec3          sss     = sqrt( clamp( transmission, 0.0, 1.0 ) );
             const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, opacity )
                                                       : DesertPayload( 0.0, 0.0, 0.0, 0.0 );

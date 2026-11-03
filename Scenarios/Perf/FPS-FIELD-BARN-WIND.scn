@@ -1,0 +1,45 @@
+# FPS-FIELD-BARN-WIND: the ground of FIELD_Barn shimmers under the scene's own wind (owner 11-03: "какие то
+# трснные мерцание на земле"). Every other FPS-FIELD-BARN-* run zeroes the scene's one WindSource
+# (8180000000000004, 1500 cm/s in FIELD_Barn.desce) and stays in edit mode, where the sway reads a zero gameplay
+# clock (Graphic/InstanceWind.hpp): none of them is shot with the input the owner sees it under. Here the wind is
+# the scene's and the view runs under Simulate, so the blades sway every frame.
+# GROUND-SHIMMER-1: a blade narrower than a pixel, swayed by the wind, put its sun highlight wholly in or out of a
+# pixel from frame to frame (one shading normal per pixel, the roughness stored as authored), and DLSS-RR cannot
+# accumulate a signal that really changed. Fix: the specular AA (Common/SpecularAA.glslh, Tokuyoshi-Kaplanyan 2019)
+# widens every opaque surface's roughness by its shading normal's spread across the pixel where the G-buffer is
+# written (Mesh/Surface/GBufferOutputs.glslh, raster and visibility resolve), in the forward cells and in the
+# terrain's two programs.
+# MEASURE (lead, pixel diff, not thumbnails): ground band = the bottom 40 % of the frame. q_0..q_7: per-pixel
+# temporal std over the eight frames (flick.py), its band mean and the share of band pixels with std > 8/255 -
+# record both on the BEFORE build (task/GRASS-VIEW-LAW-1 be37bb878) and on task/GROUND-SHIMMER-1. s_0..s_7: the
+# share of band pixels that are warm-white sun highlights and of near-white ones, per frame, by the same
+# classifier as the SPINFLICKER measure (scn-1103-163614: spot RGB ~(221,214,174) on a (111,98,56) field).
+# n_still: the band's mean luma against the BEFORE build's n_still.
+# Same project line and default machine settings as FPS-FIELD-BARN (no machine.json overrides); its view.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Когда frames 300
+Тогда-вид n_still edit mode (the sway's clock is zero): field, barn, trees and sky; the ground band's mean luma within 1/255 of the BEFORE build's n_still - the grass neither duller nor darker; editor.log 0 VUID
+Когда run Action Simulate
+Когда frames 300
+Тогда-вид q_0 under Simulate with the scene's wind (1500 cm/s), still camera: the grass bent along the wind; no white sparkles on the ground
+Тогда-вид q_1 the next frame: the same view
+Тогда-вид q_2 the next frame: the same view
+Тогда-вид q_3 the next frame: the same view
+Тогда-вид q_4 the next frame: the same view
+Тогда-вид q_5 the next frame: the same view
+Тогда-вид q_6 the next frame: the same view
+Тогда-вид q_7 the next frame: over q_0..q_7 the ground band's temporal std <= 1.0/255 and <= 0.05 % of its pixels with std > 8/255 (the BEFORE build's two numbers recorded beside them); editor.log 0 VUID
+Когда --subject viewport set Camera.Spin 1
+Когда frames 30
+Тогда-вид s_0 the camera turning 1 degree every frame under the wind: warm-white sun highlights <= 0.08 % of the ground band, near-white <= 0.01 % (the BEFORE build: 0.15-0.33 % and 0.14-0.27 %)
+Тогда-вид s_1 the next frame, still turning: the same bounds as s_0
+Тогда-вид s_2 the next frame, still turning: the same bounds as s_0
+Тогда-вид s_3 the next frame, still turning: the same bounds as s_0
+Тогда-вид s_4 the next frame, still turning: the same bounds as s_0
+Тогда-вид s_5 the next frame, still turning: the same bounds as s_0
+Тогда-вид s_6 the next frame, still turning: the same bounds as s_0
+Тогда-вид s_7 the next frame, still turning: the same bounds as s_0; field, barn, trees and sky drawn, nothing black; editor.log 0 VUID
+Когда --subject viewport set Camera.Spin 0
