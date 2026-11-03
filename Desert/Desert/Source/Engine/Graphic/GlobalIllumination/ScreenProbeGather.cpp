@@ -191,17 +191,24 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 11> kScreenProbeShaderNames{
+        constexpr std::array<std::string_view, 12> kScreenProbeShaderNames{
              "ScreenProbePlace",  "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",  "ScreenProbeCompactTraces",
-             "ScreenProbeTrace",  "ScreenProbeTrace",        "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter",
+             "ScreenProbeTrace",  "ScreenProbeTrace",        "ScreenProbeTrace",        "ScreenProbeDisocclusion",
+             "ScreenProbeSpatialFilter",
              "ScreenProbeFilter", "ScreenProbeIntegrate",    "ScreenProbeTemporal" };
 
         // UE r.Lumen.ScreenProbeGather.SpatialFilterNumPasses.
         constexpr uint32_t kSpatialFilterPasses = 3;
 
-        // The defines of the world legs' two permutations of ScreenProbeTrace (besides TracerVariant's).
+        // The defines of the world legs' three permutations of ScreenProbeTrace (besides TracerVariant's).
         constexpr std::string_view kTraceNearFieldDefine = "SP_TRACE_NEAR_FIELD";
         constexpr std::string_view kTraceFarFieldDefine  = "SP_TRACE_FAR_FIELD";
+        constexpr std::string_view kTraceCacheMissDefine = "SP_TRACE_CACHE_MISS";
+
+        // ScreenProbeCompactTraces' list (CompactPush::FarField): must match the shader's SP_COMPACT_*.
+        constexpr uint32_t kCompactNearField = 0u; // no hit, not at the cache, before MaxDistance
+        constexpr uint32_t kCompactFarField  = 1u; // no hit
+        constexpr uint32_t kCompactCacheMiss = 2u; // the far field reached the cache and no traced probe answered
 
         // ScreenProbeCompactArgsUB: x = groups, y = z = 1 (a dispatch's three counts; w unused); the allocator: 0.
         constexpr std::array<uint32_t, 4> kCompactArgsReset{ 0u, 1u, 1u, 0u };
@@ -298,7 +305,7 @@ namespace Desert::Graphic::GlobalIllumination
         const Core::ShaderVariant variant = LayoutVariant( downsample, tracedTexels );
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
-            if ( program == TraceNearField || program == TraceFarField )
+            if ( program == TraceNearField || program == TraceFarField || program == TraceCacheMiss )
                 continue; // tracer permutations, EnsureTraceProgram
             const std::string name( kScreenProbeShaderNames[program] );
             auto              acquired = shaders->AcquireVariant( name, variant );
@@ -350,11 +357,13 @@ namespace Desert::Graphic::GlobalIllumination
 
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
     {
-        if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && pipeline == m_TraceProgramFor &&
+        if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && m_Pipelines[TraceCacheMiss] &&
+             pipeline == m_TraceProgramFor &&
              m_TraceProgramDownsample == m_ProgramDownsample && m_TraceProgramTracedTexels == m_ProgramTracedTexels )
             return BOOLSUCCESS;
         for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
-                                             std::pair{ TraceFarField, kTraceFarFieldDefine } } )
+                                             std::pair{ TraceFarField, kTraceFarFieldDefine },
+                                             std::pair{ TraceCacheMiss, kTraceCacheMissDefine } } )
         {
             const std::string   name( kScreenProbeShaderNames[program] );
             const Core::ShaderVariant variant = TraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
@@ -385,12 +394,13 @@ namespace Desert::Graphic::GlobalIllumination
     {
         std::vector<Core::CookedProgramVariant> variants;
         for ( uint32_t program = 0; program < ProgramCount; ++program )
-            if ( program != TraceNearField && program != TraceFarField )
+            if ( program != TraceNearField && program != TraceFarField && program != TraceCacheMiss )
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                       LayoutVariant( downsample, tracedTexels ) } );
         for ( const Pipeline& tracer : kTracerPermutations )
             for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
-                                                 std::pair{ TraceFarField, kTraceFarFieldDefine } } )
+                                                 std::pair{ TraceFarField, kTraceFarFieldDefine },
+                                                 std::pair{ TraceCacheMiss, kTraceCacheMissDefine } } )
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                       TraceVariant( tracer, leg, downsample, tracedTexels ) } );
         return variants;
@@ -751,9 +761,15 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         traceWorld( TraceNearField, "ScreenProbes: Trace Near Field",
-                    compact( "near field", CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), 0u } ) );
+                    compact( "near field",
+                             CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), kCompactNearField } ) );
         traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
-                    compact( "far field", CompactPush{ std::numeric_limits<float>::max(), 1u } ) );
+                    compact( "far field", CompactPush{ std::numeric_limits<float>::max(), kCompactFarField } ) );
+        // The rays the far field took to the radiance cache's coverage and no traced probe answered (cells the view
+        // just reached: allocated this frame past the trace budget, or not yet marked) go on to the full trace
+        // distance in a list of their own, so the far field's waves stay as short as its own leg.
+        traceWorld( TraceCacheMiss, "ScreenProbes: Trace Cache Miss",
+                    compact( "cache miss", CompactPush{ std::numeric_limits<float>::max(), kCompactCacheMiss } ) );
 
         // SPATIAL FILTER (UE FilterScreenProbes, SpatialFilterNumPasses): the disocclusion of every probe's tile,
         // then three passes across neighbouring probes, each reading the last one's radiance.

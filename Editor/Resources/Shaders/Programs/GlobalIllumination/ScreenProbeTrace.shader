@@ -2,7 +2,7 @@
 // THE SCREEN PROBE TRACE, 3/3 — THE WORLD (UE LumenScreenProbeTracing.usf ScreenProbeTraceMeshSDFsCS, then
 // ScreenProbeTraceVoxelsCS with the radiance cache's far field): one thread per ray the screen
 // (ScreenProbeTraceScreen.shader) left open, read from the compacted list (ScreenProbeCompactTraces.shader) and
-// rebuilt from its probe and texel (Common/ScreenProbeTracing.glslh). Two permutations, two passes, each going on from
+// rebuilt from its probe and texel (Common/ScreenProbeTracing.glslh). Three permutations, three passes, each going on from
 // where the previous leg left off along the same ray (the trace hit buffer's distance; UE VoxelTraceStartDistance):
 //   SP_TRACE_NEAR_FIELD  the GI ray contract's near field (Common/GITracing.glslh GITraceNearField: the software
 //             tracer's mesh SDFs of the view's near-field froxel grid, UE LumenMeshSDFCulling; a hit reads its
@@ -12,8 +12,12 @@
 //             as far as the world radiance cache's coverage asks (minTraceDistanceBeforeCache: past it the cache's
 //             probes see what the ray would); a ray that gets there without a hit reads the cache's RADIANCE in its
 //             direction at the probe, from the probes that see it (RadianceCacheRadianceAt, UE
-//             SampleRadianceCacheInterpolated). Outside the cache, or where its probes have not traced yet, the ray
-//             goes on to the full trace distance and the sky.
+//             SampleRadianceCacheInterpolated). Outside the cache the ray goes on to the full trace distance and the
+//             sky here (tMax is that distance). Where the cache covers the ray but no traced probe answers (cells the
+//             view just reached), nothing is traced here: the ray is left at the cache, reached and unanswered.
+//   SP_TRACE_CACHE_MISS  over those rays only (their own compacted list, so a few full-length rays no longer hold
+//             the far field's every wave): the rest of the ray, from the cache's distance to the full trace distance
+//             and the sky, so a new cell is neither black nor sky.
 // The program is compiled per tracer (GlobalIllumination::TracerVariant) and per leg; it names no tracer. .a keeps the
 // distance the ray's radiance came from (the filter's angle test).
 Shader "ScreenProbeTrace"
@@ -124,7 +128,7 @@ Shader "ScreenProbeTrace"
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
-        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD )
+        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
         #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
         #endif
 
@@ -172,6 +176,16 @@ Shader "ScreenProbeTrace"
             else
                 screenProbeTraceHit[slot] =
                      SPEncodeTraceHit( farStart, false, false, texel.coverage.valid && farStart >= texel.tMax );
+#elif defined( SP_TRACE_CACHE_MISS )
+            // The rest of a ray the cache did not answer: from the cache's distance to the full trace distance.
+            ray.tMin                 = ray.tMax;
+            ray.tMax                 = SP_TRACE_DISTANCE;
+            const GITraceResult rest = GITraceRay( ray );
+            const vec4 result = rest.hit ? vec4( GIHitRadiance( rest.surface, dir ), rest.surface.distance )
+                                         : vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE );
+            imageStore( ScreenProbeTracedTexture, at, result );
+            screenProbeTraceHit[slot] =
+                 SPEncodeTraceHit( result.a, rest.hit, rest.hit && SPTraceHitMoving( probe, texel, rest.surface ), false );
 #else
             // The far field, then the radiance cache's far field, then the sky.
             vec4                result;
@@ -189,17 +203,14 @@ Shader "ScreenProbeTrace"
                                                         : vec4( 0.0, 0.0, 0.0, -1.0 );
                 if ( cache.a > 0.0 )
                     result = vec4( cache.rgb, SP_TRACE_DISTANCE );
-                else
+                else if ( texel.coverage.valid )
                 {
-                    // No cache answer: the rest of the ray traced here, so a new cell is neither black nor sky.
-                    ray.tMin                 = ray.tMax;
-                    ray.tMax                 = SP_TRACE_DISTANCE;
-                    const GITraceResult rest = texel.coverage.valid ? GITraceRay( ray ) : far;
-                    result = rest.hit ? vec4( GIHitRadiance( rest.surface, dir ), rest.surface.distance )
-                                      : vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE );
-                    hit    = rest.hit;
-                    moving = rest.hit && SPTraceHitMoving( probe, texel, rest.surface );
+                    // No traced probe answers yet: the cache-miss leg traces the rest of this ray.
+                    screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
+                    return;
                 }
+                else
+                    result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
             }
             imageStore( ScreenProbeTracedTexture, at, result );
             // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the filter
