@@ -1182,10 +1182,10 @@ namespace Desert::Graphic::System
         if ( gpu.PoolFresh )
         {
             gpu.TileWalkSettled = false; // a new pool's tiles are all built again: no table is kept
-            gpu.TileSlots    = slots;
-            gpu.TilePages    = pages;
-            gpu.TileSide     = side;
-            gpu.PlacementKey = std::move( placement );
+            gpu.TileSlots       = slots;
+            gpu.TilePages       = pages;
+            gpu.TileSide        = side;
+            gpu.PlacementKey    = std::move( placement );
             gpu.Tiles.clear();
             gpu.FreeSlots.clear();
             for ( uint32_t s = slots; s > 0u; --s )
