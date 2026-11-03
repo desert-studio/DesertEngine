@@ -33,6 +33,16 @@ float RadianceCacheCellSize( RadianceCacheParams cache, uint clipmap )
     return cache.clipmapCornerAndCellSize[clipmap].w;
 }
 
+// The range a probe's DISTANCE MOMENTS cover (DDGI's probe max ray distance; RTXGI keeps it relative to the probe
+// spacing, so it is two cells here). RadianceCacheFilter clamps every ray's hit distance to it and stores d / range
+// and (d / range)^2, both in 0..1, so the RG16F atlas (RadianceCache.hpp kDepthAtlasFormat, largest 65504) holds
+// every clipmap: the mean square in cm^2 overflowed it from the 208 cm cells up, and inf - inf made the
+// visibility, then the whole eight-probe weight, NaN. RadianceCacheProbeVisibility compares in the same unit.
+float RadianceCacheDistanceMomentRange( RadianceCacheParams cache, uint clipmap )
+{
+    return 2.0 * RadianceCacheCellSize( cache, clipmap );
+}
+
 float RadianceCacheProbeTMin( RadianceCacheParams cache, uint clipmap )
 {
     return clipmap < 4u ? cache.clipmapProbeTMin[0][clipmap] : cache.clipmapProbeTMin[1][clipmap - 4u];
@@ -207,16 +217,19 @@ vec2 RadianceCacheSampleProbeDistance( uint probe, vec3 direction )
 
 // Chebyshev visibility of @p point from a probe at @p probePos, from the probe's distance moments (DDGI): 1 where
 // the probe sees nothing nearer than the point in its direction, falling off where it sees a surface in front of
-// it - the point is behind a wall from the probe. Both reads weight their eight probes by it.
-float RadianceCacheProbeVisibility( uint probe, vec3 probePos, vec3 point )
+// it - the point is behind a wall from the probe. Both reads weight their eight probes by it. @p momentRange is
+// RadianceCacheDistanceMomentRange of the probe's clipmap: the moments are stored in units of it, so the point's
+// distance is too (the Chebyshev ratio does not depend on the unit).
+float RadianceCacheProbeVisibility( uint probe, vec3 probePos, vec3 point, float momentRange )
 {
     const vec3  probeToPoint = point - probePos;
     const float distance     = length( probeToPoint );
     const vec2  moments      = RadianceCacheSampleProbeDistance( probe, probeToPoint / max( distance, 1e-3 ) );
-    if ( distance <= moments.x )
+    const float relative     = distance / momentRange;
+    if ( relative <= moments.x )
         return 1.0;
     const float variance  = abs( moments.y - moments.x * moments.x );
-    const float d         = distance - moments.x;
+    const float d         = relative - moments.x;
     const float chebyshev = variance / ( variance + d * d );
     return max( chebyshev * chebyshev * chebyshev, 0.0 );
 }
@@ -235,7 +248,8 @@ vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float dither
     const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
     if ( clipmap >= radianceCache.shape.x )
         return vec4( 0.0, 0.0, 0.0, -1.0 );
-    const float cell = RadianceCacheCellSize( radianceCache, clipmap );
+    const float cell        = RadianceCacheCellSize( radianceCache, clipmap );
+    const float momentRange = RadianceCacheDistanceMomentRange( radianceCache, clipmap );
     // DDGI's surface bias: off the surface, mostly toward the viewer, so the visibility test does not shadow the
     // surface by itself.
     const vec3  biased = p + ( N * 0.2 + V * 0.8 ) * ( 0.3 * cell );
@@ -264,7 +278,7 @@ vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float dither
         const float toProbeLength = max( length( toProbe ), 1e-3 );
         const float wrap      = ( dot( toProbe / toProbeLength, N ) + 1.0 ) * 0.5;
         w *= wrap * wrap + 0.2;
-        w *= RadianceCacheProbeVisibility( entry, probePos, biased );
+        w *= RadianceCacheProbeVisibility( entry, probePos, biased, momentRange );
         w = max( w, 1e-6 );
         sum    += w * RadianceCacheSampleProbeIrradiance( entry, N );
         if ( second )
@@ -375,6 +389,7 @@ vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 direction, float ditherRandom
     // The irradiance read's surface bias, toward the ray instead of the viewer: the point tested is where the
     // ray's light comes in, just off the surface.
     const vec3  biased = p + ( N * 0.2 + direction * 0.8 ) * ( 0.3 * RadianceCacheCellSize( radianceCache, clipmap ) );
+    const float momentRange = RadianceCacheDistanceMomentRange( radianceCache, clipmap );
     const vec3  coord  = RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5;
     const ivec3 base   = ivec3( floor( coord ) );
     const vec3  alpha  = coord - vec3( base );
@@ -394,7 +409,7 @@ vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 direction, float ditherRandom
                                 RADIANCE_CACHE_PROBES[entry].offset.xyz;
         const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
         const float w = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 ) *
-                        RadianceCacheProbeVisibility( entry, probePos, biased );
+                        RadianceCacheProbeVisibility( entry, probePos, biased, momentRange );
         sum    += w * RadianceCacheSampleProbeRadiance( entry, direction );
         weight += w;
     }
