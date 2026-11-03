@@ -116,6 +116,9 @@ layout( binding = 21 ) uniform CloudShadowUB
 // whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this lighting pass
 // without DesertSampleAmbient.
 #include <Common/ThinGeometryCoverage.glslh>
+// The roughness this cell shades with is the one the G-buffer cells store: widened by the shading normal's spread
+// across the pixel (the specular AA, the same filter GBufferOutputs.glslh applies).
+#include <Common/SpecularAA.glslh>
 // The local lights and the ambient, the one statement every forward-lit opaque cell shades them with.
 #include <Mesh/ForwardSceneLighting.glslh>
 
@@ -164,8 +167,10 @@ void main()
         return;
     }
 
+    // Floored first, as the G-buffer writer floors it, then widened by the normal's spread across the pixel.
+    const float roughness = DesertSpecularAA( max( s.Roughness, kDesertMinRoughness ), N );
     const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, i.CameraPosition - i.WorldPosition,
-                                                     s.BaseColor, s.Metallic, s.Roughness,
+                                                     s.BaseColor, s.Metallic, roughness,
                                                      DesertQuantizePayloadFloat( s.Specular ) );
     // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
     const DesertPayload payload = DesertQuantizePayload(

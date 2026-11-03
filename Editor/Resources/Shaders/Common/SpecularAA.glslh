@@ -1,0 +1,48 @@
+#ifndef DESERT_COMMON_SPECULAR_AA_GLSLH
+#define DESERT_COMMON_SPECULAR_AA_GLSLH
+// THE SPECULAR ANTI-ALIASING of an opaque surface's roughness, in one place for every pass that writes or shades one:
+// the G-buffer's one writer (Mesh/Surface/GBufferOutputs.glslh - the raster and the visibility resolve), the forward
+// cells (Mesh/Surface/Pass_Forward.glslh) and the terrain's two programs (Programs/Terrain/TerrainGBuffer.shader,
+// Terrain.shader). A pixel integrates the GGX lobe over every normal its footprint holds; a single shading normal per
+// pixel instead puts a sub-pixel highlight - a grazing grass blade whose normal turns across a width smaller than the
+// pixel, a ridge of the ground's normal map - wholly in or wholly out of the pixel, and a camera move or the wind
+// flips it from frame to frame: a sparkle no temporal accumulation (TAA, TSR, DLSS) can settle, since the signal it
+// is given really changed. The lobe is widened instead by the spread of the shading normal across the pixel, so the
+// stored roughness already integrates the footprint and the accumulation is handed a stable signal.
+//
+// Ported from Tokuyoshi & Kaplanyan 2019, "Improved Geometric Specular Antialiasing" (I3D), Listing 1
+// IsotropicNDFFiltering: the screen-space derivatives of the shading normal, as the variance of a Gaussian pixel
+// filter in slope space, added to the GGX alpha^2 and clamped. HDRP ships the same filter as GeometricNormalFiltering
+// (CommonMaterial.hlsl) on the geometric normal; this one differentiates the SHADING normal, as the paper does, so a
+// normal map's pixel-to-pixel turn widens the lobe as the mesh's own curvature does. The constants are the paper's.
+//
+// What it does not see: the normal-map detail a texture's mips average away inside one texel. A BC5 normal map
+// reconstructs Z (Common/TangentNormal.glslh), so the decoded normal is unit length at every mip and carries no
+// Toksvig length; that spread belongs to the texture cook (UE: a roughness texture's Composite Texture from its
+// normal map), not to this filter.
+
+// The variance of the pixel filter (SIGMA2 = 1 / (2 pi)): the pixel's footprint as a Gaussian in screen space.
+const float kDesertSpecularAAVariance = 0.15915494;
+// The most alpha^2 one pixel's normal spread adds (KAPPA). Above it the derivatives no longer describe a smooth
+// surface inside the pixel (a silhouette, a triangle edge of the quad) and the full widening would turn every edge
+// matte.
+const float kDesertSpecularAAClamp = 0.18;
+
+// The roughness (perceptual, Mesh/BRDF.glslh DistributionGGX: alpha = roughness^2) widened by the shading normal's
+// change across one pixel, @p dNdx and @p dNdy (world space, per pixel). Never below @p roughness.
+float DesertSpecularAA( const float roughness, const vec3 dNdx, const vec3 dNdy )
+{
+    const float alpha    = roughness * roughness;
+    const float kernel   = 2.0 * kDesertSpecularAAVariance * ( dot( dNdx, dNdx ) + dot( dNdy, dNdy ) );
+    const float filtered = clamp( alpha * alpha + min( kernel, kDesertSpecularAAClamp ), 0.0, 1.0 );
+    return sqrt( sqrt( filtered ) );
+}
+
+// The raster's form: @p N is the pixel's unit world shading normal, its change across the pixel the quad's
+// derivatives. A FRAGMENT-stage form; a pass with no quad of one surface (the visibility resolve) supplies the
+// derivatives itself through the form above.
+float DesertSpecularAA( const float roughness, const vec3 N )
+{
+    return DesertSpecularAA( roughness, dFdx( N ), dFdy( N ) );
+}
+#endif
