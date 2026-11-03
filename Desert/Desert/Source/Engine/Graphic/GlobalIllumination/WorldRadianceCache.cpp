@@ -46,6 +46,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheIrradianceOutTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheDepthOutTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheTraceArgsUB );
     };
 } // namespace
 
@@ -71,14 +72,20 @@ namespace Desert::Graphic::GlobalIllumination
             float    History      = RadianceCache::kHistoryWeight;
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
             uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
+            uint32_t MarkRadianceReads = 0; // RadianceCacheUpdateInputs::MarkRadianceReads
         };
-        static_assert( sizeof( RadianceCachePush ) == 36 );
+        static_assert( sizeof( RadianceCachePush ) == 40 );
 
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
-        constexpr uint32_t ScheduleEntries( const uint32_t traced )
+        // The list holds up to every probe slot: the new probes read this frame are traced past the budget
+        // (RadianceCacheSelect.shader).
+        constexpr uint32_t ScheduleEntries( const uint32_t maxProbes )
         {
-            return RadianceCache::kPriorityBuckets + 2u + traced;
+            return RadianceCache::kPriorityBuckets + 2u + maxProbes;
         }
+
+        // The Trace and Filter passes' indirect dispatch: x counts the listed probes (RadianceCacheSelect.shader).
+        constexpr std::array<uint32_t, 4> kTraceArgsReset{ 0u, 1u, 1u, 0u };
 
         std::shared_ptr<Image2D> CreateAtlas( const std::string_view tag, const uint32_t side,
                                               const Core::Formats::ImageFormat format )
@@ -249,8 +256,11 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef markPointsBuffer = graph.CreateBuffer(
              RDG::BufferDesc{ markPoints.size() * sizeof( glm::vec4 ) }, "RadianceCache.MarkPoints" );
         graph.QueueBufferUpload( markPointsBuffer, std::as_bytes( std::span( markPoints ) ) );
-        const RDG::BufferRef schedule =
-             graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( traced ) * 4ull }, "RadianceCache.Schedule" );
+        const RDG::BufferRef schedule = graph.CreateBuffer(
+             RDG::BufferDesc{ ScheduleEntries( RadianceCache::MaxProbes( shape ) ) * 4ull }, "RadianceCache.Schedule" );
+        const RDG::BufferRef traceArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kTraceArgsReset ) }, "RadianceCache.TraceArgs" );
+        graph.QueueBufferUpload( traceArgs, std::as_bytes( std::span( kTraceArgsReset ) ) );
 
         RadianceCachePush push;
         push.FrameIndex = ++m_FrameIndex;
@@ -263,6 +273,8 @@ namespace Desert::Graphic::GlobalIllumination
         if ( fullUpdate )
             m_LightingFrame = push.FrameIndex;
         push.LightingFrame = m_LightingFrame;
+        if ( inputs.MarkRadianceReads )
+            push.MarkRadianceReads = 1u;
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
@@ -275,8 +287,8 @@ namespace Desert::Graphic::GlobalIllumination
              entryGroups,
              entryGroups,
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
-             glm::uvec3( traced, 1u, 1u ),
-             glm::uvec3( traced, 1u, 1u ) };
+             glm::uvec3( 0u ),   // Trace: indirect (traceArgs)
+             glm::uvec3( 0u ) }; // Filter: indirect (traceArgs)
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
              "RadianceCache: Select", "RadianceCache: Trace",  "RadianceCache: Filter" };
@@ -308,6 +320,11 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheFreeListUB, freeList, kRW )
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheScheduleUB, schedule, kRW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RadianceCachePush ) ) );
+                     if ( pass == Select )
+                         block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheTraceArgsUB, traceArgs,
+                                        kRW );
+                     if ( pass == Trace || pass == Filter )
+                         builder.Read( traceArgs, RDG::Access::IndirectArgs );
                      if ( pass == Mark || pass == Allocate || pass == Trace )
                          block.Storage( WorldRadianceCacheShaderParameters::GIFrameUB, frame, kR );
                      if ( pass == Mark )
@@ -360,10 +377,13 @@ namespace Desert::Graphic::GlobalIllumination
                               .Storage( WorldRadianceCacheShaderParameters::RadianceCacheDepthOutTexture, depth,
                                         kRW );
                  },
-                 [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, push, count, traceArgs,
+                  indirect = pass == Trace || pass == Filter]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     if ( indirect )
+                         return Renderer::DispatchComputeIndirect( bindings, *pipeline, traceArgs, 0u );
                      return Renderer::DispatchCompute( bindings, *pipeline, count.x, count.y, count.z );
                  } );
         }

@@ -2,6 +2,11 @@
 // THE RADIANCE CACHE UPDATE, 4/6 — SELECT (UE SelectMaxPriorityBucket + the trace list, LumenRadianceCacheUpdate.usf):
 // the histogram is cut at the budget (ProbesPerFrame, radianceCache.atlas.z) from the most urgent bucket down; every
 // probe read this frame in a bucket above the cut is traced, the cut bucket fills the rest first come.
+// A NEW probe (never traced) read this frame is always traced this frame, past the budget when the view brings more
+// of them than it (a turn, a walk): an untraced probe answers no reader, so every screen probe ray that reaches it
+// traces on to the sky (ScreenProbeTrace's cache-miss leg) each frame until the budget gets to it - its own trace
+// is cheaper than those rays. The budget cuts the REFRESH of traced probes only (UE cuts new probes too).
+// The trace list holds up to every probe slot; RadianceCacheTraceArgsUB is the Trace and Filter passes' dispatch.
 Shader "RadianceCacheSelect"
 {
     Compute
@@ -10,6 +15,12 @@ Shader "RadianceCacheSelect"
 
         #include <Common/RadianceCacheState.glslh>
 
+        // The Trace and Filter passes' indirect dispatch (x = the listed probes, y = z = 1).
+        Buffer(6) RadianceCacheTraceArgsUB
+        {
+            uint radianceCacheTraceArgs[];
+        };
+
         shared uint s_Threshold;
         shared uint s_Quota;
 
@@ -17,7 +28,7 @@ Shader "RadianceCacheSelect"
         {
             if ( gl_LocalInvocationIndex == 0u )
             {
-                const uint budget = radianceCache.atlas.z;
+                const uint budget = max( radianceCache.atlas.z, radianceCacheSchedule[RC_PRIORITY_NEW] );
                 uint       taken  = 0u;
                 s_Threshold       = 0u;
                 s_Quota           = 0xFFFFFFFFu;
@@ -46,8 +57,11 @@ Shader "RadianceCacheSelect"
             if ( !traced )
                 return;
             const uint slot = atomicAdd( radianceCacheSchedule[RC_SCHEDULE_COUNT], 1u );
-            if ( slot < radianceCache.atlas.z )
+            if ( slot < MaxProbes )
+            {
                 radianceCacheSchedule[RC_SCHEDULE_LIST + slot] = probe;
+                atomicAdd( radianceCacheTraceArgs[0], 1u );
+            }
         }
     }
 }

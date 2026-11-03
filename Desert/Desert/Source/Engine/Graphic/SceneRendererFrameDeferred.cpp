@@ -565,6 +565,8 @@ namespace Desert::Graphic
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.
         if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
             inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();
+        // The screen probes' far field reads the cache's radiance around each probe (the gather below).
+        inputs.MarkRadianceReads = m_GIPipeline.ScreenProbes;
         inputs.Extent = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         inputs.GIFrame              = AddFrameGIRecord( graph, frame, lightDir, lightColor, inputs.Extent );

@@ -26,7 +26,10 @@
 //             kProbeUnusedFramesBeforeFree frames free their slot.
 //   Allocate  used empty entries take a slot; every used probe is ranked (new, lights changed, then age of its
 //             last trace) into the priority histogram.
-//   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list.
+//   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list. A new
+//             probe read this frame is always in it, past the budget if need be (not in UE: an untraced probe
+//             answers no reader, its readers' rays trace on to the sky until it is traced); Trace and Filter are
+//             dispatched indirectly over the list.
 //   Trace     each listed probe traces its octahedral texels through the GI ray contract (Common/GITracing.glslh:
 //             the pipeline's tracer, the hit lit in place, the sky on a miss) into the radiance atlas, blended
 //             with its history. Its program is the permutation of TracerVariant( Pipeline ) and its tracer reads
@@ -80,6 +83,9 @@ namespace Desert::Graphic::GlobalIllumination
         // World points read in the six axis directions besides the pixels (cm): the reflection captures' points,
         // whose stored diffuse is measured from this cache (ReflectionCaptures/ReflectionCaptureRenderer.hpp).
         std::vector<glm::vec3> MarkPoints;
+        // The screen probes read this frame's cache RADIANCE (RadianceCacheRadianceAt) around their unbiased
+        // positions: the Mark stamps those cells too, besides the irradiance read's (RadianceCacheMark.shader).
+        bool                   MarkRadianceReads = false;
         glm::vec3              CameraPosition{ 0.0f };
         glm::uvec2             Extent{ 0u };
         // The directional lights of the frame (the same values GIFrame carries): a significant change from the

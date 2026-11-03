@@ -199,8 +199,12 @@ Shader "ScreenProbeTrace"
             }
             else
             {
-                const vec4 cache = texel.coverage.valid ? RadianceCacheRadianceAt( origin, N, dir, texel.noise.z )
-                                                        : vec4( 0.0, 0.0, 0.0, -1.0 );
+                // Around the UNBIASED probe position (UE SampleRadianceCacheInterpolated at the screen probe's
+                // world position): the point the coverage picked its clipmap at, with the same dither, and the
+                // point RadianceCacheMark stamps the read's cells around.
+                const vec4 cache = texel.coverage.valid
+                                        ? RadianceCacheRadianceAt( texel.position, N, dir, texel.noise.z )
+                                        : vec4( 0.0, 0.0, 0.0, -1.0 );
                 if ( cache.a > 0.0 )
                     result = vec4( cache.rgb, SP_TRACE_DISTANCE );
                 else if ( texel.coverage.valid )

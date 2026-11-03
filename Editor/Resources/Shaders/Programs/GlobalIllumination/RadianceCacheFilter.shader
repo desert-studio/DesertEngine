@@ -28,7 +28,7 @@ Shader "RadianceCacheFilter"
 
         void main()
         {
-            const uint count = min( radianceCacheSchedule[RC_SCHEDULE_COUNT], radianceCache.atlas.z );
+            const uint count = min( radianceCacheSchedule[RC_SCHEDULE_COUNT], MaxProbes ); // the list's capacity
             if ( gl_WorkGroupID.x >= count )
                 return;
             const uint  probe   = radianceCacheSchedule[RC_SCHEDULE_LIST + gl_WorkGroupID.x];

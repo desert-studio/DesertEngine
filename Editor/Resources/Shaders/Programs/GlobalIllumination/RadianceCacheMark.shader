@@ -4,6 +4,10 @@
 // in each clipmap its dither may pick) is stamped with this frame. Until screen probes exist (GI-FINAL-GATHER) the
 // readers are the G-buffer's pixels themselves; one pixel of each 2x2 block per frame, the four in turn, so every
 // pixel marks within four frames — inside the eight a probe stays allocated unread.
+// With screen probes (MarkRadianceReads) a pixel is also where a probe sits, and the probe's far field reads the
+// cache's RADIANCE (RadianceCacheRadianceAt, ScreenProbeTrace.shader) around its UNBIASED position in the clipmap
+// its coverage picked: those eight cells are stamped as well, at both ends of the same dither (UE
+// MarkRadianceProbesUsedByScreenProbes marks the probe's own position, the point its read interpolates around).
 // The other readers are the REFLECTION CAPTURES' points (ReflectionCaptureDiffuse.shader reads the cache there in
 // the six axis directions): one thread stamps them every frame, since a capture hangs in the air where no pixel reads.
 Shader "RadianceCacheMark"
@@ -31,11 +35,13 @@ Shader "RadianceCacheMark"
             vec4  MarkPointsData[];    // xyz = world cm
         };
 
-        void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
+        // The largest dither a reader passes (a float below 1: the screen probes' 16-bit noise, the pixels'
+        // interleaved gradient noise): the coarsest clipmap any of them can pick at a point.
+        const float kCoarsestDither = 0.99999994;
+
+        // The eight cells of an interpolated read whose lower corner cell is @p base (both reads' loops).
+        void MarkCells( ivec3 base, uint clipmap )
         {
-            const float cell   = RadianceCacheCellSize( radianceCache, clipmap );
-            const vec3  biased = p + ( N * 0.2 + V * 0.8 ) * ( 0.3 * cell );
-            const ivec3 base   = ivec3( floor( RadianceCacheCoordFloat( radianceCache, biased, clipmap ) - 0.5 ) );
             const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
             const int   grid   = int( radianceCache.shape.y );
             for ( uint i = 0u; i < 8u; ++i )
@@ -47,6 +53,32 @@ Shader "RadianceCacheMark"
             }
         }
 
+        // The irradiance read's lower corner (RadianceCacheIrradianceAtImpl: around @p p biased off the surface).
+        ivec3 IrradianceReadBase( vec3 p, vec3 N, vec3 V, uint clipmap )
+        {
+            const float cell   = RadianceCacheCellSize( radianceCache, clipmap );
+            const vec3  biased = p + ( N * 0.2 + V * 0.8 ) * ( 0.3 * cell );
+            return ivec3( floor( RadianceCacheCoordFloat( radianceCache, biased, clipmap ) - 0.5 ) );
+        }
+
+        void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
+        {
+            MarkCells( IrradianceReadBase( p, N, V, clipmap ), clipmap );
+        }
+
+        // A pixel: the irradiance read's eight cells and, where a screen probe there reads the radiance, that
+        // read's (RadianceCacheRadianceAt: around the unbiased position) when they are other cells.
+        void MarkPixelClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
+        {
+            const ivec3 irradiance = IrradianceReadBase( p, N, V, clipmap );
+            MarkCells( irradiance, clipmap );
+            if ( MarkRadianceReads == 0u )
+                return;
+            const ivec3 radiance = ivec3( floor( RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5 ) );
+            if ( any( notEqual( radiance, irradiance ) ) )
+                MarkCells( radiance, clipmap );
+        }
+
         // A point read in the six axis directions with the bias along the normal (V = N), at both ends of the
         // clipmap dither: every cell its read can touch.
         void MarkPoint( vec3 p )
@@ -54,7 +86,7 @@ Shader "RadianceCacheMark"
             const vec3 axes[6] = vec3[6]( vec3( 1, 0, 0 ), vec3( -1, 0, 0 ), vec3( 0, 1, 0 ), vec3( 0, -1, 0 ),
                                           vec3( 0, 0, 1 ), vec3( 0, 0, -1 ) );
             const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
-            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
+            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, kCoarsestDither );
             for ( int i = 0; i < 6; ++i )
             {
                 if ( fine < radianceCache.shape.x )
@@ -82,11 +114,11 @@ Shader "RadianceCacheMark"
             const vec3  V     = normalize( giFrame.camera.xyz - p );
             // The two ends of the dither: the finest clipmap any pixel here may read and the coarsest.
             const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
-            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
+            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, kCoarsestDither );
             if ( fine < radianceCache.shape.x )
-                MarkClipmap( p, N, V, fine );
+                MarkPixelClipmap( p, N, V, fine );
             if ( coarse != fine && coarse < radianceCache.shape.x )
-                MarkClipmap( p, N, V, coarse );
+                MarkPixelClipmap( p, N, V, coarse );
         }
     }
 }
