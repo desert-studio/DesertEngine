@@ -1686,9 +1686,9 @@ namespace Desert::Graphic::System
         // THE CASCADE VIEWS THIS FRAME DRAWS AND THE BOX EACH CULLS ITS CASTERS BY (GPU-COST-21; after
         // UpdateCascades): bit v of Live for every cascade view v DirectionalShadows counts (a held slot whose
         // light casts, a cascade below its fitted count), ViewProj[v] its caster matrix (m_CascadeCasterVP - the
-        // one the casters draw with and BuildShadowCascadeDraws culls the static casters by: the slice's box
-        // pulled back towards the light). What a GPU producer builds each cascade's own caster list by
-        // (GpuInstancedRenderData::CascadeMask; UE: every shadow view culls its instances by its own volume).
+        // one the casters draw with and BuildShadowCascadeDraws culls the static casters by: the cascade's box
+        // about the camera, reaching towards the light). What a GPU producer builds each cascade's own caster list
+        // by (GpuInstancedRenderData::CascadeMask; UE: every shadow view culls its instances by its own volume).
         struct CascadeCasterBoxes
         {
             uint32_t                                                Live = 0;

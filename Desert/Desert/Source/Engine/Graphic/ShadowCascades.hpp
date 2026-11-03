@@ -335,7 +335,9 @@ namespace Desert::Graphic
         // the texel snap): MaxDistance is a distance from the camera, and the shadow wind ring
         // (MeshRenderer::ShadowWindRingOf) has a receiver nearer than split c-2 pick cascade c-2 or c-1. A frustum
         // wider than slope 1 keeps the radius the slice's sphere had, kSlope * SplitFar - the far ring's corner
-        // offset from the view axis - so the texel the receivers see is the one the forward fit gave them.
+        // offset from the view axis - so each cascade's texel is the one the forward fit gave it. Its reach along
+        // the view is the radius, not split + radius as with the centre ahead: a receiver past it reads the next
+        // cascade.
         const float radiusScale = glm::max( kSlope, 1.0f );
 
         for ( uint32_t c = 0; c < count; ++c )

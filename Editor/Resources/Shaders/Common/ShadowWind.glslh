@@ -38,9 +38,9 @@ bool ShadowWindCastsRestPose( const vec3 instancePoint, const vec3 viewOrigin, c
 // light's fall across / down (1 / tan(elevation)). A receiver no farther from the camera than x lies inside the
 // camera-centred cascade c-2 or c-1, so it picks a tighter cascade (MeshRenderer::ShadowWindDistanceOf says why). A
 // caster's reach (x = spread, y = height, cm) bounds where its shadow can land: on the flat ground it stands on, no
-// farther from its instance point than spread + height x fall. A swaying instance nearer the camera than the ring's inner distance shadows no
-// receiver of the cascade with its sway, so it casts its rest pose into the static layer; the cascade's movers are
-// only the ring [inner, the shadow wind distance).
+// farther from its instance point than spread + height x fall. A swaying instance nearer the camera than the ring's
+// inner distance shadows no receiver of the cascade with its sway, so it casts its rest pose into the static layer;
+// the cascade's movers are only the ring [inner, the shadow wind distance).
 //
 // The reach of an instance whose drawn points lie in its mesh bounds carried into the world, grown by the wind's
 // horizontal pad (InstanceWind WindBoundsPad, GpuScenePrimitive.LocalBoundsCenter.w): E = the world box's half size
