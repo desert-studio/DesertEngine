@@ -786,8 +786,10 @@ namespace Desert::Graphic::System
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
             // One instance's room even at zero capacity: a counting-only frame still binds the buffer.
-            gpu.Instances           = ShaderResources::StorageBuffer::Create(
-                 "GrassInstances", std::max( capacity, 1u ) * sizeof( glm::mat4 ), 2, true );
+            // GRASS-VIEW-LAW-1: Instances and the id lists below are written and read by the GPU alone, so they
+            // live in device-local memory (StorageBuffer::CreateDeviceLocal), not in the host-visible device heap.
+            gpu.Instances           = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "GrassInstances", std::max( capacity, 1u ) * sizeof( glm::mat4 ), 2 );
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
@@ -836,8 +838,8 @@ namespace Desert::Graphic::System
             // What this frame's list does not use is a one-word stand-in (the passes bind it, Hzb.w / Mode.y keep
             // it idle).
             {
-                gpu.CameraIds = ShaderResources::StorageBuffer::Create(
-                     "GrassCameraIds", std::max( capacity, 1u ) * kGrassIdBytes, 5, true );
+                gpu.CameraIds = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                     "GrassCameraIds", std::max( capacity, 1u ) * kGrassIdBytes, 5 );
                 std::vector<uint32_t> cameraArgs = args;
                 cameraArgs.resize( args.size() + static_cast<size_t>( buckets ) * kPhaseWords, 0u );
                 const auto cameraBytes = static_cast<uint32_t>( cameraArgs.size() * 4u );
@@ -850,8 +852,8 @@ namespace Desert::Graphic::System
             }
             if ( volumes.List == CameraList::PlanesAndHzb )
             {
-                gpu.Candidates = ShaderResources::StorageBuffer::Create(
-                     "GrassCandidates", std::max( capacity, 1u ) * kCandidateBytes, 7, true );
+                gpu.Candidates = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                     "GrassCandidates", std::max( capacity, 1u ) * kCandidateBytes, 7 );
                 gpu.PostArgs = ShaderResources::StorageBuffer::Create( "GrassPostArgs", argBytes, 3, true );
                 if ( const auto wrote = gpu.PostArgs->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
                 {
@@ -861,7 +863,7 @@ namespace Desert::Graphic::System
             }
             else
             {
-                gpu.Candidates = ShaderResources::StorageBuffer::Create( "GrassCandidates", 16u, 7, true );
+                gpu.Candidates = ShaderResources::StorageBuffer::CreateDeviceLocal( "GrassCandidates", 16u, 7 );
                 gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
             }
             // GRASS-CULL-HIER-1, the camera cull's chunks (GrassVarietyRowGpu::Chunks): room for one chunk per slot
@@ -890,8 +892,8 @@ namespace Desert::Graphic::System
             gpu.CascadeRestShift   = argBytes - recordsWord * 4u;
             if ( const auto lists = static_cast<uint32_t>( std::popcount( volumes.CascadeMask ) ); lists > 0u )
             {
-                gpu.CascadeIds = ShaderResources::StorageBuffer::Create(
-                     "GrassCascadeIds", std::max( lists * capacity, 1u ) * kGrassIdBytes, 8, true );
+                gpu.CascadeIds = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                     "GrassCascadeIds", std::max( lists * capacity, 1u ) * kGrassIdBytes, 8 );
                 std::vector<uint32_t> cascadeArgs;
                 cascadeArgs.reserve( static_cast<size_t>( gpu.CascadeArgWords ) * lists );
                 for ( uint32_t k = 0; k < lists; ++k )
@@ -915,7 +917,7 @@ namespace Desert::Graphic::System
             }
             else
             {
-                gpu.CascadeIds  = ShaderResources::StorageBuffer::Create( "GrassCascadeIds", 16u, 8, true );
+                gpu.CascadeIds  = ShaderResources::StorageBuffer::CreateDeviceLocal( "GrassCascadeIds", 16u, 8 );
                 gpu.CascadeArgs = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", 16u, 9, true );
             }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
@@ -1201,11 +1203,28 @@ namespace Desert::Graphic::System
             gpu.FreeSlots.clear();
             for ( uint32_t s = slots; s > 0u; --s )
                 gpu.FreeSlots.push_back( s - 1u );
-            // GRASS-TILE-3: the pool and its words are made in video memory by this frame's graph (AddFrame,
-            // the tile pool block); the old ones are released with the graphs that still hold them.
-            gpu.TilePoolMade  = false;
-            gpu.TilePoolHeld  = {};
-            gpu.TileWordsHeld = {};
+            // GRASS-TILE-3 / GRASS-VIEW-LAW-1: the pool and its words live in video memory, device-local storage
+            // buffers the GPU alone writes (StorageBuffer::CreateDeviceLocal): kept across graphs and frames, read
+            // by address where a pass covers many varieties. This frame's Init pass writes their words first
+            // (AddFrame, TilePoolMade); the old ones are released once no frame in flight holds them.
+            gpu.TilePoolMade = false;
+            gpu.TilePool.reset();
+            gpu.TileWords.reset();
+            const uint64_t poolBytes =
+                 static_cast<uint64_t>( pages ) * kGrassTilePageRecords * kGrassTileRecordBytes;
+            const uint64_t wordBytes =
+                 ( static_cast<uint64_t>( pages ) + 1u + static_cast<uint64_t>( slots ) * kGrassTileHeaderWords ) * 4u;
+            if ( poolBytes > UINT32_MAX || wordBytes > UINT32_MAX )
+            {
+                LOG_ERROR( "[Grass] a variety's tile pool ({} bytes) or its words ({} bytes) exceed a storage buffer's "
+                           "4 GB; no tile is built",
+                           poolBytes, wordBytes );
+                return false;
+            }
+            gpu.TilePool  = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "GrassTilePool", static_cast<uint32_t>( poolBytes ), 14 );
+            gpu.TileWords = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "GrassTileWords", static_cast<uint32_t>( wordBytes ), 15 );
             // The table holds at most every held tile freed or culled, and a frame's builds freed and built.
             gpu.TileTable = ShaderResources::StorageBuffer::Create(
                  "GrassTileTable", ( 1u + 2u * ( slots + kGrassTileBuildsPerFrame ) ) * sizeof( glm::uvec4 ), 12 );
@@ -1214,10 +1233,10 @@ namespace Desert::Graphic::System
                                                                            kGrassTileFeedbackWords * 4u, 13 );
             gpu.PoolGeneration = gpu.PoolGeneration + 1u == 0u ? 1u : gpu.PoolGeneration + 1u;
         }
-        if ( !gpu.TileTable || !gpu.TileFeedback )
+        if ( !gpu.TileTable || !gpu.TileFeedback || !gpu.TilePool || !gpu.TileWords )
         {
-            LOG_ERROR(
-                 "[Grass] a variety's tile table or feedback was not made; its pool is made anew next frame" );
+            LOG_ERROR( "[Grass] a variety's tile table, feedback, pool or pool words were not made; its pool is made "
+                       "anew next frame" );
             gpu.TilePoolMade = false;
             return false;
         }
@@ -1510,28 +1529,32 @@ namespace Desert::Graphic::System
                             m_FrameGenerate.pop_back();
                         tiles = false;
                     }
-                    else if ( gpu->PoolFresh )
-                    {
-                        // GRASS-TILE-3, THE POOL IN VIDEO MEMORY (VarietyGpu::TilePoolHeld): made by this graph -
-                        // its Init pass writes the words first - and kept for the next graphs (Extract).
-                        gpu->TilePoolRef = graph.CreateBuffer(
-                             RDG::BufferDesc{ .Bytes = static_cast<uint64_t>( gpu->TilePages ) *
-                                                       kGrassTilePageRecords * kGrassTileRecordBytes },
-                             "GrassTilePool" );
-                        graph.Extract( gpu->TilePoolRef, gpu->TilePoolHeld, RDG::Access::StorageWrite );
-                        gpu->TileWordsRef = graph.CreateBuffer(
-                             RDG::BufferDesc{
-                                  .Bytes = ( static_cast<uint64_t>( gpu->TilePages ) + 1u +
-                                             static_cast<uint64_t>( gpu->TileSlots ) * kGrassTileHeaderWords ) *
-                                           4u },
-                             "GrassTileWords" );
-                        graph.Extract( gpu->TileWordsRef, gpu->TileWordsHeld, RDG::Access::StorageWrite );
-                        gpu->TilePoolMade = true;
-                    }
                     else
                     {
-                        gpu->TilePoolRef  = graph.RegisterExternal( gpu->TilePoolHeld, "GrassTilePool" );
-                        gpu->TileWordsRef = graph.RegisterExternal( gpu->TileWordsHeld, "GrassTileWords" );
+                        // GRASS-TILE-3 / GRASS-VIEW-LAW-1, THE POOL IN VIDEO MEMORY (VarietyGpu::TilePool): device-local
+                        // storage buffers made by UpdateTiles, imported as every other buffer of the variety; a fresh
+                        // pool's Init pass (PoolFresh) writes its words first this frame.
+                        Common::BoolResultStr pool = Renderer::ImportBuffer( gpu->TilePool, gpu->TilePoolImport );
+                        if ( pool )
+                            pool = Renderer::ImportBuffer( gpu->TileWords, gpu->TileWordsImport );
+                        if ( !pool )
+                        {
+                            // As a table that was not written: no tile pass, a new pool next frame.
+                            LOG_ERROR( "[Grass] the variety's tile pool is not in the frame graph: {}",
+                                       pool.GetError() );
+                            gpu->TilePoolMade      = false;
+                            gpu->StableGenerations = 0;
+                            if ( generates )
+                                m_FrameGenerate.pop_back();
+                            tiles = false;
+                        }
+                        else
+                        {
+                            gpu->TilePoolRef  = graph.RegisterExternal( gpu->TilePoolImport, "GrassTilePool" );
+                            gpu->TileWordsRef = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
+                            if ( gpu->PoolFresh )
+                                gpu->TilePoolMade = true;
+                        }
                     }
                 }
                 if ( tiles && ( gpu->PoolFresh || gpu->TileFrees != 0u ) )

@@ -21,11 +21,15 @@ namespace Desert::ShaderResources::API::Vulkan
     //   AcrossFrames — ONE device buffer shared by every frame and every view, made at construction,
     //                  because the GPU is the author of its contents (a simulation that has been running
     //                  must not restart in a second view). One buffer, so one descriptor.
+    //   DeviceOnly   — AcrossFrames in device-local memory the host never maps (StorageBuffer::CreateDeviceLocal):
+    //                  no CPU image, every host write refused; the GPU writes and reads it alone.
     class VulkanStorageBuffer : public StorageBuffer
     {
     public:
         VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
                              bool persistent = false );
+        VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
+                             Persistence lifetime );
         ~VulkanStorageBuffer() override = default;
 
         NO_DISCARD virtual Common::BoolResultStr EnsureMapped() override;
@@ -78,9 +82,14 @@ namespace Desert::ShaderResources::API::Vulkan
         }
 
     private:
+        // One buffer shared by every frame and view (AcrossFrames or DeviceOnly).
         bool IsPersistent() const
         {
-            return m_Lifetime == Persistence::AcrossFrames;
+            return m_Lifetime != Persistence::PerFrame;
+        }
+        bool IsDeviceOnly() const
+        {
+            return m_Lifetime == Persistence::DeviceOnly;
         }
 
         // Allocates and maps one per-view copy at the block's CURRENT size.
@@ -105,9 +114,11 @@ namespace Desert::ShaderResources::API::Vulkan
         std::unique_ptr<ViewCopiedBlock> m_PerView;
 
         // AcrossFrames: the one buffer, and the CPU shadow of what was written into it (GetData). Empty
-        // when per-frame; m_SharedImage.size() is the persistent buffer's size.
+        // when per-frame, and when DeviceOnly (no shadow: the buffer is never written by the host, and a pool
+        // of hundreds of MB would double in system memory). m_SharedSize is the one buffer's size.
         std::unique_ptr<MappedBufferCopy> m_Shared;
         std::vector<uint8_t>              m_SharedImage;
+        uint32_t                          m_SharedSize = 0;
         // RDG-PARALLEL-6: two chunks may write the one persistent buffer in the same frame. The CPU shadow and
         // the mapped bytes are written as one unit under this lock, so neither holds a torn range and the shadow
         // always equals what the last write left in the buffer. Its size never changes, so GetSize takes no lock.

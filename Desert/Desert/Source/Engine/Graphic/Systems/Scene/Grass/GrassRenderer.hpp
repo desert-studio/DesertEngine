@@ -379,16 +379,19 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer                             TileTableImport, TileFeedbackImport;
             // GRASS-TILE-3: THE POOL IS VIDEO MEMORY (UE: the grass HISM's instance buffers are GPU resources, the
             // host only uploads). The records (TilePool) and the free pages and tile headers (TileWords) are
-            // written and read by the GPU alone, so they are graph buffers kept across graphs (Builder::Extract,
-            // device-local) - not persistent StorageBuffers, which are host-visible (MakeMappedBufferCopy:
-            // CPU_TO_GPU): ~1 GB of those filled the device-local host-visible heap (256 MB without resizable BAR)
-            // and the driver placed the rest - the pool and the camera list's Instances and ids made after it -
-            // in system memory, read over PCIe by the tile cull, the camera cull and every grass draw.
-            // TilePoolMade: AddFrame made the pool of this PoolGeneration in a graph (the next graphs register
-            // TilePoolHeld / TileWordsHeld); false until then, and a new pool is made by the next frame's.
-            bool                TilePoolMade = false;
-            RDG::ExternalBuffer TilePoolHeld, TileWordsHeld;
-            RDG::BufferRef      TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
+            // written and read by the GPU alone, so they are device-local storage buffers (GRASS-VIEW-LAW-1:
+            // StorageBuffer::CreateDeviceLocal, Persistence::DeviceOnly; until then graph buffers kept by
+            // Builder::Extract, which have no device address) - not persistent StorageBuffers, which are
+            // host-visible (MakeMappedBufferCopy: CPU_TO_GPU): ~1 GB of those filled the device-local host-visible
+            // heap (256 MB without resizable BAR) and the driver placed the rest - the pool and the camera list's
+            // Instances and ids made after it - in system memory, read over PCIe by the tile cull, the camera cull
+            // and every grass draw. Instances, CameraIds, Candidates and CascadeIds are device-local for the same
+            // reason. UpdateTiles makes the pool for a new PoolGeneration; TilePoolMade: a frame's graph has run
+            // its Init pass on it (AddFrame); false until then, and a new pool is made by the next frame's.
+            bool                                            TilePoolMade = false;
+            std::shared_ptr<ShaderResources::StorageBuffer> TilePool, TileWords;
+            RDG::ExternalBuffer                             TilePoolImport, TileWordsImport;
+            RDG::BufferRef TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
             // This frame's tile table (GrassGenerate.shader Tiles): the header, then TileFrees slots to free,
             // TileBuilds tiles to build, TileCulls tiles the tile cull walks (nearest first, GRASS-TILE-2).
             std::vector<glm::uvec4> TileEntries;

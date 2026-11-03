@@ -21,7 +21,8 @@ namespace Desert::ShaderResources::API::Vulkan
     };
 
     // One host-mapped VkBuffer: a view's copy for one frame in flight, or a persistent storage buffer's
-    // single shared buffer. Owns its buffer from the moment it is allocated, so a copy that fails to map is
+    // single shared buffer - or, made by MakeDeviceBufferCopy, a device-only storage buffer's unmapped
+    // device-local one (its Write refuses: MappedMemory is unmapped). Owns its buffer from the moment it is allocated, so a copy that fails to map is
     // released by the same destructor as one a view drops.
     class MappedBufferCopy final : public IBlockCopy
     {
@@ -57,6 +58,8 @@ namespace Desert::ShaderResources::API::Vulkan
     private:
         friend Common::BoolResultStr MakeMappedBufferCopy( std::string_view, VkBufferUsageFlags, uint32_t,
                                                            std::unique_ptr<MappedBufferCopy>& );
+        friend Common::BoolResultStr MakeDeviceBufferCopy( std::string_view, VkBufferUsageFlags, uint32_t,
+                                                           std::unique_ptr<MappedBufferCopy>& );
 
         VkBuffer                      m_Buffer;
         VmaAllocation                 m_Allocation;
@@ -74,5 +77,11 @@ namespace Desert::ShaderResources::API::Vulkan
     // as one frame in flight rendering wrong. The refusal carries the allocator's own reason; the caller
     // adds which buffer, view and frame it was for.
     NO_DISCARD Common::BoolResultStr MakeMappedBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
+                                                           uint32_t size, std::unique_ptr<MappedBufferCopy>& out );
+
+    // GRASS-VIEW-LAW-1 (Persistence::DeviceOnly): allocates one DEVICE-LOCAL buffer of `size` bytes named
+    // `debugName` and does not map it - the GPU alone writes and reads it, so it never takes the host-visible
+    // device heap (256 MB without resizable BAR). Refuses as a whole, as MakeMappedBufferCopy.
+    NO_DISCARD Common::BoolResultStr MakeDeviceBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
                                                            uint32_t size, std::unique_ptr<MappedBufferCopy>& out );
 } // namespace Desert::ShaderResources::API::Vulkan
