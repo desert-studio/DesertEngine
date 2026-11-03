@@ -145,11 +145,18 @@ namespace Desert::Graphic::System
         // never nullopt.
         [[nodiscard]] virtual std::optional<uint64_t> CascadeShadowSignature( uint32_t view ) const = 0;
 
-        // THE CASCADE KEY'S CONTENT: what CascadeShadowSignature hashes less the detail the camera chose (the levels
-        // and the dice of the rows), or nullopt when the caster cannot tell the two apart. A cascade that moved by
-        // whole texels SCROLLS while it stays (MeshRenderer::PlanCascadeCache, UE's CSM scrolling): its cached depth
-        // keeps the detail it was drawn at, as UE keeps a cached caster's LOD; nullopt, no cascade it reaches scrolls.
-        [[nodiscard]] virtual std::optional<uint64_t> CascadeShadowContent( uint32_t view ) const = 0;
+        // THE CASCADE KEY'S CONTENT (UE's cached CSM: a cached cascade is invalidated by a static caster IN ITS
+        // BOUNDS changing - an edit, a map's revision, a material - not by which part of the world this frame's
+        // map covers): a hash of what this caster holds inside the caster box @p casterViewProj (an orthographic
+        // clip box) - which of its pieces reach the box, where they lie, their maps' identities and revisions,
+        // their materials - with nothing of the camera's detail (no levels, no dice) and nothing of THIS frame's
+        // draws, so the same box asked on two frames of an unedited world gives the same hash.
+        // MeshRenderer::PlanCascadeCache asks it for the box the cache was drawn with and for this frame's: a
+        // cascade that moved by whole texels SCROLLS while the first still holds what it held (its cached depth
+        // keeps the detail it was drawn at, as UE keeps a cached caster's LOD). nullopt when the caster cannot
+        // tell its content apart; no cascade it reaches scrolls then.
+        [[nodiscard]] virtual std::optional<uint64_t>
+        CascadeShadowContent( uint32_t view, const glm::mat4& casterViewProj ) const = 0;
 
         // THE LOCAL VIEWS' CACHE KEY (UE: a stationary light's cached shadow depth is kept until a caster in its
         // reach changes). A hash of what this caster draws into @p light's views — every input of its depth there:

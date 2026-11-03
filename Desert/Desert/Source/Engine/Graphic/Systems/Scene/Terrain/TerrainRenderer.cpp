@@ -68,6 +68,20 @@ namespace Desert::Graphic::System
 {
     namespace
     {
+        // THE BOX A TILE CASTS FROM, as a cascade's caster box is tested against it (the content key's reach,
+        // CascadeShadowContent, and a scrolled cascade's strips, RecordShadowView): the tile's own square - the
+        // root's origin plus its first sample (SceneRenderer::SubmitLandscapeTile places it the same way) - over
+        // its undisplaced slab, grown by the tile's side every way: the displacement moves the surface off the
+        // slab by less than a tile.
+        [[nodiscard]] Common::Math::AABB TileCasterBox( const LandscapeTileDraw& l )
+        {
+            const float side = l.SpacingCm * static_cast<float>( l.QuadsPerTile );
+            const float x0   = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
+            const float z0   = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
+            return { glm::vec3( x0 - side, l.MinY - side, z0 - side ),
+                     glm::vec3( x0 + 2.0f * side, l.MaxY + side, z0 + 2.0f * side ) };
+        }
+
         // THE VIEW IS THE VIEW BLOCK'S (GPU-COST-26; UE: the landscape's base pass reads
         // FViewUniformShaderParameters like every pass of the view): the surface programs read their matrices, the
         // eye, PreExposure and the grass field lens from CameraUB (Common/CameraUB.glslh,
@@ -1671,23 +1685,36 @@ namespace Desert::Graphic::System
         return hash.Value;
     }
 
-    std::optional<uint64_t> TerrainRenderer::CascadeShadowContent( const uint32_t view ) const
+    std::optional<uint64_t> TerrainRenderer::CascadeShadowContent( const uint32_t   view,
+                                                                   const glm::mat4& casterViewProj ) const
     {
-        // CascadeShadowSignature's inputs less the rows and the dice the camera chose: which tiles, where, with which
-        // maps (a sculpted height, a repainted weight or a recreated image changes it; a new ring or dice does not).
-        ShadowSignatureHash           hash;
-        const std::vector<FrameDraw>& draws = ShadowViewDraws( view );
-        hash.Add( draws.size() );
-        if ( !draws.empty() && draws.size() != m_Queue.size() )
+        // THE LANDSCAPE IN THE BOX, as UE's cached CSM invalidates a cascade (by the static primitives its bounds
+        // meet): the tiles whose caster box reaches @p casterViewProj, each by its identity, its placement, its
+        // maps (a sculpted height, a repainted weight or a recreated image changes it) and its material's texture
+        // set. Nothing of this frame's draws: no rows, no dice, no LOD (a new ring or dice does not change it) and
+        // not the view's draw list, so the box the cache was drawn with, asked again on the next frame, answers
+        // the same while nothing in it was edited - the cascade scrolls. The tiles are walked in the queue's order
+        // (the landscape system's, frame to frame the same); the texture set is the camera's draw's (parallel to
+        // the queue), the key string of the set, not the frame's group index.
+        if ( m_ShadowPipeline == nullptr || ShadowViewDraws( view ).empty() )
+            return ShadowSignatureHash{}.Value; // nothing drawn into the view: the hash of nothing
+        if ( m_FrameDraws.size() != m_Queue.size() )
             return std::nullopt;
-        for ( std::size_t i = 0; i < draws.size(); ++i )
+        const Core::Frustum box( casterViewProj, glm::mat4( 1.0f ) );
+        ShadowSignatureHash hash;
+        for ( std::size_t i = 0; i < m_Queue.size(); ++i )
         {
-            const FrameDraw&       draw = draws[i];
-            const TerrainDrawData& t    = m_Queue[i];
-            if ( draw.Group >= m_FrameGroups.size() )
+            const TerrainDrawData& t = m_Queue[i];
+            if ( !box.Intersects( TileCasterBox( t.Landscape ) ) )
+                continue;
+            const FrameDraw& draw = m_FrameDraws[i];
+            if ( draw.Group >= m_FrameGroups.size() || m_FrameGroups[draw.Group].Key == nullptr )
                 return std::nullopt;
             hash.Bytes( m_FrameGroups[draw.Group].Key->data(), m_FrameGroups[draw.Group].Key->size() );
             hash.Add( t.Landscape.Entity );
+            hash.Add( t.Landscape.FirstSampleX );
+            hash.Add( t.Landscape.FirstSampleZ );
+            hash.Add( t.Landscape.NeighbourMask );
             hash.Add( t.Landscape.OriginX );
             hash.Add( t.Landscape.OriginZ );
             hash.Add( t.Landscape.BaseY );
@@ -1727,9 +1754,7 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         // A SCROLLED CASCADE fills only its strips (MeshRenderer::PlanCascadeCache): a tile whose box none of them
         // reaches is already in the cache copied in. A cascade's draws are parallel to the queue
-        // (CascadeShadowSignature). The box is the tile's undisplaced slab grown by the tile's side every way: the
-        // displacement moves the surface off the slab by less than a tile, and the margin holds the tile whether its
-        // origin is read as its corner or its centre.
+        // (CascadeShadowSignature). The box is the one the content key reaches the tile by (TileCasterBox).
         std::vector<FrameDraw> regionDraws;
         if ( !region.empty() && viewDraws.size() == m_Queue.size() )
         {
@@ -1738,11 +1763,9 @@ namespace Desert::Graphic::System
                 strips.emplace_back( strip, glm::mat4( 1.0f ) );
             for ( std::size_t i = 0; i < viewDraws.size(); ++i )
             {
-                const LandscapeTileDraw& l    = m_Queue[i].Landscape;
-                const float              side = l.SpacingCm * static_cast<float>( l.QuadsPerTile );
-                const Common::Math::AABB box{ glm::vec3( l.OriginX - side, l.MinY - side, l.OriginZ - side ),
-                                              glm::vec3( l.OriginX + 2.0f * side, l.MaxY + side,
-                                                         l.OriginZ + 2.0f * side ) };
+                // The tile's own square (TileCasterBox): the root's origin alone put every tile's box at the
+                // root's corner, so the strips drew all tiles or none.
+                const Common::Math::AABB box = TileCasterBox( m_Queue[i].Landscape );
                 for ( const Core::Frustum& strip : strips )
                 {
                     if ( strip.Intersects( box ) )

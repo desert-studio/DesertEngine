@@ -1108,7 +1108,6 @@ namespace Desert::Graphic::System
                 // the camera's detail) is what the content key below holds of it.
                 bool          movable = false;
                 SignatureHash casterKey;
-                SignatureHash casterContent;
                 bool          contentKnown = StaticCastersTracked();
                 for ( const auto& weak : m_ShadowCasters )
                 {
@@ -1118,10 +1117,6 @@ namespace Desert::Graphic::System
                     if ( const std::optional<uint64_t> cast = caster->CascadeShadowSignature( v ) )
                     {
                         casterKey.Add( *cast );
-                        if ( const std::optional<uint64_t> content = caster->CascadeShadowContent( v ) )
-                            casterContent.Add( *content );
-                        else
-                            contentKnown = false;
                         m_CascadeKeyedCasters[v].push_back( weak );
                     }
                     else
@@ -1132,19 +1127,33 @@ namespace Desert::Graphic::System
                 }
                 EnsureShadowViewMaterials( kCascadeMovableViewBase + v );
 
-                // THE CONTENT KEY (UE's cached CSM: a cached cascade is invalidated by its static casters changing,
-                // not by the camera): which static casters the box of a caster matrix holds, what they are and how
-                // they are biased - without the levels of detail the camera chose for them, a cache keeps the level
-                // it was drawn at. It lets a cascade whose map moved by whole texels SCROLL: the cached depth is
-                // shifted and only the strips the shift uncovered are drawn (CascadeScrollStrips), once the box the
-                // cache was drawn with still holds what it held. Kept while every static caster is tracked
-                // (StaticCastersTracked), every keyed caster tells its content apart and no caster in the box is split
-                // by the wind ring around the camera; otherwise the full key below decides, as it did.
-                const auto contentKey = [&]( const glm::mat4& casterVP, bool& reachedMovable, bool& windSplit )
+                // THE CONTENT KEY (UE's cached CSM: a cached cascade is invalidated by its static casters
+                // changing, not by the camera): which static casters the box of a caster matrix holds, what they
+                // are and how they are biased - without the levels of detail the camera chose for them, a cache
+                // keeps the level it was drawn at. It lets a cascade whose map moved by whole texels SCROLL: the
+                // cached depth is shifted and only the strips the shift uncovered are drawn (CascadeScrollStrips),
+                // once the box the cache was drawn with still holds what it held. Kept while every static caster
+                // is tracked (StaticCastersTracked), every keyed caster tells its content apart and no caster in
+                // the box is split by the wind ring around the camera; otherwise the full key below decides, as it
+                // did. The keyed casters' part is asked OF THE BOX (IShadowCaster::CascadeShadowContent): the
+                // landscape in the box the cache was drawn with, not this frame's draws, so a shifted map whose
+                // old box holds the same tiles scrolls; nullopt (a caster that cannot tell its content apart) keys
+                // by the full key.
+                const auto contentKey = [&]( const glm::mat4& casterVP, bool& reachedMovable,
+                                             bool& windSplit ) -> std::optional<uint64_t>
                 {
                     SignatureHash content;
                     content.Add( CascadeStaticSignature( v, casterVP, false, reachedMovable, windSplit ) );
-                    content.Add( casterContent.Value );
+                    for ( const auto& weak : m_CascadeKeyedCasters[v] )
+                    {
+                        const auto caster = weak.lock();
+                        if ( !caster )
+                            continue;
+                        const std::optional<uint64_t> held = caster->CascadeShadowContent( v, casterVP );
+                        if ( !held )
+                            return std::nullopt;
+                        content.Add( *held );
+                    }
                     content.Add( m_CascadeCasterBias[v] );
                     return content.Value;
                 };
@@ -1166,14 +1175,17 @@ namespace Desert::Graphic::System
                     if ( samePlace && shift != glm::ivec2( 0 ) && state.KeyIsContent && state.StaticKey &&
                          CascadeScrollOverlaps( shift, m_Shadow.ShadowMapSize ) )
                     {
-                        bool cachedMovable = false;
-                        bool cachedSplit   = false;
-                        cacheHolds = contentKey( state.CasterVP, cachedMovable, cachedSplit ) == *state.StaticKey &&
-                                     !cachedSplit;
+                        bool                          cachedMovable = false;
+                        bool                          cachedSplit   = false;
+                        const std::optional<uint64_t> cached =
+                             contentKey( state.CasterVP, cachedMovable, cachedSplit );
+                        cacheHolds = cached && *cached == *state.StaticKey && !cachedSplit;
                     }
-                    bool windSplit = false;
-                    newKey         = contentKey( m_CascadeCasterVP[v], movable, windSplit );
-                    if ( windSplit )
+                    bool                          windSplit = false;
+                    const std::optional<uint64_t> content = contentKey( m_CascadeCasterVP[v], movable, windSplit );
+                    if ( content )
+                        newKey = *content;
+                    if ( windSplit || !content )
                         keyIsContent = false;
                     else if ( samePlace && shift == glm::ivec2( 0 ) )
                         redraw = !state.KeyIsContent || state.StaticKey != newKey;

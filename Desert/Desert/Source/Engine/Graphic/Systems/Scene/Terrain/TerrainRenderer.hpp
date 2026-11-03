@@ -169,7 +169,8 @@ namespace Desert::Graphic::System
         // its maps and the layer heights array's device generation, so a streamed mip redraws). Resolved by
         // PrepareLocalShadowViews for this frame; the hash of nothing when no tile is queued.
         [[nodiscard]] std::optional<uint64_t> CascadeShadowSignature( uint32_t view ) const override;
-        [[nodiscard]] std::optional<uint64_t> CascadeShadowContent( uint32_t view ) const override;
+        [[nodiscard]] std::optional<uint64_t>
+        CascadeShadowContent( uint32_t view, const glm::mat4& casterViewProj ) const override;
         [[nodiscard]] uint32_t DeclareShadowView( RenderPassDeclaration& declared, uint32_t view ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowView( const RDG::PassContext& context, uint32_t view,
                                                               uint32_t firstBlock, const glm::mat4& casterViewProj,
