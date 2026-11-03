@@ -222,7 +222,14 @@ Shader "CloudTemporalResolve"
         // own texel centre and is exactly the pixel it was — so it takes the still weights below, and the
         // reprojection's own displacement blends between the two (UE's TAA does the same with its current
         // frame weight: TemporalAA.shader, kCurrentWeight raised toward kMovingCurrentWeight by the motion).
-        const float kOwnedSampleWeight = 0.75f;
+        //
+        // LOWERED FROM 0.75 ONCE THE MOVING HISTORY WAS READ THROUGH A CATMULL-ROM (CloudHistoryCatmullRom).
+        // The sweep above was taken on a still camera; 0.75 on a moving one is the bilinear blur's price, and
+        // it hands the trace's start-offset dither to the screen every fourth frame — the sky, and everything
+        // drawn against it, flickered while the camera turned (owner, 11-03). The cubic read keeps a
+        // resampled history as sharp as a still one, so the moving owned weight only has to stop drift, and
+        // twice the still weight does that.
+        const float kOwnedSampleWeight = 0.3f;
         const float kNewSampleWeight   = 0.06f;
 
         // THE WEIGHT OF AN OWNED SAMPLE ON A STILL HISTORY: the same time constant UE's TAA averages a still
@@ -276,6 +283,53 @@ Shader "CloudTemporalResolve"
         {
             vec2 half_texel = 0.5f / vec2(size);
             return clamp(uv, half_texel, vec2(1.0f, 1.0f) - half_texel);
+        }
+
+        // A MOVING HISTORY IS READ THROUGH A CATMULL-ROM, NOT A BILINEAR (UE's TemporalAA.usf history fetch,
+        // AA_BICUBIC; the five-tap form of Jimenez's Filmic SMAA). A bilinear read between texel centres is a
+        // blur of the history, and kept every frame it compounds: that blur was the whole reason a moving
+        // history took the owned sample at 0.75, and 0.75 hands the trace's start-offset dither to the screen
+        // every fourth frame - the flicker of the sky and of everything in front of it while the camera
+        // turns (owner, 11-03: "когда крутишь там мерцают облака"). The cubic keeps a resampled history sharp,
+        // so the moving weights below can stay near the still ones. Its overshoot is clamped to the 2x2
+        // texels the bilinear would have blended, so it never invents a value the history did not hold.
+        vec4 CloudHistoryCatmullRom(vec2 uv, ivec2 size)
+        {
+            vec2 texSize  = vec2(size);
+            vec2 position = uv * texSize;
+            vec2 centre1  = floor(position - 0.5f) + 0.5f;
+            vec2 f        = position - centre1;
+            vec2 w0       = f * (-0.5f + f * (1.0f - 0.5f * f));
+            vec2 w1       = 1.0f + f * f * (-2.5f + 1.5f * f);
+            vec2 w2       = f * (0.5f + f * (2.0f - 1.5f * f));
+            vec2 w3       = f * f * (-0.5f + 0.5f * f);
+            vec2 w12      = w1 + w2;
+            vec2 uv0      = (centre1 - 1.0f) / texSize;
+            vec2 uv12     = (centre1 + w2 / w12) / texSize;
+            vec2 uv3      = (centre1 + 2.0f) / texSize;
+
+            float wTop    = w12.x * w0.y;
+            float wLeft   = w0.x * w12.y;
+            float wMid    = w12.x * w12.y;
+            float wRight  = w3.x * w12.y;
+            float wBottom = w12.x * w3.y;
+
+            vec4 sum = texture(CloudHistoryTexture, ClampToTexelCentres(vec2(uv12.x, uv0.y), size)) * wTop;
+            sum += texture(CloudHistoryTexture, ClampToTexelCentres(vec2(uv0.x, uv12.y), size)) * wLeft;
+            sum += texture(CloudHistoryTexture, ClampToTexelCentres(uv12, size)) * wMid;
+            sum += texture(CloudHistoryTexture, ClampToTexelCentres(vec2(uv3.x, uv12.y), size)) * wRight;
+            sum += texture(CloudHistoryTexture, ClampToTexelCentres(vec2(uv12.x, uv3.y), size)) * wBottom;
+            vec4 cubic = sum / (wTop + wLeft + wMid + wRight + wBottom);
+
+            ivec2 base  = clamp(ivec2(centre1 - 0.5f), ivec2(0), size - ivec2(1));
+            ivec2 other = min(base + ivec2(1), size - ivec2(1));
+            vec4  t00   = texelFetch(CloudHistoryTexture, base, 0);
+            vec4  t10   = texelFetch(CloudHistoryTexture, ivec2(other.x, base.y), 0);
+            vec4  t01   = texelFetch(CloudHistoryTexture, ivec2(base.x, other.y), 0);
+            vec4  t11   = texelFetch(CloudHistoryTexture, other, 0);
+            vec4  lo    = min(min(t00, t10), min(t01, t11));
+            vec4  hi    = max(max(t00, t10), max(t01, t11));
+            return clamp(cubic, lo, hi);
         }
 
         bool IsFinite(vec4 v)
@@ -488,7 +542,10 @@ Shader "CloudTemporalResolve"
 
                         vec2 fetchUv = ClampToTexelCentres(prevUv, size);
 
-                        vec4 history      = texture(CloudHistoryTexture, fetchUv);
+                        float moving       = clamp(length((prevUv - uv) * vec2(size)) / kMovingHistoryPixels,
+                                                   0.0f, 1.0f);
+                        vec4  history      = moving > 0.0f ? CloudHistoryCatmullRom(fetchUv, size)
+                                                           : texture(CloudHistoryTexture, fetchUv);
                         vec4 historyGuide = texture(CloudHistoryGuideTexture, fetchUv);
 
                         bool finite      = IsFinite(history) && IsFinite(historyGuide);
@@ -502,8 +559,6 @@ Shader "CloudTemporalResolve"
                             {
                                 // How far the history moved to get here, in half-res pixels: 0 at a still
                                 // camera, where the history is read at its own texel centre and is exact.
-                                float moving    = clamp(length((prevUv - uv) * vec2(size)) / kMovingHistoryPixels,
-                                                        0.0f, 1.0f);
                                 float newWeight = owned ? mix(kStillOwnedSampleWeight, kOwnedSampleWeight, moving)
                                                         : mix(kStillNewSampleWeight, kNewSampleWeight, moving);
                                 resolved        = mix(history, traceScatter, newWeight);
