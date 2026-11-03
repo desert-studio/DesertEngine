@@ -1800,7 +1800,7 @@ namespace Desert::Graphic::System
                     ismHidden = *walk;
                 }
 
-                // Per-instance, against this cascade. A cascade covers a slice of the view,
+                // Per-instance, against this cascade. A cascade covers a square around the camera,
                 // so a forest spread over the map has most of its instances outside every
                 // one of the four — and the batch is a single draw whose cost is entirely
                 // its instance count. The instances the main camera's cull distance keeps, with the box the

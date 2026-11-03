@@ -943,10 +943,10 @@ namespace Desert::Graphic::System
         // camera can sample gets 0 - every caster casts its rest pose, the cascade's static layer holds them and
         // the wind neither redraws nor invalidates it; every other view (the near cascades, their movable layers,
         // the VSM levels, the local and rain views) gets Shadows.WindAnimationDistance. Cascade c >= 2 is such a
-        // cascade when the distance is within cascade c-2's split: a visible receiver at a view depth up to it
-        // lies in a slice of a tighter cascade, inside that cascade's square (the sphere fit), so it picks that
-        // one or tighter (Mesh/CascadedShadow.glslh chooseCascade) and cross-fades at most into cascade c-1; a
-        // receiver within the distance is at a view depth no larger. One answer for the CPU walk
+        // cascade when the distance is within cascade c-2's split: a receiver no farther from the camera than it
+        // lies inside cascade c-2's square (centred on the camera, half side >= the split: ComputeShadowCascades),
+        // or past its texel snap deep inside cascade c-1's, so it picks one of them (Mesh/CascadedShadow.glslh
+        // chooseCascade) and cross-fades at most into cascade c-1. One answer for the CPU walk
         // (CascadeStaticSignature, BuildShadowCascadeDraws), the GPU cull's caster views (LodOrigin.w) and the
         // vertex stage (CasterWindOrigin).
         [[nodiscard]] float ShadowWindDistanceOf( uint32_t view ) const;
@@ -955,7 +955,7 @@ namespace Desert::Graphic::System
         // every point lies within @p reach (cm) of its instance point - the instance point nearer the main camera
         // than it casts its rest pose into the static layer too. In cascade c >= 2 its shadow then falls within
         // reach x (1 + 1 / tan(elevation)) of it on the ground it stands on, so on receivers no farther from the
-        // camera - at no larger view depth - than cascade c-2's split, which pick a tighter cascade (the rule
+        // camera than cascade c-2's split, which pick a tighter cascade (the rule
         // above): the cascade's movers are only the ring [inner, Shadows.WindAnimationDistance). 0 (no ring) for
         // cascades 0 and 1, every other view and a light at or below the horizon. Read by the vertex stage's split
         // (ViewFrame::CasterWindRing, CasterWindLayer.glslh) and the same section's CascadeStaticSignature.
@@ -2641,7 +2641,7 @@ namespace Desert::Graphic::System
             float     SourceTanHalf = 0.0f;
             glm::vec4 WorldPerTexel = glm::vec4( 1.0f ); // per cascade: world size of one map texel (2*radius/res)
             glm::vec4 DepthRange    = glm::vec4( 1.0f ); // per cascade: world length of the [0,1] light depth
-            glm::vec4 SplitFar      = glm::vec4( 0.0f ); // per cascade: the view depth its slice ends at (cm)
+            glm::vec4 SplitFar      = glm::vec4( 0.0f ); // per cascade: its split's distance from the camera (cm)
             glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];

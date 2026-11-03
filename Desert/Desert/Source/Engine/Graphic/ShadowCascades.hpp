@@ -184,10 +184,10 @@ namespace Desert::Graphic
     struct CascadeFit
     {
         glm::mat4 ViewProj      = glm::mat4( 1.0f ); // light-space matrix for this cascade
-        glm::vec3 Center        = glm::vec3( 0.0f ); // world centre of the fitted sphere (texel-snapped)
-        float     Radius        = 0.0f;              // world radius of the slice's bounding sphere
+        glm::vec3 Center        = glm::vec3( 0.0f ); // the camera's position, texel-snapped (the map's centre)
+        float     Radius        = 0.0f;              // half the map's world side: max( 1, slope ) * SplitFar
         float     WorldPerTexel = 0.0f;              // 2 * Radius / shadowMapSize — drives the normal-offset
-        float     SplitFar      = 0.0f;              // view-space far distance this cascade covers
+        float     SplitFar      = 0.0f;              // the split's distance from the camera (Radius >= it)
         float     DepthRange    = 1.0f; // world length the projection's [0,1] depth spans (far - near)
         // WHERE THE MAP LIES, as the cascade cache compares two frames' fits (MeshRenderer::PlanCascadeCache, UE's
         // CSM scrolling): the light-space texel its centre is snapped to, and the world distance along the light of
@@ -312,67 +312,36 @@ namespace Desert::Graphic
             splitFar[i]     = glm::mix( uni, log, setup.SplitLambda );
         }
 
-        // Frustum corners give the eye + view axis; the slice bounding spheres are then computed
-        // analytically from scalars, which is what keeps the radius bit-stable as the camera turns
-        // (a centroid + max-corner-distance is analytically rotation-invariant but accumulates FP noise, and
-        // the quantized radius then flip-flops and the texel snap stops hiding the crawl).
+        // EVERY CASCADE IS CENTRED ON THE CAMERA'S POSITION (UE5's directional clipmap, FVirtualShadowMapClipmap:
+        // each level centred on the view origin and snapped to its page grid). A cascade's map then depends on
+        // where the camera STANDS and never on where it LOOKS: turning on the spot keeps every map's texel origin
+        // and depth origin, so the cascade cache (MeshRenderer::PlanCascadeCache) takes all four from cache as it
+        // does for a still camera; walking scrolls them by whole texels. The centre used to be the slice's
+        // bounding sphere ahead of the eye (eye + view axis * sphereZ), which a 1-degree turn moved 15-17 texels a
+        // frame: a scroll, a cache copy and redrawn strips in every frame of a turn while the shadowed world stood
+        // still.
         //
-        // THE NDC z VALUES BELONG TO THE CAMERA'S CONVENTION, NOT TO THIS FUNCTION'S. The camera is
-        // REVERSED-Z (Core/Projection.hpp): 1 on the near plane, 0 on the far one. Reading them the GL way
-        // (-1 near, +1 far) does not merely misplace the rings — it SWAPS them, `viewFwd` comes out
-        // pointing behind the camera, and every cascade is fitted to the space at the observer's back.
-        // The cascades' own projection is a separate decision, made where it is built below.
-        const glm::mat4 invVP = glm::inverse( setup.CameraProjection * setup.CameraView );
-        glm::vec3       nearCorners[4];
-        glm::vec3       farCorners[4];
-        int             ci = 0;
-        for ( int x = 0; x < 2; ++x )
-        {
-            for ( int y = 0; y < 2; ++y )
-            {
-                const glm::vec4 nc = invVP * glm::vec4( 2.0f * x - 1.0f, 2.0f * y - 1.0f, 1.0f, 1.0f );
-                const glm::vec4 fc = invVP * glm::vec4( 2.0f * x - 1.0f, 2.0f * y - 1.0f, 0.0f, 1.0f );
-                nearCorners[ci]    = glm::vec3( nc ) / nc.w;
-                farCorners[ci]     = glm::vec3( fc ) / fc.w;
-                ++ci;
-            }
-        }
+        // The eye is the view matrix's translation carried back through its rotation (the rigid inverse), not an
+        // unprojected frustum apex: exact to the rounding of one 3x3 product, so the snap below does not flip
+        // while the camera only turns.
+        const glm::mat3 viewRotation( setup.CameraView );
+        const glm::vec3 eye = -( glm::transpose( viewRotation ) * glm::vec3( setup.CameraView[3] ) );
 
-        const glm::vec3 nearRingCenter =
-             0.25f * ( nearCorners[0] + nearCorners[1] + nearCorners[2] + nearCorners[3] );
-        const glm::vec3 farRingCenter = 0.25f * ( farCorners[0] + farCorners[1] + farCorners[2] + farCorners[3] );
-        const glm::vec3 viewFwd       = glm::normalize( farRingCenter - nearRingCenter );
-        const glm::vec3 eye           = nearRingCenter - viewFwd * camNear; // frustum apex
-
-        // k = the frustum's angular half-slope, taken from the PROJECTION matrix (rotation-independent).
+        // k = the frustum's half-diagonal slope, taken from the PROJECTION matrix (rotation-independent).
         const float tanHalfY = 1.0f / glm::max( std::abs( setup.CameraProjection[1][1] ), 1e-6f );
         const float aspect   = std::abs( setup.CameraProjection[1][1] / setup.CameraProjection[0][0] );
         const float kSlope   = tanHalfY * std::sqrt( 1.0f + aspect * aspect );
-        const float k2       = kSlope * kSlope;
+        // THE RADIUS. A cascade holds every point nearer the camera than its split (radius >= SplitFar, to within
+        // the texel snap): MaxDistance is a distance from the camera, and the shadow wind ring
+        // (MeshRenderer::ShadowWindRingOf) has a receiver nearer than split c-2 pick cascade c-2 or c-1. A frustum
+        // wider than slope 1 keeps the radius the slice's sphere had, kSlope * SplitFar - the far ring's corner
+        // offset from the view axis - so the texel the receivers see is the one the forward fit gave them.
+        const float radiusScale = glm::max( kSlope, 1.0f );
 
-        float lastFar = camNear;
         for ( uint32_t c = 0; c < count; ++c )
         {
-            const float zNear = lastFar;
-            const float zFar  = splitFar[c];
-
-            float sphereZ = 0.0f;
-            float radius  = 0.0f;
-            if ( k2 * ( zFar + zNear ) >= ( zFar - zNear ) )
-            {
-                // The near ring is already inside the far ring's sphere.
-                sphereZ = zFar;
-                radius  = kSlope * zFar;
-            }
-            else
-            {
-                sphereZ        = 0.5f * ( zFar + zNear ) * ( 1.0f + k2 );
-                const float dz = sphereZ - zFar;
-                radius         = std::sqrt( dz * dz + k2 * zFar * zFar );
-            }
-
-            const glm::vec3 center = eye + viewFwd * sphereZ;
-            radius                 = std::ceil( radius * 16.0f ) / 16.0f; // quantize a bit for stability
+            const float zFar   = splitFar[c];
+            const float radius = std::ceil( radiusScale * zFar * 16.0f ) / 16.0f; // quantize a bit for stability
 
             const glm::vec3 up = glm::abs( lightDir.y ) > 0.99f ? glm::vec3( 0, 0, 1 ) : glm::vec3( 0, 1, 0 );
 
@@ -382,24 +351,23 @@ namespace Desert::Graphic
             // (the cascade cache scrolls by it, MeshRenderer::PlanCascadeCache).
             const float      worldPerTexel = ( 2.0f * radius ) / static_cast<float>( setup.ShadowMapSize );
             const glm::mat4  lightBasis    = glm::lookAt( -lightDir, glm::vec3( 0.0f ), up );
-            const glm::vec3  centerLS      = glm::vec3( lightBasis * glm::vec4( center, 1.0f ) );
+            const glm::vec3  centerLS      = glm::vec3( lightBasis * glm::vec4( eye, 1.0f ) );
             const glm::ivec2 texelOrigin( static_cast<int32_t>( std::floor( centerLS.x / worldPerTexel ) ),
                                           static_cast<int32_t>( std::floor( centerLS.y / worldPerTexel ) ) );
             const glm::vec2  snappedLS = glm::vec2( texelOrigin ) * worldPerTexel;
             const glm::vec3  snapped =
                  glm::vec3( glm::inverse( lightBasis ) * glm::vec4( snappedLS, centerLS.z, 1.0f ) );
 
-            // THE DEPTH RANGE IS ANCHORED TO THE WORLD, not to the slice (UE's CSM scrolling keeps the cached
-            // casters' depth valid the same way: one light-space depth range while the cache lives). The slice's
-            // centre lies within sphereZ of the eye along any view direction, so a range that starts 2 * radius +
-            // sphereZ before the eye's distance along the light - that distance rounded down to a whole `quantum` -
-            // and spans the slice's 4 * radius plus the quantum and the 2 * sphereZ swing holds every caster the
-            // slice-centred range held, for every direction the camera turns to and every step inside one quantum.
-            // A world point's depth is then one number in every fit with the same DepthOrigin: turning on the spot
-            // never changes it, walking changes it once per quantum.
+            // THE DEPTH RANGE IS ANCHORED TO THE WORLD, not to the eye (UE's CSM scrolling keeps the cached
+            // casters' depth valid the same way: one light-space depth range while the cache lives). The map
+            // centred on the eye needs the eye's distance along the light +- 2 * radius (its receivers and the
+            // casters a radius sunward of them), so a range that starts 2 * radius before that distance rounded
+            // down to a whole `quantum` and spans 4 * radius plus the quantum holds it for every step inside one
+            // quantum. A world point's depth is then one number in every fit with the same DepthOrigin: turning on
+            // the spot never changes it, walking changes it once per quantum.
             const float quantum     = 2.0f * radius;
             const float eyeDistance = glm::dot( eye, lightDir );
-            const float depthOrigin = std::floor( eyeDistance / quantum ) * quantum - sphereZ - 2.0f * radius;
+            const float depthOrigin = std::floor( eyeDistance / quantum ) * quantum - 2.0f * radius;
 
             // The light view: the light basis moved to the snapped texel across the light and to the anchored plane
             // along it (lightBasis looks at the origin from -lightDir: its own z is -dot( p, lightDir ) - 1), so the
@@ -414,7 +382,7 @@ namespace Desert::Graphic
             // these maps and a re-tuned shadow bias. The pass that consumes this matrix says so too
             // (MeshRenderer::SetupShadowPass) and clears its depth to 1 rather than the engine's 0.
             const float     depthNear = Common::Units::Cm( 10.0f );
-            const float     depthFar  = 4.0f * radius + quantum + 2.0f * sphereZ;
+            const float     depthFar  = 4.0f * radius + quantum;
             const glm::mat4 proj      = glm::orthoRH_ZO( -radius, radius, -radius, radius, depthNear, depthFar );
 
             out[c].ViewProj      = proj * view;
@@ -425,8 +393,6 @@ namespace Desert::Graphic
             out[c].DepthRange    = depthFar - depthNear;
             out[c].TexelOrigin   = texelOrigin;
             out[c].DepthOrigin   = depthOrigin;
-
-            lastFar = zFar;
         }
         return count;
     }
