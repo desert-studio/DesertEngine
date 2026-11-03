@@ -224,22 +224,22 @@ namespace Desert::Graphic::System
         }
 
     private:
-        // GRASS-VIS-6: what the camera draws this frame. None: the full list (it is the camera's own volume, and no
-        // HZB is tested); Planes: its own list, culled by its side planes; PlanesAndHzb: that list culled by last
-        // frame's HZB too, with phase 2's candidates (GrassGenerate.shader Hzb.w 0 / 3 / 1).
+        // GRASS-VIS-6: what the camera draws this frame. None: the full list (it is the camera's own volume, and
+        // no HZB is tested); Planes: its own list, culled by its side planes; PlanesAndHzb: that list culled by
+        // last frame's HZB too, with phase 2's candidates (GrassGenerate.shader Hzb.w 0 / 3 / 1).
+        // GRASS-CULL-UNIFY-1: the full list is the view-independent field about the field eye, so the camera
+        // always culls its own list (None, "the full list is the camera's volume", is gone with the swept volume).
         enum class CameraList : uint8_t
         {
-            None,
             Planes,
             PlanesAndHzb
         };
-        // The view's two volumes (GrassGenerate.shader GrassParams Planes / CameraPlanes), decided once per AddFrame.
+        // The view's volumes for GrassCull.shader (the variety table's header), decided once per AddFrame: the
+        // camera's side planes and the cascades' caster boxes. The tile cull sees none of them.
         struct ViewVolumes
         {
-            glm::vec4  Full[4]{};
             glm::vec4  Camera[4]{};
-            bool       Swept = false; // Full is wider than Camera: the cells and capacity leave the lens's wedge
-            CameraList List  = CameraList::None;
+            CameraList List = CameraList::Planes;
             // GPU-COST-21: the cascade views this frame draws (bit v: view v, MeshRenderer::CascadeCasterBoxSet)
             // and their caster boxes, list k's six planes (the k-th set bit's) at 6k (GrassGenerate.shader
             // CascadePlanes).
@@ -295,7 +295,7 @@ namespace Desert::Graphic::System
             // touch): CameraIds / CameraArgs the instances inside the camera's planes that last frame's HZB does
             // not hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw
             // records.
-            CameraList                                      List = CameraList::None;
+            CameraList                                      List = CameraList::Planes;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
             std::shared_ptr<ShaderResources::StorageBuffer> Candidates;
@@ -321,6 +321,10 @@ namespace Desert::Graphic::System
             uint32_t                                        CascadeMask      = 0;
             uint32_t                                        CascadeArgWords  = 0;
             uint32_t                                        CascadeRestShift = 0;
+            // GRASS-CULL-UNIFY-1: this frame's movers' ring of list k (x = MeshRenderer::ShadowWindInnerOf by
+            // Reach, y = the wind distance, 0: no mover), the variety table's CascadeRings for GrassCull's
+            // CascadeCull.
+            std::array<glm::vec2, kGrassCascadeLists>       CascadeRings{};
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeArgs;
             RDG::ExternalBuffer                             CascadeIdsImport, CascadeArgsImport;

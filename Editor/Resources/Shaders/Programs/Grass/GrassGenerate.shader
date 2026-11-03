@@ -57,14 +57,11 @@ Shader "GrassGenerate"
         LocalSize(8, 8, 1);
 
         #include <Common/GrassFieldShare.glslh>
-        #include <Common/ShadowWind.glslh>
 
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
         {
-            vec4  Planes[4];       // the full list's: the camera's side planes swept along the shadowed lights, xyz.n + w >= 0 inside
-            vec4  CameraPlanes[4]; // the camera's left / right / bottom / top planes (its own list)
-            vec4  Camera;    // xyz = view position (cm), w = EndCullDistance through the lens
+            vec4  Camera;    // xyz = the field eye (cm: the camera snapped to the tile grid, GrassRenderer FieldEye), w = EndCullDistance through the lens
             vec4  Cull;      // x, y = Start/EndCullDistance through the lens (DrawDistanceScale), z = cell (cm), w = max jitter (cells)
             vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
             vec4  ScaleX;    // x/y = ScaleX range, z = scaling (0 uniform, 1 free, 2 lock XY), w = flags
@@ -83,12 +80,6 @@ Shader "GrassGenerate"
                              // GrassBladeLodAt, GrassMeshFarLod)
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
             vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
-            uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list in
-                             // CascadeArgs (its copy of Args' layout, then its rest twin), z = the cull pad (float bits,
-                             // cm: a mesh's sway past its bounds), w = a list's first rest count (one per bucket)
-            vec4  CascadePlanes[48]; // list k's caster box at 6k..6k+5 (GrassRenderer kGrassCascadeLists = 8 lists)
-            vec4  CasterWindOrigin;  // GRASS-SHADOW-1: xyz = the shadow wind rule's origin (the main camera)
-            vec4  CascadeRings[8];   // list k's movers' ring: x = inner, y = wind distance (0: no mover), cm
         };
 
         ReadBuffer(0) Field
@@ -109,27 +100,6 @@ Shader "GrassGenerate"
         Buffer(3) Args
         {
             uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, half screen size (a mesh level)
-        };
-
-        // THE CASCADES' LISTS (GPU-COST-21; UE: every shadow view culls its casters by its own volume): per live
-        // cascade view a list of the instances inside that cascade's caster box, the same records and bucket table
-        // as Args, list k's copy at k x Cascades.y words, its buckets at k x capacity in CascadeIds (per slot the
-        // instance's row of Instances, GPU-COST-22). The
-        // cascade draws its list instead of the full one (MeshRenderer::BuildGpuInstancedShadowDraws).
-        // EACH LAYER ITS OWN PART (GRASS-SHADOW-1; UE: a cached shadow's static and movable casters are separate
-        // draw lists): a bucket's movers - the instances in the list's ring CascadeRings[k] of the rule's origin,
-        // the ones that sway over the cascade's cache - fill it from its first slot, counted by the bucket table;
-        // its rest-pose casters fill it from its last slot, counted by the list's rest counts (Cascades.w). The
-        // cache's static layer draws the rest part, the movable layer the movers: neither runs a vertex of the
-        // other's instances. A bucket's two parts never meet: together they hold at most what the full list kept.
-        Buffer(8) CascadeIds
-        {
-            uint GrassCascadeIdsData[];
-        };
-
-        Buffer(9) CascadeArgs
-        {
-            uint CascadeArguments[];
         };
 
         // GRASS-TILE-1, THE TILE POOL: kTilePoolWords uvec4 per record (TileRecord: StoreRecord / LoadRecord), in
@@ -197,9 +167,6 @@ Shader "GrassGenerate"
         const uint kTileClusterWord  = 32u;
         const uint kTileClusterWords = 8u;
         const uint kTileHeaderWords  = kTileClusterWord + kTileClusters * kTileClusterWords;
-        // The most the far LOD widens a blade's sphere (CullCandidate lod.Widen: 1 / GrassFarLodShare, at most 2,
-        // times GrassBladeFadeWiden, at most 2).
-        const float kMaxLodWiden = 4.0;
 
         // The build's cluster (Count: its count and box; Write: its records' fade draws, ranked).
         shared uint  s_ClusterCount;
@@ -542,55 +509,14 @@ Shader "GrassGenerate"
             return true;
         }
 
-        // The widest a candidate's bounding sphere (CullCandidate) can grow at most @p farthest from the eye, plus
-        // its centre's height: the tile and cluster cull's pad. A blade widens by the thinning's Widen - it only
-        // grows with distance, so the farthest point's bounds the box's - and by the far LOD's; a mesh only shrinks.
-        // The pass's params are read in place (BoxCulled).
-        float TilePad( float farthest )
-        {
-            const vec4 scaleX = GrassParamsData[0].ScaleX;
-            const vec4 scaleY = GrassParamsData[0].ScaleY;
-            const vec4 scaleZ = GrassParamsData[0].ScaleZ;
-            const vec4 lean   = GrassParamsData[0].Lean;
-            bool       blade  = ( floatBitsToUint( scaleX.w ) & kFlagBlade ) != 0u;
-            float s = max( max( abs( scaleX.x ), abs( scaleX.y ) ),
-                           max( max( abs( scaleY.x ), abs( scaleY.y ) ), max( abs( scaleZ.x ), abs( scaleZ.y ) ) ) );
-            float floorBound = 0.0;
-            if ( lean.w > 0.0 )
-            {
-                float narrowest = 1.0e30;
-                for ( uint i = 0u; i < min( GrassParamsData[0].Buckets.z, 8u ); ++i )
-                    narrowest = min( narrowest, GrassParamsData[0].CardWidths[i / 4u][i % 4u] );
-                floorBound = lean.w * farthest / max( narrowest, 1.0e-3 );
-            }
-            const vec4 cull     = GrassParamsData[0].Cull;
-            const vec4 spread   = GrassParamsData[0].Spread;
-            float      widen    = blade ? GrassFieldShareAt( farthest, cull.x, cull.y, spread.w ).Widen : 1.0;
-            float      lodWiden = blade ? kMaxLodWiden : 1.0;
-            return GrassParamsData[0].Range.w * max( max( s * widen, floorBound ) * lodWiden, s ) + abs( scaleY.z ) * s;
-        }
-
-        // A root box (tile or cluster) none of whose candidates the cull can keep: past the cull radius, or
-        // outside the full list's volume by more than the pad. GRASS-TILE-4: the pass's params are read in place,
-        // not through a copy of GrassParams - most of the cull's groups and threads leave on these tests and keep
-        // nothing, so they read only the words the tests name (the copy's arrays are indexed by the cascade and the
-        // card, which a compiler may place in local memory).
+        // A root box (tile or cluster) none of whose candidates the cull can keep: past the cull radius of the field
+        // eye. GRASS-CULL-UNIFY-1: no view volume - what this cull keeps is the field about the field eye, the same
+        // for every view and every turn of the camera; each view culls it by its own volume (GrassCull.shader: the
+        // camera's planes and HZB, the cascades' caster boxes). GRASS-TILE-4: the params are read in place.
         bool BoxCulled( vec3 lo, vec3 hi )
         {
             const vec3 eye = GrassParamsData[0].Camera.xyz;
-            if ( length( clamp( eye, lo, hi ) - eye ) > GrassParamsData[0].Cull.y )
-                return true;
-            float farthest = length( max( abs( lo - eye ), abs( hi - eye ) ) );
-            float pad      = TilePad( farthest );
-            vec3  middle   = 0.5 * ( lo + hi );
-            vec3  extent   = 0.5 * ( hi - lo );
-            for ( int i = 0; i < 4; ++i )
-            {
-                const vec4 plane = GrassParamsData[0].Planes[i];
-                if ( dot( plane.xyz, middle ) + dot( abs( plane.xyz ), extent ) + plane.w < -pad )
-                    return true;
-            }
-            return false;
+            return length( clamp( eye, lo, hi ) - eye ) > GrassParamsData[0].Cull.y;
         }
 
         vec3 BoxWords( uint at )
@@ -607,13 +533,11 @@ Shader "GrassGenerate"
         }
 
         // THE WAVE'S APPEND (GRASS-TILE-4; GrassCull.shader WaveAppend, UE InstanceCulling: one atomic per wave and
-        // list): every invocation that calls it takes one entry of the counter at word @p at of CascadeArguments
-        // (@p cascades) or of Arguments. The subgroup's invocations that name the same counter add their number with
-        // ONE atomicAdd and each takes its rank among them - one round per distinct counter among the callers (a
-        // subgroup's instances fall into a few buckets). Every call site passes one @p cascades, so the invocations
-        // a round gathers name one buffer. Returns the entry's index: the counter before the subgroup's add, plus the
-        // rank.
-        uint WaveAppend( bool cascades, uint at )
+        // counter): every invocation that calls it takes one entry of the counter at word @p at of Arguments. The
+        // subgroup's invocations that name the same counter add their number with ONE atomicAdd and each takes its
+        // rank among them - one round per distinct counter among the callers (a subgroup's instances fall into a
+        // few buckets). Returns the entry's index: the counter before the subgroup's add, plus the rank.
+        uint WaveAppend( uint at )
         {
             uint index = 0u;
             for ( ;; )
@@ -624,10 +548,7 @@ Shader "GrassGenerate"
                     uint  base   = 0u;
                     if ( subgroupElect() )
                     {
-                        if ( cascades )
-                            base = atomicAdd( CascadeArguments[at], subgroupBallotBitCount( ballot ) );
-                        else
-                            base = atomicAdd( Arguments[at], subgroupBallotBitCount( ballot ) );
+                        base = atomicAdd( Arguments[at], subgroupBallotBitCount( ballot ) );
                     }
                     index = subgroupBroadcastFirst( base ) + subgroupBallotExclusiveBitCount( ballot );
                     break;
@@ -711,24 +632,8 @@ Shader "GrassGenerate"
                     return;
                 scale *= GrassMeshShrink( reached, fade );
             }
-            // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
-            // narrowest card's: the sphere tests take the widest the instance can become.
-            float floorBound = 0.0;
-            if ( GrassParamsData[0].Lean.w > 0.0 )
-            {
-                float narrowest = 1.0e30;
-                for ( uint i = 0u; i < min( GrassParamsData[0].Buckets.z, 8u ); ++i )
-                    narrowest = min( narrowest, GrassParamsData[0].CardWidths[i / 4u][i % 4u] );
-                floorBound = GrassParamsData[0].Lean.w * distance / max( narrowest, 1.0e-3 );
-            }
-
-            // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
-            // bounding sphere (the camera's own list is GrassCull.shader's).
-            float radius = GrassParamsData[0].Range.w * max( max( scale.x, floorBound ) * lod.Widen, max( scale.y, scale.z ) );
-            vec3  centre = position + vec3( 0.0, GrassParamsData[0].ScaleY.z * scale.y, 0.0 );
-            for ( int i = 0; i < 4; ++i )
-                if ( dot( GrassParamsData[0].Planes[i].xyz, centre ) + GrassParamsData[0].Planes[i].w < -radius )
-                    return;
+            // The bounding sphere's centre (a mesh's level below); no view volume here (BoxCulled).
+            vec3 centre = position + vec3( 0.0, GrassParamsData[0].ScaleY.z * scale.y, 0.0 );
             vec3 draws = r.Draws;
             if ( blade )
             {
@@ -770,7 +675,7 @@ Shader "GrassGenerate"
                 }
             }
             uint table = GrassParamsData[0].Buckets.y + bucket * 4u;
-            uint index = WaveAppend( false, table );
+            uint index = WaveAppend( table );
             if ( index >= Arguments[table + 2u] )
                 return;
             index += Arguments[table + 1u];
@@ -787,44 +692,6 @@ Shader "GrassGenerate"
                 instance = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
                                  vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
             GrassInstancesData[index] = instance;
-
-            // Into each cascade's list whose caster box (the six planes of the matrix the cascade draws with,
-            // MeshRenderer::CascadeCasterBoxSet: its ortho box pulled back towards the light, so a caster between
-            // the light and the slice is inside) the instance's reach meets: a sphere about the root - after the
-            // snow sank it - holding its bounds at the final scale, the clump's height included, plus a mesh's sway.
-            // A list's bucket gets at most what the full list's kept, so it never passes the capacity they share.
-            if ( GrassParamsData[0].Cascades.x != 0u )
-            {
-                float reach = ( abs( GrassParamsData[0].ScaleY.z ) + GrassParamsData[0].Range.w ) * max( scale.x, max( scale.y, scale.z ) ) +
-                              uintBitsToFloat( GrassParamsData[0].Cascades.z );
-                for ( uint k = 0u; k < GrassParamsData[0].Cascades.x; ++k )
-                {
-                    bool inside = true;
-                    for ( uint i = 0u; i < 6u && inside; ++i )
-                    {
-                        vec4 plane = GrassParamsData[0].CascadePlanes[k * 6u + i];
-                        inside     = dot( plane.xyz, position ) + plane.w >= -reach;
-                    }
-                    if ( !inside )
-                        continue;
-                    // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the instance's point (its root, the
-                    // vertex stage's model[3]): a mover inside the ring [inner, wind distance), else its rest pose.
-                    // The ring is Common/ShadowWind.glslh's one rule (ShadowWindInsideRing, as GpuCull_CastsRestPose
-                    // and the CPU walk read it); x = ShadowWindInnerOf = ShadowWindRingInner( ShadowWindRingOf ).
-                    vec2 ring  = GrassParamsData[0].CascadeRings[k].xy;
-                    bool mover = ring.y > 0.0 &&
-                                 !ShadowWindCastsRestPose( position, GrassParamsData[0].CasterWindOrigin.xyz, ring.y ) &&
-                                 !ShadowWindInsideRing( position, GrassParamsData[0].CasterWindOrigin.xyz, ring.x );
-                    // One append site for both counters (WaveAppend gathers the invocations by the counter): a
-                    // mover's from the bucket's first slot, a rest caster's from its last.
-                    uint at      = k * GrassParamsData[0].Cascades.y + table;
-                    uint room    = CascadeArguments[at + 2u];
-                    uint counter = mover ? at : k * GrassParamsData[0].Cascades.y + GrassParamsData[0].Cascades.w + bucket;
-                    uint slot    = WaveAppend( true, counter );
-                    if ( slot < room )
-                        GrassCascadeIdsData[CascadeArguments[at + 1u] + ( mover ? slot : room - 1u - slot )] = index;
-                }
-            }
         }
 
         void main()

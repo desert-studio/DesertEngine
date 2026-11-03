@@ -77,12 +77,12 @@ namespace Desert::Graphic::System
         constexpr uint32_t kPhaseWords = 4u;
         // GRASS-VIS-7: Feedback's words per variety past its bucket counts (GrassFinalize.shader Feedback): the
         // written mark, the full list's drawn count, the camera's phase-1 drawn count, phase 2's appended count.
-        // GPU-COST-21: then one drawn count per cascade view's list (GrassFinalize.shader FinalizeCascades).
+        // GPU-COST-21: then one drawn count per cascade view's list (GrassCull.shader FinalizeCascades).
         constexpr uint32_t kFeedbackTailWords = 4u + kGrassCascadeLists;
         static_assert(
              kGrassCascadeLists == MeshRenderer::kCascadeViews &&
                   kGrassCascadeLists == GrassDrawCounters::kCascadeViews && kGrassCascadeLists == 8u,
-             "GrassGenerate.shader CascadePlanes[48] and GrassFinalize.shader kCascadeViews are sized by it" );
+             "GrassCull.shader VarietyCascadePlanes[48] and FinalizeCascades' eight views are sized by it" );
         // A camera candidate's two uvec4 (GrassGenerate.shader Candidates): its sphere and its row of Instances.
         constexpr uint32_t kCandidateBytes = 32u;
         // GPU-COST-22: one slot of the camera's list or a cascade's (GrassGenerate.shader CameraIds / CascadeIds,
@@ -112,15 +112,28 @@ namespace Desert::Graphic::System
             // views with a list (VarietyGpu::CascadeMask)
             glm::uvec4 Info;
             glm::vec4  Bounds; // VarietyGpu::CullBounds
+            // GRASS-CULL-UNIFY-1, the cascades' lists GrassCull culls every frame: CascadeIds' address, x = one
+            // list's words (VarietyGpu::CascadeArgWords), y = its first rest count, and list k's ring at [k / 2]
+            // .xy / .zw (VarietyGpu::CascadeRings).
+            glm::uvec2 CascadeIds;
+            glm::uvec2 CascadeWords;
+            glm::vec4  CascadeRings[kGrassCascadeLists / 2u];
         };
-        static_assert( sizeof( GrassVarietyRowGpu ) == 96,
-                       "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80" );
+        static_assert(
+             sizeof( GrassVarietyRowGpu ) == 176,
+             "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
+             "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112" );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
+            // GRASS-CULL-UNIFY-1: the cascades' caster boxes (ViewVolumes::CascadePlanes) and the shadow wind
+            // rule's origin (MeshRenderer::CasterWindOrigin of the first list's view): GrassCull's CascadeCull.
+            glm::vec4 CascadePlanes[kGrassCascadeLists * 6u];
+            glm::vec4 CasterWindOrigin;
         };
-        static_assert( sizeof( GrassVarietyTableGpu ) == 64,
-                       "GrassCull.shader / GrassFinalize.shader Varieties: VarietyCameraPlanes[4] before the rows" );
+        static_assert( sizeof( GrassVarietyTableGpu ) == 848,
+                       "GrassCull.shader / GrassFinalize.shader Varieties: VarietyCameraPlanes[4], "
+                       "VarietyCascadePlanes[48], VarietyCasterWindOrigin before the rows" );
         // GrassVarietyRows.glslh kGrassRowBlade: a blade strip's records, sets of one record per bucket.
         constexpr uint32_t kRowBlade = 1u;
         // GrassCull's dispatch buffer (GrassCull.shader CullDispatch, a buffer of this frame's graph): the camera
@@ -141,8 +154,8 @@ namespace Desert::Graphic::System
         // Mirrors GrassGenerate's GrassParams (std430).
         struct GrassParamsGpu
         {
-            glm::vec4  Planes[4];       // the full list's volume (the camera's side planes swept along the lights)
-            glm::vec4  CameraPlanes[4]; // the camera's side planes (its own list)
+            // GRASS-CULL-UNIFY-1: no view volume and no cascade in it - the tile cull keeps the field about the
+            // field eye (FieldEye: xyz), the same for every view and every turn of the camera.
             glm::vec4  Camera;
             glm::vec4  Cull;
             glm::vec4  Range;
@@ -169,17 +182,8 @@ namespace Desert::Graphic::System
             // A blade's cards' widths, cm at scale 1 (card i at [i / 4][i % 4], Buckets.z of them): the card an
             // instance draws (Mesh/Surface/GrassBlade.glslh BladeCard) is lifted to the screen-width floor.
             glm::vec4 CardWidths[2];
-            // GPU-COST-21: x = the cascade lists, y = one list's words (Args' layout and its rest twin), z = the
-            // cull pad (float bits), w = the first of a list's rest counts, one per bucket (GRASS-SHADOW-1)
-            glm::uvec4 Cascades;
-            glm::vec4  CascadePlanes[kGrassCascadeLists * 6u]; // list k's caster box at 6k
-            // GRASS-SHADOW-1: the shadow wind rule's origin (xyz, MeshRenderer::CasterWindOrigin: the main camera),
-            // and list k's ring: x = its inner distance (ShadowWindInnerOf), y = its wind distance
-            // (ShadowWindDistanceOf; 0 = no mover), cm. An instance in [x, y) of the origin is a mover.
-            glm::vec4 CasterWindOrigin;
-            glm::vec4 CascadeRings[kGrassCascadeLists];
         };
-        static_assert( sizeof( GrassParamsGpu ) == 1296 );
+        static_assert( sizeof( GrassParamsGpu ) == 240 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -189,30 +193,6 @@ namespace Desert::Graphic::System
             const double hi = outer + 1.5 * cell + moved;
             return static_cast<uint32_t>( std::ceil( 3.14159265 * ( hi * hi - lo * lo ) / ( cell * cell ) ) );
         }
-
-        // THE LARGEST GROUND AREA THE PART OF A VIEW'S PYRAMID WITHIN @p reach OF THE EYE CAN COVER, widened by
-        // @p margin on every side, for any orientation of the view. A capacity sized for the whole disc of the
-        // cull radius grows with the square of the lens (DrawDistanceScale stretches the radius k times), while
-        // the pyramid a lens of half-angle tangents (@p tanX, @p tanY) sees grows only linearly with k: a
-        // 12-degree scope keeps ~9.5x the distance but sees a ~1/9.5 wedge of it. Bounds, not estimates - the
-        // capacity must hold every instance the generator can keep, or the farthest are dropped by GrassFinalize's
-        // clamp:
-        //  - an orthogonal projection of a convex body covers at most half its surface area (Cauchy), and the part
-        //    of the pyramid within reach of its apex lies inside the pyramid cut at depth `reach`, whose surface
-        //    is the base 4 r^2 tx ty plus four triangles r^2 tx sqrt(1 + ty^2) and r^2 ty sqrt(1 + tx^2), two
-        //    each;
-        //  - that projection is convex and lies inside the disc of radius `reach`, so its perimeter is at most
-        //    2 pi reach, and the margin adds perimeter x margin + pi margin^2 (Steiner's formula).
-        double ViewFootprintArea( double reach, double tanX, double tanY, double margin )
-        {
-            constexpr double kPi     = 3.14159265358979;
-            const double     surface = reach * reach *
-                                   ( 4.0 * tanX * tanY + 2.0 * tanX * std::sqrt( 1.0 + tanY * tanY ) +
-                                     2.0 * tanY * std::sqrt( 1.0 + tanX * tanX ) );
-            const double inside = std::min( 0.5 * surface, kPi * reach * reach );
-            return inside + 2.0 * kPi * reach * margin + kPi * margin * margin;
-        }
-
         // A bucket's capacity rounded up to the next power of sqrt(2). The lens changes every frame while a scope
         // zooms, and an exact capacity would reallocate the variety's buffers on every one of those frames; on the
         // steps it reallocates about seven times across a 90-to-12-degree zoom and never wastes more than 41 %.
@@ -258,27 +238,16 @@ namespace Desert::Graphic::System
                 planes[i] = raw[i] / glm::length( glm::vec3( raw[i] ) );
         }
 
-        // GRASS-VIS-6: @p planes (normalised, inside where n.p + w >= 0) swept along every light of @p sweeps by its
-        // reach: an instance at p darkens p + t * Travel for t in [0, Reach], which stays inside plane i for some t
-        // exactly when n.p + w + Reach * max(0, n.Travel) >= 0 - so each plane moves out by its largest such term.
-        // Per plane, so the volume holds the swept camera volume of every light (a little more where two planes'
-        // sweeps meet). True when a plane moved.
-        template <size_t N>
-        bool SweepPlanes( glm::vec4 ( &planes )[4],
-                          const std::array<MeshRenderer::DirectionalCasterSweep, N>& sweeps )
+        // GRASS-CULL-UNIFY-1, THE FIELD EYE (UE: a landscape component's grass is built once and kept while the
+        // component is within the cull distance - it does not follow the view): the camera snapped to the centre
+        // of the tile grid's cell it stands in (@p side = one tile, cm), on all three axes. The tile cull's
+        // distances, thinning and levels are measured from it, so its instances change only when it steps into the
+        // next cell - the frame the resident tiles change (UpdateTiles is given the same eye) - never on a turn.
+        glm::vec3 FieldEye( const glm::vec3& camera, const float side )
         {
-            bool moved = false;
-            for ( glm::vec4& plane : planes )
-            {
-                float out = 0.0f;
-                for ( const MeshRenderer::DirectionalCasterSweep& sweep : sweeps )
-                    out = std::max( out,
-                                    sweep.Reach * std::max( 0.0f, glm::dot( glm::vec3( plane ), sweep.Travel ) ) );
-                plane.w += out;
-                moved = moved || out > 0.0f;
-            }
-            return moved;
+            return ( glm::floor( camera / side ) + 0.5f ) * side;
         }
+
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
         struct GrassGenerateShaderParameters
         {
@@ -286,8 +255,6 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, Params );
             DESERT_SHADER_PARAMETER( StorageBuffer, Instances );
             DESERT_SHADER_PARAMETER( StorageBuffer, Args );
-            DESERT_SHADER_PARAMETER( StorageBuffer, CascadeIds );
-            DESERT_SHADER_PARAMETER( StorageBuffer, CascadeArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, TilePool );
             DESERT_SHADER_PARAMETER( StorageBuffer, TileWords );
             DESERT_SHADER_PARAMETER( StorageBuffer, Tiles );
@@ -509,11 +476,6 @@ namespace Desert::Graphic::System
         const Geometry::LODView lensView{ frame.CameraPosition, frame.Projection };
         const float             lens        = DrawDistanceScale( lensView );
         const bool              perspective = std::abs( frame.Projection[2][3] ) != 0.0f;
-        const double            tanX        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[0][0] ) );
-        const double            tanY        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
-        // The lens's wedge bounds what is generated (the cells, the capacity) only while the full list is the
-        // camera's own volume: swept along a light (GRASS-VIS-6) it reaches past the wedge, anywhere in the disc.
-        const bool              wedge       = perspective && !volumes.Swept;
         const float             radius      = p.EndCullDistance * lens;
         // The floor of the share of cells generated (GrassGenerate LensShare): 1 / k through a zoomed lens - flat
         // ground far away, where it holds the authored lens's instances per pixel; slopes facing the camera and
@@ -569,14 +531,10 @@ namespace Desert::Graphic::System
         const float          farLodDistance = boundsRadius * fieldLens.FarLodScale;
         // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off;
         // scatter carries the blade up to 2 * Scatter grid cells before that.
-        const double moved = variety.Blade
-                                  ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
+        const double moved  = variety.Blade
+                                   ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
                                          2.0 * variety.Blade->Scatter * cell
-                                  : 0.0;
-        // How far a kept instance's cell centre can lie outside the view's pyramid: the side-plane test passes a
-        // bounding sphere that only touches it, and the cell centre is up to a jittered cell and `moved` off the
-        // instance (one more cell for counting lattice points rather than area).
-        const double margin = static_cast<double>( boundsRadius ) + 2.5 * cell + moved;
+                                   : 0.0;
         VarietyGpu&  gpu    = m_Varieties[variety.Key];
         {
             const GrassPlacement& placement = variety.Placement;
@@ -679,11 +637,7 @@ namespace Desert::Graphic::System
             }
             const double outer = !ring || b + 1u == buckets ? static_cast<double>( radius )
                                                             : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
-            uint32_t     needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
-            if ( wedge && needed > 0u )
-                needed = std::min<uint32_t>(
-                     needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
-                                                               ( static_cast<double>( cell ) * cell ) ) ) );
+            uint32_t       needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
             const uint32_t bound  = needed;
             const uint32_t target = fedBack ? std::min( bound, counted[b] + counted[b] / 4u + 64u ) : 0u;
             const uint32_t step = CapacityStep( target );
@@ -791,7 +745,6 @@ namespace Desert::Graphic::System
             // the phase words, and only an HZB-tested list has candidates and phase 2's records (PlanesAndHzb).
             // What this frame's list does not use is a one-word stand-in (the passes bind it, Hzb.w / Mode.y keep
             // it idle).
-            if ( volumes.List != CameraList::None )
             {
                 gpu.CameraIds = ShaderResources::StorageBuffer::Create(
                      "GrassCameraIds", std::max( capacity, 1u ) * kGrassIdBytes, 5, true );
@@ -901,9 +854,9 @@ namespace Desert::Graphic::System
         }
 
         GrassParamsGpu params{};
-        std::copy( std::begin( volumes.Full ), std::end( volumes.Full ), std::begin( params.Planes ) );
-        std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( params.CameraPlanes ) );
-        params.Camera = glm::vec4( frame.CameraPosition, radius );
+        const float     tileSide = static_cast<float>( kGrassTileCells ) * cell;
+        const glm::vec3 eye      = FieldEye( frame.CameraPosition, tileSide );
+        params.Camera            = glm::vec4( eye, radius );
         params.Cull   = glm::vec4( p.StartCullDistance * lens, radius, cell,
                                    std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
         params.Range = glm::vec4( p.AllowedDensityRange.x, p.AllowedDensityRange.y, p.MaxScaleWeightAttenuation,
@@ -975,29 +928,18 @@ namespace Desert::Graphic::System
         // The world's snow buries every instance's root by its depth (Common/WeatherSnow.glslh): a blade shows only
         // what stands above the snow, and one shorter than it is gone, in every pass that draws or shades it.
         params.Lean.z = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
-        // The cascades' lists (GPU-COST-21): their count, one copy's words, a mesh's sway past its bounds (a
-        // blade's sphere holds its sway), and each list's caster box.
-        params.Cascades = glm::uvec4(
-             static_cast<uint32_t>( std::popcount( gpu.CascadeMask ) ), gpu.CascadeArgWords,
-             std::bit_cast<uint32_t>( variety.Blade ? 0.0f : static_cast<float>( WindBoundsPad( variety.Wind ) ) ),
-             gpu.CascadeArgWords - gpu.Buckets );
-        std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
-                   std::begin( params.CascadePlanes ) );
-        // GRASS-SHADOW-1, WHO SWAYS IN EACH LIST (BuildGpuInstancedShadowDraws' rule, the same measures): a swaying
-        // variety's instance in the ring [ShadowWindInnerOf( view, Reach ), ShadowWindDistanceOf( view )) of the
-        // main camera sways over the cascade's cache, every other casts its rest pose into the static layer. A
-        // still one, or a view no near receiver samples (wind distance 0), has no mover.
-        const bool sways        = variety.Wind.Sways();
-        params.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
+        // The cascades' lists are GrassCull's (per frame, CascadeCull): each list's movers' ring for this
+        // variety's reach (GRASS-SHADOW-1, MeshRenderer::ShadowWindInnerOf; x = inner, y = the wind distance, 0:
+        // no mover).
+        const bool sways = variety.Wind.Sways();
+        const auto lists = static_cast<uint32_t>( std::popcount( gpu.CascadeMask ) );
         for ( uint32_t k = 0; k < kGrassCascadeLists; ++k )
         {
-            const uint32_t view   = volumes.CascadeViews[k];
-            const bool     listed = k < static_cast<uint32_t>( std::popcount( gpu.CascadeMask ) );
-            if ( listed && sways )
-                params.CascadeRings[k] =
-                     glm::vec4( meshes.ShadowWindInnerOf( view, gpu.Reach ), volumes.CascadeWind[k].w, 0.0f, 0.0f );
-            else
-                params.CascadeRings[k] = glm::vec4( 0.0f );
+            glm::vec2 ring( 0.0f );
+            if ( k < lists && sways )
+                ring = glm::vec2( meshes.ShadowWindInnerOf( volumes.CascadeViews[k], gpu.Reach ),
+                                  volumes.CascadeWind[k].w );
+            gpu.CascadeRings[k] = ring;
         }
         if ( !variety.Blade )
         {
@@ -1039,12 +981,13 @@ namespace Desert::Graphic::System
         // How far an instance can lie outside its cell: its jitter (Cull.w cells), a blade's scatter and clump
         // pull.
         const auto stray = static_cast<float>( static_cast<double>( params.Cull.w * cell ) + moved );
-        if ( !UpdateTiles( gpu, std::move( placement ), std::move( thin ),
-                           glm::vec2( frame.CameraPosition.x, frame.CameraPosition.z ), cell, radius, stray ) )
+        if ( !UpdateTiles( gpu, std::move( placement ), std::move( thin ), glm::vec2( eye.x, eye.z ), cell, radius,
+                           stray ) )
             return nullptr;
 
         // GRASS-CULL-2: what GrassCull reads of these params, through the variety table (GrassVarietyRowGpu).
-        gpu.CullBounds = glm::vec4( params.Range.w, params.ScaleY.z, std::bit_cast<float>( params.Cascades.z ), 0.0f );
+        const float swayPad = variety.Blade ? 0.0f : static_cast<float>( WindBoundsPad( variety.Wind ) );
+        gpu.CullBounds      = glm::vec4( params.Range.w, params.ScaleY.z, swayPad, 0.0f );
         gpu.TableWord  = params.Buckets.y;
         // What this frame's tile cull would read (VarietyGpu::FrameKey); AddFrame adds the field's revision.
         static_assert( sizeof( GrassParamsGpu ) % sizeof( uint32_t ) == 0 );
@@ -1055,9 +998,7 @@ namespace Desert::Graphic::System
         // The pool's identity: a new pool is a new generation (UpdateTiles).
         gpu.FrameKey.push_back( gpu.PoolGeneration );
         for ( const void* buffer :
-              { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ),
-                static_cast<const void*>( gpu.CascadeIds.get() ),
-                static_cast<const void*>( gpu.CascadeArgs.get() ) } )
+              { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ) } )
         {
             const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
             gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
@@ -1292,9 +1233,7 @@ namespace Desert::Graphic::System
         // the TLAS draw. While they differ the camera keeps a list of its own even with no HZB to test.
         ViewVolumes volumes;
         SidePlanes( frame.ViewProjection, volumes.Camera );
-        std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( volumes.Full ) );
-        volumes.Swept = SweepPlanes( volumes.Full, meshes.DirectionalCasterSweeps() );
-        volumes.List  = testsHzb ? CameraList::PlanesAndHzb : volumes.Swept ? CameraList::Planes : CameraList::None;
+        volumes.List = testsHzb ? CameraList::PlanesAndHzb : CameraList::Planes;
         // GPU-COST-21: the cascade views this frame draws, each with its own list culled by its caster box - the
         // six planes of the matrix it draws with (UpdateCascades fitted it above).
         {
@@ -1413,7 +1352,6 @@ namespace Desert::Graphic::System
                 const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                gpu->FrameKey.push_back( static_cast<uint32_t>( volumes.List ) );
                 if ( gpu->FrameKey != gpu->GenerateKey )
                 {
                     gpu->GenerateKey       = gpu->FrameKey;
@@ -1477,12 +1415,11 @@ namespace Desert::Graphic::System
                 // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
                 // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
                 // among them), so it is culled when the variety generates.
-                if ( testsHzb || ( volumes.List == CameraList::Planes && generates ) )
-                    m_FrameCull.push_back( gpu );
+                // Every frame: the camera's planes and the cascades' boxes are this frame's (GRASS-CULL-UNIFY-1).
+                m_FrameCull.push_back( gpu );
                 NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
                                           ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
-                const bool cameraList = volumes.List != CameraList::None;
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;
                 sections.reserve( variety.Sections.size() );
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
@@ -1494,10 +1431,10 @@ namespace Desert::Graphic::System
                            .CastShadows      = variety.Placement.CastDynamicShadow,
                            .Wind             = variety.Wind,
                            .Instances        = gpu->Instances,
-                           .CameraIds        = cameraList ? gpu->CameraIds : nullptr,
+                           .CameraIds        = gpu->CameraIds,
                            .BladeShape       = gpu->Shape,
                            .Refs             = &gpu->Refs,
-                           .CameraRefs       = cameraList ? &gpu->CameraRefs : nullptr,
+                           .CameraRefs       = &gpu->CameraRefs,
                            .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
                            .CascadeIds       = gpu->CascadeIds,
                            .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
@@ -1575,8 +1512,6 @@ namespace Desert::Graphic::System
                  .Storage( GrassGenerateShaderParameters::Params, gpu.ParamsRef, RDG::Access::StorageRead )
                  .Storage( GrassGenerateShaderParameters::Instances, gpu.Refs.Instances, lists )
                  .Storage( GrassGenerateShaderParameters::Args, gpu.Refs.Args, lists )
-                 .Storage( GrassGenerateShaderParameters::CascadeIds, gpu.CascadeRefs.Ids, lists )
-                 .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu.CascadeRefs.Args, lists )
                  .Storage( GrassGenerateShaderParameters::TilePool, gpu.TilePoolRef, pool )
                  .Storage( GrassGenerateShaderParameters::TileWords, gpu.TileWordsRef, pool )
                  .Storage( GrassGenerateShaderParameters::Tiles, gpu.TileTableRef, RDG::Access::StorageRead )
@@ -1698,11 +1633,8 @@ namespace Desert::Graphic::System
                      return dispatchTiles( context, m_FrameGenerate, cullShape );
                  } );
 
-            uint32_t cameraList = 0u;
-            if ( volumes.List != CameraList::None )
-                cameraList = 1u;
             const GrassFinalizePush finalize{
-                 glm::uvec4( kFinalizeModeAfterGeneration, cameraList, cullRows, generateRows ) };
+                 glm::uvec4( kFinalizeModeAfterGeneration, 0u, cullRows, generateRows ) };
             graph.AddPass(
                  "Grass: Finalize", RDG::PassFlags::Compute,
                  [this]( RDG::PassBuilder& pass )
@@ -1712,7 +1644,6 @@ namespace Desert::Graphic::System
                      {
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
-                         pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
                      }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1762,6 +1693,8 @@ namespace Desert::Graphic::System
                          pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->CandidatesRef, RDG::Access::StorageWrite );
+                         pass.Write( gpu->CascadeRefs.Ids, RDG::Access::StorageWrite );
+                         pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
                      }
                  },
                  [this, cull, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1781,6 +1714,7 @@ namespace Desert::Graphic::System
                      {
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
+                         pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
                      }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1798,6 +1732,9 @@ namespace Desert::Graphic::System
     {
         GrassVarietyTableGpu header{};
         std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( header.CameraPlanes ) );
+        std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
+                   std::begin( header.CascadePlanes ) );
+        header.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
         std::vector<uint8_t> image( sizeof( GrassVarietyTableGpu ) );
         std::memcpy( image.data(), &header, sizeof( header ) );
         for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull, &m_FrameGenerate } )
@@ -1812,7 +1749,8 @@ namespace Desert::Graphic::System
                         std::pair{ &row.Candidates, gpu->Candidates.get() },
                         std::pair{ &row.PostArgs, gpu->PostArgs.get() },
                         std::pair{ &row.Feedback, gpu->Feedback.get() },
-                        std::pair{ &row.CascadeArgs, gpu->CascadeArgs.get() } } )
+                        std::pair{ &row.CascadeArgs, gpu->CascadeArgs.get() },
+                        std::pair{ &row.CascadeIds, gpu->CascadeIds.get() } } )
                 {
                     if ( buffer == nullptr )
                         return Common::MakeError( "a variety's buffer was not made" );
@@ -1828,6 +1766,9 @@ namespace Desert::Graphic::System
                     flags = kRowBlade;
                 row.Info   = glm::uvec4( gpu->Buckets, gpu->TableWord, flags, gpu->CascadeMask );
                 row.Bounds = gpu->CullBounds;
+                row.CascadeWords = glm::uvec2( gpu->CascadeArgWords, gpu->CascadeArgWords - gpu->Buckets );
+                for ( uint32_t k = 0; k < kGrassCascadeLists; k += 2u )
+                    row.CascadeRings[k / 2u] = glm::vec4( gpu->CascadeRings[k], gpu->CascadeRings[k + 1u] );
                 const size_t at = image.size();
                 image.resize( at + sizeof( GrassVarietyRowGpu ) );
                 std::memcpy( image.data() + at, &row, sizeof( row ) );

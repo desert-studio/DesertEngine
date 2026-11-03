@@ -37,11 +37,17 @@ Shader "GrassCull"
 
         #include <Common/GpuCullTests.glslh>
         #include <Common/GrassVarietyRows.glslh>
+        #include <Common/ShadowWind.glslh>
 
-        // GrassRenderer.cpp GrassVarietyTableGpu: the camera's side planes, then the rows (this pass's first).
+        // GrassRenderer.cpp GrassVarietyTableGpu: the camera's side planes, the cascades' caster boxes and the shadow
+        // wind rule's origin, then the rows (this pass's first).
         ReadBuffer(0) Varieties
         {
             vec4            VarietyCameraPlanes[4]; // left / right / bottom / top, xyz.n + w >= 0 inside
+            // GRASS-CULL-UNIFY-1: list k's caster box at 6k..6k+5 (the six planes of the matrix the k-th live cascade
+            // view draws with, MeshRenderer::CascadeCasterBoxSet; GrassRenderer kGrassCascadeLists = 8 lists).
+            vec4            VarietyCascadePlanes[48];
+            vec4            VarietyCasterWindOrigin; // xyz = MeshRenderer::CasterWindOrigin (the main camera)
             GrassVarietyRow VarietyRows[];
         };
 
@@ -137,6 +143,97 @@ Shader "GrassCull"
         }
 
         // Mode 1: one thread per kept instance of every row.
+        // GRASS-CULL-UNIFY-1, THE CASCADES' LISTS (UE: each shadow view culls the same instances by its own volume;
+        // moved here from GrassGenerate's tile cull, which no longer sees any view): instance @p slot of row @p r,
+        // in bucket @p b (its table word @p table), goes into each cascade list whose caster box its reach meets - a
+        // sphere about its root (after the snow sank it) holding its bounds at the instance's scale @p scale, plus a
+        // mesh's sway (Bounds.z). MeshRenderer::BuildGpuInstancedShadowDraws' rule on the root: a mover inside the
+        // list's ring [inner, wind distance), else its rest pose (Common/ShadowWind.glslh, the one rule). A mover is
+        // appended from the bucket's first slot, a rest caster from its last; a list's bucket never passes the room
+        // the full list's bucket has, so the lists share its capacity.
+        void CascadeCull( uint r, uint b, uint table, uint slot, vec3 root, float scale )
+        {
+            uint mask = VarietyRows[r].Info.w;
+            if ( mask == 0u )
+                return;
+            vec4       bounds  = VarietyRows[r].Bounds;
+            float      reach   = ( abs( bounds.y ) + bounds.x ) * scale + bounds.z;
+            uint       words   = VarietyRows[r].CascadeWords.x;
+            uint       rests   = VarietyRows[r].CascadeWords.y;
+            GrassWords cascade = GrassWords( VarietyRows[r].CascadeArgs );
+            GrassWords ids     = GrassWords( VarietyRows[r].CascadeIds );
+            uint       lists   = uint( bitCount( mask ) );
+            for ( uint k = 0u; k < lists; ++k )
+            {
+                bool inside = true;
+                for ( uint i = 0u; i < 6u && inside; ++i )
+                {
+                    vec4 plane = VarietyCascadePlanes[k * 6u + i];
+                    inside     = dot( plane.xyz, root ) + plane.w >= -reach;
+                }
+                if ( !inside )
+                    continue;
+                vec4 rings = VarietyRows[r].CascadeRings[k / 2u];
+                vec2 ring  = ( k & 1u ) == 0u ? rings.xy : rings.zw;
+                bool mover = ring.y > 0.0 &&
+                             !ShadowWindCastsRestPose( root, VarietyCasterWindOrigin.xyz, ring.y ) &&
+                             !ShadowWindInsideRing( root, VarietyCasterWindOrigin.xyz, ring.x );
+                uint at      = k * words + table;
+                uint room    = cascade.Words[at + 2u];
+                uint counter = mover ? at : k * words + rests + b;
+                uint index   = WaveAppend( cascade, counter );
+                if ( index < room )
+                {
+                    uint offset = mover ? index : room - 1u - index;
+                    ids.Words[cascade.Words[at + 1u] + offset] = slot;
+                }
+            }
+        }
+
+        // Row @p r's cascade lists after CascadeCull (moved from GrassFinalize.shader with the lists): each list's
+        // draw records and its rest twin's from the counters, the counters reset for the next frame's cull, and
+        // each view's drawn count into Feedback (GrassRenderer kFeedbackTailWords: buckets + 4 + view).
+        void FinalizeCascades( uint r, uint buckets, uint records, bool blade )
+        {
+            GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            GrassWords cascade  = GrassWords( VarietyRows[r].CascadeArgs );
+            for ( uint v = 0u; v < 8u; ++v )
+                feedback.Words[buckets + 4u + v] = 0u;
+            uint args  = 4u + records * 5u + buckets * 4u;
+            uint words = VarietyRows[r].CascadeWords.x;
+            uint mask  = VarietyRows[r].Info.w;
+            for ( uint k = 0u; mask != 0u; ++k )
+            {
+                uint view = uint( findLSB( mask ) );
+                mask &= mask - 1u;
+                uint base  = k * words;
+                uint table = base + 4u + records * 5u;
+                uint rests = base + VarietyRows[r].CascadeWords.y;
+                for ( uint s = 0u; s < records; ++s )
+                {
+                    uint bucket = GrassBucketOfRecord( s, records, buckets, blade );
+                    uint at     = table + bucket * 4u;
+                    uint room   = cascade.Words[at + 2u];
+                    uint rest   = min( cascade.Words[rests + bucket], room );
+                    cascade.Words[base + 4u + s * 5u + 1u]   = min( cascade.Words[at], room );
+                    cascade.Words[base + 4u + s * 5u + 4u]   = cascade.Words[at + 1u];
+                    cascade.Words[base + args + s * 5u + 1u] = rest;
+                    cascade.Words[base + args + s * 5u + 4u] = cascade.Words[at + 1u] + room - rest;
+                }
+                uint drawn = 0u;
+                for ( uint b = 0u; b < buckets; ++b )
+                {
+                    uint at = table + b * 4u;
+                    drawn += min( cascade.Words[at], cascade.Words[at + 2u] ) +
+                             min( cascade.Words[rests + b], cascade.Words[at + 2u] );
+                    cascade.Words[at]        = 0u;
+                    cascade.Words[rests + b] = 0u;
+                }
+                cascade.Words[base + 3u]            = drawn;
+                feedback.Words[buckets + 4u + view] = drawn;
+            }
+        }
+
         void CameraCull()
         {
             uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -166,6 +263,8 @@ Shader "GrassCull"
             float scale    = max( length( instance[0].xyz ), max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
             float radius   = bounds.x * scale + bounds.z;
             vec3  centre   = instance[3].xyz + bounds.y * instance[1].xyz;
+            // The shadow views first: an instance outside the camera's volume still casts into a cascade.
+            CascadeCull( r, b, table, slot, instance[3].xyz, scale );
             for ( int i = 0; i < 4; ++i )
             {
                 vec4 plane = VarietyCameraPlanes[i];
@@ -251,6 +350,7 @@ Shader "GrassCull"
                 camera.Words[4u + s * 5u + 1u] = min( camera.Words[at], camera.Words[at + 2u] );
                 camera.Words[4u + s * 5u + 4u] = camera.Words[at + 1u];
             }
+            FinalizeCascades( r, buckets, records, blade );
             uint drawn      = 0u;
             uint candidates = 0u;
             for ( uint b = 0u; b < buckets; ++b )

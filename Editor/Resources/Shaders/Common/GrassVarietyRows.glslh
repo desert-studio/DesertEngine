@@ -27,6 +27,14 @@ struct GrassVarietyRow
                        // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
     vec4  Bounds;      // x = bounds radius (local), y = bounds centre height (local), z = the cull pad (cm: a mesh's
                        // sway past its bounds), w = 0
+    // GRASS-CULL-UNIFY-1: the cascades' lists are culled per frame from the view-independent Instances by
+    // GrassCull.shader (CascadeCull), no longer by the tile cull. CascadeIds: per cascade list k the slots of
+    // Instances at k x capacity; CascadeWords: x = one list's words in CascadeArgs (Args' layout and its rest twin),
+    // y = the first of a list's rest counts (one per bucket); CascadeRings: list k's movers' ring at [k / 2].xy
+    // (k even) / .zw (k odd): x = inner, y = wind distance (0: no mover), cm.
+    uvec2 CascadeIds;
+    uvec2 CascadeWords;
+    vec4  CascadeRings[4];
 };
 
 // Info.z: the variety's records come in sets of one record per bucket (a blade strip's, one set per shadow LOD),
