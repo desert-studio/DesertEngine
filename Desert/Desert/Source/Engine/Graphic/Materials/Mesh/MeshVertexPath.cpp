@@ -27,7 +27,7 @@ namespace Desert::Graphic
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", nullptr,
                "Skinned.VirtualShadowDepth", "Skinned.Depth", nullptr, nullptr },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
-               "Instanced.VirtualShadowDepth", "Instanced.Depth", nullptr, nullptr },
+               "Instanced.VirtualShadowDepth", "Instanced.Depth", "Instanced.Visibility", "Instanced.VisibilityResolve" },
              { "ParticleSprite.Forward", "ParticleSprite.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr,
                nullptr, nullptr },
              // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).

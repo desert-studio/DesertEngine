@@ -23,11 +23,18 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
     uint instanceIds[];
 };
 #endif
+#ifdef DESERT_SURFACE_PATH_GrassBlade
 #include <Mesh/Surface/GrassBlade.glslh>
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
 };
+#else
+// The Instanced path (GRASS-VIS-MESH-1): the mesh grass section's rows and its mesh's buffers.
+#include <Mesh/Surface/GrassMeshVisibility.glslh>
+#include <Common/FoliageWind.glslh>
+#include <Mesh/MeshVertexAccess.glslh>
+#endif
 
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
@@ -48,6 +55,7 @@ vec3 VisibilityBarycentrics( const vec4 c0, const vec4 c1, const vec4 c2, const 
     return w / ( w.x + w.y + w.z );
 }
 
+#ifdef DESERT_SURFACE_PATH_GrassBlade
 void main()
 {
     float depth;
@@ -125,3 +133,136 @@ void main()
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
 }
+#else
+// THE INSTANCED PATH'S RESOLVE (GRASS-VIS-MESH-1; UE 5 Nanite's FetchNaniteMaterialPixelParameters over a mesh's
+// own index and vertex buffers): the row names a slot of the section's list and a block of 128 triangles of the
+// level and submesh it drew (GrassMeshVisibility.glslh); the triangle's three vertices are fetched from the mesh's
+// buffers and placed by the same InstancedWorldPosition and wind the raster drew them with
+// (Vertex_Instanced.glslh), then interpolated at the pixel centre as that stage's interpolants would be.
+void main()
+{
+    float depth;
+    uint  row, triangle;
+    if ( !DesertReadVisibility( ivec2( gl_FragCoord.xy ), depth, row, triangle ) )
+        discard;
+    const uint perInstance = MeshRows.Visibility.y;
+    if ( perInstance == 0u || row < MeshRows.Visibility.x )
+        discard;
+    const uint local = row - MeshRows.Visibility.x;
+    const uint slot  = local / perInstance;
+    if ( slot >= MeshRows.Slots.x )
+        discard; // another section's row
+    const uint inside = local - slot * perInstance;
+#ifdef DESERT_SURFACE_INSTANCE_IDS
+    if ( slot >= uint( instanceIds.length() ) )
+        discard;
+    const uint instance = instanceIds[slot];
+#else
+    const uint instance = slot;
+#endif
+    const uint prevInstance = instance + floatBitsToUint( m_PushConstants.WindB.w );
+    if ( instance >= uint( transforms.length() ) || prevInstance >= uint( transforms.length() ) )
+        discard;
+    const mat4 model     = transforms[instance];
+    const mat4 prevModel = transforms[prevInstance];
+
+    // The level the slot was drawn with, then this section's submesh whose rows hold `inside`.
+    const uint level   = GrassMeshVisibilityLevel( slot );
+    const uint count   = min( MeshRows.Visibility.w, GRASS_MESH_VISIBILITY_MAX_SUBMESHES );
+    uint       submesh = count;
+    uvec4      range   = uvec4( 0u );
+    for ( uint s = 0u; s < count; ++s )
+    {
+        const uint r = level * MeshRows.Visibility.w + s;
+        if ( MeshRows.Submeshes[s].z == 0u || r >= GRASS_MESH_VISIBILITY_MAX_RANGES )
+            continue;
+        const uvec4 candidate = MeshRows.Ranges[r];
+        const uint  rows      = ( candidate.y + kVisTriangleMask ) >> kVisTriangleBits;
+        if ( inside >= candidate.z && inside - candidate.z < rows )
+        {
+            submesh = s;
+            range   = candidate;
+            break;
+        }
+    }
+    if ( submesh >= count )
+        discard;
+    const uint primitive = ( ( inside - range.z ) << kVisTriangleBits ) + triangle;
+    if ( primitive >= range.y )
+        discard;
+
+    // The triangle's vertices (Desert::Vertex: position 0, normal 12, tangent 24, bitangent 36, UV 48; the streams:
+    // RGBA8 colour 0, UV1 4), placed as the raster placed them.
+    const uvec2 vertexAddress = MeshRows.Geometry[0].xy;
+    const uvec2 streamAddress = MeshRows.Geometry[0].zw;
+    const uvec2 indexAddress  = MeshRows.Geometry[1].xy;
+    const uint  vertexStride  = MeshRows.Geometry[1].z;
+    const uint  streamStride  = MeshRows.Geometry[1].w;
+    const vec4  windPrev      = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
+    const mat3  normalMatrix  = transpose( inverse( mat3( model ) ) );
+    vec3        world[3];
+    vec3        previous[3];
+    vec4        jittered[3];
+    vec3        normal[3];
+    vec3        tangent[3];
+    vec3        bitangent[3];
+    vec2        uv[3];
+    vec2        uv1[3];
+    vec4        colour[3];
+    for ( int k = 0; k < 3; ++k )
+    {
+        const uint index =
+             GrassMeshUint( GrassMeshAddressAdd( indexAddress, ( range.x + primitive * 3u + uint( k ) ) * 4u ) ) +
+             MeshRows.Submeshes[submesh].x;
+        const uvec2 at     = GrassMeshAddressAdd( vertexAddress, index * vertexStride );
+        const uvec2 stream = GrassMeshAddressAdd( streamAddress, index * streamStride );
+        const vec3  local3 = GrassMeshVec3( at, 0u );
+        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB );
+        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev );
+        jittered[k]  = cameraUB.JitteredViewProjection * vec4( world[k], 1.0 );
+        normal[k]    = normalMatrix * GrassMeshVec3( at, 12u );
+        tangent[k]   = normalMatrix * GrassMeshVec3( at, 24u );
+        bitangent[k] = normalMatrix * GrassMeshVec3( at, 36u );
+        uv[k]        = DesertMeshTextureUV( GrassMeshVec2( at, 48u ) );
+        colour[k]    = unpackUnorm4x8( GrassMeshUint( stream ) );
+        uv1[k]       = DesertMeshTextureUV( GrassMeshVec2( stream, 4u ) );
+    }
+
+    // The pixel centre and its two neighbours in NDC, as the blade's resolve: UV0's gradient across one pixel.
+    const vec2 extent = vec2( VisibilityHeader.xy );
+    const vec2 ndc    = gl_FragCoord.xy / extent * 2.0 - 1.0;
+    const vec3 b      = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc );
+    const vec3 bx = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 2.0 / extent.x, 0.0 ) );
+    const vec3 by = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, 2.0 / extent.y ) );
+    const vec2 uv0 = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
+    g_DesertVisibilityUVdx = ( bx.x * uv[0] + bx.y * uv[1] + bx.z * uv[2] ) - uv0;
+    g_DesertVisibilityUVdy = ( by.x * uv[0] + by.y * uv[1] + by.z * uv[2] ) - uv0;
+
+    const vec3 position = b.x * world[0] + b.y * world[1] + b.z * world[2];
+    const vec3 n        = normalize( b.x * normal[0] + b.y * normal[1] + b.z * normal[2] );
+    const vec3 t        = normalize( b.x * tangent[0] + b.y * tangent[1] + b.z * tangent[2] );
+    const vec3 bt       = normalize( b.x * bitangent[0] + b.y * bitangent[1] + b.z * bitangent[2] );
+    const vec2 secondUV = b.x * uv1[0] + b.y * uv1[1] + b.z * uv1[2];
+    const vec4 tint     = b.x * colour[0] + b.y * colour[1] + b.z * colour[2];
+    // The raster's facing: the triangle's winding as the jittered projection put it on screen (the same carrier,
+    // the same test as the blade's resolve).
+    const vec2 s0 = jittered[0].xy / jittered[0].w, s1 = jittered[1].xy / jittered[1].w,
+               s2 = jittered[2].xy / jittered[2].w;
+    const bool frontFacing = ( ( s1.x - s0.x ) * ( s2.y - s0.y ) - ( s2.x - s0.x ) * ( s1.y - s0.y ) ) > 0.0;
+
+    // The vertex stage's interpolants (Vertex_Instanced.glslh's full cell), at this pixel.
+    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( t, bt, n ), secondUV, tint, frontFacing );
+#ifdef DESERT_SURFACE_WEATHER
+    i.ObjectScaleUp       = length( mat3( model )[1] );
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
+    const SurfaceOutput s = EvaluateSurface( i );
+#endif
+    const vec3 prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
+    const float moved       = prevModel != model ? 1.0 : 0.0;
+    gl_FragDepth            = depth;
+    DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
+                        cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+}
+#endif

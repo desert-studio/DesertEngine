@@ -1,0 +1,83 @@
+// THE MESH GRASS'S RASTER-STREAM ROWS (GRASS-VIS-MESH-1; UE 5 Nanite's visible cluster: a row of the view's
+// visibility buffer, Common/VisibilityBuffer.glslh, is 128 triangles of ONE instance). Mirrors
+// Graphic::System::GrassMeshVisibilityGpu (GrassBladeRayTracing.hpp), std430, one per mesh grass SECTION (one
+// material; GrassRenderer::PrepareVariety writes it every frame): slot i of the camera's list owns rows
+// [x + i * y, x + (i + 1) * y); the draw of level L, submesh s fills them from Ranges[L * w + s].z on, one row per
+// 128 of its triangles (Pass_Visibility.glslh adds gl_PrimitiveID / 128). The Visibility cell of the Instanced path
+// (Vertex_Instanced.glslh) writes the rows, its resolve (Pass_VisibilityResolve.glslh) reads them back.
+#ifndef GRASS_MESH_VISIBILITY_GLSLH
+#define GRASS_MESH_VISIBILITY_GLSLH
+
+#define GRASS_MESH_VISIBILITY_MAX_SUBMESHES 8u
+#define GRASS_MESH_VISIBILITY_MAX_RANGES 32u
+
+struct GrassMeshVisibilityData
+{
+    uvec4 Visibility;     // x = first row, y = rows per instance, z = level (bucket) count, w = submesh count
+    uvec4 Slots;          // x = the slots the section's list holds (its capacity); y, z, w = 0
+    uvec4 BucketFirst[2]; // the first slot of bucket (= LOD level) b < 8, [b / 4][b % 4]
+    // [0] = vertex address lo, hi, stream address lo, hi; [1] = index address lo, hi (uint32 indices), vertex
+    // stride, stream stride (bytes). The mesh's own spans (MeshGeometry byte offsets added).
+    uvec4 Geometry[2];
+    uvec4 Submeshes[GRASS_MESH_VISIBILITY_MAX_SUBMESHES]; // VertexOffset, VertexCount, drawn by this section, 0
+    uvec4 Ranges[GRASS_MESH_VISIBILITY_MAX_RANGES];       // per L * w + s: first index, triangles, row offset, 0
+};
+
+layout( std430, binding = 13 ) readonly buffer GrassMeshVisibility
+{
+    GrassMeshVisibilityData MeshRows;
+};
+
+// The LOD level slot @p slot was drawn with (the generator's bucket: the blade's BladeLevelSegments rule).
+uint GrassMeshVisibilityLevel( const uint slot )
+{
+    uint level = 0u;
+    for ( uint b = 1u; b < min( MeshRows.Visibility.z, 8u ); ++b )
+    {
+        if ( slot < MeshRows.BucketFirst[b / 4u][b % 4u] )
+            break;
+        level = b;
+    }
+    return level;
+}
+
+#ifdef DESERT_SURFACE_PASS_VisibilityResolve
+// The mesh's buffers by device address (as Common/RayTracingHitRecord.glslh's hit fetch): addresses as uvec2.
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer GrassMeshUintRef
+{
+    uint Value;
+};
+
+uvec2 GrassMeshAddressAdd( const uvec2 address, const uint bytes )
+{
+    uint       carry;
+    const uint low = uaddCarry( address.x, bytes, carry );
+    return uvec2( low, address.y + carry );
+}
+
+uint GrassMeshUint( const uvec2 address )
+{
+    return GrassMeshUintRef( address ).Value;
+}
+
+float GrassMeshFloat( const uvec2 address )
+{
+    return uintBitsToFloat( GrassMeshUint( address ) );
+}
+
+vec2 GrassMeshVec2( const uvec2 base, const uint byteOffset )
+{
+    const uvec2 at = GrassMeshAddressAdd( base, byteOffset );
+    return vec2( GrassMeshFloat( at ), GrassMeshFloat( GrassMeshAddressAdd( at, 4u ) ) );
+}
+
+vec3 GrassMeshVec3( const uvec2 base, const uint byteOffset )
+{
+    const uvec2 at = GrassMeshAddressAdd( base, byteOffset );
+    return vec3( GrassMeshFloat( at ), GrassMeshFloat( GrassMeshAddressAdd( at, 4u ) ),
+                 GrassMeshFloat( GrassMeshAddressAdd( at, 8u ) ) );
+}
+#endif
+#endif

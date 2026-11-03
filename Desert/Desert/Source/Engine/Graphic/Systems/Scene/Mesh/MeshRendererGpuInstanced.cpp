@@ -272,6 +272,10 @@ namespace Desert::Graphic::System
             record.IdsBlock = record.Cell->Get<StorageBufferProperty>( kGpuInstanceIdsBlock );
         if ( gpu.Path == MeshVertexPath::GrassBlade )
             record.BladeBlock = record.Cell->Get<StorageBufferProperty>( kGrassBladeShapeBlock );
+        // GRASS-VIS-MESH-1: the Instanced visibility cells read the section's rows.
+        if ( gpu.Path == MeshVertexPath::Instanced &&
+             ( pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve ) )
+            record.MeshRowsBlock = record.Cell->Get<StorageBufferProperty>( kGrassMeshVisibilityBlock );
         // Find: a surface template with no parameters declares no Materials row block (LendMaterialTable).
         record.MaterialBlock = record.Cell->Find<StorageBufferProperty>( kMaterialRowBlock );
         record.Cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
@@ -318,6 +322,8 @@ namespace Desert::Graphic::System
                 of.IdsBlock->SetBuffer( section.CameraIds );
             if ( of.BladeBlock != nullptr )
                 of.BladeBlock->SetBuffer( section.BladeShape );
+            if ( of.MeshRowsBlock != nullptr )
+                of.MeshRowsBlock->SetBuffer( section.MeshVisibility );
             const std::optional<uint32_t> materialRow = FindMaterialRow( of.Parent, section.Material.get() );
             if ( !materialRow )
                 return std::nullopt;
@@ -358,7 +364,6 @@ namespace Desert::Graphic::System
             const GpuInstanceRefs& refs     = cameraList ? *gpu.CameraRefs : *gpu.Refs;
             const RDG::BufferRef   drawArgs = postOcclusion ? gpu.PostRefs->Args : refs.Args;
             const bool             viaVisibility =
-                 gpu.Path == MeshVertexPath::GrassBlade &&
                  std::find( m_GrassVisibilitySections.begin(), m_GrassVisibilitySections.end(), gpu.Key ) !=
                       m_GrassVisibilitySections.end();
             if ( visibilityPass && !viaVisibility )
@@ -463,8 +468,10 @@ namespace Desert::Graphic::System
             {
                 if ( !m_GrassResolveArgs.IsValid() )
                     continue;
+                // The producer's resolve mesh (GRASS-VIS-MESH-1: a mesh section's triangle is fetched, not drawn).
+                Desert::Mesh* const resolveMesh = gpu.ResolveMesh != nullptr ? gpu.ResolveMesh : gpu.Mesh;
                 list.Add( { .Pipeline           = draw.Pipeline,
-                            .Mesh               = gpu.Mesh,
+                            .Mesh               = resolveMesh,
                             .Transform          = glm::mat4( 1.0f ),
                             .Material           = draw.Cell->GetMaterialExecutor(),
                             .HiddenSubmeshMask  = SubmeshMask( ~uint64_t{ 1 } ),

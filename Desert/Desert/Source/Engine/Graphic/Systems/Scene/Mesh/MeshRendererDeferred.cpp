@@ -85,7 +85,9 @@ namespace Desert::Graphic::System
         if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
              m_SceneRenderer != nullptr && m_SceneRenderer->GetMainCamera() != nullptr )
             for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
-                if ( gpu.Path == MeshVertexPath::GrassBlade && GrassVisibilityReady( gpu ) )
+                if ( ( gpu.Path == MeshVertexPath::GrassBlade ||
+                       ( gpu.Path == MeshVertexPath::Instanced && gpu.MeshVisibility != nullptr ) ) &&
+                     GrassVisibilityReady( gpu ) )
                     m_GrassVisibilitySections.push_back( gpu.Key );
         if ( m_EarlyZPass == ::Common::Scalability::EarlyZPassMode::Off || m_SceneRenderer == nullptr ||
              m_SceneRenderer->GetMainCamera() == nullptr )

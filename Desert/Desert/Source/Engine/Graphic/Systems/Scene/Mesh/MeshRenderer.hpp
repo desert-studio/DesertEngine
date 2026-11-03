@@ -479,6 +479,12 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
+            // GRASS-VIS-MESH-1, Instanced only: the section's raster-stream rows (GrassMeshVisibilityGpu,
+            // Mesh/Surface/GrassMeshVisibility.glslh); null: the section is not drawn through the visibility buffer.
+            std::shared_ptr<ShaderResources::StorageBuffer> MeshVisibility;
+            // The mesh the visibility resolve's full-screen triangle draws (its first three indices are 0, 1, 2);
+            // null: Mesh itself (a blade strip).
+            class Desert::Mesh* ResolveMesh = nullptr;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
             const GpuInstanceRefs* CameraRefs = nullptr; // with CameraIds: phase 1's camera draws
             // With CameraIds: phase 2's (the instances this frame's HZB found visible after last frame's held
@@ -3089,6 +3095,7 @@ namespace Desert::Graphic::System
             MaterialInstancePtr       Instance;                    // the draw's own instance of Cell
             StorageBufferProperty*    InstancesBlock = nullptr;
             StorageBufferProperty*    IdsBlock       = nullptr;
+            StorageBufferProperty*    MeshRowsBlock  = nullptr; // GRASS-VIS-MESH-1: GrassMeshVisibility
             StorageBufferProperty*    BladeBlock     = nullptr;
             StorageBufferProperty*    MaterialBlock  = nullptr; // null: the cell reads no Materials row block
             // THE SPLIT, revised apart from the cells (none depends on it, so a lens that moves it re-derives only
