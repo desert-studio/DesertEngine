@@ -492,6 +492,22 @@ namespace Desert::Graphic
         return 2.0f * searchStepKm;
     }
 
+    // THE CONSERVATIVE PROBE'S RADIUS, kilometres (CLOUD-MARCH-COST-1). Mirrored from CLOUD_COLUMN_PROBE_RADIUS_KM
+    // in Common/CloudGeometry.glslh, on the terms the constant above is: the march jumps clear air on the promise
+    // that no column within this radius holds cloud, and CloudProceduralClipmap keeps that promise by dilating
+    // each level's column maximum by this many kilometres (CloudColumnProbeDilationTexels). A shader radius
+    // above this number would let the march jump over cloud; one below only jumps less.
+    inline constexpr float kCloudColumnProbeRadiusKm = 0.1875f;
+
+    /// How many texels the column-max image of a level whose voxel is @p voxelKm is dilated by, each way: the
+    /// probe radius in that level's texels, plus the one texel a trilinear fetch reaches past the texel its
+    /// address falls in (the probe reads the texel, the march the 2 x 2 footprint around the address).
+    inline uint32_t CloudColumnProbeDilationTexels( float voxelKm )
+    {
+        const float texels = std::ceil( kCloudColumnProbeRadiusKm / std::max( voxelKm, 1e-6f ) );
+        return static_cast<uint32_t>( std::min( texels, 1.0e4f ) ) + 1u;
+    }
+
     /**
      * The near-camera fade's interval, in kilometres and in the order the shader consumes it.
      *

@@ -313,6 +313,45 @@ float CloudCoarseStepKm( float segmentLengthKm, float fineStepKm, float maxCount
 }
 
 // ---------------------------------------------------------------------------------------------------
+// THE EMPTY STRIDE ON THE CONSERVATIVE DENSITY (CLOUD-MARCH-COST-1)
+// ---------------------------------------------------------------------------------------------------
+//
+// The coarse tier's search sample is the exact profile, and on the steep rays of a ground view — a segment
+// of one to four kilometres, where the coarse step IS the fine one — every 62.5 m of clear air paid the whole
+// field: the level weights, one or two trilinear fetches of the modelling volume, the weather's fetch and its
+// normal CDF. Unreal strides that air on the material's ConservativeDensity instead; the march here asks
+// CloudProceduralColumnsEmpty (Common/CloudField.glslh), a texel of the column-max image that is zero only
+// where no column within CLOUD_COLUMN_PROBE_RADIUS_KM holds any cloud at any height.
+//
+// THE STRIDE STAYS ON THE SEARCH LATTICE. A zero at a lattice point clears every point of the ray whose
+// column lies inside the radius, so the march jumps over all the lattice points in that reach and lands on
+// the first one past it: whole coarse steps, the same positions the exact search would have visited, and
+// every one it no longer visits had a profile of exactly zero. The picture is the search's own; only the
+// work is gone. Unreal's StepSizeOnZeroConservativeDensity is this jump with the reach fixed by a cvar;
+// here the reach is what the bound proves, the radius over the ray's horizontal rate.
+//
+// Mirrored by Graphic::kCloudColumnProbeRadiusKm (Engine/Graphic/Clouds/CloudPayload.hpp), which sizes the
+// dilation of the column-max image — the two must be the same number or the probe's zero is a guess.
+// 187.5 m = 4 voxels of level 0, 2 of level 1, 1 of level 2 at the default 48 km region.
+#define CLOUD_COLUMN_PROBE_RADIUS_KM 0.1875f
+
+// The share of the radius the jump spends: the dilation holds whole texels around the probe's own, so the
+// last few hundredths of the radius are what absorb the sub-texel rounding of the trilinear address.
+#define CLOUD_COLUMN_PROBE_REACH_FRACTION 0.95f
+
+// How far the coarse tier advances from a lattice point whose probe cleared the radius, for a ray whose column
+// moves @p horizontalRate km per km of ray (length of the direction's horizontal part) and whose search
+// stride is @p coarseStepKm: one stride per lattice point inside the reach, plus the one that lands past it.
+// Never less than one stride; capped at a million so a vertical ray's infinite reach stays a number.
+float CloudEmptyColumnAdvanceKm( float horizontalRate, float coarseStepKm )
+{
+    float reachKm = CLOUD_COLUMN_PROBE_REACH_FRACTION * CLOUD_COLUMN_PROBE_RADIUS_KM / max( horizontalRate, 1e-6f );
+    float stride  = max( coarseStepKm, 1e-6f );
+    float inside  = float( int( min( reachKm / stride, 1.0e6f ) ) );
+    return ( inside + 1.0f ) * stride;
+}
+
+// ---------------------------------------------------------------------------------------------------
 // WHAT THE MARCH CAN ACTUALLY FIND, which is a different number from what it can INTEGRATE
 // ---------------------------------------------------------------------------------------------------
 //

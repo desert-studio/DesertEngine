@@ -390,15 +390,27 @@ vec3 CloudProceduralLevelUvw( CloudFieldParams params, int level, float heightFr
 // linear across the blend band between. Linear and not smoothstepped because the blend is a lerp of two
 // fetches of the same field at two resolutions: a ramp of slope one band keeps the per-metre change of
 // the blended sample within that of its two operands, which is what TheLevelBlendHasNoStep measures.
+//
+// Two halves, because the conservative column probe (CloudProceduralColumnsEmpty) asks the same weight of an
+// edge distance it has moved by its own radius: the distance of the column from the window's nearest edge, in
+// units of the level's side (negative outside the window), and the ramp of that distance.
+float CloudProceduralLevelEdge( CloudFieldParams params, int level, vec2 windPosXz )
+{
+    vec4 window = params.ProceduralLevel[level];
+    vec2 local  = ( windPosXz - vec2( window.x, window.y ) ) * window.z;
+    vec2 edges  = min( local, vec2( 1.0f ) - local );
+    return min( edges.x, edges.y );
+}
+
+float CloudProceduralEdgeWeight( float edge )
+{
+    float guard = 0.5f / CLOUD_PROCEDURAL_VOLUME_SIDE;
+    return clamp( ( edge - guard ) / ( CLOUD_PROCEDURAL_CLIP_BLEND - guard ), 0.0f, 1.0f );
+}
+
 float CloudProceduralLevelWeight( CloudFieldParams params, int level, vec2 windPosXz )
 {
-    vec4  window = params.ProceduralLevel[level];
-    vec2  local  = ( windPosXz - vec2( window.x, window.y ) ) * window.z;
-    vec2  edges  = min( local, vec2( 1.0f ) - local );
-    float edge   = min( edges.x, edges.y );
-    float guard  = 0.5f / CLOUD_PROCEDURAL_VOLUME_SIDE;
-
-    return clamp( ( edge - guard ) / ( CLOUD_PROCEDURAL_CLIP_BLEND - guard ), 0.0f, 1.0f );
+    return CloudProceduralEdgeWeight( CloudProceduralLevelEdge( params, level, windPosXz ) );
 }
 
 // THE FINEST LEVEL THAT HOLDS @p windPosXz — the first whose weight is above zero — or the coarsest, which
@@ -521,6 +533,64 @@ vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction,
     return CloudCoverageThreshold( CloudSampleProceduralBaked( params, heightFraction, windPos ),
                                    vec4( params.Coverage ) * params.SpeciesCover );
 }
+
+#if defined( CLOUD_SAMPLE_COLUMN_MAX )
+// THE CONSERVATIVE DENSITY (CLOUD-MARCH-COST-1) — Unreal's ConservativeDensity, the quantity its march strides
+// empty space on (VolumetricCloud.usf: the material's conservative output is evaluated first and the full
+// material only where it is above zero). Here it is a property of the BAKE rather than of the material:
+// Graphic::CloudProceduralClipmap keeps, beside every level of the modelling volume, a 2D image of each
+// species' maximum over the column's 32 rows, dilated by Graphic::kCloudColumnProbeRadiusKm (plus the
+// trilinear footprint), and writes it in the same call that writes the level — same cadence, same scroll.
+//
+// TRUE ONLY WHEN NO POINT WITHIN @p radiusKm (horizontally, wind space) OF @p windPosXz, AT ANY HEIGHT, CAN
+// HAVE A PROCEDURAL PROFILE ABOVE ZERO; false whenever it might. Every step of the read is bounded from above:
+//   * which levels answer anywhere inside the disk — the weight is a ramp of the edge distance and the edge
+//     distance moves by at most the radius over the disk, so each level's weight over the disk lies between
+//     its ramp at edge - r and at edge + r, and a level is read when the blend rule could give it a share;
+//   * what a level answers there — a trilinear fetch is a convex blend of the texels around it, and the
+//     dilated texel holds the maximum of every column the fetches inside the disk can touch;
+//   * the cut — CloudCoverageThreshold is zero exactly where field <= 1 - coverage, and the weather's remap
+//     (CloudCoverRemap) never raises a profile, so it is left out of the bound rather than estimated.
+// The far path has no baked image: where the disk reaches past the coarsest level's whole region the probe
+// says "might" and the exact sample answers, as it did before the probe existed.
+bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm )
+{
+    float lowest[CLOUD_PROCEDURAL_CLIP_LEVELS];
+    float highest[CLOUD_PROCEDURAL_CLIP_LEVELS];
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        float edge     = CloudProceduralLevelEdge( params, level, windPosXz );
+        float r        = radiusKm * params.ProceduralLevel[level].z;
+        lowest[level]  = CloudProceduralEdgeWeight( edge - r );
+        highest[level] = CloudProceduralEdgeWeight( edge + r );
+    }
+    if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f )
+        return false;
+
+    // A level answers at a column when it is the finest with weight there (its own share) or the coarser
+    // partner of a finer level that is not whole there (CloudSampleProceduralBaked), so it can only answer
+    // inside the disk where the next finer level is not whole somewhere and one of the two has weight.
+    vec4 reach = vec4( 0.0f );
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        bool answers = highest[level] > 0.0f;
+        if ( level > 0 )
+            answers = lowest[level - 1] < 1.0f && ( highest[level - 1] > 0.0f || highest[level] > 0.0f );
+        if ( answers )
+            reach = max( reach, CLOUD_SAMPLE_COLUMN_MAX( level, fract( windPosXz * params.ProceduralLevel[level].z ) ) );
+    }
+
+    // Half an 8-bit step under the cut, so a filtered value rounding up past its texels cannot slip through.
+    vec4 coverage     = clamp( vec4( params.Coverage ) * params.SpeciesCover, vec4( 0.0f ), vec4( 1.0f ) );
+    int  speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
+    for ( int slot = 0; slot < speciesCount; ++slot )
+    {
+        if ( coverage[slot] > 0.0f && reach[slot] >= 1.0f - coverage[slot] - 0.5f / 255.0f )
+            return false;
+    }
+    return true;
+}
+#endif
 
 // ---------------------------------------------------------------------------------------------------
 // THE WEATHER — the GPU half of Assets::CloudProceduralCoverRemap by Assets::CloudProceduralLocalWeather

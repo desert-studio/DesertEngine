@@ -253,6 +253,12 @@ Shader "CloudRaymarch"
         // exactly periodic and sampling past the region is the degenerate far path rather than a seam.
         Uniform(7) texture3D CloudModellingTexture;
         #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
+        // THE CONSERVATIVE DENSITY of the same three levels (Graphic::CloudProceduralClipmap::GetColumnImage):
+        // side x 3 x side RGBA8, row k = level k, texel = each species' maximum over the column's 32 rows,
+        // dilated by the probe radius, toroidal like the volume. texelFetched by the coarse tier's probe
+        // (CloudProceduralColumnsEmpty) and nothing else; the march's own binding, not the field's.
+        Uniform(20) texture3D CloudColumnMaxTexture;
+        #define CloudColumnMaxTexture sampler3D(CloudColumnMaxTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
@@ -318,6 +324,15 @@ Shader "CloudRaymarch"
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
+        // The probe's texel of level @p level at the toroidal coordinate @p uv in [0, 1): the texel the
+        // address falls in, never a filtered read — the dilation was built around whole texels.
+        vec4 CloudFetchColumnMax(int level, vec2 uv)
+        {
+            ivec2 side  = textureSize(CloudColumnMaxTexture, 0).xz;
+            ivec2 texel = min(ivec2(uv * vec2(side)), side - ivec2(1));
+            return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, level, texel.y), 0);
+        }
+        #define CLOUD_SAMPLE_COLUMN_MAX(level, uv) CloudFetchColumnMax((level), (uv))
 
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
@@ -810,12 +825,33 @@ Shader "CloudRaymarch"
             // Desert/Tests/Engine/CloudGeometry asserts it stays positive.
             const int kEmptyFineSamplesBeforeCoarse = CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE;
 
+            // THE CONSERVATIVE PROBE OF THE COARSE TIER (CloudProceduralColumnsEmpty, CloudEmptyColumnAdvanceKm in
+            // Common/CloudGeometry.glslh): before the exact search sample, one texel of the column-max image says
+            // whether any column within the probe radius can hold cloud at all; where none can, the march jumps
+            // the whole reach on the search lattice without sampling it. The bound covers the procedural producer
+            // only, so a layer with sculpted bodies keeps the exact search everywhere — their boxes are not in
+            // the image.
+            bool  probeColumns       = CLOUD_AUTHORED_COUNT == 0;
+            float emptyColumnAdvance = CloudEmptyColumnAdvanceKm(length(rayDir.xz), coarseStepKm);
+
             for (int i = 0; i < iterationTotal; ++i)
             {
                 if (t >= segment.y)
                     break;
 
                 vec3  samplePos      = originKm + rayDir * t;
+
+                // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
+                // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the advance divides by —
+                // and the probe needs neither the altitude nor the height fraction.
+                if (!fine && probeColumns &&
+                    CloudProceduralColumnsEmpty(params, samplePos.xz - params.WindOffsetKm.xz,
+                                                CLOUD_COLUMN_PROBE_RADIUS_KM))
+                {
+                    t += emptyColumnAdvance;
+                    continue;
+                }
+
                 float heightFraction = CloudHeightFraction(layer, samplePos);
 
                 // The field is handed the ALTITUDE above the layer's base, never the planet-relative
