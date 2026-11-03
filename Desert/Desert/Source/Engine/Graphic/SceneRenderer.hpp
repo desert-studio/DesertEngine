@@ -453,6 +453,15 @@ namespace Desert::Graphic
         {
             return m_DrawBinPhaseCounts.LastCounts();
         }
+#if DESERT_DEV_INSTRUMENTS
+        /// PROBE-TURN-1: this view's screen probe far-field reads of the radiance cache by why they answered or not
+        /// (GlobalIllumination::ScreenProbeMissReasons, read back slots-in-flight late); nullptr while the view has
+        /// no screen probe gather.
+        [[nodiscard]] const GlobalIllumination::ScreenProbeMissReasons* GetScreenProbeMissReasons() const
+        {
+            return m_ScreenProbeGather ? &m_ScreenProbeGather->LastMissReasons() : nullptr;
+        }
+#endif
         /// VIRT-GEOM (DesertCtl `state views.virtualGeometry`): the VG instances this frame's draw bins made cut
         /// candidates of, and the clusters the main view's cluster cut drew (read back slots-in-flight late,
         /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn. Overflow: what the cut could not do

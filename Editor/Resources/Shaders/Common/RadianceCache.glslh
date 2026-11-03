@@ -381,11 +381,25 @@ vec3 RadianceCacheSampleProbeRadiance( uint probe, vec3 direction )
                        0.0 ).rgb;
 }
 
-vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 direction, float ditherRandom )
+// Why a read answered or not (RadianceCacheRadianceAtWhy's @p why; the screen probe trace's dev counter of the rays
+// it hands to the cache-miss leg, ScreenProbeTrace.shader SP_TRACE_MISS_REASONS - the words of
+// ScreenProbeGather.cpp's ScreenProbes.MissReasons in this order).
+#define RADIANCE_CACHE_READ_ANSWERED 0u // a traced probe answered (.a > 0)
+#define RADIANCE_CACHE_READ_EMPTY    1u // no probe in any of the eight cells (the atlas had no free slot)
+#define RADIANCE_CACHE_READ_UNTRACED 2u // probes allocated, none traced yet
+#define RADIANCE_CACHE_READ_REJECTED 3u // traced probes, every one's visibility of the point 0
+#define RADIANCE_CACHE_READ_NAN      4u // a traced probe's weight NaN (its distance moments), none answered
+#define RADIANCE_CACHE_READ_OUTSIDE  5u // past the coarsest clipmap (.a = -1)
+#define RADIANCE_CACHE_READ_REASONS  6u
+
+vec4 RadianceCacheRadianceAtWhy( vec3 p, vec3 N, vec3 direction, float ditherRandom, out uint why )
 {
     const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
     if ( clipmap >= radianceCache.shape.x )
+    {
+        why = RADIANCE_CACHE_READ_OUTSIDE;
         return vec4( 0.0, 0.0, 0.0, -1.0 );
+    }
     // The irradiance read's surface bias, toward the ray instead of the viewer: the point tested is where the
     // ray's light comes in, just off the surface.
     const vec3  biased = p + ( N * 0.2 + direction * 0.8 ) * ( 0.3 * RadianceCacheCellSize( radianceCache, clipmap ) );
@@ -396,23 +410,47 @@ vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 direction, float ditherRandom
     const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
     const int   grid   = int( radianceCache.shape.y );
 
-    vec3  sum    = vec3( 0.0 );
-    float weight = 0.0;
+    vec3  sum       = vec3( 0.0 );
+    float weight    = 0.0;
+    uint  allocated = 0u;
+    uint  traced    = 0u;
+    bool  nanWeight = false;
     for ( uint i = 0u; i < 8u; ++i )
     {
         const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
         const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
         const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
-        if ( entry == RADIANCE_CACHE_INVALID_PROBE || ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
+        if ( entry == RADIANCE_CACHE_INVALID_PROBE )
             continue;
+        ++allocated;
+        if ( ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
+            continue;
+        ++traced;
         const vec3  probePos  = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
                                 RADIANCE_CACHE_PROBES[entry].offset.xyz;
         const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
         const float w = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 ) *
                         RadianceCacheProbeVisibility( entry, probePos, biased, momentRange );
+        nanWeight = nanWeight || isnan( w );
         sum    += w * RadianceCacheSampleProbeRadiance( entry, direction );
         weight += w;
     }
+    if ( weight > 0.0 )
+        why = RADIANCE_CACHE_READ_ANSWERED;
+    else if ( nanWeight )
+        why = RADIANCE_CACHE_READ_NAN;
+    else if ( traced > 0u )
+        why = RADIANCE_CACHE_READ_REJECTED;
+    else if ( allocated > 0u )
+        why = RADIANCE_CACHE_READ_UNTRACED;
+    else
+        why = RADIANCE_CACHE_READ_EMPTY;
     return weight > 0.0 ? vec4( sum / weight, weight ) : vec4( 0.0 );
+}
+
+vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 direction, float ditherRandom )
+{
+    uint why;
+    return RadianceCacheRadianceAtWhy( p, N, direction, ditherRandom, why );
 }
 #endif // RADIANCE_CACHE_RADIANCE_ATLAS

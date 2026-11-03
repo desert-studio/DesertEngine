@@ -24,6 +24,11 @@ Shader "ScreenProbeTrace"
 {
     Compute
     {
+#if defined( SP_TRACE_MISS_REASONS )
+        // The dev counter's atomics: one per subgroup and reason (subgroupBallot / subgroupElect).
+        #extension GL_KHR_shader_subgroup_basic : require
+        #extension GL_KHR_shader_subgroup_ballot : require
+#endif
         LocalSize(64, 1, 1);
 
         #include <Common/GIFrame.glslh>
@@ -94,6 +99,15 @@ Shader "ScreenProbeTrace"
         {
             float screenProbeSpeed[]; // per probe, world cm per frame (ScreenProbePlace): the moving test
         };
+#if defined( SP_TRACE_MISS_REASONS )
+        // PROBE-TURN-1 (dev, the far-field leg only): every read of the radiance cache this frame by why it answered
+        // or not (RADIANCE_CACHE_READ_*, Common/RadianceCache.glslh), zeroed per frame and read back into the
+        // profile dump (ScreenProbeGather.cpp ScreenProbeMissCounts).
+        Buffer(15) ScreenProbeMissReasonsUB
+        {
+            uint screenProbeMissReasons[];
+        };
+#endif
 
         // 32..42: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
@@ -139,6 +153,20 @@ Shader "ScreenProbeTrace"
             const float probeDepth = ( giFrame.viewProjection * vec4( texel.position, 1.0 ) ).w;
             return hit.motionKnown && SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, hit.velocity );
         }
+
+#if defined( SP_TRACE_MISS_REASONS )
+        // One atomic per subgroup and reason: the far field reads the cache on most of its rays.
+        void SPCountCacheRead( uint why )
+        {
+            for ( uint reason = 0u; reason < RADIANCE_CACHE_READ_REASONS; ++reason )
+            {
+                const uvec4 ballot = subgroupBallot( why == reason );
+                const uint  count  = subgroupBallotBitCount( ballot );
+                if ( subgroupElect() && count > 0u )
+                    atomicAdd( screenProbeMissReasons[reason], count );
+            }
+        }
+#endif
 
         void main()
         {
@@ -202,9 +230,14 @@ Shader "ScreenProbeTrace"
                 // Around the UNBIASED probe position (UE SampleRadianceCacheInterpolated at the screen probe's
                 // world position): the point the coverage picked its clipmap at, with the same dither, and the
                 // point RadianceCacheMark stamps the read's cells around.
-                const vec4 cache = texel.coverage.valid
-                                        ? RadianceCacheRadianceAt( texel.position, N, dir, texel.noise.z )
-                                        : vec4( 0.0, 0.0, 0.0, -1.0 );
+                vec4 cache = vec4( 0.0, 0.0, 0.0, -1.0 );
+                uint why   = RADIANCE_CACHE_READ_OUTSIDE;
+                if ( texel.coverage.valid )
+                    cache = RadianceCacheRadianceAtWhy( texel.position, N, dir, texel.noise.z, why );
+#if defined( SP_TRACE_MISS_REASONS )
+                if ( texel.coverage.valid )
+                    SPCountCacheRead( why );
+#endif
                 if ( cache.a > 0.0 )
                     result = vec4( cache.rgb, SP_TRACE_DISTANCE );
                 else if ( texel.coverage.valid )

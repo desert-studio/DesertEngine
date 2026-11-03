@@ -17,6 +17,7 @@
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <span>
@@ -85,6 +86,9 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeCompactArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeCompactAllocatorUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeCompactTexelsUB );
+#if DESERT_DEV_INSTRUMENTS
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeMissReasonsUB );
+#endif
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -283,6 +287,25 @@ namespace Desert::Graphic::GlobalIllumination
             variant.ShippedByCook = true;
             return variant;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // PROBE-TURN-1: the far-field leg - the one that decides a cache miss - counts every radiance cache read by
+        // why it answered or not (ScreenProbeTrace.shader SP_TRACE_MISS_REASONS, ScreenProbes.MissReasons). Dev
+        // builds compile it in that permutation; the cook ships both.
+        constexpr std::string_view kTraceMissReasonsDefine = "SP_TRACE_MISS_REASONS";
+
+        Core::ShaderVariant CountedTraceVariant( const Pipeline& pipeline, const std::string_view leg,
+                                                 const uint32_t downsample, const uint32_t tracedTexels )
+        {
+            Core::ShaderVariant variant = TraceVariant( pipeline, leg, downsample, tracedTexels );
+            if ( leg == kTraceFarFieldDefine )
+                variant.Defines.emplace_back( kTraceMissReasonsDefine );
+            return variant;
+        }
+
+        // ScreenProbes.MissReasons, zeroed per frame: one word per RADIANCE_CACHE_READ_* (Common/RadianceCache.glslh).
+        constexpr std::array<uint32_t, ScreenProbeMissReasons::kReasons> kMissReasonsReset{};
+#endif
     } // namespace
 
     Common::BoolResultStr ScreenProbeGather::Initialize()
@@ -355,6 +378,32 @@ namespace Desert::Graphic::GlobalIllumination
         return !std::exchange( m_LayoutRefusal->Reported, true );
     }
 
+#if DESERT_DEV_INSTRUMENTS
+    void ScreenProbeMissCounts::AddFrame( RDG::Builder& graph, const uint64_t frameIndex,
+                                          const RDG::BufferRef counts )
+    {
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_Slots.size() != slots )
+        {
+            m_Slots.clear();
+            m_Slots.resize( slots );
+        }
+        RDG::ExternalBuffer& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
+        // The words this slot was handed slots-in-flight frames ago: its fence has passed.
+        if ( slot.Physical )
+        {
+            const std::span<const std::byte> bytes = slot.Physical->ReadForHost();
+            if ( bytes.size() >= sizeof( m_Last.Rays ) )
+            {
+                std::memcpy( m_Last.Rays.data(), bytes.data(), sizeof( m_Last.Rays ) );
+                m_Last.Valid = true;
+            }
+        }
+        slot = RDG::ExternalBuffer{};
+        graph.Extract( counts, slot, RDG::Access::HostRead );
+    }
+#endif
+
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
     {
         if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && m_Pipelines[TraceCacheMiss] &&
@@ -365,8 +414,13 @@ namespace Desert::Graphic::GlobalIllumination
                                              std::pair{ TraceFarField, kTraceFarFieldDefine },
                                              std::pair{ TraceCacheMiss, kTraceCacheMissDefine } } )
         {
-            const std::string   name( kScreenProbeShaderNames[program] );
+            const std::string name( kScreenProbeShaderNames[program] );
+#if DESERT_DEV_INSTRUMENTS
+            const Core::ShaderVariant variant =
+                 CountedTraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
+#else
             const Core::ShaderVariant variant = TraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
+#endif
             auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
             if ( !acquired )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) was refused: {}",
@@ -401,8 +455,15 @@ namespace Desert::Graphic::GlobalIllumination
             for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
                                                  std::pair{ TraceFarField, kTraceFarFieldDefine },
                                                  std::pair{ TraceCacheMiss, kTraceCacheMissDefine } } )
+            {
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                       TraceVariant( tracer, leg, downsample, tracedTexels ) } );
+#if DESERT_DEV_INSTRUMENTS
+                if ( leg == kTraceFarFieldDefine )
+                    variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
+                                          CountedTraceVariant( tracer, leg, downsample, tracedTexels ) } );
+#endif
+            }
         return variants;
     }
 
@@ -617,6 +678,11 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t       kTexels     = layout.TracedTexels * layout.TracedTexels;
         const uint64_t       rayBytes    = static_cast<uint64_t>( probeGroups ) * kTexels * sizeof( uint32_t );
         const RDG::BufferRef traceHit = graph.CreateBuffer( RDG::BufferDesc{ rayBytes }, "ScreenProbes.TraceHit" );
+#if DESERT_DEV_INSTRUMENTS
+        const RDG::BufferRef missReasons =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kMissReasonsReset ) }, "ScreenProbes.MissReasons" );
+        graph.QueueBufferUpload( missReasons, std::as_bytes( std::span( kMissReasonsReset ) ) );
+#endif
         {
             ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
             graph.AddPass(
@@ -733,6 +799,11 @@ namespace Desert::Graphic::GlobalIllumination
                      DeclareTracerReads( block, inputs.Tracer );
                      if ( readsCards )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
+#if DESERT_DEV_INSTRUMENTS
+                     if ( program == TraceFarField )
+                         block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
+                                        kW );
+#endif
                      block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
                                     inputs.EnvSpecular, kS, all )
                           .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
@@ -770,6 +841,9 @@ namespace Desert::Graphic::GlobalIllumination
         // distance in a list of their own, so the far field's waves stay as short as its own leg.
         traceWorld( TraceCacheMiss, "ScreenProbes: Trace Cache Miss",
                     compact( "cache miss", CompactPush{ std::numeric_limits<float>::max(), kCompactCacheMiss } ) );
+#if DESERT_DEV_INSTRUMENTS
+        m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
+#endif
 
         // SPATIAL FILTER (UE FilterScreenProbes, SpatialFilterNumPasses): the disocclusion of every probe's tile,
         // then three passes across neighbouring probes, each reading the last one's radiance.
