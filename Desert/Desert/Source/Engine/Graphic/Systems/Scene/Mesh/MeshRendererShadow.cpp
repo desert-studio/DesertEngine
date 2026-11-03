@@ -1048,6 +1048,8 @@ namespace Desert::Graphic::System
             hash.Add( shadow.Set );
             hash.Add( shadow.ThinFrom );
             hash.Add( gpu.ShadowLod.StartCull );
+            // ...and the eye it thins from (ThinOrigin: the field's eye, which moves only from tile to tile).
+            hash.Add( gpu.ShadowLod.ThinOrigin );
             const bool sways = gpu.Wind.Sways();
             hash.Add( sways );
             if ( !sways )

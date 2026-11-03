@@ -389,8 +389,15 @@ namespace Desert::Graphic::System
             std::vector<uint32_t> FrameKey;
             std::vector<uint32_t> GenerateKey;
             uint32_t              StableGenerations = 0;
-            // Counts the GenerateKey changes: the identity of what Instances holds, which a cached cascade's static
-            // layer is keyed by (MeshRenderer::GpuInstancedRenderData::Still).
+            // CSM-SCROLL-3, WHAT THE FIELD HOLDS WHATEVER THE VIEW: FrameKey less the view's volumes (Planes,
+            // CameraPlanes, CascadePlanes) and the shadow wind rule's origin and rings - the instances any view of
+            // the field keeps, a cascade's list holding those inside its caster box (GrassGenerate decides the
+            // lists before the view's volume) - and the one the last Generation counted (GeneratedCasterKey).
+            std::vector<uint32_t> CasterKey;
+            std::vector<uint32_t> GeneratedCasterKey;
+            // Counts the CasterKey changes: the identity of what the field holds, which a cached cascade's static
+            // layer is keyed by (MeshRenderer::GpuInstancedRenderData::Still) - not GenerateKey's, which a turn or a
+            // step changes (the planes, the boxes) while the field stays the same: the cache then scrolls.
             uint64_t Generation = 0;
             // The farthest an instance's geometry reaches from its origin, world cm: its bounding sphere's centre
             // height plus radius at the placement's largest scale, and the wind's sway (StillInstances::Reach).

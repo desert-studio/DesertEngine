@@ -181,6 +181,19 @@ namespace Desert::Graphic::System
         };
         static_assert( sizeof( GrassParamsGpu ) == 1296 );
 
+        // THE FIELD'S EYE (CSM-SCROLL-3; UE cached shadows: a cached cascade's static casters do not change with
+        // each step of the camera): the eye a variety's distances are measured from - its tiles (UpdateTiles), the
+        // tile cull's radius, thinning, LOD and widening (GrassGenerate Camera.xyz), a cascade's thinning of its
+        // blades (GpuInstanceBladeShadowLod::ThinOrigin) - is the camera's position snapped to the centre of the
+        // variety's tile grid cell of side @p side that holds it, on all three axes. So what the field holds changes
+        // only when the eye crosses into another tile (and its tiles build or free there), never with a turn or a
+        // step inside one: a cached cascade keeps it and scrolls. The tiles' build margin (UpdateTiles builtFor:
+        // a tile's side) covers the half diagonal it moves a distance by.
+        glm::vec3 FieldEye( const glm::vec3& eye, const float side )
+        {
+            return ( glm::floor( eye / side ) + 0.5f ) * side;
+        }
+
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
         uint32_t RingCapacity( double inner, double outer, double cell, double moved )
@@ -512,8 +525,9 @@ namespace Desert::Graphic::System
         const double            tanX        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[0][0] ) );
         const double            tanY        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
         // The lens's wedge bounds what is generated (the cells, the capacity) only while the full list is the
-        // camera's own volume: swept along a light (GRASS-VIS-6) it reaches past the wedge, anywhere in the disc.
-        const bool              wedge       = perspective && !volumes.Swept;
+        // camera's own volume: swept along a light (GRASS-VIS-6) it reaches past the wedge, anywhere in the disc,
+        // and so do the cascades' lists (CSM-SCROLL-3: every instance inside a cascade's caster box is kept).
+        const bool              wedge       = perspective && !volumes.Swept && volumes.CascadeMask == 0u;
         const float             radius      = p.EndCullDistance * lens;
         // The floor of the share of cells generated (GrassGenerate LensShare): 1 / k through a zoomed lens - flat
         // ground far away, where it holds the authored lens's instances per pixel; slopes facing the camera and
@@ -903,7 +917,9 @@ namespace Desert::Graphic::System
         GrassParamsGpu params{};
         std::copy( std::begin( volumes.Full ), std::end( volumes.Full ), std::begin( params.Planes ) );
         std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( params.CameraPlanes ) );
-        params.Camera = glm::vec4( frame.CameraPosition, radius );
+        const glm::vec3 fieldEye = FieldEye( frame.CameraPosition, static_cast<float>( kGrassTileCells ) * cell );
+        params.Camera            = glm::vec4( fieldEye, radius );
+        gpu.ShadowLod.ThinOrigin = fieldEye;
         params.Cull   = glm::vec4( p.StartCullDistance * lens, radius, cell,
                                    std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
         params.Range = glm::vec4( p.AllowedDensityRange.x, p.AllowedDensityRange.y, p.MaxScaleWeightAttenuation,
@@ -1040,7 +1056,7 @@ namespace Desert::Graphic::System
         // pull.
         const auto stray = static_cast<float>( static_cast<double>( params.Cull.w * cell ) + moved );
         if ( !UpdateTiles( gpu, std::move( placement ), std::move( thin ),
-                           glm::vec2( frame.CameraPosition.x, frame.CameraPosition.z ), cell, radius, stray ) )
+                           glm::vec2( fieldEye.x, fieldEye.z ), cell, radius, stray ) )
             return nullptr;
 
         // GRASS-CULL-2: what GrassCull reads of these params, through the variety table (GrassVarietyRowGpu).
@@ -1063,6 +1079,20 @@ namespace Desert::Graphic::System
             gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
             gpu.FrameKey.push_back( static_cast<uint32_t>( static_cast<uint64_t>( address ) >> 32u ) );
         }
+        // What the field holds, whatever the view (VarietyGpu::CasterKey, CSM-SCROLL-3): this frame's inputs less
+        // the view's volumes - the swept and the camera's planes, the cascades' caster boxes - and the shadow wind
+        // rule's origin and rings (a swaying still section's cascade never scrolls, CascadeStaticSignature). The
+        // field's eye (Camera) stays: it moves only from tile to tile.
+        GrassParamsGpu content = params;
+        std::fill( std::begin( content.Planes ), std::end( content.Planes ), glm::vec4( 0.0f ) );
+        std::fill( std::begin( content.CameraPlanes ), std::end( content.CameraPlanes ), glm::vec4( 0.0f ) );
+        std::fill( std::begin( content.CascadePlanes ), std::end( content.CascadePlanes ), glm::vec4( 0.0f ) );
+        std::fill( std::begin( content.CascadeRings ), std::end( content.CascadeRings ), glm::vec4( 0.0f ) );
+        content.CasterWindOrigin = glm::vec4( 0.0f );
+        gpu.CasterKey.assign( sizeof( GrassParamsGpu ) / sizeof( uint32_t ), 0u );
+        std::memcpy( gpu.CasterKey.data(), &content, sizeof( GrassParamsGpu ) );
+        gpu.CasterKey.insert( gpu.CasterKey.end(), gpu.FrameKey.begin() + sizeof( GrassParamsGpu ) / sizeof( uint32_t ),
+                              gpu.FrameKey.end() );
         return &gpu;
     }
 
@@ -1414,11 +1444,17 @@ namespace Desert::Graphic::System
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( volumes.List ) );
+                gpu->CasterKey.push_back( static_cast<uint32_t>( revision ) );
+                gpu->CasterKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
                 if ( gpu->FrameKey != gpu->GenerateKey )
                 {
                     gpu->GenerateKey       = gpu->FrameKey;
-                    ++gpu->Generation;
                     gpu->StableGenerations = 0;
+                }
+                if ( gpu->CasterKey != gpu->GeneratedCasterKey )
+                {
+                    gpu->GeneratedCasterKey = gpu->CasterKey;
+                    ++gpu->Generation;
                 }
                 // GRASS-VIS-24: the generation follows its inputs alone; the camera's list is the cull's (below).
                 const bool generates =

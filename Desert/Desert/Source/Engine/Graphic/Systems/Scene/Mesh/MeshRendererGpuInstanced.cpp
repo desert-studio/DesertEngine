@@ -669,8 +669,15 @@ namespace Desert::Graphic::System
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue;
 
+            // A still blade section that does not sway reads the light camera's origin only for the cascade's
+            // thinning (Vertex_GrassBlade.glslh; split 0, no wind rule): the generator's own eye (ThinOrigin, the
+            // field's eye - CSM-SCROLL-3), so the blades its static layer keeps hold while the eye stays in a tile and
+            // the cached cascade scrolls. A swaying one keeps the rule's origin (its cascade does not scroll).
+            glm::vec4 casterOrigin = viewWind;
+            if ( still && !sways && gpu.ShadowLod.Levels != 0u )
+                casterOrigin = glm::vec4( gpu.ShadowLod.ThinOrigin, viewWind.w );
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind,
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, casterOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
             BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;

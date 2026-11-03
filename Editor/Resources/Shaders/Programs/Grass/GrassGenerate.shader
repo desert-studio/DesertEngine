@@ -200,6 +200,9 @@ Shader "GrassGenerate"
         // The most the far LOD widens a blade's sphere (CullCandidate lod.Widen: 1 / GrassFarLodShare, at most 2,
         // times GrassBladeFadeWiden, at most 2).
         const float kMaxLodWiden = 4.0;
+        // The tallest a blade's clump makes it (the build's clumpHeight, r.Clump): the box cull's pad for a
+        // cascade's caster box, which the candidate tests at its final, clumped scale.
+        const float kMaxClumpHeight = 1.3;
 
         // The build's cluster (Count: its count and box; Write: its records' fade draws, ranked).
         shared uint  s_ClusterCount;
@@ -501,7 +504,7 @@ Shader "GrassGenerate"
             if ( blade )
             {
                 float clumpYaw    = Fraction( clumpSeed ) * 6.28318530718;
-                float clumpHeight = mix( 0.7, 1.3, Fraction( clumpSeed ) );
+                float clumpHeight = mix( 0.7, kMaxClumpHeight, Fraction( clumpSeed ) );
                 float clumpTint   = Fraction( clumpSeed );
                 // The facing turns towards the clump's by the shorter arc.
                 float turn = mod( clumpYaw - yaw + 3.14159265359, 6.28318530718 ) - 3.14159265359;
@@ -571,7 +574,11 @@ Shader "GrassGenerate"
         }
 
         // A root box (tile or cluster) none of whose candidates the cull can keep: past the cull radius, or
-        // outside the full list's volume by more than the pad. GRASS-TILE-4: the pass's params are read in place,
+        // outside both the full list's volume and every cascade's caster box by more than the pad (CSM-SCROLL-3,
+        // CullCandidate: a cascade's casters do not depend on where the camera looks). The caster boxes' pad
+        // bounds a candidate's reach there - its largest axis at the final scale, the clump's height included
+        // (TilePad's widest x kMaxClumpHeight), over the bounds radius and the centre's height, plus a mesh's
+        // sway. GRASS-TILE-4: the pass's params are read in place,
         // not through a copy of GrassParams - most of the cull's groups and threads leave on these tests and keep
         // nothing, so they read only the words the tests name (the copy's arrays are indexed by the cascade and the
         // card, which a compiler may place in local memory).
@@ -584,13 +591,30 @@ Shader "GrassGenerate"
             float pad      = TilePad( farthest );
             vec3  middle   = 0.5 * ( lo + hi );
             vec3  extent   = 0.5 * ( hi - lo );
-            for ( int i = 0; i < 4; ++i )
+            bool  inView   = true;
+            for ( int i = 0; i < 4 && inView; ++i )
             {
                 const vec4 plane = GrassParamsData[0].Planes[i];
-                if ( dot( plane.xyz, middle ) + dot( abs( plane.xyz ), extent ) + plane.w < -pad )
-                    return true;
+                inView = dot( plane.xyz, middle ) + dot( abs( plane.xyz ), extent ) + plane.w >= -pad;
             }
-            return false;
+            if ( inView )
+                return false;
+            const float casterPad =
+                 kMaxClumpHeight * pad *
+                      ( 1.0 + abs( GrassParamsData[0].ScaleY.z ) / max( GrassParamsData[0].Range.w, 1.0e-3 ) ) +
+                 uintBitsToFloat( GrassParamsData[0].Cascades.z );
+            for ( uint k = 0u; k < GrassParamsData[0].Cascades.x; ++k )
+            {
+                bool inside = true;
+                for ( uint i = 0u; i < 6u && inside; ++i )
+                {
+                    const vec4 plane = GrassParamsData[0].CascadePlanes[k * 6u + i];
+                    inside = dot( plane.xyz, middle ) + dot( abs( plane.xyz ), extent ) + plane.w >= -casterPad;
+                }
+                if ( inside )
+                    return false;
+            }
+            return true;
         }
 
         vec3 BoxWords( uint at )
@@ -723,12 +747,13 @@ Shader "GrassGenerate"
             }
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
-            // bounding sphere (the camera's own list is GrassCull.shader's).
+            // bounding sphere (the camera's own list is GrassCull.shader's). Not a reject yet: an instance outside
+            // it is still kept for the cascades whose caster box it meets (below).
             float radius = GrassParamsData[0].Range.w * max( max( scale.x, floorBound ) * lod.Widen, max( scale.y, scale.z ) );
             vec3  centre = position + vec3( 0.0, GrassParamsData[0].ScaleY.z * scale.y, 0.0 );
-            for ( int i = 0; i < 4; ++i )
-                if ( dot( GrassParamsData[0].Planes[i].xyz, centre ) + GrassParamsData[0].Planes[i].w < -radius )
-                    return;
+            bool  inView = true;
+            for ( int i = 0; i < 4 && inView; ++i )
+                inView = dot( GrassParamsData[0].Planes[i].xyz, centre ) + GrassParamsData[0].Planes[i].w >= -radius;
             vec3 draws = r.Draws;
             if ( blade )
             {
@@ -747,6 +772,36 @@ Shader "GrassGenerate"
                 // the floor first - is that much wider, so the field covers what it did.
                 scale.x *= lod.Widen;
             }
+            // THE CASCADES' CASTERS DO NOT DEPEND ON THE VIEW (CSM-SCROLL-3; UE cached shadows: a cached cascade
+            // holds every static caster inside its box, whichever way the camera looks). The lists whose caster box
+            // (the six planes of the matrix the cascade draws with, MeshRenderer::CascadeCasterBoxSet: its ortho box
+            // pulled back towards the light, so a caster between the light and the slice is inside) the instance's
+            // reach meets - a sphere about the root, after the snow sinks it (below), holding its bounds at the
+            // final scale, the clump's height included, plus a mesh's sway - are decided BEFORE the view's volume
+            // may drop it: an instance inside a cascade's box is kept for that cascade wherever the camera looks, so
+            // a cascade whose cache scrolls finds in the strip it draws what its cache already holds beside it. Its
+            // distances are the field's eye's (Camera.xyz: the eye snapped to the variety's tile grid,
+            // GrassRenderer::PrepareVariety), so its thinning, LOD and widening hold while the eye stays in a tile.
+            uint lists = 0u;
+            if ( GrassParamsData[0].Cascades.x != 0u )
+            {
+                float reach = ( abs( GrassParamsData[0].ScaleY.z ) + GrassParamsData[0].Range.w ) * max( scale.x, max( scale.y, scale.z ) ) +
+                              uintBitsToFloat( GrassParamsData[0].Cascades.z );
+                vec3  root  = position - vec3( 0.0, GrassParamsData[0].Lean.z, 0.0 );
+                for ( uint k = 0u; k < GrassParamsData[0].Cascades.x; ++k )
+                {
+                    bool inside = true;
+                    for ( uint i = 0u; i < 6u && inside; ++i )
+                    {
+                        vec4 plane = GrassParamsData[0].CascadePlanes[k * 6u + i];
+                        inside     = dot( plane.xyz, root ) + plane.w >= -reach;
+                    }
+                    if ( inside )
+                        lists |= 1u << k;
+                }
+            }
+            if ( !inView && lists == 0u )
+                return;
             mat3 basis = BasisFromQuat( r.Rotation );
 
             uint bucket = 0u;
@@ -788,24 +843,13 @@ Shader "GrassGenerate"
                                  vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
             GrassInstancesData[index] = instance;
 
-            // Into each cascade's list whose caster box (the six planes of the matrix the cascade draws with,
-            // MeshRenderer::CascadeCasterBoxSet: its ortho box pulled back towards the light, so a caster between
-            // the light and the slice is inside) the instance's reach meets: a sphere about the root - after the
-            // snow sank it - holding its bounds at the final scale, the clump's height included, plus a mesh's sway.
-            // A list's bucket gets at most what the full list's kept, so it never passes the capacity they share.
-            if ( GrassParamsData[0].Cascades.x != 0u )
+            // Into each cascade's list whose caster box the instance's reach meets (`lists`, above). A list's
+            // bucket gets at most what the full list's kept, so it never passes the capacity they share.
+            if ( lists != 0u )
             {
-                float reach = ( abs( GrassParamsData[0].ScaleY.z ) + GrassParamsData[0].Range.w ) * max( scale.x, max( scale.y, scale.z ) ) +
-                              uintBitsToFloat( GrassParamsData[0].Cascades.z );
                 for ( uint k = 0u; k < GrassParamsData[0].Cascades.x; ++k )
                 {
-                    bool inside = true;
-                    for ( uint i = 0u; i < 6u && inside; ++i )
-                    {
-                        vec4 plane = GrassParamsData[0].CascadePlanes[k * 6u + i];
-                        inside     = dot( plane.xyz, position ) + plane.w >= -reach;
-                    }
-                    if ( !inside )
+                    if ( ( lists & ( 1u << k ) ) == 0u )
                         continue;
                     // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the instance's point (its root, the
                     // vertex stage's model[3]): a mover inside the ring [inner, wind distance), else its rest pose.
