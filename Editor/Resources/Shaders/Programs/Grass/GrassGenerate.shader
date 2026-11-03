@@ -567,7 +567,7 @@ Shader "GrassGenerate"
         // Arguments. The subgroup's invocations that name the same bucket add their number with ONE atomicAdd and
         // each takes its rank among them - one round per distinct bucket among the callers (a subgroup's instances
         // fall into a few buckets). GRASS-CULL-HIER-1: the run of slots that add takes, inside the bucket's
-        // capacity, is one chunk for GrassCull's chunk cull (WriteChunk): the box of the callers' roots @p root and
+        // capacity, is one chunk for GrassCull's camera cull (WriteChunk): the box of the callers' roots @p root and
         // the largest of their axis scales @p scale - instances of one tile cluster, since a workgroup is one.
         // Returns the slot's index in the bucket: the counter before the subgroup's add, plus the rank.
         uint AppendInstance( uint table, vec3 root, float scale )

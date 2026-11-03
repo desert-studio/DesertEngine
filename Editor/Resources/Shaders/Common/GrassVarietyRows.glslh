@@ -36,21 +36,18 @@ struct GrassVarietyRow
     uvec2 CascadeWords;
     vec4  CascadeRings[4];
     // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (UE InstanceCulling / Nanite: a node of instances with a bound is
-    // culled whole before its instances): Chunks holds a header (x = the chunks the tile cull wrote, y = this
-    // frame's camera cull threads, z = the room, w = 0), then kGrassChunkWords words per chunk, then THE THREAD
-    // MAP: two words per camera cull thread - a slot of a chunk past GrassCull's chunk cull, and what the chunk met
-    // (kGrassChunk* flags). ChunkWords: x = the room - chunks and threads, one per slot of Instances (a chunk holds
-    // one slot at least) - y = the thread map's first word.
+    // culled whole by its group of lanes, its lanes cull its instances): Chunks holds a header (x = the chunks the
+    // tile cull wrote, y = 0, z = the room - one chunk per slot of Instances, a chunk holds one slot at least - w =
+    // 0), then kGrassChunkWords words per chunk. The row ends here; std430 rounds it to its 16-byte alignment.
     uvec2 Chunks;
-    uvec2 ChunkWords;
 };
 
 // Info.z: the variety's records come in sets of one record per bucket (a blade strip's, one set per shadow LOD),
 // not in a group of records per bucket (a mesh's levels).
 const uint kGrassRowBlade = 1u;
 // Info.z: the cascades' lists of this row hold from an earlier frame (GrassRenderer VarietyGpu::CascadeKey: the same
-// instances, caster boxes, wind origin and rings for every frame in flight's feedback copy), so GrassCull neither
-// culls nor finalizes them this frame.
+// instances, guarded caster boxes, wind origin and rings as the frame that culled them), so GrassCull neither culls
+// nor finalizes them this frame; it copies their drawn counts into this frame in flight's Feedback.
 const uint kGrassRowCascadesHeld = 2u;
 
 // A CHUNK (GRASS-CULL-HIER-1): the run of slots one subgroup of the tile cull took of one bucket with one atomic
@@ -60,10 +57,6 @@ const uint kGrassRowCascadesHeld = 2u;
 const uint kGrassChunkHeader    = 4u;
 const uint kGrassChunkWords     = 8u;
 const uint kGrassChunkCountBits = 7u; // the count reaches LocalSize's 64
-// A chunk's flags past the chunk cull (the thread map): bit k = cascade list k's caster box meets it, then the
-// camera's.
-const uint kGrassChunkCamera = 1u << 8u; // inside the camera's side planes
-const uint kGrassChunkHidden = 1u << 9u; // ... and the previous frame's HZB hides its whole box
 
 layout( buffer_reference, std430, buffer_reference_align = 4 ) buffer GrassWords
 {

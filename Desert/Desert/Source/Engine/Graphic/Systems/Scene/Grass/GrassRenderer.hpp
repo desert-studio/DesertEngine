@@ -241,8 +241,8 @@ namespace Desert::Graphic::System
             glm::vec4  Camera[4]{};
             CameraList List = CameraList::Planes;
             // GPU-COST-21: the cascade views this frame draws (bit v: view v, MeshRenderer::CascadeCasterBoxSet)
-            // and their caster boxes, list k's six planes (the k-th set bit's) at 6k (GrassGenerate.shader
-            // CascadePlanes).
+            // and their caster boxes as GrassCull culls them, list k's six planes (the k-th set bit's) at 6k: the
+            // guard box held about the view's caster box (GrassRenderer.cpp kCascadeGuardTurn).
             uint32_t  CascadeMask = 0;
             glm::vec4 CascadePlanes[kGrassCascadeLists * 6u]{};
             // GRASS-SHADOW-1: list k's cascade view (the k-th set bit of CascadeMask) - the view a variety asks
@@ -306,17 +306,17 @@ namespace Desert::Graphic::System
             RDG::BufferRef      CandidatesRef;
             // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the
             // tile cull's runs of Instances - one subgroup's slots of one bucket, one tile cluster's - with their
-            // roots' box, culled whole by GrassCull's chunk cull before a thread per instance of the chunks a view
-            // meets (the thread map); room for ChunkRoom chunks and threads (one per slot of Instances).
+            // roots' box, each culled whole by one subgroup of GrassCull's camera cull, whose lanes then cull its
+            // instances; room for ChunkRoom chunks (one per slot of Instances).
             std::shared_ptr<ShaderResources::StorageBuffer> Chunks;
             RDG::ExternalBuffer                             ChunksImport;
             RDG::BufferRef                                  ChunksRef;
             uint32_t                                        ChunkRoom = 0;
             // GRASS-CULL-HIER-1: what the cascades' lists were last culled from (GrassRenderer::WriteVarietyTable:
-            // the caster boxes, the wind origin, the row's buffers and rings, Generation) and the frames in a row
-            // culled from it; at the frames in flight the lists hold (kGrassRowCascadesHeld) until it changes.
+            // the guarded caster boxes, the wind origin, the row's buffers and rings, Generation) and whether a
+            // frame culled them from it; from the next frame the lists hold (kGrassRowCascadesHeld) until it changes.
             std::vector<uint32_t> CascadeKey;
-            uint32_t              StableCascades = 0;
+            bool                  CascadesCulled = false;
             // GRASS-CULL-2: what the camera cull reads of the params, through the variety table (GrassRenderer.cpp
             // GrassVarietyRowGpu): x = the bounds radius, y = the bounds centre height (local), z = the cull pad (cm),
             // and the bucket table's first word in Args.
@@ -458,6 +458,16 @@ namespace Desert::Graphic::System
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral
         bool m_FrameTable = false; // the last AddFrame wrote its variety table and added its passes
+        // GRASS-CULL-HIER-1: cascade list k's guard box (GrassRenderer.cpp kCascadeGuardTurn) - the caster box of
+        // the view it last grew from, grown by the chord a turn of the camera carries it - and that view
+        // (kNoCascadeView: none yet).
+        static constexpr uint32_t kNoCascadeView = 0xFFFFFFFFu;
+        struct CascadeGuard
+        {
+            uint32_t  View = kNoCascadeView;
+            glm::vec4 Planes[6]{};
+        };
+        std::array<CascadeGuard, kGrassCascadeLists> m_CascadeGuards{};
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
         std::shared_ptr<ComputePipeline> m_Cull; // GRASS-CULL-2: the camera cull and phase 2 (GrassCull.shader)

@@ -6,25 +6,25 @@
 // works inside ONE row - its variety, found by a binary search of the rows' first groups (CullDispatch) - so every
 // address it reads is uniform across it and a subgroup's appends name one variety's counters. Modes (Hzb.w,
 // GrassRenderer.cpp kCullMode*):
-//   0 THE DISPATCH (one group): per row the chunk cull's groups (its chunks, Chunks word 0, which the tile cull
-//     writes with the instances and which stays until the next one), laid end to end in row order as the rows'
-//     first groups, and their sum as the chunk cull's indirect dispatch (CullDispatchData[0]).
-//   5 THE CHUNK CULL (GRASS-CULL-HIER-1; UE InstanceCulling / Nanite: a node's bound is culled before its
-//     instances): one thread per chunk - a tile cluster's run of one bucket's slots (Common/GrassVarietyRows.glslh
-//     kGrassChunkWords) - against the cascades' caster boxes, the camera's side planes and the previous frame's
-//     HZB; a chunk that meets a view takes one camera cull thread per slot of it in its row's thread map, each
-//     with its slot and what the chunk met (ChunkCull).
-//   6 THE CHUNK DISPATCH (one group): per row the camera cull's groups from its thread map's threads (Chunks word
-//     1), laid out like mode 0's (CullDispatchData[2]).
-//   1 THE CAMERA CULL: one thread per entry of the thread maps - per instance of a chunk a view met. It is tested
-//     only by the views its chunk met: into each cascade list whose box met the chunk (CascadeCull), and - the
-//     camera's planes met - by its own bounding sphere. Its bounding sphere - from its transform:
-//     the bounds centre along its up axis, the bounds radius at its largest axis scale plus a mesh's sway - inside
-//     the camera's side planes enters the camera's list in the same bucket, or, hidden by the previous frame's
-//     furthest HZB (Hzb.z != 0; Common/GpuCullTests.glslh GpuCull_IsOccludedByHzb, the instance cull's test,
-//     through that frame's ViewProjection), becomes phase 2's candidate (its sphere and its row of Instances).
-//     Hzb.z = 0: the camera's planes alone. A chunk the previous HZB hides whole makes its instances candidates
-//     without their own test (an instance's box lies inside its chunk's).
+//   0 THE DISPATCH (one group): per row the camera cull's groups - kChunksPerGroup of its chunks a group (Chunks
+//     word 0, which the tile cull writes with the instances and which stays until the next one) - laid end to end
+//     in row order as the rows' first groups, and their sum as the camera cull's indirect dispatch
+//     (CullDispatchData[0]).
+//   1 THE CAMERA CULL (GRASS-CULL-HIER-1; UE InstanceCulling / Nanite: a node's bound is culled by its group of
+//     lanes, and the lanes of a node that survives cull its own elements in the same pass, with no list of them in
+//     between): one subgroup per chunk - a tile cluster's run of one bucket's slots (Common/GrassVarietyRows.glslh
+//     kGrassChunkWords), at most a subgroup of them - and one lane per instance of it (CullChunk). The chunk's box
+//     meets the views first: each cascade list's caster box (none while the row's lists hold,
+//     kGrassRowCascadesHeld), the camera's side planes and the previous frame's HZB; a chunk no view meets costs its
+//     subgroup its eight words. Each lane's instance is then tested only by the views its chunk met: into each
+//     cascade list whose box met the chunk (CascadeCull), and - the camera's planes met - by its own bounding
+//     sphere. Its bounding sphere - from its transform: the bounds centre along its up axis, the bounds radius at
+//     its largest axis scale plus a mesh's sway - inside the camera's side planes enters the camera's list in the
+//     same bucket, or, hidden by the previous frame's furthest HZB (Hzb.z != 0; Common/GpuCullTests.glslh
+//     GpuCull_IsOccludedByHzb, the instance cull's test, through that frame's ViewProjection), becomes phase 2's
+//     candidate (its sphere and its row of Instances). Hzb.z = 0: the camera's planes alone. A chunk the previous
+//     HZB hides whole makes its instances candidates without their own test (an instance's box lies inside its
+//     chunk's).
 //   2 THE CAMERA CULL'S FINALIZE (one group): per row the camera's records get phase 1's counts (each bucket's
 //     min(count, capacity)) and first instances, each bucket's phase words freeze this frame's candidates and
 //     phase 1's drawn count and restart the counters, Feedback gets phase 1's drawn count; the frozen candidates'
@@ -39,12 +39,11 @@ Shader "GrassCull"
 {
     Compute
     {
-        // WaveAppend: one atomic per subgroup and counter (subgroupBallot / subgroupElect / subgroupBroadcastFirst).
+        // WaveAppend: one atomic per subgroup and counter (subgroupBallot / subgroupElect / subgroupBroadcastFirst);
+        // the camera cull's subgroup per chunk (gl_SubgroupID / gl_NumSubgroups / gl_SubgroupInvocationID /
+        // gl_SubgroupSize).
         #extension GL_KHR_shader_subgroup_basic : require
         #extension GL_KHR_shader_subgroup_ballot : require
-        // ChunkCull: a chunk's threads of the camera cull, one atomic per subgroup (subgroupAdd /
-        // subgroupExclusiveAdd).
-        #extension GL_KHR_shader_subgroup_arithmetic : require
 
         LocalSize(64, 1, 1);
 
@@ -64,9 +63,9 @@ Shader "GrassCull"
             GrassVarietyRow VarietyRows[];
         };
 
-        // This frame's (a graph buffer): [0] the chunk cull's VkDispatchIndirectCommand (w: its groups), [1] phase
-        // 2's, [2] the camera cull's, then per row x = its first group of the chunk cull, y = of phase 2, z = of the
-        // camera cull (GrassRenderer.cpp kCullDispatchHeader / kPostDispatchOffset / kCameraDispatchOffset).
+        // This frame's (a graph buffer): [0] the camera cull's VkDispatchIndirectCommand (w: its groups), [1] phase
+        // 2's, then per row x = its first group of the camera cull, y = of phase 2 (GrassRenderer.cpp
+        // kCullDispatchHeader / kPostDispatchOffset).
         Buffer(1) CullDispatch
         {
             uvec4 CullDispatchData[];
@@ -90,12 +89,13 @@ Shader "GrassCull"
         const uint kModeCameraFinalize = 2u;
         const uint kModePostOcclusion  = 3u;
         const uint kModePostFinalize   = 4u;
-        const uint kModeChunkCull      = 5u;
-        const uint kModeChunkDispatch  = 6u;
 
         const uint kCullGroupThreads = 64u;    // LocalSize
-        const uint kCullGroupsX      = 65535u; // Vulkan's guaranteed maxComputeWorkGroupCount[0]
-        const uint kDispatchHeader   = 3u;     // CullDispatchData's three commands before the rows
+        // The camera cull's chunks per group: one per subgroup of LocalSize on a 32-lane device. Any other subgroup
+        // size stays correct - a 64-lane subgroup culls both in turn, a 16-lane device's spare subgroups idle.
+        const uint kChunksPerGroup = 2u;
+        const uint kCullGroupsX    = 65535u; // Vulkan's guaranteed maxComputeWorkGroupCount[0]
+        const uint kDispatchHeader = 2u;     // CullDispatchData's two commands before the rows
         // A chunk's reach is grown by this share: the tile cull and this pass compute the same largest axis scale,
         // up to their rounding (a few ulps), and the chunk must hold every instance's sphere.
         const float kChunkReachSlack = 1.0e-4;
@@ -110,7 +110,7 @@ Shader "GrassCull"
             return uvec4( ( groups + rows - 1u ) / rows, rows, 1u, groups );
         }
 
-        // Row @p row's first group of the chunk cull (@p command 0), of phase 2 (1) or of the camera cull (2).
+        // Row @p row's first group of the camera cull (@p command 0) or of phase 2 (1).
         uint FirstGroup( uint row, uint command )
         {
             return CullDispatchData[kDispatchHeader + row][command];
@@ -157,12 +157,12 @@ Shader "GrassCull"
             return index;
         }
 
-        // Mode 1: one thread per kept instance of every row.
+        // Mode 1, a lane's instance of a chunk.
         // GRASS-CULL-UNIFY-1, THE CASCADES' LISTS (UE: each shadow view culls the same instances by its own volume;
         // moved here from GrassGenerate's tile cull, which no longer sees any view): instance @p slot of row @p r,
         // in bucket @p b (its table word @p table), goes into each cascade list whose caster box its reach meets - a
         // sphere about its root (after the snow sank it) holding its bounds at the instance's scale @p scale, plus a
-        // mesh's sway (Bounds.z), of the lists whose box met its chunk (bit k of @p met, ChunkCull).
+        // mesh's sway (Bounds.z), of the lists whose box met its chunk (bit k of @p met, CullChunk).
         // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the root: a mover inside the
         // list's ring [inner, wind distance), else its rest pose (Common/ShadowWind.glslh, the one rule). A mover is
         // appended from the bucket's first slot, a rest caster from its last; a list's bucket never passes the room
@@ -170,7 +170,7 @@ Shader "GrassCull"
         void CascadeCull( uint r, uint b, uint table, uint slot, vec3 root, float scale, uint met )
         {
             uint mask = VarietyRows[r].Info.w;
-            if ( mask == 0u || ( met & ( kGrassChunkCamera - 1u ) ) == 0u )
+            if ( mask == 0u || met == 0u )
                 return;
             vec4       bounds  = VarietyRows[r].Bounds;
             float      reach   = ( abs( bounds.y ) + bounds.x ) * scale + bounds.z;
@@ -250,10 +250,11 @@ Shader "GrassCull"
             }
         }
 
-        // Row @p r's chunks the tile cull wrote (never past their room).
+        // Row @p r's chunks the tile cull wrote, never past their room (Chunks words 0 and 2).
         uint ChunkCount( uint r )
         {
-            return min( GrassWords( VarietyRows[r].Chunks ).Words[0], VarietyRows[r].ChunkWords.x );
+            GrassWords chunks = GrassWords( VarietyRows[r].Chunks );
+            return min( chunks.Words[0], chunks.Words[2] );
         }
 
         // A box (@p centre, @p extent) reaches the inner side of @p plane (xyz.n + w >= 0 inside).
@@ -262,23 +263,64 @@ Shader "GrassCull"
             return dot( plane.xyz, centre ) + plane.w >= -dot( abs( plane.xyz ), extent );
         }
 
-        // Mode 5, one thread per chunk of every row (GRASS-CULL-HIER-1). The chunk's box - its roots' box grown by
-        // the reach of its largest axis scale, ( |centre height| + radius ) x scale + pad - holds every instance's
-        // camera sphere (its centre lies within |centre height| x scale of the root) and its cascade sphere
-        // (CascadeCull's reach), so a view the box misses misses each of them. The views it meets go with its
-        // slots into the thread map: each cascade list's caster box (none while the row's lists hold,
-        // kGrassRowCascadesHeld), the camera's side planes, and - inside them - whether the previous frame's HZB
-        // hides the whole box.
-        // Its cost is a thread per chunk; the camera cull's then follows the instances a view can take.
-        void ChunkCull()
+        // Mode 1, one lane: instance @p slot of row @p r's bucket @p b, of a chunk that met the cascade lists @p met
+        // (bit k: list k), the camera's side planes (@p seen) and - inside them - was hidden whole by the previous
+        // frame's HZB (@p chunkHidden).
+        void CullInstance( uint r, uint b, uint slot, uint met, bool seen, bool chunkHidden )
         {
-            uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
-            if ( group >= CullDispatchData[0].w )
+            uint       tables   = VarietyRows[r].Info.y;
+            uint       buckets  = VarietyRows[r].Info.x;
+            uint       table    = tables + b * 4u;
+            GrassWords args     = GrassWords( VarietyRows[r].Args );
+            uint       first    = args.Words[table + 1u];
+            uint       capacity = args.Words[table + 2u];
+            mat4       instance = GrassTransforms( VarietyRows[r].Instances ).Transforms[slot];
+            vec4       bounds   = VarietyRows[r].Bounds;
+            float scale  = max( length( instance[0].xyz ), max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
+            float radius = bounds.x * scale + bounds.z;
+            vec3  centre = instance[3].xyz + bounds.y * instance[1].xyz;
+            // The shadow views first: an instance outside the camera's volume still casts into a cascade.
+            CascadeCull( r, b, table, slot, instance[3].xyz, scale, met );
+            if ( !seen )
                 return;
-            uint r = RowOfGroup( group, 0u );
-            uint c = ( group - FirstGroup( r, 0u ) ) * kCullGroupThreads + gl_LocalInvocationIndex;
-            if ( c >= ChunkCount( r ) )
+            for ( int i = 0; i < 4; ++i )
+            {
+                vec4 plane = VarietyCameraPlanes[i];
+                if ( dot( plane.xyz, centre ) + plane.w < -radius )
+                    return;
+            }
+            // Hidden by the previous frame's HZB: its chunk's whole box was, or its own sphere's box is.
+            bool hidden = chunkHidden;
+            if ( !hidden && Hzb.z != 0u )
+            {
+                GpuCullView view;
+                view.HzbExtent = uvec4( Hzb.xyz, 0u );
+                hidden = GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
+                                                  centre - vec3( radius ), centre + vec3( radius ) );
+            }
+            // The bucket's count in the camera's list, or its candidate count (its first phase word).
+            uint at    = hidden ? tables + buckets * 4u + b * 4u : table;
+            uint index = WaveAppend( GrassWords( VarietyRows[r].CameraArgs ), at );
+            if ( index >= capacity )
                 return;
+            if ( hidden )
+            {
+                GrassQuads candidates = GrassQuads( VarietyRows[r].Candidates );
+                candidates.Quads[2u * ( first + index )]      = floatBitsToUint( vec4( centre, radius ) );
+                candidates.Quads[2u * ( first + index ) + 1u] = uvec4( slot, 0u, 0u, 0u );
+            }
+            else
+                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = slot;
+        }
+
+        // Mode 1, chunk @p c of row @p r, by ONE whole subgroup (its every lane calls it with the same chunk, so
+        // what it reads and decides of the chunk is uniform across the subgroup). The chunk's box - its roots' box
+        // grown by the reach of its largest axis scale, ( |centre height| + radius ) x scale + pad - holds every
+        // instance's camera sphere (its centre lies within |centre height| x scale of the root) and its cascade
+        // sphere (CascadeCull's reach), so a view the box misses misses each of them. The lanes then take the
+        // chunk's slots, a subgroup's width at a time (the tile cull's subgroup wrote at most its own width).
+        void CullChunk( uint r, uint c )
+        {
             GrassWords chunks = GrassWords( VarietyRows[r].Chunks );
             uint       at     = kGrassChunkHeader + c * kGrassChunkWords;
             vec4       bounds = VarietyRows[r].Bounds;
@@ -306,105 +348,52 @@ Shader "GrassCull"
             bool seen = true;
             for ( uint i = 0u; i < 4u && seen; ++i )
                 seen = BoxMeetsPlane( VarietyCameraPlanes[i], centre, extent );
-            if ( seen )
+            bool hidden = false;
+            if ( seen && Hzb.z != 0u )
             {
-                met |= kGrassChunkCamera;
-                if ( Hzb.z != 0u )
-                {
-                    GpuCullView view;
-                    view.HzbExtent = uvec4( Hzb.xyz, 0u );
-                    if ( GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection, lo,
-                                                  hi ) )
-                        met |= kGrassChunkHidden;
-                }
+                GpuCullView view;
+                view.HzbExtent = uvec4( Hzb.xyz, 0u );
+                hidden = GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection, lo, hi );
             }
-            if ( met == 0u )
+            if ( met == 0u && !seen )
                 return;
-            // The chunk's threads of the camera cull, one per slot (one atomic per subgroup: a workgroup is one
-            // row), each with its slot and what the chunk met. The threads never pass the room: the chunks' slots
-            // are distinct slots of Instances.
-            uint run    = chunks.Words[at + 7u];
-            uint count  = run & ( ( 1u << kGrassChunkCountBits ) - 1u );
-            uint first  = run >> kGrassChunkCountBits;
-            uint total  = subgroupAdd( count );
-            uint base   = 0u;
-            if ( subgroupElect() )
-                base = atomicAdd( chunks.Words[1], total );
-            uint thread = subgroupBroadcastFirst( base ) + subgroupExclusiveAdd( count );
-            thread      = VarietyRows[r].ChunkWords.y + thread * 2u;
-            for ( uint i = 0u; i < count; ++i )
-            {
-                chunks.Words[thread + i * 2u]      = first + i;
-                chunks.Words[thread + i * 2u + 1u] = met;
-            }
-        }
-
-        // Mode 1: one thread per entry of every row's thread map (ChunkCull), the instance of a chunk a view met.
-        void CameraCull()
-        {
-            uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
-            if ( group >= CullDispatchData[2].w )
-                return;
-            uint       r      = RowOfGroup( group, 2u );
-            uint       t      = ( group - FirstGroup( r, 2u ) ) * kCullGroupThreads + gl_LocalInvocationIndex;
-            GrassWords chunks = GrassWords( VarietyRows[r].Chunks );
-            if ( t >= chunks.Words[1] )
-                return;
-            uint       entry   = VarietyRows[r].ChunkWords.y + t * 2u;
-            uint       slot    = chunks.Words[entry];
-            uint       met     = chunks.Words[entry + 1u];
+            uint run   = chunks.Words[at + 7u];
+            uint count = run & ( ( 1u << kGrassChunkCountBits ) - 1u );
+            uint first = run >> kGrassChunkCountBits;
+            // The chunk's bucket: the one whose slots hold its first (a chunk is a run of one bucket's slots).
             GrassWords args    = GrassWords( VarietyRows[r].Args );
             uint       buckets = VarietyRows[r].Info.x;
             uint       tables  = VarietyRows[r].Info.y;
-            // The slot's bucket: the one whose slots hold it (its chunk is a run of one bucket's).
-            uint b = 0u;
+            uint       b       = 0u;
             for ( ; b < buckets; ++b )
             {
-                if ( slot - args.Words[tables + b * 4u + 1u] < args.Words[tables + b * 4u + 2u] )
+                if ( first - args.Words[tables + b * 4u + 1u] < args.Words[tables + b * 4u + 2u] )
                     break;
             }
             if ( b == buckets )
                 return;
-            uint  table    = tables + b * 4u;
-            uint  first    = args.Words[table + 1u];
-            uint  capacity = args.Words[table + 2u];
-            mat4  instance = GrassTransforms( VarietyRows[r].Instances ).Transforms[slot];
-            vec4  bounds   = VarietyRows[r].Bounds;
-            float scale    = max( length( instance[0].xyz ), max( length( instance[1].xyz ), length( instance[2].xyz ) ) );
-            float radius   = bounds.x * scale + bounds.z;
-            vec3  centre   = instance[3].xyz + bounds.y * instance[1].xyz;
-            // The shadow views first: an instance outside the camera's volume still casts into a cascade.
-            CascadeCull( r, b, table, slot, instance[3].xyz, scale, met );
-            if ( ( met & kGrassChunkCamera ) == 0u )
+            for ( uint base = 0u; base < count; base += gl_SubgroupSize )
+            {
+                uint i = base + gl_SubgroupInvocationID;
+                if ( i < count )
+                    CullInstance( r, b, first + i, met, seen, hidden );
+            }
+        }
+
+        // Mode 1: kChunksPerGroup chunks of one row per workgroup (CullDispatchData[0]), one per subgroup.
+        void CameraCull()
+        {
+            uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+            if ( group >= CullDispatchData[0].w )
                 return;
-            for ( int i = 0; i < 4; ++i )
+            uint r      = RowOfGroup( group, 0u );
+            uint chunks = ChunkCount( r );
+            uint first  = ( group - FirstGroup( r, 0u ) ) * kChunksPerGroup;
+            for ( uint j = gl_SubgroupID; j < kChunksPerGroup; j += gl_NumSubgroups )
             {
-                vec4 plane = VarietyCameraPlanes[i];
-                if ( dot( plane.xyz, centre ) + plane.w < -radius )
-                    return;
+                if ( first + j < chunks )
+                    CullChunk( r, first + j );
             }
-            // Hidden by the previous frame's HZB: its chunk's whole box was, or its own sphere's box is.
-            bool hidden = ( met & kGrassChunkHidden ) != 0u;
-            if ( !hidden && Hzb.z != 0u )
-            {
-                GpuCullView view;
-                view.HzbExtent = uvec4( Hzb.xyz, 0u );
-                hidden = GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
-                                                  centre - vec3( radius ), centre + vec3( radius ) );
-            }
-            // The bucket's count in the camera's list, or its candidate count (its first phase word).
-            uint at    = hidden ? tables + buckets * 4u + b * 4u : table;
-            uint index = WaveAppend( GrassWords( VarietyRows[r].CameraArgs ), at );
-            if ( index >= capacity )
-                return;
-            if ( hidden )
-            {
-                GrassQuads candidates = GrassQuads( VarietyRows[r].Candidates );
-                candidates.Quads[2u * ( first + index )]      = floatBitsToUint( vec4( centre, radius ) );
-                candidates.Quads[2u * ( first + index ) + 1u] = uvec4( slot, 0u, 0u, 0u );
-            }
-            else
-                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = slot;
         }
 
         // Mode 3: one thread per frozen candidate of every row.
@@ -447,6 +436,25 @@ Shader "GrassCull"
                 GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = candidates.Quads[2u * slot + 1u].x;
         }
 
+        // Row @p r's cascade lists held (kGrassRowCascadesHeld): this frame in flight's Feedback copy gets each view's
+        // drawn count from its list's own drawn word (FinalizeCascades wrote it when it culled the list), so a list
+        // holds from the frame after the one that culled it and every copy still tells what each view draws.
+        void HeldCascadeFeedback( uint r, uint buckets )
+        {
+            GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            GrassWords cascade  = GrassWords( VarietyRows[r].CascadeArgs );
+            for ( uint v = 0u; v < 8u; ++v )
+                feedback.Words[buckets + 4u + v] = 0u;
+            uint words = VarietyRows[r].CascadeWords.x;
+            uint mask  = VarietyRows[r].Info.w;
+            for ( uint k = 0u; mask != 0u; ++k )
+            {
+                uint view = uint( findLSB( mask ) );
+                mask &= mask - 1u;
+                feedback.Words[buckets + 4u + view] = cascade.Words[k * words + 3u];
+            }
+        }
+
         // Mode 2, row @p r: phase 1's camera records and Feedback count, and the phase words frozen for phase 2;
         // returns the candidates frozen (phase 2's threads).
         uint FinalizeCamera( uint r )
@@ -465,8 +473,8 @@ Shader "GrassCull"
             }
             if ( ( VarietyRows[r].Info.z & kGrassRowCascadesHeld ) == 0u )
                 FinalizeCascades( r, buckets, records, blade );
-            // The chunk cull's thread map restarts for the next frame (ChunkCull counts it at Chunks word 1).
-            GrassWords( VarietyRows[r].Chunks ).Words[1] = 0u;
+            else
+                HeldCascadeFeedback( r, buckets );
             uint drawn      = 0u;
             uint candidates = 0u;
             for ( uint b = 0u; b < buckets; ++b )
@@ -518,20 +526,18 @@ Shader "GrassCull"
             GrassWords( VarietyRows[r].Feedback ).Words[buckets + 3u] = drawn;
         }
 
-        // The threads row @p r gives the next pass: its chunks (mode 0), its thread map's entries (mode 6) or,
-        // finalizing its camera list, its frozen candidates (mode 2).
-        uint RowThreads( uint r )
+        // What row @p r gives the next pass: its chunks (mode 0, kChunksPerGroup a group) or, finalizing its camera
+        // list, its frozen candidates (mode 2, a thread each).
+        uint RowGroups( uint r )
         {
             if ( Hzb.w == kModeDispatch )
-                return ChunkCount( r );
-            if ( Hzb.w == kModeChunkDispatch )
-                return GrassWords( VarietyRows[r].Chunks ).Words[1];
-            return FinalizeCamera( r );
+                return ( ChunkCount( r ) + kChunksPerGroup - 1u ) / kChunksPerGroup;
+            return ( FinalizeCamera( r ) + kCullGroupThreads - 1u ) / kCullGroupThreads;
         }
 
-        // Modes 0, 2 and 6, one group: row i's work by thread i % 64, 64 rows at a time, and the rows' groups of the
+        // Modes 0 and 2, one group: row i's work by thread i % 64, 64 rows at a time, and the rows' groups of the
         // next pass laid end to end in row order - row i's first group into its CullDispatchData entry (x for
-        // @p command 0, y for 1, z for 2), their sum into command @p command.
+        // @p command 0, y for 1), their sum into command @p command.
         void LayOutRows( uint command )
         {
             uint base = 0u;
@@ -540,7 +546,7 @@ Shader "GrassCull"
                 uint row    = chunk + gl_LocalInvocationIndex;
                 uint groups = 0u;
                 if ( row < Rows.x )
-                    groups = ( RowThreads( row ) + kCullGroupThreads - 1u ) / kCullGroupThreads;
+                    groups = RowGroups( row );
                 s_Groups[gl_LocalInvocationIndex] = groups;
                 barrier();
                 uint first = base;
@@ -560,11 +566,6 @@ Shader "GrassCull"
 
         void main()
         {
-            if ( Hzb.w == kModeChunkCull )
-            {
-                ChunkCull();
-                return;
-            }
             if ( Hzb.w == kModeCameraCull )
             {
                 CameraCull();
@@ -583,8 +584,6 @@ Shader "GrassCull"
             }
             if ( Hzb.w == kModeDispatch )
                 LayOutRows( 0u );
-            else if ( Hzb.w == kModeChunkDispatch )
-                LayOutRows( 2u );
             else
                 LayOutRows( 1u );
         }
