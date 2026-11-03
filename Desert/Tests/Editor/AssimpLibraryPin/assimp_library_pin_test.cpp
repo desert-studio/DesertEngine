@@ -303,15 +303,15 @@ TEST( AssimpLibraryPin, TheLibraryParsesExactlyTheFormatsTheRegisterNames )
 // П3. ONE VERSION, AND IT IS OBSERVABLE. Until D40 nothing anywhere pinned an assimp version — Windows
 // linked a July binary, macOS linked Homebrew's — which is the single reason two machines could build a
 // different engine from one commit. The pin lives in the submodule; this asserts that what got LINKED
-// is what the pin says, by comparing the running library against the version Assimp.lua read out of the
+// is what the pin says, by comparing the running library against the version Assimp.cmake read out of the
 // submodule's own PROJECT() line and wrote down.
 TEST( AssimpLibraryPin, TheLinkedLibraryIsTheVersionThePinnedSubmoduleDeclares )
 {
     const std::filesystem::path recorded = RepositoryRoot() / "build" / "generated" / "assimp" / "VERSION.txt";
     ASSERT_TRUE( std::filesystem::exists( recorded ) )
-         << "build/generated/assimp/VERSION.txt is missing. Assimp.lua writes it while generating "
-            "config.h and revision.h, so its absence means the project was not generated — run "
-            "`CI=true premake5 gmake`. Passing without it would be a version census that read no version.";
+         << "build/generated/assimp/VERSION.txt is missing. cmake/ThirdParty/Assimp.cmake writes it while "
+            "generating config.h and revision.h, so its absence means the tree was not configured — run "
+            "`cmake --preset <host preset>`. Passing without it would be a version census that read no version.";
 
     std::string text = ReadFile( recorded );
     while ( !text.empty() && ( text.back() == '\n' || text.back() == '\r' ) )

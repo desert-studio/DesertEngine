@@ -501,7 +501,7 @@ TEST( CloudNoiseVolumeLayout, TheFourChannelsAreDecorrelated )
 // different basis — should come here and restate the finding rather than quietly pass.
 //
 // THE LAG IS IN FRACTIONS OF A TILE and deliberately not in metres, so that this suite keeps the one
-// property its premake file calls out — it links nothing and knows about no world. The conversion is a
+// property its build settings call out — it links nothing and knows about no world. The conversion is a
 // single multiplication the reader can do: one texture unit of this volume spans the LAYER's Detail Tile
 // Size along x, because Common/CloudField.glslh forms `windPos * CLOUD_DETAIL_FREQ_X / tile` and that
 // frequency is exactly 1. At the shipped Detail Tile Size of 1 km (Engine/ECS/VolumetricCloudComponent.hpp)

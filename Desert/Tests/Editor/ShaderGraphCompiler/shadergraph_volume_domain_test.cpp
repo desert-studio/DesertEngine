@@ -1202,7 +1202,7 @@ TEST( ShaderGraphVolumeDomain, EveryRowExcusingAnUnreadableValueStillDescribesTh
 namespace
 {
     /// The four channel meanings, in channel order, READ OUT OF THE ENGINE'S OWN enum rather than typed
-    /// here. This suite does not link the engine (see its premake5.lua — the graph compiler and the
+    /// here. This suite does not link the engine (see Desert/Tests/CMakeLists.txt — the graph compiler and the
     /// DShader parser are compiled straight in and nothing else), so the switch is read as text; the
     /// point is the same either way, that a channel renamed at the source turns a pin name red here
     /// instead of leaving a graph reading a frequency it did not ask for.

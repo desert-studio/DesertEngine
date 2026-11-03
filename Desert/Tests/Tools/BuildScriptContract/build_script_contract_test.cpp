@@ -184,12 +184,10 @@ namespace
     // zero-length C array is a GNU extension that MSVC rejects outright (C2466).
     constexpr std::array<PendingReference, 1> kPendingReferences = { {
          { "scripts/CI/CheckTidy.bat",
-           "NOT FILED YET, and the blocker is measured rather than organisational. The gate reads a "
-           "compile_commands.json that scripts/CI/GenCompileCommands.sh derives from premake's gmake2 "
-           "makefiles; on Windows the build is MSBuild/MSVC, so those makefiles describe flags, macros "
-           "and system headers that nothing on that platform actually compiles — the analyser would be "
-           "reading a different program from the one being shipped. A Windows entry point therefore "
-           "needs an MSVC-flavoured database first, which is its own task. What it costs to wait is "
+           "NOT FILED YET. The MSVC compile database exists now (build/cmake/windows-msvc-ninja/"
+           "compile_commands.json, one configuration of it kept by scripts/CI/GenCompileCommands.sh); "
+           "what is owed is the Windows entry point itself and clang-tidy's MSVC driver mode "
+           "(--driver-mode=cl) reading that database. What it costs to wait is "
            "18 of our 986 .cpp/.hpp: the files carrying a _WIN32 / _MSC_VER / DESERT_PLATFORM_WINDOWS "
            "branch, which is the only code the macOS gate cannot see. Until then a Windows developer "
            "gets the named refusal above rather than a silent skip." },

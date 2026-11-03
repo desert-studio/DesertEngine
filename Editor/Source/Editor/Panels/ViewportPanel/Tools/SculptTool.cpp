@@ -38,7 +38,7 @@ namespace Desert::Editor::Tools
             ToolTargetMesh Target;
         };
 
-        std::optional<SculptTarget> GetTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        std::optional<SculptTarget> GetSculptTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             if ( static_cast<uint64_t>( id ) == 0 )
                 return std::nullopt;
@@ -126,7 +126,7 @@ namespace Desert::Editor::Tools
             m_Entity = sel;
         }
 
-        const auto target = GetTarget( scene, m_Entity );
+        const auto target = GetSculptTarget( scene, m_Entity );
         if ( !target )
         {
             FinishStroke();

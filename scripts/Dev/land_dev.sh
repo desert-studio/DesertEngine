@@ -2,7 +2,7 @@
 # land_dev.sh <tree> <branch>... — land finished task branches into dev in one call (the lead's merge recipe).
 # In <tree> (a clean worktree that no agent uses): fetch; a temporary branch from origin/dev; merge each origin/<branch>
 # with --no-ff; .claude taken from origin/dev (agents cannot commit it); refuse symlinked submodules (ls-tree 120000)
-# and added Legacy/Compat code; premake + build Editor; push to dev only as a fast-forward of the dev it was built on;
+# and added Legacy/Compat code; configure + build Editor (Debug, scripts/Dev/_common.sh); push to dev only as a fast-forward of the dev it was built on;
 # regenerate CODEMAP; delete the landed remote branches.
 # Exit 0 = landed. 1 = conflicts (merge left in progress in <tree>, listed). 2 = refused or build red (nothing pushed).
 # Run it in the background: the build takes up to ~20 min. CI is not waited for.
@@ -11,7 +11,6 @@ set -u
 TREE="$1"; shift
 cd "$TREE" || exit 2
 # Agent trees carry symlinked submodules (new_tree.sh): a typechange (T) is the tree's layout, not a change.
-case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) echo "land_dev: Mac-only (premake gmake + make); on Windows land by hand: fetch, cherry-pick/merge onto origin/dev, MSBuild, push"; exit 2 ;; esac
 [ -z "$(git diff --name-status HEAD -- . ':!.cache' | grep -v '^T')" ] || { echo "land_dev: $TREE has modified tracked files"; exit 2; }
 git fetch -q origin || { echo "land_dev: fetch failed"; exit 2; }
 base=$(git rev-parse origin/dev)
@@ -33,9 +32,12 @@ links_base=$(git ls-tree -r "$base" | grep -c '^120000' || true)
 [ "$links" -le "$links_base" ] || { echo "land_dev: $((links - links_base)) new symlink(s) in the tree (submodules committed as links?)"; exit 2; }
 legacy=$(git diff "$base" HEAD -U0 -- '*.cpp' '*.hpp' '*.h' | grep -E '^\+.*\b(Legacy|Compat)[A-Za-z_]*\b' | head -5)
 [ -z "$legacy" ] || { echo "land_dev: added Legacy/Compat code — not landing:"; echo "$legacy"; exit 2; }
-CI=true premake5 gmake >/dev/null 2>&1 || { echo "land_dev: premake failed"; exit 2; }
-verdict=$(~/.claude/tools/build_quiet.sh "$TREE" "$TREE/build/land.log" Editor)
-case "$verdict" in OK*) ;; *) echo "land_dev: Editor build red, nothing pushed:"; echo "$verdict" | head -15; exit 2 ;; esac
+# The merged tree's own build scripts: the preset and the build are the ones being landed.
+source "$TREE/scripts/Dev/_common.sh"
+LOG=$(dev_logdir land)
+dev_configure "$LOG" || { echo "land_dev: configure failed, nothing pushed"; exit 2; }
+dev_build "$LOG/build.log" Editor ||
+    { echo "land_dev: Editor build red, nothing pushed; log $LOG/build.log"; grep -m 15 -E "error" "$LOG/build.log"; exit 2; }
 git fetch -q origin
 [ "$(git rev-parse origin/dev)" = "$base" ] || { echo "land_dev: dev moved while building — re-run"; exit 2; }
 git push -q origin "HEAD:dev" || { echo "land_dev: push refused"; exit 2; }

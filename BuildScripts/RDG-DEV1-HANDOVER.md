@@ -44,7 +44,7 @@ for a63392721 (Scene.cpp, WorldTime.hpp, comments, two test files). The int bran
 ## BUILD1-P0 — what the merger must know (BuildScripts/BUILD1-CONTRACT.md §3, §6)
 
 - Every generated `.vcxproj` gets `UseMultiToolTask=true` + `EnforceProcessCountAcrossBuilds=true`
-  (`BuildScripts/MSBuildProperties.lua`, included from `Workspace.lua`). premake generation **fails** if a project
+  (the MSBuild-era generator; gone with the move to CMake + Ninja, which has no `.vcxproj`). Generation **failed** if a project
   with sources lacks either property, or if any project has `DebugInformationFormat=EditAndContinue`.
 - Debug is `/Zi` (editandcontinue "Off"), still a full PDB and `/INCREMENTAL /DEBUG:FULL`. No FASTLINK: CrashHandler
   symbolisation depends on it. Release/Shipping flags are unchanged.

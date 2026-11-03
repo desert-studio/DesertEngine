@@ -55,7 +55,7 @@ namespace Desert::Editor
         std::string OutputDir = "Build/Output"; // relative to the editor cwd, or absolute
         // Which Runtime binary to bundle; one of kPackageConfigs above. Shipping by default: the
         // development instruments — the frame capture, the profiler, the counters — are compiled out of
-        // that one and out of no other (BuildScripts/Configurations.lua).
+        // that one and out of no other (cmake/DesertWorkspace.cmake).
         std::string Config = "Shipping";
         // macOS: produce <Name>.app (launcher + Info.plist + MoltenVK/loader inside Contents/Frameworks
         // so the player machine needs no Homebrew). false -> plain folder + launcher. On a host with no

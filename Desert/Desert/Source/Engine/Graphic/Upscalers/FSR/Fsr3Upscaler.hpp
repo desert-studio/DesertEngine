@@ -5,8 +5,8 @@
 
 // AMD FIDELITYFX FSR 3.1 — a vendor ITemporalUpscaler on the Vulkan backend (UE: the FSR3 plugin's
 // FFXFSR3TemporalUpscaler). Windows builds only: the FidelityFX SDK (ThirdParty/FidelityFX-SDK, v1.1.4 = FSR
-// 3.1.4) is compiled by BuildScripts/ThirdParty/FidelityFX.lua, whose shader compiler is a Windows binary; the
-// premake rule compiles this directory there only, and kFsrBuilt (API/UpscalerBuild.hpp) tells everyone else.
+// 3.1.4) is compiled by cmake/ThirdParty/FidelityFX.cmake, whose shader compiler is a Windows binary; the
+// build compiles this directory there only, and kFsrBuilt (API/UpscalerBuild.hpp) tells everyone else.
 //
 // WHAT THE ENGINE HANDS FSR, AND IN WHICH CONVENTION (FidelityFX docs/techniques/super-resolution-upscaler.md):
 //   * colour — the jittered linear HDR scene colour at RenderExtent (FFX_FSR3UPSCALER_ENABLE_HIGH_DYNAMIC_RANGE);

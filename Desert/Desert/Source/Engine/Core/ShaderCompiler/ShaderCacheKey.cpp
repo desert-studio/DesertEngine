@@ -261,7 +261,7 @@ namespace Desert::Core
 
     bool SpirvDebugInfoForConfigName( std::string_view configName )
     {
-        // Mirrors the #ifdef above: DESERT_CONFIG_DEBUG is defined for the "Debug" premake
+        // Mirrors the #ifdef above: DESERT_CONFIG_DEBUG is defined for the "Debug" build
         // configuration and nothing else. Tests/Engine/ShaderCacheKey pins this mirror to
         // SpirvDebugInfoThisBuild() in both configs.
         return configName == "Debug";

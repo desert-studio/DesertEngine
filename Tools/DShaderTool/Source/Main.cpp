@@ -6,7 +6,7 @@
 // reports every parse error with its file. Exit code 0 = all parsed, 1 = at least one failure.
 // Non-DSL files are lint FAILURES: the engine dropped the legacy #pragma-program format.
 //
-// The parser is the same translation unit the engine/editor uses (compiled in via premake) — this
+// The parser is the same translation unit the engine/editor uses (compiled in by its CMakeLists.txt) — this
 // tool can never drift from what the runtime actually accepts.
 
 #include <ToolEngineDir.hpp>

@@ -728,7 +728,7 @@ TEST( CloudMaterialSchema, TheProtocolScenesMaterialsStateEveryValueParameter )
 // SLOT USED TO — that is the whole point of routing every look-less scene at it instead of leaving
 // Material null. The relation is proved by composing three already-separately-tested facts rather than
 // re-parsing the file with the full engine (this suite deliberately links nothing past the shader
-// parser and Common — see the premake5.lua comment):
+// parser and Common — see Desert/Tests/CMakeLists.txt):
 //
 //   1. TheSchemaDefaultsAreTheMirrorsToTheDigit: CloudMaterialValues{} == the schema's own defaults,
 //      digit for digit.

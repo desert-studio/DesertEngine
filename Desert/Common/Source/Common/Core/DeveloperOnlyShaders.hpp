@@ -32,7 +32,7 @@ namespace Common
     }
 
     // The package configuration whose runtime is built with DESERT_DEV_INSTRUMENTS=1 — every configuration
-    // but Shipping (BuildScripts/Configurations.lua defines DESERT_CONFIG_SHIPPING for that one only).
+    // but Shipping (cmake/DesertWorkspace.cmake defines DESERT_CONFIG_SHIPPING for that one only).
     inline bool ConfigHasDeveloperInstruments( std::string_view configName )
     {
         return configName != "Shipping";

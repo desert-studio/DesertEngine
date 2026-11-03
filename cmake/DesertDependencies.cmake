@@ -1,0 +1,238 @@
+# The dependency tables: the include directories, defines and
+# prebuilt libraries every engine-facing target shares, the Vulkan SDK lookup, and the Streamline runtime copy.
+#
+# The four dependency tables, as lists named after them, so a target script names the table it uses:
+#   deps.Common.IncludeDir / .Defines          DESERT_COMMON_INCLUDE_DIRS / DESERT_COMMON_DEFINES
+#   deps.CommonSpecific.Libraries              DESERT_COMMONSPECIFIC_LIBRARIES
+#   deps.DesertSpecific.IncludeDir             DESERT_DESERTSPECIFIC_INCLUDE_DIRS
+#   deps.DesertSpecific.Libraries.Debug/Release DESERT_VULKAN_LIBRARIES (one list, per-config generator expressions)
+#   deps.TestSpecific.*                        DESERT_TEST_INCLUDE_DIRS / DESERT_TEST_LIBRARIES / DESERT_TEST_DEFINES
+#   Editor deps.EditorSpecific.IncludeDir      DESERT_EDITORSPECIFIC_INCLUDE_DIRS (relative entries made absolute
+#                                              against the target's own directory by the caller)
+# Lists are sorted by key, so the include order is fixed and does not depend on declaration order.
+
+include_guard(GLOBAL)
+
+set(_tp "${DESERT_ROOT}/ThirdParty")
+
+# ── VULKAN SDK ─────────────────────────────────────────────────────────────────────────────────────
+# Same search order as findVulkanSDK(): $VULKAN_SDK, then (Windows) the newest Program Files\VulkanSDK\*,
+# (macOS) the newest ~/VulkanSDK/*/macOS then Homebrew, (Linux) /usr/local/vulkan. A missing SDK is an error:
+# the engine links shaderc out of the SDK's Lib directory (SPIRV-Cross is vendored: cmake/ThirdParty/SPIRVCross.cmake).
+set(DESERT_VULKAN_INCLUDE "")
+set(DESERT_VULKAN_LIB "")
+if(DEFINED ENV{VULKAN_SDK} AND NOT "$ENV{VULKAN_SDK}" STREQUAL "")
+    file(TO_CMAKE_PATH "$ENV{VULKAN_SDK}" _sdk)
+    if(DESERT_IS_WINDOWS)
+        set(DESERT_VULKAN_INCLUDE "${_sdk}/Include")
+        set(DESERT_VULKAN_LIB "${_sdk}/Lib")
+    else()
+        set(DESERT_VULKAN_INCLUDE "${_sdk}/include")
+        set(DESERT_VULKAN_LIB "${_sdk}/lib")
+    endif()
+elseif(DESERT_IS_WINDOWS)
+    file(TO_CMAKE_PATH "$ENV{PROGRAMFILES}/VulkanSDK" _root)
+    file(GLOB _versions LIST_DIRECTORIES true "${_root}/*")
+    list(SORT _versions ORDER DESCENDING)
+    if(_versions)
+        list(GET _versions 0 _sdk)
+        set(DESERT_VULKAN_INCLUDE "${_sdk}/Include")
+        set(DESERT_VULKAN_LIB "${_sdk}/Lib")
+    endif()
+elseif(DESERT_IS_MACOS)
+    file(GLOB _versions LIST_DIRECTORIES true "$ENV{HOME}/VulkanSDK/*")
+    list(SORT _versions ORDER DESCENDING)
+    if(_versions)
+        list(GET _versions 0 _sdk)
+    endif()
+    if(_versions AND IS_DIRECTORY "${_sdk}/macOS")
+        set(DESERT_VULKAN_INCLUDE "${_sdk}/macOS/include")
+        set(DESERT_VULKAN_LIB "${_sdk}/macOS/lib")
+    elseif(DESERT_HOMEBREW_PREFIX AND EXISTS "${DESERT_HOMEBREW_PREFIX}/include/vulkan/vulkan.h")
+        set(DESERT_VULKAN_INCLUDE "${DESERT_HOMEBREW_PREFIX}/include")
+        set(DESERT_VULKAN_LIB "${DESERT_HOMEBREW_PREFIX}/lib")
+    endif()
+elseif(IS_DIRECTORY "/usr/local/vulkan")
+    set(DESERT_VULKAN_INCLUDE "/usr/local/vulkan/include")
+    set(DESERT_VULKAN_LIB "/usr/local/vulkan/lib")
+endif()
+if(NOT DESERT_VULKAN_INCLUDE)
+    message(FATAL_ERROR
+        "Vulkan SDK not found.\n"
+        "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n"
+        "           shaderc), or install the LunarG SDK into ~/VulkanSDK.\n"
+        "  Windows: run scripts\\Windows\\Setup.bat, which installs the pinned LunarG SDK and sets\n"
+        "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n"
+        "           out of the SDK's Lib directory (SPIRV-Cross is vendored).")
+endif()
+message(STATUS "[Vulkan] SDK include: ${DESERT_VULKAN_INCLUDE}")
+
+# DESERT_DESERTSPECIFIC_LIBRARIES: the vendored SPIRV-Cross, then the Vulkan loader and shaderc. Debug links the
+# SDK's `d` archives on Windows; Release AND Shipping link the plain ones.
+if(DESERT_IS_WINDOWS)
+    set(DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/vulkan-1.lib")
+    foreach(lib shaderc shaderc_combined shaderc_util)
+        list(APPEND DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/${lib}$<$<CONFIG:Debug>:d>.lib")
+    endforeach()
+else()
+    set(DESERT_VULKAN_LIBRARIES vulkan shaderc_combined) # shaderc + glslang + SPIRV-Tools in one archive
+endif()
+set(DESERT_DESERTSPECIFIC_LIBRARIES SPIRVCross ${DESERT_VULKAN_LIBRARIES})
+
+# ── THE TABLES ─────────────────────────────────────────────────────────────────────────────────────
+# deps.Common.IncludeDir, sorted by key: GLFW, glm, optick, reflect_cpp, spdlog. reflect-cpp is here, not in a second
+# table: Common's PUBLIC headers include <rflcpp/rfl/...> (Common/Json/Json.hpp, Project/ProjectFormat.hpp), so every
+# target that sees Common's headers needs it -- which is what this table is (every tool that reached Json.hpp without
+# naming a second table failed with C1083: run 40926375233).
+set(DESERT_COMMON_INCLUDE_DIRS
+    "${_tp}/GLFW/include"
+    "${_tp}/glm"
+    "${_tp}/optick/src"
+    "${_tp}/reflect-cpp/include"
+    "${_tp}/spdlog/include")
+set(DESERT_COMMON_DEFINES USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0)
+
+set(DESERT_COMMONSPECIFIC_LIBRARIES ReflectCpp)
+
+# deps.DesertSpecific.IncludeDir, sorted by key (byte order: upper case before lower case).
+set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
+    "${DESERT_VULKAN_INCLUDE}"                                  # Vulkan
+    "${_tp}"                                                    # base
+    "${_tp}/embree/include"                                     # embree
+    "${DESERT_ROOT}/BuildScripts/ThirdParty/EmbreeConfig/include/embree4" # embree_config
+    "${_tp}/entt/include"                                       # entt
+    "${_tp}/JoltPhysics"                                        # jolt
+    "${_tp}/lua"                                                # lua
+    "${_tp}/meshoptimizer/src"                                  # meshoptimizer
+    "${_tp}/OpenSubdiv"                                         # opensubdiv
+    "${DESERT_VULKAN_INCLUDE}/shaderc"                          # shaderc
+    "${_tp}/SPIRV-Cross"                                        # spirv_cross (vendored, included flat: <spirv_glsl.hpp>)
+    "${_tp}/stb/include"                                        # stb
+    "${_tp}/VulkanAllocator")                                   # vkallocator
+
+# deps.TestSpecific. GoogleTest is the vendored project on Windows and Homebrew's gtest elsewhere.
+if(DESERT_IS_WINDOWS)
+    set(_gtest_include "${_tp}/google-test/include")
+    set(_gtest_lib GoogleTest)
+elseif(DESERT_HOMEBREW_PREFIX)
+    set(_gtest_include "${DESERT_HOMEBREW_PREFIX}/include")
+    set(_gtest_lib gtest)
+else()
+    set(_gtest_include "/usr/local/include")
+    set(_gtest_lib gtest)
+endif()
+set(DESERT_TEST_INCLUDE_DIRS
+    "${DESERT_ROOT}/Editor/Resources/Shaders"   # desert_shaders
+    "${_gtest_include}")                        # gtest
+set(DESERT_TEST_LIBRARIES ${_gtest_lib} ReflectCpp)
+set(DESERT_TEST_DEFINES
+    GTEST
+    TESTING
+    "DESERT_TEST_ENGINE_DIR=\"${DESERT_ROOT}/Editor\""
+    "DESERT_TEST_REPO_ROOT=\"${DESERT_ROOT}\""
+    "DESERT_TEST_DATA_DIR=\"${DESERT_ROOT}/Desert/Tests/Data\"")
+# deps.TestSpecific.EnvVars: the environment a suite runs in.
+set(DESERT_TEST_REPORTS_DIR "${DESERT_ROOT}/build/TestReports")
+
+# EditorSpecific include directories, sorted: assimp, assimpGen, imGuizmo, reflect_cpp, stb.
+# imGuizmo is RELATIVE ("ThirdParty/ImGuizmo"): it resolves against the including target's own
+# directory, so for Editor/ it is Editor/ThirdParty/ImGuizmo and for any other project a path that does not
+# exist. desert_editorspecific_includes() keeps that meaning.
+set(DESERT_EDITORSPECIFIC_INCLUDE_DIRS
+    "${DESERT_ROOT}/Editor/ThirdParty/assimp/include"
+    "${DESERT_ROOT}/build/generated/assimp/include"
+    "ThirdParty/ImGuizmo"
+    "${_tp}/reflect-cpp/include"
+    "${_tp}/stb/include")
+
+function(desert_editorspecific_includes target)
+    get_target_property(_dir ${target} SOURCE_DIR)
+    set(_dirs "")
+    foreach(d IN LISTS DESERT_EDITORSPECIFIC_INCLUDE_DIRS)
+        cmake_path(ABSOLUTE_PATH d BASE_DIRECTORY "${_dir}" OUTPUT_VARIABLE _abs)
+        list(APPEND _dirs "${_abs}")
+    endforeach()
+    desert_external_includes(${target} ${_dirs})
+endfunction()
+
+# ── STREAMLINE RUNTIME (desert_copy_streamline_runtime) ────────────────────────────────────────────
+# ThirdParty/Streamline/manifest.json pins the DLSS runtime; each listed archive is copied next to the
+# executable after the link, and a missing one is reported, not fatal (DLSS is then unavailable).
+set(DESERT_STREAMLINE_MANIFEST "${DESERT_ROOT}/ThirdParty/Streamline/manifest.json")
+set(DESERT_STREAMLINE_RUNTIME_DIR "${DESERT_ROOT}/ThirdParty/Streamline/bin/x64")
+
+# The file names a vendor manifest pins (its Files[].Archive entries, file name only), in manifest order.
+function(_desert_manifest_file_names manifest out)
+    if(NOT EXISTS "${manifest}")
+        cmake_path(RELATIVE_PATH manifest BASE_DIRECTORY "${DESERT_ROOT}" OUTPUT_VARIABLE _rel)
+        message(FATAL_ERROR "${_rel} is missing: it pins the runtime the build copies")
+    endif()
+    file(READ "${manifest}" _json)
+    string(JSON _count LENGTH "${_json}" Files)
+    set(_names "")
+    if(_count GREATER 0)
+        math(EXPR _last "${_count} - 1")
+        foreach(i RANGE ${_last})
+            string(JSON _archive GET "${_json}" Files ${i} Archive)
+            cmake_path(GET _archive FILENAME _name)
+            list(APPEND _names "${_name}")
+        endforeach()
+    endif()
+    set(${out} ${_names} PARENT_SCOPE)
+endfunction()
+
+function(desert_copy_streamline_runtime target)
+    if(NOT DESERT_IS_WINDOWS)
+        return()
+    endif()
+    _desert_manifest_file_names("${DESERT_STREAMLINE_MANIFEST}" _names)
+    foreach(name IN LISTS _names)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                -D "SOURCE=${DESERT_STREAMLINE_RUNTIME_DIR}/${name}"
+                -D "DEST=$<TARGET_FILE_DIR:${target}>"
+                -D "MISSING=ThirdParty/Streamline/bin/x64/${name} is not fetched, DLSS will be unavailable: run python scripts/Windows/FetchVendorBinaries.py"
+                -P "${DESERT_ROOT}/cmake/CopyIfExists.cmake"
+            VERBATIM)
+    endforeach()
+endfunction()
+
+# ── OIDN RUNTIME (desert_copy_oidn_runtime) ────────────────────────────────────────────────────────
+# INTEL OPEN IMAGE DENOISE 2.x (the path tracer's PathTracing.Denoiser OIDN), Windows x64 and macOS arm64. The headers
+# and the Apache-2.0 licence are committed under ThirdParty/OIDN; the runtime libraries are DOWNLOADED from Intel's
+# release, never committed: ThirdParty/OIDN/manifest.<platform>.json pins the archive and every file's SHA-256 and
+# scripts/Windows/FetchVendorBinaries.py (Setup.bat, scripts/MacOS/Setup.sh) fetches them. The engine compiles against
+# the headers and LOADS the library at run time (Engine/Graphic/Denoise/OidnDenoiser.cpp): Windows
+# OpenImageDenoise.dll beside the executable, macOS lib/libOpenImageDenoise.2.dylib under it (the dylibs find each
+# other through their own @loader_path/../lib rpath, which is their own directory only when it is named lib). Like
+# UE's OpenImageDenoise plugin it is an editor / movie-render tool: copied beside the editor and the runtime, not
+# shipped by the game packager.
+if(DESERT_IS_WINDOWS)
+    set(DESERT_OIDN_MANIFEST "${DESERT_ROOT}/ThirdParty/OIDN/manifest.windows.json")
+    set(DESERT_OIDN_RUNTIME_REL "ThirdParty/OIDN/bin/x64")
+    set(DESERT_OIDN_DEST_SUBDIR "")
+else()
+    set(DESERT_OIDN_MANIFEST "${DESERT_ROOT}/ThirdParty/OIDN/manifest.macos.json")
+    set(DESERT_OIDN_RUNTIME_REL "ThirdParty/OIDN/bin/macos-arm64/lib")
+    set(DESERT_OIDN_DEST_SUBDIR "/lib")
+endif()
+
+# Called for an executable: copies the OIDN runtime beside its target after the link. A file not fetched yet is not
+# copied and the build names it: the executable runs and PathTracing.Denoiser OIDN reports the library missing by name.
+function(desert_copy_oidn_runtime target)
+    if(NOT DESERT_IS_WINDOWS AND NOT DESERT_IS_MACOS)
+        return()
+    endif()
+    _desert_manifest_file_names("${DESERT_OIDN_MANIFEST}" _names)
+    foreach(name IN LISTS _names)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                -D "SOURCE=${DESERT_ROOT}/${DESERT_OIDN_RUNTIME_REL}/${name}"
+                -D "DEST=$<TARGET_FILE_DIR:${target}>${DESERT_OIDN_DEST_SUBDIR}"
+                -D "MISSING=${DESERT_OIDN_RUNTIME_REL}/${name} is not fetched, PathTracing.Denoiser OIDN will be unavailable: run python scripts/Windows/FetchVendorBinaries.py"
+                -P "${DESERT_ROOT}/cmake/CopyIfExists.cmake"
+            VERBATIM)
+    endforeach()
+endfunction()
+
+unset(_tp)

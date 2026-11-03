@@ -37,6 +37,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <exception>
 #include <cctype>
 #include <filesystem>
 #include <format>
@@ -542,19 +544,34 @@ namespace Desert::Editor
         // asset goes back to what its file holds. Left in memory they would be a sky nobody can save.
         if ( !m_PushedLive )
             return;
-        const auto painting = SubjectAsset();
-        if ( !painting )
-            return;
-        if ( const auto reloaded = painting->Load(); !reloaded )
+        // A destructor may not throw: reading the file back and logging allocate and format. Whatever escapes
+        // them is reported on stderr (the logger itself may be what threw) and the panel still goes away.
+        try
         {
-            LOG_ERROR( "[CloudLayout] '{}' could not be read back after closing it unsaved: {}",
-                       m_SubjectPath.string(), reloaded.GetError() );
-            return;
+            const auto painting = SubjectAsset();
+            if ( !painting )
+                return;
+            if ( const auto reloaded = painting->Load(); !reloaded )
+            {
+                LOG_ERROR( "[CloudLayout] '{}' could not be read back after closing it unsaved: {}",
+                           m_SubjectPath.string(), reloaded.GetError() );
+                return;
+            }
+            if ( const auto registered = Runtime::ResourceRegistry::GetCloudLayoutService()->Register( painting );
+                 !registered )
+                LOG_ERROR( "[CloudLayout] '{}' was read back but not re-registered: {}", m_SubjectPath.string(),
+                           registered.GetError() );
         }
-        if ( const auto registered = Runtime::ResourceRegistry::GetCloudLayoutService()->Register( painting );
-             !registered )
-            LOG_ERROR( "[CloudLayout] '{}' was read back but not re-registered: {}", m_SubjectPath.string(),
-                       registered.GetError() );
+        catch ( const std::exception& error )
+        {
+            std::fprintf( stderr, "[CloudLayout] restoring the unsaved layout on close threw: %s\n",
+                          error.what() );
+        }
+        catch ( ... )
+        {
+            std::fputs( "[CloudLayout] restoring the unsaved layout on close threw a non-std exception\n",
+                        stderr );
+        }
     }
 
     void CloudLayoutPanel::DrawSourceSection()

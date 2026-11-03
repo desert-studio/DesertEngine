@@ -1,7 +1,7 @@
 # Run every test binary the build is supposed to have produced, several at a time, and fail if any
 # one of them fails or is missing. Windows counterpart of scripts/MacOS/RunTests.sh.
 #
-# Invoked by the generated run_tests.bat (written by the postbuild block in Desert/Tests/premake5.lua)
+# Invoked by the generated run_tests.bat (written by the RunAllTests target, cmake/WriteRunTestsBat.cmake)
 # and runnable by hand from the repository root:
 #
 #   pwsh -File scripts/Windows/RunTests.ps1 -Config Debug
@@ -131,11 +131,11 @@ if (-not (Test-Path -LiteralPath $manifest))
     # Refusing here is the point. Globbing $testDir as a fallback would turn "the generator never
     # ran" into a run of whatever happens to be lying in the output directory, reported as a pass.
     Write-Host "[ERROR] test manifest not found: $manifest"
-    Write-Host "[ERROR] run premake (scripts\Windows\Setup.bat) before running the tests"
+    Write-Host "[ERROR] configure first (scripts\Windows\BuildWindows.bat Debug --gen-only) before running the tests"
     exit 1
 }
 
-# Each line is `<Executable> <Suite>` (Desert/Tests/premake5.lua): the layer's runner, which runs one suite
+# Each line is `<Executable> <Suite>` (Desert/Tests/CMakeLists.txt): the layer's runner, which runs one suite
 # per process with --desert-suite=<Suite>, or, for a suite not converted to a runner yet, its own binary,
 # which ignores that flag. A line of any other shape is refused rather than guessed at.
 $runnerOf = @{}

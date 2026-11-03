@@ -11,7 +11,7 @@
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
-// The engine's own reflection table and serializer, linked into this tool (premake5.lua) so that
+// The engine's own reflection table and serializer, linked into this tool (its CMakeLists.txt) so that
 // "canonical" means "the bytes the saver writes" rather than a field list maintained twice.
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -205,7 +205,7 @@ namespace Desert::Migration
             const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
             if ( type == nullptr )
             {
-                // The table is linked into this tool on purpose (see premake5.lua). If it is empty the tool
+                // The table is linked into this tool on purpose (see its CMakeLists.txt). If it is empty the tool
                 // cannot know what canonical means, and guessing would write a block out of nothing.
                 const BlockCanonicalisationReport report;
                 return Refuse( report, std::format( "{}: the reflected type '{}' is not registered in this build",

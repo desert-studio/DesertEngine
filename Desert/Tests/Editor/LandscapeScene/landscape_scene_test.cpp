@@ -17,7 +17,7 @@
 //
 // The save and load below are the steps SceneSerializer takes (WriteLandscapeTiles, then the registry's
 // LandscapeTile block, then CheckLandscapeTiles), made of the same functions; SceneSerializer.cpp itself is
-// compiled by no suite (see premake5.lua). The editor run in the LS-3 report covers the glue.
+// compiled by no suite (see Desert/Tests/CMakeLists.txt). The editor run in the LS-3 report covers the glue.
 
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Common/Json/Document.hpp>

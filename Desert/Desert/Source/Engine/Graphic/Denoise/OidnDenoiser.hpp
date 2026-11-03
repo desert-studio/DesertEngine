@@ -26,9 +26,9 @@ namespace Desert::Graphic::Denoise
 
     // INTEL OPEN IMAGE DENOISE 2.x behind IImageDenoiser (UE: the OpenImageDenoise plugin). The library is LOADED
     // at run time from beside the executable (Windows OpenImageDenoise.dll; macOS lib/libOpenImageDenoise.2.dylib)
-    // - Desert/Dependencies.lua DesertCopyOidnRuntime puts it there, ThirdParty/OIDN/manifest.*.json pins it - and
-    // nothing links it, so an executable without it starts and PathTracing.Denoiser OIDN reports the library
-    // missing by name.
+    // - cmake/DesertDependencies.cmake desert_copy_oidn_runtime puts it there, ThirdParty/OIDN/manifest.*.json
+    // pins it - and nothing links it, so an executable without it starts and PathTracing.Denoiser OIDN reports
+    // the library missing by name.
     //
     // THE DEVICE: OIDN's physical device whose UUID is the Vulkan device's (DeviceCapabilities::DeviceUuid; a
     // CUDA, HIP, SYCL or Metal module of OIDN offers it), so the filter runs on the GPU that rendered the image,

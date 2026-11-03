@@ -1,5 +1,6 @@
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Common/Core/Logger.hpp>
@@ -114,11 +115,6 @@ namespace Desert::Graphic::System
         constexpr uint32_t kVsmMarkCoarse     = 2;
         constexpr uint32_t kVsmLocalCoarseMip = 6; // VSM_LOCAL_COARSE_MIP
 
-        constexpr uint32_t Groups( const uint32_t items, const uint32_t size )
-        {
-            return ( items + size - 1u ) / size;
-        }
-
         template <class T>
         std::span<const std::byte> Bytes( const std::vector<T>& values )
         {
@@ -197,7 +193,7 @@ namespace Desert::Graphic::System
         m_PageTable = {};
         m_Owners    = {};
 
-        const uint32_t rows = Groups( physicalPages, kVsmPoolPagesPerRow );
+        const uint32_t rows = Common::Math::DivideRoundUp( physicalPages, kVsmPoolPagesPerRow );
         // Two layers one above the other: the merged layer every reader samples, then the static layer
         // (Common/VirtualShadowMap.glslh VsmPoolStaticPageOrigin).
         pool = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width  = kVsmPoolPagesPerRow * kVsmPageSize,
@@ -672,7 +668,7 @@ namespace Desert::Graphic::System
                                                                      groups.z );
                  } );
         };
-        const uint32_t entryGroups = Groups( kVsmPagesPerLevel, kGroup64 );
+        const uint32_t entryGroups = Common::Math::DivideRoundUp( kVsmPagesPerLevel, kGroup64 );
 
         dispatch(
              Invalidate,
@@ -719,23 +715,24 @@ namespace Desert::Graphic::System
                  },
                  // x = the first mover's box, y = the box count, z = boxes per z slice of the grid
                  glm::uvec4( static_cast<uint32_t>( invalidations.size() ), count, groupsX, 0u ),
-                 glm::uvec3( groupsX, levelCount, Groups( count, groupsX ) ) );
+                 glm::uvec3( groupsX, levelCount, Common::Math::DivideRoundUp( count, groupsX ) ) );
         }
 
         if ( sun != nullptr )
-        dispatch(
-             Mark,
-             [&]( RDG::BindingBlockBuilder& block )
-             {
-                 block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
-                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
-                      .Sampler( VirtualShadowMapPagesShaderParameters::PointClampSampler,
-                                RDG::SamplerDesc::PointClamp() )
-                      .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, view.Depth,
-                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-             },
-             glm::uvec4( view.Width, view.Height, 0u, 0u ),
-             glm::uvec3( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u ) );
+            dispatch(
+                 Mark,
+                 [&]( RDG::BindingBlockBuilder& block )
+                 {
+                     block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                          .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                          .Sampler( VirtualShadowMapPagesShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, view.Depth,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+                 },
+                 glm::uvec4( view.Width, view.Height, 0u, 0u ),
+                 glm::uvec3( Common::Math::DivideRoundUp( view.Width, kScreenTile ),
+                             Common::Math::DivideRoundUp( view.Height, kScreenTile ), 1u ) );
 
         if ( !gpuLights.empty() )
         {
@@ -759,7 +756,8 @@ namespace Desert::Graphic::System
                      },
                      glm::uvec4( view.Width, view.Height, lightCount, mode ), groups );
             };
-            const glm::uvec3 screen( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u );
+            const glm::uvec3 screen( Common::Math::DivideRoundUp( view.Width, kScreenTile ),
+                                     Common::Math::DivideRoundUp( view.Height, kScreenTile ), 1u );
             // The view's opaque depth: the G-buffer's, or the forward path's depth prepass (no normal: the local
             // lights' pages need the pixel's position alone).
             if ( view.Depth.IsValid() )
@@ -786,7 +784,8 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmLists, lists, kW );
              },
-             glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( Groups( pages, kGroup64 ), 1u, 1u ) );
+             glm::uvec4( pages, 0u, 0u, 0u ),
+             glm::uvec3( Common::Math::DivideRoundUp( pages, kGroup64 ), 1u, 1u ) );
 
         dispatch(
              Allocate,
@@ -872,8 +871,9 @@ namespace Desert::Graphic::System
         const auto instances = static_cast<uint32_t>( cull.Instances.size() );
         // One thread per instance, the groups spread over y past the dispatch limit of x.
         constexpr uint32_t kMaxGroupsX = 65535u;
-        const uint32_t     groups      = Groups( instances, kGroup64 );
-        const glm::uvec3   grid( std::min( groups, kMaxGroupsX ), Groups( groups, kMaxGroupsX ), 1u );
+        const uint32_t     groups      = Common::Math::DivideRoundUp( instances, kGroup64 );
+        const glm::uvec3 grid( std::min( groups, kMaxGroupsX ), Common::Math::DivideRoundUp( groups, kMaxGroupsX ),
+                               1u );
 
         VsmCulledCasters culled;
         culled.Arguments =
@@ -965,8 +965,9 @@ namespace Desert::Graphic::System
              {
                  DESERT_PROFILE_PASS( "VSM: Project" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, Groups( width, kScreenTile ),
-                                                                 Groups( height, kScreenTile ), 1 );
+                 return Renderer::DispatchCompute( bindings, *pipeline,
+                                                   Common::Math::DivideRoundUp( width, kScreenTile ),
+                                                   Common::Math::DivideRoundUp( height, kScreenTile ), 1 );
              } );
         return Common::MakeSuccess( mask );
     }
@@ -1013,8 +1014,9 @@ namespace Desert::Graphic::System
                  DESERT_PROFILE_PASS( "VSM: Project Local" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, Groups( push.x, kScreenTile ),
-                                                                 Groups( push.y, kScreenTile ), push.z );
+                 return Renderer::DispatchCompute( bindings, *pipeline,
+                                                   Common::Math::DivideRoundUp( push.x, kScreenTile ),
+                                                   Common::Math::DivideRoundUp( push.y, kScreenTile ), push.z );
              } );
         return BOOLSUCCESS;
     }

@@ -39,8 +39,8 @@ namespace Desert::Graphic::API::Vulkan
         //   1. the bundle's  <App>.app/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json (GamePackager's
         //      BundleVulkan writes it there, the loader's standard bundle location);
         //   2. beside the executable: <exe dir>/vulkan/icd.d/MoltenVK_icd.json (a plain-folder drop);
-        //   3. the development machine's manifest the build was configured against (premake records the
-        //      Homebrew path as DESERT_MOLTENVK_ICD, BuildScripts/PlatformMacOS.lua).
+        //   3. the development machine's manifest the build was configured against (the configure step
+        //      records the Homebrew path as DESERT_MOLTENVK_ICD, cmake/DesertWorkspace.cmake).
         // An explicit VK_DRIVER_FILES / VK_ICD_FILENAMES is the loader's own documented override and is left
         // standing. None found is a refusal naming every place looked at, not a start without a GPU.
         Common::ResultStr<std::filesystem::path> SelectDriverManifest()
@@ -73,7 +73,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<std::filesystem::path>(
                  "no MoltenVK driver manifest (MoltenVK_icd.json) was found; looked at:{}\n  A packaged game "
                  "carries it in its bundle; a development build records Homebrew's (brew install molten-vk, "
-                 "then re-run premake).",
+                 "then re-run cmake --preset macos-clang-ninja).",
                  looked );
         }
 #undef DESERT_VK_STRINGIFY

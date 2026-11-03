@@ -1,12 +1,14 @@
 #pragma once
 
-// The engine's module table (BuildScripts/DesertModules.lua) as C++ reads it: the same file premake
-// validates, executed with the Lua VM so the two readers can never parse it differently. Read by
-// DesertHeaderTool (one RegisterReflection_<Module>() per module) and by the ModuleBoundary suite.
+// The engine's module table (cmake/DesertModuleTable.cmake) as C++ reads it: <build>/DesertModules.json, which
+// configure writes from the table's rows together with the module CMake placed every legacy file into, so the
+// rows are written once and the build's placement is there to check this reader's std::regex placement against.
+// Read by DesertHeaderTool (one RegisterReflection_<Module>() per module) and by the ModuleBoundary suite.
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <filesystem>
+#include <map>
 #include <regex>
 #include <set>
 #include <string>
@@ -32,17 +34,9 @@ namespace Desert::HeaderTool
     class ModuleTable
     {
     public:
-        // Runs the file, then its Validate(): a dependency on an unknown or later module, a duplicate name or a
-        // placement row naming an unknown module is the error, with the table's own message.
+        // Reads the file and validates it the way configure does: a dependency on an unknown or later module, a
+        // duplicate name, a placement row naming an unknown module or a pattern std::regex refuses is the error.
         static Common::ResultStr<ModuleTable> Load( const std::filesystem::path& tableFile );
-
-        // Runs the file as Load does and calls its function DesertModules.<function>( argument ) for each
-        // argument, returning the string results in order (a Lua error is the error). How the ModuleBoundary suite
-        // asks the Lua side - PlaceLegacy, the matcher premake places each file into its library with, and
-        // LegacyLibName - the same question the std::regex rows above answer.
-        static Common::ResultStr<std::vector<std::string>>
-        CallForEach( const std::filesystem::path& tableFile, const char* function,
-                     const std::vector<std::string>& arguments );
 
         [[nodiscard]] const std::vector<ModuleInfo>& Modules() const
         {
@@ -55,6 +49,21 @@ namespace Desert::HeaderTool
         [[nodiscard]] const std::string& LegacyRoot() const
         {
             return m_LegacyRoot;
+        }
+        // The repository the table describes (DESERT_ROOT at configure time).
+        [[nodiscard]] const std::filesystem::path& RepoRoot() const
+        {
+            return m_RepoRoot;
+        }
+        // Legacy-relative path -> the module CMake placed it into, for every file the build compiles from the
+        // legacy root; and module -> its table library, for each module with legacy files.
+        [[nodiscard]] const std::map<std::string, std::string>& BuildPlacement() const
+        {
+            return m_BuildPlacement;
+        }
+        [[nodiscard]] const std::map<std::string, std::string>& LegacyLibraries() const
+        {
+            return m_LegacyLibraries;
         }
 
         [[nodiscard]] const ModuleInfo* Find( std::string_view name ) const;
@@ -70,6 +79,9 @@ namespace Desert::HeaderTool
     private:
         std::vector<ModuleInfo>      m_Modules;
         std::vector<ModulePlacement> m_Placement;
-        std::string                  m_LegacyRoot;
+        std::string                        m_LegacyRoot;
+        std::filesystem::path              m_RepoRoot;
+        std::map<std::string, std::string> m_BuildPlacement;
+        std::map<std::string, std::string> m_LegacyLibraries;
     };
 } // namespace Desert::HeaderTool

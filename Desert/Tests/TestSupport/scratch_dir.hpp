@@ -75,7 +75,7 @@ namespace Desert::TestSupport
         std::filesystem::path m_Path;
     };
 
-    // The checkout, baked into every suite by the build (Desert/Tests/premake5.lua -> DESERT_TEST_REPO_ROOT, an
+    // The checkout, baked into every suite by the build (Desert/Tests/CMakeLists.txt -> DESERT_TEST_REPO_ROOT, an
     // absolute path), never searched for from the working directory: a suite runs from any folder. For READING
     // tracked files.
     inline std::filesystem::path RepositoryRoot()

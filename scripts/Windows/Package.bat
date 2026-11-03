@@ -79,7 +79,7 @@ REM ---------------------------------------------------------------------------
 REM The C runtime, app-local.
 REM
 REM THE PACKAGE DID NOT START ON A CLEAN MACHINE, and nothing in it said so. Everything here is built
-REM /MD (BuildScripts/PlatformWindows.lua), so Editor.exe and Runtime.exe import msvcp140.dll and
+REM /MD (CMAKE_MSVC_RUNTIME_LIBRARY, cmake/DesertWorkspace.cmake), so Editor.exe and Runtime.exe import msvcp140.dll and
 REM vcruntime140*.dll — and the drop is a ZIP, so there is nobody to run an installer for the person
 REM who unpacks it. Windows answers a missing CRT with a dialog naming a DLL, which reads as a broken
 REM build.

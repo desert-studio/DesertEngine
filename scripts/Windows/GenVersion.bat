@@ -7,8 +7,8 @@ REM same macros and make the same decision about when a build number may be writ
 REM
 REM THE BUILD CALLS THIS. Until 2026-09-07 the only caller was scripts\Windows\Setup.bat, which runs
 REM ONCE when a machine is prepared — so every msbuild after it, including every CI build, compiled a
-REM header frozen at setup time. The caller is now Common.vcxproj's PreBuildEvent, declared in
-REM Desert/Common/premake5.lua, which MSBuild runs on every build of every target that links Common.
+REM header frozen at setup time. The caller is now the Common target's pre-build step (desert_prebuild in
+REM Desert/Common/CMakeLists.txt), which runs on every build of every target that links Common.
 REM
 REM The file is rewritten ONLY when its content actually changes — an unchanged version must not
 REM touch the timestamp, or every build would recompile Version.cpp and relink everything.

@@ -84,6 +84,9 @@ namespace Desert::Engine::Neural
     // Bytes of one activation / gradient element on @p path: the fp16 paths store h_l and g_l as fp16.
     [[nodiscard]] uint32_t FusedMlpStoredElementBytes( NeuralKernelPath path );
 
+    // The NN_PATH value the neural shaders (NeuralFusedMlp, NeuralRadianceCache) select @p path with.
+    [[nodiscard]] uint32_t NeuralKernelPathDefine( NeuralKernelPath path );
+
     // A program variant the shader service refused (ShaderService::AcquireVariant), held by the one who reports
     // the refusal so it asks ShaderService::ClaimRefusalReport of exactly that (program, variant).
     struct NeuralShaderRefusal

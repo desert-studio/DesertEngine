@@ -138,7 +138,7 @@ namespace
         std::map<std::string, std::set<std::string>> Closure; // path -> every project header it sees
     };
 
-    // #include "..." / <...>, resolved against the four include roots premake gives every target plus
+    // #include "..." / <...>, resolved against the four include roots the build gives every target plus
     // the including file's own directory. Anything that does not resolve is a standard or third-party
     // header and cannot declare one of our pure virtuals.
     void BuildIncludeClosure( const std::string& root, Tree& tree )
