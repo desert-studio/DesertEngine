@@ -13,7 +13,7 @@
 
 struct GrassVarietyRow
 {
-    uvec2 Instances;   // mat4 per pool record (GrassCull.shader GrassViewLaw writes the record's row the views keep)
+    uvec2 Instances;   // mat4 per kept instance after the law: three regions of Args' capacity (THE ROWS below)
     uvec2 Args;        // GpuInstances.hpp: header (bucket count, capacity, record count, drawn), the draw records,
                        // then per bucket count, first, capacity, half screen size
     uvec2 CameraIds;   // the camera's list: per slot the row of Instances (GPU-COST-22)
@@ -64,8 +64,11 @@ const uint kGrassRowCascadesHeld = 2u;
 //   7 its first record in the pool, 8 its record count (0: empty; at most kGrassTilePageRecords, one cluster's run
 //   in fade-draw order), 9 the pool page the run continues on past its first page's end, 10..11 zero.
 // Lane i < count reads record GrassChunkRecord( first, page, i ); the records' fade draws ascend along the run.
-// THE ROWS: Instances[record] is that record's instance after the law; every list (CameraIds, CascadeIds, FullIds)
-// holds records, so a list held from an earlier frame still names the rows it was culled from.
+// THE ROWS (REGRESS-CACHE-1; UE: the culled instances' compacted buffer): Instances holds the instances the views
+// keep, after the law, in three regions of Args' capacity (word 1) laid out as the lists - 0 the full list's slots
+// (the cascades' lists share them), 1 the camera's own, 2 its HZB candidates' (GrassCull.shader CullInstance). Every
+// list (CameraIds, CascadeIds, FullIds, Candidates) holds rows; no frame whose lists hold writes region 0, so a held
+// list still names the rows the frame that culled it wrote.
 const uint kGrassChunkHeader    = 4u;
 const uint kGrassChunkWords     = 12u;
 const uint kGrassChunkBoxWord   = 0u;

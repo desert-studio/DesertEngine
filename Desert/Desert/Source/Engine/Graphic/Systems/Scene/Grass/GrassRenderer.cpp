@@ -771,8 +771,8 @@ namespace Desert::Graphic::System
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
             // GRASS-VIEW-LAW-1: the id lists below are written and read by the GPU alone, so they live in
-            // device-local memory (StorageBuffer::CreateDeviceLocal), not in the host-visible device heap. Instances
-            // is the pool's (UpdateTiles: one row per pool record).
+            // device-local memory (StorageBuffer::CreateDeviceLocal), not in the host-visible device heap, and so
+            // do the rows they name (Instances, REGRESS-CACHE-1: three regions of the lists' capacity, below).
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
@@ -826,6 +826,29 @@ namespace Desert::Graphic::System
                 // The full list (GrassCull.shader CullInstance): the records the views keep, in Args' buckets.
                 gpu.FullIds = ShaderResources::StorageBuffer::CreateDeviceLocal(
                      "GrassFullIds", std::max( capacity, 1u ) * kGrassIdBytes, 9 );
+                // REGRESS-CACHE-1, THE ROWS (UE: the culled instances' compacted buffer, sized by what the views
+                // keep, never by every built instance): the view law's mat4 of each KEPT instance, in three
+                // regions of the lists' layout - the full list's (row = its slot in FullIds), the camera's own and
+                // its HZB candidates' (for an instance the full list holds no slot for this frame: its cascades
+                // held, or its bucket full). Every list holds rows, not pool records (GrassCull.shader
+                // CullInstance). One row per pool record had spent 64 B on every resident record (~1.7 GB on
+                // FIELD_Barn, past the VRAM budget).
+                constexpr uint32_t kGrassRowRegions = 3u; // the full list's, the camera's own, its candidates'
+                const uint64_t     rowBytes =
+                     static_cast<uint64_t>( kGrassRowRegions ) * std::max( capacity, 1u ) * sizeof( glm::mat4 );
+                gpu.Instances.reset();
+                if ( rowBytes <= UINT32_MAX )
+                    gpu.Instances = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                         "GrassInstances", static_cast<uint32_t>( rowBytes ), 2 );
+                if ( !gpu.CameraIds || !gpu.FullIds || !gpu.Instances )
+                {
+                    // No Args: this block runs again next frame, as a pool that was not made is (UpdateTiles).
+                    LOG_ERROR( "[Grass] variety {:016x}: its id lists or rows ({} bytes, at most a storage buffer's "
+                               "4 GB) were not made; they are made anew next frame",
+                               variety.Key, rowBytes );
+                    gpu.Args.reset();
+                    return nullptr;
+                }
                 std::vector<uint32_t> cameraArgs = args;
                 cameraArgs.resize( args.size() + static_cast<size_t>( buckets ) * kPhaseWords, 0u );
                 const auto cameraBytes = static_cast<uint32_t>( cameraArgs.size() * 4u );
@@ -1180,7 +1203,6 @@ namespace Desert::Graphic::System
             gpu.TilePoolMade = false;
             gpu.TilePool.reset();
             gpu.TileWords.reset();
-            gpu.Instances.reset();
             gpu.Chunks.reset();
             const uint64_t poolBytes =
                  static_cast<uint64_t>( pages ) * kGrassTilePageRecords * kGrassTileRecordBytes;
@@ -1197,21 +1219,17 @@ namespace Desert::Graphic::System
                  "GrassTilePool", static_cast<uint32_t>( poolBytes ), 14 );
             gpu.TileWords = ShaderResources::StorageBuffer::CreateDeviceLocal(
                  "GrassTileWords", static_cast<uint32_t>( wordBytes ), 15 );
-            // GRASS-VIEW-LAW-1, THE ROWS AND THE CHUNKS (Common/GrassVarietyRows.glslh, the chunk contract): one mat4
-            // per pool record, which GrassCull's view law writes for the records a view keeps (device-local, the GPU
-            // alone writes it), and the build's chunks, one per tile slot and cluster - a fresh buffer's are empty,
-            // Free empties a freed slot's.
-            const uint64_t rowBytes   = static_cast<uint64_t>( pages ) * kGrassTilePageRecords * sizeof( glm::mat4 );
+            // GRASS-VIEW-LAW-1, THE CHUNKS (Common/GrassVarietyRows.glslh, the chunk contract): the build's
+            // chunks, one per tile slot and cluster - a fresh buffer's are empty, Free empties a freed slot's. The
+            // rows the view law writes are the lists' (REGRESS-CACHE-1: sized by the capacities, made with the id
+            // lists).
             const uint64_t chunkCount = static_cast<uint64_t>( slots ) * kGrassTileClusters;
-            if ( rowBytes > UINT32_MAX || ( kChunkHeaderWords + chunkCount * kChunkWords ) * 4u > UINT32_MAX )
+            if ( ( kChunkHeaderWords + chunkCount * kChunkWords ) * 4u > UINT32_MAX )
             {
-                LOG_ERROR( "[Grass] a variety's instance rows ({} bytes) or chunks ({}) exceed a storage buffer's 4 GB; "
-                           "no tile is built",
-                           rowBytes, chunkCount );
+                LOG_ERROR( "[Grass] a variety's chunks ({}) exceed a storage buffer's 4 GB; no tile is built",
+                           chunkCount );
                 return false;
             }
-            gpu.Instances = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                 "GrassInstances", static_cast<uint32_t>( rowBytes ), 2 );
             std::vector<uint32_t> chunks( kChunkHeaderWords + static_cast<size_t>( chunkCount ) * kChunkWords, 0u );
             gpu.ChunkRoom         = static_cast<uint32_t>( chunkCount );
             chunks[0]             = gpu.ChunkRoom;
@@ -1234,9 +1252,9 @@ namespace Desert::Graphic::System
                                                                            kGrassTileFeedbackWords * 4u, 13 );
             gpu.PoolGeneration = gpu.PoolGeneration + 1u == 0u ? 1u : gpu.PoolGeneration + 1u;
         }
-        if ( !gpu.TileTable || !gpu.TileFeedback || !gpu.TilePool || !gpu.TileWords || !gpu.Instances || !gpu.Chunks )
+        if ( !gpu.TileTable || !gpu.TileFeedback || !gpu.TilePool || !gpu.TileWords || !gpu.Chunks )
         {
-            LOG_ERROR( "[Grass] a variety's tile table, feedback, pool, pool words, rows or chunks were not made; its "
+            LOG_ERROR( "[Grass] a variety's tile table, feedback, pool, pool words or chunks were not made; its "
                        "pool is made anew next frame" );
             gpu.TilePoolMade = false;
             return false;

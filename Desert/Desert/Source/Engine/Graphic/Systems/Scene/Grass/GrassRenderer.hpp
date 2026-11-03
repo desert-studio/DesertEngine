@@ -290,7 +290,7 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
-            // GRASS-VIS, the camera's list (List not None: CameraIds / CameraArgs sized like Instances / Args;
+            // GRASS-VIS, the camera's list (List not None: CameraIds / CameraArgs sized like FullIds / Args;
             // PlanesAndHzb: Candidates / PostArgs too; otherwise one-word stand-ins the passes bind and never
             // touch): CameraIds / CameraArgs the instances inside the camera's planes that last frame's HZB does
             // not hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw
