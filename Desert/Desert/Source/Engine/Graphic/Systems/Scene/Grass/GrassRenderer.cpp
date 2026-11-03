@@ -95,7 +95,8 @@ namespace Desert::Graphic::System
         // GRASS-CULL-2 (UE GPUScene / InstanceCulling: one table describes every primitive's instances, and one
         // dispatch culls them all): THE VARIETY TABLE GrassCull and GrassFinalize read (Common/GrassVarietyRows.glslh,
         // std430), written once per frame by WriteVarietyTable - the camera's side planes, then one row per variety a
-        // pass covers, m_FrameCull's first and m_FrameGenerate's after them. A row names the variety's buffers by
+        // pass covers, m_FrameCull's first, m_FrameGenerate's after them, then m_FrameRefinalize's (GrassFinalize
+        // alone, GRASS-VIEW-LAW-1). A row names the variety's buffers by
         // device address (StorageBuffer::GetDeviceAddress: the copies this frame imports) and carries what the cull
         // reads of its params, so a pass over every variety binds the table once.
         struct GrassVarietyRowGpu
@@ -1373,6 +1374,7 @@ namespace Desert::Graphic::System
         }
         m_Frame.clear();
         m_FrameGenerate.clear();
+        m_FrameRefinalize.clear();
         m_FrameCull.clear();
         m_FrameTileFree.clear();
         m_FrameTileBuild.clear();
@@ -1475,12 +1477,20 @@ namespace Desert::Graphic::System
                     gpu->StableGenerations = 0;
                 }
                 // GRASS-VIS-24: the generation follows its inputs alone; the camera's list is the cull's (below).
-                const bool generates =
-                     gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight();
-                if ( generates )
+                // GRASS-VIEW-LAW-1: it runs on the first frame of new inputs only. Instances, the kept counts in Args
+                // and the chunks are persistent, so the next FramesInFlight - 1 frames, whose Feedback copies must
+                // still get the generation's counts, run GrassFinalize alone (m_FrameRefinalize): the same counts,
+                // the same records. The tile cull no longer runs FramesInFlight times on the same inputs, and the
+                // cascades' lists hold from the frame after it (WriteVarietyTable: only a generating row rewrites
+                // Instances).
+                const bool generates = gpu->StableGenerations == 0u;
+                if ( gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight() )
                 {
                     ++gpu->StableGenerations;
-                    m_FrameGenerate.push_back( gpu );
+                    if ( generates )
+                        m_FrameGenerate.push_back( gpu );
+                    else
+                        m_FrameRefinalize.push_back( gpu );
                 }
                 // GRASS-TILE-1: the tiles this frame frees and builds (UpdateTiles), and the table the tile passes
                 // read - written on a frame one of them runs (the table is a per-frame-in-flight copy).
@@ -1602,8 +1612,9 @@ namespace Desert::Graphic::System
         // this frame's variety table (WriteVarietyTable). Each still declares every variety buffer it reads or writes
         // (PassBuilder::Read / Write): the graph places the barriers by them.
         const auto cullRows     = static_cast<uint32_t>( m_FrameCull.size() );
-        const auto generateRows = static_cast<uint32_t>( m_FrameGenerate.size() );
-        if ( cullRows + generateRows != 0u )
+        const auto generateRows   = static_cast<uint32_t>( m_FrameGenerate.size() );
+        const auto refinalizeRows = static_cast<uint32_t>( m_FrameRefinalize.size() );
+        if ( cullRows + generateRows + refinalizeRows != 0u )
         {
             if ( const Common::BoolResultStr table = WriteVarietyTable( graph, volumes ); !table )
             {
@@ -1752,19 +1763,26 @@ namespace Desert::Graphic::System
                      };
                      return dispatchTiles( context, m_FrameGenerate, cullShape );
                  } );
+        }
 
+        // The full list's records and this frame in flight's Feedback copy: the generating rows' and, right after
+        // them in the table, the rows that generated on one of the last FramesInFlight - 1 frames (m_FrameRefinalize:
+        // their kept counts are still the generation's).
+        if ( m_FrameTable && generateRows + refinalizeRows != 0u )
+        {
             const GrassFinalizePush finalize{
-                 glm::uvec4( kFinalizeModeAfterGeneration, 0u, cullRows, generateRows ) };
+                 glm::uvec4( kFinalizeModeAfterGeneration, 0u, cullRows, generateRows + refinalizeRows ) };
             graph.AddPass(
                  "Grass: Finalize", RDG::PassFlags::Compute,
                  [this]( RDG::PassBuilder& pass )
                  {
                      BindFinalize( pass );
-                     for ( const VarietyGpu* gpu : m_FrameGenerate )
-                     {
-                         pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
-                         pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
-                     }
+                     for ( const std::vector<VarietyGpu*>* list : { &m_FrameGenerate, &m_FrameRefinalize } )
+                         for ( const VarietyGpu* gpu : *list )
+                         {
+                             pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
+                             pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
+                         }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return DispatchOneGroup( context, *m_Finalize, &finalize, sizeof( finalize ) ); } );
@@ -1862,7 +1880,7 @@ namespace Desert::Graphic::System
         header.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
         std::vector<uint8_t> image( sizeof( GrassVarietyTableGpu ) );
         std::memcpy( image.data(), &header, sizeof( header ) );
-        for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull, &m_FrameGenerate } )
+        for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull, &m_FrameGenerate, &m_FrameRefinalize } )
         {
             for ( VarietyGpu* gpu : *list )
             {

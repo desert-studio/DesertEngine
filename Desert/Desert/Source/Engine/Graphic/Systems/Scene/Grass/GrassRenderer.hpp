@@ -401,8 +401,9 @@ namespace Desert::Graphic::System
             // capacity, the buffers, the field's revision) and the ones Instances / Args were last culled from
             // (GenerateKey). Equal inputs keep equal instances, so a frame with the same ones dispatches nothing -
             // turning the camera changes the planes and re-culls, it builds no tile. StableGenerations counts the
-            // generations in a row from GenerateKey: the skip starts once every frame in flight's feedback copy
-            // (GrassFinalize) holds their counts, so the capacity read back stays the one they ask for.
+            // frames in a row from GenerateKey: the first generates (m_FrameGenerate), the next FramesInFlight - 1
+            // run GrassFinalize alone (m_FrameRefinalize, GRASS-VIEW-LAW-1), so every frame in flight's feedback
+            // copy holds the generation's counts and the capacity read back stays the one they ask for.
             std::vector<uint32_t> FrameKey;
             std::vector<uint32_t> GenerateKey;
             uint32_t              StableGenerations = 0;
@@ -433,8 +434,8 @@ namespace Desert::Graphic::System
                                         std::vector<uint32_t> thin, glm::vec2 eye, float cell, float radius,
                                         float stray );
         // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows, then
-        // m_FrameGenerate's, written into m_Table and imported into @p graph (m_TableRef). Refused when a variety's
-        // buffer has no device address.
+        // m_FrameGenerate's, then m_FrameRefinalize's, written into m_Table and imported into @p graph (m_TableRef).
+        // Refused when a variety's buffer has no device address.
         [[nodiscard]] Common::BoolResultStr WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes );
         // The one binding block of a pass over the table: GrassFinalize's; GrassCull's, @p hzb the texture it tests
         // and @p dispatch its access to this frame's dispatch buffer (m_FrameDispatch).
@@ -450,6 +451,10 @@ namespace Desert::Graphic::System
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
         std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
+        // GRASS-VIEW-LAW-1: this frame's that generated on one of the last FramesInFlight - 1 frames and keep their
+        // inputs: GrassFinalize alone runs for them (Instances, the kept counts and the chunks are still the
+        // generation's), so this frame in flight's Feedback copy gets the generation's counts.
+        std::vector<VarietyGpu*>         m_FrameRefinalize;
         // GRASS-VIS-24: this frame's whose camera list is culled (an HZB-tested frame: every one with a list; by
         // the planes alone: those that generate)
         std::vector<VarietyGpu*>         m_FrameCull;

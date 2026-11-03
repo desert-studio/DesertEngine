@@ -44,7 +44,9 @@ Shader "GrassFinalize"
         };
 
         // Mode 0, row @p r: the full list's records, its counts into Feedback, its drawn count into Args word 3 (the
-        // camera cull's threads until the next generation).
+        // camera cull's threads until the next generation). GRASS-VIEW-LAW-1: it runs after a generation and alone on
+        // the FramesInFlight - 1 frames after it (GrassRenderer m_FrameRefinalize): Args' kept counts are still the
+        // generation's, so each frame in flight's Feedback copy gets the same counts without the tile cull again.
         void Finalize( uint r )
         {
             GrassWords args     = GrassWords( VarietyRows[r].Args );
