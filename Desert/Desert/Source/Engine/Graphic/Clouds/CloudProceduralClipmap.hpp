@@ -104,9 +104,10 @@ namespace Desert::Graphic
             return m_Image;
         }
 
-        /// THE CONSERVATIVE DENSITY of the same levels (CLOUD-MARCH-COST-1): side x kLevels x side RGBA8, row k
-        /// = level k, texel = each species' maximum over the column's 32 rows, dilated toroidally by
-        /// CloudColumnProbeDilationTexels of that level's voxel. Written in the same Write as the levels, from
+        /// THE CONSERVATIVE DENSITY of the same levels (CLOUD-MARCH-COST-1): side x (kLevels x
+        /// kCloudColumnMaxBands) x side RGBA8, row k * kCloudColumnMaxBands + b = height band b of level k,
+        /// texel = each species' maximum over that band's rows of the column, dilated toroidally (horizontally
+        /// only) by CloudColumnProbeDilationTexels of that level's voxel. Written in the same Write as the levels, from
         /// the same bytes, so it never describes a shape or a window the volume does not hold. Read by the
         /// march's coarse-tier probe (Common/CloudField.glslh CloudProceduralColumnsEmpty) and nothing else.
         const std::shared_ptr<Image3D>& GetColumnImage() const
@@ -180,8 +181,9 @@ namespace Desert::Graphic
         std::shared_ptr<Image3D> m_ColumnImage;
         uint64_t                 m_WriteGeneration = 0;
 
-        /// Per level, side x side RGBA8 (x fastest, toroidal texel order): each species' maximum over the
-        /// column's rows, UNDILATED — the host copy a slab's columns replace, since the dilation of a column
+        /// Per level, side x kCloudColumnMaxBands x side RGBA8 (x fastest, then the band, then z; toroidal texel
+        /// order — the order the level's rows of the image are uploaded in): each species' maximum over each
+        /// band's rows of the column, UNDILATED — the host copy a slab's columns replace, since the dilation of a column
         /// reads its neighbours and the device image cannot be read back.
         std::array<std::vector<unsigned char>, kLevels> m_ColumnMax;
 

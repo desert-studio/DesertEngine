@@ -320,8 +320,9 @@ float CloudCoarseStepKm( float segmentLengthKm, float fineStepKm, float maxCount
 // of one to four kilometres, where the coarse step IS the fine one — every 62.5 m of clear air paid the whole
 // field: the level weights, one or two trilinear fetches of the modelling volume, the weather's fetch and its
 // normal CDF. Unreal strides that air on the material's ConservativeDensity instead; the march here asks
-// CloudProceduralColumnsEmpty (Common/CloudField.glslh), a texel of the column-max image that is zero only
-// where no column within CLOUD_COLUMN_PROBE_RADIUS_KM holds any cloud at any height.
+// CloudProceduralColumnsEmpty (Common/CloudField.glslh), the texels of the column-max image's height bands that
+// the skipped stretch can fetch from (CloudRayHeightFractionSpan), zero only where no column within
+// CLOUD_COLUMN_PROBE_RADIUS_KM holds any cloud at those heights.
 //
 // THE STRIDE STAYS ON THE SEARCH LATTICE. A zero at a lattice point clears every point of the ray whose
 // column lies inside the radius, so the march jumps over all the lattice points in that reach and lands on
@@ -349,6 +350,22 @@ float CloudEmptyColumnAdvanceKm( float horizontalRate, float coarseStepKm )
     float stride  = max( coarseStepKm, 1e-6f );
     float inside  = float( int( min( reachKm / stride, 1.0e6f ) ) );
     return ( inside + 1.0f ) * stride;
+}
+
+// THE HEIGHT FRACTIONS A STRETCH OF RAY PASSES THROUGH, (lowest, highest), for the probe's height bands
+// (CLOUD-MARCH-COST-1 pass 5): the stretch [@p t0Km, @p t1Km] of the ray from the planet-centred @p originKm
+// along @p rayDir. The distance from the planet centre is convex along a line, so the highest point of a stretch
+// is one of its ends and the lowest is the closest approach clamped into it — a ray grazing the deck dips and
+// rises again inside one jump, and its bottom is what the ends alone would miss. CloudHeightFraction is
+// monotonic in that distance, so the fractions of those three points bound every sample of the stretch.
+vec2 CloudRayHeightFractionSpan( CloudLayer layer, vec3 originKm, vec3 rayDir, float t0Km, float t1Km )
+{
+    float closestT = -dot( originKm, rayDir ) / max( dot( rayDir, rayDir ), 1e-12f );
+    float lowestT  = clamp( closestT, t0Km, t1Km );
+    float first    = CloudHeightFraction( layer, originKm + rayDir * t0Km );
+    float last     = CloudHeightFraction( layer, originKm + rayDir * t1Km );
+    float lowest   = CloudHeightFraction( layer, originKm + rayDir * lowestT );
+    return vec2( min( lowest, min( first, last ) ), max( first, last ) );
 }
 
 // ---------------------------------------------------------------------------------------------------

@@ -508,6 +508,16 @@ namespace Desert::Graphic
         return static_cast<uint32_t>( std::min( texels, 1.0e4f ) ) + 1u;
     }
 
+    // THE CONSERVATIVE DENSITY'S HEIGHT BANDS (CLOUD-MARCH-COST-1 pass 5). Mirrored by CLOUD_COLUMN_MAX_BANDS in
+    // Common/CloudField.glslh. Unreal's ConservativeDensity is evaluated at the sample's own height, so its zero
+    // is tight vertically; a column maximum over the layer's whole height is zero only where the column holds no
+    // cloud at ANY height, which on a deck of separate bodies is almost nowhere once dilated. The column-max image
+    // therefore keeps each level's 32 rows as this many bands of equal height (a band = the maximum over its own
+    // rows, per species), and the probe reads only the bands the skipped stretch of the ray can fetch from. Must
+    // divide Assets::kCloudProceduralVolumeHeight (asserted where the bands are built,
+    // CloudProceduralClipmap.cpp).
+    inline constexpr uint32_t kCloudColumnMaxBands = 4u;
+
     /**
      * The near-camera fade's interval, in kilometres and in the order the shader consumes it.
      *

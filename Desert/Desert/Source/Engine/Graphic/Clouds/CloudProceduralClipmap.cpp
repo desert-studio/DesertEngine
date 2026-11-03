@@ -23,10 +23,15 @@ namespace Desert::Graphic
     {
         constexpr uint32_t kLastLevel = Assets::kCloudProceduralClipLevels - 1u;
 
-        /// Replaces the columns of @p box in the level's host column maximum (@p columnMax, side x side RGBA8,
-        /// x fastest) with each species' maximum over the box bytes' rows (Assets::CloudProceduralBoxBytes order:
-        /// x fastest, then the rows, then z). Byte maxima of the same bytes the volume is written from, so the
-        /// image bounds every texel the march can fetch exactly, with no rounding of its own.
+        static_assert( kCloudColumnMaxBands > 0u && Assets::kCloudProceduralVolumeHeight % kCloudColumnMaxBands == 0u,
+                       "the column-max bands split the level's rows evenly" );
+        constexpr uint32_t kColumnRowsPerBand = Assets::kCloudProceduralVolumeHeight / kCloudColumnMaxBands;
+
+        /// Replaces the columns of @p box in the level's host column maximum (@p columnMax, side x bands x side
+        /// RGBA8: x fastest, then the band, then z — the order the image row block is uploaded in) with each
+        /// species' maximum over each band's rows of the box bytes (Assets::CloudProceduralBoxBytes order: x
+        /// fastest, then the rows, then z). Byte maxima of the same bytes the volume is written from, so the
+        /// image bounds every texel of a band the march can fetch exactly, with no rounding of its own.
         void StoreColumnMax( std::vector<unsigned char>& columnMax, const Assets::CloudProceduralVoxelBox& box,
                              const std::vector<unsigned char>& bytes, uint32_t side )
         {
@@ -35,41 +40,49 @@ namespace Desert::Graphic
             const size_t       rowBytes = static_cast<size_t>( box.Width ) * kTexel;
             for ( uint32_t z = 0; z < box.Depth; ++z )
             {
-                unsigned char* column =
-                     columnMax.data() + ( static_cast<size_t>( box.Z + z ) * side + box.X ) * kTexel;
                 const unsigned char* slab = bytes.data() + static_cast<size_t>( z ) * kRows * rowBytes;
-                std::memcpy( column, slab, rowBytes );
-                for ( uint32_t y = 1; y < kRows; ++y )
+                for ( uint32_t band = 0; band < kCloudColumnMaxBands; ++band )
                 {
-                    const unsigned char* row = slab + static_cast<size_t>( y ) * rowBytes;
-                    for ( size_t b = 0; b < rowBytes; ++b )
-                        column[b] = std::max( column[b], row[b] );
+                    const size_t   bandRow  = static_cast<size_t>( box.Z + z ) * kCloudColumnMaxBands + band;
+                    unsigned char* column   = columnMax.data() + ( bandRow * side + box.X ) * kTexel;
+                    const uint32_t firstRow = band * kColumnRowsPerBand;
+                    std::memcpy( column, slab + static_cast<size_t>( firstRow ) * rowBytes, rowBytes );
+                    for ( uint32_t y = firstRow + 1u; y < firstRow + kColumnRowsPerBand; ++y )
+                    {
+                        const unsigned char* row = slab + static_cast<size_t>( y ) * rowBytes;
+                        for ( size_t b = 0; b < rowBytes; ++b )
+                            column[b] = std::max( column[b], row[b] );
+                    }
                 }
             }
         }
 
         /// The level's column maximum dilated by @p radius texels each way, TOROIDALLY (the level is stored on
         /// a torus, so the texel past the last is the first): a separable max over (2 radius + 1)^2 texels,
-        /// per channel. @p radius is clamped below the side, where the dilation is already the whole level.
+        /// per channel and per band — the bands are never mixed, the dilation is horizontal only. @p radius is
+        /// clamped below the side, where the dilation is already the whole level.
         std::vector<unsigned char> DilateColumnMax( const std::vector<unsigned char>& columnMax, uint32_t side,
                                                     uint32_t radius )
         {
-            constexpr size_t kTexel   = Assets::kCloudProceduralBytesPerVoxel;
-            const uint32_t   widest   = side - 1u;
-            const uint32_t   r        = std::min( radius, widest );
-            const size_t     rowBytes = static_cast<size_t>( side ) * kTexel;
-            const size_t     reach    = static_cast<size_t>( r ) * kTexel;
+            constexpr size_t kTexel    = Assets::kCloudProceduralBytesPerVoxel;
+            const uint32_t   widest    = side - 1u;
+            const uint32_t   r         = std::min( radius, widest );
+            const size_t     rowBytes  = static_cast<size_t>( side ) * kTexel;
+            const size_t     slabBytes = rowBytes * kCloudColumnMaxBands;
+            const size_t     reach     = static_cast<size_t>( r ) * kTexel;
+            const size_t     rowCount  = static_cast<size_t>( side ) * kCloudColumnMaxBands;
 
-            // Along x: each row padded with its own wrapped ends, then the max of 2r + 1 shifted copies.
+            // Along x: each row (one band of one z) padded with its own wrapped ends, then the max of 2r + 1
+            // shifted copies.
             std::vector<unsigned char> across( columnMax.size() );
             std::vector<unsigned char> padded( rowBytes + 2u * reach );
-            for ( uint32_t z = 0; z < side; ++z )
+            for ( size_t rowIndex = 0; rowIndex < rowCount; ++rowIndex )
             {
-                const unsigned char* row = columnMax.data() + static_cast<size_t>( z ) * rowBytes;
+                const unsigned char* row = columnMax.data() + rowIndex * rowBytes;
                 std::memcpy( padded.data(), row + rowBytes - reach, reach );
                 std::memcpy( padded.data() + reach, row, rowBytes );
                 std::memcpy( padded.data() + reach + rowBytes, row, reach );
-                unsigned char* out = across.data() + static_cast<size_t>( z ) * rowBytes;
+                unsigned char* out = across.data() + rowIndex * rowBytes;
                 std::memcpy( out, padded.data(), rowBytes );
                 for ( uint32_t k = 1; k <= 2u * r; ++k )
                 {
@@ -79,22 +92,22 @@ namespace Desert::Graphic
                 }
             }
 
-            // Along z: the max of the 2r + 1 rows around each, wrapped.
+            // Along z: the max of the 2r + 1 slabs (every band of one z) around each, wrapped.
             std::vector<unsigned char> dilated( columnMax.size() );
-            const int32_t              s     = static_cast<int32_t>( side );
-            const int32_t              span  = 2 * static_cast<int32_t>( r );
+            const int32_t              s    = static_cast<int32_t>( side );
+            const int32_t              span = 2 * static_cast<int32_t>( r );
             for ( int32_t z = 0; z < s; ++z )
             {
-                unsigned char* out   = dilated.data() + static_cast<size_t>( z ) * rowBytes;
+                unsigned char* out   = dilated.data() + static_cast<size_t>( z ) * slabBytes;
                 const int32_t  first = z - static_cast<int32_t>( r );
-                std::memcpy( out, across.data() + Assets::CloudProceduralLevelTexel( first, side ) * rowBytes,
-                             rowBytes );
+                std::memcpy( out, across.data() + Assets::CloudProceduralLevelTexel( first, side ) * slabBytes,
+                             slabBytes );
                 for ( int32_t k = 1; k <= span; ++k )
                 {
-                    const unsigned char* row =
-                         across.data() + Assets::CloudProceduralLevelTexel( first + k, side ) * rowBytes;
-                    for ( size_t b = 0; b < rowBytes; ++b )
-                        out[b] = std::max( out[b], row[b] );
+                    const unsigned char* slab =
+                         across.data() + Assets::CloudProceduralLevelTexel( first + k, side ) * slabBytes;
+                    for ( size_t b = 0; b < slabBytes; ++b )
+                        out[b] = std::max( out[b], slab[b] );
                 }
             }
             return dilated;
@@ -285,12 +298,14 @@ namespace Desert::Graphic
                  "the {}x{}x{} RGBA8 cloud modelling clipmap could not be created on the device", side,
                  Assets::kCloudProceduralVolumeHeight * kLevels, side );
 
-        // The conservative density beside it, one row per level, created and resized with it so the two can
-        // never describe different grids. Every level is written whole when a shape lands, before m_Valid.
+        // The conservative density beside it, kCloudColumnMaxBands rows per level (one per height band),
+        // created and resized with it so the two can never describe different grids. Every level is written whole
+        // when a shape lands, before m_Valid.
+        const uint32_t                            columnRows = kLevels * kCloudColumnMaxBands;
         const Core::Formats::Image3DSpecification columnSpec{
              .Tag        = "CloudColumnMaxClipmap",
              .Width      = side,
-             .Height     = kLevels,
+             .Height     = columnRows,
              .Depth      = side,
              .Format     = Core::Formats::ImageFormat::RGBA8F,
              .Data       = Core::Formats::EmptyPixelData{},
@@ -301,11 +316,15 @@ namespace Desert::Graphic
         {
             m_Image.reset();
             return Common::MakeFormattedError<bool>(
-                 "the {}x{}x{} RGBA8 cloud column-max clipmap could not be created on the device", side, kLevels,
+                 "the {}x{}x{} RGBA8 cloud column-max clipmap could not be created on the device", side, columnRows,
                  side );
         }
         for ( auto& level : m_ColumnMax )
-            level.assign( static_cast<size_t>( side ) * side * Assets::kCloudProceduralBytesPerVoxel, 0u );
+        {
+            const size_t levelBytes =
+                 static_cast<size_t>( side ) * kCloudColumnMaxBands * side * Assets::kCloudProceduralBytesPerVoxel;
+            level.assign( levelBytes, 0u );
+        }
         return BOOLSUCCESS;
     }
 
@@ -355,10 +374,10 @@ namespace Desert::Graphic
             for ( size_t i = 0; i < bake->Boxes.size(); ++i )
                 StoreColumnMax( m_ColumnMax[bake->Level], bake->Boxes[i], bytes->Boxes[i], side );
 
-        // THE COLUMN-MAX ROW OF EVERY LEVEL THE SLABS TOUCHED, whole: a slab's columns change the dilation of
-        // their neighbours too, and a whole level is side x side texels of byte maxima — far below the bake that
-        // produced the slab. Dilated in the level's own voxels, so the radius the march jumps is kilometres
-        // at every level.
+        // THE COLUMN-MAX ROWS OF EVERY LEVEL THE SLABS TOUCHED, whole: a slab's columns change the dilation of
+        // their neighbours too, and a whole level is side x bands x side texels of byte maxima — far below the
+        // bake that produced the slab. Dilated in the level's own voxels, so the radius the march jumps is
+        // kilometres at every level; band b of level k is image row k * kCloudColumnMaxBands + b.
         std::array<std::vector<unsigned char>, kLevels> dilated;
         std::vector<Image3D::RegionWrite>               columnWrites;
         for ( uint32_t level = 0; level < kLevels; ++level )
@@ -370,10 +389,10 @@ namespace Desert::Graphic
             dilated[level]         = DilateColumnMax( m_ColumnMax[level], side, radius );
             columnWrites.push_back( Image3D::RegionWrite{
                  .X      = 0u,
-                 .Y      = level,
+                 .Y      = level * kCloudColumnMaxBands,
                  .Z      = 0u,
                  .Width  = side,
-                 .Height = 1u,
+                 .Height = kCloudColumnMaxBands,
                  .Depth  = side,
                  .Bytes  = dilated[level].data(),
                  .Size   = dilated[level].size(),

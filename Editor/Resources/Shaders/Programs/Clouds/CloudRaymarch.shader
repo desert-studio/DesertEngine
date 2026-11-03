@@ -254,8 +254,9 @@ Shader "CloudRaymarch"
         Uniform(7) texture3D CloudModellingTexture;
         #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
         // THE CONSERVATIVE DENSITY of the same three levels (Graphic::CloudProceduralClipmap::GetColumnImage):
-        // side x 3 x side RGBA8, row k = level k, texel = each species' maximum over the column's 32 rows,
-        // dilated by the probe radius, toroidal like the volume. texelFetched by the coarse tier's probe
+        // side x (3 x CLOUD_COLUMN_MAX_BANDS) x side RGBA8, row k * CLOUD_COLUMN_MAX_BANDS + b = height band b of
+        // level k, texel = each species' maximum over that band's rows of the column, dilated by the probe radius,
+        // toroidal like the volume. texelFetched by the coarse tier's probe
         // (CloudProceduralColumnsEmpty) and nothing else; the march's own binding, not the field's.
         Uniform(20) texture3D CloudColumnMaxTexture;
         #define CloudColumnMaxTexture sampler3D(CloudColumnMaxTexture, LinearRepeatSampler)
@@ -324,15 +325,16 @@ Shader "CloudRaymarch"
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
-        // The probe's texel of level @p level at the toroidal coordinate @p uv in [0, 1): the texel the
-        // address falls in, never a filtered read — the dilation was built around whole texels.
-        vec4 CloudFetchColumnMax(int level, vec2 uv)
+        // The probe's texel of image row @p row (level * CLOUD_COLUMN_MAX_BANDS + band) at the toroidal
+        // coordinate @p uv in [0, 1): the texel the address falls in, never a filtered read — the dilation was
+        // built around whole texels.
+        vec4 CloudFetchColumnMax(int row, vec2 uv)
         {
             ivec2 side  = textureSize(CloudColumnMaxTexture, 0).xz;
             ivec2 texel = min(ivec2(uv * vec2(side)), side - ivec2(1));
-            return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, level, texel.y), 0);
+            return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, row, texel.y), 0);
         }
-        #define CLOUD_SAMPLE_COLUMN_MAX(level, uv) CloudFetchColumnMax((level), (uv))
+        #define CLOUD_SAMPLE_COLUMN_MAX(row, uv) CloudFetchColumnMax((row), (uv))
 
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
@@ -826,13 +828,16 @@ Shader "CloudRaymarch"
             const int kEmptyFineSamplesBeforeCoarse = CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE;
 
             // THE CONSERVATIVE PROBE OF THE COARSE TIER (CloudProceduralColumnsEmpty, CloudEmptyColumnAdvanceKm in
-            // Common/CloudGeometry.glslh): before the exact search sample, one texel of the column-max image says
-            // whether any column within the probe radius can hold cloud at all; where none can, the march jumps
-            // the whole reach on the search lattice without sampling it. The bound covers the procedural producer
-            // only, so a layer with sculpted bodies keeps the exact search everywhere — their boxes are not in
-            // the image.
+            // Common/CloudGeometry.glslh): before the exact search sample, the column-max image's texels of the
+            // height bands the jump would cross say whether any column within the probe radius can hold cloud at
+            // those heights; where none can, the march jumps the whole reach on the search lattice without
+            // sampling it. The bound covers the procedural producer only, so a layer with sculpted bodies keeps
+            // the exact search everywhere — their boxes are not in the image.
             bool  probeColumns       = CLOUD_AUTHORED_COUNT == 0;
             float emptyColumnAdvance = CloudEmptyColumnAdvanceKm(length(rayDir.xz), coarseStepKm);
+            // The jump visits none of the lattice points before the one it lands on, so the stretch whose
+            // heights the probe must bound ends one stride short of the landing point.
+            float emptyColumnSkipKm  = emptyColumnAdvance - coarseStepKm;
 
             for (int i = 0; i < iterationTotal; ++i)
             {
@@ -842,14 +847,21 @@ Shader "CloudRaymarch"
                 vec3  samplePos      = originKm + rayDir * t;
 
                 // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
-                // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the advance divides by —
-                // and the probe needs neither the altitude nor the height fraction.
-                if (!fine && probeColumns &&
-                    CloudProceduralColumnsEmpty(params, samplePos.xz - params.WindOffsetKm.xz,
-                                                CLOUD_COLUMN_PROBE_RADIUS_KM))
+                // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the advance divides by.
+                // Its height is not linear in the ray (the shell is a sphere), so the bands the probe reads are
+                // those of the stretch's own lowest and highest point (CloudRayHeightFractionSpan), clipped to the
+                // segment the march would stop at anyway.
+                if (!fine && probeColumns)
                 {
-                    t += emptyColumnAdvance;
-                    continue;
+                    vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, t,
+                                                                     min(t + emptyColumnSkipKm, segment.y));
+                    if (CloudProceduralColumnsEmpty(params, samplePos.xz - params.WindOffsetKm.xz,
+                                                    CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
+                                                    skippedHeights.y))
+                    {
+                        t += emptyColumnAdvance;
+                        continue;
+                    }
                 }
 
                 float heightFraction = CloudHeightFraction(layer, samplePos);

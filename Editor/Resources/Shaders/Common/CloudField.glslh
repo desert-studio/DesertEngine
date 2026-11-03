@@ -354,6 +354,18 @@ struct CloudFieldParams
 // asserted by Desert/Tests/Engine/CloudField. Read, unlike the dead width the note above records.
 #define CLOUD_PROCEDURAL_VOLUME_SIDE 256.0f
 
+// THE CONSERVATIVE DENSITY'S HEIGHT BANDS (CLOUD-MARCH-COST-1 pass 5): the column-max image holds each level's
+// rows as this many bands of equal height, image row level * CLOUD_COLUMN_MAX_BANDS + band. Mirror of
+// Graphic::kCloudColumnMaxBands (Engine/Graphic/Clouds/CloudPayload.hpp), which builds the image; the two must
+// be the same number or the probe reads another band's (or another level's) maximum. An int, unlike the extents
+// above, because it only ever indexes rows.
+#define CLOUD_COLUMN_MAX_BANDS 4
+
+// How far past the interval's own rows the probe's band choice reaches, in rows: the march computes a sample's
+// height fraction from its own position and the sampler rounds the address in its own arithmetic, and a margin
+// of a quarter row (a few metres on any deck) keeps a fetch that lands on a band's edge inside the band read.
+#define CLOUD_COLUMN_ROW_MARGIN 0.25f
+
 // THE BLEND BAND: over the outermost 12 % of a level's side (measured from its edge) the level fades into
 // the next coarser one, which holds that ground at half the resolution (CLOUD-RES-PLAN §1 point 5). The
 // next level's window is twice as wide and centred on the same camera, so the whole band sits a quarter of
@@ -538,22 +550,34 @@ vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction,
 // THE CONSERVATIVE DENSITY (CLOUD-MARCH-COST-1) — Unreal's ConservativeDensity, the quantity its march strides
 // empty space on (VolumetricCloud.usf: the material's conservative output is evaluated first and the full
 // material only where it is above zero). Here it is a property of the BAKE rather than of the material:
-// Graphic::CloudProceduralClipmap keeps, beside every level of the modelling volume, a 2D image of each
-// species' maximum over the column's 32 rows, dilated by Graphic::kCloudColumnProbeRadiusKm (plus the
-// trilinear footprint), and writes it in the same call that writes the level — same cadence, same scroll.
+// Graphic::CloudProceduralClipmap keeps, beside every level of the modelling volume, a 2D image per height
+// band of each species' maximum over that band's rows of the column, dilated by
+// Graphic::kCloudColumnProbeRadiusKm (plus the trilinear footprint), and writes it in the same call that writes the level — same cadence, same scroll.
+// Kept per height band (CLOUD_COLUMN_MAX_BANDS), because Unreal's bound is evaluated at the sample's height:
+// a maximum over the whole column is zero only where the column holds no cloud at any height, which on a
+// deck of separate bodies, dilated by the radius, is almost nowhere (measured: pass 4 skipped next to nothing).
 //
-// TRUE ONLY WHEN NO POINT WITHIN @p radiusKm (horizontally, wind space) OF @p windPosXz, AT ANY HEIGHT, CAN
-// HAVE A PROCEDURAL PROFILE ABOVE ZERO; false whenever it might. Every step of the read is bounded from above:
+// TRUE ONLY WHEN NO POINT WITHIN @p radiusKm (horizontally, wind space) OF @p windPosXz, AT ANY HEIGHT FRACTION
+// BETWEEN @p heightLow AND @p heightHigh, CAN HAVE A PROCEDURAL PROFILE ABOVE ZERO; false whenever it might.
+// Every step of the read is bounded from above:
 //   * which levels answer anywhere inside the disk — the weight is a ramp of the edge distance and the edge
 //     distance moves by at most the radius over the disk, so each level's weight over the disk lies between
 //     its ramp at edge - r and at edge + r, and a level is read when the blend rule could give it a share;
+//   * which rows a level's fetch reads at those heights — CloudProceduralLevelUvw puts height fraction h at
+//     row coordinate clamp(32 h, 0.5, 31.5) and the trilinear fetch reads the row below and above it, so the
+//     interval reads rows floor(low - 0.5) .. floor(high - 0.5) + 1 (widened by CLOUD_COLUMN_ROW_MARGIN, so a
+//     sampler that rounds the address differently from this arithmetic stays inside), and the bands holding
+//     those rows bound every one of them (Graphic::kCloudColumnMaxBands, CLOUD_COLUMN_MAX_BANDS);
 //   * what a level answers there — a trilinear fetch is a convex blend of the texels around it, and the
-//     dilated texel holds the maximum of every column the fetches inside the disk can touch;
+//     dilated texel of a band holds the maximum of that band's rows of every column the fetches inside the
+//     disk can touch;
 //   * the cut — CloudCoverageThreshold is zero exactly where field <= 1 - coverage, and the weather's remap
 //     (CloudCoverRemap) never raises a profile, so it is left out of the bound rather than estimated.
 // The far path has no baked image: where the disk reaches past the coarsest level's whole region the probe
-// says "might" and the exact sample answers, as it did before the probe existed.
-bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm )
+// says "might" and the exact sample answers, as it did before the probe existed. The levels are read finest
+// first and the answer is "might" at the first that reaches a cut, so a cloudy column pays one level's bands.
+bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm, float heightLow,
+                                  float heightHigh )
 {
     float lowest[CLOUD_PROCEDURAL_CLIP_LEVELS];
     float highest[CLOUD_PROCEDURAL_CLIP_LEVELS];
@@ -567,25 +591,45 @@ bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float
     if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f )
         return false;
 
+    // The cut per species, half an 8-bit step low, so a filtered value rounding up past its texels cannot slip
+    // through; a species that is absent (no coverage, or past the layer's count) keeps a cut no byte reaches.
+    vec4 coverage     = clamp( vec4( params.Coverage ) * params.SpeciesCover, vec4( 0.0f ), vec4( 1.0f ) );
+    vec4 cut          = vec4( 2.0f );
+    int  speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
+    for ( int slot = 0; slot < speciesCount; ++slot )
+    {
+        if ( coverage[slot] > 0.0f )
+            cut[slot] = 1.0f - coverage[slot] - 0.5f / 255.0f;
+    }
+
+    // The bands the interval's fetches read, in either order of the two heights.
+    int   rowsPerBand = int( CLOUD_PROCEDURAL_VOLUME_HEIGHT ) / CLOUD_COLUMN_MAX_BANDS;
+    int   lastRow     = int( CLOUD_PROCEDURAL_VOLUME_HEIGHT ) - 1;
+    float rowLow      = clamp( min( heightLow, heightHigh ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
+                               CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
+    float rowHigh     = clamp( max( heightLow, heightHigh ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
+                               CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
+    int   firstRead   = clamp( int( floor( rowLow - 0.5f - CLOUD_COLUMN_ROW_MARGIN ) ), 0, lastRow );
+    int   lastRead    = clamp( int( floor( rowHigh - 0.5f + CLOUD_COLUMN_ROW_MARGIN ) ) + 1, 0, lastRow );
+    int   firstBand   = firstRead / rowsPerBand;
+    int   lastBand    = lastRead / rowsPerBand;
+
     // A level answers at a column when it is the finest with weight there (its own share) or the coarser
     // partner of a finer level that is not whole there (CloudSampleProceduralBaked), so it can only answer
     // inside the disk where the next finer level is not whole somewhere and one of the two has weight.
-    vec4 reach = vec4( 0.0f );
     for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
     {
         bool answers = highest[level] > 0.0f;
         if ( level > 0 )
             answers = lowest[level - 1] < 1.0f && ( highest[level - 1] > 0.0f || highest[level] > 0.0f );
-        if ( answers )
-            reach = max( reach, CLOUD_SAMPLE_COLUMN_MAX( level, fract( windPosXz * params.ProceduralLevel[level].z ) ) );
-    }
+        if ( !answers )
+            continue;
 
-    // Half an 8-bit step under the cut, so a filtered value rounding up past its texels cannot slip through.
-    vec4 coverage     = clamp( vec4( params.Coverage ) * params.SpeciesCover, vec4( 0.0f ), vec4( 1.0f ) );
-    int  speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
-    for ( int slot = 0; slot < speciesCount; ++slot )
-    {
-        if ( coverage[slot] > 0.0f && reach[slot] >= 1.0f - coverage[slot] - 0.5f / 255.0f )
+        vec2 uv    = fract( windPosXz * params.ProceduralLevel[level].z );
+        vec4 reach = vec4( 0.0f );
+        for ( int band = firstBand; band <= lastBand; ++band )
+            reach = max( reach, CLOUD_SAMPLE_COLUMN_MAX( level * CLOUD_COLUMN_MAX_BANDS + band, uv ) );
+        if ( any( greaterThanEqual( reach, cut ) ) )
             return false;
     }
     return true;
