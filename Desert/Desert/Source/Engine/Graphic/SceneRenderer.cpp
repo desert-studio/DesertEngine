@@ -2459,7 +2459,9 @@ namespace Desert::Graphic
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
             // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which
-            // discards the texels it shades) and before every node that reads the scene colour.
+            // discards the texels it shades) and before every node that reads the scene colour. Not between the
+            // traced GI's fork and its join: it loads every scene-target attachment, the velocity the screen
+            // probes read on the async pipe among them (a graphics write after an async read joins the run there).
             AddFrameSkyBehindScene( graph, textures );
 
             // THE PATH-TRACED FRAME (UE RenderPathTracing): the lit image is the path tracer's accumulation,
@@ -2529,6 +2531,19 @@ namespace Desert::Graphic
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
                 AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                // THE GRAPHICS QUEUE'S WORK WHILE THE GI GATHERS (UE FDeferredShadingSceneRenderer::Render:
+                // Lumen's gather on the async pipe while the graphics pipe renders what reads none of it - the
+                // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache and the
+                // screen probes above fork after the surface cache and join at their first readers (the
+                // reflections, the composite: RDGCompile CutRunsAtConsumers), so every node declared between the
+                // two that reads nothing the runs write - and writes nothing they read - fills the graphics
+                // queue's wait instead of sitting after the join. The volumetric fog's froxels: the light grid,
+                // the cascades and the local shadows (atlas or virtual maps, all drawn above), the distant sky
+                // light and their own history, into their own volumes; their readers (the height fog, the
+                // translucency) come after the composite (AddFrameOpaqueFog). The cascades themselves cannot come
+                // here: the surface cache's card lighting reads them (AddFrameSurfaceCache: DeferredCascadeShadow)
+                // and both runs read the cards.
+                AddFrameVolumetricFog( graph, textures, frame );
                 // THE CLOUDS BETWEEN THE SCREEN PROBES' FORK AND THEIR JOIN (UE: the volumetric render target
                 // traced before the lights while Lumen's gather runs on the async queue). The march, its temporal
                 // resolve and its upsample read the sky LUTs (the graph head), the cloud shadow map and the scene
@@ -2612,9 +2627,10 @@ namespace Desert::Graphic
                 AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
                 // The opaque scene is complete: its fog (and the fog volumes the translucency below reads) BEFORE
-                // the scene copy, so the refraction sees the fogged scene, and before every translucent draw, which
-                // fogs itself at its own depth rather than being fogged by the opaque depth behind it (UE's order).
-                AddFrameOpaqueFog( graph, textures, frame );
+                // the scene copy, so the refraction sees the fogged scene, and before every translucent draw,
+                // which fogs itself at its own depth rather than being fogged by the opaque depth behind it (UE's
+                // order). Its froxels were added while the GI gathers (above, AddFrameVolumetricFog).
+                AddFrameOpaqueFog( graph, textures, frame, OpaqueFogFroxels::AddedEarlier );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
@@ -2660,7 +2676,7 @@ namespace Desert::Graphic
             auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
-            AddFrameOpaqueFog( graph, textures, frame );
+            AddFrameOpaqueFog( graph, textures, frame, OpaqueFogFroxels::AddHere );
             // The copy only for a translucent section in the view (its one consumer on this path).
             const RDG::TextureRef sceneCopy =
                  meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible()
