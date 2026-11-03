@@ -80,7 +80,7 @@ namespace Desert::Editor
             return static_cast<uint8_t>( std::clamp( std::lround( value * 255.0f ), 0L, 255L ) );
         }
 
-        // G-buffer B's xyz: the signed WORLD normal TerrainGBuffer writes (`oGBufferB = vec4(s.N, s.Roughness)`).
+        // G-buffer B's xyz: the signed WORLD normal TerrainGBuffer writes (s.N; its .a the specular-AA roughness).
         [[nodiscard]] glm::vec3 HalfNormal( const std::vector<uint8_t>& texels, std::size_t texel )
         {
             uint16_t halves[3] = {};
@@ -348,8 +348,10 @@ namespace Desert::Editor
         auto png = EncodePng( srgb, width, height );
         if ( !png )
             return Common::MakeError( png.GetError() );
-        // ORM in the albedo's row order: r = material AO (Emissive.a), g = roughness (B.a), b = metallic 0 (the
-        // terrain writes none, TerrainGBuffer.shader).
+        // ORM in the albedo's row order: r = material AO (Emissive.a), g = roughness (B.a: the layers' roughness
+        // widened by the ground normal's spread across one bake texel, Common/SpecularAA.glslh - the normal detail
+        // the baked normal map averages away, kept as the cook's roughness), b = metallic 0 (the terrain writes
+        // none, TerrainGBuffer.shader).
         std::vector<uint8_t> orm( texels * 4 );
         for ( std::size_t i = 0; i < texels; ++i )
         {
