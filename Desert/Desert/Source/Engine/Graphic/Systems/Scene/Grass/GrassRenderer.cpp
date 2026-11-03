@@ -329,6 +329,8 @@ namespace Desert::Graphic::System
         // of the tile grid's cell it stands in (@p side = one tile, cm), on all three axes. The tile cull's
         // distances, thinning and levels are measured from it, so its instances change only when it steps into the
         // next cell - the frame the resident tiles change (UpdateTiles is given the same eye) - never on a turn.
+        // CSM-SCROLL-3: a cascade thins its blades from it too (GpuInstanceBladeShadowLod::ThinOrigin), so a cached
+        // cascade's static layer holds while the eye stays in a tile and scrolls.
         glm::vec3 FieldEye( const glm::vec3& camera, const float side )
         {
             return ( glm::floor( camera / side ) + 0.5f ) * side;
@@ -955,6 +957,7 @@ namespace Desert::Graphic::System
         const float     tileSide = static_cast<float>( kGrassTileCells ) * cell;
         const glm::vec3 eye      = FieldEye( frame.CameraPosition, tileSide );
         params.Camera            = glm::vec4( eye, radius );
+        gpu.ShadowLod.ThinOrigin = eye; // CSM-SCROLL-3: a cascade thins its blades from the field eye too
         params.Cull   = glm::vec4( p.StartCullDistance * lens, radius, cell,
                                    std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
         params.Range = glm::vec4( p.AllowedDensityRange.x, p.AllowedDensityRange.y, p.MaxScaleWeightAttenuation,

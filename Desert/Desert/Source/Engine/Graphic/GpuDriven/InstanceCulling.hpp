@@ -54,6 +54,10 @@ namespace Desert::Graphic::GpuDriven
     {
         GpuCullView     View{};
         Core::Frustum   Frustum{};
+        // A scrolled cascade's static layer: the strips its shift uncovered (View's StripPlanes / Strips are
+        // filled from them); 0 - the whole Frustum.
+        Core::Frustum   Strips[2]{};
+        uint32_t        StripCount = 0;
         RDG::TextureRef PrevHzb{};
         RDG::TextureRef Hzb{};
         RDG::BufferRef  VsmDirtyMask{};

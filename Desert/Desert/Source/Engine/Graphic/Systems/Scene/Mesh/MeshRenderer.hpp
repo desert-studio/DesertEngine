@@ -750,6 +750,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
         [[nodiscard]] GpuDriven::MeshPass                              MainViewPass() const;
         [[nodiscard]] bool                                             CascadeBinsDrawn( uint32_t view ) const;
+        // A SCROLLED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its shift
+        // uncovered), which its static layer's GPU cull keeps the casters of; empty - not scrolled.
+        [[nodiscard]] std::span<const glm::mat4> CascadeScrolledStrips( uint32_t view ) const;
         [[nodiscard]] bool CascadeMovableBinsDrawn( uint32_t view ) const;
         // The caster view of cascade view @p view's movable layer (ShadowCascadePasses' "<cascade>.Movable").
         [[nodiscard]] static constexpr uint32_t CascadeMovableView( const uint32_t view )
@@ -2480,6 +2483,8 @@ namespace Desert::Graphic::System
             glm::ivec2 Shift{ 0 };
             uint32_t   StripCount = 0;
             glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) }; // CascadeScrollStrips
+            // ...and each strip's texels (x, y, width, height): the scissor its draws are recorded under.
+            glm::uvec4 StripRects[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
         };
         CascadePlacement m_CascadePlacement[kCascadeViews]; // this frame's fits (UpdateCascades)
         // The instance snapshots the static layers' keys were taken over, held one frame longer than the queue

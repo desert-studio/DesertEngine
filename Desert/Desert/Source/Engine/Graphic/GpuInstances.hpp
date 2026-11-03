@@ -9,6 +9,8 @@
 
 #include <cstdint>
 
+#include <glm/vec3.hpp>
+
 namespace Desert::Graphic
 {
     // The frame-graph names of one producer's two buffers, valid from the producer's compute node on (it is added
@@ -53,5 +55,9 @@ namespace Desert::Graphic
         // screen-width floor's D) (GrassFieldShare.glslh GrassThinShare); 0: none
         float    StartCull   = 0.0f;
         float    PixelSpread = 0.0f; // the main view's pixel size per cm of distance (0: orthographic, no thinning)
+        // the eye the generator measured its distances from (GrassRenderer FieldEye: the camera snapped to the
+        // variety's tile grid, CSM-SCROLL-3): a still section's cascade thins its blades from it too, so its static
+        // layer does not change while the eye stays in a tile
+        glm::vec3 ThinOrigin = glm::vec3( 0.0f );
     };
 } // namespace Desert::Graphic

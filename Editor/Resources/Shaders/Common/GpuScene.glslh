@@ -187,7 +187,7 @@ struct GpuOccludedInstance
     uint View;     // offset 4
 };
 
-// Per (view x pass) the cull serves. 368 bytes.
+// Per (view x pass) the cull serves. 576 bytes.
 struct GpuCullView
 {
     mat4  ViewProjection;     // offset 0   — unjittered
@@ -202,6 +202,8 @@ struct GpuCullView
     uint  VsmLevel;           // offset 344
     uint  ViewIndex;          // offset 348 — the caller's view index
     vec4  CasterRing;         // offset 352 — x = cascade c-2's split (cm), y = the light's fall; 0 = no ring
+    vec4  StripPlanes[12];    // offset 368 — a scrolled cascade's static layer: strip s's planes at 6s
+    uvec4 Strips;             // offset 560 — x = the strips (0: the whole frustum, at most 2)
 };
 
 // WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)

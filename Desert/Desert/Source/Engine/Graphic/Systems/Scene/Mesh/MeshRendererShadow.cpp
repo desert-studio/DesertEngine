@@ -1048,6 +1048,8 @@ namespace Desert::Graphic::System
             hash.Add( shadow.Set );
             hash.Add( shadow.ThinFrom );
             hash.Add( gpu.ShadowLod.StartCull );
+            // ...and the eye it thins from (ThinOrigin: the field's eye, which moves only from tile to tile).
+            hash.Add( gpu.ShadowLod.ThinOrigin );
             const bool sways = gpu.Wind.Sways();
             hash.Add( sways );
             if ( !sways )
@@ -1194,8 +1196,8 @@ namespace Desert::Graphic::System
                         redraw           = false;
                         state.Scroll     = true;
                         state.Shift      = shift;
-                        state.StripCount = CascadeScrollStrips( shift, m_Shadow.ShadowMapSize, m_CascadeCasterVP[v],
-                                                                state.Strips );
+                        state.StripCount = CascadeScrollStrips(
+                             shift, m_Shadow.ShadowMapSize, m_CascadeCasterVP[v], state.Strips, state.StripRects );
                     }
                 }
                 if ( !keyIsContent )
@@ -2251,16 +2253,27 @@ namespace Desert::Graphic::System
                      .ExecuteFunc = [this, c]( RDG::PassContext& context,
                                                const FrameGraphRefs& ) -> Common::BoolResultStr
                      {
+                         // A SCROLLED cascade fills only the strips its shift uncovered (PlanCascadeCache): the
+                         // layer around them is the cache copied in, already every static caster's depth. A
+                         // strip's draws are recorded under its scissor (CascadeScrollStrips' rects), so a
+                         // caster reaching a strip writes the strip only (UE's CSM scrolling renders the
+                         // uncovered region alone). One strip: the mesh casters' culled draw too; two: that one
+                         // draw holds the casters of both and is recorded once, at the whole map's raster.
+                         const CascadeCacheState& cache  = m_CascadeCache[c];
+                         uint32_t                 strips = 0u;
+                         if ( cache.Scroll )
+                             strips = std::min( cache.StripCount, 2u );
+                         auto&      renderer = Renderer::GetInstance();
+                         const auto scissor  = [&renderer]( const glm::uvec4& rect ) {
+                             renderer.SetScissor( static_cast<int32_t>( rect.x ), static_cast<int32_t>( rect.y ),
+                                                   rect.z, rect.w );
+                         };
+                         if ( strips == 1u )
+                             scissor( cache.StripRects[0] );
                          if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
                              return drawn;
-                         // A scrolled cascade's keyed casters fill its strips only (PlanCascadeCache).
-                         const CascadeCacheState& cache       = m_CascadeCache[c];
-                         uint32_t                 regionCount = 0;
-                         if ( cache.Scroll )
-                             regionCount = cache.StripCount;
-                         const std::span<const glm::mat4> region( cache.Strips, regionCount );
-                         // The keyed non-mesh casters (the landscape), into the cached layer
-                         // their key is part of (PlanCascadeCache).
+                         // The keyed non-mesh casters (the landscape), into the cached layer their key is part
+                         // of (PlanCascadeCache); a scrolled cascade's one strip a call, under its scissor.
                          for ( const auto& [weak, firstBlock] : m_CascadeStaticCasters[c] )
                          {
                              const auto caster = weak.lock();
@@ -2268,16 +2281,36 @@ namespace Desert::Graphic::System
                              {
                                  continue; // gone since the setup: its draws went with it
                              }
-                             if ( auto cast = caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
-                                                                        m_CascadeCasterBias[c], region );
-                                  !cast.IsSuccess() )
+                             if ( strips == 0u )
                              {
-                                 return cast;
+                                 if ( auto cast =
+                                           caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
+                                                                     m_CascadeCasterBias[c], {} );
+                                      !cast.IsSuccess() )
+                                 {
+                                     return cast;
+                                 }
+                                 continue;
+                             }
+                             for ( uint32_t s = 0; s < strips; ++s )
+                             {
+                                 scissor( cache.StripRects[s] );
+                                 const std::span<const glm::mat4> region( &cache.Strips[s], 1u );
+                                 if ( auto cast =
+                                           caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
+                                                                     m_CascadeCasterBias[c], region );
+                                      !cast.IsSuccess() )
+                                 {
+                                     return cast;
+                                 }
                              }
                          }
+                         // The render pass's own scissor back (the whole layer, SetViewportAndScissor).
+                         if ( strips > 0u )
+                             renderer.SetScissor( 0, 0, m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
                          return BOOLSUCCESS;
                      },
-                 };
+                };
                 pass.Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
                 {
                     // Depth-only casters sample no graph resource: one block per caster material with the

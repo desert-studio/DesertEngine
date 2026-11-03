@@ -178,6 +178,8 @@ Shader "GrassGenerate"
         const uint kTileClusterWord  = 32u;
         const uint kTileClusterWords = 8u;
         const uint kTileHeaderWords  = kTileClusterWord + kTileClusters * kTileClusterWords;
+        // The tallest a blade's clump makes it (the build's clumpHeight, r.Clump).
+        const float kMaxClumpHeight = 1.3;
 
         // The build's cluster (Count: its count and box; Write: its records' fade draws, ranked).
         shared uint  s_ClusterCount;
@@ -479,7 +481,7 @@ Shader "GrassGenerate"
             if ( blade )
             {
                 float clumpYaw    = Fraction( clumpSeed ) * 6.28318530718;
-                float clumpHeight = mix( 0.7, 1.3, Fraction( clumpSeed ) );
+                float clumpHeight = mix( 0.7, kMaxClumpHeight, Fraction( clumpSeed ) );
                 float clumpTint   = Fraction( clumpSeed );
                 // The facing turns towards the clump's by the shorter arc.
                 float turn = mod( clumpYaw - yaw + 3.14159265359, 6.28318530718 ) - 3.14159265359;

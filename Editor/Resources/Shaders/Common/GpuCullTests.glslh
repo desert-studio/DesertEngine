@@ -9,17 +9,31 @@
 #include <Common/ScreenUV.glslh>
 
 // Core::Frustum::Intersects: the corner farthest along each plane's normal; a zero plane accepts.
+bool GpuCull_PlaneAccepts( vec4 plane, vec3 boxMin, vec3 boxMax )
+{
+    const vec3 positive = vec3( plane.x >= 0.0 ? boxMax.x : boxMin.x, plane.y >= 0.0 ? boxMax.y : boxMin.y,
+                                plane.z >= 0.0 ? boxMax.z : boxMin.z );
+    return dot( positive, plane.xyz ) + plane.w >= 0.0;
+}
+
+// ...and, in a scrolled cascade's static layer (GpuCullView::Strips, CSM-SCROLL-3; the CPU walk's inView in
+// MeshRenderer::BuildShadowCascadeDraws), one of the strips its shift uncovered: the rest is the cache.
 bool GpuCull_FrustumIntersects( GpuCullView view, vec3 boxMin, vec3 boxMax )
 {
     for ( uint p = 0u; p < 6u; ++p )
-    {
-        const vec4 plane    = view.FrustumPlanes[p];
-        const vec3 positive = vec3( plane.x >= 0.0 ? boxMax.x : boxMin.x, plane.y >= 0.0 ? boxMax.y : boxMin.y,
-                                    plane.z >= 0.0 ? boxMax.z : boxMin.z );
-        if ( dot( positive, plane.xyz ) + plane.w < 0.0 )
+        if ( !GpuCull_PlaneAccepts( view.FrustumPlanes[p], boxMin, boxMax ) )
             return false;
+    if ( view.Strips.x == 0u )
+        return true;
+    for ( uint s = 0u; s < min( view.Strips.x, 2u ); ++s )
+    {
+        bool inside = true;
+        for ( uint p = 0u; p < 6u && inside; ++p )
+            inside = GpuCull_PlaneAccepts( view.StripPlanes[s * 6u + p], boxMin, boxMax );
+        if ( inside )
+            return true;
     }
-    return true;
+    return false;
 }
 
 // FURTHEST-HZB occlusion (UE HZBOcclusion.usf IsVisibleHZB): the box's screen rect through @p viewProjection,

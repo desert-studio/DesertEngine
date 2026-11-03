@@ -268,8 +268,15 @@ namespace Desert::Graphic::GpuDriven
         glm::vec4  CasterRing{ 0.0f };         // 352 THE CASTER'S REACH (MeshRenderer::ShadowWindRingOf): x = cascade
                                                //     c-2's split (cm), y = the light's fall across / down; zero = no
                                                //     ring (Common/ShadowWind.glslh ShadowWindRingInner)
+        // A SCROLLED cascade's static layer (MeshRenderer::PlanCascadeCache, CSM-SCROLL-3; UE's CSM scrolling):
+        // the strips its shift uncovered, strip s's six Core::Frustum planes at 6s. A caster inside FrustumPlanes
+        // is kept only when it also meets one of them - the rest of the layer is its cache, copied in shifted.
+        glm::vec4  StripPlanes[12]{};          // 368
+        glm::uvec4 Strips{ 0u };               // 560 x = the strips (0: the whole frustum, at most 2)
     };
-    static_assert( sizeof( GpuCullView ) == 368, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 576, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, StripPlanes ) == 368, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, Strips ) == 560, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, CasterRing ) == 352, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, FrustumPlanes ) == 192, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, HzbExtent ) == 320, "Common/GpuScene.glslh" );
