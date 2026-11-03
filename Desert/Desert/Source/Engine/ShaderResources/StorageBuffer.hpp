@@ -59,6 +59,17 @@ namespace Desert::ShaderResources
         static std::shared_ptr<StorageBuffer> Create( const std::string_view debugName, uint32_t size,
                                                       uint32_t binding, bool persistent = false );
 
+        // GRASS-VIEW-LAW-1, A GPU-AUTHORED BUFFER IN VIDEO MEMORY (Persistence::DeviceOnly; UE: a pooled RDG
+        // buffer kept across graphs, e.g. the landscape grass instance buffers). ONE device-local buffer shared by
+        // every frame and view, never mapped: no CPU image (GetData is null), SetData and ReadBack are refused
+        // with the reason, the size is fixed at creation (Reserve refuses growth). It is imported
+        // (Renderer::ImportBuffer), bound (StorageBufferProperty::SetBuffer) and read by address
+        // (GetDeviceAddress) like a persistent one, and its contents are undefined until a pass writes them. For
+        // buffers the GPU alone writes and reads that are too large for the host-visible device heap (the grass
+        // pool, its instances and its id lists). Null (with the reason logged) when the buffer cannot be made.
+        static std::shared_ptr<StorageBuffer> CreateDeviceLocal( const std::string_view debugName, uint32_t size,
+                                                                 uint32_t binding );
+
         // READS WHAT THE GPU LEFT in this frame in flight's copy for the active view (GPU-count feedback: a
         // compute pass writes a count, a later frame sizes buffers from it). Per-frame buffers only: the copy
         // for the current frame index was last used FramesInFlight frames ago and the frames-in-flight fence has

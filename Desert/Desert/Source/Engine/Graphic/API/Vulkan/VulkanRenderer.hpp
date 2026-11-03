@@ -128,6 +128,11 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context, RDG::TextureRef source,
                                                      RDG::TextureRef target, uint32_t targetLayer ) override;
+        Common::BoolResultStr ScrollGraphDepthIntoLayer( const RDG::PassContext& context, RDG::TextureRef source,
+                                                         RDG::TextureRef target, uint32_t targetLayer, int32_t shiftX,
+                                                         int32_t shiftY, float clearDepth ) override;
+        Common::BoolResultStr CopyGraphLayerToDepth( const RDG::PassContext& context, RDG::TextureRef source,
+                                                     uint32_t sourceLayer, RDG::TextureRef target ) override;
         Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context, RDG::BufferRef source,
                                                         RDG::TextureRef target ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;

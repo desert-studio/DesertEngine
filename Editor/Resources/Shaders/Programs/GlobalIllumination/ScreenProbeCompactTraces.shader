@@ -4,11 +4,13 @@
 // (ScreenProbeTrace.shader, one thread per listed ray) run no lane for a ray an earlier leg answered. One workgroup per
 // probe, one thread per texel (Common/ScreenProbeTracing.glslh's trace hit buffer); the list keeps a probe's rays
 // together and in texel order (one group appends them as one run), so neighbouring threads of the world legs trace neighbouring directions
-// of one probe. Two compactions a frame (the push constant):
+// of one probe. Three compactions a frame (the push constant):
 //   near field   the rays with no hit that have not reached the radiance cache and are not past MaxDistance (the
 //                near field's end: UE CompactionMaxTraceDistance = MaxMeshSDFTraceDistance);
 //   far field    every ray with no hit (UE bCompactForSkyApply: the cache's radiance and the sky apply to all of
 //                them).
+//   cache miss   after the far field: the rays it left at the radiance cache with no traced probe answering (no
+//                hit, the reached bit still set - the far field clears it on every ray it answers).
 // The indirect arguments are written here rather than by UE's separate one-thread pass: the list's group count is the
 // largest end any probe's run reached (atomicMax), so the dispatch needs no pass of its own.
 Shader "ScreenProbeCompactTraces"
@@ -54,12 +56,15 @@ Shader "ScreenProbeCompactTraces"
         PushConstant ScreenProbeCompactPush
         {
             float MaxDistance; // a ray answered this far is not listed (cm)
-            uint  FarField;    // 1: list every ray with no hit, the cache's reached ones too
+            uint  FarField;    // SP_COMPACT_* (ScreenProbeGather.cpp kCompact*)
         };
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #define SP_COMPACT_GROUP_SIZE 64u
+        #define SP_COMPACT_NEAR_FIELD 0u // no hit, not at the cache, before MaxDistance
+        #define SP_COMPACT_FAR_FIELD  1u // no hit
+        #define SP_COMPACT_CACHE_MISS 2u // no hit, left at the cache unanswered by the far field
         #include <Common/ScreenProbeTracing.glslh>
 
         #define SP_COMPACT_TEXELS ( SP_RES * SP_RES )
@@ -77,9 +82,13 @@ Shader "ScreenProbeCompactTraces"
             if ( SPProbeTraced( probe ) )
             {
                 const uint encoded = screenProbeTraceHit[slot];
-                open = ( encoded & SP_TRACE_HIT_BIT ) == 0u &&
-                       ( FarField != 0u || ( encoded & SP_TRACE_REACHED_BIT ) == 0u ) &&
-                       SPTraceHitDistance( encoded ) < MaxDistance;
+                const bool reached = ( encoded & SP_TRACE_REACHED_BIT ) != 0u;
+                bool       listed  = !reached; // SP_COMPACT_NEAR_FIELD
+                if ( FarField == SP_COMPACT_FAR_FIELD )
+                    listed = true;
+                else if ( FarField == SP_COMPACT_CACHE_MISS )
+                    listed = reached;
+                open = ( encoded & SP_TRACE_HIT_BIT ) == 0u && listed && SPTraceHitDistance( encoded ) < MaxDistance;
             }
             const uint own = open ? 1u : 0u;
             s_Scan[texel]  = own;

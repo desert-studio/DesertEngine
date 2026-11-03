@@ -359,8 +359,8 @@ namespace Desert::Graphic
     }
 
     /// How many samples a texel's ray takes at this sun elevation. Mirror of CloudShadowSampleCount;
-    /// @p sunUpDot is the cosine between the planet's up under the camera and the direction TOWARD the
-    /// sun, i.e. the sine of the sun's elevation.
+    /// @p sunUpDot is the cosine between the planet's up under the map's snapped centre (CloudBuildShadowMapView)
+    /// and the direction TOWARD the sun, i.e. the sine of the sun's elevation there.
     inline float CloudShadowSampleCount( float sunUpDot, float baseSamples, float horizonMultiplier )
     {
         const float horizon = std::clamp( 0.2f / std::max( std::abs( sunUpDot ), 1e-4f ), 0.0f, 1.0f );
@@ -455,8 +455,15 @@ namespace Desert::Graphic
         view.MapToWorld     = glm::inverse( worldToMap );
         view.LightDirection = lightTravel;
         view.FarDepthKm     = farPlaneWorld / kCloudWorldUnitsPerKm;
-        view.SampleCount    = CloudShadowSampleCount( glm::dot( planetUp, toSun ), kCloudShadowBaseSamples,
-                                                      kCloudShadowHorizonMultiplier );
+        // THE SUN'S ELEVATION AT THE MAP'S SNAPPED CENTRE, not under the eye. The count is a push value the map's
+        // refresh key hashes (VolumetricCloudRenderer::DeclareShadowMapNodes), and the up under the raw eye moved
+        // it with every centimetre the camera did - a whole re-march of a map whose centre steps only every snap.
+        // The two ups differ by at most half a snap over the planet's radius (10 km / 6360 km: 0.09 degrees).
+        const glm::vec3 toAnchor    = anchor - planetCentre;
+        const float     toAnchorLen = glm::length( toAnchor );
+        const glm::vec3 anchorUp    = toAnchorLen > 1e-3f ? toAnchor / toAnchorLen : planetUp;
+        view.SampleCount            = CloudShadowSampleCount( glm::dot( anchorUp, toSun ), kCloudShadowBaseSamples,
+                                                              kCloudShadowHorizonMultiplier );
         view.BorderFadeUv   = CloudShadowBorderFadeUv( extentKm );
         return view;
     }

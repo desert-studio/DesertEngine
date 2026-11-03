@@ -189,6 +189,12 @@ namespace Desert::Graphic
         float     WorldPerTexel = 0.0f;              // 2 * Radius / shadowMapSize — drives the normal-offset
         float     SplitFar      = 0.0f;              // view-space far distance this cascade covers
         float     DepthRange    = 1.0f; // world length the projection's [0,1] depth spans (far - near)
+        // WHERE THE MAP LIES, as the cascade cache compares two frames' fits (MeshRenderer::PlanCascadeCache, UE's
+        // CSM scrolling): the light-space texel its centre is snapped to, and the world distance along the light of
+        // the plane its depth is measured from. Two fits of one light with the same WorldPerTexel and DepthOrigin
+        // give a world point the same depth at texels TexelOrigin apart: the cached depth is reused, shifted.
+        glm::ivec2 TexelOrigin = glm::ivec2( 0 );
+        float      DepthOrigin = 0.0f;
     };
 
     // THE CASTER DEPTH BIAS A LIGHT ASKS FOR, in world centimetres (ECS::DirectionalLightData: UE's
@@ -371,16 +377,36 @@ namespace Desert::Graphic
             const glm::vec3 up = glm::abs( lightDir.y ) > 0.99f ? glm::vec3( 0, 0, 1 ) : glm::vec3( 0, 1, 0 );
 
             // Texel-snap: the cascade centre may only move in WHOLE shadow-map texels along the light's
-            // axes, so the sampling grid stays world-locked while the camera moves.
-            const float     worldPerTexel = ( 2.0f * radius ) / static_cast<float>( setup.ShadowMapSize );
-            const glm::mat4 lightBasis    = glm::lookAt( -lightDir, glm::vec3( 0.0f ), up );
-            glm::vec3       centerLS      = glm::vec3( lightBasis * glm::vec4( center, 1.0f ) );
-            centerLS.x                    = std::floor( centerLS.x / worldPerTexel ) * worldPerTexel;
-            centerLS.y                    = std::floor( centerLS.y / worldPerTexel ) * worldPerTexel;
-            const glm::vec3 snapped       = glm::vec3( glm::inverse( lightBasis ) * glm::vec4( centerLS, 1.0f ) );
+            // axes, so the sampling grid stays world-locked while the camera moves. The whole texel it is snapped
+            // to is the fit's TexelOrigin: two fits of one light and radius are one map shifted by the difference
+            // (the cascade cache scrolls by it, MeshRenderer::PlanCascadeCache).
+            const float      worldPerTexel = ( 2.0f * radius ) / static_cast<float>( setup.ShadowMapSize );
+            const glm::mat4  lightBasis    = glm::lookAt( -lightDir, glm::vec3( 0.0f ), up );
+            const glm::vec3  centerLS      = glm::vec3( lightBasis * glm::vec4( center, 1.0f ) );
+            const glm::ivec2 texelOrigin( static_cast<int32_t>( std::floor( centerLS.x / worldPerTexel ) ),
+                                          static_cast<int32_t>( std::floor( centerLS.y / worldPerTexel ) ) );
+            const glm::vec2  snappedLS = glm::vec2( texelOrigin ) * worldPerTexel;
+            const glm::vec3  snapped =
+                 glm::vec3( glm::inverse( lightBasis ) * glm::vec4( snappedLS, centerLS.z, 1.0f ) );
 
-            // The light eye is pushed back by 2*radius so casters between it and the slice still cast.
-            const glm::mat4 view = glm::lookAt( snapped - lightDir * ( radius * 2.0f ), snapped, up );
+            // THE DEPTH RANGE IS ANCHORED TO THE WORLD, not to the slice (UE's CSM scrolling keeps the cached
+            // casters' depth valid the same way: one light-space depth range while the cache lives). The slice's
+            // centre lies within sphereZ of the eye along any view direction, so a range that starts 2 * radius +
+            // sphereZ before the eye's distance along the light - that distance rounded down to a whole `quantum` -
+            // and spans the slice's 4 * radius plus the quantum and the 2 * sphereZ swing holds every caster the
+            // slice-centred range held, for every direction the camera turns to and every step inside one quantum.
+            // A world point's depth is then one number in every fit with the same DepthOrigin: turning on the spot
+            // never changes it, walking changes it once per quantum.
+            const float quantum     = 2.0f * radius;
+            const float eyeDistance = glm::dot( eye, lightDir );
+            const float depthOrigin = std::floor( eyeDistance / quantum ) * quantum - sphereZ - 2.0f * radius;
+
+            // The light view: the light basis moved to the snapped texel across the light and to the anchored plane
+            // along it (lightBasis looks at the origin from -lightDir: its own z is -dot( p, lightDir ) - 1), so the
+            // view depth of a point is dot( p, lightDir ) - depthOrigin.
+            const glm::mat4 view =
+                 glm::translate( glm::mat4( 1.0f ), glm::vec3( -snappedLS.x, -snappedLS.y, 1.0f + depthOrigin ) ) *
+                 lightBasis;
             // DELIBERATELY STANDARD-Z (0 at the near plane, 1 at the far one) while the camera is
             // reversed-Z. An orthographic projection's depth is LINEAR in light-space distance, so the
             // float exponent is already spread evenly across the slice and reversing it would gain
@@ -388,7 +414,7 @@ namespace Desert::Graphic
             // these maps and a re-tuned shadow bias. The pass that consumes this matrix says so too
             // (MeshRenderer::SetupShadowPass) and clears its depth to 1 rather than the engine's 0.
             const float     depthNear = Common::Units::Cm( 10.0f );
-            const float     depthFar  = radius * 4.0f;
+            const float     depthFar  = 4.0f * radius + quantum + 2.0f * sphereZ;
             const glm::mat4 proj      = glm::orthoRH_ZO( -radius, radius, -radius, radius, depthNear, depthFar );
 
             out[c].ViewProj      = proj * view;
@@ -397,9 +423,77 @@ namespace Desert::Graphic
             out[c].WorldPerTexel = worldPerTexel;
             out[c].SplitFar      = zFar;
             out[c].DepthRange    = depthFar - depthNear;
+            out[c].TexelOrigin   = texelOrigin;
+            out[c].DepthOrigin   = depthOrigin;
 
             lastFar = zFar;
         }
+        return count;
+    }
+
+    // UE's r.Shadow.CSMScrollingOverlapAreaThrottle: a scrolled cascade keeps its cache only while the part of the
+    // map the cache still covers is at least this share of it; below that the strips cost what the whole map does
+    // and the cascade is redrawn whole.
+    inline constexpr float kCascadeScrollMinOverlap = 0.7f;
+
+    // Whether a cascade whose cache is shifted by @p shift texels (destination = source + shift, framebuffer axes)
+    // keeps enough of it to scroll.
+    [[nodiscard]] inline bool CascadeScrollOverlaps( const glm::ivec2 shift, const uint32_t mapSize )
+    {
+        const glm::ivec2 moved = glm::abs( shift );
+        const int32_t    size  = static_cast<int32_t>( mapSize );
+        if ( moved.x >= size || moved.y >= size )
+            return false;
+        const float side = static_cast<float>( mapSize );
+        const float kept = ( side - static_cast<float>( moved.x ) ) * ( side - static_cast<float>( moved.y ) );
+        return kept >= kCascadeScrollMinOverlap * side * side;
+    }
+
+    // THE STRIPS A SHIFT UNCOVERS (at most one across and one along), each as @p casterViewProj narrowed to the
+    // strip: a matrix whose clip box is the strip grown a texel every way, so a caster box tested against it is
+    // tested against the strip, and in @p rects the same texels as a scissor (x, y, width, height): the raster
+    // a strip's draws are limited to (MeshRenderer's scroll pass), so a caster that reaches the strip writes the
+    // strip only and the cache copied in around it stays as it was drawn. Framebuffer texels: x right, y down
+    // from the top - the graph opens a render pass with a negative-height viewport, so NDC y = 1 - 2 * y / size.
+    // Returns how many of @p out (and of @p rects) it wrote.
+    [[nodiscard]] inline uint32_t CascadeScrollStrips( const glm::ivec2 shift, const uint32_t mapSize,
+                                                       const glm::mat4& casterViewProj, glm::mat4 ( &out )[2],
+                                                       glm::uvec4 ( &rects )[2] )
+    {
+        const float side  = static_cast<float>( mapSize );
+        uint32_t    count = 0;
+        const auto  strip = [&]( const float x0, const float x1, const float y0, const float y1 )
+        {
+            // The strip's texels grown a texel every way and kept on the map: one rectangle for both the matrix
+            // and the scissor.
+            const float texelLeft   = std::max( x0 - 1.0f, 0.0f );
+            const float texelRight  = std::min( x1 + 1.0f, side );
+            const float texelTop    = std::max( y0 - 1.0f, 0.0f );
+            const float texelBottom = std::min( y1 + 1.0f, side );
+            const float left        = 2.0f * texelLeft / side - 1.0f;
+            const float right       = 2.0f * texelRight / side - 1.0f;
+            const float bottom      = 1.0f - 2.0f * texelBottom / side;
+            const float top         = 1.0f - 2.0f * texelTop / side;
+            rects[count] = glm::uvec4( static_cast<uint32_t>( texelLeft ), static_cast<uint32_t>( texelTop ),
+                                       static_cast<uint32_t>( texelRight - texelLeft ),
+                                       static_cast<uint32_t>( texelBottom - texelTop ) );
+            glm::mat4 narrow( 1.0f );
+            narrow[0][0] = 2.0f / ( right - left );
+            narrow[1][1] = 2.0f / ( top - bottom );
+            narrow[3][0] = -( right + left ) / ( right - left );
+            narrow[3][1] = -( top + bottom ) / ( top - bottom );
+            out[count++] = narrow * casterViewProj;
+        };
+        const float across = static_cast<float>( shift.x );
+        const float along  = static_cast<float>( shift.y );
+        if ( shift.x > 0 )
+            strip( 0.0f, across, 0.0f, side );
+        else if ( shift.x < 0 )
+            strip( side + across, side, 0.0f, side );
+        if ( shift.y > 0 )
+            strip( 0.0f, side, 0.0f, along );
+        else if ( shift.y < 0 )
+            strip( 0.0f, side, side + along, side );
         return count;
     }
 } // namespace Desert::Graphic

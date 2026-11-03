@@ -101,8 +101,11 @@ namespace Desert::Graphic::System
         // layers' height x Magnitude around Center, faded out with distance). x = DisplacementMagnitude (cm; 0 = the
         // tile is drawn flat), y = DisplacementCenter, z = DisplacementFadeStart, w = DisplacementFadeEnd (cm).
         glm::vec4 Displacement{ 0.0f };
-        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every caster view, so a cascade sees
+        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every cascade view, so a cascade sees
         // the surface the camera sees. w = 1: the tile is drawn diced in rings (DiceRings), 0: its plain LOD grid.
+        // The virtual shadow map's row (LandscapeVirtualShadowRow) holds its anchor in xyz and 1 + the reach (cm)
+        // in w: its fade is the lower envelope of the fades of every eye within the reach of the anchor
+        // (LandscapeDisplacement.glslh LandscapeDicedPoint), so its cached pages do not follow the eye's step.
         glm::vec4 DisplacementView{ 0.0f };
         // THE DICE RINGS (LandscapeDisplacement.glslh), square rings of cells around the main camera on the tile's
         // LOD-0 grid, each diced finer than the ring outside it (UE Nanite: finer where a triangle is larger on
@@ -365,6 +368,15 @@ namespace Desert::Graphic::System
     // vertex every 6.25 cm on a 1 m landscape.
     constexpr int kLandscapeDiceLevels = 5;
 
+    // THE VIRTUAL SHADOW MAP'S ANCHOR REACH (TURN-CACHE-2; UE: a landscape's cached VSM pages are invalidated by a
+    // LOD change only past its height-error threshold, never by the eye's step): how far the eye walks from the
+    // anchor before the displaced landscape's virtual shadow pages are redrawn. The caster takes, in the fade's
+    // band, the lowest surface any eye within the reach would draw (bumps at the smallest fade, pits at the
+    // largest), so no receiver lies under it; the price is the relief's self-shadow missing in that band widened
+    // by the reach. 4 m: one redraw per 40 frames of FPS-FIELD-BARN-WALK's 10 cm step, and the relief nearer
+    // than DisplacementFadeStart - 4 m (11 m by default) is exact.
+    constexpr float kLandscapeVsmAnchorReachCm = 400.0f;
+
     // Dice ring @p level (dice 1 << level) of a row, clamped to the tile's @p cells x @p cells grid: [x0, x1) x
     // [z0, z1); empty when the ring is absent. LandscapeDisplacement.glslh LandscapeDiceRingRect is the same.
     // @p pool: the ring as the CAMERA dices it (the dice pool's layout), not as the row's view draws it (a caster
@@ -462,6 +474,10 @@ namespace Desert::Graphic::System
         uint32_t   Cells        = 0; // the grid's cells a side: its index buffer
         uint32_t   RingVertices = 0; // the procedural draw: vertices [0, RingVertices) of the decode
         glm::ivec4 Hole{ 0 };        // [x0, x1) x [z0, z1): the cells the rings draw; empty = no ring
+        // [x0, x1) x [z0, z1), clamped to the grid: the grid cells drawn (LandscapeGridRangesOf) - every one by
+        // default; a scrolled cascade's strip narrows a draw to the patches it reaches
+        // (TerrainRenderer::RecordShadowView), whose rings then ride with one of them.
+        glm::ivec4 Window{ 0, 0, std::numeric_limits<int32_t>::max(), std::numeric_limits<int32_t>::max() };
     };
 
     // The split of the row's draw at grid LOD @p gridLod: LandscapeDicedVertexCount's walk, kept as the decode
@@ -506,31 +522,46 @@ namespace Desert::Graphic::System
         uint32_t                          Count = 0;
     };
 
-    // The grid's cells outside @p split.Hole (all of them when it is empty) as index ranges: the rows below the
-    // hole and the rows above it are each one contiguous range; the hole's rows left of it and right of it are
-    // each one range of row 0's indices, instanced once per row. Every cell outside the hole once, none inside it.
+    // The grid's cells inside @p split.Window and outside @p split.Hole as index ranges: the window's rows below
+    // the hole and its rows above it are each one rectangle, the hole's rows left of it and right of it are each
+    // one. A rectangle as wide as the grid is one contiguous range of its rows; a narrower one is one range of
+    // row 0's indices (its columns), instanced once per row. Every cell of the window outside the hole once, none
+    // inside it; the whole grid's window gives the four ranges around the hole (one range without a hole).
     inline LandscapeGridRanges LandscapeGridRangesOf( const LandscapeDrawSplit& split )
     {
         LandscapeGridRanges ranges;
-        const uint32_t      cells = split.Cells;
-        const auto          add   = [&]( uint32_t first, uint32_t count, uint32_t firstRow, uint32_t rows )
+        const int32_t       cells = static_cast<int32_t>( split.Cells );
+        const auto          rect  = [&]( int32_t x0, int32_t x1, int32_t z0, int32_t z1 )
         {
-            if ( count > 0u && rows > 0u )
-                ranges.Ranges[ranges.Count++] = LandscapeGridRange{ first, count, firstRow, rows };
+            if ( x1 <= x0 || z1 <= z0 )
+                return;
+            const uint32_t width = static_cast<uint32_t>( x1 - x0 );
+            const uint32_t rows  = static_cast<uint32_t>( z1 - z0 );
+            if ( x0 == 0 && x1 == cells )
+                ranges.Ranges[ranges.Count++] = LandscapeGridRange{ static_cast<uint32_t>( z0 ) * split.Cells * 6u,
+                                                                    rows * split.Cells * 6u, 0u, 1u };
+            else
+                ranges.Ranges[ranges.Count++] = LandscapeGridRange{ static_cast<uint32_t>( x0 ) * 6u, width * 6u,
+                                                                    static_cast<uint32_t>( z0 ), rows };
         };
-        if ( LandscapeDiceRectArea( split.Hole ) == 0u )
+        const int32_t wx0 = std::clamp( split.Window.x, 0, cells );
+        const int32_t wz0 = std::clamp( split.Window.y, 0, cells );
+        const int32_t wx1 = std::clamp( split.Window.z, 0, cells );
+        const int32_t wz1 = std::clamp( split.Window.w, 0, cells );
+        // The hole's part inside the window.
+        const int32_t hx0 = std::clamp( split.Hole.x, wx0, wx1 );
+        const int32_t hz0 = std::clamp( split.Hole.y, wz0, wz1 );
+        const int32_t hx1 = std::clamp( split.Hole.z, wx0, wx1 );
+        const int32_t hz1 = std::clamp( split.Hole.w, wz0, wz1 );
+        if ( hx1 <= hx0 || hz1 <= hz0 )
         {
-            add( 0u, cells * cells * 6u, 0u, 1u );
+            rect( wx0, wx1, wz0, wz1 );
             return ranges;
         }
-        const uint32_t x0 = static_cast<uint32_t>( split.Hole.x );
-        const uint32_t z0 = static_cast<uint32_t>( split.Hole.y );
-        const uint32_t x1 = static_cast<uint32_t>( split.Hole.z );
-        const uint32_t z1 = static_cast<uint32_t>( split.Hole.w );
-        add( 0u, z0 * cells * 6u, 0u, 1u );                          // the rows below the hole
-        add( 0u, x0 * 6u, z0, z1 - z0 );                             // its rows, left of it
-        add( x1 * 6u, ( cells - x1 ) * 6u, z0, z1 - z0 );            // its rows, right of it
-        add( z1 * cells * 6u, ( cells - z1 ) * cells * 6u, 0u, 1u ); // the rows above it
+        rect( wx0, wx1, wz0, hz0 ); // the rows below the hole
+        rect( wx0, hx0, hz0, hz1 ); // its rows, left of it
+        rect( hx1, wx1, hz0, hz1 ); // its rows, right of it
+        rect( wx0, wx1, hz1, wz1 ); // the rows above it
         return ranges;
     }
 

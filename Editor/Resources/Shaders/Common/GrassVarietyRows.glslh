@@ -13,7 +13,7 @@
 
 struct GrassVarietyRow
 {
-    uvec2 Instances;   // mat4 per slot (GrassGenerate.shader Instances)
+    uvec2 Instances;   // mat4 per pool record (GrassCull.shader GrassViewLaw writes the record's row the views keep)
     uvec2 Args;        // GpuInstances.hpp: header (bucket count, capacity, record count, drawn), the draw records,
                        // then per bucket count, first, capacity, half screen size
     uvec2 CameraIds;   // the camera's list: per slot the row of Instances (GPU-COST-22)
@@ -27,11 +27,63 @@ struct GrassVarietyRow
                        // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
     vec4  Bounds;      // x = bounds radius (local), y = bounds centre height (local), z = the cull pad (cm: a mesh's
                        // sway past its bounds), w = 0
+    // GRASS-CULL-UNIFY-1: the cascades' lists are culled per frame from the view-independent Instances by
+    // GrassCull.shader (CascadeCull), no longer by the tile cull. CascadeIds: per cascade list k the slots of
+    // Instances at k x capacity; CascadeWords: x = one list's words in CascadeArgs (Args' layout and its rest twin),
+    // y = the first of a list's rest counts (one per bucket); CascadeRings: list k's movers' ring at [k / 2].xy
+    // (k even) / .zw (k odd): x = inner, y = wind distance (0: no mover), cm.
+    uvec2 CascadeIds;
+    uvec2 CascadeWords;
+    vec4  CascadeRings[4];
+    // GRASS-VIEW-LAW-1: Chunks holds the build's chunks, one per (tile slot, cluster) - the chunk contract below; its
+    // header: x = the chunks (tile slots x kTileClusters), z = the same room, y = w = 0. The view law reads a chunk's
+    // records from TilePool (kGrassTilePoolWords uvec4 each, Common/GrassTileRecord.glslh), the variety's params
+    // from Params and the field from Field, and appends the rows it keeps to FullIds: the full list, Args' buckets,
+    // the union of the camera's planes and the cascades' lists, which RT and the list-less cascades draw.
+    uvec2 Chunks;
+    uvec2 Params;
+    uvec2 Field;
+    uvec2 TilePool;
+    uvec2 FullIds;
+    // The row ends here; std430 rounds it to its 16-byte alignment.
 };
 
 // Info.z: the variety's records come in sets of one record per bucket (a blade strip's, one set per shadow LOD),
 // not in a group of records per bucket (a mesh's levels).
 const uint kGrassRowBlade = 1u;
+// Info.z: the cascades' lists of this row hold from an earlier frame (GrassRenderer VarietyGpu::CascadeKey: the same
+// instances, guarded caster boxes, wind origin and rings as the frame that culled them), so GrassCull neither culls
+// nor finalizes them this frame; it copies their drawn counts into this frame in flight's Feedback.
+const uint kGrassRowCascadesHeld = 2u;
+
+// THE CHUNK CONTRACT (GRASS-VIEW-LAW-1; UE landscape grass: a component's instances are built once, the views cull
+// them): chunk c = tile slot x kTileClusters + cluster, written ONCE by the build (GrassGenerate.shader Write,
+// WriteTileChunk) and emptied by Free (count 0); nothing view-dependent is in it. Its words from GrassChunkAt( c ):
+//   0..2 the box of its records' roots (min xyz, floats, before the snow sinks them), 3..5 the box's far corner,
+//   6 the largest axis scale of its records before the law widens them (float; a blade's height with its clump),
+//   7 its first record in the pool, 8 its record count (0: empty; at most kGrassTilePageRecords, one cluster's run
+//   in fade-draw order), 9 the pool page the run continues on past its first page's end, 10..11 zero.
+// Lane i < count reads record GrassChunkRecord( first, page, i ); the records' fade draws ascend along the run.
+// THE ROWS: Instances[record] is that record's instance after the law; every list (CameraIds, CascadeIds, FullIds)
+// holds records, so a list held from an earlier frame still names the rows it was culled from.
+const uint kGrassChunkHeader    = 4u;
+const uint kGrassChunkWords     = 12u;
+const uint kGrassChunkBoxWord   = 0u;
+const uint kGrassChunkScaleWord = 6u;
+const uint kGrassChunkFirstWord = 7u;
+const uint kGrassChunkCountWord = 8u;
+const uint kGrassChunkPageWord  = 9u;
+
+uint GrassChunkAt( uint chunk )
+{
+    return kGrassChunkHeader + chunk * kGrassChunkWords;
+}
+// Record @p i of the run from pool record @p first that continues on pool page @p page (64 records a page).
+uint GrassChunkRecord( uint first, uint page, uint i )
+{
+    uint left = 64u - first % 64u;
+    return i < left ? first + i : page * 64u + ( i - left );
+}
 
 layout( buffer_reference, std430, buffer_reference_align = 4 ) buffer GrassWords
 {
@@ -41,10 +93,15 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 {
     mat4 Transforms[];
 };
+layout( buffer_reference, std430, buffer_reference_align = 16 ) writeonly buffer GrassInstanceRows
+{
+    mat4 Rows[];
+};
 layout( buffer_reference, std430, buffer_reference_align = 16 ) buffer GrassQuads
 {
     uvec4 Quads[];
 };
+
 
 // The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its levels); a
 // blade's in sets of one record per bucket, each set a shadow LOD of the same buckets.

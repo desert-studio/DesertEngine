@@ -9,6 +9,8 @@
 
 #include <cstdint>
 
+#include <glm/vec3.hpp>
+
 namespace Desert::Graphic
 {
     // The frame-graph names of one producer's two buffers, valid from the producer's compute node on (it is added
@@ -29,7 +31,7 @@ namespace Desert::Graphic
     // submesh of the mesh at the drawn level, then per BUCKET four words (count the generator appended, first
     // instance, capacity, 0). A bucket is a range of Instances: a mesh has one, drawn by every section; a grass
     // blade strip one per level, drawn by the submesh of that level (GRASS-BLADE). Programs/Grass/
-    // GrassFinalize.shader writes each record's instanceCount and firstInstance from its bucket.
+    // GrassCull.shader writes each record's instanceCount and firstInstance from its bucket.
     // A blade strip's records come in SETS, one per strip level (GPU-COST-20, UE's shadow LOD bias): record
     // k x levels + s draws bucket s with strip level max(s, k). Set 0 is the camera's (level s for bucket s); a
     // cascade draws the set its texel size asks for (MeshRenderer::BuildGpuInstancedShadowDraws), so a blade is
@@ -53,5 +55,9 @@ namespace Desert::Graphic
         // screen-width floor's D) (GrassFieldShare.glslh GrassThinShare); 0: none
         float    StartCull   = 0.0f;
         float    PixelSpread = 0.0f; // the main view's pixel size per cm of distance (0: orthographic, no thinning)
+        // the eye the generator measured its distances from (GrassRenderer FieldEye: the camera snapped to the
+        // variety's tile grid, CSM-SCROLL-3): a still section's cascade thins its blades from it too, so its static
+        // layer does not change while the eye stays in a tile
+        glm::vec3 ThinOrigin = glm::vec3( 0.0f );
     };
 } // namespace Desert::Graphic

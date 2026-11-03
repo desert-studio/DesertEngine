@@ -73,4 +73,29 @@ namespace Desert::ShaderResources::API::Vulkan
         out = std::move( copy );
         return BOOLSUCCESS;
     }
+
+    Common::BoolResultStr MakeDeviceBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
+                                                uint32_t size, std::unique_ptr<MappedBufferCopy>& out )
+    {
+        VkBufferCreateInfo bufferInfo = {};
+        bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.usage              = usage;
+        bufferInfo.size               = size;
+
+        auto*      allocator = Allocator();
+        VkBuffer   buffer    = VK_NULL_HANDLE;
+        const auto allocated = allocator->RT_AllocateBuffer( std::string( debugName ), bufferInfo,
+                                                             VMA_MEMORY_USAGE_GPU_ONLY, buffer );
+        if ( !allocated.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "{} device-local byte(s) could not be allocated: {}", size,
+                                                     allocated.GetError() );
+
+        // Never mapped: m_Mapping stays the unmapped default, so a host Write refuses and the destructor's
+        // Unmap is a no-op (VulkanStorageBuffer refuses the write before it gets here, with the reason).
+        auto copy = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size,
+                                                        Desert::Graphic::ResourceKind::StorageBuffer );
+        copy->m_Ledger.Name( std::string( debugName ) );
+        out = std::move( copy );
+        return BOOLSUCCESS;
+    }
 } // namespace Desert::ShaderResources::API::Vulkan

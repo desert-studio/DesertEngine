@@ -264,6 +264,14 @@ namespace Desert::Graphic::GpuDriven
                          views[v].Frustum.GetPlane( static_cast<Core::FrustumPlane>( plane ) );
                     row.FrustumPlanes[plane] = glm::vec4( fp.Normal, fp.Distance );
                 }
+                row.Strips = glm::uvec4( std::min( views[v].StripCount, 2u ), 0u, 0u, 0u );
+                for ( uint32_t s = 0; s < row.Strips.x; ++s )
+                    for ( uint32_t plane = 0; plane < 6u; ++plane )
+                    {
+                        const Core::Frustum::Plane& fp =
+                             views[v].Strips[s].GetPlane( static_cast<Core::FrustumPlane>( plane ) );
+                        row.StripPlanes[s * 6u + plane] = glm::vec4( fp.Normal, fp.Distance );
+                    }
                 row.ViewIndex = v;
                 rows.push_back( row );
             }

@@ -20,6 +20,14 @@ Shader "RayTracingGpuInstances"
             uint Arguments[]; // GpuInstances.hpp: header, 5 words per indexed-indirect record, 4 per bucket
         };
 
+        // GRASS-VIEW-LAW-1: the producer's ids (GpuInstanceRefs::Ids: per drawn slot its row of Transforms) when
+        // ThroughIds is 1 - grass's full list, whose rows are its pool's records; else Transforms bound as a stand-in,
+        // never read (the slot is the row).
+        ReadBuffer(3) Ids
+        {
+            uint InstanceIds[];
+        };
+
         Buffer(2) TlasRows
         {
             uint TlasRowWords[]; // 16 words per VkAccelerationStructureInstanceKHR
@@ -34,7 +42,7 @@ Shader "RayTracingGpuInstances"
             uint SbtAndFlags;  // sbtOffset:24 | flags:8
             uint AddressLo;    // the BLAS device address
             uint AddressHi;
-            uint Pad;
+            uint ThroughIds;   // 1: Ids holds each slot's row of Transforms
         };
 
         void main()
@@ -50,7 +58,9 @@ Shader "RayTracingGpuInstances"
                     TlasRowWords[row + w] = 0u;
                 return;
             }
-            mat4 world = InstanceTransforms[Arguments[record + 4u] + i];
+            uint slot  = Arguments[record + 4u] + i;
+            uint at    = ThroughIds != 0u ? InstanceIds[slot] : slot;
+            mat4 world = InstanceTransforms[at];
             for ( uint r = 0u; r < 3u; ++r )
                 for ( uint c = 0u; c < 4u; ++c )
                     TlasRowWords[row + r * 4u + c] = floatBitsToUint( world[c][r] ); // row-major 3x4

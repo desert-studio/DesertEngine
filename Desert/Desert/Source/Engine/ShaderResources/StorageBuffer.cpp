@@ -46,4 +46,34 @@ namespace Desert::ShaderResources
         return nullptr;
     }
 
+    std::shared_ptr<StorageBuffer> StorageBuffer::CreateDeviceLocal( const std::string_view debugName,
+                                                                     uint32_t size, uint32_t binding )
+    {
+        switch ( Graphic::RendererAPI::GetAPIType() )
+        {
+            case Graphic::RendererAPIType::None:
+                return nullptr;
+            case Graphic::RendererAPIType::Vulkan:
+            {
+                // As Create: a buffer that did not build does not leave this function. It has no mapping to
+                // ask about (EnsureMapped refuses by design), so the question is whether its one device buffer
+                // was made - PrepareForRecording answers it for a buffer shared by every frame.
+                auto       buffer = std::make_shared<API::Vulkan::VulkanStorageBuffer>( debugName, size, binding,
+                                                                                        Persistence::DeviceOnly );
+                const auto usable = buffer->PrepareForRecording();
+                if ( !usable.IsSuccess() )
+                {
+                    LOG_ERROR(
+                         "[StorageBuffer] device-local '{}' ({} bytes, binding {}) is not usable and was not "
+                         "created: {}",
+                         debugName, size, binding, usable.GetError() );
+                    return nullptr;
+                }
+                return buffer;
+            }
+        }
+        DESERT_VERIFY( false, "Unknown RenderingAPI" );
+        return nullptr;
+    }
+
 } // namespace Desert::ShaderResources

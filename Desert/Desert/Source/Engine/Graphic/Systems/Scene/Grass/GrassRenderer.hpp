@@ -38,7 +38,7 @@ namespace Desert::Graphic::System
     class MeshRenderer;
 
     // GPU-COST-21: the cascade views a variety keeps a list of its own for, at most (every shadowed directional
-    // light's cascades; MeshRenderer::kCascadeViews). GrassGenerate.shader CascadePlanes and GrassFinalize.shader
+    // light's cascades; MeshRenderer::kCascadeViews). GrassGenerate.shader CascadePlanes and GrassCull.shader
     // kCascadeViews are sized by it.
     inline constexpr uint32_t kGrassCascadeLists = SceneResources::kMaxCascadeViews;
 
@@ -224,25 +224,25 @@ namespace Desert::Graphic::System
         }
 
     private:
-        // GRASS-VIS-6: what the camera draws this frame. None: the full list (it is the camera's own volume, and no
-        // HZB is tested); Planes: its own list, culled by its side planes; PlanesAndHzb: that list culled by last
-        // frame's HZB too, with phase 2's candidates (GrassGenerate.shader Hzb.w 0 / 3 / 1).
+        // GRASS-VIS-6: what the camera draws this frame. None: the full list (it is the camera's own volume, and
+        // no HZB is tested); Planes: its own list, culled by its side planes; PlanesAndHzb: that list culled by
+        // last frame's HZB too, with phase 2's candidates (GrassGenerate.shader Hzb.w 0 / 3 / 1).
+        // GRASS-CULL-UNIFY-1: the full list is the view-independent field about the field eye, so the camera
+        // always culls its own list (None, "the full list is the camera's volume", is gone with the swept volume).
         enum class CameraList : uint8_t
         {
-            None,
             Planes,
             PlanesAndHzb
         };
-        // The view's two volumes (GrassGenerate.shader GrassParams Planes / CameraPlanes), decided once per AddFrame.
+        // The view's volumes for GrassCull.shader (the variety table's header), decided once per AddFrame: the
+        // camera's side planes and the cascades' caster boxes. The tile cull sees none of them.
         struct ViewVolumes
         {
-            glm::vec4  Full[4]{};
             glm::vec4  Camera[4]{};
-            bool       Swept = false; // Full is wider than Camera: the cells and capacity leave the lens's wedge
-            CameraList List  = CameraList::None;
+            CameraList List = CameraList::Planes;
             // GPU-COST-21: the cascade views this frame draws (bit v: view v, MeshRenderer::CascadeCasterBoxSet)
-            // and their caster boxes, list k's six planes (the k-th set bit's) at 6k (GrassGenerate.shader
-            // CascadePlanes).
+            // and their caster boxes as GrassCull culls them, list k's six planes (the k-th set bit's) at 6k: the
+            // guard box held about the view's caster box (GrassRenderer.cpp kCascadeGuardTurn).
             uint32_t  CascadeMask = 0;
             glm::vec4 CascadePlanes[kGrassCascadeLists * 6u]{};
             // GRASS-SHADOW-1: list k's cascade view (the k-th set bit of CascadeMask) - the view a variety asks
@@ -273,7 +273,7 @@ namespace Desert::Graphic::System
             // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.
             uint32_t              PrepassBuckets = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
-            // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
+            // GPU-count feedback (GrassCull FinalizeFull): per frame in flight, each bucket's unclamped count and a written
             // mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a row its
             // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
             std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
@@ -282,7 +282,7 @@ namespace Desert::Graphic::System
             // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
             uint32_t                                        SettleReads = 0;
             bool                                            Truncated   = false;
-            // GRASS-VIS-7: the drawn counts this frame's Feedback copy held (GrassFinalize, FramesInFlight frames
+            // GRASS-VIS-7: the drawn counts this frame's Feedback copy held (GrassCull FinalizeFull, FramesInFlight frames
             // ago): the full list's, the camera's phase 1's, phase 2's appended; none before its first write.
             std::optional<glm::uvec3>                       Drawn;
             // GPU-COST-21: the same copy's drawn count of each cascade view's list (0: the view had none).
@@ -295,7 +295,7 @@ namespace Desert::Graphic::System
             // touch): CameraIds / CameraArgs the instances inside the camera's planes that last frame's HZB does
             // not hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw
             // records.
-            CameraList                                      List = CameraList::None;
+            CameraList                                      List = CameraList::Planes;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
             std::shared_ptr<ShaderResources::StorageBuffer> Candidates;
@@ -304,6 +304,19 @@ namespace Desert::Graphic::System
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs     PostRefs;   // phase 2's: CameraIds through PostArgs
             RDG::BufferRef      CandidatesRef;
+            // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the
+            // tile cull's runs of Instances - one subgroup's slots of one bucket, one tile cluster's - with their
+            // roots' box, each culled whole by one subgroup of GrassCull's camera cull, whose lanes then cull its
+            // instances; room for ChunkRoom chunks (one per slot of Instances).
+            std::shared_ptr<ShaderResources::StorageBuffer> Chunks;
+            RDG::ExternalBuffer                             ChunksImport;
+            RDG::BufferRef                                  ChunksRef;
+            uint32_t                                        ChunkRoom = 0;
+            // GRASS-CULL-HIER-1: what the cascades' lists were last culled from (GrassRenderer::WriteVarietyTable:
+            // the guarded caster boxes, the wind origin, the row's buffers and rings, Generation) and whether a
+            // frame culled them from it; from the next frame the lists hold (kGrassRowCascadesHeld) until it changes.
+            std::vector<uint32_t> CascadeKey;
+            bool                  CascadesCulled = false;
             // GRASS-CULL-2: what the camera cull reads of the params, through the variety table (GrassRenderer.cpp
             // GrassVarietyRowGpu): x = the bounds radius, y = the bounds centre height (local), z = the cull pad (cm),
             // and the bucket table's first word in Args.
@@ -321,25 +334,89 @@ namespace Desert::Graphic::System
             uint32_t                                        CascadeMask      = 0;
             uint32_t                                        CascadeArgWords  = 0;
             uint32_t                                        CascadeRestShift = 0;
+            // GRASS-CULL-UNIFY-1: this frame's movers' ring of list k (x = MeshRenderer::ShadowWindInnerOf by
+            // Reach, y = the wind distance, 0: no mover), the variety table's CascadeRings for GrassCull's
+            // CascadeCull.
+            std::array<glm::vec2, kGrassCascadeLists>       CascadeRings{};
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CascadeArgs;
             RDG::ExternalBuffer                             CascadeIdsImport, CascadeArgsImport;
             GpuInstanceRefs                                 CascadeRefs;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;
-            glm::ivec4                                      Cells{ 0 };
+            // GRASS-VIEW-LAW-1: the field's buffer this frame (the variety table's Field address) and the full list
+            // (GrassCull.shader CullInstance: the records the views keep, in Args' buckets; Refs.Ids).
+            std::shared_ptr<ShaderResources::StorageBuffer> FieldBuffer;
+            std::shared_ptr<ShaderResources::StorageBuffer> FullIds;
+            RDG::ExternalBuffer                             FullIdsImport;
             uint32_t                                        Index = 0; // stable section key base
-            // GrassGenerate's inputs this frame (FrameKey: the params, the cells, the capacity, the buffers, the
-            // field's revision) and the ones Instances / Args were last generated from (GenerateKey). Equal inputs
-            // generate equal instances, so a frame with the same ones dispatches nothing (UE: a component's grass
-            // is built once and kept until its inputs change, LandscapeGrass.cpp). StableGenerations counts the
-            // generations in a row from GenerateKey: the skip starts once every frame in flight's feedback copy
-            // (GrassFinalize) holds their counts, so the capacity read back stays the one they ask for.
+            // GRASS-TILE-1, THE TILE CACHE (UE LandscapeGrass.cpp: a component's grass is built once by
+            // FAsyncGrassBuilder into its HISM and kept while the component is within the cull distance, the
+            // builds budgeted by grass.MaxCreatePerFrame): the variety's world tiles of kGrassTileCells^2 cells
+            // within the cull radius of the eye, each built once into the pool (GrassGenerate.shader Count /
+            // Allocate / Write) and freed when it leaves the radius; the tile cull (GrassGenerate.shader Cull) is
+            // the per-view rest. A tile is built for the nearest the eye stood (BuiltNear, less a hysteresis): its
+            // fade draws past that view's share are not kept, so it is rebuilt when the eye comes nearer, or
+            // recedes far enough to hold too many (UpdateTiles). Stale: built under another lens or Foliage
+            // quality's thinning; it keeps drawing until rebuilt.
+            struct ResidentTile
+            {
+                uint32_t Slot      = 0;
+                float    BuiltNear = 0.0f;
+                bool     Stale     = false;
+            };
+            std::unordered_map<uint64_t, ResidentTile> Tiles; // by the tile's world index (TileKey)
+            std::vector<uint32_t>                      FreeSlots;
+            uint32_t                                   TileSlots = 0;
+            uint32_t                                   TilePages = 0;
+            float                                      TileSide  = 0.0f; // cm
+            // What the build reads (PlacementKey: the placement's params, the cell, the field's revision; a change
+            // empties the pool) and the share law's inputs (ThinKey: Start/EndCullDistance through the lens, the
+            // screen-width floor; a change marks every tile stale).
+            std::vector<uint32_t> PlacementKey;
+            std::vector<uint32_t> ThinKey;
+            // The pool's identity (TileFeedback's mark); PoolFresh: this frame initialises it
+            // (kGrassTileModeInit).
+            uint32_t                                        PoolGeneration = 0;
+            bool                                            PoolFresh      = false;
+            std::shared_ptr<ShaderResources::StorageBuffer> TileTable;    // per frame in flight: TileEntries
+            std::shared_ptr<ShaderResources::StorageBuffer> TileFeedback; // per frame in flight: read back
+            RDG::ExternalBuffer                             TileTableImport, TileFeedbackImport;
+            // GRASS-TILE-3: THE POOL IS VIDEO MEMORY (UE: the grass HISM's instance buffers are GPU resources, the
+            // host only uploads). The records (TilePool) and the free pages and tile headers (TileWords) are
+            // written and read by the GPU alone, so they are device-local storage buffers (GRASS-VIEW-LAW-1:
+            // StorageBuffer::CreateDeviceLocal, Persistence::DeviceOnly; until then graph buffers kept by
+            // Builder::Extract, which have no device address) - not persistent StorageBuffers, which are
+            // host-visible (MakeMappedBufferCopy: CPU_TO_GPU): ~1 GB of those filled the device-local host-visible
+            // heap (256 MB without resizable BAR) and the driver placed the rest - the pool and the camera list's
+            // Instances and ids made after it - in system memory, read over PCIe by the tile cull, the camera cull
+            // and every grass draw. Instances, CameraIds, Candidates and CascadeIds are device-local for the same
+            // reason. UpdateTiles makes the pool for a new PoolGeneration; TilePoolMade: a frame's graph has run
+            // its Init pass on it (AddFrame); false until then, and a new pool is made by the next frame's.
+            bool                                            TilePoolMade = false;
+            std::shared_ptr<ShaderResources::StorageBuffer> TilePool, TileWords;
+            RDG::ExternalBuffer                             TilePoolImport, TileWordsImport;
+            RDG::BufferRef TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
+            // This frame's tile table (GrassGenerate.shader Tiles): the header, then TileFrees slots to free,
+            // TileBuilds tiles to build, TileCulls tiles the tile cull walks (nearest first, GRASS-TILE-2).
+            std::vector<glm::uvec4> TileEntries;
+            uint32_t                TileFrees  = 0;
+            uint32_t                TileBuilds = 0;
+            uint32_t                TileCulls  = 0;
+            // Counts the frames whose tiles changed (built, freed): the tile cull's input (FrameKey).
+            uint32_t TileVersion = 0;
+            // GrassGenerate's tile cull's inputs this frame (FrameKey: the params, the tiles' version, the
+            // capacity, the buffers, the field's revision) and the ones Instances / Args were last culled from
+            // (GenerateKey). Equal inputs keep equal instances, so a frame with the same ones dispatches nothing -
+            // turning the camera changes the planes and re-culls, it builds no tile. GRASS-VIEW-LAW-1: a new
+            // generation re-culls the cascades and the full list (WriteVarietyTable's CascadeKey).
             std::vector<uint32_t> FrameKey;
             std::vector<uint32_t> GenerateKey;
-            uint32_t              StableGenerations = 0;
-            // Counts the GenerateKey changes: the identity of what Instances holds, which a cached cascade's static
-            // layer is keyed by (MeshRenderer::GpuInstancedRenderData::Still).
+            // Counts the GenerateKey changes: the identity of what the field holds, which a cached cascade's static
+            // layer is keyed by (MeshRenderer::GpuInstancedRenderData::Still). CSM-SCROLL-3: it holds whatever the
+            // view - FrameKey carries no view volume (GRASS-CULL-UNIFY-1: the camera's planes and the cascades' boxes
+            // are GrassCull's, per frame), and the field eye moves only from tile to tile - so a turn or a step
+            // inside a tile keeps it and the cache scrolls.
             uint64_t Generation = 0;
             // The farthest an instance's geometry reaches from its origin, world cm: its bounding sphere's centre
             // height plus radius at the placement's largest scale, and the wind's sway (StillInstances::Reach).
@@ -352,14 +429,21 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
                                                   const ViewFrame& frame, const ViewVolumes& volumes,
-                                                  const MeshRenderer& meshes );
-        // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows, then
-        // m_FrameGenerate's, written into m_Table and imported into @p graph (m_TableRef). Refused when a variety's
-        // buffer has no device address.
+                                                  const MeshRenderer& meshes, uint64_t fieldRevision );
+        // GRASS-TILE-1: @p gpu's tiles for this frame's eye - the pool (re)made when the placement or the pool's
+        // room asks for it, tiles past the radius freed, missing / stale ones built nearest first, at most
+        // kGrassTileBuildsPerFrame - and its tile table (VarietyGpu::TileEntries). @p placement / @p thin: the
+        // build's inputs (VarietyGpu::PlacementKey / ThinKey); @p cell the grid cell, @p radius the cull radius,
+        // @p stray how far an instance lies from its cell (cm). False when a buffer was not made.
+        [[nodiscard]] bool UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement,
+                                        std::vector<uint32_t> thin, glm::vec2 eye, float cell, float radius,
+                                        float stray );
+        // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows,
+        // written into m_Table and imported into @p graph (m_TableRef).
+        // Refused when a variety's buffer has no device address.
         [[nodiscard]] Common::BoolResultStr WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes );
-        // The one binding block of a pass over the table: GrassFinalize's; GrassCull's, @p hzb the texture it tests
-        // and @p dispatch its access to this frame's dispatch buffer (m_FrameDispatch).
-        void BindFinalize( RDG::PassBuilder& pass );
+        // The one binding block of a pass over the table, GrassCull's: @p hzb the texture it tests and @p dispatch
+        // its access to this frame's dispatch buffer (m_FrameDispatch).
         void BindCull( RDG::PassBuilder& pass, RDG::TextureRef hzb, RDG::Access dispatch );
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
@@ -370,19 +454,30 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
-        std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
         // GRASS-VIS-24: this frame's whose camera list is culled (an HZB-tested frame: every one with a list; by
         // the planes alone: those that generate)
         std::vector<VarietyGpu*>         m_FrameCull;
+        // GRASS-TILE-1: this frame's whose pool is initialised or whose tiles are freed (the Free pass), and whose
+        // tiles are built (Count / Allocate / Write).
+        std::vector<VarietyGpu*>         m_FrameTileFree;
+        std::vector<VarietyGpu*>         m_FrameTileBuild;
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral
         bool m_FrameTable = false; // the last AddFrame wrote its variety table and added its passes
+        // GRASS-CULL-HIER-1: cascade list k's guard box (GrassRenderer.cpp kCascadeGuardTurn) - the caster box of
+        // the view it last grew from, grown by the chord a turn of the camera carries it - and that view
+        // (kNoCascadeView: none yet).
+        static constexpr uint32_t kNoCascadeView = 0xFFFFFFFFu;
+        struct CascadeGuard
+        {
+            uint32_t  View = kNoCascadeView;
+            glm::vec4 Planes[6]{};
+        };
+        std::array<CascadeGuard, kGrassCascadeLists> m_CascadeGuards{};
         std::shared_ptr<ComputePipeline> m_Generate;
-        std::shared_ptr<ComputePipeline> m_Finalize;
         std::shared_ptr<ComputePipeline> m_Cull; // GRASS-CULL-2: the camera cull and phase 2 (GrassCull.shader)
         mutable ShaderBindingLayoutCache m_GenerateLayout;
-        mutable ShaderBindingLayoutCache m_FinalizeLayout;
         mutable ShaderBindingLayoutCache m_CullLayout;
         // GRASS-CULL-2: the variety table (per frame in flight, WriteVarietyTable) and the last AddFrame graph's
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).

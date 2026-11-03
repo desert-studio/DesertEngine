@@ -36,6 +36,10 @@ namespace Desert::ShaderResources
         PerFrame = 0,
         /// One shared copy whose contents the GPU itself authors and which must survive across frames.
         AcrossFrames = 1,
+        /// GRASS-VIEW-LAW-1 (UE: a GPU-authored FRDGPooledBuffer kept across graphs): AcrossFrames in
+        /// device-local memory that the host never maps - no CPU image, no host write, read by address or
+        /// bound like any storage buffer. The BAR heap (256 MB without resizable BAR) is not spent on it.
+        DeviceOnly = 2,
     };
 
     /// What a write of @c size bytes at @c offset may do to a buffer of the current capacity.
@@ -76,7 +80,7 @@ namespace Desert::ShaderResources
             return BufferWriteVerdict::RefuseWouldNotFitAnyBuffer;
         if ( required <= currentSize )
             return BufferWriteVerdict::Fits;
-        if ( life == Persistence::AcrossFrames )
+        if ( life != Persistence::PerFrame )
             return BufferWriteVerdict::RefuseWouldDestroyPersistentState;
         return BufferWriteVerdict::Grow;
     }

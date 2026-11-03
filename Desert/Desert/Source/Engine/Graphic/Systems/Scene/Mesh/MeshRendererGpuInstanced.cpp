@@ -649,10 +649,16 @@ namespace Desert::Graphic::System
             const bool drawsTwins   = parted && layer != ShadowCasterLayer::Movable;
             if ( parted )
                 split = 0u;
+            // GRASS-VIEW-LAW-1: a cascade without a list of its own draws the full list - through its ids when the
+            // producer's full list holds them (FullIds).
+            std::shared_ptr<ShaderResources::StorageBuffer> listIds = gpu.FullIds;
+            if ( ownList )
+                listIds = gpu.CascadeIds;
+            const bool          throughIds = listIds != nullptr;
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
                       ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view,
-                                                   InstancePermutation( ownList, false ), this )
+                                                   InstancePermutation( throughIds, false ), this )
                       : nullptr;
             if ( caster == nullptr )
             {
@@ -669,10 +675,17 @@ namespace Desert::Graphic::System
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue;
 
+            // A still blade section that does not sway reads the light camera's origin only for the cascade's
+            // thinning (Vertex_GrassBlade.glslh; split 0, no wind rule): the generator's own eye (ThinOrigin, the
+            // field's eye - CSM-SCROLL-3), so the blades its static layer keeps hold while the eye stays in a tile and
+            // the cached cascade scrolls. A swaying one keeps the rule's origin (its cascade does not scroll).
+            glm::vec4 casterOrigin = viewWind;
+            if ( still && !sways && gpu.ShadowLod.Levels != 0u )
+                casterOrigin = glm::vec4( gpu.ShadowLod.ThinOrigin, viewWind.w );
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind,
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, casterOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
-            BindGpuInstancedBuffers( *caster, gpu, ownList ? gpu.CascadeIds : nullptr );
+            BindGpuInstancedBuffers( *caster, gpu, listIds );
             const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
             const uint64_t         listBytes =
                  ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *

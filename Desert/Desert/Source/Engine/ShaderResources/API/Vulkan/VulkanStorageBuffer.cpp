@@ -42,10 +42,26 @@ namespace Desert::ShaderResources::API::Vulkan
         }
     } // namespace
 
+    namespace
+    {
+        // The bool the first constructor has always taken, in the lifetime vocabulary (BufferGrowth.hpp).
+        Persistence LifetimeOf( const bool persistent )
+        {
+            if ( persistent )
+                return Persistence::AcrossFrames;
+            return Persistence::PerFrame;
+        }
+    } // namespace
+
     VulkanStorageBuffer::VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
                                               bool persistent )
-         : m_Lifetime( persistent ? Persistence::AcrossFrames : Persistence::PerFrame ), m_Binding( binding ),
-           m_BufferName( bufferName )
+         : VulkanStorageBuffer( bufferName, size, binding, LifetimeOf( persistent ) )
+    {
+    }
+
+    VulkanStorageBuffer::VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
+                                              const Persistence lifetime )
+         : m_Lifetime( lifetime ), m_Binding( binding ), m_BufferName( bufferName )
     {
         NameLedgerRow( m_BufferName );
         if ( size == 0 )
@@ -60,9 +76,20 @@ namespace Desert::ShaderResources::API::Vulkan
             return;
         }
 
-        m_SharedImage.assign( size, 0 );
-        const auto made = MakeMappedBufferCopy( std::format( "{}-StorageBuffer-Persistent", m_BufferName ), StorageUsage(),
-                                                size, m_Shared );
+        m_SharedSize               = size;
+        Common::BoolResultStr made = BOOLSUCCESS;
+        if ( IsDeviceOnly() )
+        {
+            // GRASS-VIEW-LAW-1: device-local, never mapped, no CPU image (Persistence::DeviceOnly).
+            made = MakeDeviceBufferCopy( std::format( "{}-StorageBuffer-DeviceOnly", m_BufferName ),
+                                         StorageUsage(), size, m_Shared );
+        }
+        else
+        {
+            m_SharedImage.assign( size, 0 );
+            made = MakeMappedBufferCopy( std::format( "{}-StorageBuffer-Persistent", m_BufferName ),
+                                         StorageUsage(), size, m_Shared );
+        }
         // A constructor has no channel, so the answer is kept and handed to every later question.
         m_Built = made.IsSuccess() ? Common::MakeSuccess( true )
                                    : Common::MakeFormattedError<bool>( "persistent storage buffer '{}': {}",
@@ -73,11 +100,13 @@ namespace Desert::ShaderResources::API::Vulkan
 
     uint32_t VulkanStorageBuffer::GetSize() const
     {
-        return m_PerView ? m_PerView->GetSize() : static_cast<uint32_t>( m_SharedImage.size() );
+        return m_PerView ? m_PerView->GetSize() : m_SharedSize;
     }
 
     const void* VulkanStorageBuffer::GetData() const
     {
+        if ( IsDeviceOnly() )
+            return nullptr; // no CPU image: the GPU alone authors it
         return m_PerView ? static_cast<const void*>( m_PerView->GetContents() )
                          : static_cast<const void*>( m_SharedImage.data() );
     }
@@ -193,6 +222,12 @@ namespace Desert::ShaderResources::API::Vulkan
         if ( !m_Built.IsSuccess() )
             return Common::MakeFormattedError<bool>( "storage buffer '{}' is not usable: {}", m_BufferName,
                                                      m_Built.GetError() );
+        if ( IsDeviceOnly() )
+            return Common::MakeFormattedError<bool>(
+                 "storage buffer '{}' is device-local and GPU-authored (StorageBuffer::CreateDeviceLocal): the "
+                 "host "
+                 "never maps it, so a write of {} byte(s) at offset {} cannot land; a pass writes it",
+                 m_BufferName, size, offset );
 
         // Asked before anything is written: the persistent path copies into its CPU shadow with memcpy,
         // which does not refuse a null source the way MappedMemory::Write does (Г7-C).
@@ -232,7 +267,10 @@ namespace Desert::ShaderResources::API::Vulkan
     {
         // "Can a write land now?" — for a per-frame buffer, "does the active view have a mapped copy for
         // this frame, or can one be made". A copy that exists is mapped (MakeMappedBufferCopy refuses an
-        // unmapped one), so there is no second state to check.
+        // unmapped one), so there is no second state to check. A device-only buffer has no mapping at all.
+        if ( IsDeviceOnly() )
+            return Common::MakeFormattedError<bool>(
+                 "storage buffer '{}' is device-local and GPU-authored: it has no host mapping", m_BufferName );
         MappedBufferCopy* copy = nullptr;
         return ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
     }
