@@ -942,8 +942,9 @@ namespace Desert::Graphic::System
             // row cut to 32 bits here is never resolved.
             gpu.VisibilityRow = static_cast<uint32_t>( m_VisibilityRows );
             m_VisibilityRows += std::max( capacity, 1u );
-            gpu.ShapeData.Visibility = glm::uvec4( gpu.VisibilityRow, b.Segments,
-                                                   std::min( buckets, kGrassBladeVisibilityMaxBuckets ), 0u );
+            gpu.ShapeData.Visibility =
+                 glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ),
+                             std::max( capacity, 1u ) ); // w = the rows it owns (its resolve's bound)
             for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
                   first += capacities[bucket], ++bucket )
                 gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;

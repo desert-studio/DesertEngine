@@ -62,7 +62,10 @@ void main()
     uint  row, triangle;
     if ( !DesertReadVisibility( ivec2( gl_FragCoord.xy ), depth, row, triangle ) )
         discard;
-    if ( row < Blade.Visibility.x )
+    // The variety owns rows [x, x + w) (GrassRenderer::PrepareVariety): the mesh grass's rows follow in the same
+    // stream (GRASS-VIS-MESH-1), so a row past w is another section's, never this blade's - the ids' length is
+    // no bound (a list's buffer may hold more than the variety's rows).
+    if ( row < Blade.Visibility.x || row - Blade.Visibility.x >= Blade.Visibility.w )
         discard;
     const uint instance = row - Blade.Visibility.x;
 #ifdef DESERT_SURFACE_INSTANCE_IDS
