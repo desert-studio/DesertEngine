@@ -166,8 +166,11 @@ namespace Desert::Graphic
     //     carries motion only, never the jitter, and a still camera over a still scene has velocity exactly 0;
     //   * anything drawn after the temporal pass at OutputExtent (editor grid, gizmos, collider lines, UI in 3D):
     //     ViewProjection — unjittered, or the overlay shimmers by the jitter;
-    //   * sky / clouds ray directions: InvViewProjection of the unjittered matrices plus JitterNdc applied to the
-    //     pixel's NDC, so the sky jitters with the geometry it is resolved together with.
+    //   * the sky backdrop's ray (ProceduralSky, Skybox): the unjittered Projection / View with JitterNdc taken off the
+    //     pixel's NDC (Common/ViewRay.glslh WorldViewRayJittered), so the sky and its sun disc are sampled where the
+    //     geometry is and where the upscaler is told the sample is (Unreal: SVPositionToTranslatedWorld, jittered).
+    //     An unjittered sky pulsed the sun's halo with the Halton x parity (SUN-HALO-PARITY-1). The clouds keep
+    //     their own unjittered rule above.
     // The parallax occlusion march's step counts (Mesh/Surface/SurfaceParallax.glslh): the machine's, from the
     // Scalability group Shading (Shading.ParallaxMinSteps / MaxSteps / ShadowSteps). MaxSteps at a grazing view,
     // MinSteps head-on; ShadowSteps for the relief's self-shadow toward the sun.
