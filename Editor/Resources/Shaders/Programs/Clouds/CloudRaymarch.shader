@@ -433,69 +433,47 @@ Shader "CloudRaymarch"
         // The price is CloudSelfShadowLocalSamples samples instead of lightSamples, per sample of the view
         // march; that inner product was the subsystem's whole cost (GPU-COST census, candidate 2).
         //
-        // WHERE IT DOES NOT, BUT A MAP EXISTS — outside the map's square, which from the ground is the whole
-        // band of sky within a few degrees of the horizon (a 2.2 km base is 30 km away at 4.2 degrees) — the
-        // SAME split, with the far half marched instead of fetched: the near kilometre is the very short ray
-        // above, and the stretch from there to lightMarchKm is CloudLightOpticalDepthFrom on the same squared
-        // placement with the short ray's count. Unreal's view march spends ShadowSampleCountMax (10) on
-        // its whole 15 km shadow ray at every distance (VolumetricCloud.usf, the shadow loop of the main
-        // march); this spends 8 near + 8 far, so the far band is still above the reference, and its near field
-        // — the part OE-FIX is about — is the same short ray the covered region converges with.
-        //
-        // WHAT IT REPLACED (CLOUD-MARCH-COST-1): the full ray of lightSamples (32) over the whole lightMarchKm,
-        // and in the border band BOTH that and the short ray. Every lit sample of the horizon band therefore
-        // cost 32 medium samples against the 8 a sample under the map costs, and the band's 40. The horizon
-        // band is exactly what a still view's barn and trees hide and a turning view uncovers, so it was the
-        // part of "Clouds: March" that grew with the camera's heading rather than with the traced pixel count.
-        //
-        // WITH NO MAP AT ALL — a tier or a frame without one — the full ray of lightSamples over lightMarchKm,
-        // unchanged: there it is the whole light model, the quantity the split approximates and the one the
-        // environment bake marches. In the border band the map's far half and the marched one are blended by
-        // the same fade the ground receiver uses, so the edge of the map is a gradient and not a ring in the
-        // sky, and the near half is shared, not paid twice.
+        // WHERE IT DOES NOT — outside the map's square, or a frame with no map at all — the full ray of
+        // lightSamples over lightMarchKm, which is the quantity the covered region approximates and the one
+        // the environment bake marches. In the border band the two are blended by the same fade the ground
+        // receiver uses, so the edge of the map is a gradient and not a ring in the sky; only the band's
+        // pixels pay for both.
         float CloudSelfShadowOpticalDepth(CloudLayer layer, CloudFieldParams params, vec3 samplePos, vec3 toSun,
                                           float lightMarchKm, int lightSamples, float extinction)
         {
-            if (CloudSelfShadowMap.y < 0.5f)
-                return CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
-
-            // Planet-centre kilometres back to world centimetres: the inverse of the march's own
-            // `originKm = camera + planetRadius on y`, which is also the sphere CloudBuildShadowMapView
-            // aims the map at.
-            vec3 worldPos = vec3(samplePos.x, samplePos.y - layer.PlanetRadiusKm, samplePos.z) *
-                            CLOUD_WORLD_UNITS_PER_KM;
-            vec4 mapClip  = CloudSelfShadowWorldToMap * vec4(worldPos, 1.0f);
-            mapClip      /= max(mapClip.w, 1e-6f);
-            vec2  uv       = CloudShadowClipToUv(mapClip.xy);
-            float coverage = CloudShadowBorderFade(uv, CloudSelfShadowMap.z);
-
-            float localKm = CloudSelfShadowMap.w;
-            // SIXTEEN, and it must equal ECS::kCloudLightMarchLocalMaxSamples — the packer clamps to the same
-            // constant (Graphic::CloudSelfShadowPack); this one only keeps a corrupt block from running an
-            // unbounded loop.
-            int   local      = int(clamp(CloudSelfShadowLocalSamples, 1.0f, 16.0f));
-            float localDepth = CloudLightOpticalDepth(layer, params, samplePos, toSun, localKm, local, extinction);
-
-            float mapTail = 0.0f;
-            if (coverage > 0.0f)
+            float coverage = 0.0f;
+            float nearFar  = 0.0f;
+            if (CloudSelfShadowMap.y > 0.5f)
             {
-                // textureLod AND NOT texture: a compute shader has no derivatives.
-                CloudShadowTexel texel   = CloudShadowDecode(textureLod(CloudSelfShadowMapTexture, uv, 0.0f).rgb);
-                float            depthKm = CloudShadowDepthKm(mapClip.z, CloudSelfShadowMap.x);
-                mapTail                  = CloudShadowFarOpticalDepth(texel, depthKm, localKm);
+                // Planet-centre kilometres back to world centimetres: the inverse of the march's own
+                // `originKm = camera + planetRadius on y`, which is also the sphere CloudBuildShadowMapView
+                // aims the map at.
+                vec3 worldPos = vec3(samplePos.x, samplePos.y - layer.PlanetRadiusKm, samplePos.z) *
+                                CLOUD_WORLD_UNITS_PER_KM;
+                vec4 mapClip  = CloudSelfShadowWorldToMap * vec4(worldPos, 1.0f);
+                mapClip      /= max(mapClip.w, 1e-6f);
+                vec2 uv       = CloudShadowClipToUv(mapClip.xy);
+                coverage      = CloudShadowBorderFade(uv, CloudSelfShadowMap.z);
+                if (coverage > 0.0f)
+                {
+                    // textureLod AND NOT texture: a compute shader has no derivatives.
+                    CloudShadowTexel texel   = CloudShadowDecode(textureLod(CloudSelfShadowMapTexture, uv, 0.0f).rgb);
+                    float            depthKm = CloudShadowDepthKm(mapClip.z, CloudSelfShadowMap.x);
+                    float            localKm = CloudSelfShadowMap.w;
+                    // SIXTEEN, and it must equal ECS::kCloudLightMarchLocalMaxSamples — the packer clamps to
+                    // the same constant (Graphic::CloudSelfShadowPack); this one only keeps a corrupt block
+                    // from running an unbounded loop.
+                    int              local   = int(clamp(CloudSelfShadowLocalSamples, 1.0f, 16.0f));
+                    nearFar = CloudLightOpticalDepth(layer, params, samplePos, toSun, localKm, local, extinction) +
+                              CloudShadowFarOpticalDepth(texel, depthKm, localKm);
+                }
             }
 
             if (coverage >= 1.0f)
-                return localDepth + mapTail;
+                return nearFar;
 
-            // The far half on the squared axis: the samples start where the short ray stopped, at
-            // sqrt(localKm / lightMarchKm), so the two halves meet with no gap and no overlap. A light march
-            // no longer than the short ray leaves nothing to march (start 1).
-            float marchKm   = max(lightMarchKm, 1e-6f);
-            float tailStart = sqrt(clamp(localKm / marchKm, 0.0f, 1.0f));
-            float marchTail = CloudLightOpticalDepthFrom(layer, params, samplePos, toSun, marchKm, tailStart, local,
-                                                         extinction);
-            return localDepth + mix(marchTail, mapTail, coverage);
+            float full = CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
+            return mix(full, nearFar, coverage);
         }
 
         // THE MARCH'S START OFFSET, in [0, 1) of a fine step — Unreal's
