@@ -48,7 +48,7 @@ vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
     const vec3  F0       = DesertSpecularF0( S );
     const vec3  diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
     const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
-    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    const float specularOcclusion = DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
     return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
 }
 
@@ -57,6 +57,6 @@ vec3 EvaluateAmbientSpecular( DesertAmbient A, DesertSurface S, DesertPayload P 
 {
     const vec3  F0       = DesertSpecularF0( S );
     const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
-    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    const float specularOcclusion = DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
     return specular * specularOcclusion;
 }

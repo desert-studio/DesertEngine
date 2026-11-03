@@ -24,19 +24,37 @@
 //   irradiance    — the diffuse irradiance cube at N (exitant radiance for a Lambertian BRDF, so it is
 //                   NOT divided by PI again here);
 //   prefiltered   — the GGX-prefiltered radiance cube at reflect(-view, N), roughness-selected mip;
-//   specularBRDF  — the .rg of the split-sum BRDF LUT at (max(0, N.V), roughness).
-// The diffuse half keeps the energy the specular lobe did not take: 1 - E, E = F0 * scale + bias being the lobe's
-// directional albedo from the same LUT sample (UE ComputeEnergyPreservation, ShadingEnergyConservationTemplate.ush:
-// 1 - luminance(E)). It was (1 - F) with F = Schlick at N.V, which is 1 at a grazing or turned-away shading normal:
-// the diffuse vanished there and the surface drew as its reflection alone - the pale fleck of every leaf seen
-// edge-on and the white rim of every pavement joint (FOLIAGE-LOOK-3). With 1 - E the two halves sum to at most
-// the environment (the split-sum's old 4 % white-furnace excess is gone).
+//   specularBRDF  — the .rg of the split-sum BRDF LUT at (DesertAmbientNoV(N, view), roughness).
 // The two halves apart, for a model that occludes them differently (ComposeAmbient below).
+
+// THE N.V OF THE AMBIENT - the split-sum table's u and the specular occlusion's NoV - in every pass that shades
+// with it and in the guides DLSS Ray Reconstruction demodulates the colour by (Programs/TemporalAA/DLSSRRGuides
+// .shader): UE's BxDF rule (ShadingModels.ush, NoV = saturate(abs(NoV) + 1e-5)). A shading normal the view grazes
+// or sees from behind - a grass blade's bent normal, a normal map's edge on a two-sided surface - reads the table
+// at its |N.V| instead of an exact 0.
+float DesertAmbientNoV(vec3 N, vec3 view)
+{
+	return clamp(abs(dot(N, view)) + 1e-5, 0.0, 1.0);
+}
+
+// THE DIFFUSE WEIGHT of the ambient: the energy the specular lobe did not take, 1 - E, E = F0 * scale + bias being
+// the lobe's directional albedo from the split-sum sample @p specularBRDF (UE ComputeEnergyPreservation,
+// ShadingEnergyConservationTemplate.ush: 1 - luminance(E)), times what a metal leaves of its diffuse. It was (1 - F)
+// with F = Schlick at N.V, which is 1 at a grazing or turned-away shading normal: the diffuse vanished there and the
+// surface drew as its reflection alone - the pale fleck of every leaf seen edge-on and the white rim of every
+// pavement joint (FOLIAGE-LOOK-3). With 1 - E the two halves sum to at most the environment (the split-sum's old
+// 4 % white-furnace excess is gone). ONE TEXT for the composite and for DLSS Ray Reconstruction's diffuse albedo
+// guide: while the guide kept (1 - F), RR multiplied its denoised light back by a guide of 0 wherever a grass
+// blade's normal turned from the view, and the whole field went black under a raised camera (GRASS-BLACK-RAISE-1).
+float DesertAmbientDiffuseWeight(vec3 F0, float metalness, vec2 specularBRDF)
+{
+	const vec3 E = F0 * specularBRDF.x + specularBRDF.y;
+	return (1.0 - metalness) * (1.0 - dot(E, vec3(0.2126, 0.7152, 0.0722)));
+}
+
 vec3 EvaluateAmbientIBLDiffuse(vec3 irradiance, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
 {
-	const vec3 E  = F0 * specularBRDF.x + specularBRDF.y;
-	const vec3 kd = vec3((1.0 - metalness) * (1.0 - dot(E, vec3(0.2126, 0.7152, 0.0722))));
-	return kd * albedo * irradiance;
+	return DesertAmbientDiffuseWeight(F0, metalness, specularBRDF) * albedo * irradiance;
 }
 
 vec3 EvaluateAmbientIBLSpecular(vec3 prefiltered, vec2 specularBRDF, vec3 F0)
@@ -127,7 +145,7 @@ vec3 DesertAmbientSpecular(vec3 worldDirection, float roughness)
 vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo)
 {
 	vec3  irradiance = DesertAmbientIrradiance(N);
-	float cosLo      = max(0.0, dot(N, view));
+	float cosLo      = DesertAmbientNoV(N, view);
 
 	// reflect(-view, N) = 2*dot(N,view)*N - view (unclamped, correct specular reflection)
 	vec3 specularIrradiance = DesertAmbientSpecular(reflect(-view, N), roughness);
@@ -174,7 +192,7 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 irradiance, vec3 remaind
 	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.N, S.Roughness, A.Prefiltered,
 	                                            indirectIrradiance);
 #endif
-	A.SpecularBRDF = texture(BrdfLutTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
+	A.SpecularBRDF = texture(BrdfLutTexture, vec2(DesertAmbientNoV(S.N, S.V), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;
 	A.BackIrradiance = DesertAmbientIrradiance(-S.N);

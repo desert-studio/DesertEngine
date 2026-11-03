@@ -6,15 +6,21 @@ Shader "DLSSRRGuides"
         // THE GUIDES DLSS RAY RECONSTRUCTION READS BESIDE THE COLOUR (Graphic::DLSSUpscaler, "DLSS-RR: Guides";
         // UE's DLSS plugin builds the same set from its GBuffer in its "DLSS-RR GBuffer resolve" pass). Render
         // extent, one thread per pixel:
-        //   DiffuseAlbedoTexture  - what the composite multiplied the diffuse light by: (1 - F) * (1 - metallic) *
-        //                      base colour (Mesh/AmbientIBL.glslh EvaluateAmbientIBL's kd * albedo);
+        //   DiffuseAlbedoTexture  - what the composite multiplied the diffuse light by: the ambient's diffuse weight
+        //                      (1 - metallic) * (1 - luminance(F0 * A + B)) times the base colour (Mesh/AmbientIBL.glslh
+        //                      DesertAmbientDiffuseWeight, the one text EvaluateAmbientIBLDiffuse weights by);
         //   SpecularAlbedoTexture - what it multiplied the reflection by: the split-sum reflectance F0 * A + B, A and B
-        //                      from the BRDF table at (N.V, roughness) (EvaluateAmbientIBL's specularIBL weight);
+        //                      from the BRDF table at (DesertAmbientNoV(N, V), roughness), the sample the composite
+        //                      takes (EvaluateAmbientIBLSpecular's weight);
         //   SpecularHitDistanceTexture - how far the pixel's traced reflection travelled (world units, centimetres):
         //                      from the pixel to the point SSR's ray reflected (ReflectionRayTexture.xyz). 0 where the
         //                      pixel traced no ray. Written only when the view traced (Params.z).
         // The demodulation is exact only when the guides are the factors the colour was made with, which is why
-        // they are computed here from the same G-buffer, F0 rule and table as the lighting, never approximated.
+        // they are computed here from the same G-buffer, F0 rule, N.V and table as the lighting, through the
+        // lighting's own functions, never approximated. A copy of the weight drifted once: the guide kept
+        // (1 - Schlick(F0, max(0, N.V))) after the composite left it, that is 0 wherever the shading normal turns
+        // from the view, and RR multiplied its denoised light by 0 - a grass field seen from a raised camera, its
+        // blades' normals near horizontal, drew black (GRASS-BLACK-RAISE-1).
         // The normal + roughness guide is the G-buffer's own normal target (rgb world normal, a roughness), tagged
         // as it is (sl::DLSSDNormalRoughnessMode::ePacked).
         // BACKGROUND PIXELS (far depth: the sky) are pure emission, never demodulated: diffuse albedo ONE, specular
@@ -24,7 +30,9 @@ Shader "DLSSRRGuides"
         // while TAA and DLSS SR held it within a few levels (FPS-FIELD-BARN-EDGE, edge spread p99 10.4 -> 2.5).
 
         #include <Common/ReconstructPosition.glslh>
-        #include <Mesh/BRDF.glslh>
+        // The algebra half of the ambient (no environment bindings): its N.V and its diffuse weight.
+        #define AMBIENT_IBL_NO_SAMPLERS
+        #include <Mesh/AmbientIBL.glslh>
 
         LocalSize(8, 8, 1);
 
@@ -79,12 +87,12 @@ Shader "DLSSRRGuides"
         	const vec3  N         = normalize(normal.xyz);
         	const float roughness = normal.a;
         	const float metallic  = albedo.a;
-        	const float cosLo     = max(0.0, dot(N, V));
+        	const float cosLo     = DesertAmbientNoV(N, V);
 
-        	const vec3 F0 = mix(kDielectricF0, albedo.rgb, metallic);
-        	const vec3 F  = fresnelSchlick(F0, cosLo);
-        	const vec2 AB = textureLod(BrdfLutTexture, vec2(cosLo, roughness), 0.0).rg;
-        	imageStore(DiffuseAlbedoTexture, pixel, vec4((vec3(1.0) - F) * (1.0 - metallic) * albedo.rgb, 1.0));
+        	const vec3  F0     = mix(kDielectricF0, albedo.rgb, metallic);
+        	const vec2  AB     = textureLod(BrdfLutTexture, vec2(cosLo, roughness), 0.0).rg;
+        	const float weight = DesertAmbientDiffuseWeight(F0, metallic, AB);
+        	imageStore(DiffuseAlbedoTexture, pixel, vec4(weight * albedo.rgb, 1.0));
         	imageStore(SpecularAlbedoTexture, pixel, vec4(F0 * AB.x + AB.y, 1.0));
 
         	float hitDistance = 0.0;
