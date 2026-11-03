@@ -1528,14 +1528,15 @@ namespace
 
     // The text of the three marches that declare themselves shadow rays. Two of them are whole programs
     // and contribute their whole file; the third is ONE function of a shared header — the sun quadrature
-    // runs inside the view march and inside the sky bake, so taking all of CloudField.glslh would sweep in
+    // runs inside the view march and inside the sky bake (CloudLightOpticalDepthFrom; CloudLightOpticalDepth is
+    // its whole-ray form and only calls it), so taking all of CloudField.glslh would sweep in
     // the view march's own calls and make this derivation meaningless.
     std::string ShadowMarchText()
     {
         const std::filesystem::path shaders = RepoRoot() / "Editor/Resources/Shaders";
 
         const std::string field    = StripComments( ReadAll( shaders / "Common/CloudField.glslh" ) );
-        const std::size_t sunMarch = field.find( "float CloudLightOpticalDepth(" );
+        const std::size_t sunMarch = field.find( "float CloudLightOpticalDepthFrom(" );
         EXPECT_NE( sunMarch, std::string::npos ) << "the sun quadrature is not where this derivation looks";
         const std::size_t sunEnd = field.find( "\n}", sunMarch );
         EXPECT_NE( sunEnd, std::string::npos );

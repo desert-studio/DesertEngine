@@ -1193,8 +1193,17 @@ CloudFieldSample SampleCloudField( CloudFieldParams params, float heightFraction
 // linear radiance. Convergence needs about thirty samples on THIS quadrature; see
 // ECS::kCloudLightMarchMaxSamples and Docs/Clouds/CALIBRATION.md section OE-FIX. Anyone shortening
 // @p marchKm again may lower the count with it, and by the square.
-float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 positionKm, vec3 toSun,
-                              float marchKm, int sampleCount, float extinctionPerKm )
+//
+// THE RAY CAN BE TAKEN FROM PART-WAY ALONG IT (CLOUD-MARCH-COST-1). @p startNormalized is where the samples
+// begin on the distribution's own axis — the square root of the fraction of @p marchKm already covered — and
+// the @p sampleCount samples are spread over what is left, on the SAME squared placement, so the sum is the
+// integral of the remaining stretch and nothing else. At 0 this is the whole ray, operation for operation.
+// The view march's self-shadow uses it for the FAR HALF of its split where the cloud shadow map does not
+// reach (Programs/Clouds/CloudRaymarch.shader, CloudSelfShadowOpticalDepth): the near kilometre is the
+// short ray it already marches, and this covers the rest with the short ray's count instead of re-marching
+// the whole ray at the full count.
+float CloudLightOpticalDepthFrom( CloudLayer layer, CloudFieldParams params, vec3 positionKm, vec3 toSun,
+                                  float marchKm, float startNormalized, int sampleCount, float extinctionPerKm )
 {
     // THIS IS THE SHADOW RAY, and it is the only one of the four that is not a whole program.
     //
@@ -1205,13 +1214,15 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
     // per-program constant could have separated them.
     params.ShadowRay = CLOUD_RAY_SHADOW;
 
+    float start       = clamp( startNormalized, 0.0f, 1.0f );
+    float span        = 1.0f - start;
     float accumulated = 0.0f;
-    float previous    = 0.0f;
+    float previous    = start * start;
     float invCount    = 1.0f / float( sampleCount );
 
     for ( int i = 1; i <= sampleCount; ++i )
     {
-        float normalized = float( i ) * invCount;
+        float normalized = start + span * ( float( i ) * invCount );
         float current    = normalized * normalized;
         float segment    = current - previous;
 
@@ -1241,6 +1252,14 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
 
     // The weights above are fractions of the march, so the whole length scales the sum exactly once, here.
     return accumulated * marchKm;
+}
+
+// The whole shadow ray, from the sample itself: the form every caller but the view march's far half uses.
+float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 positionKm, vec3 toSun,
+                              float marchKm, int sampleCount, float extinctionPerKm )
+{
+    return CloudLightOpticalDepthFrom( layer, params, positionKm, toSun, marchKm, 0.0f, sampleCount,
+                                       extinctionPerKm );
 }
 
 #endif // CLOUD_SAMPLE_NOISE && CLOUD_SAMPLE_MODELLING && CLOUD_SAMPLE_AUTHORED && CLOUD_SAMPLE_LAYOUT_*
