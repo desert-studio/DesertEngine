@@ -186,8 +186,11 @@ namespace Desert::Graphic::System
     GpuDrawBinFrame* MeshRenderer::DrawBinsOf( const GpuInstancedRenderData& gpu, const MeshPass pass,
                                                const bool postOcclusion ) const
     {
-        if ( m_GrassPerVarietyDraws || gpu.Path != MeshVertexPath::GrassBlade ||
-             pass == MeshPass::VisibilityResolve || ( pass == MeshPass::Forward && m_ForwardVirtualLocal ) )
+        // The passes a bin draws in are the cooked ones (kDrawRowsPasses; the cascades' is CascadeBinsOf's).
+        const bool rowsPass = pass != MeshPass::ShadowDepth &&
+                              std::ranges::find( kDrawRowsPasses, pass ) != std::ranges::end( kDrawRowsPasses );
+        if ( m_GrassPerVarietyDraws || gpu.Path != MeshVertexPath::GrassBlade || !rowsPass ||
+             ( pass == MeshPass::Forward && m_ForwardVirtualLocal ) )
             return nullptr;
         const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
         if ( !capabilities.SupportsDrawIndirectCount || !capabilities.SupportsShaderDrawParameters )
@@ -860,6 +863,56 @@ namespace Desert::Graphic::System
         // cameras of their own (the cascade's and its movable view's), as the per-section cells do.
         const uint32_t binLayer = layer == ShadowCasterLayer::Movable ? kCascadeViews : 0u;
         const uint32_t binView  = kGpuInstancedViewBase + 0x0C000000u + binLayer + c;
+        // THE SECTION'S CASTER WORDS (GRASS-BINS-TAIL-1; UE: an FMeshDrawCommand built once, issued by every pass
+        // that draws it): one routine for what the cascade's bin row and the per-section draw both read - the list
+        // its records are in, their offset (a cascade's own list after the earlier cascades' copies, then the
+        // cascade's shadow LOD set), the material row, the thinning's origin and the wind with the split.
+        struct SectionCaster
+        {
+            const GpuInstanceRefs*  Refs       = nullptr;
+            uint64_t                ArgsOffset = 0;
+            std::optional<uint32_t> MaterialRow{};
+            glm::vec4               ThinOrigin{ 0.0f };
+            InstanceWindPush        Wind{};     // the records' part
+            InstanceWindPush        RestWind{}; // the rest part's twins: the rest pose's wind (Strength 0)
+        };
+        const auto sectionCasterOf = [&]( const GpuInstancedRenderData& gpu, const DataDrivenMaterial* parent,
+                                          const bool ownList, const bool eyeThinned,
+                                          const uint32_t split ) -> SectionCaster
+        {
+            SectionCaster setup{};
+            setup.Refs         = gpu.Refs;
+            uint64_t listBytes = 0u;
+            if ( ownList )
+            {
+                setup.Refs = gpu.CascadeRefs;
+                listBytes  = static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *
+                            gpu.CascadeArgBytes;
+            }
+            const BladeCasterLod shadow = BladeShadowSet( gpu, c );
+            setup.ArgsOffset            = listBytes + LevelArgsOffset( gpu, shadow.Set );
+            setup.MaterialRow           = FindMaterialRow( parent, gpu.Material.get() );
+            // A still blade section that does not sway (@p eyeThinned) reads the origin only for the cascade's
+            // thinning (Vertex_GrassBlade.glslh; split 0, no wind rule): the generator's own eye (ThinOrigin, the
+            // field's eye - CSM-SCROLL-3), so the blades its static layer keeps hold while the eye stays in a tile
+            // and the cached cascade scrolls. A swaying one keeps the rule's origin (its cascade does not scroll).
+            setup.ThinOrigin = viewWind;
+            if ( eyeThinned && gpu.ShadowLod.Levels != 0u )
+                setup.ThinOrigin = glm::vec4( gpu.ShadowLod.ThinOrigin, viewWind.w );
+            // A light view's B.w is the split (InstanceWindPush; no previous instance in a light view), and a
+            // blade's B.z the cascade's thinning (BladeShadowSet: half x the distance it thins from, half y the
+            // generator's StartCull through the lens; 0 = every instance, Vertex_GrassBlade.glslh).
+            setup.Wind        = PackInstanceWind( gpu.Wind );
+            setup.Wind.B.w    = std::bit_cast<float>( split );
+            uint32_t thinWord = 0u;
+            if ( shadow.ThinFrom > 0.0f )
+                thinWord = glm::packHalf2x16( glm::vec2( std::min( shadow.ThinFrom, 65000.0f ),
+                                                         std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) );
+            setup.Wind.B.z   = std::bit_cast<float>( thinWord );
+            setup.RestWind   = setup.Wind;
+            setup.RestWind.A = glm::vec4( 0.0f );
+            return setup;
+        };
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
             if ( !gpu.CastShadows )
@@ -931,24 +984,23 @@ namespace Desert::Graphic::System
             if ( ownList )
                 listIds = gpu.CascadeIds;
             const bool          throughIds = listIds != nullptr;
+            // The section's caster words, once: the bin row and the per-section draw below both read them.
+            const SectionCaster setup = sectionCasterOf( gpu, parent, ownList, still && !sways, split );
 
             // THE SECTION IN THE CASCADE'S BIN (GRASS-SHADOW-BINS-1): the words the per-section path below writes
             // into its own cell's light camera and push, written into the part's draw row instead.
             const auto binCasts = [&]( GpuDrawBinFrame& table ) -> bool
             {
-                const GpuInstanceRefs&        partRefs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
-                const std::optional<uint32_t> partRow  = FindMaterialRow( parent, gpu.Material.get() );
-                if ( partRefs.ArgsAddress == 0u || !partRow || parent == nullptr || !materials->Owns( parent ) )
+                const GpuInstanceRefs& partRefs = *setup.Refs;
+                if ( partRefs.ArgsAddress == 0u || !setup.MaterialRow || parent == nullptr ||
+                     !materials->Owns( parent ) )
                     return false;
-                glm::vec4 thinOrigin = viewWind;
-                if ( still && !sways && gpu.ShadowLod.Levels != 0u )
-                    thinOrigin = glm::vec4( gpu.ShadowLod.ThinOrigin, viewWind.w );
                 GpuInstanceDrawRow drawRow{};
                 drawRow.Instances   = AddressOf( gpu.Instances );
                 drawRow.Ids         = throughIds ? AddressOf( listIds ) : uint64_t{ 0 };
                 drawRow.BladeShape  = AddressOf( gpu.BladeShape );
-                drawRow.MaterialRow = *partRow;
-                drawRow.Caster      = glm::vec4( glm::vec3( thinOrigin ), inner );
+                drawRow.MaterialRow = *setup.MaterialRow;
+                drawRow.Caster      = glm::vec4( glm::vec3( setup.ThinOrigin ), inner );
                 if ( drawRow.Instances == 0u || drawRow.BladeShape == 0u || ( throughIds && drawRow.Ids == 0u ) )
                     return false;
                 // The drawn strip levels (submesh b = record b of the cascade's set) and their runs.
@@ -1012,23 +1064,11 @@ namespace Desert::Graphic::System
                 reads.push_back( partRefs.Instances ); // the transforms and the ids, read by address from the row
                 if ( partRefs.Ids.IsValid() )
                     reads.push_back( partRefs.Ids );
-                const uint64_t partListBytes =
-                     ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *
-                                    gpu.CascadeArgBytes
-                             : 0u;
-                const BladeCasterLod partSet = BladeShadowSet( gpu, c );
-                const uint64_t   base = partRefs.ArgsAddress + partListBytes + LevelArgsOffset( gpu, partSet.Set );
-                InstanceWindPush partWind = PackInstanceWind( gpu.Wind );
-                partWind.B.w              = std::bit_cast<float>( split );
-                uint32_t thinWord         = 0u;
-                if ( partSet.ThinFrom > 0.0f )
-                    thinWord = glm::packHalf2x16( glm::vec2( std::min( partSet.ThinFrom, 65000.0f ),
-                                                             std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) );
-                partWind.B.z          = std::bit_cast<float>( thinWord );
-                const auto addPartRow = [&]( const uint64_t shift, const glm::vec4& windA )
+                const uint64_t base       = partRefs.ArgsAddress + setup.ArgsOffset;
+                const auto     addPartRow = [&]( const uint64_t shift, const InstanceWindPush& wind )
                 {
-                    drawRow.WindA = windA;
-                    drawRow.WindB = partWind.B;
+                    drawRow.WindA = wind.A;
+                    drawRow.WindB = wind.B;
                     const uint64_t rowAddress =
                          table.RowsAddress + table.Rows.size() * sizeof( GpuInstanceDrawRow );
                     table.Rows.push_back( drawRow );
@@ -1058,9 +1098,9 @@ namespace Desert::Graphic::System
                     }
                 };
                 if ( drawsRecords )
-                    addPartRow( 0u, partWind.A );
+                    addPartRow( 0u, setup.Wind );
                 if ( drawsTwins )
-                    addPartRow( gpu.CascadeRestShift, glm::vec4( 0.0f ) ); // the rest pose's wind (Strength 0)
+                    addPartRow( gpu.CascadeRestShift, setup.RestWind ); // the rest pose's wind (Strength 0)
                 return true;
             };
             if ( GpuDrawBinFrame* const cascadeBins = CascadeBinsOf( gpu ); cascadeBins != nullptr )
@@ -1090,65 +1130,41 @@ namespace Desert::Graphic::System
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue;
 
-            // A still blade section that does not sway reads the light camera's origin only for the cascade's
-            // thinning (Vertex_GrassBlade.glslh; split 0, no wind rule): the generator's own eye (ThinOrigin, the
-            // field's eye - CSM-SCROLL-3), so the blades its static layer keeps hold while the eye stays in a tile and
-            // the cached cascade scrolls. A swaying one keeps the rule's origin (its cascade does not scroll).
-            glm::vec4 casterOrigin = viewWind;
-            if ( still && !sways && gpu.ShadowLod.Levels != 0u )
-                casterOrigin = glm::vec4( gpu.ShadowLod.ThinOrigin, viewWind.w );
+            // The section's own light camera: the thinning's origin and the ring's inner distance
+            // (sectionCasterOf).
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, casterOrigin,
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, setup.ThinOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
             BindGpuInstancedBuffers( *caster, gpu, listIds );
-            const GpuInstanceRefs& refs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
-            const uint64_t         listBytes =
-                 ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *
-                                gpu.CascadeArgBytes
-                                 : 0u;
+            const GpuInstanceRefs& refs = *setup.Refs;
             // The section's row is the scene material table's (SyncGpuScene), read by its masked caster cell.
-            const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
-            if ( !materialRow || !LendMaterialTable( *caster ) )
+            if ( !setup.MaterialRow || !LendMaterialTable( *caster ) )
                 continue;
-            const uint32_t row = *materialRow;
-
-            // A light view's B.w is the split (InstanceWindPush; no previous instance in a light view), and a
-            // blade's B.z the cascade's thinning (BladeShadowSet: half x the distance it thins from, half y the
-            // generator's StartCull through the lens; 0 = every instance, Vertex_GrassBlade.glslh).
-            InstanceWindPush     wind   = PackInstanceWind( gpu.Wind );
-            const BladeCasterLod shadow = BladeShadowSet( gpu, c );
-            wind.B.w                    = std::bit_cast<float>( split );
-            wind.B.z                    = std::bit_cast<float>(
-                 shadow.ThinFrom > 0.0f ? glm::packHalf2x16( glm::vec2( std::min( shadow.ThinFrom, 65000.0f ),
-                                                                         std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) )
-                                                         : 0u );
-            InstanceWindPush restWind = wind;
-            restWind.A                = glm::vec4( 0.0f );
+            const uint32_t row = *setup.MaterialRow;
             // RENDER-CPU-COST-1: the section's LOD levels are one draw per part (MeshDrawCommand::IndirectLevels),
             // each drawn submesh one multi-draw over its record of every level from the cascade's set.
             const auto addPart = [&]( const uint64_t shift, const InstanceWindPush& push )
             {
-                list.Add( { .Pipeline          = pipeline,
-                            .Mesh              = gpu.Mesh,
-                            .Transform         = glm::mat4( 1.0f ),
-                            .Material          = caster->GetMaterialExecutor(),
-                            .HiddenSubmeshMask = gpu.HiddenSubmeshes,
-                            .IndirectArgs      = refs.Args,
-                            .IndirectInstances = refs.Instances,
-                            .IndirectIds       = refs.Ids,
-                            // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
-                            // own list is its copy of the records, its rest part their twins.
-                            .IndirectArgsOffset = listBytes + shift + LevelArgsOffset( gpu, shadow.Set ),
-                            .IndirectLevels     = LevelsOf( gpu ),
-                            .Push               = DrawPushFields{}
-                                                     .Transform( glm::mat4( 1.0f ) )
-                                                     .MaterialIndex( row )
-                                                     .Wind( push ) } );
+                list.Add(
+                     { .Pipeline          = pipeline,
+                       .Mesh              = gpu.Mesh,
+                       .Transform         = glm::mat4( 1.0f ),
+                       .Material          = caster->GetMaterialExecutor(),
+                       .HiddenSubmeshMask = gpu.HiddenSubmeshes,
+                       .IndirectArgs      = refs.Args,
+                       .IndirectInstances = refs.Instances,
+                       .IndirectIds       = refs.Ids,
+                       // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
+                       // own list is its copy of the records, its rest part their twins.
+                       .IndirectArgsOffset = setup.ArgsOffset + shift,
+                       .IndirectLevels     = LevelsOf( gpu ),
+                       .Push =
+                            DrawPushFields{}.Transform( glm::mat4( 1.0f ) ).MaterialIndex( row ).Wind( push ) } );
             };
             if ( drawsRecords )
-                addPart( 0u, wind );
+                addPart( 0u, setup.Wind );
             if ( drawsTwins )
-                addPart( gpu.CascadeRestShift, restWind );
+                addPart( gpu.CascadeRestShift, setup.RestWind );
             perSectionDraws += ( drawsRecords ? 1u : 0u ) + ( drawsTwins ? 1u : 0u );
         }
 

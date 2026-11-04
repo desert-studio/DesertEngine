@@ -758,6 +758,45 @@ namespace Desert::Graphic::System
                 variants.push_back( { programName, std::move( permutation ) } );
             }
         }
+
+        // THE COMPACTED BINS' CELLS of @p handle (GRASS-BINS-TAIL-1; UE: every permutation a draw can ask for is
+        // in the cooked shader map): its GrassBlade cell of each pass a bin draws in
+        // (MeshRenderer::kDrawRowsPasses) in SurfaceDrawRowsVariant, the G-buffer one also over the equal-depth
+        // permutation (an early-Z admitted template), each over the id list's permutation when @p ids - composed
+        // as InstanceDrawPermutation composes them (depth-equal, then ids, then the rows), so the cooked hash is
+        // the acquired one. A template without `Usage GrassBlades` has no GrassBlade cell (CellShaderNameOf
+        // refuses it): nothing is listed.
+        void AppendDrawRowsVariants( const Runtime::MaterialService& materials,
+                                     const Runtime::ShaderService& shaders, const ::Common::AssetHandle& handle,
+                                     const bool ids, std::set<std::pair<std::string, uint64_t>>& listed,
+                                     std::vector<Core::CookedProgramVariant>& variants )
+        {
+            for ( const MeshPass pass : MeshRenderer::kDrawRowsPasses )
+            {
+                const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::GrassBlade, pass );
+                if ( !cell )
+                    continue;
+                const auto program = shaders.GetByName( cell.GetValue() );
+                if ( program == nullptr )
+                    continue;
+                std::vector<Core::ShaderVariant> under{ Core::ShaderVariant{} };
+                if ( pass == MeshPass::GBuffer )
+                {
+                    const Core::Formats::SurfaceBlendMode blend = program->GetProgramMeta().Blend;
+                    if ( blend == Core::Formats::SurfaceBlendMode::Masked ||
+                         blend == Core::Formats::SurfaceBlendMode::Opaque )
+                        under.push_back( MeshRenderer::SurfaceDepthEqualVariant() );
+                }
+                for ( Core::ShaderVariant& base : under )
+                {
+                    if ( ids )
+                        base = MeshRenderer::SurfaceInstanceIdsVariant( std::move( base ) );
+                    Core::ShaderVariant permutation = MeshRenderer::SurfaceDrawRowsVariant( std::move( base ) );
+                    if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                        variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+                }
+            }
+        }
     } // namespace
 
     std::vector<Core::CookedProgramVariant> MeshRenderer::MaterialProgramVariants(
@@ -830,6 +869,8 @@ namespace Desert::Graphic::System
                 if ( const auto water = shaders.GetByName( waterCell ) )
                     AppendForwardShadowMaskVariants( *water, waterCell, listed, variants, /*virtualOnly*/ true );
             }
+            // The compacted bins' blade cells over the full list (a section or cascade without a list of ids).
+            AppendDrawRowsVariants( materials, shaders, handle, /*ids*/ false, listed, variants );
         }
         // The cells a GPU-instanced id list is drawn through, for the materials an id list draws with only
         // (@p instanceIdHandles: the grass types' materials, LandscapeGrassTypeService::InstanceIdListMaterials).
@@ -868,6 +909,8 @@ namespace Desert::Graphic::System
                             variants.push_back( { cell.GetValue(), std::move( permutation ) } );
                     }
                 }
+            // The compacted bins' blade cells through the list's ids (the camera's list, a cascade's own list).
+            AppendDrawRowsVariants( materials, shaders, handle, /*ids*/ true, listed, variants );
         }
         // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
         // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.

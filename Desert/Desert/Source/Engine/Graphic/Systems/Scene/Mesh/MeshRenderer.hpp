@@ -2220,6 +2220,13 @@ namespace Desert::Graphic::System
         static constexpr MeshPass       kInstanceIdsPasses[] = {
              MeshPass::Forward,    MeshPass::GBuffer,           MeshPass::Depth,
              MeshPass::Visibility, MeshPass::VisibilityResolve, MeshPass::ShadowDepth };
+        // THE PASSES a compacted bin draws a blade section in (UE: the mesh passes a material's shader map is
+        // cooked for): the camera passes DrawBinsOf admits (not the resolve, which reads no draw row; Forward only
+        // outside the virtual shadow map, ForwardVirtualCell) and the cascades' ShadowDepth (CascadeBinsOf).
+        // DrawBinsOf admits by this list and MaterialProgramVariants cooks the GrassBlade cell of each pass in
+        // SurfaceDrawRowsVariant, so a package holds every cell a bin can ask for.
+        static constexpr MeshPass kDrawRowsPasses[] = { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Depth,
+                                                        MeshPass::Visibility, MeshPass::ShadowDepth };
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
@@ -2231,7 +2238,9 @@ namespace Desert::Graphic::System
         // SurfaceInstanceIdsVariant (alone, over the G-buffer's equal-depth and over the forward virtual shadow
         // map's permutation): the id-list draws, cooked only for the materials an id list draws with
         // (Runtime::LandscapeGrassTypeService::InstanceIdListMaterials - UE's ShouldCompilePermutation over the
-        // material's usage), not for every `.demat`.
+        // material's usage), not for every `.demat`. And the compacted bins' cells: each material's (GrassBlade x
+        // kDrawRowsPasses) cell in SurfaceDrawRowsVariant (alone and over the G-buffer's equal-depth permutation),
+        // an id-list material's also over SurfaceInstanceIdsVariant - InstanceDrawPermutation's compositions.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
         MaterialProgramVariants( const Runtime::MaterialService& materials, const Runtime::ShaderService& shaders,
                                  std::span<const ::Common::AssetHandle> handles,
