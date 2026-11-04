@@ -81,6 +81,10 @@ namespace Desert::Editor
         void OnFramePresented() override;
 
     private:
+        // The control channel's serial of the frame this update builds (ControlService::BuildingFrame, taken
+        // right after the channel is served); OnFramePresented hands it to the gate with that frame.
+        uint64_t m_BuildingFrame = 0;
+
         // ===== Popups =====
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.

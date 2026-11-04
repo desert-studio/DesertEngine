@@ -103,10 +103,17 @@ namespace Desert::Editor
         // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
         // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
         // (SceneWorkspace::GrassInstancesSettling).
-        [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled,
+        // @p builtFrame: the serial of the update that BUILT the presented frame (BuildingFrame at serve time),
+        // carried by the presented notification; the gate judges it, never the serial being built now.
+        [[nodiscard]] std::optional<int32_t> OnFramePresented( uint64_t builtFrame, bool displacementUnsettled,
                                                                bool subsurfaceHistoryConverging,
                                                                bool materialPipelinesCompiling,
                                                                bool grassInstancesSettling );
+        // The serial of the frame this update builds (advanced by ServiceChannel when an update begins one).
+        [[nodiscard]] uint64_t BuildingFrame() const noexcept
+        {
+            return m_FrameIndex;
+        }
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
@@ -211,6 +218,8 @@ namespace Desert::Editor
         // Frames presented since the layer attached. The gate's clock — deliberately the channel's own count
         // and not the renderer's frame-in-flight index, which wraps at three and could not order anything.
         uint64_t m_FrameIndex = 0;
+        // ServiceChannel has begun a frame: the next one advances m_FrameIndex.
+        bool m_FrameBuildBegun = false;
 
         // A `quit` the channel asked for. Honoured after its reply has actually gone out, so the last
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown

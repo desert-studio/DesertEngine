@@ -437,6 +437,8 @@ namespace Desert::Editor
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
+        // The serial of the frame this update builds, carried by its presented notification (OnFramePresented).
+        m_BuildingFrame = m_Control.BuildingFrame();
         // HDR-OUTPUT p3: an HDR output renders its SDR rendition while a window shot waits (the shot's PNG is the
         // SDR frame; the tonemap's HDR rendition carries the peak). Set before the scene renders this frame.
         Graphic::SetSdrCaptureRendition( m_Control.WindowShotPending() );
@@ -736,7 +738,7 @@ namespace Desert::Editor
         const bool  displacementUnsettled =
              scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
         if ( const auto quit = m_Control.OnFramePresented(
-                  displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
+                  m_BuildingFrame, displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
                   m_Workspace.MaterialPipelinesCompiling(), m_Workspace.GrassInstancesSettling() ) )
             m_Application->Close( *quit );
     }

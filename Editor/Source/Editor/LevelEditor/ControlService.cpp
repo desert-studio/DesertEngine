@@ -316,6 +316,15 @@ namespace Desert::Editor
 
     void ControlService::ServiceChannel()
     {
+        // THE CHANNEL'S CLOCK ADVANCES WHEN AN UPDATE BEGINS TO BUILD A FRAME, NOT WHEN ONE IS PRESENTED
+        // (FRAME-SLOT-1): m_FrameIndex is the serial of the frame this update builds, read by every arm below
+        // and carried by that frame's presented notification (EditorLayer::OnFramePresented). In today's loop
+        // each update presents its own frame before the next begins, so the serials are the ones the old
+        // present-side increment gave; a present that lags its update can no longer release a reply armed
+        // after its frame was built (the lagged view FPS-FIELD-BARN-PITCH p7_stop checks).
+        if ( m_FrameBuildBegun )
+            ++m_FrameIndex;
+        m_FrameBuildBegun = true;
         if ( !m_ControlSocket.IsListening() )
             return;
 
@@ -614,12 +623,13 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
+    std::optional<int32_t> ControlService::OnFramePresented( const uint64_t builtFrame,
+                                                             const bool     displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
                                                              const bool materialPipelinesCompiling,
                                                              const bool grassInstancesSettling )
     {
-        ++m_FrameIndex;
+        // The clock is not advanced here: ServiceChannel advances it when the next update begins its frame.
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
         // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
         // landed, all while it is drawn. Sampled at OnUpdate it would describe the PREVIOUS frame - and the frame
@@ -668,11 +678,11 @@ namespace Desert::Editor
         // clears the subject, so asking afterwards would always answer "nothing".
         const Control::GateSubject holding = m_ControlGate.Holding();
 
-        // The frame just presented is judged by the quiescence sampled while it was being BUILT. The gate
-        // uses m_FrameIndex - 1 because the counter was advanced above: the frame that has just gone out
-        // is the one that was being made when ServiceControlChannel armed the gate.
+        // The frame just presented is judged by the quiescence sampled while it was being BUILT, under the
+        // serial of the update that built it (@p builtFrame, carried by the presented notification), never
+        // the serial being built now: a present that lags must not answer a command served after its frame.
         const Control::GateVerdict verdict = m_ControlGate.ObserveFramePresented(
-             m_FrameIndex - 1, m_FrameQuiescence, Control::FrameGate::Clock::now() );
+             builtFrame, m_FrameQuiescence, Control::FrameGate::Clock::now() );
 
         if ( verdict == Control::GateVerdict::Waiting || verdict == Control::GateVerdict::Idle )
             return std::nullopt;
