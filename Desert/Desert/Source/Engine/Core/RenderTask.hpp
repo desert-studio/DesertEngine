@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -34,7 +35,9 @@ namespace Desert::Engine
      *    (Scene::OnUpdate) or destroys a world or a renderer: two brackets are never open at once, and nothing
      *    a job reads is freed under it;
      *  - before the game thread records anything itself (RecordGuard, from every recording entry point of the
-     *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment.
+     *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment;
+     *  - at the frame boundary (FrameEndSync, from Renderer::PresentFinalImage and Renderer::BeginFrame): a job
+     *    never outlives the frame slot it records into.
      * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
@@ -78,6 +81,19 @@ namespace Desert::Engine
         // waiting on that worker: a join there would deadlock).
         void JoinOnGameThread();
 
+        // GAME THREAD, THE FRAME BOUNDARY'S FENCE (UE FFrameEndSync), the first statement of
+        // Renderer::PresentFinalImage and Renderer::BeginFrame. Frame N's render work has recorded before frame N
+        // is submitted and frame N+1 opens, because the slot is not the job's: the graphics API keeps ONE
+        // submission list and ONE current command buffer (VulkanRendererAPI::BeginFrame clears the list,
+        // ExecuteGraph appends to it, PresentFinalImage submits it), and every per-frame resource a job writes is
+        // indexed by FrameManager::GetCurrentFrameIndex, which the submit advances (NextFrame). In today's loop
+        // the frame's own fence (VulkanImGui::End, Application::Run step 5) has joined already and this returns
+        // at once. A change that lets a job outlive its frame (UE's one-frame lag) meets this line, joins, and
+        // is named in the log once: the frame state per slot, with the slot carried by the job, comes first.
+        // ThreadMain checks the same rule from the other side: a job that finishes in another frame than it was
+        // enqueued in is an error.
+        void FrameEndSync();
+
         // True from an Enqueue until the job queue drains (the render thread clears it).
         [[nodiscard]] bool InFlight() const noexcept
         {
@@ -117,6 +133,8 @@ namespace Desert::Engine
         {
             std::string Name;
             Job         Body;
+            // FrameManager::GetAbsoluteFrameCount at Enqueue: the frame whose slot the job records into.
+            uint64_t Frame = 0;
         };
 
         void               ThreadMain();

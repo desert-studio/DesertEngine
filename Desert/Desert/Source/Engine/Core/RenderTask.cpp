@@ -1,5 +1,7 @@
 #include <Engine/Core/RenderTask.hpp>
 
+#include <Engine/Core/FrameManager.hpp>
+
 #include <Common/Core/EngineThread.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -87,6 +89,21 @@ namespace Desert::Engine
                 DESERT_PROFILE_SCOPE( "Render task" );
                 Report( job.Name, job.Body() );
             }
+            // THE JOB'S FRAME SLOT (FrameEndSync, from this side): a frame submitted while the job recorded
+            // (PresentFinalImage, FrameManager::NextFrame) moved the slot index under it, and the next BeginFrame
+            // cleared the submission list it appends to - a torn frame, nothing else in the log. Named once per
+            // job name; this thread is the only one that reads or writes the set.
+            if ( const uint64_t finishedIn = FrameManager::GetInstance().GetAbsoluteFrameCount();
+                 finishedIn != job.Frame )
+            {
+                static std::unordered_set<std::string> torn;
+                if ( torn.emplace( job.Name ).second )
+                    LOG_ERROR( "[RenderTask] '{}' was enqueued in frame {} and finished in frame {}: the frame "
+                               "was submitted while it recorded, so its command buffers missed that submit and "
+                               "its per-frame writes landed in the next slot. Submit and BeginFrame pass "
+                               "RenderTask::FrameEndSync first.",
+                               job.Name, job.Frame, finishedIn );
+            }
             // The job's captures go here, on this thread and before the drain is signalled: a job holds no owner
             // of a world or a renderer (their destructors join, RenderTask::Join), so nothing of the game
             // thread's is destroyed on this one.
@@ -114,7 +131,8 @@ namespace Desert::Engine
         {
             const std::lock_guard<std::mutex> lock( m_Mutex );
             m_InFlight.store( true, std::memory_order_release );
-            m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ) } );
+            m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ),
+                                         FrameManager::GetInstance().GetAbsoluteFrameCount() } );
         }
         m_Wake.notify_one();
     }
@@ -164,12 +182,37 @@ namespace Desert::Engine
             Join();
     }
 
+    void RenderTask::FrameEndSync()
+    {
+        if ( !InFlight() || !OnGameThread() )
+            return;
+        // Game thread only past this line, so the flag needs no lock.
+        static bool warned = false;
+        if ( !warned )
+        {
+            warned = true;
+            LOG_WARN( "[RenderTask] a frame began while the previous frame's render work was still recording: "
+                      "joined it first (FrameEndSync). The graphics API's frame state is one submission list "
+                      "and one command buffer, not one per slot, so a job may not outlive its frame yet." );
+        }
+        Join();
+    }
+
     void RenderTask::AfterJoin( Command command )
     {
         if ( !InFlight() )
         {
-            command();
-            return;
+            // THE ORDER OF THE DEFERRED COMMANDS IS THE ORDER THEY WERE ASKED FOR. The views can drain before
+            // anyone joins them (InFlight clears on the render thread), and a command asked for then used to run
+            // at once, ahead of the ones deferred earlier in the same frame that still wait for the next Join.
+            // Those run first; inside a Join the outer loop runs this one after them.
+            if ( !m_AfterJoin.empty() && !m_Joining )
+                Join();
+            if ( m_AfterJoin.empty() )
+            {
+                command();
+                return;
+            }
         }
         m_AfterJoin.push_back( std::move( command ) );
     }
