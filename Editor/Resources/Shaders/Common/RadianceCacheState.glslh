@@ -23,7 +23,8 @@ Buffer(3) RadianceCacheProbesUB
 {
     RadianceCacheProbe radianceCacheProbes[];
 };
-// [0] = free slots, then the free slot indices.
+// [0] = free slots, then the free slot indices, then two words (RadianceCacheFailedAllocationsWord): the reads that
+// found no free slot in the last frame of each FrameIndex parity.
 Buffer(4) RadianceCacheFreeListUB
 {
     int radianceCacheFreeList[];
@@ -54,5 +55,18 @@ PushConstant RadianceCachePush
     float DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
     uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
 };
+
+// THE ATLAS UNDER PRESSURE (PROBE-TURN-1; not in UE, which keeps an unread probe NumFramesToKeepCachedProbes frames
+// whatever the atlas holds and leaves the overflow's cells empty): the word Allocate counts the cells of the frame of
+// @p frameIndex's parity that found no free slot in. Update clears this frame's before Allocate counts it, and reads
+// the last frame's: after a frame that dropped reads, a probe nobody stamped within the pixels' 2x2 rotation
+// (RadianceCacheMark.shader: each pixel of a block marks every fourth frame) gives its slot back at once instead of
+// after UnusedFrames - a camera turn's swept cells give way to this frame's reads, which an empty cell sends on to
+// the full trace distance (ScreenProbes: Trace Cache Miss).
+uint RadianceCacheFailedAllocationsWord( uint maxProbes, uint frameIndex )
+{
+    return 1u + maxProbes + ( frameIndex & 1u );
+}
+#define RADIANCE_CACHE_PRESSURE_KEEP_FRAMES 3u // an unread probe's frames under pressure: the rotation's 4 less one
 
 #endif // RADIANCE_CACHE_STATE_GLSLH

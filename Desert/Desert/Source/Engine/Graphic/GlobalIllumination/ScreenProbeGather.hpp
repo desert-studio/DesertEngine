@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
@@ -281,6 +282,38 @@ namespace Desert::Graphic::GlobalIllumination
         bool ShortRangeAO = false; // Diffuse and Specular carry the short-range AO: the composite applies no SSAO
     };
 
+#if DESERT_DEV_INSTRUMENTS
+    // PROBE-TURN-1: one frame's radiance cache reads by the far-field leg (the leg that hands a ray to the cache-miss
+    // leg), by why each answered or not - RADIANCE_CACHE_READ_* of Common/RadianceCache.glslh, in that order. Every
+    // read but an answered one is a ray "ScreenProbes: Trace Cache Miss" traces on to the full distance.
+    struct ScreenProbeMissReasons
+    {
+        static constexpr uint32_t kReasons = 5; // RADIANCE_CACHE_READ_REASONS
+        // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected (every
+        // traced probe's visibility 0), nan (a NaN weight). Covered rays only: the read takes the coverage's clipmap,
+        // so none is past the coarsest one. Rays.
+        std::array<uint32_t, kReasons> Rays{};
+        bool                           Valid = false; // a frame's words have come back
+    };
+
+    // ScreenProbes.MissReasons read back through a frame-in-flight slot (the CullPhaseCounts pattern): when the slot
+    // comes round again its fence has passed. Last() is the newest frame read, slots-in-flight late.
+    class ScreenProbeMissCounts
+    {
+    public:
+        // Reads the slot of @p frameIndex, then hands it this frame's @p counts (extracted for the host).
+        void AddFrame( RDG::Builder& graph, uint64_t frameIndex, RDG::BufferRef counts );
+        [[nodiscard]] const ScreenProbeMissReasons& Last() const
+        {
+            return m_Last;
+        }
+
+    private:
+        std::vector<RDG::ExternalBuffer> m_Slots;
+        ScreenProbeMissReasons           m_Last;
+    };
+#endif
+
     class ScreenProbeGather
     {
     public:
@@ -323,6 +356,13 @@ namespace Desert::Graphic::GlobalIllumination
         [[nodiscard]] Common::ResultStr<ScreenProbeGatherFrame>
         AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
                    const ScreenProbeGatherInputs& inputs, ScreenProbeGatherHistory& history );
+#if DESERT_DEV_INSTRUMENTS
+        // Why the far field's cache reads missed, frames in flight late (the profile dump's line).
+        [[nodiscard]] const ScreenProbeMissReasons& LastMissReasons() const
+        {
+            return m_MissCounts.Last();
+        }
+#endif
 
     private:
         enum Program : uint32_t
@@ -375,5 +415,8 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t                                m_AtlasProbesRow    = 0;
         uint32_t                                m_ImageTracedTexels = 0;
         uint32_t                                m_FrameIndex = 0;
+#if DESERT_DEV_INSTRUMENTS
+        ScreenProbeMissCounts m_MissCounts;
+#endif
     };
 } // namespace Desert::Graphic::GlobalIllumination

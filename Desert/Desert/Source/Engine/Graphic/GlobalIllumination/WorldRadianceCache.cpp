@@ -162,7 +162,8 @@ namespace Desert::Graphic::GlobalIllumination
              "RadianceCache.Probes",
              maxProbes * static_cast<uint32_t>( sizeof( RadianceCache::RadianceCacheProbePayload ) ), 3, true );
         m_FreeList =
-             ShaderResources::StorageBuffer::Create( "RadianceCache.FreeList", ( 1u + maxProbes ) * 4u, 4, true );
+             // The count, the slots, and the two failed-allocation words (RadianceCacheState.glslh).
+             ShaderResources::StorageBuffer::Create( "RadianceCache.FreeList", ( 3u + maxProbes ) * 4u, 4, true );
         if ( !m_Indirection || !m_LastUsed || !m_Probes || !m_FreeList )
             return Common::MakeError<bool>( "radiance cache: a state buffer could not be created" );
 

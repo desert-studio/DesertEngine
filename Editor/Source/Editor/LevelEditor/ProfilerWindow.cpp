@@ -268,6 +268,26 @@ namespace Desert::Editor
                                          view.Phase1 + view.Phase2 + view.Occluded );
         LOG_INFO( "[Profiler] DrawBins{} (instances drawn phase 1 + phase 2 / in view without occlusion)",
                   binViews.empty() ? " none" : binViews );
+#if DESERT_DEV_INSTRUMENTS
+        // PROBE-TURN-1: why this view's screen probe rays took the cache-miss leg - the far field's radiance cache
+        // reads by why they answered or not (GlobalIllumination::ScreenProbeMissReasons, frames in flight late).
+        // Every read but an answered one is a ray "ScreenProbes: Trace Cache Miss" traces to the full distance.
+        const Graphic::GlobalIllumination::ScreenProbeMissReasons* const missReasons =
+             renderer != nullptr ? renderer->GetScreenProbeMissReasons() : nullptr;
+        if ( missReasons == nullptr || !missReasons->Valid )
+        {
+            LOG_INFO( "[Profiler] ScreenProbes cache reads: none ({})",
+                      missReasons == nullptr ? "the view has no screen probe gather" : "nothing read back yet" );
+        }
+        else
+        {
+            const auto& rays = missReasons->Rays;
+            LOG_INFO( "[Profiler] ScreenProbes cache reads: answered {} | miss empty {} untraced {} rejected {} nan {} "
+                      "(far-field rays a frame, frames in flight late; empty = no probe in the eight cells, the "
+                      "atlas had no free slot)",
+                      rays[0], rays[1], rays[2], rays[3], rays[4] );
+        }
+#endif
         // GPU-CULL-2: per mesh pass how its draws were issued - the numbers of DesertCtl `state views.meshPasses`
         // (ControlService) from the same two sources, so a scenario reads them from the profile dump: bins = bin
         // records issued this frame (every view of the pass, a culled-empty bin included) / bins the draw command

@@ -173,6 +173,8 @@ namespace Desert::Graphic::RadianceCache
     }
     // Octahedral texels per side of a probe's DISTANCE MOMENTS (mean and mean square of the probe rays' hit
     // distance, DDGI's visibility term; not in UE — see WorldRadianceCache.hpp, "where this differs").
+    // Stored in units of the shaders' RadianceCacheDistanceMomentRange (two cells, Common/RadianceCache.glslh),
+    // so both moments lie in 0..1 and RG16F holds every clipmap (cm^2 overflowed it from the 208 cm cells up).
     inline constexpr uint32_t                   kDepthProbeResolution = 8;
     inline constexpr Core::Formats::ImageFormat kDepthAtlasFormat     = Core::Formats::ImageFormat::RG16F;
     // Frames a probe keeps its slot after the last frame a pixel read it (UE frees a probe the frame it is not

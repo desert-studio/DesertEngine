@@ -33,8 +33,9 @@ Shader "RadianceCacheMark"
 
         void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
         {
-            const float cell   = RadianceCacheCellSize( radianceCache, clipmap );
-            const vec3  biased = p + ( N * 0.2 + V * 0.8 ) * ( 0.3 * cell );
+            // The read's own point (RadianceCacheReadPoint): the irradiance reads and the screen probes' radiance
+            // read interpolate exactly these eight cells for this pixel.
+            const vec3  biased = RadianceCacheReadPoint( radianceCache, p, N, V, clipmap );
             const ivec3 base   = ivec3( floor( RadianceCacheCoordFloat( radianceCache, biased, clipmap ) - 0.5 ) );
             const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
             const int   grid   = int( radianceCache.shape.y );
