@@ -101,8 +101,10 @@ Shader "RadianceCacheAllocate"
                     atomicAdd( radianceCacheFreeList[0], 1 );
                     // The atlas is full: the next frame's Update frees the probes nobody reads now.
                     atomicAdd( radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )], 1 );
+                    atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_FAILED], 1u );
                     return;
                 }
+                atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_ALLOCATED], 1u );
                 const uint probe = uint( radianceCacheFreeList[top] );
                 radianceCacheProbes[probe].cell     = ivec4( world, int( clipmap ) );
                 radianceCacheProbes[probe].frames   = uvec4( 0u );
