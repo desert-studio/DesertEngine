@@ -61,6 +61,11 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, ScreenShadowMaskTexture );
         DESERT_SHADER_PARAMETER( Texture, LocalShadowMasksTexture );
         DESERT_SHADER_PARAMETER( Texture, GiBackfaceTexture );
+        // "Deferred: Direct Lighting" -> "Deferred: Composite": a scattered texel's direct specular (the direct
+        // program's storage image, the composite's texture) and the direct sum (the direct pass's colour target).
+        DESERT_SHADER_PARAMETER( StorageTexture, DeferredDirectSpecularImage );
+        DESERT_SHADER_PARAMETER( Texture, DeferredDirectSpecularTexture );
+        DESERT_SHADER_PARAMETER( Texture, DeferredDirectLightingTexture );
     };
 
     // The graph textures the deferred composite samples, as refs of THIS frame's graph that the Composite node
@@ -92,6 +97,11 @@ namespace Desert::Graphic::System
         // SSS-PROFILE (CONTRACT §4): the demodulated diffuse of the screen-space scattered texels, written when the
         // view scatters (DeferredGIInput::SubsurfaceSplit); a 1x1 transient nothing writes otherwise.
         RDG::TextureRef SubsurfaceDiffuse;
+        // The direct sum (ViewTargetFormats::kDeferredDirectLighting, the scene target's extent) and a scattered
+        // texel's direct specular (kDeferredDirectSpecular; a 1x1 transient nothing reads when the view does
+        // not scatter): written by "Deferred: Direct Lighting", read by "Deferred: Composite".
+        RDG::TextureRef DirectLighting;
+        RDG::TextureRef DirectSpecular;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -111,12 +121,13 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
-        // The permutation of the composite program @p program (kScreenMaskSunProgram..kMegaLightsCascadeProgram;
-        // the cascades' program is the default one), cooked: ShippedByCook - the one statement Initialize acquires
-        // and ProgramVariants lists.
+        // The permutation of the direct-lighting program @p program (kCascadeProgram..kMegaLightsCascadeProgram;
+        // each carries kDirectDefine, the shader without defines is the composite), cooked: ShippedByCook - the one
+        // statement BuildProgram acquires and ProgramVariants lists.
         [[nodiscard]] static Core::ShaderVariant ProgramVariant( const std::size_t program )
         {
             Core::ShaderVariant variant;
+            variant.Defines.emplace_back( kDirectDefine );
             // Every permutation but MegaLights under StochasticVisibility::Screen reads the sun's screen mask;
             // that one keeps the sun's cascades (the screen source draws no sun mask).
             if ( program != kMegaLightsCascadeProgram )
@@ -137,17 +148,19 @@ namespace Desert::Graphic::System
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
             std::vector<Core::CookedProgramVariant> variants;
-            for ( std::size_t index = kScreenMaskSunProgram; index < kProgramDebugNames.size(); ++index )
+            for ( std::size_t index = kCascadeProgram; index < kProgramDebugNames.size(); ++index )
                 variants.push_back( { "DeferredLighting", ProgramVariant( index ) } );
             return variants;
         }
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_Programs[kCascadeProgram].Shader =
-                 Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredLighting" );
-            if ( !m_Programs[kCascadeProgram].Shader )
+            // The shader without defines is the composite; every direct program is a permutation of it.
+            m_Composite.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredLighting" );
+            if ( !m_Composite.Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
+            if ( const Common::BoolResultStr built = BuildComposite(); !built )
+                return Common::MakeError( std::format( "Deferred lighting: {}", built.GetError() ) );
             m_Refusals = {};
             for ( std::size_t index = 0; index < m_Programs.size(); ++index )
             {
@@ -356,25 +369,30 @@ namespace Desert::Graphic::System
                        : shadow.VirtualLocalLights   ? kVirtualLocalProgram
                        : shadow.RayTracedLocalLights ? kRayTracedLocalProgram
                                                      : shadow.Sun.index();
-            const CompositeProgram& program = m_Programs[m_Active];
-            if ( !program.Material )
-                return;
-            ReportEnvironmentGap( environment );
-            program.Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
-                                          invJitteredViewProjection, debugMode,
-                                          pointCount, spotCount, shadow, gi, ssaoEnabled, cloudShadow, environment,
-                                          jitteredViewProjection );
+            // One frame's values for both passes: the direct program this arm picked, and the composite (the
+            // environment's reader).
+            if ( m_Composite.Material )
+                ReportEnvironmentGap( environment );
+            for ( const CompositeProgram* program : { &m_Programs[m_Active], &m_Composite } )
+            {
+                if ( !program->Material )
+                    continue;
+                program->Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                                               invJitteredViewProjection, debugMode, pointCount, spotCount,
+                                               shadow, gi, ssaoEnabled, cloudShadow, environment,
+                                               jitteredViewProjection );
+            }
         }
 
-        // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). UE's shared-sampler
-        // form: every input is a separate texture and the shader reads each through one of three sampler states
-        // the pass binds once (the G-buffer and AO linear REPEAT, as the material route sampled them; the
-        // integer shading word and depth point-clamped; the LUT, the cubes and the reflection captures
-        // linear-clamped). One combined sampler per input was 17 in the fragment stage, over MoltenVK's 16
-        // (maxPerStageDescriptorSamplers), and the device refused the program. Then the two light buffers as
-        // StorageRead entries and the scene/view inputs the shader samples.
-        void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
-                                       const ViewLightBuffers& lights ) const
+        // SETUP of "Deferred: Direct Lighting", after FillMaterial (GPU-TURN-3; UE RenderLights): the direct
+        // program's one block (block 0) - the G-buffer, the light rows or MegaLights' lighting, the sun's and the
+        // local lights' shadow inputs and the scene/view inputs its layout declares (cascades, cloud shadow, light
+        // grid) - and its colour target, inputs.DirectLighting. UE's shared-sampler form: every input is a
+        // separate texture read through the three sampler states the pass binds once. It reads no GI, AO or
+        // reflection: nothing the async chain writes, so the graph runs it on the graphics queue inside the async
+        // window.
+        void DeclareDirectBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
+                                    const ViewLightBuffers& lights ) const
         {
             const CompositeProgram& program = m_Programs[m_Active];
             // RENDER-THREADS M1: the program is chosen ONCE, here; the exec draws this one (the one whose material
@@ -388,34 +406,9 @@ namespace Desert::Graphic::System
             const auto&                     layout = program.Layout.Get( program.Shader );
             pass.Prepares( *program.Material->GetMaterialExecutor() );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
-            block.Sampler( DeferredLightingCompositeShaderParameters::LinearRepeatSampler,
-                           RDG::SamplerDesc::LinearRepeat() )
-                 .Sampler( DeferredLightingCompositeShaderParameters::LinearClampSampler,
-                           RDG::SamplerDesc::LinearClamp() )
-                 .Sampler( DeferredLightingCompositeShaderParameters::PointClampSampler,
-                           RDG::SamplerDesc::PointClamp() )
-                 .Texture( DeferredLightingCompositeShaderParameters::GBufferATexture, inputs.GBufferA, kRead,
-                           kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::GBufferBTexture, inputs.GBufferB, kRead,
-                           kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,
-                           inputs.GBufferShadingWord, kRead, kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::GBufferDepthTexture, inputs.GBufferDepth,
-                           kRead, kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::GBufferEmissiveTexture,
-                           inputs.GBufferEmissive, kRead, kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::SsaoTexture, inputs.SSAO, kRead, kWhole )
-                 // The resolved reflections, read through the clamped state (UE: the SSR composite input).
-                 .Texture( DeferredLightingCompositeShaderParameters::SsrTexture, inputs.SSR, kRead, kWhole )
-                 // One texel per pixel, read through the point-clamped state like the depth.
-                 .Texture( DeferredLightingCompositeShaderParameters::GiDiffuseTexture, inputs.GIDiffuse, kRead,
-                           kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::GiSpecularTexture, inputs.GISpecular, kRead,
-                           kWhole )
-                 .Texture( DeferredLightingCompositeShaderParameters::GiBackfaceTexture, inputs.GIBackface, kRead,
-                           kWhole )
-                 .Storage( DeferredLightingCompositeShaderParameters::SubsurfaceDiffuseTexture,
-                           inputs.SubsurfaceDiffuse, RDG::Access::StorageWrite );
+            DeclareGBufferReads( block, inputs );
+            block.Storage( DeferredLightingCompositeShaderParameters::DeferredDirectSpecularImage,
+                           inputs.DirectSpecular, RDG::Access::StorageWrite );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram || m_Active == kMegaLightsCascadeProgram )
@@ -435,17 +428,71 @@ namespace Desert::Graphic::System
                                inputs.LocalShadowMasks, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
+            // Every geometry texel is written; a sky texel is discarded and never read (the composite returns
+            // first).
+            pass.ColorTarget( 0, inputs.DirectLighting, RDG::LoadOp::DontCare() );
         }
 
-        // EXEC: shades the G-buffer into the scene target, inside the render pass the frame graph opens on it
-        // with LOAD (which preserves the forward-rendered sky/grid; the shader discards non-geometry texels),
-        // from block 0 that DeclareCompositeBindings declared.
-        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context )
+        // SETUP of "Deferred: Composite", after "Deferred: Direct Lighting"'s: the node's one block (block 0) -
+        // the G-buffer, the AO, the reflections, the traced GI, the subsurface split's target, the direct pass's
+        // two targets and the scene/view inputs the composite's layout declares (the sky's cubes and LUT, the
+        // captures, the radiance cache). No light and no shadow: the direct pass summed them (UE
+        // DiffuseIndirectComposite).
+        void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs ) const
+        {
+            const CompositeProgram& program = m_Composite;
+            m_DeclaredComposite             = nullptr;
+            if ( !program.Pipeline || !program.Material )
+                return;
+            m_DeclaredComposite                    = &program;
+            constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
+            constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
+            const auto&                     layout = program.Layout.Get( program.Shader );
+            pass.Prepares( *program.Material->GetMaterialExecutor() );
+            auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
+            DeclareGBufferReads( block, inputs );
+            block.Texture( DeferredLightingCompositeShaderParameters::GBufferEmissiveTexture,
+                           inputs.GBufferEmissive, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::SsaoTexture, inputs.SSAO, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::SsrTexture, inputs.SSR, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiDiffuseTexture, inputs.GIDiffuse, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiSpecularTexture, inputs.GISpecular, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiBackfaceTexture, inputs.GIBackface, kRead,
+                           kWhole )
+                 .Storage( DeferredLightingCompositeShaderParameters::SubsurfaceDiffuseTexture,
+                           inputs.SubsurfaceDiffuse, RDG::Access::StorageWrite )
+                 .Texture( DeferredLightingCompositeShaderParameters::DeferredDirectLightingTexture,
+                           inputs.DirectLighting, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::DeferredDirectSpecularTexture,
+                           inputs.DirectSpecular, kRead, kWhole );
+            if ( layout )
+                BindSceneViewInputs( block, inputs.View, *layout );
+        }
+
+        // EXEC of "Deferred: Direct Lighting": the direct program DeclareDirectBindings chose, into the direct
+        // target.
+        [[nodiscard]] Common::BoolResultStr RecordDirect( const RDG::PassContext& context )
         {
             if ( m_DeclaredProgram == nullptr )
                 return Common::MakeError(
-                     "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
+                     "Deferred: Direct Lighting: the deferred-lighting pipeline is not initialised" );
             const CompositeProgram& program = *m_DeclaredProgram;
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *program.Pipeline,
+                                                           program.Material->GetMaterialExecutor() );
+        }
+
+        // EXEC of "Deferred: Composite": shades the G-buffer into the scene target, inside the render pass the
+        // frame graph opens on it with LOAD (which preserves the forward-rendered sky/grid; the shader discards
+        // non-geometry texels), from block 0 that DeclareCompositeBindings declared.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context )
+        {
+            if ( m_DeclaredComposite == nullptr )
+                return Common::MakeError(
+                     "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
+            const CompositeProgram& program = *m_DeclaredComposite;
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *program.Pipeline,
                                                            program.Material->GetMaterialExecutor() );
@@ -535,9 +582,11 @@ namespace Desert::Graphic::System
         static constexpr std::size_t kVirtualLocalProgram   = 4; // DeferredShadowInput::VirtualLocalLights
         static constexpr std::size_t kMegaLightsCascadeProgram = 5; // MegaLightsLocalLights under the sun's cascades
         static constexpr std::array<std::string_view, 6> kProgramDebugNames = {
-             "DeferredLighting", "DeferredLighting RayTracedSun", "DeferredLighting MegaLights",
-             "DeferredLighting RayTracedLocal", "DeferredLighting VirtualLocal",
-             "DeferredLighting MegaLightsCascades" };
+             "DeferredLighting Direct", "DeferredLighting Direct RayTracedSun",
+             "DeferredLighting Direct MegaLights", "DeferredLighting Direct RayTracedLocal",
+             "DeferredLighting Direct VirtualLocal", "DeferredLighting Direct MegaLightsCascades" };
+        // The define of every direct program (DeferredLighting.shader): without it the text is the composite.
+        static constexpr std::string_view kDirectDefine = "DESERT_DEFERRED_DIRECT";
         // The Shadows methods each program alone serves; empty = every method needs it (the cascades' program).
         // HardwareTraced and VirtualMaps read the screen mask; Stochastic draws its own MegaLights programs (the
         // sun's mask, or its cascades under StochasticVisibility::Screen).
@@ -555,26 +604,51 @@ namespace Desert::Graphic::System
         // Program @p index made ready to draw: the permutation acquired from the shader service (the cascades'
         // program keeps the shader Initialize looked up), its pipeline over the scene target and its material.
         // On an error the program is left empty and the error is the reason it was refused.
+        // Both programs read the G-buffer through the same three sampler states.
+        template <typename Block>
+        static void DeclareGBufferReads( Block& block, const DeferredCompositeInputs& inputs )
+        {
+            constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
+            constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
+            block.Sampler( DeferredLightingCompositeShaderParameters::LinearRepeatSampler,
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Sampler( DeferredLightingCompositeShaderParameters::LinearClampSampler,
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampler( DeferredLightingCompositeShaderParameters::PointClampSampler,
+                           RDG::SamplerDesc::PointClamp() )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferATexture, inputs.GBufferA, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferBTexture, inputs.GBufferB, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,
+                           inputs.GBufferShadingWord, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferDepthTexture, inputs.GBufferDepth,
+                           kRead, kWhole );
+        }
+        // A direct program: its permutation of the shader, drawn into the direct target (one RGBA32F colour).
         Common::BoolResultStr BuildProgram( const std::size_t index )
         {
             CompositeProgram& program = m_Programs[index];
-            program                   = CompositeProgram{ .Shader = std::move( program.Shader ) };
-            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): ScreenShadowMaskTexture in
-            // place of ShadowCascadesTexture.
-            // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
-            // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the
-            // local lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).
-            if ( index != kCascadeProgram )
-            {
-                auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-                     "DeferredLighting", ProgramVariant( index ) );
-                if ( !acquired )
-                {
-                    program = CompositeProgram{};
-                    return Common::MakeError( std::string( acquired.GetError() ) );
-                }
-                program.Shader = acquired.ExtractValue();
-            }
+            program                   = CompositeProgram{};
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                 "DeferredLighting", ProgramVariant( index ) );
+            if ( !acquired )
+                return Common::MakeError( std::string( acquired.GetError() ) );
+            program.Shader = acquired.ExtractValue();
+            const RenderTargetLayout direct{ .ColorFormats = { ViewTargetFormats::kDeferredDirectLighting },
+                                             .DepthFormat  = std::nullopt,
+                                             .Samples      = 1 };
+            return BuildPipeline( program, direct, kProgramDebugNames[index] );
+        }
+        // The composite: the shader without defines (Initialize's), drawn into the scene target.
+        Common::BoolResultStr BuildComposite()
+        {
+            m_Composite = CompositeProgram{ .Shader = std::move( m_Composite.Shader ) };
+            return BuildPipeline( m_Composite, SceneTargetLayout(), "DeferredLighting Composite" );
+        }
+        Common::BoolResultStr BuildPipeline( CompositeProgram& program, const RenderTargetLayout& targetLayout,
+                                             const std::string_view debugName )
+        {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
             {
@@ -582,16 +656,12 @@ namespace Desert::Graphic::System
                 return Common::MakeError( "Deferred lighting target framebuffer missing" );
             }
             GraphicsPipelineSpecification spec;
-            spec.TargetLayout = SceneTargetLayout();
-            // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
-            // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
-            // preserved — the shader discards non-geometry texels so that scene shows through.
+            spec.TargetLayout      = targetLayout;
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
-            // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
-            spec.DebugName      = std::string( kProgramDebugNames[index] );
-            spec.Shader         = program.Shader;
-            const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
+            spec.DebugName         = std::string( debugName );
+            spec.Shader            = program.Shader;
+            const auto pipeline    = Graphic::GraphicsPipeline::Create( spec );
             if ( !pipeline )
             {
                 program = CompositeProgram{};
@@ -601,17 +671,18 @@ namespace Desert::Graphic::System
             program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
             return BOOLSUCCESS;
         }
-        // Each Shadows method program @p index alone serves is refused by its name for @p reason.
         void RefuseProgram( const std::size_t index, const std::string_view reason )
         {
             for ( const Common::Scalability::ShadowMethod method : kProgramShadowMethods[index] )
                 AddRefusal( m_Refusals.Shadows, method, kProgramDebugNames[index], reason );
         }
-        std::array<CompositeProgram, 6> m_Programs;
+        std::array<CompositeProgram, 6> m_Programs; // "Deferred: Direct Lighting", one per shadow arm
+        CompositeProgram                m_Composite; // "Deferred: Composite": the shader without defines
         ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
         // The program DeclareCompositeBindings chose this frame (null: none could draw); Record draws it.
-        mutable const CompositeProgram* m_DeclaredProgram = nullptr;
+        mutable const CompositeProgram* m_DeclaredProgram   = nullptr; // the direct pass's
+        mutable const CompositeProgram* m_DeclaredComposite = nullptr;
 
         // "LightGrid": the froxel light lists the composite reads.
         mutable ShaderBindingLayoutCache m_GridLayout;

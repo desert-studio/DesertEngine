@@ -861,6 +861,17 @@ namespace Desert::Graphic
                   : graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1u, .Height = 1u },
                                                            .Format = ViewTargetFormats::kSubsurfaceDiffuse },
                                          "SubsurfaceDiffuse (unsplit)" );
+        // GPU-TURN-3: the direct lights' sum, at the scene target's extent (the composite reads it at its own
+        // gl_FragCoord), and a scattered texel's direct specular for the subsurface split.
+        const RDG::TextureDesc directDesc{ .Size   = { .Width  = m_TargetFramebuffer->GetFramebufferWidth(),
+                                                       .Height = m_TargetFramebuffer->GetFramebufferHeight() },
+                                           .Format = ViewTargetFormats::kDeferredDirectLighting };
+        inputs.DirectLighting = graph.CreateTexture( directDesc, "DeferredDirectLighting" );
+        RDG::TextureDesc specularDesc = directDesc;
+        specularDesc.Format           = ViewTargetFormats::kDeferredDirectSpecular;
+        if ( !subsurfaceDiffuse.IsValid() )
+            specularDesc.Size = { .Width = 1u, .Height = 1u };
+        inputs.DirectSpecular = graph.CreateTexture( specularDesc, "DeferredDirectSpecular" );
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
@@ -909,8 +920,14 @@ namespace Desert::Graphic
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
 
+        // GPU-TURN-3 (UE RenderLights, then DiffuseIndirectComposite): the direct lights leave the composite.
+        // "Deferred: Direct Lighting" sums the sun, light 1 and the local lights with their shadows into
+        // inputs.DirectLighting; it reads no GI, AO or reflection, so it has no edge to the async chain and the
+        // graphics queue runs it inside the async window (it is declared after the chain's fork and before its
+        // first consumer). The composite then adds only the ambient, the emissive and the subsurface split.
+        // FillMaterial fills both programs' materials.
         graph.AddPass(
-             "Deferred: Composite", RDG::PassFlags::Raster,
+             "Deferred: Direct Lighting", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
@@ -923,7 +940,15 @@ namespace Desert::Graphic
                                          pointCount, spotCount,
                                          shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
-                 deferred->DeclareCompositeBindings( pass, inputs, lights );
+                 deferred->DeclareDirectBindings( pass, inputs, lights );
+             },
+             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordDirect( context ); } );
+        graph.AddPass(
+             "Deferred: Composite", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 deferred->DeclareCompositeBindings( pass, inputs );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
