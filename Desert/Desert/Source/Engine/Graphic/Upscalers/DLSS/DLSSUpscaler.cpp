@@ -616,7 +616,7 @@ namespace Desert::Graphic
         evaluation.OutputHeight   = frame.Split.Output.Height;
         evaluation.ViewToClip     = frame.Projection;
         evaluation.ClipToView     = frame.InvProjection;
-        evaluation.ClipToPrevClip = frame.PrevViewProjection * frame.InvViewProjection;
+        evaluation.ClipToPrevClip = frame.ClipToPrevClip();
         evaluation.PrevClipToClip = frame.ViewProjection * frame.PrevInvViewProjection;
         // The engine moves the geometry by +JitterPixels in render pixels with NDC y up (ApplyJitter,
         // negative-height viewport); Streamline takes the offset in pixels with y down, as UE hands it
