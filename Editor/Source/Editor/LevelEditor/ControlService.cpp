@@ -37,6 +37,7 @@
 #include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
@@ -589,7 +590,10 @@ namespace Desert::Editor
         // the presented id in OnFramePresented): the frame with id *m_FramesUntil - 1 is the last one waited for,
         // so it is sampled as not pending and the gate releases the reply on it (or later, if other work is).
         if ( m_FramesUntil && m_FrameIndex + 1 >= *m_FramesUntil )
+        {
             m_FramesUntil.reset();
+            ::Common::Profiling::Profiler::Get().EndCapture(); // a dump after the wait reads exactly its frames
+        }
         quiescence.Set( Control::PendingWork::FrameCount, m_FramesUntil.has_value() );
         // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
         // captures are filled for the first time, or while textures are still landing, is not the scene - the
@@ -1288,6 +1292,9 @@ namespace Desert::Editor
                 // The scenario's frame wait (UE FWaitForFrames): the frame being built now is the first of the
                 // asked count; nothing is sent to the editor, unlike the zero-length `drag` it replaces.
                 m_FramesUntil = m_FrameIndex + static_cast<uint64_t>( request.Value[0] );
+                // CLOUD-MARCH-COST-4: the wait is also the profiler's frame-exact capture, so a profile-dump
+                // after it averages these frames (a whole 360-frame turn), not the last 0.5 s bucket.
+                ::Common::Profiling::Profiler::Get().BeginCapture();
                 return Control::Response::Success( request.Id );
             }
 

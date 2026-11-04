@@ -282,7 +282,11 @@ namespace Common::Profiling
 
         const double windowMs    = std::chrono::duration<double, std::milli>( now - m_WindowStart ).count();
         const double windowLimit = static_cast<double>( m_AvgWindowSec ) * 1000.0;
-        if ( windowMs < windowLimit || m_WindowFrames == 0 )
+        // A capture (BeginCapture / EndCapture) closes the window by its frame span, never by time.
+        const CaptureState capture    = m_Capture.load( std::memory_order_acquire );
+        const bool         forceClose = capture == CaptureState::Arming || capture == CaptureState::Ending;
+        const bool         holdOpen   = capture == CaptureState::Capturing || capture == CaptureState::Holding;
+        if ( !forceClose && ( holdOpen || windowMs < windowLimit || m_WindowFrames == 0 ) )
             return; // still accumulating this window
 
         // THE MERGE: every thread's half of the window, by name id. A thread that exited since the last
@@ -365,8 +369,35 @@ namespace Common::Profiling
         ++m_PublishCount;
         m_DisplayWindowFrames = m_WindowFrames;
         m_DisplayClosedAt     = Clock::now();
+        m_DisplayCaptured     = capture == CaptureState::Ending;
         m_WindowFrames = 0;
         m_WindowStart  = now;
+        // Advance the capture only from the state this publication acted on: a BeginCapture that arrived since
+        // the load above re-arms, and the next BeginFrame honours it.
+        CaptureState acted = capture;
+        if ( capture == CaptureState::Arming )
+            m_Capture.compare_exchange_strong( acted, CaptureState::Capturing, std::memory_order_acq_rel );
+        else if ( capture == CaptureState::Ending )
+            m_Capture.compare_exchange_strong( acted, CaptureState::Holding, std::memory_order_acq_rel );
+    }
+
+    void Profiler::BeginCapture()
+    {
+        m_Capture.store( CaptureState::Arming, std::memory_order_release );
+    }
+
+    void Profiler::EndCapture()
+    {
+        // A capture shorter than one frame (still Arming) ends as well: its window is then the one frame.
+        const CaptureState state = m_Capture.load( std::memory_order_acquire );
+        if ( state == CaptureState::Capturing || state == CaptureState::Arming )
+            m_Capture.store( CaptureState::Ending, std::memory_order_release );
+    }
+
+    void Profiler::ReleaseCapture()
+    {
+        CaptureState expected = CaptureState::Holding;
+        m_Capture.compare_exchange_strong( expected, CaptureState::None, std::memory_order_acq_rel );
     }
 
     void Profiler::AddSample( const uint32_t nameId, const double totalMs, const double selfMs,

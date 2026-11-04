@@ -17,6 +17,7 @@
 #include <Common/Core/GpuQueue.hpp>
 #include <optick.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -336,6 +337,18 @@ namespace Common::Profiling
         {
             return std::chrono::duration<double, std::milli>( Clock::now() - m_DisplayClosedAt ).count();
         }
+        // A FRAME-EXACT CAPTURE (UE ProfileGPU over a fixed frame span). BeginCapture closes the running window
+        // on the next BeginFrame and stops the time-based closing; EndCapture closes the captured window on the
+        // next BeginFrame and holds it as the published rows until ReleaseCapture (the dump that read them) or
+        // the next BeginCapture. The scenario `frames N` wait brackets one (ControlService), so a dump after it
+        // averages exactly those frames: a full 360-frame turn, not whichever 0.5 s arc closed last.
+        void BeginCapture();
+        void EndCapture();
+        void ReleaseCapture();
+        [[nodiscard]] bool LastWindowCaptured() const
+        {
+            return m_DisplayCaptured;
+        }
 
     private:
         using Clock = std::chrono::high_resolution_clock;
@@ -365,6 +378,16 @@ namespace Common::Profiling
         uint32_t                                     m_DisplayWindowFrames = 0; // the published window's
         Clock::time_point                            m_DisplayClosedAt{};       // ... and when it closed
         bool                                         m_WindowStarted = false;
+        enum class CaptureState : uint8_t
+        {
+            None,
+            Arming,    // close the running window on the next BeginFrame, then Capturing
+            Capturing, // no time-based close
+            Ending,    // close the captured window on the next BeginFrame, then Holding
+            Holding,   // the captured rows stay published until ReleaseCapture
+        };
+        std::atomic<CaptureState> m_Capture{ CaptureState::None };
+        bool                      m_DisplayCaptured = false; // the published window is a capture
         bool                                         m_Enabled       = true;
         bool                                         m_SortByTime    = true;
         float                                        m_AvgWindowSec  = 0.5f;

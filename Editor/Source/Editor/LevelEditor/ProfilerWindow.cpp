@@ -143,8 +143,11 @@ namespace Desert::Editor
                   prof.AvgWindowSeconds() );
         // CLOUD-MARCH-COST-4: the rows are the last CLOSED wall-clock window, not the dump's frame. On a
         // turning camera (FPS-FIELD-BARN-TURN) its frame count and age place the measured arc on the turn.
-        LOG_INFO( "[Profiler] window: {} frame(s), closed {:.0f} ms before this dump",
-                  prof.LastWindowFrames(), prof.LastWindowAgeMs() );
+        // A scenario `frames N` wait is a frame-exact capture (ControlService): the rows are exactly its frames.
+        const char* const windowKind = prof.LastWindowCaptured() ? "frame-exact capture" : "time window";
+        LOG_INFO( "[Profiler] window: {} frame(s), {}, closed {:.0f} ms before this dump",
+                  prof.LastWindowFrames(), windowKind, prof.LastWindowAgeMs() );
+        prof.ReleaseCapture(); // this dump read the held capture: time windows resume
         LOG_INFO( "[Profiler] Frame (wall) {:.3f} ms ({:.0f} FPS), GPU frame {:.3f} ms", frameMs, fps,
                   gpuFrameMs );
         // GRASS-VRAM-BUDGET-1: the device-local memory the last sampled frame ran in (MemoryWatch). A frame past
