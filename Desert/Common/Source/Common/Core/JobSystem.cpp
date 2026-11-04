@@ -71,16 +71,20 @@ namespace Common
 #endif
         for ( ;; )
         {
-            InlineJob job;
+            QueuedJob queued;
             {
                 std::unique_lock<std::mutex> lk( m_Mutex );
                 m_CV.wait( lk, [this] { return m_Stop || !m_Queue.empty(); } );
                 if ( m_Stop && m_Queue.empty() )
                     return;
-                job = std::move( m_Queue.front() );
+                queued = std::move( m_Queue.front() );
                 m_Queue.pop_front();
                 ++m_Running;
             }
+            InlineJob& job = queued.Job;
+            // THE SUBMITTER'S FRAME for the job's run (RecordingFrame): a worker is unbound between jobs.
+            RecordingFrame& binding = RecordingFrame::OfThisThread();
+            binding                 = queued.Recording;
 
             // Never let a throwing job escape the worker thread: an uncaught exception here unwinds
             // through this loop (and Optick's per-thread ThreadScope) and calls std::terminate(), taking
@@ -99,6 +103,11 @@ namespace Common
                 LOG_ERROR( "[JobSystem] Worker job threw a non-std exception — swallowed to keep the app alive." );
             }
 
+            binding = RecordingFrame{};
+            // The job's captures die here, unbound: a deletion they queue takes the game thread's frame, as on
+            // the render task after a job.
+            queued = QueuedJob{};
+
             {
                 std::lock_guard<std::mutex> lk( m_Mutex );
                 --m_Running;
@@ -112,7 +121,7 @@ namespace Common
             std::lock_guard<std::mutex> lk( m_Mutex );
             if ( m_Stop )
                 return false; // shutting down: dropped, and the caller is told so
-            m_Queue.push_back( std::move( job ) );
+            m_Queue.push_back( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
         }
         m_CV.notify_one();
         return true;
