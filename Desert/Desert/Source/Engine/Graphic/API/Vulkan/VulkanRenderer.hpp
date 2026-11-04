@@ -35,6 +35,8 @@ namespace Desert::Graphic::API::Vulkan
         virtual void Shutdown() override;
 
         [[nodiscard]] virtual Common::BoolResultStr BeginFrame() override;
+        [[nodiscard]] Common::BoolResultStr         WaitFrameSlot() override;
+        [[nodiscard]] Common::BoolResultStr         BeginFrameRecording() override;
         // The command buffer the frame records into NOW. It changes at every ExecuteGraph (the frame is split
         // there), so a caller asks for it when it records and never keeps it.
         [[nodiscard]] VkCommandBuffer GetCurrentCommandBuffer() const

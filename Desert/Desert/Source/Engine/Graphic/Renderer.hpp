@@ -52,6 +52,10 @@ namespace Desert::Graphic
         void                  Shutdown();
 
         [[nodiscard]] Common::BoolResultStr BeginFrame();
+        // BeginFrame's two halves (RendererAPI::WaitFrameSlot / BeginFrameRecording): the game thread waits the
+        // slot, the render task begins the recording behind the previous frame's submit (Application::Run step 3).
+        [[nodiscard]] Common::BoolResultStr WaitFrameSlot();
+        [[nodiscard]] Common::BoolResultStr BeginFrameRecording();
         [[nodiscard]] Common::BoolResultStr EndFrame();
         // A refused pass (not recording, or a target with no VkFramebuffer) is the RESULT, not a log line
         // swallowed here: a caller that records draws and an EndRenderPass after a refusal records them

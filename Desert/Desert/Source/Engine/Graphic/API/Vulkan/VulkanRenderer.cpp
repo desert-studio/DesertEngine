@@ -63,6 +63,13 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::BeginFrame()
     {
+        if ( const Common::BoolResultStr waited = WaitFrameSlot(); !waited )
+            return waited;
+        return BeginFrameRecording();
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::WaitFrameSlot()
+    {
         // THE STRUCTURAL GATE FOR EVERY vkCmd* IN THIS FILE. Nothing below records a command without
         // RecordingSlot().CommandBuffer, and this is the only function that ever sets it — so leaving it null
         // here turns all forty-odd recording entry points into no-ops without a guard in each of them.
@@ -99,6 +106,21 @@ namespace Desert::Graphic::API::Vulkan
                 RecordingSlot().CommandBuffer = nullptr;
                 return Common::MakeFormattedError<bool>( "this frame's slot (frame N-k): {}", waited.GetError() );
             }
+        }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::BeginFrameRecording()
+    {
+        // THE RENDER TASK'S HALF (OVERLAP-ON-1). Application::Run enqueues it behind the previous frame's submit,
+        // present, so the render graph's single-slot frame objects and the GPU profiler below are begun in frame
+        // order on the thread that records them, while the game thread ticks this frame. The loss gate again: the
+        // half runs later than the game thread's wait.
+        if ( !Graphic::DeviceLost::AllowWork() )
+        {
+            RecordingSlot().CommandBuffer = nullptr;
+            return Common::MakeError( "the device is lost; no frame can be recorded. See the [DeviceLost] "
+                                      "line above for the cause." );
         }
         // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync, UE FFrameEndSync), moved here from the top of
         // Renderer::BeginFrame (FRAME-SLOT-1). The frame's own state - its submission list, its recording command
@@ -286,10 +308,14 @@ namespace Desert::Graphic::API::Vulkan
         // here and the next frame's recording. The wait is the first thing the next frame does
         // (VulkanRendererAPI::BeginFrame, row "Wait for GPU"), on the fence of frame N-k, and the deletion drain
         // that needs it follows it there.
-        Engine::FrameManager::GetInstance().NextFrame();
+        // The counter itself moves on the game thread (Renderer::PresentFinalImage inline; Application::Run when
+        // the present is the render task's job, OVERLAP-ON-1). The bindless frees are judged against the count
+        // after this frame, as before; this thread counts the frame's own (FrameManager::ScopedRecordingFrame).
         if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
-            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
-                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
+        {
+            const uint64_t afterThisFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() + 1;
+            bindless->EndFrame( afterThisFrame, Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
+        }
         return BOOLSUCCESS;
     }
 

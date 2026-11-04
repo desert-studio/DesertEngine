@@ -102,6 +102,19 @@ namespace Desert::Graphic
         virtual void Shutdown() = 0;
 
         virtual Common::BoolResultStr BeginFrame()                                                     = 0;
+        // THE FRAME BEGIN IN TWO HALVES (OVERLAP-ON-1; UE: the game thread throttles on the GPU, the render thread
+        // begins the RHI frame). WaitFrameSlot is the game thread's: the slot's GPU wait, so the game thread puts
+        // nothing into a slot the GPU still reads. BeginFrameRecording is the render task's, in order behind the
+        // previous frame's submit: the slot's retire, the render graph's frame objects, the command buffer.
+        // BeginFrame is both, inline. A backend with nothing to wait begins everything in the second half.
+        virtual Common::BoolResultStr WaitFrameSlot()
+        {
+            return Common::MakeSuccess( true );
+        }
+        virtual Common::BoolResultStr BeginFrameRecording()
+        {
+            return BeginFrame();
+        }
         virtual Common::BoolResultStr EndFrame()                                                       = 0;
         // `PrepareNextFrame() = 0` USED TO SIT HERE, AND THE WHOLE CHAIN BELOW IT WAS UNREACHABLE.
         // `Window::PrepareNextFrame` runs the frame boundary through `RendererContext::BeginFrame` (and the
