@@ -336,6 +336,10 @@ namespace Desert::Engine
                 // ITS RESULT USED TO BE DISCARDED — by this line, and by the two links beneath it, which
                 // both declared themselves void over a backend that returns one. A frame that could not
                 // acquire an image was therefore recorded and submitted anyway.
+                // RenderContext::BeginFrame applies a requested swapchain rebuild, under the frame the render task
+                // may still present (OVERLAP-ON-1): that frame is out first. REMAINDER-OVERLAP-ON-1: move the
+                // rebuild into the job "Frame: Begin", or join only when a rebuild is pending.
+                RenderTask::Get().Join();
                 const auto prepared = m_Window->PrepareNextFrame();
                 if ( !prepared.IsSuccess() )
                 {
