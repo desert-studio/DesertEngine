@@ -833,7 +833,8 @@ namespace Desert::Player
                               "{} at that frame.",
                               shot.Frames, shot.Output, width, height,
                               m_Content.Loading() ? "still loading" : "complete" );
-                    // HDR-OUTPUT p4: on an HDR output the PNG is the SDR rendition; the HDR one's peak goes to the log.
+                    // HDR-OUTPUT p4: on an HDR output the PNG is the SDR rendition; the HDR one's peak goes to the
+                    // log.
                     m_SceneRenderer->LogHdrRenditionPeak();
                 }
             }
@@ -974,7 +975,8 @@ namespace Desert::Player
         // HDR-OUTPUT p4 (the editor's EditorLayer does the same from its control channel): on an HDR output the
         // --shot frame is drawn through the SDR output transform, so the PNG is the SDR frame as on an SDR
         // display, and the tonemap keeps the HDR transform of that frame for its peak (OnFramePresented logs it).
-        // The frame is known in advance here: presented frames count from 1, m_PresentedFrames is the count so far.
+        // The frame is known in advance here: presented frames count from 1, m_PresentedFrames is the count so
+        // far.
         {
             const auto& shot = RuntimeShot::Get();
             Graphic::SetSdrCaptureRendition( shot.Active() && !m_ShotRecorded &&

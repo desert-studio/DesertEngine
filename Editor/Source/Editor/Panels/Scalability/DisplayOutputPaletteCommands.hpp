@@ -40,7 +40,8 @@ namespace Desert::Editor
                                   } } );
         // The output transform's peak (HDR-OUTPUT p4; UE r.HDR.Display.OutputDevice's ACES 1000 / 2000 nits
         // devices, r.HDR.Display.MaxLuminance): "Display: Peak 1000 nits" sets machine.json Display.PeakNits,
-        // "Display: Peak OS" returns it to 0 (the OS's figure). The panel's "Peak Override" field is the same value.
+        // "Display: Peak OS" returns it to 0 (the OS's figure). The panel's "Peak Override" field is the same
+        // value.
         for ( const float nits : { 0.0f, 1000.0f, 2000.0f } )
             commands.push_back( { "Display",
                                   nits > 0.0f ? std::format( "Display: Peak {:.0f} nits", nits )
