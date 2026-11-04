@@ -685,7 +685,7 @@ namespace Desert::Core
         // rendering thread draws N). Every job this update enqueues carries this world as its owner; another
         // world's views still recording are joined here, this world's are joined before the surface cache below.
         // What the tick writes and a view job reads is guarded at its writer (Scene.hpp m_SystemCommandArenas:
-        // the other arena; DeformationWorld::Submit: joins; the rest by value at BeginScene).
+        // the other arena; the deformation log and the rest: by value at BeginScene).
         const ::Desert::Engine::RenderTask::ScopedOwner owner( this );
         ::Desert::Engine::RenderTask::Get().JoinUnlessOwnedBy( this );
 

@@ -1875,9 +1875,10 @@ namespace Desert::Graphic
         // The scene's mesh distance fields (brick atlas, records, streaming), the same bracket: what this view's
         // global distance field composites from (AddFrameGlobalDistanceField).
         DistanceField::DistanceFieldSceneData* m_FrameDistanceFields = nullptr;
-        // The scene's deformation contacts (World::DeformationWorld), the same bracket: what AddFrameDeformationField
-        // applies to this view's field.
-        const ::Desert::World::DeformationWorld* m_FrameDeformation = nullptr;
+        // The scene's deformation contacts were captured into this view's field (CaptureContacts at BeginScene),
+        // the same bracket: AddFrameDeformationField applies that copy. The job never reads the world's log, which
+        // the tick of the next frame appends to while this one records.
+        bool m_FrameDeformationCaptured = false;
         // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the first
         // view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent (m_SharedSurfaceCache).
         SurfaceCache::SurfaceCacheRenderer* m_FrameSurfaceCache = nullptr;
