@@ -52,12 +52,16 @@ Shader "GrassGenerate"
 
         // GRASS-TILE-1, THE TILE POOL: kTilePoolWords uvec4 per record (TileRecord: StoreRecord, Common/GrassTileRecord.glslh GrassUnpackRecord), in
         // pages of kTilePageRecords records; a tile holds up to kTilePages of them (its TileWords header).
-        Buffer(10) TilePool
+        // GRASS-VRAM-BUDGET-1: the binding is the pool's segment table (Common/GrassVarietyRows.glslh, THE POOL'S
+        // SEGMENTS): per segment of kGrassTileSegmentPages pages the device address of its buffer, which StoreRecord
+        // writes through.
+        ReadBuffer(10) TilePool
         {
-            uvec4 TilePoolData[];
+            uvec2 TileSegmentData[];
         };
 
-        // The pool's bookkeeping: [0] the free pages' count, [1, 1 + pages) the free-page stack, then per tile slot
+        // The pool's bookkeeping: [0] the free pages' count, [1, 1 + Pool.x) the free-page stack (room for every page
+        // the pool can grow to), then per tile slot
         // kTileHeaderWords: the build's candidates, the pages held, 0, 0, the candidates' root box (min xyz, max xyz,
         // OrderedBits), 0 x 6, the pages held (kTilePages words from kTilePageWord), then its clusters' (from
         // kTileClusterWord: count, first record, root box).
@@ -86,6 +90,9 @@ Shader "GrassGenerate"
         {
             uvec4 Mode; // x = kMode*, y = this mode's first entry in Tiles, z = its entries (Init: the tile slots),
                         // w = the pool's pages
+            uvec4 Pool; // GRASS-VRAM-BUDGET-1: x = the free-page stack's room (the most pages the pool can grow to;
+                        // the tile headers follow the stack), y = the first page this frame's growth adds, z = the
+                        // pages it adds (Free pushes them on the stack), w = 0
         };
 
         // GrassRenderer.cpp kGrassTileMode*.
@@ -180,10 +187,11 @@ Shader "GrassGenerate"
 
         void StoreRecord( uint at, TileRecord r )
         {
-            TilePoolData[at * kTilePoolWords] =
-                 uvec4( floatBitsToUint( r.Position ), packUnorm2x16( vec2( r.Fade, r.Thin ) ) );
-            TilePoolData[at * kTilePoolWords + 1u] = uvec4( floatBitsToUint( r.Scale ), floatBitsToUint( r.Clump ) );
-            TilePoolData[at * kTilePoolWords + 2u] =
+            GrassQuads quads = GrassQuads( TileSegmentData[at / kGrassTileSegmentRecords] );
+            uint       quad  = GrassSegmentRecord( at ) * kTilePoolWords;
+            quads.Quads[quad] = uvec4( floatBitsToUint( r.Position ), packUnorm2x16( vec2( r.Fade, r.Thin ) ) );
+            quads.Quads[quad + 1u] = uvec4( floatBitsToUint( r.Scale ), floatBitsToUint( r.Clump ) );
+            quads.Quads[quad + 2u] =
                  uvec4( packSnorm2x16( r.Rotation.xy ), packSnorm2x16( r.Rotation.zw ), packUnorm2x16( r.Draws.xy ),
                         packUnorm2x16( vec2( r.Draws.z, 0.0 ) ) );
         }
@@ -200,7 +208,7 @@ Shader "GrassGenerate"
         }
         uint HeaderBase()
         {
-            return 1u + Mode.w;
+            return 1u + Pool.x;
         }
         uint InitialHeaderWord( uint word )
         {
@@ -388,17 +396,24 @@ Shader "GrassGenerate"
             uint        serial = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
             if ( Mode.x == kModeInit )
             {
-                // A new pool: every page free, every slot empty.
+                // A new (or grown and reset) pool: every page free, every slot empty, every chunk empty - a reset pool
+                // keeps its chunk buffer, whose counts would name records of pages handed out again.
                 if ( serial == 0u )
                     TileWordsData[0] = Mode.w;
                 if ( serial < Mode.w )
                     TileWordsData[1u + serial] = serial;
                 if ( serial < Mode.z * kTileHeaderWords )
                     TileWordsData[HeaderBase() + serial] = InitialHeaderWord( serial % kTileHeaderWords );
+                if ( serial < Mode.z * kTileClusters )
+                    GrassChunkData[GrassChunkAt( serial ) + kGrassChunkCountWord] = 0u;
                 return;
             }
             if ( Mode.x == kModeFree )
             {
+                // GRASS-VRAM-BUDGET-1: the pages a grown pool's new segments add go on the stack, free; no tile is
+                // built again and no record moves.
+                if ( serial < Pool.z )
+                    TileWordsData[1u + atomicAdd( TileWordsData[0], 1u )] = Pool.y + serial;
                 // A tile left the radius or is rebuilt: its pages go back on the stack, its slot is emptied.
                 if ( serial >= Mode.z )
                     return;

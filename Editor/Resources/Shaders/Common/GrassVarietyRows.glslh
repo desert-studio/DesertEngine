@@ -37,7 +37,8 @@ struct GrassVarietyRow
     vec4  CascadeRings[4];
     // GRASS-VIEW-LAW-1: Chunks holds the build's chunks, one per (tile slot, cluster) - the chunk contract below; its
     // header: x = the chunks (tile slots x kTileClusters), z = the same room, y = w = 0. The view law reads a chunk's
-    // records from TilePool (kGrassTilePoolWords uvec4 each, Common/GrassTileRecord.glslh), the variety's params
+    // records from the pool's segments, named by the segment table TilePool (THE POOL'S SEGMENTS below;
+    // kGrassTilePoolWords uvec4 per record, Common/GrassTileRecord.glslh), the variety's params
     // from Params and the field from Field, and appends the rows it keeps to FullIds: the full list, Args' buckets,
     // the union of the camera's planes and the cascades' lists, which RT and the list-less cascades draw.
     uvec2 Chunks;
@@ -104,6 +105,26 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) buffer GrassQuad
 {
     uvec4 Quads[];
 };
+
+// GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (UE: a pooled GPU buffer grows by pages inside its pool's budget and never
+// holds a second full copy): a variety's tile pool is kept in segments of kGrassTileSegmentPages pool pages, each its
+// own device-local buffer, appended as the pool grows (GrassRenderer VarietyGpu::TileSegments). The row's TilePool
+// and GrassGenerate's TilePool binding are the pool's SEGMENT TABLE: per segment its buffer's device address. Record
+// r is record GrassSegmentRecord( r ) of segment GrassPoolSegment( table, r ); a page never straddles two segments.
+const uint kGrassTileSegmentPages   = 1024u; // mirrors GrassRenderer.cpp kGrassTileSegmentPages
+const uint kGrassTileSegmentRecords = kGrassTileSegmentPages * 64u;
+layout( buffer_reference, std430, buffer_reference_align = 8 ) readonly buffer GrassSegments
+{
+    uvec2 Segments[];
+};
+GrassQuads GrassPoolSegment( GrassSegments table, uint record )
+{
+    return GrassQuads( table.Segments[record / kGrassTileSegmentRecords] );
+}
+uint GrassSegmentRecord( uint record )
+{
+    return record % kGrassTileSegmentRecords;
+}
 
 
 // The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its levels); a

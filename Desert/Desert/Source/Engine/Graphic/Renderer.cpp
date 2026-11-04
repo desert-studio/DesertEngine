@@ -120,7 +120,30 @@ namespace Desert::Graphic
         // there was no configuration in which anything was NOT in the shipped path. A player's frame does
         // not pay for a number no player can read.
 #if DESERT_DEV_INSTRUMENTS
-        MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() );
+        {
+            const bool wasOver = MemoryWatch::OverBudget();
+            MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() );
+            // GRASS-VRAM-BUDGET-1: ONE line where the run enters the over-budget state and one where it leaves it
+            // (VK_EXT_memory_budget): past the budget the driver pages video memory and the frame stalls wherever
+            // the paged memory is next touched, which no pass's timing names.
+            if ( const bool over = MemoryWatch::OverBudget(); over != wasOver )
+            {
+                constexpr double MB = 1024.0 * 1024.0;
+                if ( over )
+                {
+                    LOG_INFO( "[Memory] device-local {:.0f} MB passed the VRAM budget {:.0f} MB: the driver pages "
+                              "video memory and frames stall",
+                              static_cast<double>( MemoryWatch::LastDeviceLocalUsage() ) / MB,
+                              static_cast<double>( MemoryWatch::LastDeviceLocalBudget() ) / MB );
+                }
+                else
+                {
+                    LOG_INFO( "[Memory] device-local {:.0f} MB is back within the VRAM budget {:.0f} MB",
+                              static_cast<double>( MemoryWatch::LastDeviceLocalUsage() ) / MB,
+                              static_cast<double>( MemoryWatch::LastDeviceLocalBudget() ) / MB );
+                }
+            }
+        }
 #endif
 
         return s_RendererAPI->BeginFrame();

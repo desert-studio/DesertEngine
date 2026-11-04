@@ -584,7 +584,7 @@ Shader "GrassCull"
                 return;
             g_Field          = GrassWords( VarietyRows[r].Field );
             GrassWords args  = GrassWords( VarietyRows[r].Args );
-            GrassQuads pool  = GrassQuads( VarietyRows[r].TilePool );
+            GrassSegments pool = GrassSegments( VarietyRows[r].TilePool );
             uint       first = chunks.Words[at + kGrassChunkFirstWord];
             uint       page  = chunks.Words[at + kGrassChunkPageWord];
             for ( uint base = 0u; base < count; base += gl_SubgroupSize )
@@ -592,12 +592,13 @@ Shader "GrassCull"
                 uint i = base + gl_SubgroupInvocationID;
                 if ( i >= count )
                     continue;
-                uint  record = GrassChunkRecord( first, page, i );
-                uvec4 head0  = pool.Quads[record * kGrassTilePoolWords];
+                uint       record = GrassChunkRecord( first, page, i );
+                GrassQuads quads  = GrassPoolSegment( pool, record );
+                uint       quad   = GrassSegmentRecord( record ) * kGrassTilePoolWords;
+                uvec4      head0  = quads.Quads[quad];
                 if ( unpackUnorm2x16( head0.w ).x >= cut )
                     continue;
-                TileRecord tile = GrassUnpackRecord( head0, pool.Quads[record * kGrassTilePoolWords + 1u],
-                                                     pool.Quads[record * kGrassTilePoolWords + 2u] );
+                TileRecord tile = GrassUnpackRecord( head0, quads.Quads[quad + 1u], quads.Quads[quad + 2u] );
                 mat4 instance;
                 uint b;
                 if ( GrassViewLaw( p, args, tile, instance, b ) )

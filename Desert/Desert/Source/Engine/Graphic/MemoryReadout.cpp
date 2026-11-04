@@ -88,6 +88,13 @@ namespace Desert::Graphic
         return text;
     }
 
+    namespace
+    {
+        // GRASS-VRAM-BUDGET-1: the last sampled frame's device-local usage and budget (0: unknown).
+        std::atomic<uint64_t> g_LastDeviceUsage{ 0 };
+        std::atomic<uint64_t> g_LastDeviceBudget{ 0 };
+    } // namespace
+
     void MemoryWatch::SampleFrame( const MemoryReadout& readout )
     {
         const uint64_t resident    = readout.Process.Known ? readout.Process.Resident : 0;
@@ -104,6 +111,9 @@ namespace Desert::Graphic
 
         RaisePeak( g_PeakResident, resident );
         RaisePeak( g_PeakDeviceUsage, deviceUsage );
+        g_LastDeviceUsage.store( deviceUsage, std::memory_order_relaxed );
+        g_LastDeviceBudget.store( readout.Device.BudgetKnown ? readout.Device.DeviceLocalBudget() : 0,
+                                  std::memory_order_relaxed );
         g_LastBindless.store(
              readout.Bindless ? ( uint64_t{ readout.Bindless->Capacity } << 32U ) | readout.Bindless->Live : 0,
              std::memory_order_relaxed );
@@ -116,6 +126,22 @@ namespace Desert::Graphic
             return std::nullopt;
         return BindlessOccupancy{ .Live     = static_cast<uint32_t>( packed & 0xFFFFFFFFU ),
                                   .Capacity = static_cast<uint32_t>( packed >> 32U ) };
+    }
+
+    uint64_t MemoryWatch::LastDeviceLocalUsage()
+    {
+        return g_LastDeviceUsage.load( std::memory_order_relaxed );
+    }
+
+    uint64_t MemoryWatch::LastDeviceLocalBudget()
+    {
+        return g_LastDeviceBudget.load( std::memory_order_relaxed );
+    }
+
+    bool MemoryWatch::OverBudget()
+    {
+        const uint64_t budget = g_LastDeviceBudget.load( std::memory_order_relaxed );
+        return budget != 0 && g_LastDeviceUsage.load( std::memory_order_relaxed ) > budget;
     }
 
     uint64_t MemoryWatch::FramesSampled()
@@ -190,6 +216,8 @@ namespace Desert::Graphic
         g_PeakResident.store( 0, std::memory_order_relaxed );
         g_PeakDeviceUsage.store( 0, std::memory_order_relaxed );
         g_LastBindless.store( 0, std::memory_order_relaxed );
+        g_LastDeviceUsage.store( 0, std::memory_order_relaxed );
+        g_LastDeviceBudget.store( 0, std::memory_order_relaxed );
     }
 
 } // namespace Desert::Graphic
