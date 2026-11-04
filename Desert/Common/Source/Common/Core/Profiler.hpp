@@ -325,6 +325,17 @@ namespace Common::Profiling
         {
             return m_AvgWindowSec;
         }
+        // CLOUD-MARCH-COST-4: WHICH frames the published rows are. The window is a wall-clock bucket that
+        // closes once per period, so a reader (a profile dump) gets the last CLOSED one: on a camera that
+        // turns 1 degree a frame, its frame count and its age say which arc of the turn the rows measured.
+        [[nodiscard]] uint32_t LastWindowFrames() const
+        {
+            return m_DisplayWindowFrames;
+        }
+        [[nodiscard]] double LastWindowAgeMs() const
+        {
+            return std::chrono::duration<double, std::milli>( Clock::now() - m_DisplayClosedAt ).count();
+        }
 
     private:
         using Clock = std::chrono::high_resolution_clock;
@@ -351,6 +362,8 @@ namespace Common::Profiling
         double                                           m_DisplayFrameNamedMs = 0.0; // see LastFrameNamedMs
         Clock::time_point                            m_WindowStart;
         uint32_t                                     m_WindowFrames  = 0;
+        uint32_t                                     m_DisplayWindowFrames = 0; // the published window's
+        Clock::time_point                            m_DisplayClosedAt{};       // ... and when it closed
         bool                                         m_WindowStarted = false;
         bool                                         m_Enabled       = true;
         bool                                         m_SortByTime    = true;
