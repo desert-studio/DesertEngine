@@ -1187,7 +1187,8 @@ namespace Desert::Graphic::System
 
         // THE GROUND'S TRIANGLE CENSUS (TERRAIN-LOD-1): what the camera's rasters (TerrainGBuffer, the depth
         // prepass, the forward pass) draw this frame - the rings' and every section's grid cells - logged when it
-        // moves by a tenth, so a still or turning view logs it once and a walk on every LOD step.
+        // moves by a tenth, so a still view logs it once, a walk on every LOD step and a turn whenever the
+        // sections in its frustum (LandscapeSectionViewMask) move it by a tenth.
         // TERRAIN-COST-2: the rings' (procedural) and the grid's share, the sections drawn of the seen tiles' (the
         // rest outside the frustum), and the camera rows' dice pool work (sub-vertices, and the corner nodes they
         // read; the virtual shadow map's rows add theirs below).
@@ -1528,6 +1529,11 @@ namespace Desert::Graphic::System
             for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
             {
                 const DicePoolJob& job = m_DicePoolJobs[i];
+                // Named before the call (MSVC: no conditional inline in a by-value argument).
+                const std::string weightmapName =
+                     job.HasWeightmap ? std::format( "Landscape.Weightmap.{}",
+                                                     static_cast<const void*>( job.Weightmap.get() ) )
+                                      : std::string( "Landscape.DicePool.WeightmapFallback" );
                 node.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DicePoolPipeline ) )
                      .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
                      .Storage( DicePoolShaderParameters::LandscapeDicePoolRows, rows, RDG::Access::StorageRead )
@@ -1536,10 +1542,7 @@ namespace Desert::Graphic::System
                                std::format( "Landscape.Heightmap.{}",
                                             static_cast<const void*>( job.Heightmap.get() ) ) )
                      .Texture( DicePoolShaderParameters::WeightmapTexture, job.Weightmap,
-                               RDG::Access::SampledCompute,
-                               job.HasWeightmap ? std::format( "Landscape.Weightmap.{}",
-                                                               static_cast<const void*>( job.Weightmap.get() ) )
-                                                : std::string( "Landscape.DicePool.WeightmapFallback" ) )
+                               RDG::Access::SampledCompute, weightmapName )
                      .Texture( DicePoolShaderParameters::LayerHeightTexture, job.LayerHeights,
                                RDG::Access::SampledCompute,
                                std::format( "Landscape.LayerHeights.{}",
