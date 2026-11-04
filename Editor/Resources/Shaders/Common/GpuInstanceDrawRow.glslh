@@ -12,7 +12,7 @@
 // gl_DrawIDARB, which the draw-row permutation's assembly enables (device feature shaderDrawParameters,
 // DeviceCapabilities::SupportsShaderDrawParameters).
 
-// std430, 80 bytes, mirrors GpuInstanceDrawRow.
+// std430, 96 bytes, mirrors GpuInstanceDrawRow.
 struct GpuInstanceDrawRow
 {
     uvec2 Instances;      // mat4 per instance (the per-variety path's InstanceTransforms)
@@ -25,6 +25,7 @@ struct GpuInstanceDrawRow
     uint  Reserved1;
     vec4  WindA;          // the per-variety path's WindA / WindB push (PackViewInstanceWind)
     vec4  WindB;
+    vec4  Caster;         // a cascade caster's (GRASS-SHADOW-BINS-1): xyz the thin origin, w the ring's inner
 };
 
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GpuInstanceDrawRowRef
