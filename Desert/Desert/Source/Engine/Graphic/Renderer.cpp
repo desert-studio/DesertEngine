@@ -102,6 +102,11 @@ namespace Desert::Graphic
 
     [[nodiscard]] Common::BoolResultStr Renderer::BeginFrame()
     {
+        // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync, UE FFrameEndSync): the previous frame's render
+        // work has recorded before this frame's submission list is cleared and its command buffer opened (the
+        // backend call below). Here and not at the loop's step 3, so every path that begins a frame passes it.
+        ::Desert::Engine::RenderTask::Get().FrameEndSync();
+
         // THE MEMORY READING IS TAKEN HERE, ONCE A FRAME, IN THE SHIPPED PATH.
         //
         // Not in a HUD, and not behind a flag: the world programme's §0.4 acceptance criterion is about
@@ -175,6 +180,9 @@ namespace Desert::Graphic
     // something else.
     Common::BoolResultStr Renderer::PresentFinalImage()
     {
+        // The other half of the frame boundary (RenderTask::FrameEndSync): the submit takes the frame's list as
+        // it is and FrameManager::NextFrame moves the slot index, so no job of this frame may still record.
+        ::Desert::Engine::RenderTask::Get().FrameEndSync();
         return s_RendererAPI->PresentFinalImage();
     }
 
