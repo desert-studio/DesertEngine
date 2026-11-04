@@ -22,6 +22,7 @@ Shader "TSRDilateVelocity"
         LocalSize(8, 8, 1);
 
         #include <Common/TSRCommon.glslh>
+        #include <Common/Velocity.glslh>
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
@@ -60,15 +61,14 @@ Shader "TSRDilateVelocity"
         #include <Common/TSRSpatialAntiAliasing.glslh>
 
         // The NDC velocity of the render pixel @p p at device depth @p depth: its drawn velocity, or the camera's
-        // reprojection of the direction where nothing drew (depth 0, the sky).
-        vec2 NdcVelocityAt(ivec2 p, float depth)
+        // reprojection of the direction where nothing drew (depth 0, the sky): Common/Velocity.glslh
+        // DesertCameraVelocityAtInfinity, the formula TAA, UpscalerVelocity and motion blur's Flatten use.
+        // @p clipToPrevClip is PreviousViewProjection * InverseViewProjection, formed once per invocation.
+        vec2 NdcVelocityAt(ivec2 p, float depth, mat4 clipToPrevClip)
         {
             if (depth > 0.0)
                 return texelFetch(VelocityTexture, TsrClampRender(p), 0).xy;
-            const vec2 uv       = TsrSurfaceUv(p);
-            const vec4 world    = InverseViewProjection * vec4(ScreenUVToNdc(uv), depth, 1.0);
-            const vec4 prevClip = PreviousViewProjection * world;
-            return ScreenUVToNdc(uv) - prevClip.xy / prevClip.w;
+            return DesertCameraVelocityAtInfinity(ScreenUVToNdc(TsrSurfaceUv(p)), clipToPrevClip);
         }
 
         // The 3x3 neighbourhood, [y + 1][x + 1].
@@ -210,9 +210,11 @@ Shader "TSRDilateVelocity"
             const vec4 world    = InverseViewProjection * vec4(ScreenUVToNdc(uv), closest, 1.0);
             const vec4 prevClip = PreviousViewProjection * world;
 
-            vec2 velocity = texelFetch(VelocityTexture, closestPixel, 0).xy;
+            // UE View.ClipToPrevClip (Graphic::ViewFrame::ClipToPrevClip), both unjittered.
+            const mat4 clipToPrevClip = PreviousViewProjection * InverseViewProjection;
+            vec2       velocity       = texelFetch(VelocityTexture, closestPixel, 0).xy;
             if (closest <= 0.0)
-                velocity = ScreenUVToNdc(uv) - prevClip.xy / prevClip.w;
+                velocity = DesertCameraVelocityAtInfinity(ScreenUVToNdc(uv), clipToPrevClip);
 
             imageStore(DilatedVelocityTexture, pixel, vec4(velocity, 0.0, 0.0));
             imageStore(ClosestDepthTexture, pixel, vec4(closest));
@@ -223,10 +225,10 @@ Shader "TSRDilateVelocity"
             {
                 for (int y = -1; y <= 1; ++y)
                     for (int x = -1; x <= 1; ++x)
-                        s_PixelVelocity[y + 1][x + 1] =
-                             TsrNdcToPixelVelocity(NdcVelocityAt(pixel + ivec2(x, y), s_Depth[y + 1][x + 1]));
+                        s_PixelVelocity[y + 1][x + 1] = TsrNdcToPixelVelocity(
+                             NdcVelocityAt(pixel + ivec2(x, y), s_Depth[y + 1][x + 1], clipToPrevClip));
                 encodedJacobian = EncodeReprojectionJacobian(ComputeReprojectionJacobian());
-                const vec2 centreVelocity = NdcVelocityAt(pixel, s_Depth[1][1]);
+                const vec2 centreVelocity = NdcVelocityAt(pixel, s_Depth[1][1], clipToPrevClip);
                 encodedBoundary =
                      EncodeReprojectionBoundary(closestOffset, ComputeBoundary(pixel, centreVelocity, velocity));
             }

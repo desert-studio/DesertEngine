@@ -7,7 +7,17 @@ Shader "MotionBlurFlatten"
         // previous, View/Velocity.hpp) in OUTPUT pixels of blur, scaled by VelocityScale (MotionBlurAmount and the
         // TargetFPS normalisation) and clamped to MaxPixels (MotionBlurMax), packed with the device depth for the
         // gather's depth compare. CPU twin: Graphic::MotionBlurPixelVelocity.
+        //
+        // A pixel nothing wrote velocity for (the sky, the clouds, the far plane: velocity 0 at reversed-Z depth 0)
+        // keeps the clear value; its motion is the camera's at infinity (Common/Velocity.glslh
+        // DesertCameraVelocityAtInfinity through ViewFrame::ClipToPrevClip, one formula with TemporalAA.shader's sky
+        // branch and UpscalerVelocity), as UE's VelocityFlatten derives the camera motion where no velocity was
+        // written. A turning camera so blurs the sky with the hills in front of it: no sharp sky band riding with
+        // the camera along the horizon silhouette. A still camera gives ClipToPrevClip = identity, velocity 0.
         LocalSize(8, 8, 1);
+
+        #include <Common/ScreenUV.glslh>
+        #include <Common/Velocity.glslh>
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
@@ -30,6 +40,7 @@ Shader "MotionBlurFlatten"
             float Pad0;
             float Pad1;
             float Pad2;
+            mat4  ClipToPrevClip; // ViewFrame::ClipToPrevClip (unjittered); Flatten's sky branch
         };
 
         void main()
@@ -37,12 +48,18 @@ Shader "MotionBlurFlatten"
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
             if (any(greaterThanEqual(pixel, ivec2(RenderSize))))
                 return;
-            const vec2  ndc       = texelFetch(VelocityTexture, pixel, 0).xy;
-            vec2        blur      = ndc * vec2(0.5, -0.5) * OutputSize * VelocityScale;
+            vec2        ndcVelocity = texelFetch(VelocityTexture, pixel, 0).xy;
+            const float depth       = texelFetch(SceneDepthTexture, pixel, 0).r;
+            if (ndcVelocity == vec2(0.0) && depth <= 0.0)
+            {
+                const vec2 uv = (vec2(pixel) + 0.5) / RenderSize;
+                ndcVelocity   = DesertCameraVelocityAtInfinity(ScreenUVToNdc(uv), ClipToPrevClip);
+            }
+            vec2        blur       = ndcVelocity * vec2(0.5, -0.5) * OutputSize * VelocityScale;
             const float blurLength = length(blur);
             if (blurLength > MaxPixels && blurLength > 0.0)
                 blur *= MaxPixels / blurLength;
-            imageStore(FlattenedVelocityTexture, pixel, vec4(blur, texelFetch(SceneDepthTexture, pixel, 0).r, 0.0));
+            imageStore(FlattenedVelocityTexture, pixel, vec4(blur, depth, 0.0));
         }
     }
 }

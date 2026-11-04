@@ -28,9 +28,11 @@ vec4 DesertVelocity( vec4 clip, vec4 prevClip, float objectMoved )
 // depth 0). Such a pixel keeps the clear value (Graphic::kVelocityFormat, View/SceneViewState.hpp), so every
 // reader that reprojects it derives the motion here, from the view direction alone: a point at infinity, kept
 // homogeneous (w = 0 after the inverse), so no finite far distance is needed. clipToPrevClip is
-// PreviousViewProjection * InverseViewProjection, both unjittered (UE View.ClipToPrevClip; the readers are
-// TemporalAA.shader's sky branch and UpscalerVelocity.shader, the motion vectors a vendor upscaler takes — UE's
-// DLSS VelocityCombine / FSR ConvertVelocity). Returns current minus previous NDC.xy, as DesertVelocity does.
+// PreviousViewProjection * InverseViewProjection, both unjittered (UE View.ClipToPrevClip, Graphic::ViewFrame::
+// ClipToPrevClip). The readers: TemporalAA.shader's sky branch, TSRDilateVelocity.shader, UpscalerVelocity.shader
+// (the motion vectors a vendor upscaler takes — UE's DLSS VelocityCombine / FSR ConvertVelocity) and
+// MotionBlurFlatten.shader (UE VelocityFlatten: the sky blurs with the world under a turning camera). Returns
+// current minus previous NDC.xy, as DesertVelocity does.
 vec2 DesertCameraVelocityAtInfinity( vec2 ndc, mat4 clipToPrevClip )
 {
     const vec4 prevClip = clipToPrevClip * vec4( ndc, 0.0, 1.0 );

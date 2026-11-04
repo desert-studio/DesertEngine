@@ -104,10 +104,9 @@ namespace Desert::Graphic
         desc.Size                      = { width, height, 1 };
         desc.Format                    = ViewTargetFormats::kVelocity;
         const RDG::TextureRef combined = graph.CreateTexture( desc, kVelocityShaderName );
-        // UE View.ClipToPrevClip: this frame's unjittered clip space to the previous frame's.
-        const VelocityPush push{
-             .ClipToPrevClip = frame.PrevViewProjection * frame.InvViewProjection,
-             .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ), 0.0f, 0.0f ) };
+        const VelocityPush    push{
+                .ClipToPrevClip = frame.ClipToPrevClip(),
+                .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ), 0.0f, 0.0f ) };
         PipelineHolder* holder = m_Pipeline.get();
         graph.AddPass(
              kVelocityShaderName, RDG::PassFlags::Compute,
