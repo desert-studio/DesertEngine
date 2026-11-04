@@ -6,8 +6,6 @@
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
-#include <string_view>
-#include <vector>
 
 // The driver half of the catalog fill: every vkGet* the catalog needs, asked once. Kept apart from
 // VulkanCapabilityCatalog.cpp so the pure builder compiles in the contract suite without a Vulkan loader.
@@ -29,20 +27,6 @@ namespace Desert::Graphic::API::Vulkan
 
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties( physicalDevice, &properties );
-
-        // FP8 matrix math (CatalogProbe::ShaderFloat8): the extension's name in the device's list is the
-        // driver's statement; its structs are newer than the headers the engine builds with, and nothing
-        // enables it.
-        uint32_t extensionCount = 0;
-        if ( vkEnumerateDeviceExtensionProperties( physicalDevice, nullptr, &extensionCount, nullptr ) == VK_SUCCESS )
-        {
-            std::vector<VkExtensionProperties> extensions( extensionCount );
-            if ( vkEnumerateDeviceExtensionProperties( physicalDevice, nullptr, &extensionCount,
-                                                       extensions.data() ) == VK_SUCCESS )
-                probe.ShaderFloat8 = std::any_of(
-                     extensions.begin(), extensions.begin() + extensionCount, []( const VkExtensionProperties& e )
-                     { return std::string_view( e.extensionName ) == "VK_EXT_shader_float8"; } );
-        }
         probe.VendorId                    = properties.vendorID;
         probe.Type                        = properties.deviceType;
         probe.ColorSampleCounts           = properties.limits.framebufferColorSampleCounts;

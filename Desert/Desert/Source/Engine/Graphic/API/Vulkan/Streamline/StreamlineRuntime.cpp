@@ -101,10 +101,6 @@ namespace Desert::Graphic::Streamline
                     return sl::DLSSDPreset::ePresetD;
                 case DlssRRPreset::E:
                     return sl::DLSSDPreset::ePresetE;
-                case DlssRRPreset::F:
-                    return sl::DLSSDPreset::ePresetF;
-                case DlssRRPreset::Auto: // settled by Resolve; DLSSUpscaler::AddPasses refuses an unsettled one
-                    break;
             }
             return sl::DLSSDPreset::eDefault;
         }

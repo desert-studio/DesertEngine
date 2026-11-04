@@ -125,11 +125,6 @@ namespace Common::Scalability
                         catalog.VideoMemory / ( 1024ull * 1024ull ) );
         std::format_to( std::back_inserter( out ), " share={}",
                         kGpuSharingNames[static_cast<std::size_t>( catalog.Sharing )] );
-        // The DLSS Ray Reconstruction network Auto settles to rests on it (DlssRRPreset).
-        std::string_view tensorFloat8 = "no";
-        if ( catalog.TensorFloat8 )
-            tensorFloat8 = "yes";
-        std::format_to( std::back_inserter( out ), " tensorfp8={}", tensorFloat8 );
         return out;
     }
 } // namespace Common::Scalability

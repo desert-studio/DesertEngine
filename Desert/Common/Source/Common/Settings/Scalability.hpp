@@ -428,9 +428,6 @@ namespace Common::Scalability
         // AsyncCompute (0/1): 1 needs CapabilityCatalog::AsyncCompute; a device without it resolves to 0
         // ("not offered by this device").
         AsyncCompute,
-        // DlssRRPreset (the DlssRRPreset* rows): Auto settles to F where CapabilityCatalog::TensorFloat8, else E,
-        // unreported; every other value is the device's whatever the catalog says (NGX runs each network).
-        DlssRRPresets,
     };
 
     // WHO A PARAMETER IS SHOWN TO (SCAL-UX, owner 10-27 "too many switches"). Basic: what a game's graphics menu

@@ -227,24 +227,17 @@ namespace Common::Scalability
 
     // WHICH RAY RECONSTRUCTION NETWORK A DLSS MODE RUNS under Upscaler::DLSSRayReconstruction (UE: r.NGX.DLSS.RR.
     // <Mode>Preset), one Parameter per mode (Parameter::DlssRRPresetNative ..). Ray Reconstruction has its own
-    // networks (sl_dlss_d.h DLSSDPreset, Streamline 2.14): A-C were removed, D, E and F are the transformer models
-    // (F the latest and NVIDIA's default), G-O revert to the default; D, E and F are offered. Default is NVIDIA's
-    // choice for the mode, which a driver-side DLSS update may move. Auto is the DEVICE's choice, settled by
-    // Resolve against the catalog (CatalogList::DlssRRPresets, CapabilityCatalog::TensorFloat8): F where the
-    // tensor cores multiply FP8, E where they do not (Turing, Ampere run the latest network's FP8 layers at
-    // FP16 rate), as UE picks a device's defaults from its device profile; a resolved quality never holds Auto.
-    // Stored by name (the integers of Default / D / E kept); the Streamline runtime maps a value to its
+    // networks (sl_dlss_d.h DLSSDPreset): A-C were removed, D and E are the transformer models, F-O revert to the
+    // default; only D and E are offered. Stored by name; the Streamline runtime maps a value to its
     // sl::DLSSDPreset.
     enum class DlssRRPreset : int
     {
         Default = 0,
-        D,    // transformer
-        E,    // transformer
-        F,    // transformer; NVIDIA's latest and default
-        Auto, // the device's: F with FP8 tensor math, E without (Resolve)
+        D, // transformer
+        E, // transformer; NVIDIA's latest
     };
-    inline constexpr std::array<std::string_view, 5> kDlssRRPresetNames{ "Default", "D", "E", "F", "Auto" };
-    static_assert( static_cast<std::size_t>( DlssRRPreset::Auto ) + 1 == kDlssRRPresetNames.size() );
+    inline constexpr std::array<std::string_view, 3> kDlssRRPresetNames{ "Default", "D", "E" };
+    static_assert( static_cast<std::size_t>( DlssRRPreset::E ) + 1 == kDlssRRPresetNames.size() );
 
     // WHAT DENOISES THE PATH-TRACED VIEW (Parameter::PathTracingDenoiser; UE r.PathTracing.Denoiser picks its
     // denoiser plugin the same way). Stored by name. Off: the accumulation alone. ReLAX: the path tracer's own
@@ -366,11 +359,6 @@ namespace Common::Scalability
 
         // Reader: GPU profiler, benchmark. Mac (Apple GPU): EncoderBounds.
         GpuTiming Timing = GpuTiming::None;
-
-        // Reader: Resolve (the DlssRRPreset rows' Auto, CatalogList::DlssRRPresets). The device's matrix units
-        // multiply 8-bit floats: the driver offers VK_EXT_shader_float8 (NVIDIA Ada and newer; Turing and Ampere
-        // tensor cores have no FP8 path). Mac: false.
-        bool TensorFloat8 = false;
 
         // Reader: recommended settings (benchmark fallback + VRAM-scaled texture / shadow levels).
         DeviceClass Class       = DeviceClass::Unknown;
