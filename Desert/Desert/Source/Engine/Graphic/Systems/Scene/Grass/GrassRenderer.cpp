@@ -1866,13 +1866,13 @@ namespace Desert::Graphic::System
                                                      std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
                                                      std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
                                                      std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
-                                                     std::pair{ &gpu->TileTable, &gpu->TileTableImport },
                                                      std::pair{ &gpu->TilePool, &gpu->TilePoolImport },
-                                                     std::pair{ &gpu->TileWords, &gpu->TileWordsImport },
-                                                     std::pair{ &gpu->FullIds, &gpu->FullIdsImport },
-                                                     std::pair{ &gpu->TileFeedback, &gpu->TileFeedbackImport } } )
+                                                     std::pair{ &gpu->FullIds, &gpu->FullIdsImport } } )
                     if ( imported )
                         imported = Renderer::ImportBuffer( *buffer, *into );
+                // RENDER-JOB-CPU-2: the tile table, the pool's words and the tile feedback are read and written by
+                // the tile passes alone (bindGenerate), which run only for a variety that frees or builds tiles
+                // this frame - they are imported there (below), not on a frame that only turns the camera.
                 // GRASS-VRAM-BUDGET-1: the pool's segments, which the passes read and write by address.
                 gpu->TileSegmentImports.resize( gpu->TileSegments.size() );
                 for ( std::size_t s = 0; s < gpu->TileSegments.size() && imported; ++s )
@@ -1907,9 +1907,10 @@ namespace Desert::Graphic::System
                 gpu->TileSegmentRefs.clear();
                 for ( RDG::ExternalBuffer& segment : gpu->TileSegmentImports )
                     gpu->TileSegmentRefs.push_back( graph.RegisterExternal( segment, "GrassTilePool" ) );
-                gpu->TileWordsRef          = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
-                gpu->TileTableRef          = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
-                gpu->TileFeedbackRef = graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
+                // Last frame's handles name another graph's resources: invalid until the tile passes import them.
+                gpu->TileWordsRef    = {};
+                gpu->TileTableRef    = {};
+                gpu->TileFeedbackRef = {};
                 DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
                 m_Frame.push_back( gpu );
                 if ( gpu->Drawn )
@@ -1945,9 +1946,32 @@ namespace Desert::Graphic::System
                         gpu->TilePoolMade = false;
                         tiles             = false;
                     }
-                    else if ( gpu->PoolFresh )
+                    else
                     {
-                        gpu->TilePoolMade = true;
+                        // The tile passes' own buffers, imported after the table's write (the copy it wrote).
+                        Common::BoolResultStr tileImported =
+                             Renderer::ImportBuffer( gpu->TileTable, gpu->TileTableImport );
+                        if ( tileImported )
+                            tileImported = Renderer::ImportBuffer( gpu->TileWords, gpu->TileWordsImport );
+                        if ( tileImported )
+                            tileImported = Renderer::ImportBuffer( gpu->TileFeedback, gpu->TileFeedbackImport );
+                        if ( !tileImported )
+                        {
+                            // As an unwritten table: no tile pass this frame, a new pool next frame.
+                            LOG_ERROR( "[Grass] the variety's tile buffers are not in the frame graph: {}",
+                                       tileImported.GetError() );
+                            gpu->TilePoolMade = false;
+                            tiles             = false;
+                        }
+                        else
+                        {
+                            gpu->TileWordsRef = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
+                            gpu->TileTableRef = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
+                            gpu->TileFeedbackRef =
+                                 graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
+                            if ( gpu->PoolFresh )
+                                gpu->TilePoolMade = true;
+                        }
                     }
                 }
                 if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
