@@ -113,8 +113,10 @@ DESERT_SURFACE_VARYINGS( out )
 layout( location = 15 ) flat out uint v_VisibilityRow;
 
 // The first row of this draw for slot @p slot: the slot's block, then the offset of the level's and the
-// submesh's triangles in it. The submesh is the one whose vertices hold @p vertex (the records are mesh-relative:
-// gl_VertexIndex = index + the submesh's VertexOffset); a triangle's three corners agree, the row is flat.
+// submesh's triangles in it. The submesh is the one of THIS section's drawn submeshes whose vertices hold @p vertex
+// (the records are mesh-relative: gl_VertexIndex = index + the submesh's VertexOffset); a hidden one may share its
+// vertices, the drawn ones never do (GrassRenderer::PrepareVariety tables no section whose drawn ranges overlap).
+// A triangle's three corners agree, the row is flat.
 uint GrassMeshVisibilityRow( const uint slot, const uint vertex )
 {
     const uint level   = GrassMeshVisibilityLevel( slot );
@@ -122,7 +124,8 @@ uint GrassMeshVisibilityRow( const uint slot, const uint vertex )
     uint       submesh = 0u;
     for ( uint s = 0u; s < count; ++s )
     {
-        if ( vertex >= MeshRows.Submeshes[s].x && vertex - MeshRows.Submeshes[s].x < MeshRows.Submeshes[s].y )
+        if ( MeshRows.Submeshes[s].z != 0u && vertex >= MeshRows.Submeshes[s].x &&
+             vertex - MeshRows.Submeshes[s].x < MeshRows.Submeshes[s].y )
         {
             submesh = s;
             break;

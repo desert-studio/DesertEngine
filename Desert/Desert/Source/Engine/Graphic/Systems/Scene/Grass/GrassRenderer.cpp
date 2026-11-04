@@ -1085,8 +1085,29 @@ namespace Desert::Graphic::System
                     }
                     perInstance = std::max( perInstance, offset );
                 }
+                // The raster names a vertex's submesh by its vertex range among the section's drawn submeshes
+                // (Vertex_Instanced.glslh GrassMeshVisibilityRow): a drawn submesh with no range, or two drawn
+                // ones sharing vertices, would write one's triangles under the other's rows - such a section is
+                // not tabled.
+                bool distinct = true;
+                for ( uint32_t si = 0; fits && distinct && si < submeshCount; ++si )
+                {
+                    if ( ( ( hidden >> si ) & 1u ) != 0u )
+                        continue;
+                    const Submesh& one = submeshes[si];
+                    if ( one.VertexCount == 0u )
+                        distinct = false;
+                    for ( uint32_t sj = si + 1u; distinct && sj < submeshCount; ++sj )
+                    {
+                        const Submesh& other = submeshes[sj];
+                        if ( ( ( hidden >> sj ) & 1u ) == 0u &&
+                             uint64_t{ one.VertexOffset } < uint64_t{ other.VertexOffset } + other.VertexCount &&
+                             uint64_t{ other.VertexOffset } < uint64_t{ one.VertexOffset } + one.VertexCount )
+                            distinct = false;
+                    }
+                }
                 const uint64_t need = uint64_t{ capacity } * perInstance;
-                if ( !addressed || !fits || perInstance == 0u ||
+                if ( !addressed || !fits || !distinct || perInstance == 0u ||
                      m_VisibilityRows + need > kGrassVisibilityMaxRows )
                 {
                     table.reset();
@@ -1094,10 +1115,10 @@ namespace Desert::Graphic::System
                     if ( s_Untabled.insert( variety.Key * 64u + s ).second )
                     {
                         LOG_INFO( "[Grass] variety {:016x} section {}: not drawn through the visibility buffer "
-                                  "(device addresses {}, {} submeshes x {} levels, {} rows past {}); it stays in "
-                                  "the masked depth prepass and the G-buffer.",
-                                  variety.Key, s, addressed, submeshCount, buckets, m_VisibilityRows + need,
-                                  kGrassVisibilityMaxRows );
+                                  "(device addresses {}, {} submeshes x {} levels, distinct vertex ranges {}, {} "
+                                  "rows past {}); it stays in the masked depth prepass and the G-buffer.",
+                                  variety.Key, s, addressed, submeshCount, buckets, distinct,
+                                  m_VisibilityRows + need, kGrassVisibilityMaxRows );
                     }
                     continue;
                 }
@@ -1939,12 +1960,15 @@ namespace Desert::Graphic::System
                 sections.reserve( variety.Sections.size() );
                 // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
                 // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are 0,
-                // 1, 2).
-                Desert::Mesh* const resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
+                // 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw the
+                // grass mesh's own first triangle, not the screen.
+                Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
+                if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
+                    resolveMesh = nullptr;
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
                 {
                     std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
-                    if ( s < gpu->MeshVisibility.size() )
+                    if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
                         meshRows = gpu->MeshVisibility[s];
                     sections.push_back(
                          { .Mesh     = mesh,
