@@ -313,6 +313,19 @@ namespace Desert::Graphic
                                                   offset, hiddenSubmeshMask, order, groups );
     }
 
+    Common::BoolResultStr
+    Renderer::RenderMeshIndirectCount( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                       const Mesh& mesh, const glm::mat4& transform,
+                                       const MaterialExecutor& material, const std::span<const std::byte> push,
+                                       const RDG::BufferRef args, const uint64_t offset,
+                                       const RDG::BufferRef count, const uint64_t countOffset,
+                                       const uint32_t maxDraws,
+                                       const SubmeshMask hiddenSubmeshMask )
+    {
+        return s_RendererAPI->RenderMeshIndirectCount( bindings, pipeline, mesh, transform, material, push, args,
+                                                       offset, count, countOffset, maxDraws, hiddenSubmeshMask );
+    }
+
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
         s_RendererAPI->ComputeImageBeginWrite( image );

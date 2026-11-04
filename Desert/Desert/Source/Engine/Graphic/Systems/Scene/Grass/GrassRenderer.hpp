@@ -532,6 +532,23 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Cull; // GRASS-CULL-2: the camera cull and phase 2 (GrassCull.shader)
         mutable ShaderBindingLayoutCache m_GenerateLayout;
+        // RENDER-JOB-CPU-4, THE COMPACTED BINS' GATHER (Programs/Grass/GrassDrawCompact.shader) and its two phase
+        // tables (GpuDrawBinFrame: 0 the camera's first phase, 1 post-occlusion) with their buffers; every section
+        // hands MeshRenderer the tables (GpuInstancedRenderData::DrawBins).
+        struct DrawBinBuffers
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer> Commands, Slots, Counts; // device-local, kept
+            std::shared_ptr<ShaderResources::StorageBuffer> Entries, Rows;           // per frame in flight
+            RDG::ExternalBuffer CommandsImport, SlotsImport, CountsImport, EntriesImport;
+            RDG::BufferRef      EntriesRef;
+        };
+        std::array<GpuDrawBinFrame, 2>   m_DrawBins{};
+        std::array<DrawBinBuffers, 2>    m_DrawBinBuffers{};
+        std::shared_ptr<ComputePipeline> m_DrawCompact;
+        mutable ShaderBindingLayoutCache m_DrawCompactLayout;
+        // Opens phase @p phase's table (its buffers grown to this frame's varieties, in the graph) and adds its
+        // clear and gather passes, which run after every draw setup of the frame filled the table.
+        Common::BoolResultStr AddDrawGather( RDG::Builder& graph, uint32_t phase );
         mutable ShaderBindingLayoutCache m_CullLayout;
         // GRASS-CULL-2: the variety table (per frame in flight, WriteVarietyTable) and the last AddFrame graph's
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).

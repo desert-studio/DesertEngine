@@ -8,8 +8,10 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
+#include <vector>
 
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 namespace Desert::Graphic
 {
@@ -24,6 +26,9 @@ namespace Desert::Graphic
         // GpuInstanceIds (cells in the kSurfaceInstanceIdsDefine permutation); the records' firstInstance and the
         // instance index count slots of this list. Invalid: the slot IS the row (Instances drawn directly).
         RDG::BufferRef Ids{};
+        // RENDER-JOB-CPU-4: the device address of Args' buffer (a compacted bin's gather copies the records
+        // from it, GpuDrawCompactEntry::Records); 0: the producer gave none, the section draws per variety.
+        uint64_t ArgsAddress = 0;
     };
 
     // The argument buffer: a 16-byte header (bucket count, total capacity, submesh count, last drawn count), one
@@ -42,6 +47,109 @@ namespace Desert::Graphic
     {
         return kGpuInstanceArgsHeaderBytes + kGpuInstanceArgsRecordBytes * submesh;
     }
+
+    // RENDER-JOB-CPU-3, THE COMPACTED BINS (UE FInstanceCullingContext + FMeshDrawCommand merging: one indirect
+    // argument stream per pipeline bin, ONE DrawIndexedIndirectCount per bin, the per-draw data fetched by the
+    // draw's index instead of bound per section). A bin is one (pass, phase, cell template, mesh) of the
+    // GPU-instanced queue. Programs/Grass/GrassDrawCompact.shader walks the frame's entries - per entry a run of
+    // one producer list's records (its Args, a phase's or a cascade's copy) - and copies each record to its slot
+    // of the bin's run of Commands, the address of the entry's draw row to the same slot of DrawRows, and adds
+    // the run to the bin's count in Counts (fixed slots in the per-variety path's order, empty records kept:
+    // GpuDrawCompactEntry). MeshRenderer draws a bin with one
+    // Renderer::RenderMeshIndirectCount (maxDrawCount = the bin's Capacity, stride kGpuDrawBinCommandBytes); its
+    // vertex stage reads the draw's row through the push field DrawRows (DrawPushFields::DrawRows: the address of
+    // the bin's first slot of DrawRows) at [gl_DrawIDARB] (Common/GpuInstanceDrawRow.glslh).
+    inline constexpr uint64_t kGpuDrawBinCommandBytes =
+         kGpuInstanceArgsRecordBytes;                    // VkDrawIndexedIndirectCommand
+    inline constexpr uint64_t kGpuDrawBinRowBytes   = 8; // a GpuInstanceDrawRow address
+    inline constexpr uint64_t kGpuDrawBinCountBytes = 4; // a bin's drawn count
+
+    // The lists of one producer a draw row describes: the camera's (CameraIds, both phases), the full list
+    // (FullIds: the cascades without a list of their own, RT), the cascades' own (CascadeIds, list k's records at
+    // k x CascadeArgBytes of CascadeArgs). A row differs between them only by Ids.
+    enum class GpuInstanceDrawList : uint32_t
+    {
+        Camera,
+        Full,
+        Cascade,
+        Count
+    };
+    inline constexpr uint32_t kGpuInstanceDrawLists = static_cast<uint32_t>( GpuInstanceDrawList::Count );
+
+    // ONE DRAW ROW (std430, 80 bytes; Common/GpuInstanceDrawRow.glslh GpuInstanceDrawRow): what the per-variety
+    // path bound or pushed per section (MeshRendererGpuInstanced.cpp bindRecord's slots b17 / b18 / b13 and the
+    // mesh visibility rows, addBuckets' MaterialIndex / Wind / PrimitiveFlags), by device address or by value.
+    // Written by the producer when a word moves (a buffer re-created, the material row re-claimed, the wind
+    // changed), per frame-in-flight copy, never per draw.
+    struct GpuInstanceDrawRow
+    {
+        uint64_t  Instances      = 0; // mat4 per instance (InstanceTransforms)
+        uint64_t  Ids            = 0; // the list's ids into Instances (GpuInstanceIds); 0: the slot is the row
+        uint64_t  BladeShape     = 0; // the variety's GrassBladeShape; 0: not a blade
+        uint64_t  MeshVisibility = 0; // GrassMeshVisibilityGpu rows; 0: not drawn through the visibility buffer
+        uint32_t  MaterialRow    = 0; // the scene material table's row (MeshRenderer::FindMaterialRow)
+        uint32_t  PrimitiveFlags = 0;
+        uint32_t  Reserved0      = 0;
+        uint32_t  Reserved1      = 0;
+        glm::vec4 WindA{ 0.0f }; // PackViewInstanceWind( Wind, PrevInstanceOffset ).A
+        glm::vec4 WindB{ 0.0f }; // .B
+    };
+    static_assert( sizeof( GpuInstanceDrawRow ) == 80, "GpuInstanceDrawRow mirrors the std430 GLSL struct" );
+
+    // One gather entry (std430, 32 bytes; Programs/Grass/GrassDrawCompact.shader CompactEntry): Count records
+    // from Records at Stride bytes apart (a strip's level records: kGpuInstanceArgsRecordBytes; a mesh's LOD
+    // groups: a group's bytes), copied to slots FirstSlot .. FirstSlot + Count - 1 of bin Bin, and Count added to
+    // the bin's drawn count. The CPU lays the entries of a bin out end to end in the per-variety path's draw
+    // order, so a bin draws its records in that order (the picture stays the same); an empty record is an empty
+    // draw of the GPU's front end.
+    struct GpuDrawCompactEntry
+    {
+        uint64_t Records      = 0; // device address of the run's first VkDrawIndexedIndirectCommand
+        uint64_t DrawRow      = 0; // device address of the GpuInstanceDrawRow its draws read
+        uint32_t Count        = 0;
+        uint32_t Stride       = 0;
+        uint32_t Bin          = 0;
+        uint32_t FirstSlot    = 0;
+    };
+    static_assert( sizeof( GpuDrawCompactEntry ) == 32, "GpuDrawCompactEntry mirrors the std430 GLSL struct" );
+
+    // The frame graph names of one frame's compaction output (valid from its pass on): Commands holds
+    // kGpuDrawBinCommandBytes per slot, DrawRows kGpuDrawBinRowBytes per slot, Counts kGpuDrawBinCountBytes per
+    // bin (zeroed by the pass before it appends).
+    struct GpuDrawBinRefs
+    {
+        RDG::BufferRef Commands;
+        RDG::BufferRef DrawRows;
+        RDG::BufferRef Counts;
+    };
+
+    // RENDER-JOB-CPU-4, ONE PHASE'S BINS OF ONE FRAME. The producer (GrassRenderer) owns the buffers and adds the
+    // phase's gather ("Grass: Draw Gather" after "Grass: Camera Cull Finalize", "Grass: Draw Gather
+    // Post-Occlusion" after the post-occlusion finalize), whose setup opens the table (Open, the capacities, Refs,
+    // the addresses); MeshRenderer fills it while it builds the phase's lists in the draw passes' setups
+    // (BuildGpuInstancedDraws), which RDG::Builder::AddPass runs at once, so every entry is in before the gather
+    // EXECUTES: it uploads Entries and Rows (this frame's copies) and runs Programs/Grass/GrassDrawCompact.shader
+    // over them. A list that would pass a capacity is refused (said once); Overflow grows the buffers next frame.
+    struct GpuDrawBinFrame
+    {
+        GpuDrawBinRefs Refs;              // the bins' buffers in this frame's graph (valid while Open)
+        uint64_t       SlotsAddress = 0;  // device address of Refs.DrawRows' slot 0 (a bin's push: + its slot x 8)
+        uint64_t       RowsAddress  = 0;  // device address of this frame's row 0 (an entry's DrawRow: + row x 80)
+        uint32_t       SlotCapacity  = 0; // Refs.Commands / Refs.DrawRows slots
+        uint32_t       EntryCapacity = 0; // entries, and rows (one row per section and list at most)
+        uint32_t       BinCapacity   = 0; // Refs.Counts words
+        bool           Open          = false;
+        bool           Overflow      = false;
+        // This frame's content: the entries (FirstSlot final once their list is built), the rows they read, the
+        // slots and bins handed out so far.
+        std::vector<GpuDrawCompactEntry> Entries;
+        std::vector<GpuInstanceDrawRow>  Rows;
+        uint32_t                         Slots = 0;
+        uint32_t                         Bins  = 0;
+        // Per bin the frame-graph buffers its draws read by address (MeshDrawCommand::AddressedReads); reserved to
+        // BinCapacity when the table opens, so a bin's span stays valid while later bins are added.
+        std::vector<std::vector<RDG::BufferRef>> BinReads;
+    };
 
     // What a cascade picks a grass blade strip's shadow record set and its caster density by (GPU-COST-20; UE
     // r.Shadow LOD by the shadow view's resolution, grass thinned by the same rule as the camera's). Written by the

@@ -78,6 +78,11 @@ namespace Desert::Graphic::API::Vulkan
         // refused by name (SceneRenderer::GrassVisibilityRefusal).
         ShaderInt64,
         ShaderBufferInt64Atomics,
+        // RENDER-JOB-CPU-3, THE COMPACTED BINS (GpuInstances.hpp; UE FInstanceCullingContext): one
+        // vkCmdDrawIndexedIndirectCount per bin, its draws' rows found by gl_DrawIDARB. Optional: without both the
+        // GPU-instanced sections keep their per-section draws (MeshRenderer::GpuDrawBinsOn).
+        DrawIndirectCount,
+        ShaderDrawParameters,
 
         Count
     };

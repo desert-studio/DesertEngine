@@ -1333,7 +1333,7 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes(
          const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
          const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> drawPush,
-         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshDraw& draw )
+         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshRunDraw& draw )
     {
         const std::string_view pass = bindings.GetContext().GetPassName();
         // The push block is the per-submesh transform the material carries (written below for each submesh).
@@ -1394,14 +1394,23 @@ namespace Desert::Graphic::API::Vulkan
                 std::memcpy( push.data(), drawPush.data(), std::min<size_t>( push.size(), drawPush.size() ) );
         }
 
-        // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
+        // The hidden-submesh mask and the push block of each run (SubmeshRun); @p draw records the run.
+        // RENDER-JOB-CPU-1: the submeshes after a drawn one join its run while they are drawn too and carry the
+        // same submesh transform - the same push bytes (an equal product of equal factors), which the command
+        // buffer still holds after the run's earlier draws, as nothing records between them.
         uint32_t drawn = 0;
-        for ( size_t si = 0; si < submeshes.size(); ++si )
+        for ( size_t si = 0; si < submeshes.size(); )
         {
             if ( hiddenSubmeshMask.Hides( si ) )
+            {
+                ++si;
                 continue;
-            const auto&     submesh        = submeshes[si];
-            const glm::mat4 finalTransform = transform * submesh.Transform;
+            }
+            size_t end = si + 1;
+            while ( end < submeshes.size() && !hiddenSubmeshMask.Hides( end ) &&
+                    submeshes[end].Transform == submeshes[si].Transform )
+                ++end;
+            const glm::mat4 finalTransform = transform * submeshes[si].Transform;
             if ( pushConstant.has_value() && pushConstant->size > 0 )
             {
                 std::memcpy( push.data(), &finalTransform, sizeof( glm::mat4 ) );
@@ -1409,8 +1418,14 @@ namespace Desert::Graphic::API::Vulkan
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
-            if ( auto recorded = draw( drawn++, si, submesh, indexCount ); !recorded )
+            const SubmeshRun run{ .FirstDrawn = drawn,
+                                  .First      = si,
+                                  .Count      = static_cast<uint32_t>( end - si ),
+                                  .IndexCount = indexCount };
+            if ( auto recorded = draw( run ); !recorded )
                 return recorded;
+            drawn += run.Count;
+            si = end;
         }
         return Common::MakeSuccess( true );
     }
@@ -1425,23 +1440,29 @@ namespace Desert::Graphic::API::Vulkan
         const std::string_view pass = bindings.GetContext().GetPassName();
         if ( instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        const auto& submeshes = mesh.GetSubmeshes();
+        // A run's submeshes are one CPU draw each (each its own index range), after the run's one push.
         return WalkMeshSubmeshes(
              bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
-             [&]( uint32_t, const size_t si, const Submesh& submesh,
-                  const uint32_t indexCount ) -> Common::BoolResultStr
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
              {
-                 if ( indexCount == 0u )
+                 const uint32_t indexCount = run.IndexCount;
+                 for ( size_t si = run.First; si < run.First + run.Count; ++si )
                  {
-                     DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
-                     return Common::MakeSuccess( true );
+                     const Submesh& submesh = submeshes[si];
+                     if ( indexCount == 0u )
+                     {
+                         DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                         continue;
+                     }
+                     const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
+                     if ( range.First + range.Count > indexCount )
+                         return Common::MakeFormattedError(
+                              "{}: submesh {} reads indices [{}, {}) of a {}-index mesh", pass, si, range.First,
+                              range.First + range.Count, indexCount );
+                     DrawIndexedCounted( range.Count, instanceCount, range.First,
+                                         static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
                  }
-                 const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
-                 if ( range.First + range.Count > indexCount )
-                     return Common::MakeFormattedError(
-                          "{}: submesh {} reads indices [{}, {}) of a {}-index mesh", pass, si, range.First,
-                          range.First + range.Count, indexCount );
-                 DrawIndexedCounted( range.Count, instanceCount, range.First,
-                                     static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
                  return Common::MakeSuccess( true );
              } );
     }
@@ -1474,15 +1495,13 @@ namespace Desert::Graphic::API::Vulkan
         // RENDER-CPU-COST-1: a submesh's record of every group is one multi-draw at a stride of one group (the
         // mesh's submesh count of records), split where the device's per-call limit says - as the binned groups
         // are issued (RenderMeshIndirectGroup; one record per call without multiDrawIndirect).
-        uint32_t perCall = 1u;
-        if ( groups > 1u )
-        {
-            const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
-            perCall                  = GpuDriven::SelectIndirectSubmission(
-                           { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
-                                              .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } )
-                           .MaxDrawsPerCall;
-        }
+        // RENDER-JOB-CPU-1: of one group, a run's records (SubmeshRun) are adjacent and drawn in the run's order:
+        // one multi-draw at a record's stride, split the same way.
+        const auto&    capabilities = EngineContext::GetInstance().GetCapabilities();
+        const uint32_t perCall      = GpuDriven::SelectIndirectSubmission(
+                                     { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
+                                       .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } )
+                                     .MaxDrawsPerCall;
         const uint64_t groupBytes = uint64_t{ mesh.GetSubmeshes().size() } * kMeshDrawArgumentsBytes;
         if ( groups > 1u && groupBytes > uint64_t{ UINT32_MAX } )
             return Common::MakeFormattedError( "{}: an indirect record group of {} bytes cannot be a draw stride",
@@ -1491,37 +1510,126 @@ namespace Desert::Graphic::API::Vulkan
         // The VSM caster draw instances through its remap (firstInstance = RemapBase), never a binned id stream.
         return WalkMeshSubmeshes(
              bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
-             [&]( const uint32_t drawn, const size_t si, const Submesh&,
-                  const uint32_t indexCount ) -> Common::BoolResultStr
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
              {
                  const uint64_t record =
-                      order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
+                      order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ run.FirstDrawn } : uint64_t{ run.First };
                  const uint64_t at   = offset + ( record * kMeshDrawArgumentsBytes );
-                 const uint64_t last = at + ( uint64_t{ groups - 1u } * groupBytes );
+                 const uint64_t last = at + ( uint64_t{ run.Count - 1u } * kMeshDrawArgumentsBytes ) +
+                                       ( uint64_t{ groups - 1u } * groupBytes );
                  if ( last + kMeshDrawArgumentsBytes > bytes )
                      return Common::MakeFormattedError(
-                          "{}: indirect arguments of drawn submesh {} at byte {} ({} groups) past the end of '{}' "
-                          "({} bytes)",
-                          context.GetPassName(), drawn, at, groups, declared.GetValue().Name, bytes );
-                 for ( uint32_t first = 0; first < groups; first += perCall )
+                          "{}: indirect arguments of drawn submeshes [{}, {}) at byte {} ({} groups) past the "
+                          "end of '{}' ({} bytes)",
+                          context.GetPassName(), run.FirstDrawn, run.FirstDrawn + run.Count, at, groups,
+                          declared.GetValue().Name, bytes );
+                 // One record: its own size (a group of one submesh is the record). Several: a run's records are
+                 // a record apart, a submesh's groups a group's bytes - each at least a record and a multiple of
+                 // four (kMeshDrawArgumentsBytes is 20).
+                 uint32_t oneRecord = static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) );
+                 if ( run.IndexCount == 0u )
+                     oneRecord = static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) );
+                 const auto issue = [&]( const uint64_t from, const uint32_t count, const uint64_t apart )
                  {
-                     const uint32_t count = std::min( groups - first, perCall );
-                     const uint64_t from  = at + ( uint64_t{ first } * groupBytes );
                      // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh
                      // pass: one per call recorded.
                      DrawCounter::RecordCpuIndirect();
-                     // One record: its own size (a group of one submesh is the record). Several: a group's
-                     // bytes apart, at least a record and a multiple of four (kMeshDrawArgumentsBytes is 20).
-                     uint32_t recordStride = static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) );
-                     if ( indexCount == 0u )
-                         recordStride = static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) );
+                     uint32_t recordStride = oneRecord;
                      if ( count > 1u )
-                         recordStride = static_cast<uint32_t>( groupBytes );
-                     if ( indexCount == 0u )
+                         recordStride = static_cast<uint32_t>( apart );
+                     if ( run.IndexCount == 0u )
                          vkCmdDrawIndirect( RecordingTarget(), vkArgs, from, count, recordStride );
                      else
                          vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs, from, count, recordStride );
+                 };
+                 if ( groups == 1u )
+                 {
+                     for ( uint32_t first = 0; first < run.Count; first += perCall )
+                     {
+                         const uint32_t count = std::min( run.Count - first, perCall );
+                         const uint64_t from  = at + ( uint64_t{ first } * kMeshDrawArgumentsBytes );
+                         issue( from, count, kMeshDrawArgumentsBytes );
+                     }
+                     return Common::MakeSuccess( true );
                  }
+                 // Several groups: each submesh of the run its groups' multi-draw, in the order drawn before.
+                 for ( uint32_t k = 0; k < run.Count; ++k )
+                 {
+                     const uint64_t submeshAt = at + ( uint64_t{ k } * kMeshDrawArgumentsBytes );
+                     for ( uint32_t first = 0; first < groups; first += perCall )
+                     {
+                         const uint32_t count = std::min( groups - first, perCall );
+                         issue( submeshAt + ( uint64_t{ first } * groupBytes ), count, groupBytes );
+                     }
+                 }
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectCount(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+         const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> push,
+         const RDG::BufferRef args, const uint64_t offset, const RDG::BufferRef count, const uint64_t countOffset,
+         const uint32_t maxDraws, const SubmeshMask hiddenSubmeshMask )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context      = bindings.GetContext();
+        const std::string_view  pass         = context.GetPassName();
+        const auto&             capabilities = EngineContext::GetInstance().GetCapabilities();
+        if ( !capabilities.SupportsDrawIndirectCount )
+            return Common::MakeFormattedError(
+                 "{}: a compacted bin's draw needs drawIndirectCount, which this device lacks", pass );
+        if ( maxDraws == 0u )
+            return Common::MakeSuccess( true );
+        if ( offset % 4u != 0u || countOffset % 4u != 0u )
+            return Common::MakeFormattedError(
+                 "{}: a compacted bin at byte {}, its count at byte {}: both must be multiples of four", pass,
+                 offset, countOffset );
+        if ( maxDraws > capabilities.MaxDrawIndirectCount )
+            return Common::MakeFormattedError( "{}: a compacted bin of {} draws passes maxDrawIndirectCount ({})",
+                                               pass, maxDraws, capabilities.MaxDrawIndirectCount );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, declared.GetError() );
+        const auto commands = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !commands )
+            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, commands.GetError() );
+        // The stride is a record (kGpuDrawBinCommandBytes = kMeshDrawArgumentsBytes = 20): at least a
+        // VkDrawIndexedIndirectCommand and a multiple of four, as vkCmdDrawIndexedIndirectCount asks.
+        const uint64_t end = offset + ( uint64_t{ maxDraws } * kMeshDrawArgumentsBytes );
+        if ( end > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: {} compacted commands at byte {} pass the end of '{}' ({} bytes)", pass, maxDraws, offset,
+                 declared.GetValue().Name, declared.GetValue().Desc->Bytes );
+        const auto countDeclared = context.GetBuffer( count, RDG::Access::IndirectArgs );
+        if ( !countDeclared )
+            return Common::MakeFormattedError( "{}: compacted count: {}", pass, countDeclared.GetError() );
+        const auto counts = VulkanRdgBackend::BufferOf( countDeclared.GetValue() );
+        if ( !counts )
+            return Common::MakeFormattedError( "{}: compacted count: {}", pass, counts.GetError() );
+        if ( countOffset + sizeof( uint32_t ) > countDeclared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: the compacted count at byte {} passes the end of '{}' ({} bytes)", pass, countOffset,
+                 countDeclared.GetValue().Name, countDeclared.GetValue().Desc->Bytes );
+        const VkBuffer vkArgs  = commands.GetValue()->GetBuffer();
+        const VkBuffer vkCount = counts.GetValue()->GetBuffer();
+        const auto     stride  = static_cast<uint32_t>( kMeshDrawArgumentsBytes );
+        // The walk binds the pass state, the mesh's buffers and the push block of its first drawn run; the bin's
+        // commands name every record's own indices, so that run's call is the bin's only one.
+        bool issued = false;
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
+             {
+                 if ( issued )
+                     return Common::MakeSuccess( true );
+                 if ( run.IndexCount == 0u )
+                     return Common::MakeFormattedError( "{}: a compacted bin's mesh is not indexed", pass );
+                 issued = true;
+                 // One CPU call of the mesh pass; its draws are the GPU's (RenderMeshIndirect likewise).
+                 DrawCounter::RecordCpuIndirect();
+                 vkCmdDrawIndexedIndirectCount( RecordingTarget(), vkArgs, offset, vkCount, countOffset, maxDraws,
+                                                stride );
                  return Common::MakeSuccess( true );
              } );
     }

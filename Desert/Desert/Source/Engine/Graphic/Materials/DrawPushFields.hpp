@@ -50,6 +50,10 @@ namespace Desert::Graphic
             SkinCacheVertexCount,
             SkinCacheAddressLo,
             SkinCacheAddressHi,
+            // RENDER-JOB-CPU-3: a compacted bin's draw rows (GpuInstances.hpp; the cells of the draw-row
+            // permutation declare them, every other cell skips them).
+            DrawRowsLo,
+            DrawRowsHi,
             Count
         };
         static constexpr size_t kFieldCount = static_cast<size_t>( FieldId::Count );
@@ -57,7 +61,7 @@ namespace Desert::Graphic
         static constexpr std::array<std::string_view, kFieldCount> kFieldNames = {
              "Transform", "PrimitiveIndex", "MaterialIndex", "PrimitiveFlags",       "WindA",
              "WindB",     "BoneOffset",     "ShadowSlope",   "SkinCacheVertexCount", "SkinCacheAddressLo",
-             "SkinCacheAddressHi" };
+             "SkinCacheAddressHi", "DrawRowsLo",     "DrawRowsHi" };
 
         struct Field
         {
@@ -136,6 +140,14 @@ namespace Desert::Graphic
             Write( FieldId::SkinCacheVertexCount, vertexCount, false );
             Write( FieldId::SkinCacheAddressLo, static_cast<uint32_t>( address & 0xffffffffu ), false );
             return Write( FieldId::SkinCacheAddressHi, static_cast<uint32_t>( address >> 32u ), false );
+        }
+
+        // RENDER-JOB-CPU-3: the address of a compacted bin's first slot of GpuDrawBinRefs::DrawRows - the vertex
+        // stage reads its draw's row at [gl_DrawIDARB] (Common/GpuInstanceDrawRow.glslh).
+        DrawPushFields& DrawRows( const uint64_t address )
+        {
+            Write( FieldId::DrawRowsLo, static_cast<uint32_t>( address & 0xffffffffu ), false );
+            return Write( FieldId::DrawRowsHi, static_cast<uint32_t>( address >> 32u ), false );
         }
 
         [[nodiscard]] bool IsEmpty() const

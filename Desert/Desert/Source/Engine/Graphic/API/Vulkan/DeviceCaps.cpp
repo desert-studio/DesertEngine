@@ -143,6 +143,12 @@ namespace Desert::Graphic::API::Vulkan
              { C::ShaderBufferInt64Atomics, "shaderBufferInt64Atomics", N::Optional, V12,
                VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, VK_API_VERSION_1_1,
                { C::ShaderInt64, C::Count, C::Count } },
+             // The compacted bins' count and draw index (DeviceCaps.hpp). drawIndirectCount is core in 1.2
+             // (VK_KHR_draw_indirect_count below it), shaderDrawParameters in 1.1 (VK_KHR_shader_draw_parameters).
+             { C::DrawIndirectCount, "drawIndirectCount", N::Optional, V12,
+               VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
+             { C::ShaderDrawParameters, "shaderDrawParameters", N::Optional, V11,
+               VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every
