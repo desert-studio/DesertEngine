@@ -139,13 +139,13 @@ namespace Desert::Graphic::RayTracing
          ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u +
          ( sizeof( System::LandscapeMaterialValues ) / sizeof( glm::vec4 ) ) +
          World::Landscape::kLandscapeMaxWeightLayers;
-    // TerrainRayHit.glslh LandscapeRayHitRowRef, slot by slot: Tile 69 (TerrainInstance 1104 B), Tint 1, Weightmap
-    // 1, MaterialValues 18, LayerMaps 8 - LayerMaps[7] is the last slot (96). The view (camera, grass lens) is not
-    // a primitive's: the hit reads it from the frame's view block (CameraUB, ShaderProtocols/Camera.hpp).
-    static_assert( sizeof( System::TerrainInstance ) == 69u * sizeof( glm::vec4 ) &&
-                        kLandscapeRayHitRowSlots == 97u,
-                   "LandscapeRayHitRow must match TerrainRayHit.glslh LandscapeRayHitRowRef (LayerMaps 89..96, no "
-                   "view slot)" );
+    // TerrainRayHit.glslh LandscapeRayHitRowRef, slot by slot: Tile 77 (TerrainInstance 1232 B), Tint 1, Weightmap
+    // 1, MaterialValues 18, LayerMaps 8 - LayerMaps[7] is the last slot (104). The view (camera, grass lens) is
+    // not a primitive's: the hit reads it from the frame's view block (CameraUB, ShaderProtocols/Camera.hpp).
+    static_assert(
+         sizeof( System::TerrainInstance ) == 77u * sizeof( glm::vec4 ) && kLandscapeRayHitRowSlots == 105u,
+         "LandscapeRayHitRow must match TerrainRayHit.glslh LandscapeRayHitRowRef (LayerMaps 97..104, no "
+         "view slot)" );
     [[nodiscard]] Core::Formats::MaterialParamRow
     LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
 

@@ -1602,25 +1602,33 @@ namespace Desert::Graphic::System
                      !drawn.IsSuccess() )
                     return drawn;
             // TERRAIN-LOD-1 (UE: each section with its own LOD's index buffer): every section's cells on its own
-            // grid, the runs of one grid one indexed call; the instance names the grid
+            // grid, every range of one grid one indexed call (the ranges are disjoint cells, so their order is
+            // free: a section row's alternating grids are not one call each); the instance names the grid
             // (kLandscapeGridLodInstances).
             const LandscapeGridRanges cells = LandscapeGridRangesOf( draw.Split );
             if ( cells.Count == 0u )
                 continue; // the rings cover the whole tile
             std::array<ProceduralIndexedRange, kLandscapeMaxSections * kLandscapeMaxSections * 4> ranges{};
-            for ( uint32_t first = 0; first < cells.Count; )
+            std::array<bool, kLandscapeMaxSections * kLandscapeMaxSections * 4>                   placed{};
+            for ( uint32_t first = 0; first < cells.Count; ++first )
             {
-                const uint32_t side = cells.Ranges[first].Cells;
-                uint32_t       end  = first;
-                for ( ; end < cells.Count && cells.Ranges[end].Cells == side; ++end )
+                if ( placed[first] )
+                    continue;
+                const uint32_t side  = cells.Ranges[first].Cells;
+                uint32_t       count = 0u;
+                for ( uint32_t r = first; r < cells.Count; ++r )
                 {
-                    const LandscapeGridRange& range = cells.Ranges[end];
-                    ranges[end].IndexCount          = range.IndexCount;
-                    ranges[end].FirstIndex          = range.FirstIndex;
-                    ranges[end].VertexOffset        = static_cast<int32_t>( range.FirstRow * ( side + 1u ) );
-                    ranges[end].InstanceCount       = range.Rows;
-                    ranges[end].FirstInstance =
+                    if ( placed[r] || cells.Ranges[r].Cells != side )
+                        continue;
+                    placed[r]                       = true;
+                    const LandscapeGridRange& range = cells.Ranges[r];
+                    ranges[count].IndexCount        = range.IndexCount;
+                    ranges[count].FirstIndex        = range.FirstIndex;
+                    ranges[count].VertexOffset      = static_cast<int32_t>( range.FirstRow * ( side + 1u ) );
+                    ranges[count].InstanceCount     = range.Rows;
+                    ranges[count].FirstInstance =
                          kLandscapeGridFirstInstance + range.GridLod * kLandscapeGridLodInstances;
+                    ++count;
                 }
                 const auto grid = m_GridIndices.find( side );
                 if ( grid == m_GridIndices.end() || !grid->second )
@@ -1629,12 +1637,11 @@ namespace Desert::Graphic::System
                          "{}: terrain draw {} ('{}'): no index buffer for the {}-cell grid", context.GetPassName(),
                          k, executor->GetDubugName(), side );
                 }
-                const std::span<const ProceduralIndexedRange> gridRanges( ranges.data() + first, end - first );
+                const std::span<const ProceduralIndexedRange> gridRanges( ranges.data(), count );
                 if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
                                                                      *grid->second, gridRanges, push );
                      !indexed.IsSuccess() )
                     return indexed;
-                first = end;
             }
         }
         return BOOLSUCCESS;
