@@ -104,8 +104,8 @@ Shader "RadianceCacheAllocate"
                 const ivec4 cell = radianceCacheProbes[candidate].cell;
                 if ( uint( cell.w ) >= radianceCache.shape.x )
                     return candidate;
-                const uint holder =
-                     radianceCacheIndirection[RadianceCacheIndirectionIndex( radianceCache, cell.xyz, uint( cell.w ) )];
+                const uint ownerEntry = RadianceCacheIndirectionIndex( radianceCache, cell.xyz, uint( cell.w ) );
+                const uint holder     = radianceCacheIndirection[ownerEntry];
                 if ( ( holder & ~RADIANCE_CACHE_PROBE_UNTRACED ) != candidate )
                     return candidate;
             }
