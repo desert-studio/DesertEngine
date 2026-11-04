@@ -323,9 +323,9 @@ namespace Desert::Graphic::System
             uint32_t                                        LawCapacity  = 0;
             uint32_t                                        LawLowFrames = 0;
             // What the view law reads this frame (LawKey: the params with the field eye, the pool's identity, Args,
-            // LawScales, the field's revision) and what the chunks were last lawed from (LawedKey); LawGeneration
-            // counts its changes - a chunk whose law word carries another generation is lawed anew. A turn, a still
-            // camera or a tile built keeps it.
+            // LawScales and its room, the field's revision) and what the chunks were last lawed from (LawedKey);
+            // LawGeneration counts its changes - a chunk whose law word carries another generation is lawed anew. A
+            // turn, a still camera or a tile built keeps it.
             std::vector<uint32_t> LawKey;
             std::vector<uint32_t> LawedKey;
             uint64_t              LawGeneration = 0;

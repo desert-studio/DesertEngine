@@ -1179,6 +1179,8 @@ namespace Desert::Graphic::System
                            gpu.FrameKey.begin() +
                                 static_cast<std::ptrdiff_t>( sizeof( GrassParamsGpu ) / sizeof( uint32_t ) ) );
         gpu.LawKey.push_back( gpu.PoolGeneration );
+        // LawScales' room too: a remade LawScales may land on the freed one's address, and every remake changes it.
+        gpu.LawKey.push_back( gpu.LawCapacity );
         for ( const void* buffer :
               { static_cast<const void*>( gpu.Args.get() ), static_cast<const void*>( gpu.LawScales.get() ) } )
         {
@@ -2038,6 +2040,10 @@ namespace Desert::Graphic::System
                     append( row.CascadeWords );
                     append( row.CascadeRings );
                     append( gpu->Generation );
+                    // GRASS-CULL-COST-3: and the view law's generation - a frame whose law ran out of LawScales' slots
+                    // culled the lists without those chunks (kGrassLawNoSlot), so the grown LawScales (a new law
+                    // generation) culls them anew instead of holding the short lists.
+                    append( row.LawGeneration );
                     if ( key != gpu->CascadeKey )
                     {
                         gpu->CascadeKey     = std::move( key );
