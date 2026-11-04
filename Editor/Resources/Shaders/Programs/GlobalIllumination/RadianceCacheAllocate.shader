@@ -2,9 +2,11 @@
 // THE RADIANCE CACHE UPDATE, 3/6 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
 // SelectMaxPriorityBucket, LumenRadianceCacheUpdate.usf): one thread per indirection entry a pixel read this frame.
 // An empty one takes a slot from the free list (none left: it stays empty, and its pixels read the probes around
-// it). Every read probe is ranked into a priority bucket — never traced (coarsest clipmap first), then LIGHTS CHANGED (the hash of the
-// lights its world light grid cell lists, and of the sun, differs from the one it was traced with; not in UE),
-// then by the age of its last trace — and counted in the histogram the selection cuts at the budget.
+// it). Every read probe is ranked into a priority bucket (RC_PRIORITY_*, Common/RadianceCacheState.glslh) — never
+// traced and stamped by a coverage reader, then never traced and stamped only by the fallback (each finest clipmap
+// first), then LIGHTS CHANGED (the hash of the lights its world light grid cell lists, and of the sun, differs from
+// the one it was traced with; not in UE), then by the age of its last trace — and counted in the histogram the
+// selection cuts at the budget.
 Shader "RadianceCacheAllocate"
 {
     Compute
@@ -87,7 +89,9 @@ Shader "RadianceCacheAllocate"
             if ( id.x >= width || id.y >= grid || id.z >= grid || Reset != 0u )
                 return;
             const uint entry = id.x + width * ( id.y + grid * id.z );
-            if ( radianceCacheLastUsed[entry] != FrameIndex )
+            // Which readers stamped it this frame (RadianceCacheMark): a coverage reader, or only the fallback.
+            const bool covered = radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] == FrameIndex;
+            if ( !covered && radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] != FrameIndex )
                 return;
             const uint  clipmap = id.x / grid;
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
@@ -118,7 +122,7 @@ Shader "RadianceCacheAllocate"
             const uint  hash   = LightHash( RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) );
             uint        bucket;
             if ( frames.y == 0u )
-                bucket = RC_PRIORITY_NEW_FINEST + clipmap; // the coarse ones first (RadianceCacheState.glslh)
+                bucket = RadianceCacheNewProbeBucket( covered, clipmap ); // the coverage's first, then the fallback's
             else if ( hash != frames.z )
                 bucket = RC_PRIORITY_LIGHTS_CHANGED;
             else

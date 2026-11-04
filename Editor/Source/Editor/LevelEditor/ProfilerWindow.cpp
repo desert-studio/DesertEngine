@@ -300,7 +300,8 @@ namespace Desert::Editor
                  "[Profiler] ScreenProbes cache reads: answered {} coarser {} | miss empty {} untraced {} "
                  "rejected {} nan {} (far-field rays a frame, frames in flight late; coarser = the coverage's "
                  "clipmap not traced yet, a coarser one answered; empty = no probe in the eight cells, the "
-                 "atlas had no free slot)",
+                 "atlas had no free slot; rejected / nan = the traced probes of the coverage, or of the coarser "
+                 "level its untraced cells fell back to, saw the point behind something / weighed NaN)",
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
@@ -317,14 +318,21 @@ namespace Desert::Editor
         else
         {
             const Graphic::GlobalIllumination::RadianceCacheUpdateCounts& c = *cacheUpdate;
-            const auto&       never   = c.NeverTracedByClipmap;
+            const auto&       never    = c.NeverTracedByClipmap;
+            const auto&       fallback = c.FallbackByClipmap;
+            uint32_t          fallbackNeverTraced = 0u;
+            for ( const uint32_t count : fallback )
+                fallbackNeverTraced += count;
             const char* const pressed = c.Pressed != 0u ? " (pressed: the last frame refused a slot)" : "";
             LOG_INFO( "[Profiler] RadianceCache update: stamped {} never traced {} (clipmaps {} {} {} {} {} {}) "
-                      "traced {}/{} | slots live {}/{} allocated {} failed {} | freed stale {} unused {} "
-                      "pressure {}{} (a frame, frames in flight late)",
+                      "fallback never traced {} (clipmaps {} {} {} {} {} {}) traced {}/{} | slots live {}/{} "
+                      "allocated {} failed {} | freed stale {} unused {} pressure {}{} (a frame, frames in flight "
+                      "late; never traced = stamped by a coverage reader, ranked first; fallback = stamped only as "
+                      "the level past a pixel's coarse end, traced from the rest of the budget)",
                       c.Stamped, c.NeverTraced, never[0], never[1], never[2], never[3], never[4], never[5],
-                      c.Traced, c.Budget, c.Live, c.MaxProbes, c.Allocated, c.Failed, c.FreedStale, c.FreedUnused,
-                      c.FreedPressure, pressed );
+                      fallbackNeverTraced, fallback[0], fallback[1], fallback[2], fallback[3], fallback[4],
+                      fallback[5], c.Traced, c.Budget, c.Live, c.MaxProbes, c.Allocated, c.Failed, c.FreedStale,
+                      c.FreedUnused, c.FreedPressure, pressed );
         }
 #endif
         // GPU-CULL-2: per mesh pass how its draws were issued - the numbers of DesertCtl `state views.meshPasses`

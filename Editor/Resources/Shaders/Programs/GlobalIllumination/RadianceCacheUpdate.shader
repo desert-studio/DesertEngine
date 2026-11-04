@@ -1,9 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"2359ee2c998c43d68dfaeed7c97a113f","Versions":{"SHDR":1},"Dependencies":[]}
 // THE RADIANCE CACHE UPDATE, 2/6 — FREE (UE UpdateCacheForUsedProbes, LumenRadianceCacheUpdate.usf): one thread per
 // indirection entry. An entry whose probe records another world cell (the clipmap scrolled past it) or that no
-// pixel read for RadianceCache::kProbeUnusedFramesBeforeFree frames returns its slot to the free list. With Reset
-// it instead initialises the state: every entry empty, every slot free. Each free is counted by why (RC_STAT_*, the
-// schedule header Mark cleared).
+// pixel read (as its coverage or as the fallback) for RadianceCache::kProbeUnusedFramesBeforeFree frames returns its
+// slot to the free list. With Reset it instead initialises the state: every entry empty, every slot free. Each free
+// is counted by why (RC_STAT_*, the schedule header Mark cleared).
 Shader "RadianceCacheUpdate"
 {
     Compute
@@ -33,7 +33,8 @@ Shader "RadianceCacheUpdate"
             if ( Reset != 0u )
             {
                 radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
-                radianceCacheLastUsed[entry]    = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] = 0u;
                 if ( entry < MaxProbes )
                     radianceCacheFreeList[1u + entry] = int( entry );
                 if ( entry == 0u )
@@ -52,7 +53,10 @@ Shader "RadianceCacheUpdate"
             const ivec4 owner   = radianceCacheProbes[probe].cell;
             const bool  stale   = any( notEqual( owner.xyz, world ) ) || uint( owner.w ) != clipmap;
             const uint  keep    = pressed ? min( UnusedFrames, RADIANCE_CACHE_PRESSURE_KEEP_FRAMES ) : UnusedFrames;
-            const uint  age     = FrameIndex - radianceCacheLastUsed[entry];
+            // Read by either kind of reader (RadianceCacheState.glslh, RadianceCacheLastUsedUB): the later stamp.
+            const uint  lastUsed = max( radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )],
+                                        radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] );
+            const uint  age     = FrameIndex - lastUsed;
             const bool  unused  = age > keep;
             if ( stale || unused )
             {

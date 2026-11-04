@@ -24,8 +24,8 @@
 //             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel).
 //   Update    entries whose probe belongs to another world cell (the clipmap scrolled) or that went unread for
 //             kProbeUnusedFramesBeforeFree frames free their slot.
-//   Allocate  used empty entries take a slot; every used probe is ranked (new, lights changed, then age of its
-//             last trace) into the priority histogram.
+//   Allocate  used empty entries take a slot; every used probe is ranked (new of the coverage, new of the fallback,
+//             lights changed, then age of its last trace) into the priority histogram.
 //   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list.
 //   Trace     each listed probe traces its octahedral texels through the GI ray contract (Common/GITracing.glslh:
 //             the pipeline's tracer, the hit lit in place, the sky on a miss) into the radiance atlas, blended
@@ -112,9 +112,9 @@ namespace Desert::Graphic::GlobalIllumination
     // the budget traced; the slots taken, refused (the atlas full) and freed, by why.
     struct RadianceCacheUpdateCounts
     {
-        static constexpr uint32_t kWords = 12u + RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
+        static constexpr uint32_t kWords = 12u + 2u * RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
         uint32_t Stamped       = 0; // entries a reader stamped this frame (RadianceCacheMark)
-        uint32_t NeverTraced   = 0; // ... whose probe was never traced (the never-traced priority buckets)
+        uint32_t NeverTraced   = 0; // ... by a coverage reader, whose probe was never traced (RC_PRIORITY_NEW_COVERAGE)
         uint32_t Traced        = 0; // probes traced this frame: min(Stamped, Budget)
         uint32_t Budget        = 0; // the Select pass's budget (ProbesPerFrame, MaxProbes on a full update)
         uint32_t Allocated     = 0; // empty stamped entries that took a slot
@@ -126,9 +126,12 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t Live          = 0; // slots held after Allocate
         uint32_t MaxProbes     = 0; // the atlas's slots
         std::array<uint32_t, RadianceCache::kMaxClipmaps> NeverTracedByClipmap{}; // NeverTraced per clipmap
+        // Never-traced probes only the fallback stamped (the clipmap past a pixel's coarse end), per clipmap: what
+        // the coverage's new probes left them of the budget decides when they are traced (RC_PRIORITY_NEW_FALLBACK).
+        std::array<uint32_t, RadianceCache::kMaxClipmaps> FallbackByClipmap{};
         bool                                              Valid = false; // a frame's words have come back
     };
-    static_assert( RadianceCacheUpdateCounts::kWords == 18 ); // RC_COUNT_WORDS with RADIANCE_CACHE_MAX_CLIPMAPS 6
+    static_assert( RadianceCacheUpdateCounts::kWords == 24 ); // RC_COUNT_WORDS with RADIANCE_CACHE_MAX_CLIPMAPS 6
 
     // RadianceCache.UpdateCounts read back through a frame-in-flight slot (ScreenProbeMissCounts' pattern): when the
     // slot comes round again its fence has passed. Last() is the newest frame read, slots-in-flight late.

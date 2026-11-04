@@ -1,7 +1,8 @@
 // DesertAsset {"Kind":"Shader","Guid":"0bd3048ca6f2479ab80974bf1f9f46e6","Versions":{"SHDR":1},"Dependencies":[]}
 // THE RADIANCE CACHE UPDATE, 4/6 — SELECT (UE SelectMaxPriorityBucket + the trace list, LumenRadianceCacheUpdate.usf):
 // the histogram is cut at the budget (ProbesPerFrame, radianceCache.atlas.z) from the most urgent bucket down; every
-// probe read this frame in a bucket above the cut is traced, the cut bucket fills the rest first come.
+// probe read this frame in a bucket above the cut is traced, the cut bucket fills the rest first come. The new
+// probes of the coverage rank above the fallback's (RC_PRIORITY_*), so the fallback is traced from the remainder.
 Shader "RadianceCacheSelect"
 {
     Compute
@@ -47,7 +48,7 @@ Shader "RadianceCacheSelect"
                     for ( uint bucket = 0u; bucket < RC_PRIORITY_BUCKETS; ++bucket )
                     {
                         stamped += radianceCacheSchedule[bucket];
-                        if ( bucket >= RC_PRIORITY_NEW_FINEST )
+                        if ( bucket >= RC_PRIORITY_NEW_COVERAGE )
                             neverTraced += radianceCacheSchedule[bucket];
                     }
                     radianceCacheUpdateCounts[RC_COUNT_STAMPED]      = stamped;
@@ -59,8 +60,12 @@ Shader "RadianceCacheSelect"
                     radianceCacheUpdateCounts[RC_COUNT_LIVE] = MaxProbes - uint( max( radianceCacheFreeList[0], 0 ) );
                     radianceCacheUpdateCounts[RC_COUNT_MAX_PROBES] = MaxProbes;
                     for ( uint c = 0u; c < RADIANCE_CACHE_MAX_CLIPMAPS; ++c )
+                    {
                         radianceCacheUpdateCounts[RC_COUNT_NEVER_TRACED_BY_CLIPMAP + c] =
-                             radianceCacheSchedule[RC_PRIORITY_NEW_FINEST + c];
+                             radianceCacheSchedule[RadianceCacheNewProbeBucket( true, c )];
+                        radianceCacheUpdateCounts[RC_COUNT_FALLBACK_BY_CLIPMAP + c] =
+                             radianceCacheSchedule[RadianceCacheNewProbeBucket( false, c )];
+                    }
                 }
             }
             barrier();

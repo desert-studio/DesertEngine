@@ -15,10 +15,20 @@ Buffer(1) RadianceCacheIndirectionUB
 {
     uint radianceCacheIndirection[];
 };
+// Two words per indirection entry (RadianceCacheStampIndex): the last frame a COVERAGE reader stamped it - a read
+// that interpolates this clipmap's cells itself - and the last frame the FALLBACK stamped it (RadianceCacheMark: the
+// clipmap past a pixel's coarse end, read only while the coverage's own cells are untraced). Allocate ranks a new
+// probe by which of the two stamped it this frame; Update frees by the later of the two.
 Buffer(2) RadianceCacheLastUsedUB
 {
     uint radianceCacheLastUsed[];
 };
+#define RC_STAMP_COVERAGE 0u
+#define RC_STAMP_FALLBACK 1u
+uint RadianceCacheStampIndex( uint entry, uint kind )
+{
+    return entry * 2u + kind;
+}
 Buffer(3) RadianceCacheProbesUB
 {
     RadianceCacheProbe radianceCacheProbes[];
@@ -29,14 +39,15 @@ Buffer(4) RadianceCacheFreeListUB
 {
     int radianceCacheFreeList[];
 };
-// [0, RC_PRIORITY_BUCKETS) the priority histogram, then the traced count, the threshold bucket's taken count, the
-// update's event counters (RC_STAT_*), and the traced probes. Mark, the update's first pass, clears all but the list.
+// [0, RC_PRIORITY_BUCKETS) the priority histogram (RC_PRIORITY_*), then the traced count, the threshold bucket's
+// taken count, the update's event counters (RC_STAT_*), and the traced probes. Mark, the update's first pass, clears
+// all but the list.
 Buffer(5) RadianceCacheScheduleUB
 {
     uint radianceCacheSchedule[];
 };
 
-#define RC_PRIORITY_BUCKETS 32u // RadianceCache::kPriorityBuckets
+#define RC_PRIORITY_BUCKETS 38u // RadianceCache::kPriorityBuckets
 #define RC_SCHEDULE_COUNT RC_PRIORITY_BUCKETS
 #define RC_SCHEDULE_TAKEN ( RC_PRIORITY_BUCKETS + 1u )
 // THE UPDATE'S COUNTERS (PROBE-TRACE-COST-3): one word per event of this frame. Select copies them, with the
@@ -54,22 +65,37 @@ Buffer(5) RadianceCacheScheduleUB
 // The words Select writes to RadianceCache.UpdateCounts, in this order (GlobalIllumination::RadianceCacheUpdateCounts,
 // WorldRadianceCache.hpp).
 #define RC_COUNT_STAMPED                 0u // entries a reader stamped this frame (the histogram's sum)
-#define RC_COUNT_NEVER_TRACED            1u // ... whose probe was never traced (the never-traced buckets)
+#define RC_COUNT_NEVER_TRACED            1u // ... by a coverage reader, whose probe was never traced
 #define RC_COUNT_TRACED                  2u // probes traced this frame: min(stamped, budget)
 #define RC_COUNT_BUDGET                  3u // the Select pass's budget (radianceCache.atlas.z)
 #define RC_COUNT_EVENTS                  4u // RC_STAT_WORDS words: the counters above, in their order
 #define RC_COUNT_LIVE                    ( RC_COUNT_EVENTS + RC_STAT_WORDS ) // slots held after Allocate
 #define RC_COUNT_MAX_PROBES              ( RC_COUNT_LIVE + 1u )
-#define RC_COUNT_NEVER_TRACED_BY_CLIPMAP ( RC_COUNT_MAX_PROBES + 1u ) // RADIANCE_CACHE_MAX_CLIPMAPS words
-#define RC_COUNT_WORDS                   ( RC_COUNT_NEVER_TRACED_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS ) // 18
-// NEVER TRACED, COARSEST CLIPMAP FIRST (UE ranks every new probe first; here new probes are also ranked by clipmap):
-// a never-traced probe of clipmap c ranks RC_PRIORITY_NEW_FINEST + c, the top buckets. A frame that brings more new
-// cells than the budget (a camera turn sweeping trees and grass) traces the coarse ones first. They are few, eight
-// times a finer cell's volume, and they answer the reads whose own cells are not traced yet (RadianceCacheRadianceAt
-// falls back to them, RadianceCacheMark stamps the clipmap past each pixel's coarse end), so a covered ray does
-// not go on to the full trace distance while the finer cells wait for the budget.
-#define RC_PRIORITY_NEW_FINEST ( RC_PRIORITY_BUCKETS - RADIANCE_CACHE_MAX_CLIPMAPS )
-#define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_NEW_FINEST - 1u )
+#define RC_COUNT_NEVER_TRACED_BY_CLIPMAP ( RC_COUNT_MAX_PROBES + 1u ) // RADIANCE_CACHE_MAX_CLIPMAPS words: coverage
+// RADIANCE_CACHE_MAX_CLIPMAPS words: the entries only the fallback stamped, never traced, per clipmap
+#define RC_COUNT_FALLBACK_BY_CLIPMAP     ( RC_COUNT_NEVER_TRACED_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS )
+#define RC_COUNT_WORDS                   ( RC_COUNT_FALLBACK_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS ) // 24
+// THE BUDGET GOES TO THE COVERAGE FIRST (UE Lumen Radiance Cache: a probe is marked in the clipmap that covers the
+// read point, the frame's budget traces the new probes first, then the longest untraced; a coarser level is the
+// fallback for what the coverage does not answer). From the top bucket down:
+//   NEW COVERAGE  a never-traced probe a coverage reader stamped this frame (RC_STAMP_COVERAGE): the cells the screen
+//                 probes' covered rays and the irradiance readers interpolate themselves. Finest clipmap first: a
+//                 clipmap 0 cell is read from the camera out, the cells of the others only in their shell past the
+//                 finer clipmap, so a fine cell answers at least as many reads.
+//   NEW FALLBACK  a never-traced probe only the fallback stamped (RC_STAMP_FALLBACK: the clipmap past a pixel's
+//                 coarse end, RadianceCacheRadianceAt's answer while the coverage's own cells are untraced): traced
+//                 from what the new coverage probes leave of the budget, finest first, and before any re-trace, so
+//                 the edge of a clipmap keeps its fallback level.
+//   LIGHTS CHANGED, then the age of the last trace (oldest first), whoever stamped the probe.
+#define RC_PRIORITY_NEW_COVERAGE   ( RC_PRIORITY_BUCKETS - RADIANCE_CACHE_MAX_CLIPMAPS )
+#define RC_PRIORITY_NEW_FALLBACK   ( RC_PRIORITY_NEW_COVERAGE - RADIANCE_CACHE_MAX_CLIPMAPS )
+#define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_NEW_FALLBACK - 1u )
+// The bucket of a never-traced probe of @p clipmap: of the coverage when @p covered, else of the fallback.
+uint RadianceCacheNewProbeBucket( bool covered, uint clipmap )
+{
+    const uint group = covered ? RC_PRIORITY_NEW_COVERAGE : RC_PRIORITY_NEW_FALLBACK;
+    return group + RADIANCE_CACHE_MAX_CLIPMAPS - 1u - clipmap;
+}
 
 PushConstant RadianceCachePush
 {
