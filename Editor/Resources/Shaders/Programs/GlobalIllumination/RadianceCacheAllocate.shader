@@ -2,7 +2,7 @@
 // THE RADIANCE CACHE UPDATE, 3/6 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
 // SelectMaxPriorityBucket, LumenRadianceCacheUpdate.usf): one thread per indirection entry a pixel read this frame.
 // An empty one takes a slot from the free list (none left: it stays empty, and its pixels read the probes around
-// it). Every read probe is ranked into a priority bucket — never traced, then LIGHTS CHANGED (the hash of the
+// it). Every read probe is ranked into a priority bucket — never traced (coarsest clipmap first), then LIGHTS CHANGED (the hash of the
 // lights its world light grid cell lists, and of the sun, differs from the one it was traced with; not in UE),
 // then by the age of its last trace — and counted in the histogram the selection cuts at the budget.
 Shader "RadianceCacheAllocate"
@@ -116,7 +116,7 @@ Shader "RadianceCacheAllocate"
             const uint  hash   = LightHash( RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) );
             uint        bucket;
             if ( frames.y == 0u )
-                bucket = RC_PRIORITY_NEW;
+                bucket = RC_PRIORITY_NEW_FINEST + clipmap; // the coarse ones first (RadianceCacheState.glslh)
             else if ( hash != frames.z )
                 bucket = RC_PRIORITY_LIGHTS_CHANGED;
             else

@@ -88,6 +88,12 @@ Shader "RadianceCacheMark"
                 MarkClipmap( p, N, V, fine );
             if ( coarse != fine && coarse < radianceCache.shape.x )
                 MarkClipmap( p, N, V, coarse );
+            // THE FALLBACK: the clipmap past the coarse end, where a screen probe's radiance read looks while its own
+            // clipmap's eight cells hold no traced probe (RadianceCacheRadianceAt). Its cells are few and rank first
+            // among the new (RC_PRIORITY_NEW_FINEST + clipmap), so the budget traces them the frame they are first
+            // stamped, and a covered ray they answer is not traced on to the full distance (Trace Cache Miss).
+            if ( coarse + 1u < radianceCache.shape.x )
+                MarkClipmap( p, N, V, coarse + 1u );
         }
     }
 }

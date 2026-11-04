@@ -40,8 +40,14 @@ Buffer(5) RadianceCacheScheduleUB
 #define RC_SCHEDULE_COUNT RC_PRIORITY_BUCKETS
 #define RC_SCHEDULE_TAKEN ( RC_PRIORITY_BUCKETS + 1u )
 #define RC_SCHEDULE_LIST ( RC_PRIORITY_BUCKETS + 2u )
-#define RC_PRIORITY_NEW ( RC_PRIORITY_BUCKETS - 1u )
-#define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_BUCKETS - 2u )
+// NEVER TRACED, COARSEST CLIPMAP FIRST (UE ranks every new probe first; here new probes are also ranked by clipmap):
+// a never-traced probe of clipmap c ranks RC_PRIORITY_NEW_FINEST + c, the top buckets. A frame that brings more new
+// cells than the budget (a camera turn sweeping trees and grass) traces the coarse ones first. They are few, eight
+// times a finer cell's volume, and they answer the reads whose own cells are not traced yet (RadianceCacheRadianceAt
+// falls back to them, RadianceCacheMark stamps the clipmap past each pixel's coarse end), so a covered ray does
+// not go on to the full trace distance while the finer cells wait for the budget.
+#define RC_PRIORITY_NEW_FINEST ( RC_PRIORITY_BUCKETS - RADIANCE_CACHE_MAX_CLIPMAPS )
+#define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_NEW_FINEST - 1u )
 
 PushConstant RadianceCachePush
 {

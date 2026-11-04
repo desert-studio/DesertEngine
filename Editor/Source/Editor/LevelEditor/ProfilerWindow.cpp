@@ -296,10 +296,12 @@ namespace Desert::Editor
         else
         {
             const auto& rays = missReasons->Rays;
-            LOG_INFO( "[Profiler] ScreenProbes cache reads: answered {} | miss empty {} untraced {} rejected {} nan {} "
-                      "(far-field rays a frame, frames in flight late; empty = no probe in the eight cells, the "
-                      "atlas had no free slot)",
-                      rays[0], rays[1], rays[2], rays[3], rays[4] );
+            LOG_INFO(
+                 "[Profiler] ScreenProbes cache reads: answered {} coarser {} | miss empty {} untraced {} "
+                 "rejected {} nan {} (far-field rays a frame, frames in flight late; coarser = the coverage's "
+                 "clipmap not traced yet, a coarser one answered; empty = no probe in the eight cells, the "
+                 "atlas had no free slot)",
+                 rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
         }
 #endif
         // GPU-CULL-2: per mesh pass how its draws were issued - the numbers of DesertCtl `state views.meshPasses`
