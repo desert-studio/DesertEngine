@@ -1388,6 +1388,9 @@ namespace Desert::Graphic::RDG
         // a failure faults only the passes that declared it.
         DESERT_PROFILE_PHASE( phases, "RDG: Prepare recording" );
         {
+            // RENDER-CPU-COST-2: the phase's two parts read apart (it was one self row, 0.58-0.70 ms on the turn).
+            DESERT_PROFILE_PHASES( prepareRows );
+            DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: prerequisites" );
             // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
             constexpr int8_t         kNotPrepared = -1;
             std::vector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
@@ -1412,7 +1415,9 @@ namespace Desert::Graphic::RDG
             // records (Vulkan: the render pass, framebuffer and attachment views of every pass that opens one)
             // exists before the first pass records. A failure here is not reported: the pass's BeginRenderPass
             // resolves it again and fails at the same point it always did.
+            DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: render passes" );
             backend.PrepareRecording( result.Passes );
+            DESERT_PROFILE_PHASE_END( prepareRows );
         }
 
         DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );

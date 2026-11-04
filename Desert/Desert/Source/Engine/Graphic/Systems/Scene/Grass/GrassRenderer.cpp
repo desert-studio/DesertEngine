@@ -1964,7 +1964,11 @@ namespace Desert::Graphic::System
                                           ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
                 DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
-                std::vector<MeshRenderer::GpuInstancedRenderData> sections;
+                // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no allocation
+                // once grown) and handed to the mesh renderer by move, so no buffer handle is copied twice.
+                thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
+                std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
+                sections.clear();
                 sections.reserve( variety.Sections.size() );
                 // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
                 // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are 0,
@@ -2028,8 +2032,9 @@ namespace Desert::Graphic::System
                              "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
                              blas.GetError() );
                 }
-                for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
-                    meshes.SubmitGpuInstanced( section );
+                for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                    meshes.SubmitGpuInstanced( std::move( section ) );
+                sections.clear();
             }
         }
         // GRASS-TILE-1: the varieties that built tiles (a turning camera builds none; it only re-culls).
