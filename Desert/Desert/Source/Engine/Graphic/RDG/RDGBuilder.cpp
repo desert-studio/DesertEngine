@@ -1595,7 +1595,9 @@ namespace Desert::Graphic::RDG
                                                 segmentBegun.GetError() ),
                                    {} );
             }
-            if ( prologue )
+            // Empty when the only external a fork from the graph start opens is a held read group already in its
+            // read state (RDGCompile TrackUse): RecordEpilogueBarriers is never called empty.
+            if ( prologue && !result.PrologueBarriers.empty() )
                 backend.RecordEpilogueBarriers( result.PrologueBarriers );
             for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition; )
             {
