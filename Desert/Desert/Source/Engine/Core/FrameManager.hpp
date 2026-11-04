@@ -49,7 +49,9 @@ namespace Desert::Engine
         }
 
         /**
-         * @brief Advances to the next frame. Render thread only.
+         * @brief Advances the GAME THREAD's frame, slot and count: once the game thread has handed frame N to the
+         * render task (Application::Run step 6) or presented it inline (Renderer::PresentFinalImage off the render
+         * task). A job of frame N keeps N's slot and count (ScopedRecordingFrame).
          */
         void NextFrame()
         {
@@ -118,19 +120,23 @@ namespace Desert::Engine
         class ScopedRecordingFrame
         {
         public:
-            explicit ScopedRecordingFrame( uint32_t slot ) : m_Previous( t_RecordingSlot )
+            ScopedRecordingFrame( uint32_t slot, uint64_t frame )
+                 : m_Previous( t_RecordingSlot ), m_PreviousFrame( t_RecordingFrame )
             {
-                t_RecordingSlot = slot;
+                t_RecordingSlot  = slot;
+                t_RecordingFrame = frame;
             }
             ~ScopedRecordingFrame()
             {
-                t_RecordingSlot = m_Previous;
+                t_RecordingSlot  = m_Previous;
+                t_RecordingFrame = m_PreviousFrame;
             }
             ScopedRecordingFrame( const ScopedRecordingFrame& )            = delete;
             ScopedRecordingFrame& operator=( const ScopedRecordingFrame& ) = delete;
 
         private:
             uint32_t m_Previous;
+            uint64_t m_PreviousFrame;
         };
         [[nodiscard]] uint32_t GetMaxFramesInFlight() const
         {
@@ -138,7 +144,18 @@ namespace Desert::Engine
         }
         /// The frame being recorded, counted from the first swapchain; never wraps (unlike the ring slot), so a
         /// deletion tagged with it is retired by one rule whatever thread queued it (VulkanAllocator::IsRetired).
+        /// Like GetCurrentFrameIndex it answers the calling thread's RECORDING frame: on the render task inside a
+        /// job, the frame the job was enqueued in (the game thread may count the next one already, OVERLAP-ON-1),
+        /// so the job's deletions, retire checks and bindless frees keep its own frame's number.
         [[nodiscard]] uint64_t GetAbsoluteFrameCount() const
+        {
+            if ( t_RecordingSlot != k_NoRecordingSlot )
+                return t_RecordingFrame;
+            return m_AbsoluteFrameCount.load();
+        }
+        /// The game thread's frame count whatever the calling thread records: what NextFrame moves and the next
+        /// RenderTask::Enqueue stamps on its job.
+        [[nodiscard]] uint64_t GetGameFrameCount() const
         {
             return m_AbsoluteFrameCount.load();
         }
@@ -147,6 +164,8 @@ namespace Desert::Engine
         static constexpr uint32_t k_NoRecordingSlot = 0xFFFFFFFFu;
         // The recording frame of this thread (ScopedRecordingFrame); k_NoRecordingSlot: the game thread's slot.
         static inline thread_local uint32_t t_RecordingSlot = k_NoRecordingSlot;
+        // The absolute frame of that binding (read only while t_RecordingSlot is bound).
+        static inline thread_local uint64_t t_RecordingFrame = 0;
 
         std::atomic<uint32_t> m_CurrentFrameIndex{ 0 };
         std::atomic<uint32_t> m_MaxFramesInFlight{ 2 };

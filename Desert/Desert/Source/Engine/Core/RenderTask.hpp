@@ -95,6 +95,46 @@ namespace Desert::Engine
         // ThreadMain checks the same rule from the other side: a job that finishes in another frame than it was
         // enqueued in is an error.
         void FrameEndSync();
+        // GAME THREAD. THE FRAME BOUNDARY WITH ONE FRAME OF LAG (UE FFrameEndSync, bAllowOneFrameThreadLag):
+        // returns when every job of a frame BEFORE the game thread's current one (GetGameFrameCount) has
+        // finished - frame N-1's views, interface, submit and present - while frame N's own jobs (its frame begin)
+        // keep running, then runs the commands deferred behind that work (AfterJoin) in order. Application::Run
+        // calls it once per iteration after the layers' update, so the head and the tick of frame N overlap frame
+        // N-1's render work. No-op off the game thread.
+        void SyncPreviousFrame();
+        // GAME THREAD. Scene::OnUpdate's fence for ANOTHER world's views: joins unless every job in flight was
+        // enqueued under @p owner (ScopedOwner) or is the frame's own work (FrameOwner). This world's views of the
+        // previous frame keep recording under its tick; a job with no owner is treated as foreign.
+        void JoinUnlessOwnedBy( const void* owner );
+        // ANY THREAD. Frame @p frame was handed to the queue (Renderer::PresentFinalImage). A job of that frame
+        // that starts later missed its submission, and ThreadMain names it.
+        void NoteFrameSubmitted( uint64_t frame ) noexcept;
+        // Whether frame @p frame has been submitted (its fence may be waited: Application::Run step 3).
+        [[nodiscard]] bool FrameSubmitted( uint64_t frame ) const noexcept
+        {
+            return m_SubmittedEnd.load( std::memory_order_acquire ) > frame;
+        }
+        // GAME THREAD. Every job enqueued in the scope is stamped with @p owner (the world, Scene::OnUpdate; the
+        // frame's own work, FrameOwner). Scopes nest.
+        class ScopedOwner
+        {
+        public:
+            explicit ScopedOwner( const void* owner ) : m_Previous( Get().m_EnqueueOwner )
+            {
+                Get().m_EnqueueOwner = owner;
+            }
+            ~ScopedOwner()
+            {
+                Get().m_EnqueueOwner = m_Previous;
+            }
+            ScopedOwner( const ScopedOwner& )            = delete;
+            ScopedOwner& operator=( const ScopedOwner& ) = delete;
+
+        private:
+            const void* m_Previous;
+        };
+        // The owner of the frame's own work: its begin, its interface, its submit and present.
+        [[nodiscard]] static const void* FrameOwner() noexcept;
 
         // True from an Enqueue until the job queue drains (the render thread clears it).
         [[nodiscard]] bool InFlight() const noexcept
@@ -141,7 +181,19 @@ namespace Desert::Engine
             // frame (FrameManager::ScopedRecordingFrame), so the job reads and writes its own slot's frame state
             // even after the game thread has submitted its frame and moved on.
             uint32_t Slot = 0;
+            // ScopedOwner at Enqueue (JoinUnlessOwnedBy).
+            const void* Owner = nullptr;
         };
+        // A command deferred to the next Join, with the frame of the last job enqueued before it:
+        // SyncPreviousFrame runs it once that frame's work has finished.
+        struct Deferred
+        {
+            Command  Body;
+            uint64_t Frame = 0;
+        };
+        // Under m_Mutex: every job of a frame before @p frame has finished.
+        [[nodiscard]] bool FramesBeforeDone( uint64_t frame ) const;
+        void               RunDueCommands( uint64_t currentFrame );
 
         void               ThreadMain();
         void               EnsureThread();
@@ -163,7 +215,14 @@ namespace Desert::Engine
         std::atomic<std::thread::id> m_GameThread{};
 
         // Game thread only.
-        std::vector<Command> m_AfterJoin;
-        bool                 m_Joining = false;
+        std::vector<Deferred> m_AfterJoin;
+        bool                  m_Joining           = false;
+        const void*           m_EnqueueOwner      = nullptr;
+        uint64_t              m_LastEnqueuedFrame = 0;
+        // Under m_Mutex: the running job's frame and owner.
+        uint64_t    m_RunningFrame = 0;
+        const void* m_RunningOwner = nullptr;
+        // One past the last frame submitted (NoteFrameSubmitted); 0: none yet.
+        std::atomic<uint64_t> m_SubmittedEnd{ 0 };
     };
 } // namespace Desert::Engine
