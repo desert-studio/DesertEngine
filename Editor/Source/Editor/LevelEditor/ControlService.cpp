@@ -318,7 +318,7 @@ namespace Desert::Editor
     {
         // THE CHANNEL'S CLOCK ADVANCES WHEN AN UPDATE BEGINS TO BUILD A FRAME, NOT WHEN ONE IS PRESENTED
         // (FRAME-SLOT-1): m_FrameIndex is the serial of the frame this update builds, read by every arm below
-        // and carried by that frame's presented notification (EditorLayer::OnFramePresented). In today's loop
+        // and carried by that frame's presented notification (EditorLayer::CaptureFramePresented). In today's loop
         // each update presents its own frame before the next begins, so the serials are the ones the old
         // present-side increment gave; a present that lags its update can no longer release a reply armed
         // after its frame was built (the lagged view FPS-FIELD-BARN-PITCH p7_stop checks).
@@ -623,33 +623,42 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented( const uint64_t builtFrame,
-                                                             const bool     displacementUnsettled,
+    std::optional<int32_t> ControlService::OnFramePresented( const BuiltFrame& built,
+                                                             const bool        displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
                                                              const bool materialPipelinesCompiling,
                                                              const bool grassInstancesSettling )
     {
         // The clock is not advanced here: ServiceChannel advances it when the next update begins its frame.
+        // THE FRAME IS JUDGED BY ITS OWN CENSUS (@p built, OVERLAP-ON-3) plus the four entries the frame itself
+        // decides, below. The channel's live census takes those four as well, as it always has (`state`,
+        // RecordWindowCaptureIfDue): in the serial loop the two are one value.
+        Control::EditorQuiescence judged         = built.Quiescence;
+        const auto                noteAfterFrame = [&]( const Control::PendingWork work, const bool pending )
+        {
+            judged.Set( work, pending );
+            m_FrameQuiescence.Set( work, pending );
+        };
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
         // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
         // landed, all while it is drawn. Sampled at OnUpdate it would describe the PREVIOUS frame - and the frame
         // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
         // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
-        m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
+        noteAfterFrame( Control::PendingWork::Displacement, displacementUnsettled );
         // The same kind of after-the-frame fact: the frame's renderer decides whether the scatter it just built
         // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
         // texels).
-        m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
+        noteAfterFrame( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
         // Also decided by the frame itself (GRASS-SETTLE): a draw whose pipeline was still on a worker was drawn
         // with the default surface, so the frame is not the scene. UE's automated screenshot calls
         // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
         // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
-        m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        noteAfterFrame( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
         // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
         // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
         // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
         // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
-        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
+        noteAfterFrame( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -679,10 +688,10 @@ namespace Desert::Editor
         const Control::GateSubject holding = m_ControlGate.Holding();
 
         // The frame just presented is judged by the quiescence sampled while it was being BUILT, under the
-        // serial of the update that built it (@p builtFrame, carried by the presented notification), never
+        // serial of the update that built it (@p built, taken by value when the frame ended), never
         // the serial being built now: a present that lags must not answer a command served after its frame.
         const Control::GateVerdict verdict = m_ControlGate.ObserveFramePresented(
-             builtFrame, m_FrameQuiescence, Control::FrameGate::Clock::now() );
+             built.Serial, judged, Control::FrameGate::Clock::now() );
 
         if ( verdict == Control::GateVerdict::Waiting || verdict == Control::GateVerdict::Idle )
             return std::nullopt;
@@ -699,7 +708,7 @@ namespace Desert::Editor
             {
                 m_ControlSocket.SendResponseLine( Control::FormatResponse( Control::Response::Failure(
                      m_ControlInFlight->Id,
-                     Control::DescribeReadinessTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited(),
+                     Control::DescribeReadinessTimeout( judged, m_ControlGate.FramesWaited(),
                                                         m_ControlGate.Waited() ) ) ) );
                 m_ControlInFlight.reset();
             }
@@ -723,7 +732,7 @@ namespace Desert::Editor
         if ( verdict == Control::GateVerdict::TimedOut )
         {
             reply = Control::Response::Failure( m_ControlInFlight->Id,
-                                                Control::DescribeSettleTimeout( m_FrameQuiescence,
+                                                Control::DescribeSettleTimeout( judged,
                                                                                 m_ControlGate.FramesWaited(),
                                                                                 m_ControlGate.Waited() ) );
         }

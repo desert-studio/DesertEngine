@@ -95,6 +95,19 @@ namespace Desert::Editor
         // A window shot (`shot.window`) is in flight: every frame until it is taken renders the SDR rendition of
         // an HDR output (Graphic::SetSdrCaptureRendition, HDR-OUTPUT p3), so the captured frame is one of them.
         [[nodiscard]] bool WindowShotPending() const;
+        // THE FRAME A PRESENTED NOTIFICATION JUDGES (OVERLAP-ON-3): the serial of the update that BUILT it and the
+        // quiescence sampled while it was built, taken by value when the frame ends (EditorLayer::
+        // CaptureFramePresented). A frame presented on the render task is announced after the NEXT update has
+        // served the channel and sampled its own census, so neither is read at the announcement.
+        struct BuiltFrame
+        {
+            uint64_t                  Serial = 0;
+            Control::EditorQuiescence Quiescence;
+        };
+        [[nodiscard]] BuiltFrame CaptureBuiltFrame() const
+        {
+            return BuiltFrame{ m_FrameIndex, m_FrameQuiescence };
+        }
         // The frame is out: judge it, take a `shot.*`, release the reply. Returns the exit status of a `quit`
         // whose reply has gone out — the layer closes the application with it.
         // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on
@@ -103,17 +116,13 @@ namespace Desert::Editor
         // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
         // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
         // (SceneWorkspace::GrassInstancesSettling).
-        // @p builtFrame: the serial of the update that BUILT the presented frame (BuildingFrame at serve time),
-        // carried by the presented notification; the gate judges it, never the serial being built now.
-        [[nodiscard]] std::optional<int32_t> OnFramePresented( uint64_t builtFrame, bool displacementUnsettled,
-                                                               bool subsurfaceHistoryConverging,
-                                                               bool materialPipelinesCompiling,
-                                                               bool grassInstancesSettling );
-        // The serial of the frame this update builds (advanced by ServiceChannel when an update begins one).
-        [[nodiscard]] uint64_t BuildingFrame() const noexcept
-        {
-            return m_FrameIndex;
-        }
+        // @p built: the presented frame (CaptureBuiltFrame at its end). The gate judges its serial and the
+        // quiescence sampled while it was built, never the serial or the census of the frame being built now.
+        [[nodiscard]] std::optional<int32_t> OnFramePresented( const BuiltFrame& built,
+                                                               bool              displacementUnsettled,
+                                                               bool              subsurfaceHistoryConverging,
+                                                               bool              materialPipelinesCompiling,
+                                                               bool              grassInstancesSettling );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();

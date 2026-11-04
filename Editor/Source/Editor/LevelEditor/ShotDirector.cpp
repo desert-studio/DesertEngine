@@ -355,17 +355,26 @@ namespace Desert::Editor
         m_PendingFrame = RecordedFrame{ recordedFrame, startupLoading, contentSettling };
     }
 
-    std::optional<int32_t> ShotDirector::EndFrame( ProfilerWindow& profiler )
+    std::optional<ShotDirector::RecordedFrame> ShotDirector::TakePendingFrame()
+    {
+        std::optional<RecordedFrame> taken = m_PendingFrame;
+        m_PendingFrame.reset();
+        return taken;
+    }
+
+    std::optional<int32_t> ShotDirector::EndFrame( ProfilerWindow&                     profiler,
+                                                   const std::optional<RecordedFrame>& pending )
     {
         // AFTER THE SUBMIT, NOT AT THE END OF THE UPDATE. The update only RECORDS this frame's commands; they
         // reach the queue in PresentFinalImage. A readback taken in the update - behind a device-idle wait
         // that can only drain what was already submitted - copied the PREVIOUS frame's image, so the file
         // written as frame N showed pose N-1 (measured 10-27: a pan8 sequence one step behind its path, the
         // --shot PNG 7 px short of --camera-to). The control channel's shot is taken at this same instant.
-        if ( !m_PendingFrame )
+        // And the record is THE PRESENTED FRAME'S, taken by value when that frame ended (OVERLAP-ON-3): read here,
+        // live, it would be the next update's, and frame N would be counted and flown as frame N+1.
+        if ( !pending )
             return std::nullopt;
-        const RecordedFrame frame = *m_PendingFrame;
-        m_PendingFrame.reset();
+        const RecordedFrame frame = *pending;
 
         const auto& shot = ShotOptions::Get();
         if ( shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&

@@ -75,15 +75,18 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnUIRender() override;
 
+        // THE END OF THE FRAME (Application::Run step 7, OVERLAP-ON-3): what its presented notification needs of
+        // THIS frame is taken by value now - the control channel's serial and census of the update that built it
+        // (ControlService::CaptureBuiltFrame) and the capture's record (ShotDirector::TakePendingFrame) - because a
+        // frame presented on the render task is announced after the NEXT update has served the channel.
+        std::function<void()> CaptureFramePresented() override;
+
+    private:
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
         // after a frame that already reflects the command it answers, and a `shot.window` reads that very
         // frame back off the swapchain. See Editor/LevelEditor/ControlService.hpp.
-        void OnFramePresented() override;
-
-    private:
-        // The control channel's serial of the frame this update builds (ControlService::BuildingFrame, taken
-        // right after the channel is served); OnFramePresented hands it to the gate with that frame.
-        uint64_t m_BuildingFrame = 0;
+        void AnnounceFramePresented( const ControlService::BuiltFrame&                  built,
+                                     const std::optional<ShotDirector::RecordedFrame>& shot );
 
         // ===== Popups =====
 
