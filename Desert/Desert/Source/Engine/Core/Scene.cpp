@@ -789,6 +789,8 @@ namespace Desert::Core
 
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
+            // THE OTHER ARENA (m_SystemCommandArenas): the previous update's views may still replay from theirs.
+            m_RecordingArena = ( m_RecordingArena + 1 ) % m_SystemCommandArenas.size();
             ExecuteSystems( gameplayTs );
         }
 
@@ -937,14 +939,16 @@ namespace Desert::Core
         // ── THE LINE BETWEEN "ONCE" AND "PER VIEW" ───────────────────────────────────────────────────
         //
         // Everything above this point read the world: ExecuteSystems walked the ECS and recorded draw
-        // commands into m_SystemCommandBuffers, and the directional-light group was collected. It runs
+        // commands into m_SystemCommandArenas, and the directional-light group was collected. It runs
         // ONCE no matter how many views are open, which is the point of the view list — a second angle
         // on one world must cost a second set of GPU passes, not a second walk of every component pool.
         //
-        // Everything below is per view. RenderCommandBuffer::ExecuteAll does not consume the buffer (the
+        // Everything below is per view, replaying the arena this update's systems recorded into
+        // (m_SystemCommandArenas). RenderCommandBuffer::ExecuteAll does not consume the buffer (the
         // arena is rewound by Clear, which happens after the last view), so replaying the SAME recording
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
+        const SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
         {
             // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
@@ -981,9 +985,9 @@ namespace Desert::Core
                                            glm::vec3( suns.front().Direction ) ) );
                 m_ReflectionCaptures->RenderCaptureViews(
                      *this,
-                     [this]( Graphic::SceneRenderer& face )
+                     [&arena]( Graphic::SceneRenderer& face )
                      {
-                         for ( const auto& buffer : m_SystemCommandBuffers )
+                         for ( const auto& buffer : arena )
                              buffer->ExecuteAll( face );
                      },
                      sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
@@ -1025,15 +1029,16 @@ namespace Desert::Core
                 // identical to the old single-buffer sequential path.
                 {
                     DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
-                    for ( const auto& buffer : m_SystemCommandBuffers )
+                    for ( const auto& buffer : arena )
                         buffer->ExecuteAll( *view.Renderer );
                 }
 
-                // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game thread
-                // enqueues the view family and goes on to the interface). BeginScene and the replay above read the
-                // registry and the live camera; from here the renderer works from its own copies (the frozen camera,
-                // the replayed draws, `info` copied by value). The next view's BeginScene joins this job first, so
-                // two brackets are never open at once. Its failure is reported by the render task.
+                // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game
+                // thread enqueues the view family and goes on to the interface). BeginScene and the replay above
+                // read the registry and the live camera; from here the renderer works from its own copies (the
+                // frozen camera, the replayed draws, `info` copied by value). The next view's BeginScene joins
+                // this job first, so two brackets are never open at once. Its failure is reported by the render
+                // task.
                 auto* const renderer = &*view.Renderer;
                 ::Desert::Engine::RenderTask::Get().Enqueue(
                      "Scene view", [renderer, info = sceneRendererInfo]() -> Common::BoolResultStr
@@ -1044,13 +1049,14 @@ namespace Desert::Core
                      } );
             }
         }
-        // Behind the last view, on the same queue: the replayed draws may point into the arena until their view has
-        // recorded. Joined by the next Scene::OnUpdate before the systems record into it again.
+        // Behind the last view, on the same queue: the replayed draws may point into THIS update's arena until
+        // their view has recorded. The next update records into the other arena; the one after it, into this one
+        // again, only after its views joined this job (m_SystemCommandArenas).
         ::Desert::Engine::RenderTask::Get().Enqueue( "Scene: CmdBuffer Clear",
-                                                     [this]() -> Common::BoolResultStr
+                                                     [cleared = &arena]() -> Common::BoolResultStr
                                                      {
                                                          DESERT_PROFILE_SCOPE( "Scene: CmdBuffer Clear" );
-                                                         for ( const auto& buffer : m_SystemCommandBuffers )
+                                                         for ( const auto& buffer : *cleared )
                                                              buffer->Clear();
                                                          return BOOLSUCCESS;
                                                      } );
@@ -1178,8 +1184,9 @@ namespace Desert::Core
 
         // One command buffer per system, created on first use (AddSystem is a header template — the
         // buffers are built here where the type is complete).
-        while ( m_SystemCommandBuffers.size() < m_Systems.size() )
-            m_SystemCommandBuffers.emplace_back( std::make_unique<Graphic::Render::RenderCommandBuffer>() );
+        SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
+        while ( arena.size() < m_Systems.size() )
+            arena.emplace_back( std::make_unique<Graphic::Render::RenderCommandBuffer>() );
 
         const auto runOne = [&]( size_t index )
         {
@@ -1191,7 +1198,7 @@ namespace Desert::Core
             // is not the plain lvalue it looks like. Same dynamic type, and the intent is now stated.
             const auto& systemRef = *system;
             DESERT_PROFILE_SCOPE_DYNAMIC( typeid( systemRef ).name() );
-            system->Update( m_Registry, *m_SystemCommandBuffers[index], gameplayTs );
+            system->Update( m_Registry, *arena[index], gameplayTs );
         };
 
         // Sequential systems run in registration order; a maximal RUN of CanRunParallel() systems is
