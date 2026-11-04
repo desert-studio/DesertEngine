@@ -96,6 +96,12 @@ namespace Desert::Engine
         /// VkPhysicalDeviceLimits::maxDrawIndirectCount: the most records one indirect call may name (65535 on
         /// KosmicKrisp, 2^30 on MoltenVK); a longer IndirectGroup is split into several calls at this count.
         uint32_t MaxDrawIndirectCount = 1;
+        /// VK drawIndirectCount (1.2 core, VK_KHR_draw_indirect_count below): vkCmdDrawIndexedIndirectCount, the
+        /// draw count read from a GPU buffer (RENDER-JOB-CPU-3: a compacted bin, Renderer::RenderMeshIndirectCount).
+        bool SupportsDrawIndirectCount = false;
+        /// VK shaderDrawParameters (1.1 core): gl_DrawIDARB / gl_BaseInstanceARB in the vertex stage - how a
+        /// compacted bin's draw finds its draw row (Common/GpuInstanceDrawRow.glslh).
+        bool SupportsShaderDrawParameters = false;
 
         // --- Feature flags the renderer branches on -------------------------------------------------
         bool SupportsTimestampQueries    = false; ///< GPU-side profiling; the profiler is CPU-only without it.

@@ -120,6 +120,17 @@ namespace Desert::Graphic::System
             // record of every group (Renderer::RenderMeshIndirect @p groups), so a section's LOD chain is one draw
             // of the list and one bind, not a draw per level. 1 without IndirectArgs.
             uint32_t IndirectLevels = 1;
+            // RENDER-JOB-CPU-3, A COMPACTED BIN (GpuInstances.hpp GpuDrawBinRefs; UE: one indirect draw per merged
+            // mesh draw command): valid -> the draw is ONE Renderer::RenderMeshIndirectCount of IndirectArgs'
+            // commands from IndirectArgsOffset (stride kGpuDrawBinCommandBytes, at most IndirectMaxDraws, the
+            // drawn count the GPU wrote at IndirectCountOffset of this buffer). The mesh's geometry is bound once
+            // (every command carries its record's firstIndex / indexCount); IndirectLevels is 1 and
+            // IndirectInstances / IndirectIds are invalid - each draw reads its own buffers by address from its
+            // draw row (Push DrawRows), and the node declares them from AddressedReads.
+            RDG::BufferRef                  IndirectCount{};
+            uint64_t                        IndirectCountOffset = 0;
+            uint32_t                        IndirectMaxDraws    = 0;
+            std::span<const RDG::BufferRef> AddressedReads{}; // owned by the list builder, valid until it rebuilds
             // RENDER-THREADS M2 - what differs per draw travels WITH the draw (UE FMeshDrawCommand: immutable,
             // per-draw data by value), never through the shared material. Push: the draw's push values (transform,
             // primitive / material row, flags, wind, bone offset, skin cache), written by Record over a COPY of
@@ -547,6 +558,11 @@ namespace Desert::Graphic::System
             // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
             // do not move (grass: only the wind moves them), the previous world is the world.
             uint32_t PrevInstanceOffset = 0;
+            // RENDER-JOB-CPU-3, THE SECTION'S DRAW ROWS (GpuInstances.hpp GpuInstanceDrawRow): per
+            // GpuInstanceDrawList the device address of the producer's row of this section for this frame in
+            // flight (0: no row of that list - the section draws per variety). With every row the section enters
+            // the compacted bins (MeshRenderer GpuDrawBins) unless Debug.Grass "per-variety draws" is on.
+            std::array<uint64_t, kGpuInstanceDrawLists> DrawRows{};
             // A world box every instance lies in, cm, when the producer has one (a particle emitter's fixed
             // Bounds through the entity's transform, VFXBoundsAt): the section is drawn only into the views and the cascades
             // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
