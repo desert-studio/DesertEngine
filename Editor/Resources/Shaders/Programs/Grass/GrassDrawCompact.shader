@@ -90,9 +90,9 @@ Shader "GrassDrawCompact"
                 return;
             if ( k == 0u )
                 atomicAdd( BinCounts[entry.Bin], entry.Count );
-            const CompactRecordWords record = CompactRecordWords( entry.Records );
-            const uint               at     = ( k * entry.Stride ) / 4u;
-            const uint               slot   = entry.FirstSlot + k;
+            CompactRecordWords record = CompactRecordWords( entry.Records ); // a reference: no const (glslang)
+            const uint         at     = ( k * entry.Stride ) / 4u;
+            const uint         slot   = entry.FirstSlot + k;
             for ( uint w = 0u; w < kCommandWords; ++w )
                 CommandWords[slot * kCommandWords + w] = record.Words[at + w];
             DrawRowSlots[slot] = entry.DrawRow;

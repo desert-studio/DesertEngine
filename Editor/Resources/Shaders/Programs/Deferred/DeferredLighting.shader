@@ -68,7 +68,9 @@ Shader "DeferredLighting"
         // into the combined form `sampler2D(texture, sampler)`. The preprocessor never re-expands a macro inside
         // its own expansion, so the inner name is the texture itself.
         Uniform sampler LinearRepeatSampler;
+        #ifndef DESERT_DEFERRED_DIRECT // the direct program samples nothing through it (no sky, BRDF table, SSR)
         Uniform sampler LinearClampSampler;
+        #endif
         Uniform sampler PointClampSampler;
 
         // The G-buffer's layout and the shading-model ids it carries (the shading word, Emissive.a).

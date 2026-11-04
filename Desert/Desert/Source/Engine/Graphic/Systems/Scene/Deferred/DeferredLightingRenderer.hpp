@@ -406,7 +406,7 @@ namespace Desert::Graphic::System
             const auto&                     layout = program.Layout.Get( program.Shader );
             pass.Prepares( *program.Material->GetMaterialExecutor() );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
-            DeclareGBufferReads( block, inputs );
+            DeclareGBufferReads( block, inputs, false );
             block.Storage( DeferredLightingCompositeShaderParameters::DeferredDirectSpecularImage,
                            inputs.DirectSpecular, RDG::Access::StorageWrite );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
@@ -450,7 +450,7 @@ namespace Desert::Graphic::System
             const auto&                     layout = program.Layout.Get( program.Shader );
             pass.Prepares( *program.Material->GetMaterialExecutor() );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
-            DeclareGBufferReads( block, inputs );
+            DeclareGBufferReads( block, inputs, true );
             block.Texture( DeferredLightingCompositeShaderParameters::GBufferEmissiveTexture,
                            inputs.GBufferEmissive, kRead, kWhole )
                  .Texture( DeferredLightingCompositeShaderParameters::SsaoTexture, inputs.SSAO, kRead, kWhole )
@@ -604,16 +604,20 @@ namespace Desert::Graphic::System
         // Program @p index made ready to draw: the permutation acquired from the shader service (the cascades'
         // program keeps the shader Initialize looked up), its pipeline over the scene target and its material.
         // On an error the program is left empty and the error is the reason it was refused.
-        // Both programs read the G-buffer through the same three sampler states.
+        // Both programs read the G-buffer through the repeat and point states. @p clampSampler: the composite's
+        // third state (the sky's cubes, the BRDF table, SSR); the direct program samples nothing through it and
+        // does not declare it (DeferredLighting.shader), so binding it there would be a name it lacks.
         template <typename Block>
-        static void DeclareGBufferReads( Block& block, const DeferredCompositeInputs& inputs )
+        static void DeclareGBufferReads( Block& block, const DeferredCompositeInputs& inputs,
+                                         const bool clampSampler )
         {
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
+            if ( clampSampler )
+                block.Sampler( DeferredLightingCompositeShaderParameters::LinearClampSampler,
+                               RDG::SamplerDesc::LinearClamp() );
             block.Sampler( DeferredLightingCompositeShaderParameters::LinearRepeatSampler,
                            RDG::SamplerDesc::LinearRepeat() )
-                 .Sampler( DeferredLightingCompositeShaderParameters::LinearClampSampler,
-                           RDG::SamplerDesc::LinearClamp() )
                  .Sampler( DeferredLightingCompositeShaderParameters::PointClampSampler,
                            RDG::SamplerDesc::PointClamp() )
                  .Texture( DeferredLightingCompositeShaderParameters::GBufferATexture, inputs.GBufferA, kRead,
