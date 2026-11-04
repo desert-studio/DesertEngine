@@ -178,6 +178,8 @@ namespace Desert::Graphic::API::Vulkan
             catalog.Class = DeviceClass::Unknown;
         catalog.VideoMemory = probe.DeviceLocalBytes;
 
+        catalog.TensorFloat8 = probe.ShaderFloat8;
+
         return catalog;
     }
 } // namespace Desert::Graphic::API::Vulkan

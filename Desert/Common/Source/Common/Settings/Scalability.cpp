@@ -245,29 +245,29 @@ namespace Common::Scalability
                "DLSSUpscaler (DLSS options of the view's Ultra Performance mode)", Of( DlssPreset::Default ),
                Vis::Advanced },
              { P::DlssRRPresetNative, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Native", 0,
-               LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's 100 % mode)", Of( DlssRRPreset::Default ),
+               LastOf( kDlssRRPresetNames.size() ), CL::DlssRRPresets,
+               "DLSSUpscaler (Ray Reconstruction options of the view's 100 % mode)", Of( DlssRRPreset::Auto ),
                Vis::Advanced },
              { P::DlssRRPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraQuality", 0,
-               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               LastOf( kDlssRRPresetNames.size() ), CL::DlssRRPresets,
                "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Quality mode)",
-               Of( DlssRRPreset::Default ), Vis::Advanced },
+               Of( DlssRRPreset::Auto ), Vis::Advanced },
              { P::DlssRRPresetQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Quality", 0,
-               LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's Quality mode)", Of( DlssRRPreset::Default ),
+               LastOf( kDlssRRPresetNames.size() ), CL::DlssRRPresets,
+               "DLSSUpscaler (Ray Reconstruction options of the view's Quality mode)", Of( DlssRRPreset::Auto ),
                Vis::Advanced },
              { P::DlssRRPresetBalanced, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Balanced", 0,
-               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               LastOf( kDlssRRPresetNames.size() ), CL::DlssRRPresets,
                "DLSSUpscaler (Ray Reconstruction options of the view's Balanced mode)",
-               Of( DlssRRPreset::Default ), Vis::Advanced },
+               Of( DlssRRPreset::Auto ), Vis::Advanced },
              { P::DlssRRPresetPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Performance", 0,
-               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               LastOf( kDlssRRPresetNames.size() ), CL::DlssRRPresets,
                "DLSSUpscaler (Ray Reconstruction options of the view's Performance mode)",
-               Of( DlssRRPreset::Default ), Vis::Advanced },
+               Of( DlssRRPreset::Auto ), Vis::Advanced },
              { P::DlssRRPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraPerformance", 0,
-               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               LastOf( kDlssRRPresetNames.size() ), CL::DlssRRPresets,
                "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Performance mode)",
-               Of( DlssRRPreset::Default ), Vis::Advanced },
+               Of( DlssRRPreset::Auto ), Vis::Advanced },
              { P::TsrHistoryScreenPercentage, G::AntiAliasing, "AntiAliasing.TSR.HistoryScreenPercentage", 100,
                200, CL::None, "TemporalSuperResolution::HistoryDescs (history extent)", 200, Vis::Advanced },
              { P::TsrHistoryUpdateQuality, G::AntiAliasing, "AntiAliasing.TSR.HistoryUpdateQuality", 0, 3,
@@ -494,6 +494,7 @@ namespace Common::Scalability
                     return kAntiAliasingMethodNames;
                 case CatalogList::PathTracingDenoisers:
                     return kPathTracingDenoiserNames;
+                case CatalogList::DlssRRPresets: // named above, by the parameter range
                 case CatalogList::AsyncCompute:
                 case CatalogList::None:
                 case CatalogList::MSAACounts:
@@ -1015,6 +1016,18 @@ namespace Common::Scalability
                     r.Set( spec.Id, relax, refusedRR ? kRefusedAtRuntime : kNotOffered );
                     return;
                 }
+                case CatalogList::DlssRRPresets:
+                {
+                    // Auto is the device's network (DlssRRPreset): the latest (F) where the tensor cores multiply
+                    // FP8, the previous transformer (E) where they do not - the latest runs its FP8 layers at FP16
+                    // rate there. A settle by definition, unreported (SettlesUnreported); an explicit preset stands
+                    // on every device.
+                    if ( static_cast<DlssRRPreset>( value ) != DlssRRPreset::Auto )
+                        return;
+                    const DlssRRPreset device = catalog.TensorFloat8 ? DlssRRPreset::F : DlssRRPreset::E;
+                    r.Set( spec.Id, static_cast<ParameterValue>( device ), {} );
+                    return;
+                }
             }
         }
 
@@ -1022,6 +1035,8 @@ namespace Common::Scalability
         // or ReLAX on every device, which is the meaning of Auto, not a fallback to log.
         [[nodiscard]] bool SettlesUnreported( const Parameter parameter, const ParameterValue requested )
         {
+            if ( SpecOf( parameter ).NarrowedBy == CatalogList::DlssRRPresets )
+                return requested == static_cast<ParameterValue>( DlssRRPreset::Auto );
             return parameter == Parameter::PathTracingDenoiser &&
                    requested == static_cast<ParameterValue>( PathTracingDenoiserMethod::Auto );
         }
