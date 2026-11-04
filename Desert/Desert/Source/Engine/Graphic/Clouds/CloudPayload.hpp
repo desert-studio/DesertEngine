@@ -341,7 +341,9 @@ namespace Desert::Graphic
         // THE MEMBER USED TO BE CALLED SkyOcclusion and used to carry one lane. Renaming it is what keeps
         // the other three from being three unnamed floats hiding under a name that describes the first.
         glm::vec4 Frame;
-        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y, z, w unused.
+        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y = this frame's checker
+        // phase of the trace grid (CloudTraceCheckerPhase): the march traces only the texels whose (x + y) & 1 is y;
+        // z, w unused.
         glm::vec4 Visualize;
     };
 
@@ -384,19 +386,48 @@ namespace Desert::Graphic
 
     inline constexpr uint32_t kCloudTraceSubPixelCount = 4;
 
+    /**
+     * THE CHECKERBOARD OVER THE TRACE GRID (CLOUD-MARCH-COST-3): each frame traces the quarter-res texels of
+     * ONE of two checker phases, (x + y) & 1 == CloudTraceCheckerPhase(frame), and the temporal resolve
+     * reconstructs the other half from the history and from the traced half's quincunx neighbours
+     * (CloudTemporalResolve.shader TraceFiltered). Unreal's r.VolumetricRenderTarget walks are the same family
+     * of one trace per pixel every N frames: mode 0 is N = 4 (the 2x2 sub-pixel walk above), mode 2 is N = 16
+     * (its 4x4 Bayer table). The checker phase alternates EVERY frame and the sub-pixel every second one, so
+     * a texel of either phase visits all four sub-pixels in kCloudTraceWalkFrames frames and the two phases
+     * interleave in time as well as in space: no region of the screen goes two frames without a fresh sample.
+     * The march dispatches only this phase's texels (half the threads, no idle lanes); the untraced half of the
+     * transient trace is never read.
+     */
+    inline constexpr uint32_t kCloudTraceCheckerPhases = 2;
+
+    // Frames between two traces of one half-resolution pixel: four sub-pixels times two checker phases. The
+    // march's start offset advances once per trace of a pixel, i.e. once per this many frames.
+    inline constexpr uint32_t kCloudTraceWalkFrames = kCloudTraceSubPixelCount * kCloudTraceCheckerPhases;
+
+    inline constexpr uint32_t CloudTraceCheckerPhase( uint32_t frameIndex )
+    {
+        return frameIndex % kCloudTraceCheckerPhases;
+    }
+
     inline constexpr CloudSubPixel CloudTraceSubPixel( uint32_t frameIndex )
     {
         constexpr uint32_t order[kCloudTraceSubPixelCount] = { 0u, 2u, 3u, 1u };
 
-        const uint32_t index = order[frameIndex % kCloudTraceSubPixelCount];
+        const uint32_t index = order[( frameIndex / kCloudTraceCheckerPhases ) % kCloudTraceSubPixelCount];
         return CloudSubPixel{ index % 2u, index / 2u };
     }
 
     static_assert( CloudTraceSubPixel( 0u ).X == 0u && CloudTraceSubPixel( 0u ).Y == 0u );
-    static_assert( CloudTraceSubPixel( 1u ).X == 0u && CloudTraceSubPixel( 1u ).Y == 1u );
-    static_assert( CloudTraceSubPixel( 2u ).X == 1u && CloudTraceSubPixel( 2u ).Y == 1u );
-    static_assert( CloudTraceSubPixel( 3u ).X == 1u && CloudTraceSubPixel( 3u ).Y == 0u );
-    static_assert( CloudTraceSubPixel( 4u ).X == CloudTraceSubPixel( 0u ).X, "The walk must be periodic." );
+    static_assert( CloudTraceSubPixel( 2u ).X == 0u && CloudTraceSubPixel( 2u ).Y == 1u );
+    static_assert( CloudTraceSubPixel( 4u ).X == 1u && CloudTraceSubPixel( 4u ).Y == 1u );
+    static_assert( CloudTraceSubPixel( 6u ).X == 1u && CloudTraceSubPixel( 6u ).Y == 0u );
+    // Phase 1 walks the same four sub-pixels one frame behind phase 0.
+    static_assert( CloudTraceSubPixel( 1u ).X == CloudTraceSubPixel( 0u ).X &&
+                   CloudTraceSubPixel( 7u ).Y == CloudTraceSubPixel( 6u ).Y );
+    static_assert( CloudTraceCheckerPhase( 0u ) == 0u && CloudTraceCheckerPhase( 1u ) == 1u );
+    static_assert( CloudTraceSubPixel( kCloudTraceWalkFrames ).X == CloudTraceSubPixel( 0u ).X &&
+                        CloudTraceCheckerPhase( kCloudTraceWalkFrames ) == CloudTraceCheckerPhase( 0u ),
+                   "The walk must be periodic." );
 
     /**
      * The temporal reconstruction's per-frame data.
@@ -436,6 +467,9 @@ namespace Desert::Graphic
         // pair was traced under (VolumetricCloudHistory::Refs::WindOffsetKm), km in the field's frame. The resolve
         // reprojects each front from where the wind carried it from; zero when there is no history to read.
         glm::vec3 WindStepKm;
+        // This frame's checker phase of the trace grid (CloudTraceCheckerPhase), the same one the march was given:
+        // a quarter-res texel holds a sample this frame only when (x + y) & 1 equals it.
+        int32_t TraceCheckerPhase;
     };
 
     static_assert( offsetof( CloudResolveParams, InverseViewProjection ) == 0 );
@@ -446,11 +480,13 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudResolveParams, SubPixelOffset ) == 160 );
     static_assert( offsetof( CloudResolveParams, CloudReach ) == 168 );
     static_assert( offsetof( CloudResolveParams, WindStepKm ) == 176 );
-    // 188: the vec3 starts on its 16-byte std430 boundary and nothing follows it. std430 rounds a block's STRIDE up to a multiple of 16, but a
-    // stride only exists for an array of blocks and this is a single one — the shader never reads past the last
-    // member, so the buffer is created at exactly the struct's size. Pinned here so that inserting a member and
-    // quietly changing the size is a build error.
-    static_assert( sizeof( CloudResolveParams ) == 188,
+    // The int fills the vec3's last four bytes, where std430 places a scalar after a vec3 too.
+    static_assert( offsetof( CloudResolveParams, TraceCheckerPhase ) == 188 );
+    // 192 (was 188 before TraceCheckerPhase): the vec3 starts on its 16-byte std430 boundary and nothing follows
+    // it. std430 rounds a block's STRIDE up to a multiple of 16, but a stride only exists for an array of blocks
+    // and this is a single one — the shader never reads past the last member, so the buffer is created at exactly
+    // the struct's size. Pinned here so that inserting a member and quietly changing the size is a build error.
+    static_assert( sizeof( CloudResolveParams ) == 192,
                    "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
                    "exactly these members, in this "
                    "order, at these offsets." );

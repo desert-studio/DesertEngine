@@ -19,4 +19,5 @@ layout(std430, binding = 6) readonly buffer CloudResolveBuffer
     ivec2 SubPixelOffset;        // this frame's traced sub-pixel, {0,1} x {0,1}
     vec2  CloudReach;            // the march's x CloudMarch.z (tracing start), y CloudPhase.w (its maximum), km
     vec3  WindStepKm;            // the field's wind offset this frame minus the history's (km; 0 without history)
+    int   TraceCheckerPhase;     // this frame's checker phase of the trace grid: a texel holds a sample iff (x + y) & 1 == it
 };

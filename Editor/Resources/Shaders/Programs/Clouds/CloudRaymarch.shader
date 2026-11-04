@@ -389,6 +389,8 @@ Shader "CloudRaymarch"
             //     Written whatever y says, read only when y is 1.
             vec4 CloudFrame;
             // x = the diagnostic mode, Graphic::RenderConfig::CloudVisualize (0 = the ordinary picture).
+            // y = this frame's checker phase of the trace grid, 0 or 1 (Graphic::CloudTraceCheckerPhase): only the
+            //     texels whose (x + y) & 1 equals it are marched (main).
             vec4 CloudVisualize;
         };
 
@@ -528,8 +530,14 @@ Shader "CloudRaymarch"
 
         void main()
         {
-            ivec2 size  = imageSize(CloudScatterTexture);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+            // ONE CHECKER PHASE OF THE TRACE GRID PER FRAME (Graphic::CloudTraceCheckerPhase, CLOUD-MARCH-COST-3):
+            // the dispatch is half the grid's width, and thread x of row y marches texel 2x + ((y + phase) & 1),
+            // so (coord.x + coord.y) & 1 == phase on every texel written. The other phase's texels are not written
+            // this frame and CloudTemporalResolve.shader never reads them (its CloudTraceTexelHoldsSample).
+            ivec2 size        = imageSize(CloudScatterTexture);
+            int   checkerPhase = int(CloudVisualize.y + 0.5f) & 1;
+            ivec2 cell        = ivec2(gl_GlobalInvocationID.xy);
+            ivec2 coord       = ivec2(cell.x * 2 + ((cell.y + checkerPhase) & 1), cell.y);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 

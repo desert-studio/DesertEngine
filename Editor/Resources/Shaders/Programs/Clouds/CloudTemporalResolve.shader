@@ -344,43 +344,75 @@ Shader "CloudTemporalResolve"
         // a fence, by a weight that walks with the trace's sub-pixel cycle. Its weight goes to the other texels
         // instead. With no such texel in the footprint this IS the plain bilinear, read through the sampler as
         // before; with nothing but such texels it is that plain bilinear too, and @p sampled is false.
+        //
+        // OVER THIS FRAME'S CHECKER PHASE ONLY (CLOUD-MARCH-COST-3, Graphic::CloudTraceCheckerPhase): the march wrote
+        // the texels whose (x + y) & 1 is TraceCheckerPhase and left the others as undefined transient memory. The
+        // written texels form a quincunx lattice, which is a regular unit grid in the rotated coordinates
+        // u = (x + y) / 2, v = (x - y) / 2; the estimate is the BILINEAR interpolation on that grid (tent weights in
+        // u and v, which sum to one over the lattice), so it is exact on a written texel and the plain linear blend
+        // of its four edge neighbours on an unwritten one. Its support is |dx| + |dy| < 2, which the 4x4 texels
+        // around the footprint cover; the other phase's eight are skipped without a fetch. A texel past the grid's
+        // edge is skipped and the weights renormalised, where the plain bilinear clamped to the edge texel.
+        bool CloudTraceTexelHoldsSample(ivec2 p)
+        {
+            return ((p.x + p.y) & 1) == (TraceCheckerPhase & 1);
+        }
+
         void TraceFiltered(vec2 uv, ivec2 traceSize, out vec4 scatter, out vec2 guide, out bool sampled)
         {
             vec2  texel = uv * vec2(traceSize) - vec2(0.5f, 0.5f);
-            vec2  f     = texel - floor(texel);
             ivec2 base  = ivec2(floor(texel));
             ivec2 last  = traceSize - ivec2(1, 1);
 
             vec4  sampledScatter = vec4(0.0f);
             vec2  sampledGuide   = vec2(0.0f);
             float sampledWeight  = 0.0f;
-            bool  anyOccluded    = false;
-            for (int i = 0; i < 4; ++i)
+            // The same lattice blend over every written texel, occluded ones included: the answer when the
+            // footprint holds nothing but occluded texels (it is then the "clear" they hold, as the plain bilinear
+            // of them was).
+            vec4  plainScatter = vec4(0.0f);
+            vec2  plainGuide   = vec2(0.0f);
+            float plainWeight  = 0.0f;
+            for (int i = 0; i < 16; ++i)
             {
-                ivec2 offset = ivec2(i & 1, i >> 1);
-                ivec2 p      = clamp(base + offset, ivec2(0, 0), last);
-                vec4  g      = texelFetch(CloudTraceGuideTexture, p, 0);
-                if (g.z >= 0.5f)
-                {
-                    anyOccluded = true;
+                ivec2 p = base + ivec2((i & 3) - 1, (i >> 2) - 1);
+                if (any(lessThan(p, ivec2(0, 0))) || any(greaterThan(p, last)) || !CloudTraceTexelHoldsSample(p))
                     continue;
-                }
-                float w = (offset.x == 1 ? f.x : 1.0f - f.x) * (offset.y == 1 ? f.y : 1.0f - f.y);
-                sampledScatter += w * texelFetch(CloudTraceTexture, p, 0);
+
+                vec2  d = vec2(p) - texel;
+                float w = max(1.0f - abs(d.x + d.y) * 0.5f, 0.0f) * max(1.0f - abs(d.x - d.y) * 0.5f, 0.0f);
+                if (w <= 0.0f)
+                    continue;
+
+                vec4 g = texelFetch(CloudTraceGuideTexture, p, 0);
+                vec4 s = texelFetch(CloudTraceTexture, p, 0);
+                plainScatter += w * s;
+                plainGuide += w * g.xy;
+                plainWeight += w;
+                if (g.z >= 0.5f)
+                    continue;
+                sampledScatter += w * s;
                 sampledGuide += w * g.xy;
                 sampledWeight += w;
             }
 
             sampled = sampledWeight > 1e-4f;
-            if (anyOccluded && sampled)
+            if (sampled)
             {
                 scatter = sampledScatter / sampledWeight;
                 guide   = sampledGuide / sampledWeight;
             }
+            else if (plainWeight > 1e-4f)
+            {
+                scatter = plainScatter / plainWeight;
+                guide   = plainGuide / plainWeight;
+            }
             else
             {
-                scatter = texture(CloudTraceTexture, uv);
-                guide   = texture(CloudTraceGuideTexture, uv).xy;
+                // Unreachable inside the grid (a written texel is always within |dx| + |dy| <= 1 of a texel
+                // centre), kept so a degenerate one-texel grid reads "clear" rather than a division by zero.
+                scatter = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                guide   = vec2(0.0f, 0.0f);
             }
         }
 
@@ -399,7 +431,10 @@ Shader "CloudTemporalResolve"
             ivec2 subPixel   = coord & ivec2(1, 1);
             ivec2 traceCoord = coord >> ivec2(1, 1);
 
-            bool owned = subPixel == SubPixelOffset;
+            // THE BLOCK HOLDS A SAMPLE ONLY ON THIS FRAME'S CHECKER PHASE (CloudTraceTexelHoldsSample): on the other
+            // phase all four of its pixels are not-owned this frame and take the lattice estimate below.
+            bool blockTraced = CloudTraceTexelHoldsSample(traceCoord);
+            bool owned       = blockTraced && subPixel == SubPixelOffset;
 
             // THIS FRAME'S LOW-RESOLUTION ESTIMATE, with the jitter undone. A quarter-res texel does not
             // hold the value at its own centre — it holds the value at the half-res pixel
@@ -423,20 +458,37 @@ Shader "CloudTemporalResolve"
             // agrees with its neighbours costs the composite nothing, while a bilinear blend of the two
             // sides of a silhouette agrees with neither and fires the edge path along the whole silhouette.
             // Its .z says whether the texel holds a sample at all (Common/CloudSceneDepth.glslh).
-            vec4 traceGuide = texelFetch(CloudTraceGuideTexture, traceCoord, 0);
-
             vec4 traceScatter;
             vec2 traceGuideHere; // the guide over the same footprint as traceScatter (.x front, .y cut)
             bool traceSampled;   // whether traceScatter comes from a texel that holds a sample
             if (owned)
             {
+                vec4 ownGuide  = texelFetch(CloudTraceGuideTexture, traceCoord, 0);
                 traceScatter   = texelFetch(CloudTraceTexture, traceCoord, 0);
-                traceGuideHere = traceGuide.xy;
-                traceSampled   = traceGuide.z < 0.5f;
+                traceGuideHere = ownGuide.xy;
+                traceSampled   = ownGuide.z < 0.5f;
             }
             else
             {
                 TraceFiltered(traceUv, traceSize, traceScatter, traceGuideHere, traceSampled);
+            }
+
+            // The block's front (.x of its texel's guide), shared by its four pixels as above. A block of the
+            // other checker phase has no texel of its own this frame; its four pixels share the lattice
+            // estimate at the block's centre instead, so they still agree with one another.
+            float blockFrontKm;
+            if (blockTraced)
+            {
+                blockFrontKm = texelFetch(CloudTraceGuideTexture, traceCoord, 0).x;
+            }
+            else
+            {
+                vec4  blockScatter;
+                vec2  blockGuide;
+                bool  blockSampled;
+                vec2  blockUv = (vec2(traceCoord) + vec2(0.5f, 0.5f)) / vec2(traceSize);
+                TraceFiltered(blockUv, traceSize, blockScatter, blockGuide, blockSampled);
+                blockFrontKm = blockGuide.x;
             }
 
             // The pixel's ray, from this frame's inverse view-projection. REVERSED-Z, like everything
@@ -505,7 +557,7 @@ Shader "CloudTemporalResolve"
             // The front distance the output guide carries. It follows the RADIANCE: a pixel that keeps its
             // history because this frame's sample belongs to another surface keeps that history's front, and
             // so does a not-owned pixel whose radiance is mostly that history (below).
-            float frontKm = traceGuide.x;
+            float frontKm = blockFrontKm;
 
             if (HistoryValid > 0.5f)
             {
@@ -519,8 +571,8 @@ Shader "CloudTemporalResolve"
                 // still weight the edge lags ~0.4 s and trails. The point is moved back by the wind's step
                 // since the history's frame (CloudResolveParams.WindStepKm, zero without wind), so the history
                 // is read where this piece of cloud was rather than where the air now is.
-                vec3 frontPlanetKm = CloudPlanetOriginKm(CameraPosition, layer.PlanetRadiusKm) + rayDir * traceGuide.x;
-                vec3 frontWorld    = CameraPosition + rayDir * (traceGuide.x * CLOUD_WORLD_UNITS_PER_KM) +
+                vec3 frontPlanetKm = CloudPlanetOriginKm(CameraPosition, layer.PlanetRadiusKm) + rayDir * blockFrontKm;
+                vec3 frontWorld    = CameraPosition + rayDir * (blockFrontKm * CLOUD_WORLD_UNITS_PER_KM) +
                                   CloudWindStepBackKm(frontPlanetKm, WindStepKm) * CLOUD_WORLD_UNITS_PER_KM;
 
                 vec4 prevClip = PreviousViewProjection * vec4(frontWorld, 1.0f);
