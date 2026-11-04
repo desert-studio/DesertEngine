@@ -9,5 +9,6 @@
 Когда run Action "Play"
 Когда advance 0.5
 Тогда-вид 1_draw the line, box, sphere, arrow, label and three point squares (same size on screen) are drawn in their exact given colours - pure red, green and blue squares, not exposure-dimmed or tonemapped; the line's part inside the cube, the sphere's lower half under the ground and the magenta point at the cube's centre are hidden by the depth test; the label reads "DebugDraw: 2 s"; 0 VUID in editor.log
-Когда advance 2.5
+Когда advance 1.5
+Когда advance 1.0
 Тогда-вид 2_expired at 3 s every debug item (lines, box, sphere, arrow, label, points) is gone - only the scene; editor.log has 0 error lines
