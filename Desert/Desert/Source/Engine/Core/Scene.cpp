@@ -681,9 +681,13 @@ namespace Desert::Core
 
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
-        // THE FENCE OF EVERY VIEW STILL RECORDING (RenderTask): another world's views, handed to the render task
-        // by its own update, finish before this world's systems touch the renderer's shared state.
-        ::Desert::Engine::RenderTask::Get().Join();
+        // THE TICK RUNS PAST THIS WORLD'S VIEWS OF THE PREVIOUS FRAME (UE: the game thread ticks N+1 while the
+        // rendering thread draws N). Every job this update enqueues carries this world as its owner; another
+        // world's views still recording are joined here, this world's are joined before the surface cache below.
+        // What the tick writes and a view job reads is guarded at its writer (Scene.hpp m_SystemCommandArenas:
+        // the other arena; DeformationWorld::Submit: joins; the rest by value at BeginScene).
+        const ::Desert::Engine::RenderTask::ScopedOwner owner( this );
+        ::Desert::Engine::RenderTask::Get().JoinUnlessOwnedBy( this );
 
         // The world's parameters before anything reads them: the scripts below set them, every view after them
         // snapshots them. The service logged a refusal once; the instance then holds none.
@@ -949,6 +953,9 @@ namespace Desert::Core
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
         const SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
+        // THE FENCE OF THIS WORLD'S PREVIOUS VIEWS: the surface cache, the retire queues and the reflection
+        // captures below are what those views read; from here to the end the update writes the renderer's state.
+        ::Desert::Engine::RenderTask::Get().Join();
         {
             // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
