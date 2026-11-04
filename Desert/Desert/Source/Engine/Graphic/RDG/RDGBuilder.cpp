@@ -106,6 +106,14 @@ namespace Desert::Graphic::RDG
             // The calling thread at chunk @p chunk's position in the walk: returns once the chunk is recorded.
             // Chunks are claimed in index order and the walk reaches them in that order, so a chunk not claimed
             // yet is the next one; the calling thread records it itself instead of waiting for a helper.
+            // FPS7-CPU-STILL-1 (UE: a thread waiting for a task runs queued tasks - UE::Tasks::Wait /
+            // FTaskGraphInterface::WaitUntilTasksComplete on a named thread - it does not sleep while work is
+            // queued): a chunk a helper still records is waited for only once no chunk is left unclaimed. Until
+            // then the calling thread records the next unclaimed chunk itself, as a helper would (the recorder is
+            // the helpers'; a chunk is its own command buffer, replayed in pass order by the walk whoever recorded
+            // it), so a pool the game thread's jobs keep busy costs the walk the helpers' missing share of the
+            // chunks, never an idle wait beside them ("RDG: Wait for chunk" was 1.1-1.3 ms a frame on the still
+            // camera of FPS-FIELD-BARN-TURN while chunks waited for a free worker).
             void Await( uint32_t chunk )
             {
                 std::unique_lock<std::mutex> lock( m_Lock );
@@ -120,6 +128,19 @@ namespace Desert::Graphic::RDG
                     }
                     lock.lock();
                     m_Recorded[mine] = 1;
+                    --m_Running;
+                }
+                while ( m_Recorded[chunk] == 0 && !m_Closed && m_Next < m_Count )
+                {
+                    const uint32_t ahead = m_Next++;
+                    ++m_Running;
+                    lock.unlock();
+                    {
+                        DESERT_PROFILE_SCOPE( "RDG: Record chunk ahead (render thread)" );
+                        ( *m_Recorder )( ahead );
+                    }
+                    lock.lock();
+                    m_Recorded[ahead] = 1;
                     --m_Running;
                 }
                 if ( m_Recorded[chunk] == 0 )
