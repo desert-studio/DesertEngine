@@ -97,8 +97,9 @@ namespace Desert::Graphic
 
     void MemoryWatch::SampleFrame( const MemoryReadout& readout )
     {
-        const uint64_t resident    = readout.Process.Known ? readout.Process.Resident : 0;
-        const uint64_t deviceUsage = readout.Device.BudgetKnown ? readout.Device.DeviceLocalUsage() : 0;
+        const uint64_t resident     = readout.Process.Known ? readout.Process.Resident : 0;
+        const uint64_t deviceUsage  = readout.Device.BudgetKnown ? readout.Device.DeviceLocalUsage() : 0;
+        const uint64_t deviceBudget = readout.Device.BudgetKnown ? readout.Device.DeviceLocalBudget() : 0;
 
         // The baseline is the FIRST sample, claimed exactly once. `fetch_add` returning the previous
         // value is what makes "am I the first frame" a single atomic question rather than a check
@@ -112,8 +113,7 @@ namespace Desert::Graphic
         RaisePeak( g_PeakResident, resident );
         RaisePeak( g_PeakDeviceUsage, deviceUsage );
         g_LastDeviceUsage.store( deviceUsage, std::memory_order_relaxed );
-        g_LastDeviceBudget.store( readout.Device.BudgetKnown ? readout.Device.DeviceLocalBudget() : 0,
-                                  std::memory_order_relaxed );
+        g_LastDeviceBudget.store( deviceBudget, std::memory_order_relaxed );
         g_LastBindless.store(
              readout.Bindless ? ( uint64_t{ readout.Bindless->Capacity } << 32U ) | readout.Bindless->Live : 0,
              std::memory_order_relaxed );

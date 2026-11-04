@@ -463,9 +463,10 @@ namespace Desert::Graphic::System
         // @p stray how far an instance lies from its cell (cm). False when a buffer was not made.
         // GRASS-VRAM-BUDGET-1: the bytes every variety's tile pool segments hold but @p except's, and the grass
         // pools' ceiling - kGrassTilePoolBudgetShare of the device-local budget (VK_EXT_memory_budget; the
-        // device-local heaps' size where the budget is unknown; 0 without a device).
-        [[nodiscard]] uint64_t        TilePoolBytes( const VarietyGpu* except ) const;
-        [[nodiscard]] static uint64_t TilePoolCap();
+        // device-local heaps' size where the budget is unknown; 0 without a device), read once a frame
+        // (m_FrameTilePoolCap): a capped pool asks every frame, and each Device::QueryMemory is a driver query.
+        [[nodiscard]] uint64_t TilePoolBytes( const VarietyGpu* except ) const;
+        [[nodiscard]] uint64_t TilePoolCap();
         [[nodiscard]] bool UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement,
                                         std::vector<uint32_t> thin, glm::vec2 eye, float cell, float radius,
                                         float stray );
@@ -492,6 +493,8 @@ namespace Desert::Graphic::System
         // tiles are built (Count / Allocate / Write).
         std::vector<VarietyGpu*>         m_FrameTileFree;
         std::vector<VarietyGpu*>         m_FrameTileBuild;
+        // GRASS-VRAM-BUDGET-1: this frame's TilePoolCap, read on its first use (empty: not read yet this frame).
+        std::optional<uint64_t>          m_FrameTilePoolCap;
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral

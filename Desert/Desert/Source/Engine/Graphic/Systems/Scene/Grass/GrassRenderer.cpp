@@ -1134,6 +1134,8 @@ namespace Desert::Graphic::System
 
     uint64_t GrassRenderer::TilePoolCap()
     {
+        if ( m_FrameTilePoolCap )
+            return *m_FrameTilePoolCap;
         const std::shared_ptr<Engine::Device> device = EngineContext::GetInstance().GetDevice();
         if ( !device )
             return 0u;
@@ -1148,7 +1150,8 @@ namespace Desert::Graphic::System
             else
                 local += heap.Size;
         }
-        return static_cast<uint64_t>( static_cast<double>( local ) * kGrassTilePoolBudgetShare );
+        m_FrameTilePoolCap = static_cast<uint64_t>( static_cast<double>( local ) * kGrassTilePoolBudgetShare );
+        return *m_FrameTilePoolCap;
     }
 
     bool GrassRenderer::UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement, std::vector<uint32_t> thin,
@@ -1592,6 +1595,7 @@ namespace Desert::Graphic::System
         m_FrameCull.clear();
         m_FrameTileFree.clear();
         m_FrameTileBuild.clear();
+        m_FrameTilePoolCap.reset();
         m_Settling       = false;
         m_FrameTested    = testsHzb;
         m_FrameNeutral   = occlusion.Neutral;
