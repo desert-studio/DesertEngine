@@ -1012,10 +1012,20 @@ namespace Desert::Editor
             // independent opinion; it is about the format the cook would reach for with nobody to ask,
             // which is what makes it comparable with the author's answer rather than derived from it.
             const Fmt::ImageFormat probeFormat = Fmt::BlockFormatFor( data.Format );
-            Attempt                probe;
+            // THE PROBE IS BUILT AT THE STORED EFFORT ONLY WHEN IT CAN BE STORED: nobody said what the texture
+            // is for (the measurement decides and the probe ships), or the author asked for the probe's own
+            // format. Otherwise (a normal map bound to BC5, a Data texture refused a block format) it is only
+            // the second opinion the log reports, and it is measured at the project's fast effort — a lower
+            // bound on what BC7 would give. The final search here was most of a cold cook (CI-PKG-DEADLINE).
+            const bool probeCanBeStored =
+                 authoredIntent == Fmt::TextureIntent::Unspecified ||
+                 ( policy.Verdict == Fmt::BlockPolicyVerdict::Encode && policy.Format == probeFormat );
+            const Fmt::BlockEncodeSettings probeSettings{ probeCanBeStored ? plan.BuildEffort
+                                                                           : plan.MeasureEffort };
+            Attempt                        probe;
             if ( probeFormat != Fmt::ImageFormat::Count )
             {
-                probe = EncodeAndGrade( data, probeFormat, gateVisible, encodeSettings );
+                probe = EncodeAndGrade( data, probeFormat, gateVisible, probeSettings );
                 if ( !probe.Encoded )
                 {
                     // NOT FATAL, AND SAID OUT LOUD. An uncompressed cook is a correct cook; a cook that
@@ -1086,7 +1096,8 @@ namespace Desert::Editor
                 if ( probe.ClearsTheGates() )
                 {
                     LOG_WARN( "[TextureImporter] '{0}': the two sources DISAGREE. It is authored as {1}, "
-                              "which forbids a block format ({2}), and the measurement says BC7 would "
+                              "which forbids a block format ({2}), and the measurement (at the fast effort) says "
+                              "BC7 would "
                               "have given {3:.2f} dB with a worst texel off by {4} — inside both gates. "
                               "The authored refusal stands and the texture is stored uncompressed; if "
                               "the intent is wrong, '{5}' is where to change it.",
@@ -1096,7 +1107,8 @@ namespace Desert::Editor
                 else
                 {
                     LOG_INFO( "[TextureImporter] '{0}' is kept uncompressed: it is authored as {1} ({2}), "
-                              "and the measurement agrees — BC7 gives {3:.2f} dB with a worst texel off "
+                              "and the measurement agrees — BC7 at the fast effort gives {3:.2f} dB with a worst "
+                              "texel off "
                               "by {4}.",
                               abs, Fmt::TextureIntentName( authoredIntent ), policy.Because, probe.Grade.Psnr,
                               probe.Grade.MaxAbsoluteDelta );

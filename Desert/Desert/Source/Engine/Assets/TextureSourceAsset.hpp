@@ -256,10 +256,15 @@ namespace Desert::Assets
 
     // What one role does for one texture: the effort a miss is built at, and the effort whose entry is fetched
     // first when the role takes a final entry if one exists (nullopt = fetch only what it builds).
+    // MeasureEffort: the effort of an encode that is only MEASURED and never stored (the importer's BC7
+    // cross-check of a texture the author marked for another format or for none): the settings' fast effort.
+    // The final search on such a probe was most of a cold cook (CI-PKG-DEADLINE: every normal map paid a full
+    // BC7 search, ~1 min per 2k texture on a 4-core runner, and then stored BC5).
     struct TextureEncodePlan
     {
         float                BuildEffort = 1.0f;
         std::optional<float> FetchFirstEffort;
+        float                MeasureEffort = 1.0f;
     };
     TextureEncodePlan PlanTextureEncode( TextureEncodeRole role );
     // Revision of how the block-format gate grades a colour under a ColorDilationMask (1 = only texels the mask
