@@ -1098,9 +1098,10 @@ namespace Desert::Graphic::RDG
     // consumer (the pull's insertion point). It runs on Graphics while the run runs on AsyncCompute, and the
     // fork, no longer queued behind it, signals earlier. Every dependency edge keeps its direction, so the
     // graph's result is the same. The pull's order rules hold: a NeverParallel or ExternalQueue pass is never
-    // moved and nothing moves across one, and a Copy pass (a queued upload) stays where HoistQueuedUploads put
-    // it. A run whose first consumer is beyond the next run shares that run's window; positions before a
-    // window's insertion point are settled and never move again.
+    // moved and nothing moves across one, and a queued upload stays at the head HoistQueuedUploads put it at
+    // (the cascade copies "MeshShadowCascade{c}.FromCache" are Copy passes and do sink). A run whose first
+    // consumer is beyond the next run shares that run's window; positions before a window's insertion point
+    // are settled and never move again.
     void Builder::Compiler::SinkIntoAsyncWindows()
     {
         if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
@@ -1208,9 +1209,7 @@ namespace Desert::Graphic::RDG
             bool any = false;
             for ( uint32_t q = forkEnd; q-- > scanStart; )
             {
-                const PassFlags flags = m_Passes[m_Executed[q]].Flags;
-                if ( m_PipeAt[q] != Pipe::Graphics || HasFlag( flags, PassFlags::Copy ) ||
-                     !( HasFlag( flags, PassFlags::Raster ) || HasFlag( flags, PassFlags::Compute ) ) )
+                if ( m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload )
                     continue;
                 bool free = true;
                 for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
