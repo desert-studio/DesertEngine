@@ -455,7 +455,7 @@ namespace Desert::Engine
             }
 
             // 4b. THE FRAME BOUNDARY (UE FFrameEndSync with one frame of lag, OVERLAP-ON-1). Frame N-1's render
-            // work - its views, interface, submit and present - has finished before this frame's interface is painted,
+            // work - views, interface, submit and present - has finished before this frame's interface is painted,
             // and N-1 is announced (its presented notifications, then the commands deferred behind it). The head
             // and the tick above overlapped it; a world's views joined it already before their own bracket.
             RenderTask::Get().SyncPreviousFrame();
