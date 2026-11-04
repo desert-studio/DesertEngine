@@ -437,8 +437,6 @@ namespace Desert::Editor
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
-        // The serial of the frame this update builds, carried by its presented notification (OnFramePresented).
-        m_BuildingFrame = m_Control.BuildingFrame();
         // HDR-OUTPUT p3: an HDR output renders its SDR rendition while a window shot waits (the shot's PNG is the
         // SDR frame; the tonemap's HDR rendition carries the peak). Set before the scene renders this frame.
         Graphic::SetSdrCaptureRendition( m_Control.WindowShotPending() );
@@ -722,23 +720,33 @@ namespace Desert::Editor
         return m_Shots.AdmitFrame( frame );
     }
 
-    void EditorLayer::OnFramePresented()
+    std::function<void()> EditorLayer::CaptureFramePresented()
+    {
+        const ControlService::BuiltFrame                 built = m_Control.CaptureBuiltFrame();
+        const std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
+        return [this, built, shot] { AnnounceFramePresented( built, shot ); };
+    }
+
+    void EditorLayer::AnnounceFramePresented( const ControlService::BuiltFrame&                  built,
+                                              const std::optional<ShotDirector::RecordedFrame>& shot )
     {
         // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the frame just submitted is read back and
         // written, the --flight sampled, and on the capture's last frame the profiler dump, the --flight CSV
         // and the capture's status to close with.
-        if ( const auto finished = m_Shots.EndFrame( m_Profiler ) )
+        if ( const auto finished = m_Shots.EndFrame( m_Profiler, shot ) )
         {
             m_Application->Close( *finished );
             return;
         }
         m_Startup.RevealWhenReady();
         // What the frame just presented drew: displaced primitives still on their base mesh (ControlService).
+        // Read at the announcement, NOT captured with the frame: its renderer decides these while the frame's views
+        // record on the render task, so at the frame's end they may still be written (REMAINDER-OVERLAP-ON-3).
         const auto& scene = m_Workspace.ActiveScene();
         const bool  displacementUnsettled =
              scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
         if ( const auto quit = m_Control.OnFramePresented(
-                  m_BuildingFrame, displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
+                  built, displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
                   m_Workspace.MaterialPipelinesCompiling(), m_Workspace.GrassInstancesSettling() ) )
             m_Application->Close( *quit );
     }
