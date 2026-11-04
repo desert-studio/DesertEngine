@@ -20,10 +20,12 @@ namespace Desert::Graphic
 {
     class SceneRenderer;
 
-    /// Draws one view's share of its scene's DebugDrawWorld (Core/DebugDraw.hpp): the segments over the lit scene
-    /// and the strings over the picture. UE splits the same job between the line batcher's scene proxy (the
-    /// lines, in the world's depth or the foreground group) and the viewport canvas (DrawDebugString); here both
-    /// are passes of the view's frame, so the editor viewport and Play draw them by the same code.
+    /// Draws one view's share of its scene's DebugDrawWorld (Core/DebugDraw.hpp) over the TONEMAPPED final image
+    /// (SceneRenderer::AddFrameDebugDraw): the segments and points tested against the scene's depth, the strings
+    /// over the picture. UE splits the same job between the line batcher's scene proxy (the lines and points,
+    /// composited with the editor primitives after the tonemapper, in the world's depth or the foreground group)
+    /// and the viewport canvas (DrawDebugString); here both are passes of the view's frame, so the editor
+    /// viewport and Play draw them by the same code.
     ///
     /// Owned by the SceneRenderer and only in development builds - a player's binary has no DebugDraw store to
     /// read (DESERT_DEV_INSTRUMENTS, as UE's ENABLE_DRAW_DEBUG).
@@ -43,8 +45,10 @@ namespace Desert::Graphic
         [[nodiscard]] bool HasLines() const;
         [[nodiscard]] bool HasStrings() const;
 
-        /// The segments, depth-tested (DebugDrawDepth::World) then over everything (Foreground). Thickness 0 is
-        /// a hairline; a thicker line is a camera-facing quad of that many centimetres.
+        /// The segments and points, depth-tested (DebugDrawDepth::World) then over everything (Foreground), on
+        /// the final image (ViewTargetLayouts DisplayOverlayLayout). Thickness 0 is a hairline; a thicker line
+        /// is a camera-facing quad of that many centimetres. A point is a square of its size in PIXELS at the
+        /// node's render area (UE DrawDebugPoint), at its centre's depth.
         [[nodiscard]] SystemRasterPass LinesPass();
         /// The strings, at the screen point each world position projects to, with a one-pixel shadow (UE
         /// DrawDebugString's bDrawShadow).
