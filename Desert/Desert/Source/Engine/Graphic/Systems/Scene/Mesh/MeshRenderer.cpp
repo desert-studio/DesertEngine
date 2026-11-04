@@ -285,12 +285,6 @@ namespace Desert::Graphic::System
             m_InstancedQueue.push_back( data );
     }
 
-    void MeshRenderer::SubmitGpuInstanced( const GpuInstancedRenderData& data )
-    {
-        if ( data.Mesh != nullptr && data.Material && data.Instances && data.Refs != nullptr )
-            m_GpuInstancedQueue.push_back( data );
-    }
-
     void MeshRenderer::SubmitGpuInstanced( GpuInstancedRenderData&& data )
     {
         if ( data.Mesh != nullptr && data.Material && data.Instances && data.Refs != nullptr )
