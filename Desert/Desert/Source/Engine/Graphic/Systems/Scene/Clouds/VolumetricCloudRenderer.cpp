@@ -1991,9 +1991,19 @@ namespace Desert::Graphic::System
              Core::Formats::CalculateImageSize( traceWidth, traceHeight, ViewTargetFormats::kCloudTrace ) );
         const double halfMiB = BytesToMiB(
              Core::Formats::CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace ) );
+        // THE TRACED RAYS PER FRAME, the march's whole workload count: one checker phase of the quarter grid
+        // (CloudTraceCheckerPhase), each half-res pixel once per kCloudTraceWalkFrames frames whether the camera
+        // is still or turning. Phase 0 holds ceil(w * h / 2) texels and phase 1 floor(w * h / 2); the larger is
+        // reported. The dispatch is ceil(w / 2) x h threads, and on an odd width the last thread of every other
+        // row returns without a ray.
+        const uint32_t marchRays = ( traceWidth * traceHeight + 1u ) / 2u;
         LOG_INFO( "[Clouds] Trace {}x{} RGBA16F ({:.2f} MiB each, scatter + guide, frame-graph transients) — a "
-                  "QUARTER of the {}x{} view, one jittered sub-pixel per frame.",
-                  traceWidth, traceHeight, traceMiB, halfWidth * 2u, halfHeight * 2u );
+                  "QUARTER of the {}x{} view, one jittered sub-pixel and one checker phase per frame: {} rays "
+                  "marched a frame ({:.2f} % of the view's pixels), each half-res pixel once every {} frames.",
+                  traceWidth, traceHeight, traceMiB, halfWidth * 2u, halfHeight * 2u, marchRays,
+                  100.0 * static_cast<double>( marchRays ) /
+                       static_cast<double>( std::max( 1u, halfWidth * halfHeight * 4u ) ),
+                  kCloudTraceWalkFrames );
         LOG_INFO( "[Clouds] Reconstruction {}x{} RGBA16F ({:.2f} MiB each, scatter + guide) — the view's history: "
                   "{:.2f} MiB held across frames, {:.2f} MiB with this frame's pair.",
                   halfWidth, halfHeight, halfMiB, 2.0 * halfMiB, 4.0 * halfMiB );
@@ -2189,6 +2199,9 @@ namespace Desert::Graphic::System
         }
 
         const CloudSubPixel subPixel       = CloudTraceSubPixel( m_FrameIndex );
+        // The checkerboard half of the trace grid this frame marches (CloudTraceCheckerPhase); the resolve is
+        // handed the same phase, so the two agree on which texels hold a sample.
+        const uint32_t checkerPhase = CloudTraceCheckerPhase( m_FrameIndex );
 
         // ---- THE SKY-LIGHT OCCLUSION VOLUME ----------------------------------------------------------
         //
@@ -2214,8 +2227,9 @@ namespace Desert::Graphic::System
         m_SkyOcclusionValid = skyOcclusionReady;
 
         // The trace cycle, not the frame: the march's start offset advances once per trace of a pixel
-        // (CloudPush::CameraPosition), and the walk visits each pixel once every kCloudTraceSubPixelCount frames.
-        const uint32_t traceCycle = ( m_FrameIndex / kCloudTraceSubPixelCount ) & 0xFFFFFFu;
+        // (CloudPush::CameraPosition), and the walk visits each pixel once every kCloudTraceWalkFrames frames
+        // (four sub-pixels times two checker phases).
+        const uint32_t traceCycle = ( m_FrameIndex / kCloudTraceWalkFrames ) & 0xFFFFFFu;
 
         CloudPush push{};
         // THE UNJITTERED INVERSE (SKY-FLICKER) — Unreal's VolumetricCloudRendering.cpp, which builds the
@@ -2250,7 +2264,8 @@ namespace Desert::Graphic::System
         push.Frame =
              glm::vec4( skyOcclusionReady ? 1.0f : 0.0f, perSampleSun ? 1.0f : 0.0f,
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
-        push.Visualize = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ), 0.0f, 0.0f, 0.0f );
+        push.Visualize = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
+                                    static_cast<float>( checkerPhase ), 0.0f, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.
@@ -2348,14 +2363,18 @@ namespace Desert::Graphic::System
              // (CloudProceduralClipmap), so it exists exactly when CloudModellingTexture does.
              .Texture( VolumetricCloudShaderParameters::CloudColumnMaxTexture, m_Clipmap.GetColumnImage(),
                        RDG::Access::SampledCompute, "Clouds.ColumnMax" );
-        march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
-                                                              const FrameGraphRefs& ) -> Common::BoolResultStr
+        // ONE CHECKER PHASE PER FRAME (CloudTraceCheckerPhase): thread x of row y marches texel
+        // 2x + ((y + phase) & 1), so the dispatch is half the grid's width, rounded up, and no lane idles on a
+        // texel of the other phase (CloudRaymarch.shader main).
+        const uint32_t marchColumns = HalfExtent( traceWidth );
+        march.Record                = [this, push, marchColumns, traceHeight]( RDG::PassContext& context,
+                                                                const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: March" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
             return Renderer::DispatchCompute( bindings, *m_MarchPipeline,
-                                              GroupCount( traceWidth, kMarchWorkGroupSize ),
+                                              GroupCount( marchColumns, kMarchWorkGroupSize ),
                                               GroupCount( traceHeight, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( march ) );
@@ -2378,6 +2397,7 @@ namespace Desert::Graphic::System
         resolve.HistoryValid   = historyReadable ? 1.0f : 0.0f;
         resolve.SubPixelOffset =
              glm::ivec2( static_cast<int32_t>( subPixel.X ), static_cast<int32_t>( subPixel.Y ) );
+        resolve.TraceCheckerPhase = static_cast<int32_t>( checkerPhase );
         resolve.CloudReach = glm::vec2( payload.March.z, payload.Phase.w );
         // The wind's step since the frame the history was traced in, from the march's own payload value: the
         // resolve reprojects each front from where the wind carried it (CloudTemporalResolve.shader).
@@ -2415,8 +2435,9 @@ namespace Desert::Graphic::System
         // This frame's pair, written by the resolve and read by the upsample: transients of this graph that the
         // view extracts for the next frame.
         const VolumetricCloudHistory::Refs current = history.CreateCurrent( graph, halfExtent, windOffsetKm );
-        // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
-        // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
+        // This frame's trace pair, by shader name. Only texelFetched: the reconstruction reads the texel it owns
+        // and blends the written texels of this frame's checker phase for the ones it does not (TraceFiltered);
+        // the other phase's texels are unwritten transient memory, so no filtered read may touch them.
         RenderPassDeclaration::BlockDeclaration resolveBlock =
              DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 );
         resolveBlock

@@ -389,6 +389,8 @@ Shader "CloudRaymarch"
             //     Written whatever y says, read only when y is 1.
             vec4 CloudFrame;
             // x = the diagnostic mode, Graphic::RenderConfig::CloudVisualize (0 = the ordinary picture).
+            // y = this frame's checker phase of the trace grid, 0 or 1 (Graphic::CloudTraceCheckerPhase): only the
+            //     texels whose (x + y) & 1 equals it are marched (main).
             vec4 CloudVisualize;
         };
 
@@ -503,8 +505,9 @@ Shader "CloudRaymarch"
         //
         //   * IN SPACE, on the grid this frame traces: interleaved gradient noise (Jimenez 2014, the pattern of
         //     UE's InterleavedGradientNoise and of this engine's contact-shadow dither) over the QUARTER-res
-        //     texel, so the four texels a not-owned pixel's bilinear estimate blends hold four well spread
-        //     offsets and their errors cancel rather than add;
+        //     texel, so the written texels a not-owned pixel's estimate blends (this frame's checker phase,
+        //     CloudTemporalResolve.shader TraceFiltered) hold well spread offsets and their errors cancel
+        //     rather than add;
         //   * IN THE BLOCK: the 2x2 ordered-dither rank of the half-res sub-pixel the ray goes through
         //     ({0, 2; 3, 1}, the table the sub-pixel walk itself is, Graphic::CloudTraceSubPixel) in quarters,
         //     so the four half-res pixels one quarter-res texel stands for sit in four different quarters of
@@ -528,8 +531,14 @@ Shader "CloudRaymarch"
 
         void main()
         {
-            ivec2 size  = imageSize(CloudScatterTexture);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+            // ONE CHECKER PHASE OF THE TRACE GRID PER FRAME (Graphic::CloudTraceCheckerPhase, CLOUD-MARCH-COST-3):
+            // the dispatch is half the grid's width, and thread x of row y marches texel 2x + ((y + phase) & 1),
+            // so (coord.x + coord.y) & 1 == phase on every texel written. The other phase's texels are not written
+            // this frame and CloudTemporalResolve.shader never reads them (its CloudTraceTexelHoldsSample).
+            ivec2 size        = imageSize(CloudScatterTexture);
+            int   checkerPhase = int(CloudVisualize.y + 0.5f) & 1;
+            ivec2 cell        = ivec2(gl_GlobalInvocationID.xy);
+            ivec2 coord       = ivec2(cell.x * 2 + ((cell.y + checkerPhase) & 1), cell.y);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
