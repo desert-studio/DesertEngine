@@ -42,8 +42,11 @@ Shader "SSR"
     // kTracedRoughnessFade, Common/SSRGate.glslh TracedReflectionsAlpha) a ray only walks the screen, as
     // ScreenSpace does; past kSSRMaxRoughness nothing is traced. Under the traced GI the composite hands that
     // rough part of the lobe to the screen probe gather's rough specular by the same fade (UE
-    // MixSpecularAndRoughReflections), so a rough surface reflects the GI's radiance, not the captures; without
-    // traced GI the captures answer it. The pass and the denoiser are the ScreenSpace method's.
+    // MixSpecularAndRoughReflections), so a rough surface reflects the GI's radiance, not the captures - and,
+    // as UE's tile classification, such a texel is not traced at all (SSRGate.glslh TracedReflectionsPixelTraces,
+    // SsrParams3.z): a tile of grass, earth and bark marks itself empty and costs no ray. Without traced GI the
+    // captures answer the rough part and the screen walk past the max stays. The pass and the denoiser are the
+    // ScreenSpace method's.
     // HardwareTraced is the same permutation under the ray-query tracer (DESERT_GI_TRACER_HARDWARE; UE
     // LumenReflectionHardwareRayTracing.usf): the world leg is one ray query over the view's TLAS (masked segments
     // alpha-tested, Common/RayQueryVisibility.glslh), no mesh SDF near field; the hit is its instance's surface
@@ -80,7 +83,7 @@ Shader "SSR"
         		for (int ox = 0; ox < 2; ox++)
         		{
         			ivec2 p = p0 + ivec2(gl_LocalInvocationID.xy) + ivec2(ox, oy) * 8;
-        			if (p.x < p1.x && p.y < p1.y && SSRPixelCanReflect(SSRSurfaceNormal(p)))
+        			if (p.x < p1.x && p.y < p1.y && SSRTexelTraces(SSRSurfaceNormal(p)))
         				reflects = true;
         		}
         	if (reflects)

@@ -235,8 +235,22 @@ PushConstant PushConstants
 	vec4 SsrParams2; // x = max ray distance (world), y = 1 when SceneColorTexture holds last frame,
 	                   // z = mesh SDF trace distance, w = mesh SDF end distance from the camera (traced only)
 	vec4 SsrParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2),
-	                   // y = 1 / PrevPreExposure (SceneColorTexture is stored at LAST frame's pre-exposure), zw unused
+	                   // y = 1 / PrevPreExposure (SceneColorTexture is stored at LAST frame's pre-exposure),
+	                   // z = 1 when the composite answers the lobe past kTracedMaxRoughness with the traced GI's
+	                   // rough specular (traced only, SSRRenderer::TraceSettings::RoughSpecularFromGI), w unused
 };
+
+// Whether texel source pixel gb is traced at all: the screen trace's gate, or the traced reflections' own under the
+// traced GI (Common/SSRGate.glslh TracedReflectionsPixelTraces). The classify (SSR.shader) and TraceFrom both ask it,
+// so a tile the classify marks empty holds no texel the trace would have reflected.
+bool SSRTexelTraces(vec4 gb)
+{
+#if defined( DESERT_REFLECTIONS_TRACED )
+	return TracedReflectionsPixelTraces(gb, SsrParams3.z >= 0.5);
+#else
+	return SSRPixelCanReflect(gb);
+#endif
+}
 
 // The G-buffer pixel trace texel q traces from: the pixel itself at factor 1; at factor 2 the pixel of its 2x2
 // block the frame's seed rotates to, so four frames visit all four (UE's half-resolution reflections).
@@ -315,7 +329,7 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 
 	const vec2 gUV = (vec2(gPix) + 0.5) / vec2(gSize);
 	const vec4 gb  = SSRSurfaceNormal(gPix);
-	if (!SSRPixelCanReflect(gb))
+	if (!SSRTexelTraces(gb))
 		return vec4(0.0);
 	const vec3  N         = normalize(gb.rgb);
 	const float roughness = gb.a;

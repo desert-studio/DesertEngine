@@ -535,6 +535,12 @@ namespace Desert::Graphic::System
             // screen hit's radiance is multiplied by this so the trace's output stays absolute (the deferred
             // composite applies this frame's PreExposure to it).
             float InvPrevPreExposure = 1.0f;
+            // Traced only: the composite answers the lobe past MaxRoughnessToTrace with the traced GI's rough
+            // specular alone (SceneRenderer TracedGatherAnswersRoughSpecular), so a texel that rough is not traced
+            // and a tile of such texels is classified empty (Common/SSRGate.glslh TracedReflectionsPixelTraces;
+            // UE Lumen reflections' tile classification). False for a front layer, whose glass composes the whole
+            // lobe from the trace.
+            bool RoughSpecularFromGI = false;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -602,13 +608,15 @@ namespace Desert::Graphic::System
         static TracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
                                         const bool sceneHistoryReadable, const uint32_t seed )
         {
+            const float screenLeg   = sceneHistoryReadable ? 1.0f : 0.0f;
+            const float roughFromGI = settings.Traced && settings.RoughSpecularFromGI ? 1.0f : 0.0f;
             return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                               glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
-                              glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ),
+                              glm::vec4( settings.MaxDistance, screenLeg, 0.0f, 0.0f ),
                               glm::vec4( static_cast<float>( settings.DownsampleFactor ),
-                                         settings.InvPrevPreExposure, 0.0f, 0.0f ) };
+                                         settings.InvPrevPreExposure, roughFromGI, 0.0f ) };
         }
 
         // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a

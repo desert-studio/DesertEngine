@@ -27,8 +27,11 @@ bool SSDSignalIsSpecular(int signal)
 }
 
 // Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
-// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect and shadow visibility: every
-// surface pixel.
+// screen trace's gate (sky / too rough - Common/SSRGate.glslh SSRPixelCanReflect). It is WIDER than the traced
+// reflections' gate under the traced GI (SSRGate.glslh TracedReflectionsPixelTraces, SsrParams3.z): a texel between
+// the two drew no ray (pdf 0, skipped by the reconstruction, 0 in a tile classified empty), and the composite
+// weighs its pixel's reflection by TracedReflectionsAlpha = 0 - work for a result nobody reads, never a wrong one.
+// Diffuse indirect and shadow visibility: every surface pixel.
 bool SSDPixelHasSignal(int signal, vec4 gbufferNormal)
 {
 	if (signal == kSSDSignalReflections)
