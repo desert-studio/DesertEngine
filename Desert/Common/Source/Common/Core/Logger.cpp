@@ -1,12 +1,16 @@
 #include <Common/Core/Logger.hpp>
 
+#include <spdlog/details/log_msg_buffer.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include <condition_variable>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <mutex>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -18,6 +22,127 @@ namespace Common::Logger
     namespace
     {
         constexpr const char* kLogFileName = "engine_log.txt";
+
+        // MakeAsyncWriterSink's sink (Logger.hpp): the caller copies its line into the queue; the writer thread
+        // writes the queue to the target in order and flushes it after every batch.
+        class AsyncWriterSink final : public spdlog::sinks::sink
+        {
+        public:
+            explicit AsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target )
+                 : m_Target( std::move( target ) ), m_Writer( [this]() { Run(); } )
+            {
+            }
+
+            ~AsyncWriterSink() override
+            {
+                {
+                    const std::lock_guard lock( m_Mutex );
+                    m_Stop = true;
+                }
+                m_Wake.notify_all();
+                m_Writer.join(); // the writer writes what is still queued first
+            }
+
+            void log( const spdlog::details::log_msg& msg ) override
+            {
+                std::unique_lock lock( m_Mutex );
+                m_Written.wait( lock, [this]() { return m_Stop || m_QueuedBytes < Detail::kWriterQueueBytes; } );
+                m_Queue.emplace_back( msg );
+                m_QueuedBytes += msg.payload.size();
+                const std::uint64_t mine = ++m_Queued;
+                m_Wake.notify_one();
+                if ( msg.level >= spdlog::level::err )
+                    m_Written.wait( lock, [&]() { return m_Done >= mine; } );
+            }
+
+            // Never waits: the writer flushes the target after every batch it writes (flush_on(trace) holds).
+            void flush() override
+            {
+            }
+
+            void set_pattern( const std::string& pattern ) override
+            {
+                m_Target->set_pattern( pattern );
+            }
+
+            void set_formatter( std::unique_ptr<spdlog::formatter> formatter ) override
+            {
+                m_Target->set_formatter( std::move( formatter ) );
+            }
+
+            void Drain()
+            {
+                std::unique_lock lock( m_Mutex );
+                const std::uint64_t upTo = m_Queued;
+                m_Written.wait( lock, [&]() { return m_Done >= upTo; } );
+            }
+
+            const std::shared_ptr<spdlog::sinks::sink>& Target() const
+            {
+                return m_Target;
+            }
+
+        private:
+            void Run()
+            {
+                std::vector<spdlog::details::log_msg_buffer> batch;
+                std::unique_lock                             lock( m_Mutex );
+                for ( ;; )
+                {
+                    m_Wake.wait( lock, [this]() { return m_Stop || !m_Queue.empty(); } );
+                    if ( m_Queue.empty() )
+                        return; // stopped, nothing left
+                    batch.swap( m_Queue );
+                    lock.unlock();
+                    for ( const spdlog::details::log_msg_buffer& line : batch )
+                        m_Target->log( line );
+                    m_Target->flush();
+                    lock.lock();
+                    for ( const spdlog::details::log_msg_buffer& line : batch )
+                        m_QueuedBytes -= line.payload.size();
+                    m_Done += batch.size();
+                    batch.clear();
+                    m_Written.notify_all();
+                }
+            }
+
+            std::shared_ptr<spdlog::sinks::sink>         m_Target;
+            std::mutex                                   m_Mutex;
+            std::condition_variable                      m_Wake;    // the writer: lines queued, or stop
+            std::condition_variable                      m_Written; // callers: a batch is written
+            std::vector<spdlog::details::log_msg_buffer> m_Queue;
+            std::size_t                                  m_QueuedBytes = 0;
+            std::uint64_t                                m_Queued      = 0; // lines ever queued
+            std::uint64_t                                m_Done        = 0; // lines ever written and flushed
+            bool                                         m_Stop        = false;
+            std::thread                                  m_Writer; // last: started once the members above exist
+        };
+
+        // The writer whose target is the log file, or null.
+        std::shared_ptr<AsyncWriterSink> FileWriterOf( const std::shared_ptr<spdlog::sinks::sink>& sink )
+        {
+            auto writer = std::dynamic_pointer_cast<AsyncWriterSink>( sink );
+            if ( writer && std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( writer->Target() ) )
+                return writer;
+            return nullptr;
+        }
+    } // namespace
+
+    std::shared_ptr<spdlog::sinks::sink> MakeAsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target )
+    {
+        return std::make_shared<AsyncWriterSink>( std::move( target ) );
+    }
+
+    void DrainLog()
+    {
+        if ( auto logger = spdlog::default_logger() )
+        {
+            for ( const std::shared_ptr<spdlog::sinks::sink>& sink : logger->sinks() )
+            {
+                if ( auto writer = std::dynamic_pointer_cast<AsyncWriterSink>( sink ) )
+                    writer->Drain();
+            }
+        }
     }
 
     void AddPlatformDebuggerSink()
@@ -54,6 +179,7 @@ namespace Common::Logger
                 return;
         }
         logger->flush();
+        DrainLog(); // the file being moved holds every line logged so far
 
         // The lines so far: from the early ring on the first placement, from the previous file on a move.
         auto&                    sinks = logger->sinks();
@@ -68,7 +194,7 @@ namespace Common::Logger
                 slot    = it;
                 break;
             }
-            if ( std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( *it ) )
+            if ( FileWriterOf( *it ) )
             {
                 previous = LogFilePath();
                 std::ifstream in( previous, std::ios::binary );
@@ -92,7 +218,9 @@ namespace Common::Logger
         if ( !carried.empty() )
             placed->log( spdlog::details::log_msg( "desert", spdlog::level::info, carried ) );
         placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
-        *slot = std::move( placed ); // closes the previous file, so removing it works on Windows too
+        // Replacing the slot destroys the previous writer (it joins after the drain above), which closes the
+        // previous file, so removing it works on Windows too.
+        *slot = MakeAsyncWriterSink( std::move( placed ) );
         if ( !previous.empty() )
             std::filesystem::remove( previous, ec ); // the old copy would be a second, stale log
 

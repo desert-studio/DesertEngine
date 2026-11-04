@@ -30,16 +30,32 @@ namespace Common::Logger
     // never by a bare file name).
     std::filesystem::path LogFilePath();
 
+    // THE LOG NEVER BLOCKS THE THREAD THAT LOGS ON I/O (BEGINGRAPH-STALL-1; UE: FOutputDeviceFile writes through
+    // FAsyncWriter's own thread, the game and render threads only append to its buffer). @p target - the
+    // console, the log file - is written by a writer thread of its own: a line is copied into the writer's queue
+    // and the call returns; the writer writes what is queued in order and flushes after every batch, so the file
+    // is as current as before, but a write the disk or a full pipe holds for a second holds the writer, never a
+    // frame (a TURN frame waited 0.9 s inside a LOG_INFO in RDG BeginGraph while a build loaded the disk). An
+    // error or critical line waits until it is written (what an abort follows is on disk); the queue holds at
+    // most kWriterQueueBytes of lines, past that a caller waits for the writer (bounded, never dropped).
+    std::shared_ptr<spdlog::sinks::sink> MakeAsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target );
+
+    // Blocks until every line logged before the call is written and flushed by every writer of the default
+    // logger (RelocateLogFile before it reads the file it moves; a host before it hands its log to a reader).
+    void DrainLog();
+
     namespace Detail
     {
         // Holds the startup lines until the log file has a directory; generous, since a startup that
         // logs more than this before finding its own directory is itself the defect.
         inline constexpr std::size_t kEarlyLineCapacity = 16384;
+        // The most bytes of lines a writer queues before a caller waits for it (MakeAsyncWriterSink).
+        inline constexpr std::size_t kWriterQueueBytes = std::size_t{ 64 } << 20;
     } // namespace Detail
 
     inline void LogInit()
     {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        auto console_sink = MakeAsyncWriterSink( std::make_shared<spdlog::sinks::stdout_color_sink_mt>() );
         auto early_sink   = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>( Detail::kEarlyLineCapacity );
 
         spdlog::set_default_logger(

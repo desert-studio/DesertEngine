@@ -901,9 +901,10 @@ namespace Desert::Graphic::API::Vulkan
         std::string m_QueueBoundaryScopeName;
         void        OpenQueueBoundaryScope( const RDG::PipeSegment& ending );
         void        CloseQueueBoundaryScope();
-        // Per graph name, the async segment line last logged (Execute): a new "[RDG] ... async compute segments"
-        // line only when a graph's segments change.
-        std::map<std::string, std::string> m_AsyncSegmentsLogged;
+        // Per graph name, the STRUCTURE of the async segments last logged (BeginGraph): each segment's first and
+        // last position and the positions its signal is waited at. A new "[RDG] ... async compute segments" line
+        // only when that structure changes - never because a pass name carries this frame's counts.
+        std::map<std::string, std::vector<uint32_t>, std::less<>> m_AsyncSegmentsLogged;
 #if DESERT_DEV_INSTRUMENTS
         std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
 #endif
