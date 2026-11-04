@@ -1,5 +1,6 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
@@ -1007,6 +1008,9 @@ namespace Desert::Graphic
         // ONE BRACKET AT A TIME (see Scene::OnUpdate's view loop): a view still recording on the render task
         // closes before this one opens.
         ::Desert::Engine::RenderTask::Get().Join();
+        // THE MATERIAL HAND-OFF for every view, the ones no Scene::OnUpdate opens too (a preview, a capture): a
+        // parameter written while the previous view recorded reaches the render copies before this one reads.
+        ::Desert::Graphic::MaterialInstance::PublishPending();
 
         // This view is where per-frame writes go until the phase returns — set FIRST, before anything writes
         // a per-frame resource; the frame context gets them back on every exit, so nothing written after the

@@ -60,7 +60,9 @@ namespace Desert::Graphic
     {
     public:
         MaterialInstance( Material* parentMaterial, const std::string& name = "" );
-        virtual ~MaterialInstance() = default;
+        // Out of line: an instance whose write waits for its publish leaves the pending list (any thread: the
+        // last owner may be a draw's MaterialSlotBinding released by the render task).
+        virtual ~MaterialInstance();
 
         // Getters with type safety
         float     GetFloat( const std::string& name, float defaultValue = 0.0f ) const;
@@ -122,19 +124,35 @@ namespace Desert::Graphic
             return m_ChildInstances;
         }
 
-        // Property access
-        bool                       HasParameter( const std::string& name ) const;
+        // Property access. HasParameter, the typed getters and GetOverrideAsVec4 read the GAME copy (what the
+        // setters wrote); GetPropertySet and GetParameterRevision read the RENDER copy.
+        bool HasParameter( const std::string& name ) const;
+
+        // THE RENDER COPY (UE FMaterialInstanceResource).
+        // The game thread writes m_Properties; the views read m_RenderProperties, which only a publish writes.
+        // A write while no render job is in flight (serial mode, the replay after a view's Join, a preview, a
+        // bake) or from the render task itself publishes at once: today's order. A write while a job is in flight
+        // (the tick of frame N+1 against frame N's views: a script, a sequencer track, an editor panel) joins
+        // nothing: the instance goes on the pending list and PublishPending publishes it at the next hand-off
+        // (Scene::OnUpdate after its Join, SceneRenderer::BeginScene after its Join), before any view reads it.
+        // So a view records with the values of the last write before ITS hand-off, as in serial mode.
+        //
+        // RENDER SIDE: the views (Material::ApplyInstanceOverrides, MeshRenderer, MeshRendererForward) and the
+        // replay after a view's Join. Never read this from the tick: it lags the setters by up to one hand-off.
         const MaterialPropertySet& GetPropertySet() const
         {
-            return m_Properties;
+            return m_RenderProperties;
         }
-        // The revision of this instance's own parameters (MaterialPropertySet::GetRevision): moves with every
-        // override written, cleared or reset, so a row derived from them is re-derived exactly then. The
-        // properties are written only through this class (no mutable access), so no write can miss it.
+        // The revision of the render copy (MaterialPropertySet::GetRevision): every publish takes a fresh one
+        // (CopyFrom), so a row derived from it is re-derived exactly when the values the views read moved.
         [[nodiscard]] uint64_t GetParameterRevision() const
         {
-            return m_Properties.GetRevision();
+            return m_RenderProperties.GetRevision();
         }
+        // GAME THREAD, at a hand-off: after a Join, before the next view is enqueued. Publishes every instance
+        // written while a job was in flight. Returns at once while a job is in flight (a view recorded inside a
+        // job: the game thread may be writing the game copies), the next hand-off on the game thread publishes.
+        static void PublishPending();
 
         // Drops every instance override so the instance renders with the parent material's values
         // again — the inverse of SetParamFromVec4. NOT what a script's clearMaterialParams() does: that drops the
@@ -142,14 +160,10 @@ namespace Desert::Graphic
         void ResetOverrides()
         {
             m_Properties.ResetToDefaults();
-            MarkNeedsApply();
+            ParametersWritten();
         }
 
-        // GPU update
-        void MarkNeedsApply()
-        {
-            m_bNeedsApply = true;
-        }
+        // GPU update. RENDER SIDE: m_bNeedsApply is set by a publish and cleared here.
         void Apply();
         bool NeedsApply() const
         {
@@ -167,15 +181,22 @@ namespace Desert::Graphic
         }
 
     private:
-        void                  PropagateToChildren();
+        // After every write of m_Properties: publishes now, or puts this instance on the pending list while a
+        // render job is in flight (see THE RENDER COPY).
+        void ParametersWritten();
+        // m_Properties -> m_RenderProperties; marks this instance and its children for Apply. Only where no job
+        // reads the render copies, or on the render task itself.
+        void                  Publish();
         MaterialPropertyValue ResolveProperty( const std::string& name ) const;
 
         Material*                        m_ParentMaterial;
         std::string                      m_Name;
-        MaterialPropertySet              m_Properties;
+        MaterialPropertySet              m_Properties;       // GAME copy: the setters write it
+        MaterialPropertySet              m_RenderProperties; // RENDER copy: a publish writes it, the views read it
         std::weak_ptr<MaterialInstance>  m_ParentInstance;
         std::optional<bool>              m_TwoSidedOverride;
         std::vector<MaterialInstancePtr> m_ChildInstances;
-        bool                             m_bNeedsApply = true;
+        bool                             m_bNeedsApply    = true;  // RENDER side (Publish sets, Apply clears)
+        bool                             m_bRenderPending = false; // on the pending list (under its mutex)
     };
 } // namespace Desert::Graphic
