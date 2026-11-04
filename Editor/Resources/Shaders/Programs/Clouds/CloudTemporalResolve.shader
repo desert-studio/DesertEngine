@@ -7,18 +7,19 @@ Shader "CloudTemporalResolve"
         //
         // CloudRaymarch.shader traces at a QUARTER of the framebuffer's size and jitters its rays so that
         // each quarter-res texel holds one of the four HALF-resolution pixels of its 2x2 block, walking
-        // {0, 2, 3, 1}. It traces ONE CHECKER PHASE of the quarter grid per frame (CLOUD-MARCH-COST-3,
-        // Graphic::CloudTraceCheckerPhase): the texels whose (x + y) & 1 is TraceCheckerPhase hold a sample,
-        // the other half is unwritten transient memory and is never read. The phase alternates every frame and
-        // the sub-pixel every second one, so each half-res pixel is traced once every eight frames
-        // (Graphic::kCloudTraceWalkFrames). This pass turns that stream into a HALF-resolution image, and
+        // {0, 2, 3, 1}. It traces ONE PHASE OF THE QUARTER GRID'S 2x2 LATTICE per frame (CLOUD-TURN-CACHE-1,
+        // Graphic::CloudTraceGridPhase): the texels whose (x & 1) | (y & 1) << 1 is TraceGridPhase hold a sample,
+        // the other three quarters are unwritten transient memory and are never read. The phase advances every
+        // frame and the sub-pixel every fourth one, so each half-res pixel is traced once every sixteen frames
+        // (Graphic::kCloudTraceWalkFrames) — Unreal's mode-2 rate, its 4x4 Bayer walk, over this half-resolution
+        // reconstruction. This pass turns that stream into a HALF-resolution image, and
         // CloudUpsample.shader upsamples the result exactly as it upsampled the half-res trace before this
         // stage existed.
         //
         // For each half-res pixel there are three cases:
         //
         //   1. THIS FRAME OWNS IT. The pixel's sub-pixel index equals the frame's and its block's texel is on
-        //      this frame's checker phase, so the quarter-res texel above it holds a ray cast through this
+        //      this frame's lattice phase, so the quarter-res texel above it holds a ray cast through this
         //      very pixel. Its value is fetched exactly,
         //      with a texelFetch and no filtering — it is the only sample in the whole scheme that is not
         //      an estimate.
@@ -37,8 +38,26 @@ Shader "CloudTemporalResolve"
         //      frame low resolution render with bilinear sampling"). A history that was READ and then
         //      REJECTED is not this case — see the validation list below.
         //
-        // THE GUIDE IS LOADED, NEVER FILTERED, except in case 3. (A block of the other checker phase has no
-        // texel this frame; it loads the nearest front of its four written edge neighbours, see main.)
+        // THE GUIDE IS LOADED, NEVER FILTERED, except in case 3. (A block of another lattice phase has no
+        // texel this frame; it loads the nearest front of its nearest written neighbours, see main.)
+        //
+        // CASE 3 IS SEEDED FROM THIS FRAME, NOT FROM THE SKY'S CAPTURE. A texel whose history leaves the screen
+        // (the leading edge of a turn) could in principle start from the clouds of the sky light's capture in
+        // its direction, and does not, because that capture cannot stand for this layer's pair:
+        //   * it is one RADIANCE of the atmosphere with its clouds over it (SkyCapture.hpp:58, the Faces step),
+        //     where this pass holds the cloud's premultiplied scatter and its transmittance apart, and the
+        //     composite multiplies the scene behind by the second — a radiance has no transmittance to give;
+        //   * that radiance cube is an intermediate released when the capture completes (SkyCapture.hpp:232-233);
+        //     what persists is the sky LIGHT built from it, the GGX-prefiltered and irradiance cubes
+        //     (SkyRules.hpp:207-211), whose mips are filtered for lighting, not for looking at;
+        //   * its face is 128 texels at Medium (SkyRules.hpp:219-230), 0.7 to 0.9 degrees a texel, where this
+        //     frame's own lattice of traced texels (eight full-res pixels apart) is about 0.5 degrees at 1080p
+        //     and a 90-degree view;
+        //   * it is rebaked on a trigger that deliberately leaves out the wind and the modelling region's
+        //     origin (CloudEnvironmentBake.hpp:228-234), so its clouds are where they were at the last trigger,
+        //     seen from where the camera was then.
+        // A seed from it would be a different cloud under the new edge, which is the patch a turn must not
+        // show; the lattice estimate of this frame's own traces is the cloud as it is now.
         // Unreal point-loads its depth guide for
         // EVERY pixel, both for the reprojection (VolumetricRenderTarget.usf:286) and as the frame's own
         // depth data (:391); the one bilinear read of it is :506, the lost-history branch above, where it
@@ -239,9 +258,13 @@ Shader "CloudTemporalResolve"
         const float kOwnedSampleWeight = 0.3f;
         const float kNewSampleWeight   = 0.06f;
 
-        // THE WEIGHT OF AN OWNED SAMPLE ON A STILL HISTORY: the same time constant UE's TAA averages a still
-        // pixel over, 1 - (1 - 0.04)^4 — r.TemporalAA.CurrentFrameWeight (TemporalAA.shader kCurrentWeight)
-        // compounded over the four frames between two traces of one pixel (Graphic::kCloudTraceSubPixelCount).
+        // THE WEIGHT OF AN OWNED SAMPLE ON A STILL HISTORY: UE's TAA's still-pixel weight compounded over the
+        // four TRACES of one texel's block, 1 - (1 - 0.04)^4 — r.TemporalAA.CurrentFrameWeight (TemporalAA.shader
+        // kCurrentWeight), one traced sample per Graphic::kCloudTraceSubPixelCount. It is a weight PER TRACE, and
+        // the number of traces it averages the march's dither over (about 1 / 0.15) is what decides the dither's
+        // swing on screen, so it is kept as measured when the walk lengthens: at the sixteen-frame walk
+        // (Graphic::kCloudTraceWalkFrames) the same average spans about a hundred frames of a still camera, and a
+        // still history moved by the wind follows it through WindStepKm rather than through this weight.
         //
         // WHY THIS PASS AND NOT THE TAA. The TAA cannot average this layer's noise: its history is clipped to
         // the 3x3 full-resolution neighbourhood's variance, and that neighbourhood is the bilinear upsample of
@@ -352,17 +375,19 @@ Shader "CloudTemporalResolve"
         // instead. With no such texel in the footprint this IS the plain lattice blend below; with nothing but
         // such texels it is that plain blend too, and @p sampled is false.
         //
-        // OVER THIS FRAME'S CHECKER PHASE ONLY (CLOUD-MARCH-COST-3, Graphic::CloudTraceCheckerPhase): the march wrote
-        // the texels whose (x + y) & 1 is TraceCheckerPhase and left the others as undefined transient memory. The
-        // written texels form a quincunx lattice, which is a regular unit grid in the rotated coordinates
-        // u = (x + y) / 2, v = (x - y) / 2; the estimate is the BILINEAR interpolation on that grid (tent weights in
-        // u and v, which sum to one over the lattice), so it is exact on a written texel and the plain linear blend
-        // of its four edge neighbours on an unwritten one. Its support is |dx| + |dy| < 2, which the 4x4 texels
-        // around the footprint cover; the other phase's eight are skipped without a fetch. A texel past the grid's
-        // edge is skipped and the weights renormalised, where the plain bilinear clamped to the edge texel.
+        // OVER THIS FRAME'S LATTICE PHASE ONLY (CLOUD-TURN-CACHE-1, Graphic::CloudTraceGridPhase): the march wrote
+        // the texels whose (x & 1) | (y & 1) << 1 is TraceGridPhase and left the others as undefined transient
+        // memory. The written texels form a regular lattice two texels apart on each axis; the estimate is the
+        // BILINEAR interpolation on that lattice (tent weights of half-width two in x and in y, which sum to one
+        // over the lattice) — Unreal's reconstruction of its mode-2 trace in the same position, a bilinear read of
+        // a grid four pixels apart (VolumetricRenderTarget.usf:500-507) — so it is exact on a written texel and the
+        // linear blend of its two or four nearest written texels on an unwritten one. Its support is |dx| < 2 and
+        // |dy| < 2, which the 4x4 texels around the footprint cover; the other phases' twelve are skipped without a
+        // fetch. A texel past the grid's edge is skipped and the weights renormalised, where the plain bilinear
+        // clamped to the edge texel.
         bool CloudTraceTexelHoldsSample(ivec2 p)
         {
-            return ((p.x + p.y) & 1) == (TraceCheckerPhase & 1);
+            return ((p.x & 1) | ((p.y & 1) << 1)) == (TraceGridPhase & 3);
         }
 
         void TraceFiltered(vec2 uv, ivec2 traceSize, out vec4 scatter, out vec2 guide, out bool sampled)
@@ -387,7 +412,7 @@ Shader "CloudTemporalResolve"
                     continue;
 
                 vec2  d = vec2(p) - texel;
-                float w = max(1.0f - abs(d.x + d.y) * 0.5f, 0.0f) * max(1.0f - abs(d.x - d.y) * 0.5f, 0.0f);
+                float w = max(1.0f - abs(d.x) * 0.5f, 0.0f) * max(1.0f - abs(d.y) * 0.5f, 0.0f);
                 if (w <= 0.0f)
                     continue;
 
@@ -416,8 +441,9 @@ Shader "CloudTemporalResolve"
             }
             else
             {
-                // Unreachable inside the grid (a written texel is always within |dx| + |dy| <= 1 of a texel
-                // centre), kept so a degenerate one-texel grid reads "clear" rather than a division by zero.
+                // Unreachable on a grid of two texels or more each way (a written texel is always within one
+                // texel of any position on each axis), kept so a one-texel-wide grid whose phase this frame wrote
+                // nothing on reads "clear" rather than a division by zero.
                 scatter = vec4(0.0f, 0.0f, 0.0f, 1.0f);
                 guide   = vec2(0.0f, 0.0f);
             }
@@ -438,8 +464,8 @@ Shader "CloudTemporalResolve"
             ivec2 subPixel   = coord & ivec2(1, 1);
             ivec2 traceCoord = coord >> ivec2(1, 1);
 
-            // THE BLOCK HOLDS A SAMPLE ONLY ON THIS FRAME'S CHECKER PHASE (CloudTraceTexelHoldsSample): on the other
-            // phase all four of its pixels are not-owned this frame and take the lattice estimate below.
+            // THE BLOCK HOLDS A SAMPLE ONLY ON THIS FRAME'S LATTICE PHASE (CloudTraceTexelHoldsSample): on the other
+            // three phases all four of its pixels are not-owned this frame and take the lattice estimate below.
             bool blockTraced = CloudTraceTexelHoldsSample(traceCoord);
             bool owned       = blockTraced && subPixel == SubPixelOffset;
 
@@ -456,7 +482,7 @@ Shader "CloudTemporalResolve"
             vec2 traceUv    = ClampToTexelCentres((traceTexel + vec2(0.5f, 0.5f)) / vec2(traceSize), traceSize);
 
             // Case 1 for the RADIANCE: the pixel this frame traced gets the exact texel, fetched rather
-            // than filtered. The other three of the block, and all four of a block of the other checker phase,
+            // than filtered. The other three of the block, and all four of a block of another lattice phase,
             // have no sample of their own this frame, so the lattice reconstruction of this frame's written
             // texels (TraceFiltered) is all that exists for them.
             //
@@ -482,14 +508,16 @@ Shader "CloudTemporalResolve"
                 TraceFiltered(traceUv, traceSize, traceScatter, traceGuideHere, traceSampled);
             }
 
-            // The block's front (.x of its texel's guide), shared by its four pixels as above. A block of the
-            // other checker phase has no texel of its own this frame. Its four EDGE neighbours are the nearest
-            // written texels, all at the same distance, and the block takes the NEAREST FRONT of those that hold
-            // a sample (of all four when none does): a point-loaded distance a ray actually traced, as the header
-            // requires outside case 3, and not their blend, which at a silhouette lies on neither surface and is
-            // what the reprojection below would then walk to. Nearest because the front is what the reprojection
-            // tracks, and at a silhouette the nearer surface is the one whose edge must not trail (the closest-
-            // depth rule of temporal reprojection). The four pixels still share one distance.
+            // The block's front (.x of its texel's guide), shared by its four pixels as above. A block of
+            // another lattice phase has no texel of its own this frame. Its nearest written texels all lie in the
+            // ring of eight around it, all at one distance: the two beside it on a row of this phase, the two
+            // above and below it on a column, or the four diagonal ones when neither its row nor its column is
+            // this phase's — and no other texel of the ring is written. The block takes the NEAREST FRONT of those
+            // that hold a sample (of all of them when none does): a point-loaded distance a ray actually traced,
+            // as the header requires outside case 3, and not their blend, which at a silhouette lies on neither
+            // surface and is what the reprojection below would then walk to. Nearest because the front is what
+            // the reprojection tracks, and at a silhouette the nearer surface is the one whose edge must not trail
+            // (the closest-depth rule of temporal reprojection). The four pixels still share one distance.
             float blockFrontKm = 0.0f;
             if (blockTraced)
             {
@@ -501,11 +529,11 @@ Shader "CloudTemporalResolve"
                 bool  anyWritten   = false;
                 float sampledMinKm = 0.0f;
                 float writtenMinKm = 0.0f;
-                for (int i = 0; i < 4; ++i)
+                for (int i = 0; i < 9; ++i)
                 {
-                    int   side = (i & 1) * 2 - 1;
-                    ivec2 p    = traceCoord + ((i & 2) == 0 ? ivec2(side, 0) : ivec2(0, side));
-                    if (any(lessThan(p, ivec2(0, 0))) || any(greaterThan(p, traceSize - ivec2(1, 1))))
+                    ivec2 p = traceCoord + ivec2(i % 3 - 1, i / 3 - 1);
+                    if (any(lessThan(p, ivec2(0, 0))) || any(greaterThan(p, traceSize - ivec2(1, 1))) ||
+                        !CloudTraceTexelHoldsSample(p))
                         continue;
 
                     vec4 g       = texelFetch(CloudTraceGuideTexture, p, 0);
@@ -517,7 +545,8 @@ Shader "CloudTemporalResolve"
                         anySampled   = true;
                     }
                 }
-                // No written neighbour only on a degenerate one-texel grid, where TraceFiltered reads "clear".
+                // No written neighbour only on a grid one texel wide or high whose phase starts at 1 on that axis:
+                // this frame wrote nothing at all there, and TraceFiltered reads "clear" too.
                 blockFrontKm = anySampled ? sampledMinKm : (anyWritten ? writtenMinKm : 0.0f);
             }
 
