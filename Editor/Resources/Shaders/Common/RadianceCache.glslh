@@ -458,9 +458,13 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 V, vec3 direction, uin
 // THE COARSER FALLBACK (not in UE, whose new probe over the budget answers with whatever its atlas slot held): a
 // coverage clipmap whose eight cells hold no traced probe yet - cells a turning camera brings faster than the
 // budget traces them - is answered by the next coarser clipmap that has one. RadianceCacheMark stamps the clipmap
-// past every pixel's coarse end and RadianceCacheAllocate ranks never-traced probes coarsest first, so that level
-// is traced the frame it is first read. A read whose traced probes all reject the point (or weigh NaN) does not
-// fall back: a coarser probe would speak for a point the finer ones see is behind something.
+// past every pixel's coarse end as the FALLBACK (RC_STAMP_FALLBACK), and RadianceCacheAllocate ranks its new probes
+// after the coverage's new ones (RC_PRIORITY_NEW_FALLBACK): the budget goes to the cells the reads interpolate
+// themselves first, the fallback takes the rest. A read whose traced probes all reject the point (or weigh NaN) does
+// not fall back: a coarser probe would speak for a point the finer ones see is behind something.
+// @p why is the reason of the level the read ended at: the coverage's own when no coarser level was reached or none
+// holds a traced probe; a coarser level's REJECTED or NAN when its traced probes stopped the fallback (not the
+// coverage's UNTRACED, which would count a read the fallback did reach as one the budget left untraced).
 // One loop, one call site: the eight-cell read is inlined once into the far-field trace, not once for the coverage
 // clipmap and again for the fallback.
 vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 V, vec3 direction, uint clipmap, out uint why )
@@ -479,7 +483,10 @@ vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 V, vec3 direction, uint clipm
             return read;
         }
         if ( levelWhy != RADIANCE_CACHE_READ_UNTRACED && levelWhy != RADIANCE_CACHE_READ_EMPTY )
-            break; // its traced probes reject the point (or weigh NaN): no coarser probe speaks for it either
+        {
+            why = levelWhy; // its traced probes reject the point (or weigh NaN): no coarser probe speaks for it either
+            break;
+        }
     }
     return vec4( 0.0 ); // every unanswered read of RadianceCacheRadianceInClipmap is zero too
 }

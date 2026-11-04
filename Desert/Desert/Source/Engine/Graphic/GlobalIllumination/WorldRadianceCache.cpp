@@ -163,7 +163,9 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t maxProbes = RadianceCache::MaxProbes( shape );
         m_Indirection =
              ShaderResources::StorageBuffer::Create( "RadianceCache.Indirection", entries * 4u, 1, true );
-        m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed", entries * 4u, 2, true );
+        // Two stamps per entry, the coverage's and the fallback's (RadianceCacheStampIndex of
+        // Common/RadianceCacheState.glslh).
+        m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed", entries * 8u, 2, true );
         m_Probes   = ShaderResources::StorageBuffer::Create(
              "RadianceCache.Probes",
              maxProbes * static_cast<uint32_t>( sizeof( RadianceCache::RadianceCacheProbePayload ) ), 3, true );
@@ -425,7 +427,10 @@ namespace Desert::Graphic::GlobalIllumination
                 m_Last.Live          = words[10];
                 m_Last.MaxProbes     = words[11];
                 for ( uint32_t clipmap = 0; clipmap < RadianceCache::kMaxClipmaps; ++clipmap )
+                {
                     m_Last.NeverTracedByClipmap[clipmap] = words[12u + clipmap];
+                    m_Last.FallbackByClipmap[clipmap]    = words[12u + RadianceCache::kMaxClipmaps + clipmap];
+                }
                 m_Last.Valid = true;
             }
         }

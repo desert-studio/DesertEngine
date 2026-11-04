@@ -180,8 +180,10 @@ namespace Desert::Graphic::RadianceCache
     // Frames a probe keeps its slot after the last frame a pixel read it (UE frees a probe the frame it is not
     // marked; a camera turning back would then re-trace what it saw a moment ago).
     inline constexpr uint32_t kProbeUnusedFramesBeforeFree = 8;
-    // Priority buckets of the update (UE SelectMaxPriorityBucket's histogram).
-    inline constexpr uint32_t kPriorityBuckets = 32;
+    // Priority buckets of the update (UE SelectMaxPriorityBucket's histogram; RC_PRIORITY_* of
+    // Common/RadianceCacheState.glslh): never traced of the coverage and of the fallback, kMaxClipmaps each,
+    // lights changed, and 25 for the age of the last trace.
+    inline constexpr uint32_t kPriorityBuckets = 38;
     // Edge fade band of a clipmap, cells (UE GRadianceCacheClipmapFadeSize...: the dithered clipmap pick).
     inline constexpr float kClipmapFadeCells = 4.0f;
     // Temporal accumulation of a re-traced probe's radiance: the share of history kept (UE
