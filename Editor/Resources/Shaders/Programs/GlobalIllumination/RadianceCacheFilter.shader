@@ -36,7 +36,8 @@ Shader "RadianceCacheFilter"
             const uint  texels  = res * res;
             const ivec2 origin  = RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) + 1;
             const uint  clipmap = uint( radianceCacheProbes[probe].cell.w );
-            const float maxDistance = 2.0 * RadianceCacheCellSize( radianceCache, clipmap );
+            // The moments are stored in units of this range (RadianceCacheDistanceMomentRange): 0..1 in RG16F.
+            const float maxDistance = RadianceCacheDistanceMomentRange( radianceCache, clipmap );
             const uint  irrRes  = radianceCache.atlas.y;
             const uint  depRes  = radianceCache.atlas.w;
 
@@ -72,7 +73,7 @@ Shader "RadianceCacheFilter"
                     if ( l > 0.0 )
                     {
                         const float w = pow( l, RC_DISTANCE_LOBE_EXPONENT );
-                        const float d = min( sample_.a, maxDistance );
+                        const float d = min( sample_.a / maxDistance, 1.0 );
                         momentSum += w * vec2( d, d * d );
                         lobeSum   += w;
                     }
@@ -83,7 +84,7 @@ Shader "RadianceCacheFilter"
             if ( local < irrRes * irrRes )
                 s_Irradiance[local] = irradianceSum / max( cosineSum, 1e-4 );
             if ( local < depRes * depRes )
-                s_Distance[local] = lobeSum > 0.0 ? momentSum / lobeSum : vec2( maxDistance, maxDistance * maxDistance );
+                s_Distance[local] = lobeSum > 0.0 ? momentSum / lobeSum : vec2( 1.0 );
 
             // Radiance borders (its interior is as traced).
             const int finalRes = int( res ) + 2;

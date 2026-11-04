@@ -21,6 +21,10 @@ Shader "RadianceCacheUpdate"
             const uint entry = id.x + width * ( id.y + grid * id.z );
             if ( entry < RC_SCHEDULE_LIST )
                 radianceCacheSchedule[entry] = 0u;
+            // This frame's failed allocations, counted by Allocate after this pass (the last frame's are the other
+            // parity's word, read below).
+            if ( entry == 0u )
+                radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )] = 0;
             if ( Reset != 0u )
             {
                 radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
@@ -28,7 +32,10 @@ Shader "RadianceCacheUpdate"
                 if ( entry < MaxProbes )
                     radianceCacheFreeList[1u + entry] = int( entry );
                 if ( entry == 0u )
+                {
                     radianceCacheFreeList[0] = int( MaxProbes );
+                    radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex + 1u )] = 0;
+                }
                 return;
             }
             const uint value = radianceCacheIndirection[entry];
@@ -39,7 +46,10 @@ Shader "RadianceCacheUpdate"
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
             const ivec4 owner   = radianceCacheProbes[probe].cell;
             const bool  stale   = any( notEqual( owner.xyz, world ) ) || uint( owner.w ) != clipmap;
-            const bool  unused  = FrameIndex - radianceCacheLastUsed[entry] > UnusedFrames;
+            // After a frame whose reads found the atlas full, a probe unread for the pixels' rotation frees its slot.
+            const bool  pressed = radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex - 1u )] > 0;
+            const uint  keep    = pressed ? min( UnusedFrames, RADIANCE_CACHE_PRESSURE_KEEP_FRAMES ) : UnusedFrames;
+            const bool  unused  = FrameIndex - radianceCacheLastUsed[entry] > keep;
             if ( stale || unused )
             {
                 const int slot = atomicAdd( radianceCacheFreeList[0], 1 );

@@ -99,6 +99,8 @@ Shader "RadianceCacheAllocate"
                 if ( top <= 0 )
                 {
                     atomicAdd( radianceCacheFreeList[0], 1 );
+                    // The atlas is full: the next frame's Update frees the probes nobody reads now.
+                    atomicAdd( radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )], 1 );
                     return;
                 }
                 const uint probe = uint( radianceCacheFreeList[top] );
