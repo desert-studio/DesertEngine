@@ -312,6 +312,23 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer                             ChunksImport;
             RDG::BufferRef                                  ChunksRef;
             uint32_t                                        ChunkRoom = 0;
+            // GRASS-CULL-COST-3, THE LAW'S SLOTS (Common/GrassVarietyRows.glslh GrassVarietyRow::LawScales; UE GPU
+            // Scene: an instance's data is written once when it changes, the views only cull it): the scale the view
+            // law gave each record before its chunk's cut, written once per law generation by GrassCull's LawChunk and
+            // read by every frame's camera cull; LawCapacity slots, sized by what the law handed out (LawLowFrames:
+            // the frames in a row at half of it).
+            std::shared_ptr<ShaderResources::StorageBuffer> LawScales;
+            RDG::ExternalBuffer                             LawScalesImport;
+            RDG::BufferRef                                  LawScalesRef;
+            uint32_t                                        LawCapacity  = 0;
+            uint32_t                                        LawLowFrames = 0;
+            // What the view law reads this frame (LawKey: the params with the field eye, the pool's identity, Args,
+            // LawScales and its room, the field's revision) and what the chunks were last lawed from (LawedKey);
+            // LawGeneration counts its changes - a chunk whose law word carries another generation is lawed anew. A
+            // turn, a still camera or a tile built keeps it.
+            std::vector<uint32_t> LawKey;
+            std::vector<uint32_t> LawedKey;
+            uint64_t              LawGeneration = 0;
             // GRASS-CULL-HIER-1: what the cascades' lists were last culled from (GrassRenderer::WriteVarietyTable:
             // the guarded caster boxes, the wind origin, the row's buffers and rings, Generation) and whether a
             // frame culled them from it; from the next frame the lists hold (kGrassRowCascadesHeld) until it changes.

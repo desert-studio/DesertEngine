@@ -380,6 +380,8 @@ Shader "GrassGenerate"
             GrassChunkData[at + kGrassChunkPageWord] =
                  count != 0u && next < kTilePages ? TileWordsData[header + kTilePageWord + next] : 0u;
             GrassChunkData[at + kGrassChunkCountWord] = count;
+            // The chunk's records are new: GrassCull laws them anew (the chunk contract's law words).
+            GrassChunkData[at + kGrassChunkLawWord] = 0u;
         }
 
         // The largest axis scale record @p r can draw at before the view law widens it (GrassViewLaw: a blade's
