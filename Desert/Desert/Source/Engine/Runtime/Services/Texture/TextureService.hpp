@@ -168,6 +168,13 @@ namespace Desert::Runtime
         };
 
         Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        // THE LIVE-IMAGE CHANGES AT THE HAND-OFF (OVERLAP-ON-7): a streamed raise's swap and a stream-out move
+        // the Image2D a recording view may read, so they run behind the render work in flight
+        // (RenderTask::AfterJoin); a new texture nothing references yet is still built at once (FinishCook).
+        static void AdoptAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
+                                    Graphic::Texture2D::StagedLevels           staged );
+        static void StreamOutAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
+                                        uint32_t                                   droppedLevels );
         void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
         void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
         void        SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
