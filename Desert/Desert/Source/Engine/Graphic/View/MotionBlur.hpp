@@ -43,9 +43,13 @@ namespace Desert::Graphic
     // with motion blur still goes through that function so the overlays draw onto the blurred colour.
     //
     // The camera's own motion is in the velocity already (VelocityNdc compares PrevViewProjection * PrevWorld with
-    // ViewProjection * World), so a turning camera blurs a still world. A still camera over still objects writes
-    // exactly 0 (and a reset view reprojects onto itself, ViewFrame), which the gather returns as the unmodified
-    // colour; with TargetFPS > 0 a frame whose DeltaSeconds is 0 (paused, reset) has VelocityScale 0 and no nodes.
+    // ViewProjection * World), so a turning camera blurs a still world. Where no geometry wrote velocity (the sky,
+    // the clouds, the far plane: velocity 0 at reversed-Z depth 0) Flatten derives the camera's motion at infinity
+    // through ViewFrame::ClipToPrevClip, the formula TAA and the vendor upscalers' vectors use (UE
+    // VelocityFlatten: no velocity -> camera motion from depth), so the sky blurs with the hills and the horizon
+    // silhouette does not smear over a sharp sky. A still camera over still objects writes exactly 0 (and a reset
+    // view reprojects onto itself, ViewFrame), which the gather returns as the unmodified colour; with TargetFPS >
+    // 0 a frame whose DeltaSeconds is 0 (paused, reset) has VelocityScale 0 and no nodes.
     inline constexpr uint32_t kMotionBlurTileSize = 16; // render pixels per tile side (UE: 16)
 
     // The view's motion blur settings this frame: the resolved post-process grade (PostProcessSettings
@@ -76,7 +80,8 @@ namespace Desert::Graphic
     [[nodiscard]] float MotionBlurMaxPixels( const MotionBlurSettings& settings, ViewExtent output );
 
     // Flatten's per-pixel value (CPU twin of MotionBlurFlatten.shader): NDC velocity -> output pixels
-    // (ndc * (0.5, -0.5) * output * scale, Velocity.hpp's uv convention), its length clamped to maxPixels.
+    // (ndc * (0.5, -0.5) * output * scale, Velocity.hpp's uv convention), its length clamped to maxPixels. For a
+    // pixel nothing wrote velocity for, the velocity passed is the camera's at infinity (the shader's sky branch).
     [[nodiscard]] glm::vec2 MotionBlurPixelVelocity( glm::vec2 velocityNdc, float scale, ViewExtent output,
                                                      float maxPixels );
 
@@ -98,13 +103,18 @@ namespace Desert::Graphic
         float     MaxPixels     = 0.0f; // MotionBlurMaxPixels
         int32_t   Samples       = 0;
         float     Pad[3]        = {};
+        // ViewFrame::ClipToPrevClip: Flatten derives the camera's motion of a pixel nothing wrote velocity for
+        // (Common/Velocity.glslh DesertCameraVelocityAtInfinity), so a turning camera blurs the sky with the
+        // world.
+        glm::mat4 ClipToPrevClip{ 1.0f };
     };
     static_assert( offsetof( MotionBlurParams, OutputSize ) == 8 );
     static_assert( offsetof( MotionBlurParams, TileCount ) == 16 );
     static_assert( offsetof( MotionBlurParams, VelocityScale ) == 24 );
     static_assert( offsetof( MotionBlurParams, MaxPixels ) == 28 );
     static_assert( offsetof( MotionBlurParams, Samples ) == 32 );
-    static_assert( sizeof( MotionBlurParams ) == 48 );
+    static_assert( offsetof( MotionBlurParams, ClipToPrevClip ) == 48 ); // std430 mat4: 16-byte aligned
+    static_assert( sizeof( MotionBlurParams ) == 112 );
 
     [[nodiscard]] MotionBlurParams MakeMotionBlurParams( const MotionBlurSettings& settings,
                                                          const ViewFrame&          frame );

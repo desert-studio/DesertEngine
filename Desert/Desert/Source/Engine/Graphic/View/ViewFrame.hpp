@@ -300,6 +300,16 @@ namespace Desert::Graphic
         {
             return HistoryReset == HistoryResetReason::None;
         }
+
+        // UE View.ClipToPrevClip: this frame's UNJITTERED clip space to the previous frame's. The one source of
+        // the camera's motion of a pixel nothing wrote velocity for (the sky, the clouds, the far plane), which
+        // Common/Velocity.glslh DesertCameraVelocityAtInfinity derives from it: the vendor upscalers' vectors
+        // (UpscalerVelocity) and motion blur's Flatten (MotionBlurParams) take it from here, TemporalAA.shader
+        // forms the same product from the camera block.
+        [[nodiscard]] glm::mat4 ClipToPrevClip() const
+        {
+            return PrevViewProjection * InvViewProjection;
+        }
     };
 
     // PURE. The frame of a camera that is NOT a SceneViewState view — a shadow cascade's light camera, an editor

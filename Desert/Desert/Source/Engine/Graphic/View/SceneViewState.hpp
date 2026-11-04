@@ -115,8 +115,9 @@ namespace Desert::Graphic
     // (the depth and the velocity of a pixel must come from the same surface, or TAA reprojects a wall with a
     // character's motion). Value: current unjittered NDC.xyz minus previous unjittered NDC.xyz of the surface
     // point (ViewFrame rule: velocity never carries the jitter; z = the device depth's change, VelocityNdc).
-    // Pixels no geometry covered (sky, clouds, far plane) keep the clear value 0 and the TAA pass derives their
-    // motion from depth and the two view matrices.
+    // Pixels no geometry covered (sky, clouds, far plane) keep the clear value 0; every reader that needs their
+    // motion derives the camera's at infinity (ViewFrame::ClipToPrevClip, Common/Velocity.glslh
+    // DesertCameraVelocityAtInfinity): TAA, TSR, UpscalerVelocity (DLSS / FSR3) and motion blur's Flatten.
     inline constexpr Core::Formats::ImageFormat kVelocityFormat = ViewTargetFormats::kVelocity;
 
     // RDG-FAULT1 fit. Velocity lost to a fault (every geometry pass that wrote it removed) is read as Black = zero
