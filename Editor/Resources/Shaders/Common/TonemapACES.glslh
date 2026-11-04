@@ -25,7 +25,72 @@
 // The constants are the published matrices TRANSPOSED: the HLSL original lists ROWS, GLSL's
 // mat3(...) fills COLUMNS. Copying them across verbatim gives a colour rotation that looks
 // plausible and is wrong, which is the kind of defect this programme has already paid for once.
-vec3 TonemapACES(vec3 color)
+// THE OUTPUT TRANSFORM'S PEAK (HDR-OUTPUT p4; ACES 1.3 ACESlib.SSTS.ctl, as UE's ACESOutputTransforms1000/2000 and
+// r.HDR.Display.OutputDevice: one tone scale whose upper end is set by the display's peak).
+//
+// ACES 1.3 builds every output transform from the Single-Stage Tone Scale: a log-log B-spline through three points
+// (min, mid grey 0.18 -> 4.8 nits, max), the max point and the shoulder's bend found from the display's peak
+// (lookup_ACESmax, init_coefsHigh). The SDR frame here is Hill's fit of the RRT + sRGB ODT — the curve the cloud
+// and sky calibration was measured through (D-10) — so the peak enters as the SSTS's OWN answer to "how much
+// brighter may this value be on a display of this peak than on the SDR one": the ratio of the tone scale at
+// max = 48 x headroom to the tone scale at max = 48 (48 = ACES's SDR peak, which our paper white stands for).
+// Min and mid are the same in both, so the ratio is exactly 1 at and below mid grey and the low segment drops out:
+// shadows and mid-tones of an HDR frame ARE the SDR frame's (its SDR rendition is a clamp, captures stay
+// comparable); above mid grey the highlights take ACES's HDR shoulder up to the headroom. At headroom 1 it is
+// the identity, so SDR is the same code at a 1x peak and draws the frame it always drew.
+float AcesLog10(float x)
+{
+    return log2(x) * float(0.30102999566);
+}
+
+// log10 of the SSTS (ACES 1.3 ssts(), high segment: x above mid grey) for a display of max luminance maxNits,
+// in the tone scale's own nits (mid grey = 4.8, SDR peak = 48).
+float AcesSstsHighLog10(float x, float maxNits)
+{
+    const float logMidX = float(-0.744727495);        // log10(0.18)
+    const float logMidY = float(0.681241237);         // log10(4.8)
+    const float midSlope = float(1.55);
+    float logMaxY = AcesLog10(maxNits);
+    // lookup_ACESmax: 6.5 stops above mid grey at 48 nits, 18 at 10000.
+    float maxStops = mix(float(6.5), float(18.0),
+                               clamp((logMaxY - float(1.681241237)) / (float(4.0) - float(1.681241237)),
+                                     float(0.0), float(1.0)));
+    float logMaxX = logMidX + maxStops * float(0.30102999566);
+    float knotInc = (logMaxX - logMidX) / float(3.0);
+    // init_coefsHigh: two knots straddling mid (slope 1.55), two at max (slope 0), the bend between them.
+    float c0 = logMidY - midSlope * float(0.5) * knotInc;
+    float c1 = logMidY + midSlope * float(0.5) * knotInc;
+    float pctHigh = mix(float(0.89), float(0.90), (maxStops - float(6.5)) / (float(18.0) - float(6.5)));
+    float c2 = logMidY + pctHigh * (logMaxY - logMidY);
+    float c3 = logMaxY;
+
+    float logX = AcesLog10(max(x, float(0.18)));
+    if (logX >= logMaxX)
+        return logMaxY;
+    float knot = float(3.0) * (logX - logMidX) / (logMaxX - logMidX);
+    float j    = min(floor(knot), float(2.0));
+    float t    = knot - j;
+    // The three coefficients of segment j (c3 repeats past the end: coefsHigh[4] = coefsHigh[5] = log max).
+    float k0 = j < float(0.5) ? c0 : (j < float(1.5) ? c1 : c2);
+    float k1 = j < float(0.5) ? c1 : (j < float(1.5) ? c2 : c3);
+    float k2 = j < float(0.5) ? c2 : c3;
+    // The quadratic B-spline basis M = {{0.5,-1,0.5},{-1,1,0.5},{0.5,0,0}} applied to (k0,k1,k2).
+    return t * t * (float(0.5) * k0 - k1 + float(0.5) * k2) + t * (k1 - k0) + float(0.5) * (k0 + k1);
+}
+
+// How much brighter @p x (AP1, after the RRT's saturation) is drawn on a display of @p headroom x paper white
+// than on the SDR one. 1 at headroom 1 and at or below mid grey.
+float AcesPeakRatio(float x, float headroom)
+{
+    if (headroom <= float(1.0) || x <= float(0.18))
+        return float(1.0);
+    return exp2((AcesSstsHighLog10(x, float(48.0) * headroom) - AcesSstsHighLog10(x, float(48.0)))
+                * float(3.32192809489));
+}
+
+// The ACES output transform for a display @p headroom x paper white bright (1 = SDR). Linear Rec.709 in and out,
+// 1.0 = paper white; the result reaches the headroom, never past it.
+vec3 TonemapACESOutput(vec3 color, float headroom)
 {
     const mat3 ACESInput = mat3(
         0.59719, 0.07600, 0.02840,
@@ -42,7 +107,16 @@ vec3 TonemapACES(vec3 color)
     // discriminant, so it has no real root and cannot be zero for any v the matrix can produce
     // (including the negatives a saturated colour picks up on the way into AP1).
     vec3 b = v * (float(0.983729) * v + float(0.4329510)) + float(0.238081);
+    // Per channel in AP1, where ACES applies its tone scale.
+    vec3 toned = (a / b) * vec3(AcesPeakRatio(v.x, headroom), AcesPeakRatio(v.y, headroom),
+                                AcesPeakRatio(v.z, headroom));
     // The clamp is the ODT's range, not a safety net: AP1 holds colours sRGB cannot, and those
-    // come back out of the second matrix slightly outside [0,1].
-    return clamp(ACESOutput * (a / b), float(0.0), float(1.0));
+    // come back out of the second matrix slightly outside [0, peak].
+    return clamp(ACESOutput * toned, float(0.0), max(headroom, float(1.0)));
+}
+
+// The SDR output transform (headroom 1): the editor's HDR thumbnail and every SDR frame.
+vec3 TonemapACES(vec3 color)
+{
+    return TonemapACESOutput(color, float(1.0));
 }

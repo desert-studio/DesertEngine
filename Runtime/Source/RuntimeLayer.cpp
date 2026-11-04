@@ -29,6 +29,7 @@
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Graphic/QualityBoot.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -832,6 +833,8 @@ namespace Desert::Player
                               "{} at that frame.",
                               shot.Frames, shot.Output, width, height,
                               m_Content.Loading() ? "still loading" : "complete" );
+                    // HDR-OUTPUT p4: on an HDR output the PNG is the SDR rendition; the HDR one's peak goes to the log.
+                    m_SceneRenderer->LogHdrRenditionPeak();
                 }
             }
         }
@@ -966,6 +969,18 @@ namespace Desert::Player
         // are in the machine store now, loaded at startup from this player's own directory
         // (Runtime/Source/Main.cpp), and this is the line that makes the dial reach the renderer.
         m_SceneRenderer->SetQuality( Common::Scalability::QualityState::Resolved() );
+
+#if DESERT_DEV_INSTRUMENTS
+        // HDR-OUTPUT p4 (the editor's EditorLayer does the same from its control channel): on an HDR output the
+        // --shot frame is drawn through the SDR output transform, so the PNG is the SDR frame as on an SDR
+        // display, and the tonemap keeps the HDR transform of that frame for its peak (OnFramePresented logs it).
+        // The frame is known in advance here: presented frames count from 1, m_PresentedFrames is the count so far.
+        {
+            const auto& shot = RuntimeShot::Get();
+            Graphic::SetSdrCaptureRendition( shot.Active() && !m_ShotRecorded &&
+                                             m_PresentedFrames + 1 == shot.Frames );
+        }
+#endif
 
         // THE WORLDS INSIDE UI RENDER-TEXTURE ELEMENTS (Ю16), advanced before the game world opens its
         // pass. A capture records a whole scene render and Vulkan has no nested render pass — and the walk
