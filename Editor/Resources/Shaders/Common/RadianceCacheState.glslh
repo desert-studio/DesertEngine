@@ -60,6 +60,7 @@ PushConstant RadianceCachePush
     float HistoryWeight;          // RadianceCache::kHistoryWeight
     float DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
     uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
+    uint  MarkFallback;     // 1: Mark stamps the clipmap past the coarse end (the screen probes' fallback)
 };
 
 // THE ATLAS UNDER PRESSURE (PROBE-TURN-1; not in UE, which keeps an unread probe NumFramesToKeepCachedProbes frames

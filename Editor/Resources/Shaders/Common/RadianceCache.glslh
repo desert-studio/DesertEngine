@@ -461,23 +461,26 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 V, vec3 direction, uin
 // past every pixel's coarse end and RadianceCacheAllocate ranks never-traced probes coarsest first, so that level
 // is traced the frame it is first read. A read whose traced probes all reject the point (or weigh NaN) does not
 // fall back: a coarser probe would speak for a point the finer ones see is behind something.
+// One loop, one call site: the eight-cell read is inlined once into the far-field trace, not once for the coverage
+// clipmap and again for the fallback.
 vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 V, vec3 direction, uint clipmap, out uint why )
 {
-    const vec4 own = RadianceCacheRadianceInClipmap( p, N, V, direction, clipmap, why );
-    if ( why != RADIANCE_CACHE_READ_UNTRACED && why != RADIANCE_CACHE_READ_EMPTY )
-        return own;
-    for ( uint coarser = clipmap + 1u; coarser < radianceCache.shape.x; ++coarser )
+    why = RADIANCE_CACHE_READ_EMPTY;
+    for ( uint level = clipmap; level < radianceCache.shape.x; ++level )
     {
-        uint       coarserWhy;
-        const vec4 coarse = RadianceCacheRadianceInClipmap( p, N, V, direction, coarser, coarserWhy );
-        if ( coarserWhy == RADIANCE_CACHE_READ_ANSWERED )
+        uint       levelWhy;
+        const vec4 read = RadianceCacheRadianceInClipmap( p, N, V, direction, level, levelWhy );
+        if ( level == clipmap )
+            why = levelWhy; // the coverage clipmap's own reason, kept when no coarser one answers
+        if ( levelWhy == RADIANCE_CACHE_READ_ANSWERED )
         {
-            why = RADIANCE_CACHE_READ_COARSER;
-            return coarse;
+            if ( level != clipmap )
+                why = RADIANCE_CACHE_READ_COARSER;
+            return read;
         }
-        if ( coarserWhy != RADIANCE_CACHE_READ_UNTRACED && coarserWhy != RADIANCE_CACHE_READ_EMPTY )
-            break; // its traced probes reject the point: no coarser probe speaks for it either
+        if ( levelWhy != RADIANCE_CACHE_READ_UNTRACED && levelWhy != RADIANCE_CACHE_READ_EMPTY )
+            break; // its traced probes reject the point (or weigh NaN): no coarser probe speaks for it either
     }
-    return own; // why: the coverage clipmap's own reason (untraced or empty)
+    return vec4( 0.0 ); // every unanswered read of RadianceCacheRadianceInClipmap is zero too
 }
 #endif // RADIANCE_CACHE_RADIANCE_ATLAS

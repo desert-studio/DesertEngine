@@ -71,8 +71,9 @@ namespace Desert::Graphic::GlobalIllumination
             float    History      = RadianceCache::kHistoryWeight;
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
             uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
+            uint32_t MarkFallback  = 0; // 1: Mark also stamps the clipmap past each pixel's coarse end
         };
-        static_assert( sizeof( RadianceCachePush ) == 36 );
+        static_assert( sizeof( RadianceCachePush ) == 40 );
 
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
         constexpr uint32_t ScheduleEntries( const uint32_t traced )
@@ -264,6 +265,7 @@ namespace Desert::Graphic::GlobalIllumination
         if ( fullUpdate )
             m_LightingFrame = push.FrameIndex;
         push.LightingFrame = m_LightingFrame;
+        push.MarkFallback  = inputs.MarkRadianceFallback ? 1u : 0u;
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;

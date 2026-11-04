@@ -85,6 +85,11 @@ namespace Desert::Graphic::GlobalIllumination
         // The directional lights of the frame (the same values GIFrame carries): a significant change from the
         // lighting the probes were last fully traced under makes this frame a full update (AddUpdatePasses).
         DirectionalLighting Lighting;
+        // The screen probes read this frame's cache with the coarser fallback (Common/RadianceCache.glslh
+        // RadianceCacheRadianceAt): Mark also stamps the clipmap past each pixel's coarse end, the level that
+        // answers while the coverage clipmap's cells are untraced. False for a cache only the irradiance readers
+        // read (the probe volume gather): nobody reads that level there, so its cells would only take the budget.
+        bool MarkRadianceFallback = false;
     };
 
     // What a reader of this frame's cache binds (Common/RadianceCache.glslh, the read section).
