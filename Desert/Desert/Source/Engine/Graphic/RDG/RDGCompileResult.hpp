@@ -173,10 +173,12 @@ namespace Desert::Graphic::RDG
         // stages of every first access on WaitPipe that depends on the signalling side.
         PipelineStageFlags WaitStages = PipelineStage_None;
         bool               IsFork     = true; // Graphics -> AsyncCompute; false: AsyncCompute -> Graphics
-        // A join only: why WaitPosition waits - the resource and the async pass of the signalling piece whose
-        // graphics consumer it is ("'Velocity' of 'ScreenProbes: Disocclusion'"; RDGCompile CutRunsAtConsumers).
-        // Empty for a join at the graph end. The backend's async-segments log prints it.
-        std::string JoinedBy;
+        // Why it is there. A join: the resource and the async pass of the signalling piece whose graphics consumer
+        // WaitPosition is ("'Velocity' of 'ScreenProbes: Disocclusion'"), or the next piece it joins with; empty
+        // for a join at the graph end. A fork: the resource and the async pass of the run whose graphics producer
+        // SignalPosition is (RDGCompile CutRunsAtConsumers, CreateAsyncSyncs). The backend's async-segments log
+        // prints it.
+        std::string Cause;
     };
 
     // RDG-CONTRACTS B(2). A resource used on both pipes with contents that must survive the move (a release on

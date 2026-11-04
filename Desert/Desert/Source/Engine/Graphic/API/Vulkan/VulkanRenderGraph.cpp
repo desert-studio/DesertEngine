@@ -1623,6 +1623,24 @@ namespace Desert::Graphic::API::Vulkan
                 line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
                         graph.Result->Passes[segment.LastPosition].Name + ": " +
                         std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes";
+                // The graphics pass it waits for (its fork, RDGCompile CutRunsAtConsumers / CreateAsyncSyncs) and
+                // why; a segment without one follows the one before it on the compute queue.
+                bool forked = false;
+                for ( const uint32_t s : segment.WaitSyncs )
+                {
+                    const RDG::CrossPipeSync& forkSync = graph.Result->Syncs[s];
+                    if ( !forkSync.IsFork )
+                        continue;
+                    forked = true;
+                    if ( forkSync.SignalPosition == RDG::CrossPipeSync::kForkAtGraphStart )
+                        line += ", forked at the graph start";
+                    else
+                        line += ", forked after '" + graph.Result->Passes[forkSync.SignalPosition].Name + "'";
+                    if ( !forkSync.Cause.empty() )
+                        line += " by " + forkSync.Cause;
+                }
+                if ( !forked )
+                    line += ", no fork of its own (after the segment before it on the queue)";
                 // The graphics pass that waits for this segment (its join, RDGCompile CutRunsAtConsumers).
                 for ( const RDG::CrossPipeSync& sync : graph.Result->Syncs )
                 {
@@ -1634,8 +1652,8 @@ namespace Desert::Graphic::API::Vulkan
                     {
                         line += ", joined before '" + graph.Result->Passes[sync.WaitPosition].Name + "'";
                         // What made it wait (RDGCompile CutRunsAtConsumers): the resource and the async pass.
-                        if ( !sync.JoinedBy.empty() )
-                            line += " by " + sync.JoinedBy;
+                        if ( !sync.Cause.empty() )
+                            line += " by " + sync.Cause;
                     }
                 }
                 line += "]";

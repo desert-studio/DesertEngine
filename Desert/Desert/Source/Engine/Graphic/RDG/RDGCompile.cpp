@@ -70,8 +70,12 @@ namespace Desert::Graphic::RDG
             int32_t  ReleaseRaw      = -1;
             uint32_t ReleasePosition = 0;
             // A HELD read group (FindAsyncRuns): its opening transition is in m_EpilogueRaws[GroupPosition] - on
-            // Graphics, after the subresource's last use there - not in the barrier batch of GroupPosition.
+            // Graphics, after the subresource's last use there - not in the barrier batch of GroupPosition. A read
+            // group HELD ON ASYNC: in the epilogue of its last async use before the group (the writer).
             bool GroupRawInEpilogue = false;
+            // The current group is HELD ON ASYNC (FindAsyncRuns): AsyncCompute keeps it (GroupPipe, LastTouch: the
+            // last async reader) while Graphics reads it too; a graphics reader widens its opening transition.
+            bool HeldOnAsync = false;
         };
 
         // A maximal run of consecutive executed passes on Pipe::AsyncCompute, with its fork and join.
@@ -95,6 +99,13 @@ namespace Desert::Graphic::RDG
             // (m_ConsumerCause); kJoinAtGraphEnd / kInvalidResource for a join at the graph end.
             uint32_t JoinCausePosition = CrossPipeSync::kJoinAtGraphEnd;
             uint32_t JoinCauseResource = kInvalidResource;
+            // A piece cut only because the next piece forks later (CutRunsAtConsumers): it joins where the next
+            // piece does - the queue runs them in order - instead of at a graphics position of its own.
+            bool JoinsWithNext = false;
+            // What sets ForkPosition: the async position whose graphics producer it is and the resource
+            // (m_ForkCause); kJoinAtGraphEnd / kInvalidResource for a fork no producer sets.
+            uint32_t ForkCausePosition = CrossPipeSync::kJoinAtGraphEnd;
+            uint32_t ForkCauseResource = kInvalidResource;
         };
 
         Barrier RdgMakeBarrier( const RdgRawTransition& raw, ResourceKind kind, const SubresourceRange& range )
@@ -312,7 +323,8 @@ namespace Desert::Graphic::RDG
         void                  PlaceAliasCandidates( std::vector<RdgAliasCandidate>& candidates );
         [[nodiscard]] bool    IsAliased( uint32_t resource ) const;
         [[nodiscard]] AccessState InitialState( uint32_t resource, uint32_t local ) const;
-        void TrackUse( uint32_t position, const RdgSubUse& use, bool sharedRead, bool opensHeldGroup );
+        void TrackUse( uint32_t position, const RdgSubUse& use, bool sharedRead, bool opensHeldGroup,
+                       bool opensAsyncHeldGroup );
         void                      CompilePassOps( uint32_t position );
         void                      EmitBarriers( std::vector<RdgRawTransition>& list, std::vector<Barrier>& out,
                                                 std::vector<uint32_t>& partners ) const;
@@ -356,6 +368,13 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t>              m_ConsumerAt;
         // By async position: the resource whose use set m_ConsumerAt there (the join's cause in the log).
         std::vector<uint32_t> m_ConsumerCause;
+        // By async position (UE FRDGPass::CrossPipelineProducer): the latest graphics position the pass may not
+        // start before (-1: none), whether it consumes an external this graph had not touched, and the resource
+        // that set the producer (the fork's cause in the log). CutRunsAtConsumers forks a piece of a run anew
+        // where a pass's producer is later than the fork of the passes before it (UE bAsyncComputeBegin).
+        std::vector<int32_t>  m_ForkAt;
+        std::vector<bool>     m_NeedsForkAt;
+        std::vector<uint32_t> m_ForkCause;
         // A transfer whose acquire would record before the join that orders it (AddTransfers): Compile fails.
         std::string                        m_SyncError;
         std::vector<std::vector<uint32_t>> m_WaitAt;
@@ -371,8 +390,12 @@ namespace Desert::Graphic::RDG
         // group over contents Graphics holds, opened on Graphics before the fork (FindAsyncRuns, TrackUse).
         std::vector<bool> m_GroupGraphicsReader;
         std::vector<bool> m_GroupHeld;
-        // By held group: the graphics position of the last use before it (its transition records after it);
-        // -1: an external the graph had not touched (the transition records after the run's fork).
+        // By group: HELD ON ASYNC - such a shared group over contents AsyncCompute holds (an async pass wrote or
+        // read them last), opened on AsyncCompute right after that last use; its graphics readers join that use.
+        std::vector<bool> m_GroupHeldOnAsync;
+        // By held group: the position of the last use before it (its transition records after it) - on Graphics
+        // for a HELD group, on AsyncCompute for one HELD ON ASYNC; -1: an external the graph had not touched (a
+        // HELD group's transition records after the run's fork).
         std::vector<int32_t> m_GroupHeldAfter;
 
         std::vector<int32_t> m_LifetimeOf;
@@ -1071,6 +1094,9 @@ namespace Desert::Graphic::RDG
         m_RunAt.assign( m_ExecutedCount, -1 );
         m_ConsumerAt.assign( m_ExecutedCount, CrossPipeSync::kJoinAtGraphEnd );
         m_ConsumerCause.assign( m_ExecutedCount, kInvalidResource );
+        m_ForkAt.assign( m_ExecutedCount, -1 );
+        m_NeedsForkAt.assign( m_ExecutedCount, false );
+        m_ForkCause.assign( m_ExecutedCount, kInvalidResource );
         m_WaitAt.assign( m_ExecutedCount, {} );
         m_SignalAt.assign( m_ExecutedCount, {} );
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
@@ -1093,6 +1119,15 @@ namespace Desert::Graphic::RDG
             m_ConsumerAt[of]    = by;
             m_ConsumerCause[of] = resource;
         };
+        // The async position @p at may not start before the graphics position @p from completed, because of
+        // @p resource: the latest such position is its producer, and its resource the fork's cause.
+        const auto producedBy = [&]( uint32_t at, int32_t from, uint32_t resource )
+        {
+            if ( from <= m_ForkAt[at] )
+                return;
+            m_ForkAt[at]    = from;
+            m_ForkCause[at] = resource;
+        };
         for ( const DependencyEdge& edge : m_Result.Edges )
         {
             const uint32_t from = m_PositionOf[edge.From];
@@ -1100,10 +1135,7 @@ namespace Desert::Graphic::RDG
             if ( m_PipeAt[from] == m_PipeAt[to] )
                 continue;
             if ( m_PipeAt[to] == Pipe::AsyncCompute )
-            {
-                RdgAsyncRun& run = m_Runs[static_cast<size_t>( m_RunAt[to] )];
-                run.ForkPosition = std::max( run.ForkPosition, static_cast<int32_t>( from ) );
-            }
+                producedBy( to, static_cast<int32_t>( from ), edge.Resource );
             else
                 consumedBy( from, to, edge.Resource );
         }
@@ -1125,6 +1157,13 @@ namespace Desert::Graphic::RDG
         // orders the async readers after it, and a graphics reader joins nothing: "Deferred: Reflections" joined
         // the whole screen-probe piece to "ScreenProbes: Disocclusion" because that async pass opened the read of
         // the velocity and the G-buffer Graphics had written (FPS-FIELD-BARN-TURN, RDG-ASYNC-JOIN-1).
+        // A group HELD ON ASYNC (UE: the same transition begun on the pipe that last used the resource, here
+        // AsyncCompute) is a shared group AsyncCompute opens over contents AsyncCompute holds - an async pass
+        // wrote or read them last - that a graphics pass reads too. Its opening transition records on AsyncCompute
+        // after that last use (TrackUse), and a graphics reader joins that use's piece, never the opener's: the
+        // radiance cache 'RadianceCache: Filter' writes is opened by 'ScreenProbes: Trace Near Field' and read by
+        // "Deferred: Reflections", which waited for the whole screen-probe piece up to Near Field
+        // (RDG-ASYNC-JOIN-2).
         m_GroupOfUse.assign( m_ExecutedCount, {} );
         {
             std::vector<int32_t>     open( m_SubCount, -1 ); // the group of each subresource's last use
@@ -1153,6 +1192,7 @@ namespace Desert::Graphic::RDG
                             m_GroupOpenerPipe.push_back( m_PipeAt[position] );
                             m_GroupGraphicsReader.push_back( false );
                             m_GroupHeld.push_back( false );
+                            m_GroupHeldOnAsync.push_back( false );
                             m_GroupHeldAfter.push_back( -1 );
                             openState[use.Sub] = use.State;
                         }
@@ -1180,8 +1220,6 @@ namespace Desert::Graphic::RDG
             for ( uint32_t sub = m_SubBase[r]; sub < m_SubBase[r + 1]; ++sub )
                 owned[sub] = m_Resources[r].IsExternal();
         }
-        const auto runAt = [&]( uint32_t position ) -> RdgAsyncRun&
-        { return m_Runs[static_cast<size_t>( m_RunAt[position] )]; };
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
             const Pipe                    pipe = m_PipeAt[position];
@@ -1201,24 +1239,42 @@ namespace Desert::Graphic::RDG
                 if ( shared && pipe == Pipe::AsyncCompute )
                     sharedAsync[use.Sub] = static_cast<int32_t>( position );
                 if ( shared && opens && pipe == Pipe::AsyncCompute && use.Consumes && owned[use.Sub] &&
-                     owner[use.Sub] == Pipe::Graphics && m_GroupGraphicsReader[static_cast<size_t>( group )] )
+                     m_GroupGraphicsReader[static_cast<size_t>( group )] )
                 {
-                    m_GroupHeld[static_cast<size_t>( group )]      = true;
+                    // Graphics holds the contents: HELD (the transition records on Graphics before the fork).
+                    // AsyncCompute holds them: HELD ON ASYNC (the transition records after the last async use).
+                    if ( owner[use.Sub] == Pipe::Graphics )
+                        m_GroupHeld[static_cast<size_t>( group )] = true;
+                    else
+                        m_GroupHeldOnAsync[static_cast<size_t>( group )] = true;
                     m_GroupHeldAfter[static_cast<size_t>( group )] = lastTouch[use.Sub];
                 }
                 if ( shared && m_GroupHeld[static_cast<size_t>( group )] && pipe == Pipe::AsyncCompute )
                 {
                     // A HELD group's async reader (the opener included) reads after the opening transition
-                    // Graphics records after the last use before the group: the run forks there at the latest (an
+                    // Graphics records after the last use before the group: the pass forks there at the latest (an
                     // external this graph has not touched: at the run's fork, CreateAsyncSyncs). Owner and
                     // lastTouch stay on Graphics, so its graphics readers consume nothing of this run; the use
                     // that ends the group joins its last async reader (sharedAsync, above).
-                    RdgAsyncRun&  run   = runAt( position );
                     const int32_t after = m_GroupHeldAfter[static_cast<size_t>( group )];
                     if ( after < 0 )
-                        run.NeedsFork = true;
+                        m_NeedsForkAt[position] = true;
                     else
-                        run.ForkPosition = std::max( run.ForkPosition, after );
+                        producedBy( position, after, use.Resource );
+                    continue;
+                }
+                if ( shared && !opens && m_GroupHeldOnAsync[static_cast<size_t>( group )] &&
+                     pipe == Pipe::Graphics )
+                {
+                    // A graphics reader of a group HELD ON ASYNC (UE: the transition into the read state of
+                    // ERHIPipeline::All right after the async writer, the graphics reader joins the writer): it
+                    // waits for the piece of the last async use before the group - not for the async pass that
+                    // opened the group, nor its readers ("Deferred: Reflections" joined 'ScreenProbes: Trace Near
+                    // Field', the first async reader of the radiance cache 'RadianceCache: Filter' wrote,
+                    // RDG-ASYNC-JOIN-2). Owner and lastTouch stay on AsyncCompute: the use that ends the group
+                    // joins its last async reader (sharedAsync, above; TrackUse hands the contents over there).
+                    consumedBy( static_cast<uint32_t>( m_GroupHeldAfter[static_cast<size_t>( group )] ), position,
+                                use.Resource );
                     continue;
                 }
                 if ( shared && !opens && owned[use.Sub] && owner[use.Sub] != pipe )
@@ -1228,10 +1284,7 @@ namespace Desert::Graphic::RDG
                     {
                         // After the opening barrier Graphics recorded; owner and lastTouch stay on Graphics.
                         if ( m_GroupOpenerPipe[static_cast<size_t>( group )] == Pipe::Graphics )
-                        {
-                            RdgAsyncRun& reader = runAt( position );
-                            reader.ForkPosition = std::max( reader.ForkPosition, static_cast<int32_t>( opener ) );
-                        }
+                            producedBy( position, static_cast<int32_t>( opener ), use.Resource );
                         continue;
                     }
                     // Graphics takes the group from the run that opened it (TrackUse releases it there).
@@ -1244,11 +1297,10 @@ namespace Desert::Graphic::RDG
                 {
                     if ( pipe == Pipe::AsyncCompute )
                     {
-                        RdgAsyncRun& run = runAt( position );
                         if ( lastTouch[use.Sub] < 0 )
-                            run.NeedsFork = true;
+                            m_NeedsForkAt[position] = true;
                         else
-                            run.ForkPosition = std::max( run.ForkPosition, lastTouch[use.Sub] );
+                            producedBy( position, lastTouch[use.Sub], use.Resource );
                     }
                     else
                     {
@@ -1271,11 +1323,25 @@ namespace Desert::Graphic::RDG
     // pass whose consumers come before any consumer of the passes after it: the piece ends its submission
     // there and signals its own join, waited by its earliest consumer. One queue runs the pieces in order, so
     // a later piece's join implies every earlier one: a cut whose consumer a later pass's earlier consumer
-    // already waits for is not made, and the pieces' joins strictly increase.
+    // already waits for is not made, and the pieces' joins strictly increase - except a piece cut only for the
+    // next one's fork (below), which joins with it.
     void Builder::Compiler::CutRunsAtConsumers()
     {
         // laterJoin[p]: the earliest consumer of the run's passes from p to its end (slot Last + 1: none).
-        std::vector<uint32_t>    laterJoin( m_ExecutedCount + 1, CrossPipeSync::kJoinAtGraphEnd );
+        std::vector<uint32_t> laterJoin( m_ExecutedCount + 1, CrossPipeSync::kJoinAtGraphEnd );
+        // LATER PRODUCERS (UE FRDGBuilder::Compile: CrossPipelineProducer, bAsyncComputeBegin / bGraphicsFork). A
+        // run's single fork at the latest graphics producer of any of its passes held its first passes back until
+        // the producer of its last ones: the radiance cache, whose inputs are the G-buffer, forked after the HZB
+        // the screen probes after it in the same run trace against (RDG-ASYNC-JOIN-2). A pass whose producer is
+        // later than the fork of the passes before it starts a piece with a fork of its own, waited by that piece
+        // on the compute queue; the passes before it fork at their own producers. A run whose first passes consume
+        // an external untouched so far and have no producer forks just before the run (CreateAsyncSyncs), never
+        // earlier than a producer inside it: such passes take no fork of their own.
+        // By the first position of each fork's pieces: the fork, NeedsFork, the async position that set the fork.
+        std::vector<int32_t>     forkOf( m_ExecutedCount, -1 );
+        std::vector<bool>        needsOf( m_ExecutedCount, false );
+        std::vector<int32_t>     forkCauseOf( m_ExecutedCount, -1 );
+        std::vector<bool>        forksAt( m_ExecutedCount, false );
         std::vector<RdgAsyncRun> pieces;
         pieces.reserve( m_Runs.size() );
         for ( const RdgAsyncRun& run : m_Runs )
@@ -1283,8 +1349,60 @@ namespace Desert::Graphic::RDG
             laterJoin[run.Last + 1] = CrossPipeSync::kJoinAtGraphEnd;
             for ( uint32_t position = run.Last + 1; position-- > run.First; )
                 laterJoin[position] = std::min( laterJoin[position + 1], m_ConsumerAt[position] );
-            RdgAsyncRun piece  = run; // the run's fork (ForkPosition, NeedsFork) goes with every piece
-            piece.JoinPosition = CrossPipeSync::kJoinAtGraphEnd;
+            uint32_t   forkFirst = run.First;
+            int32_t    fork      = -1;
+            bool       needs     = false;
+            int32_t    cause     = -1;
+            const auto closeFork = [&]()
+            {
+                forkOf[forkFirst]      = fork;
+                needsOf[forkFirst]     = needs;
+                forkCauseOf[forkFirst] = cause;
+            };
+            for ( uint32_t position = run.First; position <= run.Last; ++position )
+            {
+                if ( position != forkFirst && m_ForkAt[position] > fork && ( fork >= 0 || !needs ) )
+                {
+                    closeFork();
+                    forkFirst         = position;
+                    forksAt[position] = true;
+                    fork              = -1;
+                    needs             = false;
+                    cause             = -1;
+                }
+                if ( m_ForkAt[position] > fork )
+                {
+                    fork  = m_ForkAt[position];
+                    cause = static_cast<int32_t>( position );
+                }
+                needs = needs || m_NeedsForkAt[position];
+            }
+            closeFork();
+
+            // A piece from @p first on: a later piece of the same fork (ContinuesRun), or the first of a fork.
+            const auto startPiece = [&]( RdgAsyncRun& piece, uint32_t first, bool continues )
+            {
+                piece.First             = first;
+                piece.JoinPosition      = CrossPipeSync::kJoinAtGraphEnd;
+                piece.JoinCausePosition = CrossPipeSync::kJoinAtGraphEnd;
+                piece.JoinCauseResource = kInvalidResource;
+                piece.JoinsWithNext     = false;
+                piece.ContinuesRun      = continues;
+                if ( continues )
+                    return; // CreateAsyncSyncs gives it the fork of the piece before it
+                const int32_t setBy     = forkCauseOf[first];
+                piece.ForkPosition      = forkOf[first];
+                piece.NeedsFork         = needsOf[first];
+                piece.ForkCausePosition = CrossPipeSync::kJoinAtGraphEnd;
+                piece.ForkCauseResource = kInvalidResource;
+                if ( setBy >= 0 )
+                {
+                    piece.ForkCausePosition = static_cast<uint32_t>( setBy );
+                    piece.ForkCauseResource = m_ForkCause[static_cast<size_t>( setBy )];
+                }
+            };
+            RdgAsyncRun piece = run;
+            startPiece( piece, run.First, false );
             for ( uint32_t position = run.First; position <= run.Last; ++position )
             {
                 if ( m_ConsumerAt[position] < piece.JoinPosition )
@@ -1293,15 +1411,23 @@ namespace Desert::Graphic::RDG
                     piece.JoinCausePosition = position;
                     piece.JoinCauseResource = m_ConsumerCause[position];
                 }
-                if ( position != run.Last && piece.JoinPosition >= laterJoin[position + 1] )
+                const bool nextForks = position != run.Last && forksAt[position + 1];
+                if ( position != run.Last && !nextForks && piece.JoinPosition >= laterJoin[position + 1] )
                     continue;
+                if ( nextForks && piece.JoinPosition >= laterJoin[position + 1] )
+                {
+                    // Cut for the next piece's fork alone: no consumer of its own comes before the next piece's,
+                    // so it joins where that one does - one graphics boundary for both, the queue completes it
+                    // first - and the pieces' joins still never decrease.
+                    piece.JoinPosition      = laterJoin[position + 1];
+                    piece.JoinCausePosition = CrossPipeSync::kJoinAtGraphEnd;
+                    piece.JoinCauseResource = kInvalidResource;
+                    piece.JoinsWithNext     = piece.JoinPosition != CrossPipeSync::kJoinAtGraphEnd;
+                }
                 piece.Last = position;
                 pieces.push_back( piece );
-                piece.First             = position + 1;
-                piece.JoinPosition      = CrossPipeSync::kJoinAtGraphEnd;
-                piece.JoinCausePosition = CrossPipeSync::kJoinAtGraphEnd;
-                piece.JoinCauseResource = kInvalidResource;
-                piece.ContinuesRun = true;
+                if ( position != run.Last )
+                    startPiece( piece, position + 1, !nextForks );
             }
         }
         m_Runs = std::move( pieces );
@@ -1395,6 +1521,16 @@ namespace Desert::Graphic::RDG
                     run.ForkSync = static_cast<int32_t>( m_Result.Syncs.size() );
                     m_Result.Syncs.push_back(
                          { Pipe::Graphics, fork, Pipe::AsyncCompute, run.First, forkStages, true } );
+                    // What made it fork there: the resource and the async pass of the run whose producer it is.
+                    if ( run.ForkCausePosition != CrossPipeSync::kJoinAtGraphEnd &&
+                         run.ForkCauseResource < m_ResourceCount )
+                    {
+                        m_Result.Syncs.back().Cause =
+                             fmt::format( "'{}' of '{}'", m_Resources[run.ForkCauseResource].Name,
+                                          m_Passes[m_Executed[run.ForkCausePosition]].Name );
+                    }
+                    else if ( run.NeedsFork )
+                        m_Result.Syncs.back().Cause = "an external no earlier pass touched";
                     if ( !atStart ) // the prologue segment signals a fork from the graph start
                         m_SignalAt[fork].push_back( static_cast<uint32_t>( run.ForkSync ) );
                     m_WaitAt[run.First].push_back( static_cast<uint32_t>( run.ForkSync ) );
@@ -1431,8 +1567,10 @@ namespace Desert::Graphic::RDG
                     cause = fmt::format( "'{}' of '{}'", m_Resources[run.JoinCauseResource].Name, pass );
                 else
                     cause = fmt::format( "'{}'", pass );
-                m_Result.Syncs.back().JoinedBy = std::move( cause );
+                m_Result.Syncs.back().Cause = std::move( cause );
             }
+            else if ( run.JoinsWithNext )
+                m_Result.Syncs.back().Cause = "the next piece (cut for its later fork)";
             m_SignalAt[run.Last].push_back( static_cast<uint32_t>( run.JoinSync ) );
             if ( run.JoinPosition != CrossPipeSync::kJoinAtGraphEnd )
                 m_WaitAt[run.JoinPosition].push_back( static_cast<uint32_t>( run.JoinSync ) );
@@ -1665,7 +1803,7 @@ namespace Desert::Graphic::RDG
     // One pass's use of one subresource against the walk state: opens, widens or closes a group of
     // accesses and records the transition (or ownership transfer) that enters it.
     void Builder::Compiler::TrackUse( uint32_t position, const RdgSubUse& use, const bool sharedRead,
-                                      const bool opensHeldGroup )
+                                      const bool opensHeldGroup, const bool opensAsyncHeldGroup )
     {
         RdgSubTrack&          sub       = m_Track[use.Sub];
         const ResourceRecord& record    = m_Resources[use.Resource];
@@ -1727,6 +1865,7 @@ namespace Desert::Graphic::RDG
                 sub.GroupBefore = sub.Group;
             sub.Group              = use.State;
             sub.GroupPosition      = at;
+            sub.HeldOnAsync        = false;
             sub.GroupRawInEpilogue = true;
             sub.GroupRaw           = -1;
             sub.ReleaseRaw         = -1;
@@ -1743,6 +1882,7 @@ namespace Desert::Graphic::RDG
         {
             sub.Touched            = true;
             sub.GroupRawInEpilogue = false;
+            sub.HeldOnAsync = false;
             sub.GroupBefore   = InitialState( use.Resource, use.Sub - m_SubBase[use.Resource] );
             sub.Group         = use.State;
             sub.GroupPosition = position;
@@ -1810,6 +1950,22 @@ namespace Desert::Graphic::RDG
             // run's fork, before the group's end by its join. Graphics keeps the group, its barrier, LastTouch.
             if ( pipe == Pipe::AsyncCompute )
                 return;
+            if ( sub.HeldOnAsync )
+            {
+                // A group HELD ON ASYNC (FindAsyncRuns): the graphics reader widens the opening transition in the
+                // async writer's epilogue (FilterStagesPerPipe keeps its compute stages there; the join's wait
+                // stages carry the graphics ones) and waits for the writer's piece. No hand-over: AsyncCompute keeps
+                // the group, and the use that ends it takes the contents from the last async reader.
+                sub.Group = MergeReadStates( sub.Group, use.State );
+                if ( sub.GroupRaw >= 0 )
+                    groupRaws()[static_cast<size_t>( sub.GroupRaw )].After = sub.Group;
+                else if ( !IsCoveredReadState( sub.GroupBefore, sub.Group ) )
+                {
+                    groupRaws().push_back( { use.Sub, use.Resource, sub.GroupBefore, sub.Group, false } );
+                    sub.GroupRaw = static_cast<int32_t>( groupRaws().size() - 1 );
+                }
+                return;
+            }
             // Graphics reads a group AsyncCompute opened: the acquire here, its release at the group's OPENER, not
             // at the last async reader - the join waits for the run whose barrier opened the group, and the async
             // readers after it keep reading while Graphics does (the group's end joins them: FindAsyncRuns).
@@ -1830,8 +1986,38 @@ namespace Desert::Graphic::RDG
             sub.GroupPosition      = position;
             sub.GroupRawInEpilogue = false;
             sub.ReleaseRaw         = -1;
-            if ( sub.GroupPipe != pipe )
+            const bool graphicsReadHeld = sub.HeldOnAsync && pipe == Pipe::Graphics;
+            sub.HeldOnAsync             = false;
+            if ( opensAsyncHeldGroup && sub.GroupPipe != pipe && m_SyncError.empty() )
+            {
+                m_SyncError = fmt::format( "graph '{}': the read group of '{}' held on async at pass '{}' is not "
+                                           "held by AsyncCompute in the barrier walk",
+                                           m_Name, record.Name, m_Passes[m_Executed[position]].Name );
+            }
+            if ( graphicsReadHeld && !use.Consumes )
+            {
+                // A group HELD ON ASYNC that Graphics read too, ended on Graphics by contents it discards: the
+                // transition's source scope is the group's merged reads (the graphics ones before it on this queue;
+                // the async ones are ordered by the join of the last async reader, FindAsyncRuns).
+                sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, true );
+            }
+            else if ( sub.GroupPipe != pipe )
                 crossPipes( sub.GroupBefore, sub.LastTouch, sub.GroupPipe );
+            else if ( opensAsyncHeldGroup )
+            {
+                // HELD ON ASYNC (FindAsyncRuns): the transition into the shared read state records after the last
+                // async use before the group (the writer), so a graphics reader joins that use's piece.
+                sub.GroupPosition      = sub.LastTouch;
+                sub.GroupRawInEpilogue = true;
+                sub.HeldOnAsync        = true;
+                sub.GroupRaw           = -1;
+                if ( !IsCoveredReadState( sub.GroupBefore, use.State ) )
+                {
+                    m_EpilogueRaws[sub.LastTouch].push_back(
+                         { use.Sub, use.Resource, sub.GroupBefore, use.State, false } );
+                    sub.GroupRaw = static_cast<int32_t>( m_EpilogueRaws[sub.LastTouch].size() - 1 );
+                }
+            }
             else
                 sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, false );
         }
@@ -1913,7 +2099,9 @@ namespace Desert::Graphic::RDG
                 const bool    shared = group >= 0 && m_GroupShared[static_cast<size_t>( group )];
                 const bool    held   = shared && m_GroupHeld[static_cast<size_t>( group )] &&
                                   m_GroupOpener[static_cast<size_t>( group )] == position;
-                TrackUse( position, uses[i], shared, held );
+                const bool heldOnAsync = shared && m_GroupHeldOnAsync[static_cast<size_t>( group )] &&
+                                         m_GroupOpener[static_cast<size_t>( group )] == position;
+                TrackUse( position, uses[i], shared, held, heldOnAsync );
             }
             CompilePassOps( position );
         }
