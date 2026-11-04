@@ -1279,8 +1279,11 @@ namespace Desert::Player
                 return Common::MakeError( std::format( kRuntimePresentErrorFormat, retained.GetError() ) );
             }
         }
+        // NeverParallel: Render2D::Flush grows and writes m_Render2D's vertex / index buffers and its flush
+        // bookkeeping while it records (as UIRetainedLayer); with every graphics segment cut into chunks
+        // (RDG-PARALLEL-1) it would record on a worker while the retained layers record on the calling thread.
         graph.AddPass(
-             "RuntimePresent", Graphic::RDG::PassFlags::Raster,
+             "RuntimePresent", Graphic::RDG::PassFlags::Raster | Graphic::RDG::PassFlags::NeverParallel,
              [&]( Graphic::RDG::PassBuilder& pass )
              {
                  pass.ColorTarget( 0, target, targetLoad );
