@@ -63,9 +63,26 @@ Shader "RadianceCacheUpdate"
                 const uint why = stale ? RC_STAT_FREED_STALE
                                        : ( age > UnusedFrames ? RC_STAT_FREED_UNUSED : RC_STAT_FREED_PRESSURE );
                 atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + why], 1u );
-                const int slot = atomicAdd( radianceCacheFreeList[0], 1 );
-                radianceCacheFreeList[1 + slot] = int( probe );
                 radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
+                // ONLY THE OWNER FREES THE SLOT. The probe's cell names the one entry it was allocated to (the
+                // toroidal index of that cell, which a scroll keeps). An entry whose probe names another entry
+                // holds a second reference to a slot that entry owns: pushing it would put a live slot on the
+                // free list, the next allocation would take it from under its owner, the owner's cell would go
+                // stale the frame after and push it again - a churn that never ends once one slot is doubled
+                // (GPU-TURN-2: the turn freed 3921 "stale" probes a frame under a camera that did not move, so
+                // its probes never lived to be traced). Such an entry only lets go of the reference.
+                const bool owns = uint( owner.w ) < radianceCache.shape.x &&
+                     RadianceCacheIndirectionIndex( radianceCache, owner.xyz, uint( owner.w ) ) == entry;
+                if ( owns )
+                {
+                    const int slot = atomicAdd( radianceCacheFreeList[0], 1 );
+                    // A full list means it already holds a doubled slot: the push would land on the failed-
+                    // allocation words or past the buffer, where a pop reads slot 0. It is dropped instead.
+                    if ( slot < int( MaxProbes ) )
+                        radianceCacheFreeList[1 + slot] = int( probe );
+                    else
+                        atomicAdd( radianceCacheFreeList[0], -1 );
+                }
             }
         }
     }
