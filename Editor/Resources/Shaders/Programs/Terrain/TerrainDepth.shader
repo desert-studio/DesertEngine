@@ -20,7 +20,7 @@ Shader "TerrainDepth"
     State
     {
         Topology Triangles
-        Cull None
+        Cull Back
         ZTest Less
         ZWrite On
     }
