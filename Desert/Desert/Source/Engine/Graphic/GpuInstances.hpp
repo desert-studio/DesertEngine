@@ -48,9 +48,10 @@ namespace Desert::Graphic
     // argument stream per pipeline bin, ONE DrawIndexedIndirectCount per bin, the per-draw data fetched by the
     // draw's index instead of bound per section). A bin is one (pass, phase, cell template, mesh) of the
     // GPU-instanced queue. Programs/Grass/GrassDrawCompact.shader walks the frame's entries - per entry a run of
-    // one producer list's records (its Args, a phase's or a cascade's copy) - and appends each record whose
-    // instanceCount is non-zero to its bin: the record at the bin's next slot of Commands, the address of the
-    // entry's draw row at the same slot of DrawRows, the bin's count in Counts. MeshRenderer draws a bin with one
+    // one producer list's records (its Args, a phase's or a cascade's copy) - and copies each record to its slot
+    // of the bin's run of Commands, the address of the entry's draw row to the same slot of DrawRows, and adds
+    // the run to the bin's count in Counts (fixed slots in the per-variety path's order, empty records kept:
+    // GpuDrawCompactEntry). MeshRenderer draws a bin with one
     // Renderer::RenderMeshIndirectCount (maxDrawCount = the bin's Capacity, stride kGpuDrawBinCommandBytes); its
     // vertex stage reads the draw's row through the push field DrawRows (DrawPushFields::DrawRows: the address of
     // the bin's first slot of DrawRows) at [gl_DrawIDARB] (Common/GpuInstanceDrawRow.glslh).
@@ -91,10 +92,12 @@ namespace Desert::Graphic
     };
     static_assert( sizeof( GpuInstanceDrawRow ) == 80, "GpuInstanceDrawRow mirrors the std430 GLSL struct" );
 
-    // One compaction entry (std430, 32 bytes; GrassDrawCompact.shader CompactEntry): Count records from Records
-    // at Stride bytes apart (a strip's level records: kGpuInstanceArgsRecordBytes; a mesh's LOD groups: a group's
-    // bytes) appended to bin Bin, whose slots start at BinFirstSlot. The CPU sizes every bin to the sum of its
-    // entries' Count, so an append never passes it.
+    // One gather entry (std430, 32 bytes; Programs/Grass/GrassDrawCompact.shader CompactEntry): Count records
+    // from Records at Stride bytes apart (a strip's level records: kGpuInstanceArgsRecordBytes; a mesh's LOD
+    // groups: a group's bytes), copied to slots FirstSlot .. FirstSlot + Count - 1 of bin Bin, and Count added to
+    // the bin's drawn count. The CPU lays the entries of a bin out end to end in the per-variety path's draw
+    // order, so a bin draws its records in that order (the picture stays the same); an empty record is an empty
+    // draw of the GPU's front end.
     struct GpuDrawCompactEntry
     {
         uint64_t Records      = 0; // device address of the run's first VkDrawIndexedIndirectCommand
@@ -102,7 +105,7 @@ namespace Desert::Graphic
         uint32_t Count        = 0;
         uint32_t Stride       = 0;
         uint32_t Bin          = 0;
-        uint32_t BinFirstSlot = 0;
+        uint32_t FirstSlot    = 0;
     };
     static_assert( sizeof( GpuDrawCompactEntry ) == 32, "GpuDrawCompactEntry mirrors the std430 GLSL struct" );
 
