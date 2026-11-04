@@ -1084,8 +1084,12 @@ namespace Desert::Graphic
         m_FrameLocalShadows = &scene.GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
         m_FrameDistanceFields = &scene.GetDistanceFields();
-        // The scene's deformation contacts, which this view's deformation field applies.
-        m_FrameDeformation = &scene.GetDeformation();
+        // The scene's deformation contacts this view's field has not taken, copied by value here (the game thread,
+        // after the scene's Join): the job applies the copy while the next tick submits to the log. A reflection
+        // capture's face keeps no field (AddFrameDeformationField), so it copies nothing.
+        if ( !m_ViewProfile.SceneCapture )
+            m_DeformationField.CaptureContacts( scene.GetDeformation() );
+        m_FrameDeformationCaptured = true;
         // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
         m_FrameSurfaceCache = &scene.GetSurfaceCache();
 
@@ -3028,7 +3032,7 @@ namespace Desert::Graphic
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
-        m_FrameDeformation        = nullptr;
+        m_FrameDeformationCaptured = false;
         m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;

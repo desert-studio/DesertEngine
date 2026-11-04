@@ -1,7 +1,5 @@
 #include <Engine/World/Deformation/DeformationWorld.hpp>
 
-#include <Engine/Core/RenderTask.hpp>
-
 #include <cmath>
 #include <format>
 
@@ -16,10 +14,9 @@ namespace Desert::World
                                                    contact.Stamp, contact.Params.Radius ) );
         if ( !std::isfinite( contact.At.x ) || !std::isfinite( contact.At.y ) || !std::isfinite( contact.At.z ) )
             return Common::MakeError( std::format( "deform: stamp '{}' position is not finite", contact.Stamp ) );
-        // THE LOG IS WHAT THIS WORLD'S VIEWS OF THE PREVIOUS FRAME READ (DeformationFieldRenderer::AddUpdatePasses
-        // on the render task, while the tick runs past them: Scene::OnUpdate). The write waits for them; a
-        // frame without a contact keeps the overlap.
-        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+        // NO FENCE. The render task never reads the log: each view copies what it has not taken at BeginScene
+        // (DeformationFieldRenderer::CaptureContacts, the game thread after the scene's Join), and its job applies
+        // that copy while the tick of the next frame appends here (UE: proxy data handed over by value).
         contact.Sequence = m_Next++;
         m_Log.push_back( std::move( contact ) );
         while ( m_Log.size() > kMaxRetained )

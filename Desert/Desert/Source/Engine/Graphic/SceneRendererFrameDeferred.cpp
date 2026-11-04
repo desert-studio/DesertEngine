@@ -1325,7 +1325,7 @@ namespace Desert::Graphic
     {
         m_DeformationFrame.reset();
         // A reflection capture's face sees the ground as the scene's views do not need it to: no field of its own.
-        if ( m_FrameDeformation == nullptr || m_ViewProfile.SceneCapture )
+        if ( !m_FrameDeformationCaptured || m_ViewProfile.SceneCapture )
             return;
 #if DESERT_DEV_INSTRUMENTS
         const bool wanted = m_DebugView.DeferredDebug == DeferredDebugMode::DeformationField;
@@ -1335,8 +1335,8 @@ namespace Desert::Graphic
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
         // The window follows the UNJITTERED camera position (ViewFrame::CameraPosition), texel-snapped per level.
-        auto field = m_DeformationField.AddUpdatePasses( graph, import, *m_FrameDeformation, frame.CameraPosition,
-                                                         wanted );
+        // The contacts are the copy BeginScene captured (CaptureContacts), not the world's log.
+        auto field = m_DeformationField.AddUpdatePasses( graph, import, frame.CameraPosition, wanted );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Deformation field: {}", field.GetError() );
