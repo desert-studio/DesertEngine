@@ -1,5 +1,6 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Common/Core/Constants.hpp>
@@ -956,6 +957,9 @@ namespace Desert::Core
         // THE FENCE OF THIS WORLD'S PREVIOUS VIEWS: the surface cache, the retire queues and the reflection
         // captures below are what those views read; from here to the end the update writes the renderer's state.
         ::Desert::Engine::RenderTask::Get().Join();
+        // THE MATERIAL HAND-OFF (MaterialInstance, THE RENDER COPY): the parameters this tick wrote while those
+        // views recorded reach the render copies here, before any view of this update reads them.
+        ::Desert::Graphic::MaterialInstance::PublishPending();
         {
             // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
