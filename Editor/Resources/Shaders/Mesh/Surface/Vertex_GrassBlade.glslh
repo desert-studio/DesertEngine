@@ -96,6 +96,17 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 #define GRASS_BLADE_WIND_B m_PushConstants.WindB
 #endif
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
+// GRASS-SHADOW-BINS-1, A CASCADE'S BIN (MeshRenderer::BuildGpuInstancedShadowDraws; UE FInstanceCullingContext per
+// shadow view): the bin's cell carries the cascade's light camera (view-projection, bias, the rule's origin and
+// distance - CasterWindOrigin), the draw row the section's words of it: the split (WindB.w), the ring's inner
+// distance and the origin the cascade thins from (Caster). A per-section draw reads them from its push and camera.
+#ifdef DESERT_SURFACE_DRAW_ROWS
+#define DESERT_CASTER_WIND_SPLIT GRASS_BLADE_WIND_B.w
+#define DESERT_CASTER_WIND_INNER g_GrassDrawRow.Caster.w
+#define GRASS_BLADE_THIN_ORIGIN  g_GrassDrawRow.Caster.xyz
+#else
+#define GRASS_BLADE_THIN_ORIGIN cameraUB.CasterWindOrigin.xyz
+#endif
 // A cached cascade's layers split the blades by the shadow wind distance (CasterWindLayer.glslh).
 #include <Mesh/Surface/CasterWindLayer.glslh>
 #endif
@@ -157,7 +168,7 @@ void main()
         const vec2 thin = unpackHalf2x16( floatBitsToUint( GRASS_BLADE_WIND_B.z ) );
         if ( thin.x > 0.0 && thin.y > 0.0 )
         {
-            const float d     = max( length( model[3].xyz - cameraUB.CasterWindOrigin.xyz ), 1.0 );
+            const float d     = max( length( model[3].xyz - GRASS_BLADE_THIN_ORIGIN ), 1.0 );
             const float at    = max( d, thin.x );
             const float share = GrassThinShare( at, thin.y ) / GrassThinShare( d, thin.y );
             if ( share < 1.0 )

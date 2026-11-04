@@ -17,18 +17,27 @@
 #define DESERT_CASTER_WIND_DROP_NEAR 2u
 #define DESERT_CASTER_WIND_DROP_FAR  4u
 
+// The draw's split and the caster ring's inner distance: push WindB.w and the light camera's ring, unless the
+// including vertex stage reads them per draw (GRASS-SHADOW-BINS-1: a compacted bin's draw row, Vertex_GrassBlade).
+#ifndef DESERT_CASTER_WIND_SPLIT
+#define DESERT_CASTER_WIND_SPLIT m_PushConstants.WindB.w
+#endif
+#ifndef DESERT_CASTER_WIND_INNER
+#define DESERT_CASTER_WIND_INNER cameraUB.CasterWindRing.x
+#endif
+
 // Whether this layer draws the instance at @p instanceOrigin (world cm); @p windA becomes the rest pose's (Strength 0,
 // FoliageWindOffset's "no offset") when the instance casts its rest pose.
 bool DesertCasterWindLayer( const vec3 instanceOrigin, inout vec4 windA )
 {
-    const uint split = floatBitsToUint( m_PushConstants.WindB.w );
+    const uint split = floatBitsToUint( DESERT_CASTER_WIND_SPLIT );
     if ( ( split & DESERT_CASTER_WIND_RULE ) == 0u )
         return true;
     // GpuCull_CastsRestPose's rule (Common/ShadowWind.glslh) on a blade: it sways only with Wind.z > 0, and its
     // origin is its instance point (a blade's bounds centre is its origin at this scale). THE CASTER'S REACH
     // (GPU-FRAME-6, MeshRenderer::ShadowWindInnerOf): nearer than the ring's inner distance its shadow falls on no
     // receiver that samples this cascade, so it casts its rest pose too - from the cached static layer.
-    const float inner = cameraUB.CasterWindRing.x;
+    const float inner = DESERT_CASTER_WIND_INNER;
     const bool  rest  = windA.z > 0.0 &&
                       ( ShadowWindCastsRestPose( instanceOrigin, cameraUB.CasterWindOrigin.xyz,
                                                  cameraUB.CasterWindOrigin.w ) ||

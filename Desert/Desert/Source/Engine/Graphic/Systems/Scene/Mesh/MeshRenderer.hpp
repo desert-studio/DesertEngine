@@ -559,10 +559,11 @@ namespace Desert::Graphic::System
             // do not move (grass: only the wind moves them), the previous world is the world.
             uint32_t PrevInstanceOffset = 0;
             // RENDER-JOB-CPU-4, THE PRODUCER'S COMPACTED BINS (GpuInstances.hpp GpuDrawBinFrame) per phase (0: the
-            // camera's first phase, 1: post-occlusion). A blade section whose phase table is Open draws in it
-            // (MeshRenderer::DrawBinsOf: one RenderMeshIndirectCount per bin, its rows written by MeshRenderer)
-            // unless Debug.Grass "per-variety draws" is on. Null: the section draws per variety.
-            std::array<GpuDrawBinFrame*, 2> DrawBins{};
+            // camera's first phase, 1: post-occlusion, 2: the cascades' casters - GRASS-SHADOW-BINS-1). A blade
+            // section whose phase table is Open draws in it (MeshRenderer::DrawBinsOf / CascadeBinsOf: one
+            // RenderMeshIndirectCount per bin, its rows written by MeshRenderer) unless Debug.Grass "per-variety
+            // draws" is on. Null: the section draws per variety.
+            std::array<GpuDrawBinFrame*, kGpuDrawBinPhases> DrawBins{};
             // A world box every instance lies in, cm, when the producer has one (a particle emitter's fixed
             // Bounds through the entity's transform, VFXBoundsAt): the section is drawn only into the views and the cascades
             // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
@@ -3163,6 +3164,12 @@ namespace Desert::Graphic::System
         // permutation), or a producer without the table or the records' address.
         [[nodiscard]] GpuDrawBinFrame* DrawBinsOf( const GpuInstancedRenderData& gpu, MeshPass pass,
                                                    bool postOcclusion ) const;
+        // GRASS-SHADOW-BINS-1: the cascades' table @p gpu's casters enter (GpuInstancedRenderData::DrawBins[2],
+        // BuildGpuInstancedShadowDraws: one RenderMeshIndirectCount per (cascade x layer x bin)), or null on
+        // DrawBinsOf's terms (per-variety draws, the device, a mesh section, no Open table).
+        [[nodiscard]] GpuDrawBinFrame* CascadeBinsOf( const GpuInstancedRenderData& gpu ) const;
+        // The count line's last words per (cascade x layer) list (BuildGpuInstancedShadowDraws): said on change.
+        std::unordered_map<uint32_t, uint64_t>               m_GrassCasterBinsSaid;
         bool m_GrassPerVarietyDraws = false;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;

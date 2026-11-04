@@ -532,9 +532,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Cull; // GRASS-CULL-2: the camera cull and phase 2 (GrassCull.shader)
         mutable ShaderBindingLayoutCache m_GenerateLayout;
-        // RENDER-JOB-CPU-4, THE COMPACTED BINS' GATHER (Programs/Grass/GrassDrawCompact.shader) and its two phase
-        // tables (GpuDrawBinFrame: 0 the camera's first phase, 1 post-occlusion) with their buffers; every section
-        // hands MeshRenderer the tables (GpuInstancedRenderData::DrawBins).
+        // RENDER-JOB-CPU-4, THE COMPACTED BINS' GATHER (Programs/Grass/GrassDrawCompact.shader) and its phase
+        // tables (GpuDrawBinFrame: 0 the camera's first phase, 1 post-occlusion, 2 the cascades' casters -
+        // GRASS-SHADOW-BINS-1) with their buffers; every section hands MeshRenderer the tables
+        // (GpuInstancedRenderData::DrawBins).
         struct DrawBinBuffers
         {
             std::shared_ptr<ShaderResources::StorageBuffer> Commands, Slots, Counts; // device-local, kept
@@ -542,8 +543,8 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer CommandsImport, SlotsImport, CountsImport, EntriesImport;
             RDG::BufferRef      EntriesRef;
         };
-        std::array<GpuDrawBinFrame, 2>   m_DrawBins{};
-        std::array<DrawBinBuffers, 2>    m_DrawBinBuffers{};
+        std::array<GpuDrawBinFrame, kGpuDrawBinPhases> m_DrawBins{};
+        std::array<DrawBinBuffers, kGpuDrawBinPhases>  m_DrawBinBuffers{};
         std::shared_ptr<ComputePipeline> m_DrawCompact;
         mutable ShaderBindingLayoutCache m_DrawCompactLayout;
         // Opens phase @p phase's table (its buffers grown to this frame's varieties, in the graph) and adds its

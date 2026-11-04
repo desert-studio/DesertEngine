@@ -1939,6 +1939,7 @@ namespace Desert::Graphic::System
                 gpu->CascadeRefs.Instances = gpu->Refs.Instances;
                 gpu->CascadeRefs.Ids       = graph.RegisterExternal( gpu->CascadeIdsImport, "GrassCascadeIds" );
                 gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
+                gpu->CascadeRefs.ArgsAddress = BufferAddress( gpu->CascadeArgs ); // the cascades' bins gather them
                 gpu->FieldRef              = fieldGpu.Ref;
                 gpu->FieldBuffer           = fieldGpu.Buffer;
                 gpu->TilePoolRef           = graph.RegisterExternal( gpu->TilePoolImport, "GrassTileSegments" );
@@ -2074,7 +2075,8 @@ namespace Desert::Graphic::System
                            // The grass stands still but for the wind: a cached cascade keeps its rest pose.
                            .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
                                 .Generation = gpu->Generation, .Reach = gpu->Reach } } );
-                    sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1] }; // RENDER-JOB-CPU-4
+                    // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
+                    sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
                 }
                 // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                 // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
@@ -2316,8 +2318,13 @@ namespace Desert::Graphic::System
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return DispatchOneGroup( context, *m_Cull, &finalize, sizeof( finalize ) ); } );
             // RENDER-JOB-CPU-4: the first phase's compacted bins, gathered from the records just finalized.
-            if ( const Common::BoolResultStr gathered = AddDrawGather( graph, 0u ); !gathered )
+            if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCameraPhase ); !gathered )
                 LOG_ERROR( "[Grass] the grass draws per variety this frame: {}", gathered.GetError() );
+            // GRASS-SHADOW-BINS-1: the cascades' casters, gathered from the cascade lists the same finalize wrote
+            // (and the full list a list-less cascade draws).
+            if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCascadesPhase );
+                 !gathered )
+                LOG_ERROR( "[Grass] the grass casts per variety this frame: {}", gathered.GetError() );
         }
 
         // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
@@ -2583,18 +2590,34 @@ namespace Desert::Graphic::System
             // The records the entries copy, by address: every list of the phase the varieties' culls wrote.
             for ( const VarietyGpu* gpu : m_FrameCull )
             {
-                if ( phase == 0u )
+                if ( phase == kGpuDrawBinCameraPhase )
                 {
                     pass.Read( gpu->CameraRefs.Args, RDG::Access::StorageRead );
+                    pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
+                }
+                else if ( phase == kGpuDrawBinCascadesPhase )
+                {
+                    // A cascade's own list (its records and their rest twins) or the full list it draws without
+                    // one.
+                    pass.Read( gpu->CascadeRefs.Args, RDG::Access::StorageRead );
                     pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
                 }
                 else
                     pass.Read( gpu->PostRefs.Args, RDG::Access::StorageRead );
             }
         };
-        const std::string clearName =
-             phase == 0u ? "Grass: Draw Gather Clear" : "Grass: Draw Gather Clear Post-Occlusion";
-        const std::string gatherName = phase == 0u ? "Grass: Draw Gather" : "Grass: Draw Gather Post-Occlusion";
+        std::string clearName  = "Grass: Draw Gather Clear";
+        std::string gatherName = "Grass: Draw Gather";
+        if ( phase == kGpuDrawBinPostPhase )
+        {
+            clearName += " Post-Occlusion";
+            gatherName += " Post-Occlusion";
+        }
+        else if ( phase == kGpuDrawBinCascadesPhase )
+        {
+            clearName += " Cascades";
+            gatherName += " Cascades";
+        }
         graph.AddPass( clearName, RDG::PassFlags::Compute, declare,
                        [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
                        {

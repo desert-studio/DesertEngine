@@ -63,6 +63,12 @@ namespace Desert::Graphic
          kGpuInstanceArgsRecordBytes;                    // VkDrawIndexedIndirectCommand
     inline constexpr uint64_t kGpuDrawBinRowBytes   = 8; // a GpuInstanceDrawRow address
     inline constexpr uint64_t kGpuDrawBinCountBytes = 4; // a bin's drawn count
+    // The phase tables of one frame (GpuDrawBinFrame): 0 the camera's first phase, 1 post-occlusion, 2 the
+    // cascades' casters (GRASS-SHADOW-BINS-1; every cascade x layer list of the frame, end to end).
+    inline constexpr uint32_t kGpuDrawBinCameraPhase   = 0;
+    inline constexpr uint32_t kGpuDrawBinPostPhase     = 1;
+    inline constexpr uint32_t kGpuDrawBinCascadesPhase = 2;
+    inline constexpr size_t   kGpuDrawBinPhases        = 3;
 
     // The lists of one producer a draw row describes: the camera's (CameraIds, both phases), the full list
     // (FullIds: the cascades without a list of their own, RT), the cascades' own (CascadeIds, list k's records at
@@ -76,7 +82,7 @@ namespace Desert::Graphic
     };
     inline constexpr uint32_t kGpuInstanceDrawLists = static_cast<uint32_t>( GpuInstanceDrawList::Count );
 
-    // ONE DRAW ROW (std430, 80 bytes; Common/GpuInstanceDrawRow.glslh GpuInstanceDrawRow): what the per-variety
+    // ONE DRAW ROW (std430, 96 bytes; Common/GpuInstanceDrawRow.glslh GpuInstanceDrawRow): what the per-variety
     // path bound or pushed per section (MeshRendererGpuInstanced.cpp bindRecord's slots b17 / b18 / b13 and the
     // mesh visibility rows, addBuckets' MaterialIndex / Wind / PrimitiveFlags), by device address or by value.
     // Written by the producer when a word moves (a buffer re-created, the material row re-claimed, the wind
@@ -93,8 +99,12 @@ namespace Desert::Graphic
         uint32_t  Reserved1      = 0;
         glm::vec4 WindA{ 0.0f }; // PackViewInstanceWind( Wind, PrevInstanceOffset ).A
         glm::vec4 WindB{ 0.0f }; // .B
+        // GRASS-SHADOW-BINS-1, a cascade caster's (the per-section path's light camera words that are the
+        // section's, not the cascade's): xyz the origin the cascade thins the blades from (CasterWindOrigin, or a
+        // still section's ThinOrigin), w the caster ring's inner distance (ShadowWindInnerOf; CasterWindRing.x).
+        glm::vec4 Caster{ 0.0f };
     };
-    static_assert( sizeof( GpuInstanceDrawRow ) == 80, "GpuInstanceDrawRow mirrors the std430 GLSL struct" );
+    static_assert( sizeof( GpuInstanceDrawRow ) == 96, "GpuInstanceDrawRow mirrors the std430 GLSL struct" );
 
     // One gather entry (std430, 32 bytes; Programs/Grass/GrassDrawCompact.shader CompactEntry): Count records
     // from Records at Stride bytes apart (a strip's level records: kGpuInstanceArgsRecordBytes; a mesh's LOD
@@ -125,16 +135,18 @@ namespace Desert::Graphic
 
     // RENDER-JOB-CPU-4, ONE PHASE'S BINS OF ONE FRAME. The producer (GrassRenderer) owns the buffers and adds the
     // phase's gather ("Grass: Draw Gather" after "Grass: Camera Cull Finalize", "Grass: Draw Gather
-    // Post-Occlusion" after the post-occlusion finalize), whose setup opens the table (Open, the capacities, Refs,
-    // the addresses); MeshRenderer fills it while it builds the phase's lists in the draw passes' setups
-    // (BuildGpuInstancedDraws), which RDG::Builder::AddPass runs at once, so every entry is in before the gather
-    // EXECUTES: it uploads Entries and Rows (this frame's copies) and runs Programs/Grass/GrassDrawCompact.shader
-    // over them. A list that would pass a capacity is refused (said once); Overflow grows the buffers next frame.
+    // Post-Occlusion" after the post-occlusion finalize, "Grass: Draw Gather Cascades" after the camera's for the
+    // cascades' casters), whose setup opens the table (Open, the capacities, Refs, the addresses); MeshRenderer
+    // fills it while it builds the phase's lists in the draw passes' setups (BuildGpuInstancedDraws,
+    // BuildGpuInstancedShadowDraws), which RDG::Builder::AddPass runs at once, so every entry is in before the
+    // gather EXECUTES: it uploads Entries and Rows (this frame's copies) and runs
+    // Programs/Grass/GrassDrawCompact.shader over them. A list that would pass a capacity is refused (said once);
+    // Overflow grows the buffers next frame.
     struct GpuDrawBinFrame
     {
         GpuDrawBinRefs Refs;              // the bins' buffers in this frame's graph (valid while Open)
         uint64_t       SlotsAddress = 0;  // device address of Refs.DrawRows' slot 0 (a bin's push: + its slot x 8)
-        uint64_t       RowsAddress  = 0;  // device address of this frame's row 0 (an entry's DrawRow: + row x 80)
+        uint64_t       RowsAddress   = 0;  // device address of this frame's row 0 (an entry's DrawRow: + row x 96)
         uint32_t       SlotCapacity  = 0; // Refs.Commands / Refs.DrawRows slots
         uint32_t       EntryCapacity = 0; // entries, and rows (one row per section and list at most)
         uint32_t       BinCapacity   = 0; // Refs.Counts words

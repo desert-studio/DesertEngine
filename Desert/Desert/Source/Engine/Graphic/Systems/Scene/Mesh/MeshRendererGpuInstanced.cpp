@@ -203,6 +203,19 @@ namespace Desert::Graphic::System
         return bins;
     }
 
+    GpuDrawBinFrame* MeshRenderer::CascadeBinsOf( const GpuInstancedRenderData& gpu ) const
+    {
+        if ( m_GrassPerVarietyDraws || gpu.Path != MeshVertexPath::GrassBlade )
+            return nullptr;
+        const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+        if ( !capabilities.SupportsDrawIndirectCount || !capabilities.SupportsShaderDrawParameters )
+            return nullptr;
+        GpuDrawBinFrame* const bins = gpu.DrawBins[kGpuDrawBinCascadesPhase];
+        if ( bins == nullptr || !bins->Open )
+            return nullptr;
+        return bins;
+    }
+
     MeshRenderer::GpuInstancedDrawRecord* MeshRenderer::GpuInstancedDrawOf( const GpuInstancedRenderData& gpu,
                                                                             const MeshPass                pass,
                                                                             GraphicsPipeline* const       carrier,
@@ -819,6 +832,34 @@ namespace Desert::Graphic::System
         // it, every instance then casting its rest pose into the static layer and none left for the movable one.
         const glm::vec4 viewWind  = CasterWindOrigin( shadowView );
         const bool      viewSways = viewWind.w > 0.0f;
+        // GRASS-SHADOW-BINS-1, THE CASCADE'S BINS (UE FInstanceCullingContext per shadow view: one indirect args
+        // buffer per mesh draw command bin, the view's constants from one view uniform): a blade section whose
+        // cascades' table is Open (CascadeBinsOf) adds its parts' records to the bin of its (template, strip mesh,
+        // ids) instead of drawing them; the bin's cell carries this list's light camera (the cascade's
+        // view-projection, bias, the rule's origin and distance), each part's draw row the section's words (its
+        // buffers, material row, wind with the split and the thinning, the thinning's origin, the ring's inner
+        // distance). After the walk each bin is ONE RenderMeshIndirectCount. A section the bins refuse this frame
+        // (a capacity, an address, the bin's pipeline not Ready yet) casts per section, as before.
+        struct CasterBin
+        {
+            const DataDrivenMaterial* Parent     = nullptr;
+            Desert::Mesh*             Mesh       = nullptr;
+            bool                      ThroughIds = false;
+            DataDrivenMaterial*       Cell       = nullptr;
+            GraphicsPipeline*         Pipeline   = nullptr;
+            GpuDrawBinFrame*          Table      = nullptr;
+            uint32_t                  Index      = 0;
+            uint32_t                  Slots      = 0;
+            std::vector<uint32_t>     Entries{};
+        };
+        std::vector<CasterBin> casterBins;
+        uint32_t               listSlots       = 0;
+        uint32_t               binnedSections  = 0;
+        uint32_t               perSectionDraws = 0;
+        // One bin cell per (template x cascade x layer): the static layer and the movers over it draw from light
+        // cameras of their own (the cascade's and its movable view's), as the per-section cells do.
+        const uint32_t binLayer = layer == ShadowCasterLayer::Movable ? kCascadeViews : 0u;
+        const uint32_t binView  = kGpuInstancedViewBase + 0x0C000000u + binLayer + c;
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
             if ( !gpu.CastShadows )
@@ -890,6 +931,145 @@ namespace Desert::Graphic::System
             if ( ownList )
                 listIds = gpu.CascadeIds;
             const bool          throughIds = listIds != nullptr;
+
+            // THE SECTION IN THE CASCADE'S BIN (GRASS-SHADOW-BINS-1): the words the per-section path below writes
+            // into its own cell's light camera and push, written into the part's draw row instead.
+            const auto binCasts = [&]( GpuDrawBinFrame& table ) -> bool
+            {
+                const GpuInstanceRefs&        partRefs = ownList ? *gpu.CascadeRefs : *gpu.Refs;
+                const std::optional<uint32_t> partRow  = FindMaterialRow( parent, gpu.Material.get() );
+                if ( partRefs.ArgsAddress == 0u || !partRow || parent == nullptr || !materials->Owns( parent ) )
+                    return false;
+                glm::vec4 thinOrigin = viewWind;
+                if ( still && !sways && gpu.ShadowLod.Levels != 0u )
+                    thinOrigin = glm::vec4( gpu.ShadowLod.ThinOrigin, viewWind.w );
+                GpuInstanceDrawRow drawRow{};
+                drawRow.Instances   = AddressOf( gpu.Instances );
+                drawRow.Ids         = throughIds ? AddressOf( listIds ) : uint64_t{ 0 };
+                drawRow.BladeShape  = AddressOf( gpu.BladeShape );
+                drawRow.MaterialRow = *partRow;
+                drawRow.Caster      = glm::vec4( glm::vec3( thinOrigin ), inner );
+                if ( drawRow.Instances == 0u || drawRow.BladeShape == 0u || ( throughIds && drawRow.Ids == 0u ) )
+                    return false;
+                // The drawn strip levels (submesh b = record b of the cascade's set) and their runs.
+                const uint64_t hidden    = gpu.HiddenSubmeshes;
+                const uint32_t submeshes = std::min( BucketsOf( gpu ), 64u );
+                const auto     shown     = [hidden]( const uint32_t b ) { return ( ( hidden >> b ) & 1u ) == 0u; };
+                uint32_t       drawn = 0u, runs = 0u;
+                for ( uint32_t b = 0u; b < submeshes; ++b )
+                    if ( shown( b ) )
+                    {
+                        ++drawn;
+                        if ( b == 0u || !shown( b - 1u ) )
+                            ++runs;
+                    }
+                const uint32_t parts = ( drawsRecords ? 1u : 0u ) + ( drawsTwins ? 1u : 0u );
+                if ( parts == 0u || drawn == 0u )
+                    return true; // nothing of it casts here, as its per-section draws would draw nothing
+                CasterBin* bin = nullptr;
+                for ( CasterBin& candidate : casterBins )
+                    if ( candidate.Parent == parent && candidate.Mesh == gpu.Mesh &&
+                         candidate.ThroughIds == throughIds )
+                        bin = &candidate;
+                if ( table.Rows.size() + parts > table.EntryCapacity ||
+                     table.Entries.size() + parts * runs > table.EntryCapacity ||
+                     table.Slots + listSlots + parts * drawn > table.SlotCapacity ||
+                     ( bin == nullptr && table.Bins >= table.BinCapacity ) )
+                {
+                    table.Overflow = true; // the producer grows the table at its next frame
+                    return false;
+                }
+                if ( bin == nullptr )
+                {
+                    DataDrivenMaterial* const cell =
+                         materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, binView,
+                                                    InstanceDrawPermutation( throughIds, false, true ), this );
+                    if ( cell == nullptr )
+                        return false;
+                    GraphicsPipeline* const binPipeline = MaskedCasterPipeline( *cell, gpu.Path, casterStates );
+                    if ( binPipeline == nullptr || binPipeline->GetReadiness() != PipelineReadiness::Ready )
+                        return false; // still in the driver: the section casts per section until it is Ready
+                    // The list's light camera, once per bin: the rule's origin and distance are the cascade's; the
+                    // ring and the thinning's origin are each draw's (its row's Caster).
+                    WriteLightCamera( *cell, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
+                                      m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind,
+                                      glm::vec4( 0.0f ) );
+                    if ( !LendMaterialTable( *cell ) )
+                        return false;
+                    casterBins.push_back( { .Parent     = parent,
+                                            .Mesh       = gpu.Mesh,
+                                            .ThroughIds = throughIds,
+                                            .Cell       = cell,
+                                            .Pipeline   = binPipeline,
+                                            .Table      = &table,
+                                            .Index      = table.Bins } );
+                    ++table.Bins;
+                    table.BinReads.emplace_back();
+                    table.BinReads.back().push_back( table.Refs.DrawRows ); // the slots, read by address
+                    bin = &casterBins.back();
+                }
+                std::vector<RDG::BufferRef>& reads = table.BinReads[bin->Index];
+                reads.push_back( partRefs.Instances ); // the transforms and the ids, read by address from the row
+                if ( partRefs.Ids.IsValid() )
+                    reads.push_back( partRefs.Ids );
+                const uint64_t partListBytes =
+                     ownList ? static_cast<uint64_t>( std::popcount( gpu.CascadeMask & ( ( 1u << c ) - 1u ) ) ) *
+                                    gpu.CascadeArgBytes
+                             : 0u;
+                const BladeCasterLod partSet = BladeShadowSet( gpu, c );
+                const uint64_t   base = partRefs.ArgsAddress + partListBytes + LevelArgsOffset( gpu, partSet.Set );
+                InstanceWindPush partWind = PackInstanceWind( gpu.Wind );
+                partWind.B.w              = std::bit_cast<float>( split );
+                uint32_t thinWord         = 0u;
+                if ( partSet.ThinFrom > 0.0f )
+                    thinWord = glm::packHalf2x16( glm::vec2( std::min( partSet.ThinFrom, 65000.0f ),
+                                                             std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) );
+                partWind.B.z          = std::bit_cast<float>( thinWord );
+                const auto addPartRow = [&]( const uint64_t shift, const glm::vec4& windA )
+                {
+                    drawRow.WindA = windA;
+                    drawRow.WindB = partWind.B;
+                    const uint64_t rowAddress =
+                         table.RowsAddress + table.Rows.size() * sizeof( GpuInstanceDrawRow );
+                    table.Rows.push_back( drawRow );
+                    uint32_t b = 0u;
+                    while ( b < submeshes )
+                    {
+                        if ( !shown( b ) )
+                        {
+                            ++b;
+                            continue;
+                        }
+                        uint32_t runEnd = b + 1u;
+                        while ( runEnd < submeshes && shown( runEnd ) )
+                            ++runEnd;
+                        GpuDrawCompactEntry entry{};
+                        entry.Records   = base + shift + kGpuInstanceArgsRecordBytes * static_cast<uint64_t>( b );
+                        entry.DrawRow   = rowAddress;
+                        entry.Count     = runEnd - b;
+                        entry.Stride    = static_cast<uint32_t>( kGpuInstanceArgsRecordBytes );
+                        entry.Bin       = bin->Index;
+                        entry.FirstSlot = bin->Slots;
+                        bin->Slots += entry.Count;
+                        listSlots += entry.Count;
+                        bin->Entries.push_back( static_cast<uint32_t>( table.Entries.size() ) );
+                        table.Entries.push_back( entry );
+                        b = runEnd;
+                    }
+                };
+                if ( drawsRecords )
+                    addPartRow( 0u, partWind.A );
+                if ( drawsTwins )
+                    addPartRow( gpu.CascadeRestShift, glm::vec4( 0.0f ) ); // the rest pose's wind (Strength 0)
+                return true;
+            };
+            if ( GpuDrawBinFrame* const cascadeBins = CascadeBinsOf( gpu ); cascadeBins != nullptr )
+                if ( binCasts( *cascadeBins ) )
+                {
+                    ++binnedSections;
+                    continue;
+                }
+
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
                       ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view,
@@ -969,6 +1149,49 @@ namespace Desert::Graphic::System
                 addPart( 0u, wind );
             if ( drawsTwins )
                 addPart( gpu.CascadeRestShift, restWind );
+            perSectionDraws += ( drawsRecords ? 1u : 0u ) + ( drawsTwins ? 1u : 0u );
+        }
+
+        // THE CASCADE'S BINS' DRAWS (GRASS-SHADOW-BINS-1): each bin's slots after the table's earlier lists', one
+        // indirect-count draw per bin (the count the gather sums).
+        uint32_t binDraws = 0u;
+        for ( CasterBin& bin : casterBins )
+        {
+            if ( bin.Slots == 0u )
+                continue;
+            GpuDrawBinFrame& table     = *bin.Table;
+            const uint32_t   firstSlot = table.Slots;
+            table.Slots += bin.Slots;
+            for ( const uint32_t e : bin.Entries )
+                table.Entries[e].FirstSlot += firstSlot;
+            const std::vector<RDG::BufferRef>& reads = table.BinReads[bin.Index];
+            const uint64_t                     rowSlots =
+                 table.SlotsAddress + static_cast<uint64_t>( firstSlot ) * kGpuDrawBinRowBytes;
+            list.Add( { .Pipeline            = bin.Pipeline,
+                        .Mesh                = bin.Mesh,
+                        .Transform           = glm::mat4( 1.0f ),
+                        .Material            = bin.Cell->GetMaterialExecutor(),
+                        .HiddenSubmeshMask   = SubmeshMask( ~uint64_t{ 1 } ),
+                        .IndirectArgs        = table.Refs.Commands,
+                        .IndirectArgsOffset  = static_cast<uint64_t>( firstSlot ) * kGpuDrawBinCommandBytes,
+                        .IndirectLevels      = 1u,
+                        .IndirectCount       = table.Refs.Counts,
+                        .IndirectCountOffset = static_cast<uint64_t>( bin.Index ) * kGpuDrawBinCountBytes,
+                        .IndirectMaxDraws    = bin.Slots,
+                        .AddressedReads      = std::span<const RDG::BufferRef>( reads.data(), reads.size() ),
+                        .Push                = DrawPushFields{}.DrawRows( rowSlots ).PrimitiveFlags( 0u ) } );
+            ++binDraws;
+        }
+        // The count line (said when a list's draws change): the lead greps "[Shadows] grass casters".
+        const uint32_t listKey   = ( static_cast<uint32_t>( layer ) << 8u ) | shadowView;
+        const uint64_t words     = ( uint64_t{ binDraws } << 32u ) | perSectionDraws;
+        const auto said = m_GrassCasterBinsSaid.try_emplace( listKey, ~uint64_t{ 0 } ).first;
+        if ( said->second != words )
+        {
+            said->second = words;
+            LOG_INFO( "[Shadows] grass casters, view {} layer {}: {} indirect-count draws (bins) for {} sections, "
+                      "{} per-section draws",
+                      shadowView, static_cast<uint32_t>( layer ), binDraws, binnedSections, perSectionDraws );
         }
         return pending;
     }
