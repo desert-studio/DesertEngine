@@ -431,6 +431,8 @@ namespace Desert::Graphic::System
         // rasters draw (TerrainGBuffer, the forward depth prepass and base pass). The casters, the dice pool and
         // the virtual shadow map keep m_FrameDraws: a tile outside the view still casts into it.
         std::vector<FrameDraw>       m_ViewDraws;
+        // The triangle count of m_ViewDraws PrepareFrame last logged (TERRAIN-LOD-1's census of the ground).
+        uint64_t m_LoggedViewTriangles = 0u;
         // THE VIRTUAL SHADOW MAP'S CASTER (TURN-CACHE-2; UE: a cached VSM page is invalidated by a caster change,
         // never by the camera's step): per queued tile, under Shadows.Method VirtualMaps, the row and draw "VSM:
         // Raster" draws - the camera's tile, LOD and dice rings, with the displacement faded from m_VsmAnchor

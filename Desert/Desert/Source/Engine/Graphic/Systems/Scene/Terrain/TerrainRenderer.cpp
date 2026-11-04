@@ -89,8 +89,9 @@ namespace Desert::Graphic::System
         // whether the rings reach one. A patch's box is its samples' square over the tile's undisplaced slab,
         // grown by what moves a vertex off it: the LOD snap and morph across (a vertex snaps down to its LOD's
         // grid and morphs down to the next one, LandscapeLod.glslh: less than two cells of the coarsest grid any
-        // vertex of the tile takes - the tile's LOD, its borders' and its corners'), and the displacement's reach
-        // along the normal every way ((height - Center) x Magnitude never leaves +-Magnitude, TileViewBox's rule).
+        // vertex of the tile takes - its sections' LODs and their neighbours' across its borders), and the
+        // displacement's reach along the normal every way ((height - Center) x Magnitude never leaves +-Magnitude,
+        // TileViewBox's rule).
         constexpr int32_t kStripPatchCells = 16;
 
         struct StripPatches
@@ -110,8 +111,8 @@ namespace Desert::Graphic::System
             const int32_t gridLod = std::clamp( static_cast<int32_t>( row.Params.w ), 0, 16 );
             const int32_t stride  = 1 << gridLod;
             float         lodMax  = std::max( row.Params.y, 0.0f );
-            for ( glm::length_t k = 0; k < 4; ++k )
-                lodMax = std::max( { lodMax, row.LodEdges[k], row.LodCorners[k] } );
+            for ( const glm::vec4& lods : row.SectionLods ) // its sections' and the neighbours' across its borders
+                lodMax = std::max( { lodMax, lods.x, lods.y, lods.z, lods.w } );
             const int32_t morphLod     = static_cast<int32_t>( std::floor( std::min( lodMax, 16.0f ) ) ) + 1;
             const float   morphSamples = std::ldexp( 1.0f, morphLod );
             const float   reach        = std::max( row.Displacement.x, 0.0f );
@@ -187,17 +188,18 @@ namespace Desert::Graphic::System
 
         // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
         // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
-        // half is the tile's LandscapeTileLods; the grid it is drawn with is the floor of its own LOD, and
-        // every vertex morphs from there by its blended one (LandscapeLod.glslh).
-        TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod,
+        // half is the tile's sections' table (LandscapeSectionLodsOf); the tile's grid is the floor of its finest
+        // section's LOD, each section's raster draw the floor of its own (LandscapeDrawSplitOf), and every vertex
+        // morphs from there by its blended one (LandscapeVertexEval.glslh LandscapeVertexLod).
+        TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeSectionLodTable& lod,
                                            const TerrainLayerInputs& layers )
         {
             const LandscapeTileDraw& l = t.Landscape;
 
             TerrainInstance instance;
             instance.Params =
-                 glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
-                            static_cast<float>( t.Weights.VisibilityLayer + 1 ), std::floor( lod.Center ) );
+                 glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Finest,
+                            static_cast<float>( t.Weights.VisibilityLayer + 1 ), std::floor( lod.Finest ) );
             instance.Params2        = glm::vec4(
                  1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), static_cast<float>( t.Weights.LayerCount ),
                  static_cast<float>( World::Landscape::LandscapeWeightmapPageCount( t.Weights.LayerCount ) ),
@@ -207,8 +209,10 @@ namespace Desert::Graphic::System
             instance.LandscapeTile =
                  glm::vec4( static_cast<float>( l.FirstSampleX ), static_cast<float>( l.FirstSampleZ ),
                             static_cast<float>( l.QuadsPerTile ), l.ZScale );
-            instance.LodEdges   = lod.Edges;
-            instance.LodCorners = lod.Corners;
+            instance.Sections        = glm::vec4( static_cast<float>( LandscapeSectionQuads( l.QuadsPerTile ) ),
+                                                  static_cast<float>( LandscapeSectionCount( l.QuadsPerTile ) ),
+                                                  static_cast<float>( LandscapeSectionMaxLod( l.QuadsPerTile ) ), 0.0f );
+            instance.SectionLods     = lod.Lods;
             instance.LayerColors     = t.Weights.Colors;
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
             instance.GrassCover      = t.Weights.GrassCover;
@@ -539,18 +543,37 @@ namespace Desert::Graphic::System
             return { l.OriginX, l.OriginZ, l.FirstSampleX / quads + dx, l.FirstSampleZ / quads + dz };
         }
 
-        // The tile's continuous LOD for @p view (the main camera, or a point/spot light: LocalShadowCasterLight):
-        // its bounding sphere's screen size, UE's way. The sphere holds the tile's full height range, not its
-        // actual heights — a taller sphere only means finer detail sooner.
-        float TileLod( const LandscapeTileDraw& l, const Geometry::LODView& view )
+        // The continuous LOD of each of the tile's sections for @p view (the main camera, or a point/spot light:
+        // LocalShadowCasterLight): its own bounding sphere's screen size, UE's way (a section's LOD0ScreenSize is
+        // its bounds', TERRAIN-LOD-1). The sphere holds the full height range, not the actual heights — a taller
+        // sphere only means finer detail sooner. A one-section tile is the tile's sphere, as before sections.
+        LandscapeSectionLodArray TileSectionLods( const LandscapeTileDraw& l, const Geometry::LODView& view )
         {
-            const float     extent = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
-            const glm::vec3 center(
-                 l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm ) + 0.5f * extent, l.BaseY,
-                 l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm ) + 0.5f * extent );
-            const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
-            return LandscapeLodFromScreenSize( MakeLandscapeLodSettings( l.QuadsPerTile ),
-                                               Geometry::BoundsScreenRadiusSquared( center, radius, view ) );
+            const uint32_t             quads    = std::max( l.QuadsPerTile, 1u );
+            const uint32_t             sq       = LandscapeSectionQuads( quads );
+            const uint32_t             sections = LandscapeSectionCount( quads );
+            const LandscapeLodSettings settings = MakeLandscapeLodSettingsTo( LandscapeSectionMaxLod( quads ) );
+            const float                tileX    = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
+            const float                tileZ    = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
+            LandscapeSectionLodArray   lods{};
+            for ( uint32_t sz = 0; sz < sections; ++sz )
+            {
+                for ( uint32_t sx = 0; sx < sections; ++sx )
+                {
+                    const uint32_t  x0      = sx * sq;
+                    const uint32_t  z0      = sz * sq;
+                    const float     extentX = static_cast<float>( std::min( x0 + sq, quads ) - x0 ) * l.SpacingCm;
+                    const float     extentZ = static_cast<float>( std::min( z0 + sq, quads ) - z0 ) * l.SpacingCm;
+                    const glm::vec3 center( tileX + static_cast<float>( x0 ) * l.SpacingCm + 0.5f * extentX,
+                                            l.BaseY,
+                                            tileZ + static_cast<float>( z0 ) * l.SpacingCm + 0.5f * extentZ );
+                    const float     radius =
+                         glm::length( glm::vec3( 0.5f * extentX, 256.0f * l.ZScale, 0.5f * extentZ ) );
+                    lods[sz * kLandscapeMaxSections + sx] = LandscapeLodFromScreenSize(
+                         settings, Geometry::BoundsScreenRadiusSquared( center, radius, view ) );
+                }
+            }
+            return lods;
         }
 
         // Does the tile's ground (XZ) footprint meet the disc of @p radius around @p centre? Its heights are not
@@ -565,19 +588,18 @@ namespace Desert::Graphic::System
             return glm::dot( d, d ) <= radius * radius;
         }
 
-        using TileLodMap = std::unordered_map<TileKey, float, TileKeyHash>;
+        using TileLodMap = std::unordered_map<TileKey, LandscapeSectionLodArray, TileKeyHash>;
 
-        // A tile's LOD and its borders' for one view, from that view's LODs of every tile it draws (a neighbour
-        // the view does not draw has nothing to agree with: nullopt).
-        LandscapeTileLod TileLodsOf( const LandscapeTileDraw& l, const TileLodMap& lods )
+        // A tile's section table for one view, from that view's section LODs of every tile it draws (a neighbour
+        // the view does not draw has nothing to agree with: no ring entry).
+        LandscapeSectionLodTable TileLodsOf( const LandscapeTileDraw& l, const TileLodMap& lods )
         {
-            return LandscapeTileLods( lods.at( KeyOf( l, 0, 0 ) ),
-                                      [&]( int dx, int dz ) -> std::optional<float>
-                                      {
-                                          const auto n = lods.find( KeyOf( l, dx, dz ) );
-                                          return n == lods.end() ? std::nullopt
-                                                                 : std::optional<float>( n->second );
-                                      } );
+            return LandscapeSectionLodsOf( l.QuadsPerTile,
+                                           [&]( int dx, int dz ) -> const LandscapeSectionLodArray*
+                                           {
+                                               const auto n = lods.find( KeyOf( l, dx, dz ) );
+                                               return n == lods.end() ? nullptr : &n->second;
+                                           } );
         }
 
         // The tile proxy's map is still the one it was built from: the same owner (a freed image whose address came
@@ -803,6 +825,14 @@ namespace Desert::Graphic::System
     {
         draw.Split = LandscapeDrawSplitOf( quadsPerTile, gridLod, row );
         EnsureGridIndices( draw.Split.Cells );
+        // TERRAIN-LOD-1: each section draws the tile's grid at its own LOD (LandscapeGridRangesOf).
+        for ( uint32_t s = 0; s < draw.Split.Sections * draw.Split.Sections; ++s )
+        {
+            const uint32_t sx = s % draw.Split.Sections;
+            const uint32_t sz = s / draw.Split.Sections;
+            EnsureGridIndices(
+                 LandscapeLodCells( quadsPerTile, draw.Split.SectionGridLod[sz * kLandscapeMaxSections + sx] ) );
+        }
     }
 
     void TerrainRenderer::PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t,
@@ -937,7 +967,7 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "Terrain: Tile LODs" );
             for ( const auto& t : m_Queue )
                 tileLods[KeyOf( t.Landscape, 0, 0 )] =
-                     TileLod( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
+                     TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
         }
 
         // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
@@ -1101,6 +1131,22 @@ namespace Desert::Graphic::System
 
         // The slots past this frame's groups go (the set count shrank).
         m_FrameGroups.resize( groupCount );
+
+        // THE GROUND'S TRIANGLE CENSUS (TERRAIN-LOD-1): what the camera's rasters (TerrainGBuffer, the depth
+        // prepass, the forward pass) draw this frame - the rings' and every section's grid cells - logged when it
+        // moves by a tenth, so a still or turning view logs it once and a walk on every LOD step.
+        {
+            uint64_t triangles = 0u;
+            for ( const FrameDraw& draw : m_ViewDraws )
+                triangles += LandscapeDrawTriangles( draw.Split );
+            const uint64_t logged = m_LoggedViewTriangles;
+            if ( triangles * 10u > logged * 11u || triangles * 11u < logged * 10u )
+            {
+                LOG_INFO( "[Terrain] camera triangles: {} in {} tile draws ({} tiles queued)", triangles,
+                          m_ViewDraws.size(), m_Queue.size() );
+                m_LoggedViewTriangles = triangles;
+            }
+        }
 
         // The virtual shadow map's own rows and pool jobs, past every camera row of their groups (a draw's Row
         // names its param row too, and these have none), before AddDicePoolPass reads the jobs.
@@ -1285,7 +1331,7 @@ namespace Desert::Graphic::System
             TileLodMap lightLods;
             for ( const auto& t : m_Queue )
                 if ( TileMeetsDisc( t.Landscape, local.Light.Lod.Origin, local.Light.Reach ) )
-                    lightLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, local.Light.Lod );
+                    lightLods[KeyOf( t.Landscape, 0, 0 )] = TileSectionLods( t.Landscape, local.Light.Lod );
 
             ShadowSignatureHash hash;
             for ( std::size_t i = 0; i < m_Queue.size(); ++i )
@@ -1315,8 +1361,9 @@ namespace Desert::Graphic::System
                 hash.Add( instance.Params2 );
                 hash.Add( instance.LandscapeFrame );
                 hash.Add( instance.LandscapeTile );
-                hash.Add( instance.LodEdges );
-                hash.Add( instance.LodCorners );
+                hash.Add( instance.Sections );
+                for ( const glm::vec4& lods : instance.SectionLods )
+                    hash.Add( lods );
                 hash.Add( draw.VertexCount );
                 hash.Add( t.Heightmap );
                 hash.Add( l.HeightRevision );
@@ -1554,30 +1601,41 @@ namespace Desert::Graphic::System
                                                             draw.Split.RingVertices, 1, push );
                      !drawn.IsSuccess() )
                     return drawn;
+            // TERRAIN-LOD-1 (UE: each section with its own LOD's index buffer): every section's cells on its own
+            // grid, the runs of one grid one indexed call; the instance names the grid
+            // (kLandscapeGridLodInstances).
             const LandscapeGridRanges cells = LandscapeGridRangesOf( draw.Split );
             if ( cells.Count == 0u )
                 continue; // the rings cover the whole tile
-            const auto grid = m_GridIndices.find( draw.Split.Cells );
-            if ( grid == m_GridIndices.end() || !grid->second )
-                return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): no index buffer for the {}-cell grid",
-                                                   context.GetPassName(), k, executor->GetDubugName(),
-                                                   draw.Split.Cells );
-            const uint32_t                        pitch = draw.Split.Cells + 1u;
-            std::array<ProceduralIndexedRange, 4> ranges{};
-            for ( uint32_t r = 0; r < cells.Count; ++r )
+            std::array<ProceduralIndexedRange, kLandscapeMaxSections * kLandscapeMaxSections * 4> ranges{};
+            for ( uint32_t first = 0; first < cells.Count; )
             {
-                const LandscapeGridRange& range = cells.Ranges[r];
-                ranges[r].IndexCount            = range.IndexCount;
-                ranges[r].FirstIndex            = range.FirstIndex;
-                ranges[r].VertexOffset          = static_cast<int32_t>( range.FirstRow * pitch );
-                ranges[r].InstanceCount         = range.Rows;
-                ranges[r].FirstInstance         = kLandscapeGridFirstInstance;
+                const uint32_t side = cells.Ranges[first].Cells;
+                uint32_t       end  = first;
+                for ( ; end < cells.Count && cells.Ranges[end].Cells == side; ++end )
+                {
+                    const LandscapeGridRange& range = cells.Ranges[end];
+                    ranges[end].IndexCount          = range.IndexCount;
+                    ranges[end].FirstIndex          = range.FirstIndex;
+                    ranges[end].VertexOffset        = static_cast<int32_t>( range.FirstRow * ( side + 1u ) );
+                    ranges[end].InstanceCount       = range.Rows;
+                    ranges[end].FirstInstance =
+                         kLandscapeGridFirstInstance + range.GridLod * kLandscapeGridLodInstances;
+                }
+                const auto grid = m_GridIndices.find( side );
+                if ( grid == m_GridIndices.end() || !grid->second )
+                {
+                    return Common::MakeFormattedError(
+                         "{}: terrain draw {} ('{}'): no index buffer for the {}-cell grid", context.GetPassName(),
+                         k, executor->GetDubugName(), side );
+                }
+                const std::span<const ProceduralIndexedRange> gridRanges( ranges.data() + first, end - first );
+                if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
+                                                                     *grid->second, gridRanges, push );
+                     !indexed.IsSuccess() )
+                    return indexed;
+                first = end;
             }
-            const std::span<const ProceduralIndexedRange> gridRanges( ranges.data(), cells.Count );
-            if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
-                                                                 *grid->second, gridRanges, push );
-                 !indexed.IsSuccess() )
-                return indexed;
         }
         return BOOLSUCCESS;
     }
@@ -1919,9 +1977,10 @@ namespace Desert::Graphic::System
     {
         // A tile's depth changes with its heightmap's pixels (HeightRevision), its holes (the weightmap's Revision
         // and its visibility layer), where it sits and the grid it is drawn with: its LOD grid (Params.w) and the
-        // whole LODs its borders stitch to (LodEdges / LodCorners), the main camera's (the virtual shadow rows,
-        // PrepareVirtualShadowRows, are parallel to the queue). A grid change redraws the tile's pages (UE: a landscape LOD change
-        // invalidates its virtual shadow pages); the morph inside one grid is not tracked (REMAINDER).
+        // whole LODs of its sections and of the neighbours' its borders stitch to (SectionLods), the main camera's
+        // (the virtual shadow rows, PrepareVirtualShadowRows, are parallel to the queue). A grid change redraws
+        // the tile's pages (UE: a landscape LOD change invalidates its virtual shadow pages); the morph inside one
+        // grid is not tracked (REMAINDER).
         for ( size_t index = 0; index < m_Queue.size(); ++index )
         {
             const TerrainDrawData&   tile = m_Queue[index];
@@ -1957,8 +2016,8 @@ namespace Desert::Graphic::System
             {
                 const TerrainInstance& instance = m_VsmInstances[index];
                 add( instance.Params.w );
-                add( glm::floor( instance.LodEdges ) );
-                add( glm::floor( instance.LodCorners ) );
+                for ( const glm::vec4& lods : instance.SectionLods )
+                    add( glm::floor( lods ) );
                 // THE DISPLACED RELIEF (TURN-CACHE-2, LandscapeVirtualShadowRow): its own entry, over the square the
                 // fade's envelope reaches around the anchor, keyed by the tile, the material's values and the anchor
                 // - never the eye. Not the camera's dice rings and their clip either (they re-triangulate the same

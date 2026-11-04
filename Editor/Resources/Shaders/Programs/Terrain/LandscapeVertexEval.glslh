@@ -49,6 +49,39 @@ struct LandscapeMorphedVertex
     vec3  WorldPos; // cm
 };
 
+// The continuous LOD of section (sx, sz) of the row's table, sx and sz in [-1, sections] (TerrainBatch.hpp
+// LandscapeSectionLodAt; 0 where no neighbour is: max() with it is the section's own).
+float LandscapeSectionLodAt( int sx, int sz )
+{
+    int i = ( sz + 1 ) * LANDSCAPE_SECTION_TABLE + sx + 1;
+    int k = i / 4;
+    return CurrentTerrain.SectionLods[k][i - k * 4];
+}
+
+// THE VERTEX'S LOD (TERRAIN-LOD-1; UE LandscapeVertexFactory.ush CalcLOD per section): its section's own LOD,
+// blended toward each border's max() with the section across it - in this tile or in the neighbour's (the table's
+// ring) - and on a corner the max of the four sections there. The section is the vertex's tile-local coordinate's
+// (a vertex on a section line is the next section's first; either side's formula gives its border value, the same
+// max() of the same two floats), so every draw of every view that evaluates a vertex gives it one LOD.
+float LandscapeVertexLod( int ix, int iz, int iquads )
+{
+    int   sq      = max( int( CurrentTerrain.Sections.x + 0.5 ), 1 );
+    int   ns      = max( int( CurrentTerrain.Sections.y + 0.5 ), 1 );
+    int   sx      = min( ix / sq, ns - 1 );
+    int   sz      = min( iz / sq, ns - 1 );
+    int   x0      = sx * sq;
+    int   z0      = sz * sq;
+    float center  = LandscapeSectionLodAt( sx, sz );
+    vec4  edges   = vec4( max( center, LandscapeSectionLodAt( sx - 1, sz ) ), max( center, LandscapeSectionLodAt( sx + 1, sz ) ),
+                          max( center, LandscapeSectionLodAt( sx, sz - 1 ) ), max( center, LandscapeSectionLodAt( sx, sz + 1 ) ) );
+    vec4  corners = vec4( max( max( edges.x, edges.z ), LandscapeSectionLodAt( sx - 1, sz - 1 ) ),
+                          max( max( edges.y, edges.z ), LandscapeSectionLodAt( sx + 1, sz - 1 ) ),
+                          max( max( edges.x, edges.w ), LandscapeSectionLodAt( sx - 1, sz + 1 ) ),
+                          max( max( edges.y, edges.w ), LandscapeSectionLodAt( sx + 1, sz + 1 ) ) );
+    return LandscapeCalcSectionLod( float( ix - x0 ), float( iz - z0 ), float( min( x0 + sq, iquads ) - x0 ),
+                                    float( min( z0 + sq, iquads ) - z0 ), center, edges, corners, CurrentTerrain.Params2.x );
+}
+
 // The vertex at tile-local grid coordinate (ix, iz) of the tile's LOD grid. Everything that decides a vertex on
 // a shared tile edge is exact and symmetric: the tile-local coordinate is an integer, the edge's LOD is the same
 // max() on both sides, the snap keeps the last sample, the far column of one tile is the near column of the next.
@@ -56,8 +89,7 @@ struct LandscapeMorphedVertex
 LandscapeMorphedVertex LandscapeEvaluateVertex( int ix, int iz )
 {
     int   iquads = int( CurrentTerrain.LandscapeTile.z + 0.5 );
-    float lod    = LandscapeCalcLod( float( ix ), float( iz ), float( iquads ), CurrentTerrain.Params.y, CurrentTerrain.LodEdges,
-                                     CurrentTerrain.LodCorners, CurrentTerrain.Params2.x );
+    float lod    = LandscapeVertexLod( ix, iz, iquads );
     int   lodLo  = int( floor( lod ) );
     int   stride = LandscapeLodStride( lodLo );
 
