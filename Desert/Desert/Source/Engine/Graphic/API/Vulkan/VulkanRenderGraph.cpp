@@ -1631,7 +1631,12 @@ namespace Desert::Graphic::API::Vulkan
                     if ( sync.WaitPosition == RDG::CrossPipeSync::kJoinAtGraphEnd )
                         line += ", joined at the graph end";
                     else
+                    {
                         line += ", joined before '" + graph.Result->Passes[sync.WaitPosition].Name + "'";
+                        // What made it wait (RDGCompile CutRunsAtConsumers): the resource and the async pass.
+                        if ( !sync.JoinedBy.empty() )
+                            line += " by " + sync.JoinedBy;
+                    }
                 }
                 line += "]";
             }
@@ -2532,8 +2537,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // Releases only: RecordBarriers names the families from BarrierType, ends the barrier at
-        // BOTTOM_OF_PIPE and leaves dstAccess empty (the acquire on the other queue makes it visible).
+        // Releases (RecordBarriers ends each at BOTTOM_OF_PIPE with dstAccess empty: the acquire on the other queue
+        // makes it visible) and, on Graphics, the opening Transition of a held read group (a full barrier).
         RecordBarriers( barriers );
     }
 
