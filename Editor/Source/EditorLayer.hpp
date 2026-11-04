@@ -75,18 +75,23 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnUIRender() override;
 
-        // THE END OF THE FRAME (Application::Run step 7, OVERLAP-ON-3): what its presented notification needs of
+        // THE END OF THE FRAME (Application::Run, OVERLAP-ON-3): what its presented notification needs of
         // THIS frame is taken by value now - the control channel's serial and census of the update that built it
-        // (ControlService::CaptureBuiltFrame) and the capture's record (ShotDirector::TakePendingFrame) - because a
-        // frame presented on the render task is announced after the NEXT update has served the channel.
-        std::function<void()> CaptureFramePresented() override;
+        // (ControlService::CaptureBuiltFrame) and the capture's record (ShotDirector::TakePendingFrame) - because
+        // a frame presented on the render task is announced after the NEXT update has served the channel. Handed
+        // over, the frame's views' own census (SceneWorkspace::FrameCensus) is copied by the job "Editor: frame
+        // census", enqueued here before the frame's submit and present (OVERLAP-ON-5).
+        std::function<void()> CaptureFramePresented( bool handedOver ) override;
 
     private:
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
         // after a frame that already reflects the command it answers, and a `shot.window` reads that very
-        // frame back off the swapchain. See Editor/LevelEditor/ControlService.hpp.
-        void AnnounceFramePresented( const ControlService::BuiltFrame&                  built,
-                                     const std::optional<ShotDirector::RecordedFrame>& shot );
+        // frame back off the swapchain. See Editor/LevelEditor/ControlService.hpp. @p recorded: what the
+        // frame's views reported about themselves, copied in the frame's own order by "Editor: frame census";
+        // null inline (serial mode, the overlap off), where the census is read here, after the shot.
+        void AnnounceFramePresented( const ControlService::BuiltFrame&                 built,
+                                     const std::optional<ShotDirector::RecordedFrame>& shot,
+                                     const SceneWorkspace::FrameCensus*                recorded );
 
         // ===== Popups =====
 
