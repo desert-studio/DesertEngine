@@ -299,12 +299,12 @@ namespace Desert::Graphic
     struct CloudPush
     {
         glm::mat4 InverseViewProjection;
-        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceSubPixelCount:
-        // how many times the sub-pixel walk has visited every half-res pixel, which advances the march's
-        // start-offset sequence once per trace OF A PIXEL rather than once per frame (CloudRaymarch.shader,
-        // CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is here rather than in
-        // the parameter block because it changes every few frames while the block changes only when the
-        // artist does something.
+        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceWalkFrames:
+        // how many times the sub-pixel and checker walk has visited every half-res pixel, which advances the
+        // march's start-offset sequence once per trace OF A PIXEL rather than once per frame
+        // (CloudRaymarch.shader, CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is
+        // here rather than in the parameter block because it changes every few frames while the block changes only
+        // when the artist does something.
         glm::vec4 CameraPosition;
         // x, y = the sub-pixel this frame traces inside its 2x2 block of HALF-resolution pixels, each 0
         //        or 1. This is the projection jitter: the march reconstructs its ray through the HALF-res
@@ -353,8 +353,9 @@ namespace Desert::Graphic
     /**
      * Unreal's VolumetricRenderTarget sub-pixel walk, mode 0.
      *
-     * Four frames cover the four half-resolution pixels of one quarter-resolution texel, in the order
-     * {0, 2, 3, 1} rather than {0, 1, 2, 3}.
+     * Four TRACES cover the four half-resolution pixels of one quarter-resolution texel, in the order
+     * {0, 2, 3, 1} rather than {0, 1, 2, 3}. Each sub-pixel is held for kCloudTraceCheckerPhases frames, one
+     * per checker phase of the trace grid (below), so the walk of one texel spans kCloudTraceWalkFrames frames.
      *
      * WHY THAT ORDER. It is the 2x2 BAYER MATRIX read row by row — [[0, 2], [3, 1]] — so the four frames
      * visit the block in the ordered-dithering sequence rather than in raster order. Epic's own name for
@@ -482,10 +483,10 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudResolveParams, WindStepKm ) == 176 );
     // The int fills the vec3's last four bytes, where std430 places a scalar after a vec3 too.
     static_assert( offsetof( CloudResolveParams, TraceCheckerPhase ) == 188 );
-    // 192 (was 188 before TraceCheckerPhase): the vec3 starts on its 16-byte std430 boundary and nothing follows
-    // it. std430 rounds a block's STRIDE up to a multiple of 16, but a stride only exists for an array of blocks
-    // and this is a single one — the shader never reads past the last member, so the buffer is created at exactly
-    // the struct's size. Pinned here so that inserting a member and quietly changing the size is a build error.
+    // 192 (was 188 before TraceCheckerPhase): the vec3 starts on its 16-byte std430 boundary and the int closes
+    // its 16 bytes, so the block ends on a 16-byte multiple with no padding member. The buffer is created at
+    // exactly the struct's size (kCloudResolveParamsBytes) and the shader never reads past the last member.
+    // Pinned here so that inserting a member and quietly changing the size is a build error.
     static_assert( sizeof( CloudResolveParams ) == 192,
                    "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
                    "exactly these members, in this "

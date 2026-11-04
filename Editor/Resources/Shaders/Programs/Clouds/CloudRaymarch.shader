@@ -505,8 +505,9 @@ Shader "CloudRaymarch"
         //
         //   * IN SPACE, on the grid this frame traces: interleaved gradient noise (Jimenez 2014, the pattern of
         //     UE's InterleavedGradientNoise and of this engine's contact-shadow dither) over the QUARTER-res
-        //     texel, so the four texels a not-owned pixel's bilinear estimate blends hold four well spread
-        //     offsets and their errors cancel rather than add;
+        //     texel, so the written texels a not-owned pixel's estimate blends (this frame's checker phase,
+        //     CloudTemporalResolve.shader TraceFiltered) hold well spread offsets and their errors cancel
+        //     rather than add;
         //   * IN THE BLOCK: the 2x2 ordered-dither rank of the half-res sub-pixel the ray goes through
         //     ({0, 2; 3, 1}, the table the sub-pixel walk itself is, Graphic::CloudTraceSubPixel) in quarters,
         //     so the four half-res pixels one quarter-res texel stands for sit in four different quarters of

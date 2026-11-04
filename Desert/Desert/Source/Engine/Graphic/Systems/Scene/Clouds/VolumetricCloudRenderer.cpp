@@ -1992,9 +1992,11 @@ namespace Desert::Graphic::System
         const double halfMiB = BytesToMiB(
              Core::Formats::CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace ) );
         // THE TRACED RAYS PER FRAME, the march's whole workload count: one checker phase of the quarter grid
-        // (CloudTraceCheckerPhase), so ceil(width / 2) x height threads, each half-res pixel once per
-        // kCloudTraceWalkFrames frames whether the camera is still or turning.
-        const uint32_t marchRays = HalfExtent( traceWidth ) * traceHeight;
+        // (CloudTraceCheckerPhase), each half-res pixel once per kCloudTraceWalkFrames frames whether the camera
+        // is still or turning. Phase 0 holds ceil(w * h / 2) texels and phase 1 floor(w * h / 2); the larger is
+        // reported. The dispatch is ceil(w / 2) x h threads, and on an odd width the last thread of every other
+        // row returns without a ray.
+        const uint32_t marchRays = ( traceWidth * traceHeight + 1u ) / 2u;
         LOG_INFO( "[Clouds] Trace {}x{} RGBA16F ({:.2f} MiB each, scatter + guide, frame-graph transients) — a "
                   "QUARTER of the {}x{} view, one jittered sub-pixel and one checker phase per frame: {} rays "
                   "marched a frame ({:.2f} % of the view's pixels), each half-res pixel once every {} frames.",
@@ -2433,8 +2435,9 @@ namespace Desert::Graphic::System
         // This frame's pair, written by the resolve and read by the upsample: transients of this graph that the
         // view extracts for the next frame.
         const VolumetricCloudHistory::Refs current = history.CreateCurrent( graph, halfExtent, windOffsetKm );
-        // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
-        // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
+        // This frame's trace pair, by shader name. Only texelFetched: the reconstruction reads the texel it owns
+        // and blends the written texels of this frame's checker phase for the ones it does not (TraceFiltered);
+        // the other phase's texels are unwritten transient memory, so no filtered read may touch them.
         RenderPassDeclaration::BlockDeclaration resolveBlock =
              DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 );
         resolveBlock
