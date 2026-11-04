@@ -4,6 +4,12 @@
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
+
+#include <functional>
+#include <mutex>
+#include <string>
+#include <vector>
+
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -200,6 +206,63 @@ namespace Desert::Engine
         // gathered on this thread first (ExtensionPass::Gather, BeginScene's snapshots); the palette's
         // "Debug.Scene record: serial" puts them back inline for a frame compare.
         RenderTask::Get().SetOverlapped( true );
+        // A failure of the frame's render-task half (its begin, its submit and present), handed back to this loop
+        // (OVERLAP-ON-1): the job notes it, the loop acts on it at the next check, as it acted on the result.
+        struct RenderFailure
+        {
+            std::mutex  Mutex;
+            bool        Failed  = false;
+            bool        EndsRun = false;
+            std::string Stage;
+            std::string Error;
+        };
+        RenderFailure renderFailure;
+        const auto    noteFailure =
+             [&renderFailure]( const char* stage, const bool endsRun, const std::string& error )
+        {
+            const std::lock_guard<std::mutex> lock( renderFailure.Mutex );
+            if ( renderFailure.Failed )
+                return;
+            renderFailure.Failed  = true;
+            renderFailure.EndsRun = endsRun;
+            renderFailure.Stage   = stage;
+            renderFailure.Error   = error;
+        };
+        // True: the run ends (the caller breaks).
+        const auto endRunOnRenderFailure = [this, &renderFailure]() -> bool
+        {
+            std::string stage;
+            std::string error;
+            bool        endsRun = false;
+            {
+                const std::lock_guard<std::mutex> lock( renderFailure.Mutex );
+                if ( !renderFailure.Failed )
+                    return false;
+                renderFailure.Failed = false;
+                stage                = renderFailure.Stage;
+                error                = renderFailure.Error;
+                endsRun              = renderFailure.EndsRun;
+            }
+            if ( EndRunOnDeviceLoss( stage.c_str() ) )
+                return true;
+            LOG_ERROR( "[Application] {} failed: {}", stage, error );
+            if ( !endsRun )
+                return false;
+            Close( 1 );
+            return true;
+        };
+        // The presented notifications of a frame handed to the render task (step 7), delivered once it is out.
+        std::vector<std::function<void()>> presentedPending;
+        const auto                         deliverPresented = [&presentedPending]()
+        {
+            std::vector<std::function<void()>> due;
+            due.swap( presentedPending );
+            // A lost device is asked for no screenshot (the run ends at the failure check).
+            if ( Graphic::DeviceLost::IsLost() )
+                return;
+            for ( const std::function<void()>& notify : due )
+                notify();
+        };
         while ( m_IsRunningApplication )
         {
             // Frame boundary for the profiler (publishes last frame, flips Optick's frame). Placed at the
@@ -253,6 +316,9 @@ namespace Desert::Engine
                 // made an iteration cost anything — a minimised editor would otherwise burn a core doing
                 // nothing. Long enough to idle, short enough that the restore is acted on in one frame's
                 // worth of time.
+                // A frame handed to the render task finishes, and is announced, before the loop stands down.
+                RenderTask::Get().Join();
+                deliverPresented();
                 std::this_thread::sleep_for( std::chrono::milliseconds( 16 ) );
                 continue;
             }
@@ -321,10 +387,22 @@ namespace Desert::Engine
             // 3. Start recording commands for this frame. Its first statement is the frame's one CPU wait on the GPU
             // (row "Wait for GPU": the fence of frame N-k, k = frames in flight, VulkanRendererAPI::BeginFrame), so
             // everything above it in this iteration overlaps the GPU still executing earlier frames.
+            // OVERLAP-ON-1: the GPU wait stays here, on the game thread, which writes this slot's per-frame data
+            // from now on; the slot's recording begins on the render task (job "Frame: Begin" below), behind frame
+            // N-1's submit, so the render graph's frame objects are begun in frame order on the recording thread.
+            // The fence of frame N-k is waited only once N-k was submitted: with one frame of lag and k >= 2 it
+            // always was (the last iteration's SyncPreviousFrame); a swapchain of one image joins first.
+            {
+                const FrameManager& frames = FrameManager::GetInstance();
+                const uint64_t      frame  = frames.GetGameFrameCount();
+                const uint32_t      slots  = frames.GetMaxFramesInFlight();
+                if ( frame >= slots && !RenderTask::Get().FrameSubmitted( frame - slots ) )
+                    RenderTask::Get().Join();
+            }
             const auto frameBegun = []
             {
                 DESERT_PROFILE_SCOPE( "Renderer: BeginFrame" );
-                return Graphic::Renderer::GetInstance().BeginFrame();
+                return Graphic::Renderer::GetInstance().WaitFrameSlot();
             }();
             if ( !frameBegun.IsSuccess() )
             {
@@ -351,6 +429,21 @@ namespace Desert::Engine
                 Close( 1 );
                 break;
             }
+            {
+                const RenderTask::ScopedOwner frameWork( RenderTask::FrameOwner() );
+                RenderTask::Get().Enqueue( "Frame: Begin",
+                                           [&noteFailure]() -> Common::BoolResultStr
+                                           {
+                                               DESERT_PROFILE_SCOPE( "Renderer: BeginFrame (recording)" );
+                                               Common::BoolResultStr begun =
+                                                    Graphic::Renderer::GetInstance().BeginFrameRecording();
+                                               if ( !begun.IsSuccess() )
+                                                   noteFailure( "beginning the frame", true, begun.GetError() );
+                                               return begun;
+                                           } );
+            }
+            if ( endRunOnRenderFailure() )
+                break;
 
             // 4. Update layers (Scene rendering to offscreen buffers)
             for ( const auto& layer : m_LayerStack )
@@ -361,6 +454,15 @@ namespace Desert::Engine
                     ReportLayerFailure( "OnUpdate", layer.get(), updated.GetError() );
             }
 
+            // 4b. THE FRAME BOUNDARY (UE FFrameEndSync with one frame of lag, OVERLAP-ON-1). Frame N-1's render
+            // work - its views, interface, submit and present - has finished before this frame's interface is painted,
+            // and N-1 is announced (its presented notifications, then the commands deferred behind it). The head
+            // and the tick above overlapped it; a world's views joined it already before their own bracket.
+            RenderTask::Get().SyncPreviousFrame();
+            deliverPresented();
+            if ( endRunOnRenderFailure() )
+                break;
+
             // 5. UI Rendering
             {
                 DESERT_PROFILE_SCOPE( "UI Render" );
@@ -370,29 +472,47 @@ namespace Desert::Engine
                     if ( !rendered.IsSuccess() )
                         ReportLayerFailure( "OnUIRender", layer.get(), rendered.GetError() );
                 }
-                // THE FRAME'S FENCE (RenderTask): every view the layers handed the render task has recorded before
-                // the deferred events run and the frame is submitted. The editor joined already, before its
-                // interface graph (VulkanImGui::End); an application without one joins here.
-                RenderTask::Get().Join();
-                m_Events.RouteDeferred();
+                // NOT THE FRAME'S FENCE ANY MORE (OVERLAP-ON-1): the frame's views and interface are jobs, and its
+                // submit and present follow them on the same queue (step 6). Deferred events change what those
+                // jobs read, so a frame that has some joins its jobs first (today's order); one without any
+                // does not.
+                if ( m_Events.DeferredCount() > 0 )
+                {
+                    RenderTask::Get().Join();
+                    m_Events.RouteDeferred();
+                }
             }
 
+            // Whether this frame is handed to the render task (steps 6 and 7, OVERLAP-ON-1).
+            const bool handedOver = RenderTask::Get().Overlaps();
             // 6. Submit all recorded commands and Present. No fence wait here (GPU-COST-11): the only block left in
             // this row is vkQueuePresentKHR's own ("Vulkan: Present", a full presentation queue under FIFO vsync);
             // the GPU throttle is step 3's "Wait for GPU".
             {
                 DESERT_PROFILE_SCOPE( "PresentFinalImage (Submit)" );
-                const auto presented = m_Window->PresentFinalImage();
-                if ( !presented.IsSuccess() )
+                // The frame's LAST job (RenderTask::ThreadMain names a job of this frame that starts after it):
+                // the render task submits and presents frame N while this thread goes on to frame N+1's head
+                // and tick
+                // (UE: the render thread presents, the game thread waits only for N-1). Inline in serial mode and
+                // with the overlap off, where Renderer::PresentFinalImage moves the frame count itself. A lost
+                // device is noticed here inline, else at step 4b; either way before any screenshot (step 7).
                 {
-                    // THE FIRST PLACE A LOST DEVICE IS NORMALLY NOTICED. A submit executes asynchronously,
-                    // so the frame that killed the device has already gone by the time anyone is told, and
-                    // this is where the news lands. Breaking HERE — rather than one iteration later — is
-                    // what keeps step 7 below from asking the dead device for a screenshot.
-                    if ( EndRunOnDeviceLoss( "submitting and presenting the frame" ) )
-                        break;
-                    LOG_ERROR( "[Application] PresentFinalImage failed: {}", presented.GetError() );
+                    const RenderTask::ScopedOwner frameWork( RenderTask::FrameOwner() );
+                    RenderTask::Get().Enqueue( "Frame: Submit/Present",
+                                               [this, &noteFailure]() -> Common::BoolResultStr
+                                               {
+                                                   Common::BoolResultStr sent = m_Window->PresentFinalImage();
+                                                   if ( !sent.IsSuccess() )
+                                                       noteFailure( "submitting and presenting the frame", false,
+                                                                    sent.GetError() );
+                                                   return sent;
+                                               } );
                 }
+                if ( handedOver )
+                    FrameManager::GetInstance().NextFrame();
+                // Inline the result is here already; handed over, at the next check (step 4b).
+                if ( endRunOnRenderFailure() )
+                    break;
             }
 
             // 7. The frame is OUT. The only point in this loop at which the composited picture — scene and
@@ -401,8 +521,14 @@ namespace Desert::Engine
             // answered it, gets its instant here. Default is a no-op (Common::Layer::OnFramePresented).
             {
                 DESERT_PROFILE_SCOPE( "OnFramePresented" );
+                // Each layer captures what its notification needs of THIS frame now (the serial that built it, its
+                // shot record); the notification runs once the frame is out: now when it was presented inline,
+                // else at the next iteration's frame boundary (step 4b), behind its submit and present.
                 for ( const auto& layer : m_LayerStack )
-                    layer->OnFramePresented();
+                    if ( std::function<void()> notify = layer->CaptureFramePresented() )
+                        presentedPending.push_back( std::move( notify ) );
+                if ( !handedOver )
+                    deliverPresented();
             }
 
             // 8. Pipelines the driver built this frame go to disk now rather than only at a clean exit.
@@ -420,7 +546,10 @@ namespace Desert::Engine
             }
         }
 
-        // The render task's thread ends with the loop, before the layers release what its jobs recorded with.
+        // The last frame handed over is out and announced before the render task's thread ends with the loop,
+        // and that before the layers release what its jobs recorded with.
+        RenderTask::Get().Join();
+        deliverPresented();
         RenderTask::Get().Shutdown();
         Graphic::ViewResourceRegistry::SetForgetFence( nullptr );
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -58,6 +60,18 @@ namespace Common
          */
         virtual void OnFramePresented()
         {
+        }
+
+        /**
+         * What OnFramePresented needs of THIS frame, captured when the frame is handed to the render task
+         * (Application::Run step 7, OVERLAP-ON-1); the notification runs once the frame is out, which may be after
+         * the next update began. The default captures nothing and calls OnFramePresented then; a layer whose
+         * notification reads per-update state (the serial that built the frame, a shot record) captures it by
+         * value here. An empty function: nothing to announce.
+         */
+        virtual std::function<void()> CaptureFramePresented()
+        {
+            return [this] { OnFramePresented(); };
         }
 
         inline const std::string& GetName()
