@@ -219,18 +219,47 @@ namespace Desert::Graphic::API::Vulkan
         VkBuffer                      VisibleRowIdentity( uint32_t rows );
         std::shared_ptr<VertexBuffer> m_VisibleRowIdentity;
         uint32_t                      m_VisibleRowIdentityRows = 0;
-        // Records one drawn submesh: its index among the drawn ones, its index in the mesh, the submesh, the
-        // mesh's index count (0: a mesh without indices).
-        using SubmeshDraw = std::function<Common::BoolResultStr(
-             uint32_t drawn, size_t index, const Submesh& submesh, uint32_t indexCount )>;
+        // RENDER-JOB-CPU-1 (UE FMeshDrawCommand merging: draws of one pipeline, bindings and push are one
+        // command): a run of drawn submeshes [First, First + Count) - adjacent in the mesh, none hidden between,
+        // one submesh transform, so one push block serves every one of them. FirstDrawn is the first one's index
+        // among the drawn submeshes; IndexCount the mesh's index count (0: a mesh without indices).
+        struct SubmeshRun
+        {
+            uint32_t FirstDrawn = 0;
+            size_t   First      = 0;
+            uint32_t Count      = 0;
+            uint32_t IndexCount = 0;
+        };
+        // Records one run. A view of the caller's recorder, never a copy (it lives through the walk's call):
+        // the std::function it replaces heap-allocated the indirect draw's capture list on every mesh draw.
+        class SubmeshRunDraw
+        {
+        public:
+            template <typename F>
+                requires( !std::is_same_v<std::remove_cvref_t<F>, SubmeshRunDraw> )
+            SubmeshRunDraw( F&& recorder ) // NOLINT(google-explicit-constructor): the walk takes the lambda
+                 : m_Recorder( static_cast<const void*>( std::addressof( recorder ) ) ),
+                   m_Call( []( const void* of, const SubmeshRun& run ) -> Common::BoolResultStr
+                           { return ( *static_cast<const std::remove_reference_t<F>*>( of ) )( run ); } )
+            {
+            }
+            Common::BoolResultStr operator()( const SubmeshRun& run ) const
+            {
+                return m_Call( m_Recorder, run );
+            }
+
+        private:
+            const void* m_Recorder                                              = nullptr;
+            Common::BoolResultStr ( *m_Call )( const void*, const SubmeshRun& ) = nullptr;
+        };
         // RenderMesh's walk, shared by the direct and the indirect mesh draw: the pass state, the mesh's vertex,
-        // stream and index buffers, then for every submesh the hidden mask leaves its push block (the draw's
-        // @p push, transform * submesh.Transform over the first mat4) before @p draw records it.
+        // stream and index buffers, then for every run of drawn submeshes (SubmeshRun) its push block (the
+        // draw's @p push, transform * submesh.Transform over the first mat4) once before @p draw records the run.
         Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings,
                                                  const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                  const glm::mat4& transform, const MaterialExecutor& material,
                                                  std::span<const std::byte> push, SubmeshMask hiddenSubmeshMask,
-                                                 VkBuffer visibleRows, const SubmeshDraw& draw );
+                                                 VkBuffer visibleRows, const SubmeshRunDraw& draw );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
