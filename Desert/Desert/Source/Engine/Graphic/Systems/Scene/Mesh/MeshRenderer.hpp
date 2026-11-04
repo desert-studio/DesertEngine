@@ -1503,6 +1503,8 @@ namespace Desert::Graphic::System
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void SubmitGpuInstanced( const GpuInstancedRenderData& data );
+        // RENDER-CPU-COST-2: a producer done with its row hands it over without copying its buffer handles.
+        void SubmitGpuInstanced( GpuInstancedRenderData&& data );
         // A producer that submits its GPU-instanced casters after UpdateCascades (the particles' Mesh rows, from
         // the render graph) says so before it: the cascade plan then keeps the movable layer for them.
         void ExpectGpuInstancedCasters( const bool expected ) { m_GpuInstancedCastersExpected = expected; }

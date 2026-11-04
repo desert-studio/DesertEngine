@@ -2175,9 +2175,10 @@ namespace Desert::Graphic::API::Vulkan
                                      RDG::ExternalBuffer&                                   into )
     {
         using ShaderResources::API::Vulkan::VulkanStorageBuffer;
-        const std::shared_ptr<VulkanStorageBuffer> vulkanBuffer =
-             std::dynamic_pointer_cast<VulkanStorageBuffer>( buffer );
-        if ( !vulkanBuffer )
+        // RENDER-CPU-COST-2: a raw cast, no reference count touched; the owning handle is made only when the
+        // import below is built anew.
+        auto* const vulkanBuffer = dynamic_cast<VulkanStorageBuffer*>( buffer.get() );
+        if ( vulkanBuffer == nullptr )
             return Common::MakeError( "ImportBuffer: not a Vulkan storage buffer" );
         ShaderResources::API::Vulkan::ViewCopyBinding binding;
         const Common::BoolResultStr                   bound =
@@ -2196,10 +2197,22 @@ namespace Desert::Graphic::API::Vulkan
             record.Physical = VulkanRdgBuffer::Wrap( binding.Info.buffer, binding.Info.range );
             record.State    = RDG::GetAccessState( RDG::Access::None );
         }
-        into.Desc.Bytes                               = binding.Info.range;
-        into.Physical                                 = record.Physical;
-        into.State                                    = record.State;
-        const std::weak_ptr<VulkanStorageBuffer> weak = vulkanBuffer;
+        // RENDER-CPU-COST-2 (UE: a pooled buffer is wrapped for the graph once; RegisterExternalBuffer of it each
+        // frame only reads the state it carries). @p into already imports this very copy - the record's handle is
+        // made anew for every other copy and for every other buffer, so an equal handle names this one - and its
+        // hand-back already writes into this copy's record: only the state the last graph left changes.
+        if ( into.Physical != nullptr && into.Physical == record.Physical && into.RecordFinalState )
+        {
+            into.Desc.Bytes = binding.Info.range;
+            into.State      = record.State;
+            return Common::MakeSuccess( true );
+        }
+        into.Desc.Bytes = binding.Info.range;
+        into.Physical   = record.Physical;
+        into.State      = record.State;
+        // Aliasing the caller's owner: the hand-back must not keep the buffer alive past its owner.
+        const std::weak_ptr<VulkanStorageBuffer> weak =
+             std::shared_ptr<VulkanStorageBuffer>( buffer, vulkanBuffer );
         const uint64_t                           copy = binding.CopyId;
         into.RecordFinalState = [weak, copy]( const RDG::AccessState& state ) -> Common::BoolResultStr
         {
