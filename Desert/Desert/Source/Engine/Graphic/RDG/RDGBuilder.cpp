@@ -64,9 +64,11 @@ namespace Desert::Graphic::RDG
         // list joins the stream). The record phase's chunks as tasks: JobSystem helpers claim them in chunk order
         // and record them, while the calling thread walks the graph in pass order and records the serial passes.
         // At a chunk's position the calling thread takes the chunk itself when no helper has claimed it yet (the
-        // pool may be busy with the game thread's work), else waits for the helper that has it. It never waits
-        // for a chunk nobody claimed, so a busy or empty pool only makes the walk serial, as before.
-        // Held by shared_ptr: a helper the pool runs after the record phase returned finds the share closed.
+        // pool may be busy with the game thread's work); while a helper still records it, the calling thread
+        // records the next unclaimed chunks itself, and waits for the helper only once none is left
+        // (FPS7-CPU-STILL-1). It never waits for a chunk nobody claimed, so a busy or empty pool only makes the
+        // walk serial, as before. Held by shared_ptr: a helper the pool runs after the record phase returned finds
+        // the share closed.
         class ChunkTasks
         {
         public:
@@ -113,8 +115,10 @@ namespace Desert::Graphic::RDG
             // the helpers'; a chunk is its own command buffer, replayed in pass order by the walk whoever recorded
             // it), so a pool the game thread's jobs keep busy costs the walk the helpers' missing share of the
             // chunks, never an idle wait beside them ("RDG: Wait for chunk" was 1.1-1.3 ms a frame on the still
-            // camera of FPS-FIELD-BARN-TURN while chunks waited for a free worker).
-            void Await( uint32_t chunk )
+            // camera of FPS-FIELD-BARN-TURN while chunks waited for a free worker). @p recordAhead false: the walk
+            // discards every chunk from here on (a late fault) and re-records their passes itself, so recording
+            // one ahead is only lost time on the calling thread.
+            void Await( uint32_t chunk, bool recordAhead )
             {
                 std::unique_lock<std::mutex> lock( m_Lock );
                 while ( m_Next <= chunk )
@@ -130,7 +134,7 @@ namespace Desert::Graphic::RDG
                     m_Recorded[mine] = 1;
                     --m_Running;
                 }
-                while ( m_Recorded[chunk] == 0 && !m_Closed && m_Next < m_Count )
+                while ( recordAhead && m_Recorded[chunk] == 0 && !m_Closed && m_Next < m_Count )
                 {
                     const uint32_t ahead = m_Next++;
                     ++m_Running;
@@ -1631,7 +1635,7 @@ namespace Desert::Graphic::RDG
                 // The chunk is recorded (by a helper, or here when none claimed it) before it is replayed or
                 // discarded: either reads what its recording wrote.
                 if ( chunk >= 0 )
-                    chunkTasks->Await( static_cast<uint32_t>( chunk ) );
+                    chunkTasks->Await( static_cast<uint32_t>( chunk ), !discardChunks );
                 if ( chunk >= 0 && !discardChunks )
                 {
                     RecordChunk&          replayed = chunks[static_cast<uint32_t>( chunk )];
