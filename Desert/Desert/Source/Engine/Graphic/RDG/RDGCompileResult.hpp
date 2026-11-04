@@ -139,8 +139,9 @@ namespace Desert::Graphic::RDG
         // Recorded after the exec lambda (and after EndRenderPass), before any signal: the OwnershipRelease
         // half of every QueueOwnershipTransfer whose ReleasePosition is this pass, and on Graphics the opening
         // Transition of a HELD read group (RDGCompile FindAsyncRuns: a read state both pipes share, entered on
-        // Graphics after its last use there, before the fork that orders the async readers). A pass with any
-        // epilogue barrier keeps no render pass open.
+        // Graphics after its last use there, before the fork that orders the async readers), and on AsyncCompute
+        // that of a group HELD ON ASYNC (entered after its async writer, before the join its graphics readers
+        // wait for). A pass with any epilogue barrier keeps no render pass open.
         std::vector<Barrier> EpilogueBarriers;
     };
 

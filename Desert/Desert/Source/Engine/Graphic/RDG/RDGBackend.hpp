@@ -182,8 +182,9 @@ namespace Desert::Graphic::RDG
         virtual Common::BoolResultStr EndPipeSegment( const PipeSegment& segment )   = 0;
         // B(3): the epilogue barriers of a pass (CompiledPass::EpilogueBarriers) or of the graphics prologue
         // (CompileResult::PrologueBarriers), recorded after its EndRenderPass / exec lambda on the pass's pipe.
-        // One batch; never called empty. Every entry is an OwnershipRelease, except, on Graphics, the opening
-        // Transition of a held read group (RDGCompile FindAsyncRuns: a full barrier, before the fork signals).
+        // One batch; never called empty. Every entry is an OwnershipRelease, except the opening Transition of a
+        // held read group (RDGCompile FindAsyncRuns: a full barrier) - on Graphics before the fork signals, or,
+        // for a group HELD ON ASYNC, on AsyncCompute after its writer, before that piece's join signals.
         // (OwnershipAcquire and AliasAcquire barriers arrive through RecordBarriers, in the pass's one batch.)
         virtual void RecordEpilogueBarriers( std::span<const Barrier> barriers ) = 0;
 

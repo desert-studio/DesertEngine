@@ -1272,7 +1272,8 @@ namespace Desert::Graphic::RDG
                     // opened the group, nor its readers ("Deferred: Reflections" joined 'ScreenProbes: Trace Near
                     // Field', the first async reader of the radiance cache 'RadianceCache: Filter' wrote,
                     // RDG-ASYNC-JOIN-2). Owner and lastTouch stay on AsyncCompute: the use that ends the group
-                    // joins its last async reader (sharedAsync, above; TrackUse hands the contents over there).
+                    // joins its last async reader (sharedAsync, above; TrackUse records that end's transition on
+                    // Graphics, no hand-over, since the graphics readers are not ordered before an async release).
                     consumedBy( static_cast<uint32_t>( m_GroupHeldAfter[static_cast<size_t>( group )] ), position,
                                 use.Resource );
                     continue;
@@ -1334,9 +1335,11 @@ namespace Desert::Graphic::RDG
         // the producer of its last ones: the radiance cache, whose inputs are the G-buffer, forked after the HZB
         // the screen probes after it in the same run trace against (RDG-ASYNC-JOIN-2). A pass whose producer is
         // later than the fork of the passes before it starts a piece with a fork of its own, waited by that piece
-        // on the compute queue; the passes before it fork at their own producers. A run whose first passes consume
-        // an external untouched so far and have no producer forks just before the run (CreateAsyncSyncs), never
-        // earlier than a producer inside it: such passes take no fork of their own.
+        // on the compute queue; the passes before it fork at their own producers. The first passes of a run with
+        // no producer of their own take no fork of their own either: they fork with the first producer after them
+        // (an untouched external's release, CreateAsyncSyncs, never earlier than a producer inside the run) - a
+        // piece with no fork would start on the compute queue ordered after no graphics work of this frame at all
+        // (UE forks every async pass at the prologue pass at the earliest).
         // By the first position of each fork's pieces: the fork, NeedsFork, the async position that set the fork.
         std::vector<int32_t>     forkOf( m_ExecutedCount, -1 );
         std::vector<bool>        needsOf( m_ExecutedCount, false );
@@ -1361,7 +1364,7 @@ namespace Desert::Graphic::RDG
             };
             for ( uint32_t position = run.First; position <= run.Last; ++position )
             {
-                if ( position != forkFirst && m_ForkAt[position] > fork && ( fork >= 0 || !needs ) )
+                if ( position != forkFirst && fork >= 0 && m_ForkAt[position] > fork )
                 {
                     closeFork();
                     forkFirst         = position;
@@ -1954,8 +1957,10 @@ namespace Desert::Graphic::RDG
             {
                 // A group HELD ON ASYNC (FindAsyncRuns): the graphics reader widens the opening transition in the
                 // async writer's epilogue (FilterStagesPerPipe keeps its compute stages there; the join's wait
-                // stages carry the graphics ones) and waits for the writer's piece. No hand-over: AsyncCompute keeps
-                // the group, and the use that ends it takes the contents from the last async reader.
+                // stages carry the graphics ones) and waits for the writer's piece. No hand-over: AsyncCompute
+                // keeps the group; the use that ends it on Graphics transitions it there after the last async
+                // reader's join (below), the graph end through CollectFinalBarriers with the layout kept on
+                // AsyncCompute.
                 sub.Group = MergeReadStates( sub.Group, use.State );
                 if ( sub.GroupRaw >= 0 )
                     groupRaws()[static_cast<size_t>( sub.GroupRaw )].After = sub.Group;
@@ -1994,12 +1999,16 @@ namespace Desert::Graphic::RDG
                                            "held by AsyncCompute in the barrier walk",
                                            m_Name, record.Name, m_Passes[m_Executed[position]].Name );
             }
-            if ( graphicsReadHeld && !use.Consumes )
+            if ( graphicsReadHeld )
             {
-                // A group HELD ON ASYNC that Graphics read too, ended on Graphics by contents it discards: the
-                // transition's source scope is the group's merged reads (the graphics ones before it on this queue;
-                // the async ones are ordered by the join of the last async reader, FindAsyncRuns).
-                sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, true );
+                // A group HELD ON ASYNC that Graphics read too, ended on Graphics: the transition records HERE, on
+                // Graphics, from the group's merged reads - as a HELD group's end does - never as a release after
+                // the last async reader. A release is the whole transition on its source queue (VulkanRdgBackend
+                // RecordBarriers), and nothing orders the graphics readers before an async epilogue: a layout
+                // change there would run under "Deferred: Reflections" still sampling the group. The graphics
+                // readers are before it on this queue; the async ones are ordered by the join of the last async
+                // reader (FindAsyncRuns: sharedAsync). Contents it discards enter from Undefined.
+                sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, !use.Consumes );
             }
             else if ( sub.GroupPipe != pipe )
                 crossPipes( sub.GroupBefore, sub.LastTouch, sub.GroupPipe );
@@ -2243,14 +2252,20 @@ namespace Desert::Graphic::RDG
                     // readback gets its ownership back on Graphics in the state the run left it in, then a
                     // plain graphics barrier hands it to the host (which waits on the graph's completion).
                     const bool        host = ( target.Stages & PipelineStage_Host ) != 0;
-                    const AccessState owned =
-                         host ? AccessState{ last.Stages, last.Memory, target.Layout } : target;
+                    AccessState       owned = target;
+                    if ( host )
+                        owned = AccessState{ last.Stages, last.Memory, target.Layout };
+                    // A group HELD ON ASYNC that Graphics read too (TrackUse): the release is the whole transition
+                    // on AsyncCompute, where nothing orders the graphics readers before it, so it keeps the
+                    // group's layout; the final barriers on Graphics, after them on that queue, change it.
+                    if ( track.HeldOnAsync )
+                        owned = last;
                     m_FinalRaws.push_back( { sub, r, last, owned, false, BarrierKind::OwnershipAcquire,
                                              track.GroupPipe, Pipe::Graphics, at } );
                     m_EpilogueRaws[at].push_back( { sub, r, last, owned, false, BarrierKind::OwnershipRelease,
                                                     track.GroupPipe, Pipe::Graphics,
                                                     CrossPipeSync::kJoinAtGraphEnd } );
-                    if ( host )
+                    if ( host || ( track.HeldOnAsync && owned != target ) )
                         m_FinalRaws.push_back( { sub, r, owned, target, false } );
                     last = target;
                 }
