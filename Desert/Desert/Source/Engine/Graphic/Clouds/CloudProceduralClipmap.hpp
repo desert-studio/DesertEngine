@@ -104,6 +104,17 @@ namespace Desert::Graphic
             return m_Image;
         }
 
+        /// THE CONSERVATIVE DENSITY of the same levels (CLOUD-MARCH-COST-1): side x (kLevels x
+        /// kCloudColumnMaxBands) x side RGBA8, row k * kCloudColumnMaxBands + b = height band b of level k,
+        /// texel = each species' maximum over that band's rows of the column, dilated toroidally (horizontally
+        /// only) by CloudColumnProbeDilationTexels of that level's voxel. Written in the same Write as the levels, from
+        /// the same bytes, so it never describes a shape or a window the volume does not hold. Read by the
+        /// march's coarse-tier probe (Common/CloudField.glslh CloudProceduralColumnsEmpty) and nothing else.
+        const std::shared_ptr<Image3D>& GetColumnImage() const
+        {
+            return m_ColumnImage;
+        }
+
         /// How many times the image's texels were written (a shape landing, a level scrolling). A consumer that
         /// caches what it marched through the image (the cloud shadow map, the sky-occlusion volume) keys on it.
         uint64_t WriteGeneration() const
@@ -160,11 +171,21 @@ namespace Desert::Graphic
                                  const glm::vec2& cameraKm ) const;
         Bake StartBake( const Assets::CloudProceduralFieldParams& params, uint32_t level, const glm::ivec2& origin,
                         std::vector<Assets::CloudProceduralVoxelBox> boxes, bool cached ) const;
-        Common::BoolResultStr Write( const std::vector<std::pair<const Bake*, const BakedBytes*>>& landed );
+        /// Writes the landed boxes into the volume and, for every level they touch, that level's column-max
+        /// row; @p params are the parameters the bytes were baked from (the dilation is in their voxels).
+        Common::BoolResultStr Write( const Assets::CloudProceduralFieldParams&                     params,
+                                     const std::vector<std::pair<const Bake*, const BakedBytes*>>& landed );
         Common::BoolResultStr EnsureImage( uint32_t side );
 
         std::shared_ptr<Image3D> m_Image;
+        std::shared_ptr<Image3D> m_ColumnImage;
         uint64_t                 m_WriteGeneration = 0;
+
+        /// Per level, side x kCloudColumnMaxBands x side RGBA8 (x fastest, then the band, then z; toroidal texel
+        /// order — the order the level's rows of the image are uploaded in): each species' maximum over each
+        /// band's rows of the column, UNDILATED — the host copy a slab's columns replace, since the dilation of a column
+        /// reads its neighbours and the device image cannot be read back.
+        std::array<std::vector<unsigned char>, kLevels> m_ColumnMax;
 
         Assets::CloudProceduralFieldParams   m_DeviceParams{};
         std::array<glm::ivec2, kLevels>      m_DeviceOrigin{};

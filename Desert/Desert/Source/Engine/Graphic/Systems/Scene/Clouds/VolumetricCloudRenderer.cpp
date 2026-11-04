@@ -53,6 +53,9 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, CloudReconstructionGuideTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, UpsampledCloudTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudModellingTexture );
+        // The modelling clipmap's conservative density (CloudProceduralClipmap::GetColumnImage), the march's
+        // own entry: only its coarse-tier probe reads it, so it is not one of the field's SampledVolumes.
+        DESERT_SHADER_PARAMETER( Texture, CloudColumnMaxTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudFarWeatherTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutPatternTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutMaskTexture );
@@ -2340,7 +2343,11 @@ namespace Desert::Graphic::System
              // AddFrameCloudShadowMap), so the graph orders this read after the map's writer. Always bound on
              // the terms above; CloudSelfShadowParams::Map.y is 0 for the fallback and the shader never fetches.
              .Texture( VolumetricCloudShaderParameters::CloudSelfShadowMapTexture, selfShadowImage,
-                       RDG::Access::SampledCompute, selfShadowName );
+                       RDG::Access::SampledCompute, selfShadowName )
+             // The column maximum of the clipmap's levels, written by the same Write as the volume above it
+             // (CloudProceduralClipmap), so it exists exactly when CloudModellingTexture does.
+             .Texture( VolumetricCloudShaderParameters::CloudColumnMaxTexture, m_Clipmap.GetColumnImage(),
+                       RDG::Access::SampledCompute, "Clouds.ColumnMax" );
         march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
         {

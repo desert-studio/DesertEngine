@@ -465,11 +465,11 @@ namespace Desert::Graphic
     // THE MARCH'S SEARCH RESOLUTION, ON THE C++ SIDE
     // ---------------------------------------------------------------------------------------------
     //
-    // Mirrored from CLOUD_DISTANCE_TO_MAX_STEPS_KM and CLOUD_COARSE_STEP_MULTIPLIER in
-    // Common/CloudGeometry.glslh, and Desert/Tests/Engine/CloudGeometry asserts the pair agrees with the
-    // shader's own — which it can, because that suite compiles the header as C++. Mirroring rather than
-    // including is the arrangement kCloudWorldUnitsPerKm above already records, and for the same reason:
-    // the engine does not put the shader root on its include path.
+    // Mirrored from CLOUD_DISTANCE_TO_MAX_STEPS_KM in Common/CloudGeometry.glslh (the suites that compile
+    // that header as C++ — CloudType, CloudShadow — read the shader's own CloudFinestResolvableChordKm;
+    // this one is what the generator reads). Mirroring rather than including is the arrangement
+    // kCloudWorldUnitsPerKm above already records, and for the same reason: the engine does not put the
+    // shader root on its include path.
     //
     // WHY THE ENGINE NEEDS IT AT ALL, which it did not before phase Э5. The procedural producer's lumps
     // are now placed on the CPU, and how small a lump may be is decided by what the march can FIND rather
@@ -477,16 +477,46 @@ namespace Desert::Graphic
     // the fine tier once a coarse sample has already found material, so a body that fits between two
     // coarse samples is never seen and whether it fits is decided by the ray's jitter. The generator
     // clamps against this, so lowering Max Steps buys coarser clouds instead of speckle.
-    inline constexpr float kCloudDistanceToMaxStepsKm = 4.0f;
-    inline constexpr float kCloudCoarseStepMultiplier = 4.0f;
+    //
+    // ONE CONSTANT, NOT TWO, since CLOUD-MARCH-COST-1: on a short segment the search stride IS the fine
+    // step, CLOUD_DISTANCE_TO_MAX_STEPS_KM over the ceiling, so the coarse multiplier no longer enters the
+    // finest chord (it bounds the stride on long segments only, which no chord bound reads).
+    inline constexpr float kCloudDistanceToMaxStepsKm = 16.0f;
 
     /// The finest chord the schedule can resolve anywhere, kilometres. @p maxCount is the component's
-    /// Max Steps. Two coarse steps — Nyquist against the SEARCH lattice, not the integration one.
+    /// Max Steps. Two search strides — Nyquist against the SEARCH lattice, whose finest stride is the
+    /// short-segment fine step.
     inline float CloudFinestResolvableChordKm( float maxCount )
     {
-        const float fineStepKm = kCloudDistanceToMaxStepsKm / std::max( maxCount, 1.0f );
-        return 2.0f * kCloudCoarseStepMultiplier * fineStepKm;
+        const float searchStepKm = kCloudDistanceToMaxStepsKm / std::max( maxCount, 1.0f );
+        return 2.0f * searchStepKm;
     }
+
+    // THE CONSERVATIVE PROBE'S RADIUS, kilometres (CLOUD-MARCH-COST-1). Mirrored from CLOUD_COLUMN_PROBE_RADIUS_KM
+    // in Common/CloudGeometry.glslh, on the terms the constant above is: the march jumps clear air on the promise
+    // that no column within this radius holds cloud, and CloudProceduralClipmap keeps that promise by dilating
+    // each level's column maximum by this many kilometres (CloudColumnProbeDilationTexels). A shader radius
+    // above this number would let the march jump over cloud; one below only jumps less.
+    inline constexpr float kCloudColumnProbeRadiusKm = 0.1875f;
+
+    /// How many texels the column-max image of a level whose voxel is @p voxelKm is dilated by, each way: the
+    /// probe radius in that level's texels, plus the one texel a trilinear fetch reaches past the texel its
+    /// address falls in (the probe reads the texel, the march the 2 x 2 footprint around the address).
+    inline uint32_t CloudColumnProbeDilationTexels( float voxelKm )
+    {
+        const float texels = std::ceil( kCloudColumnProbeRadiusKm / std::max( voxelKm, 1e-6f ) );
+        return static_cast<uint32_t>( std::min( texels, 1.0e4f ) ) + 1u;
+    }
+
+    // THE CONSERVATIVE DENSITY'S HEIGHT BANDS (CLOUD-MARCH-COST-1 pass 5). Mirrored by CLOUD_COLUMN_MAX_BANDS in
+    // Common/CloudField.glslh. Unreal's ConservativeDensity is evaluated at the sample's own height, so its zero
+    // is tight vertically; a column maximum over the layer's whole height is zero only where the column holds no
+    // cloud at ANY height, which on a deck of separate bodies is almost nowhere once dilated. The column-max image
+    // therefore keeps each level's 32 rows as this many bands of equal height (a band = the maximum over its own
+    // rows, per species), and the probe reads only the bands the skipped stretch of the ray can fetch from. Must
+    // divide Assets::kCloudProceduralVolumeHeight (asserted where the bands are built,
+    // CloudProceduralClipmap.cpp).
+    inline constexpr uint32_t kCloudColumnMaxBands = 4u;
 
     /**
      * The near-camera fade's interval, in kilometres and in the order the shader consumes it.
