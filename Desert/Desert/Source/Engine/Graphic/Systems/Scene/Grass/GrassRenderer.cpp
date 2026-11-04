@@ -78,7 +78,10 @@ namespace Desert::Graphic::System
         // GRASS-VIS-7: Feedback's words per variety past its bucket counts (GrassCull.shader FinalizeFull): the
         // written mark, the full list's drawn count, the camera's phase-1 drawn count, phase 2's appended count.
         // GPU-COST-21: then one drawn count per cascade view's list (GrassCull.shader FinalizeCascades).
-        constexpr uint32_t kFeedbackTailWords = 4u + kGrassCascadeLists;
+        // GRASS-CULL-COST-3: then the law's slots handed out this law generation, uncapped (GrassCull.shader
+        // kFeedbackLawWord; LawScales is sized from it).
+        constexpr uint32_t kFeedbackLawWord   = 4u + kGrassCascadeLists;
+        constexpr uint32_t kFeedbackTailWords = kFeedbackLawWord + 1u;
         static_assert(
              kGrassCascadeLists == MeshRenderer::kCascadeViews &&
                   kGrassCascadeLists == GrassDrawCounters::kCascadeViews && kGrassCascadeLists == 8u,
@@ -127,13 +130,19 @@ namespace Desert::Graphic::System
             glm::uvec2 Field;
             glm::uvec2 TilePool;
             glm::uvec2 FullIds;
+            // GRASS-CULL-COST-3, THE LAW'S SLOTS (GrassCull.shader LawChunk): LawScales' address, the law generation
+            // (VarietyGpu::LawGeneration, never 0: a chunk the build wrote carries 0) and LawScales' slots.
+            glm::uvec2 LawScales;
+            uint32_t   LawGeneration = 0u;
+            uint32_t   LawCapacity   = 0u;
             glm::uvec2 Pad{ 0u };
         };
         static_assert(
-             sizeof( GrassVarietyRowGpu ) == 224,
+             sizeof( GrassVarietyRowGpu ) == 240,
              "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
              "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
-             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, std430's 8 bytes of padding at 216" );
+             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, LawScales at 216, uint LawGeneration at "
+             "224, uint LawCapacity at 228, std430's 8 bytes of padding at 232" );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
@@ -151,9 +160,14 @@ namespace Desert::Graphic::System
         // (VarietyGpu::CascadeKey), GrassCull neither culls nor finalizes them.
         constexpr uint32_t kRowCascadesHeld = 2u;
         // GrassVarietyRows.glslh kGrassChunkHeader / kGrassChunkWords (the chunk contract): Chunks' header (x = the
-        // chunks, one per tile slot and cluster, y = 0, z = the room, w = 0) and the words of one chunk.
+        // chunks, one per tile slot and cluster, y = the law's slots handed out, z = the room, w = their law
+        // generation; GrassCull writes y and w) and the words of one chunk.
         constexpr uint32_t kChunkHeaderWords = 4u;
-        constexpr uint32_t kChunkWords       = 12u;
+        // GRASS-CULL-COST-3: words 10..25 are the camera cull's law words (the generation, the kept box, the codes,
+        // the first slot of LawScales).
+        constexpr uint32_t kChunkWords = 26u;
+        // GrassVarietyRows.glslh kGrassLawBuckets: a chunk's law words keep each record's bucket + 1 in four bits.
+        constexpr uint32_t kLawBuckets = 15u;
         // GrassCull's dispatch buffer (GrassCull.shader CullDispatch, a buffer of this frame's graph): the camera
         // cull's and phase 2's VkDispatchIndirectCommand, each on a uvec4 (w: its groups), then per culled row a
         // uvec4 of its first groups. The CPU never reads it.
@@ -570,6 +584,12 @@ namespace Desert::Graphic::System
                                       : std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
                                                                 static_cast<uint32_t>( screenSizes.size() ) ) );
         const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : levels;
+        if ( buckets > kLawBuckets )
+        {
+            LOG_ERROR( "[Grass] a variety draws {} buckets; GrassCull's law words hold at most {} - it is not drawn",
+                       buckets, kLawBuckets );
+            return nullptr;
+        }
         // A blade's records come in sets, one per strip level (GpuInstances.hpp): set k
         // draws bucket s with level max(s, k) - set 0 is the camera's, a cascade draws the set its texel size asks
         // for (MeshRenderer::BladeShadowSet). A mesh has one set of records per level of its LOD chain.
@@ -739,6 +759,47 @@ namespace Desert::Graphic::System
             capacity += capacities[b];
         }
 
+        // GRASS-CULL-COST-3, THE LAW'S SLOTS (UE GPU Scene: sized by the instances the law keeps, never by the pool's
+        // candidates): one per record before its chunk's cut that LawChunk lawed this law generation - what the GPU
+        // handed out (Feedback, uncapped) plus a quarter, grown at once, shrunk only after kShrinkFrames frames in a
+        // row at half. A new LawScales is a new law generation (LawKey: its address), so every chunk is lawed into it;
+        // the frames the old one was short drew a truncated field (InstancesSettling, below).
+        const uint32_t lawUsed     = fedBack ? counted[buckets + kFeedbackLawWord] : 0u;
+        const bool     lawOverflow = fedBack && lawUsed > gpu.LawCapacity;
+        {
+            const uint32_t lawStep = CapacityStep( lawUsed + lawUsed / 4u + 64u );
+            uint32_t       lawNext = gpu.LawCapacity;
+            if ( lawStep > gpu.LawCapacity )
+            {
+                lawNext          = lawStep;
+                gpu.LawLowFrames = 0u;
+            }
+            else if ( 2u * lawStep <= gpu.LawCapacity && ++gpu.LawLowFrames >= kShrinkFrames )
+            {
+                lawNext          = lawStep;
+                gpu.LawLowFrames = 0u;
+            }
+            else if ( 2u * lawStep > gpu.LawCapacity )
+                gpu.LawLowFrames = 0u;
+            if ( !gpu.LawScales || lawNext != gpu.LawCapacity )
+            {
+                const uint64_t lawBytes = static_cast<uint64_t>( lawNext ) * 3u * sizeof( float );
+                gpu.LawScales.reset();
+                gpu.LawCapacity = 0u;
+                if ( lawBytes <= UINT32_MAX )
+                    gpu.LawScales = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                         "GrassLawScales", static_cast<uint32_t>( lawBytes ), 2 );
+                if ( !gpu.LawScales )
+                {
+                    LOG_ERROR( "[Grass] variety {:016x}: the view law's slots ({} bytes, at most a storage buffer's "
+                               "4 GB) were not made; they are made anew next frame",
+                               variety.Key, lawBytes );
+                    return nullptr;
+                }
+                gpu.LawCapacity = lawNext;
+            }
+        }
+
         // Settling (InstancesSettling): nothing counted yet (capacity zero, the field is not drawn), or an
         // overflow read now - the frames still in flight were drawn with the old capacity too, so the variety
         // settles only after that many read-backs within capacity.
@@ -753,6 +814,15 @@ namespace Desert::Graphic::System
                           variety.Key, variety.Layer, counted[*overflowed],
                           gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[*overflowed] : 0u,
                           *overflowed, buckets );
+            gpu.Truncated   = true;
+            gpu.SettleReads = settleReads;
+        }
+        else if ( lawOverflow )
+        {
+            if ( !gpu.Truncated )
+                LOG_INFO( "[Grass] variety {:016x} (layer {}) truncated: the view law handed out {} slots, past "
+                          "LawScales' room; the field drew without the rest until it grows",
+                          variety.Key, variety.Layer, lawUsed );
             gpu.Truncated   = true;
             gpu.SettleReads = settleReads;
         }
@@ -1101,6 +1171,20 @@ namespace Desert::Graphic::System
             const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
             gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
             gpu.FrameKey.push_back( static_cast<uint32_t>( static_cast<uint64_t>( address ) >> 32u ) );
+        }
+        // GRASS-CULL-COST-3: what the view law reads (VarietyGpu::LawKey) - the params (the field eye among them), the
+        // pool's identity, Args (a mesh level's half screen size) and LawScales; AddFrame adds the field's revision. A
+        // tile built or freed is no new law generation: the build writes its chunks unlawed (law word 0).
+        gpu.LawKey.assign( gpu.FrameKey.begin(),
+                           gpu.FrameKey.begin() +
+                                static_cast<std::ptrdiff_t>( sizeof( GrassParamsGpu ) / sizeof( uint32_t ) ) );
+        gpu.LawKey.push_back( gpu.PoolGeneration );
+        for ( const void* buffer :
+              { static_cast<const void*>( gpu.Args.get() ), static_cast<const void*>( gpu.LawScales.get() ) } )
+        {
+            const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
+            gpu.LawKey.push_back( static_cast<uint32_t>( address ) );
+            gpu.LawKey.push_back( static_cast<uint32_t>( static_cast<uint64_t>( address ) >> 32u ) );
         }
         return &gpu;
     }
@@ -1514,6 +1598,7 @@ namespace Desert::Graphic::System
                                                      std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
                                                      std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
                                                      std::pair{ &gpu->Chunks, &gpu->ChunksImport },
+                                                     std::pair{ &gpu->LawScales, &gpu->LawScalesImport },
                                                      std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
                                                      std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
                                                      std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
@@ -1541,6 +1626,7 @@ namespace Desert::Graphic::System
                 gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
                 gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
                 gpu->ChunksRef            = graph.RegisterExternal( gpu->ChunksImport, "GrassChunks" );
+                gpu->LawScalesRef         = graph.RegisterExternal( gpu->LawScalesImport, "GrassLawScales" );
                 gpu->PostRefs.Instances    = gpu->Refs.Instances;
                 gpu->PostRefs.Ids          = gpu->CameraRefs.Ids;
                 gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
@@ -1563,6 +1649,13 @@ namespace Desert::Graphic::System
                 {
                     gpu->GenerateKey       = gpu->FrameKey;
                     ++gpu->Generation;
+                }
+                gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
+                gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                if ( gpu->LawKey != gpu->LawedKey )
+                {
+                    gpu->LawedKey = gpu->LawKey;
+                    ++gpu->LawGeneration;
                 }
                 // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over the
                 // build's chunks. The tile passes run on a frame that frees or builds tiles and read the table written
@@ -1799,7 +1892,8 @@ namespace Desert::Graphic::System
                      BindCull( pass, hzb, RDG::Access::StorageWrite );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
-                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead );
+                         // The law's slots restarted (Chunks' header).
+                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's counts reset
                      }
                  },
@@ -1814,11 +1908,12 @@ namespace Desert::Graphic::System
                      pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
-                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead );
+                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );    // the law words (LawChunk)
+                         pass.Write( gpu->LawScalesRef, RDG::Access::StorageWrite ); // the law's slots
                          pass.Read( gpu->TilePoolRef, RDG::Access::StorageRead );
                          pass.Read( gpu->ParamsRef, RDG::Access::StorageRead );
                          pass.Read( gpu->FieldRef, RDG::Access::StorageRead );
-                         pass.Write( gpu->Refs.Instances, RDG::Access::StorageWrite ); // the view law's rows
+                         pass.Write( gpu->Refs.Instances, RDG::Access::StorageWrite ); // the lists' rows
                          pass.Write( gpu->Refs.Ids, RDG::Access::StorageWrite );       // the full list
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
@@ -1847,6 +1942,7 @@ namespace Desert::Graphic::System
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's records
                          pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
+                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead ); // the law's slots handed out
                      }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1888,7 +1984,8 @@ namespace Desert::Graphic::System
                         std::pair{ &row.Params, gpu->Params.get() },
                         std::pair{ &row.Field, gpu->FieldBuffer.get() },
                         std::pair{ &row.TilePool, gpu->TilePool.get() },
-                        std::pair{ &row.FullIds, gpu->FullIds.get() } } )
+                        std::pair{ &row.FullIds, gpu->FullIds.get() },
+                        std::pair{ &row.LawScales, gpu->LawScales.get() } } )
                 {
                     if ( buffer == nullptr )
                         return Common::MakeError( "a variety's buffer was not made" );
@@ -1903,6 +2000,9 @@ namespace Desert::Graphic::System
                 if ( gpu->Shape )
                     flags = kRowBlade;
                 row.Info   = glm::uvec4( gpu->Buckets, gpu->TableWord, flags, gpu->CascadeMask );
+                // Never 0 (a chunk the build wrote carries 0), and consecutive generations differ.
+                row.LawGeneration = static_cast<uint32_t>( gpu->LawGeneration % 0xFFFFFFFFull ) + 1u;
+                row.LawCapacity   = gpu->LawCapacity;
                 row.Bounds = gpu->CullBounds;
                 row.CascadeWords = glm::uvec2( gpu->CascadeArgWords, gpu->CascadeArgWords - gpu->Buckets );
                 for ( uint32_t k = 0; k < kGrassCascadeLists; k += 2u )
