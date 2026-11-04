@@ -146,7 +146,10 @@ namespace Desert::Graphic::API::Vulkan
         ~InterfaceDrawBuffer()
         {
             for ( ImDrawList* list : Lists )
-                IM_DELETE( list );
+            {
+                list->~ImDrawList();
+                ::ImGui::MemFree( list );
+            }
         }
 
         // What ImDrawList::CloneOutput copies (commands, indices, vertices, flags), into lists that already exist.
@@ -156,8 +159,11 @@ namespace Desert::Graphic::API::Vulkan
             const size_t count  = source.CmdListsCount > 0 ? static_cast<size_t>( source.CmdListsCount ) : 0u;
             while ( Lists.size() < count )
             {
-                ImDrawListSharedData* const shared = source.CmdLists[Lists.size()]->_Data;
-                Lists.push_back( IM_NEW( ImDrawList )( shared ) );
+                // auto: the shared data pointer is const in this ImGui; ::ImGui, because Desert::ImGui hides it
+                // inside IM_NEW / IM_DELETE.
+                auto* const shared = source.CmdLists[Lists.size()]->_Data;
+                void* const memory = ::ImGui::MemAlloc( sizeof( ImDrawList ) );
+                Lists.push_back( new ( ImNewWrapper(), memory ) ImDrawList( shared ) );
             }
             for ( size_t i = 0; i < count; ++i )
             {
