@@ -5,6 +5,8 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
+#include <array>
+#include <cstddef>
 #include <memory>
 
 #include <Editor/ImGuiIntegration/ImGuiLayer.hpp>
@@ -17,11 +19,16 @@
 
 #include <vulkan/vulkan.h>
 
+struct ImDrawData;
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanImGui final : public Desert::ImGui::ImGuiLayer
     {
     public:
+        VulkanImGui();
+        ~VulkanImGui();
+
         Common::BoolResultStr OnAttach() override;
         Common::BoolResultStr OnDetach() override;
         Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
@@ -51,5 +58,18 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<Graphic::GraphicsPipeline>   m_EncodePipeline;
         std::unique_ptr<Graphic::MaterialExecutor>   m_EncodeExecutor;
         Graphic::ShaderBindingLayoutCache            m_EncodeLayout;
+
+        // THE INTERFACE'S DRAW BUFFERS (UE FSlateDrawBuffer, FSlateRenderer::NumDrawBuffers = 3). End() copies the
+        // frame's ImGui draw data into a free one on the game thread and hands it to the render task, which
+        // records the interface graph from that copy and frees the buffer when it is done. ImGui's own draw data
+        // lives only until the next ImGui::NewFrame; the copy does not, so the interface graph may record while
+        // the game thread builds the next frame. Every ImGui allocation (the copied lists) happens on the game
+        // thread.
+        struct InterfaceDrawBuffer;
+        static constexpr std::size_t kInterfaceDrawBuffers = 3;
+        [[nodiscard]] InterfaceDrawBuffer& AcquireDrawBuffer();
+        // The interface graph from a draw buffer's copy: on the render task, behind the frame's views (End).
+        [[nodiscard]] Common::BoolResultStr RecordInterface( ImDrawData& interfaceData );
+        std::array<std::unique_ptr<InterfaceDrawBuffer>, kInterfaceDrawBuffers> m_DrawBuffers;
     };
 } // namespace Desert::Graphic::API::Vulkan
