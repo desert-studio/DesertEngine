@@ -320,7 +320,8 @@ namespace Desert::Editor
 
         // Camera.Spin / Camera.Glide: the turn and the walk advance once per frame, before any request of this
         // frame is read, so a `profile-dump` taken while they run measures a camera that moved every frame.
-        if ( m_CameraSpinDegreesPerFrame != 0.0f || m_CameraGlideCmPerFrame != 0.0f )
+        if ( m_CameraSpinDegreesPerFrame != 0.0f || m_CameraGlideCmPerFrame != 0.0f ||
+             m_CameraTiltDegreesPerFrame != 0.0f )
         {
             if ( ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera() )
             {
@@ -328,7 +329,18 @@ namespace Desert::Editor
                 const float     c       = std::cos( angle );
                 const float     s       = std::sin( angle );
                 const glm::vec3 forward = camera->GetDirection();
-                const glm::vec3 turned( c * forward.x + s * forward.z, forward.y, -s * forward.x + c * forward.z );
+                glm::vec3       turned( c * forward.x + s * forward.z, forward.y, -s * forward.x + c * forward.z );
+                const glm::vec2 turnedHeading( turned.x, turned.z );
+                if ( m_CameraTiltDegreesPerFrame != 0.0f && glm::length( turnedHeading ) > 1e-4f )
+                {
+                    // Pitch is measured from the ground plane, so the heading is kept and only the elevation moves.
+                    const float     limit = glm::radians( kViewportCameraMaxPitch );
+                    const float     pitch = std::asin( glm::clamp( glm::normalize( turned ).y, -1.0f, 1.0f ) );
+                    const float     next  = glm::clamp( pitch + glm::radians( m_CameraTiltDegreesPerFrame ), -limit,
+                                                        limit );
+                    const glm::vec2 flat  = glm::normalize( turnedHeading ) * std::cos( next );
+                    turned                = glm::vec3( flat.x, std::sin( next ), flat.y );
+                }
                 glm::vec3       position = camera->GetPosition();
                 const glm::vec2 heading( forward.x, forward.z );
                 if ( glm::length( heading ) > 1e-4f )
@@ -1025,7 +1037,8 @@ namespace Desert::Editor
                                                       debugView.ValidateGpuCulling,
                                                       debugView.ForceVirtualGeometryCutRefusal,
                                                       debugView.ForceVirtualGeometryPostCutRefusal,
-                                                      m_CameraSpinDegreesPerFrame, m_CameraGlideCmPerFrame ) ) );
+                                                      m_CameraSpinDegreesPerFrame, m_CameraGlideCmPerFrame,
+                                                      m_CameraTiltDegreesPerFrame ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1555,6 +1568,13 @@ namespace Desert::Editor
             if ( camera == nullptr )
                 return Control::Response::Failure( request.Id, NoEditorCameraReason() );
             m_CameraSpinDegreesPerFrame = request.Value[0];
+            return Control::Response::Success( request.Id );
+        }
+        if ( which.GetValue() == ViewportCameraWrite::Tilt )
+        {
+            if ( camera == nullptr )
+                return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+            m_CameraTiltDegreesPerFrame = request.Value[0];
             return Control::Response::Success( request.Id );
         }
 

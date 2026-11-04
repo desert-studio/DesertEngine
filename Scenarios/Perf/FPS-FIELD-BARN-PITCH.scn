@@ -1,0 +1,32 @@
+# FPS-FIELD-BARN-PITCH: the owner 11-04 'проверяй на всякие артефакты во время движения. Мерцания итд. Можно еще вверх
+# вниз водить камеру'; 11-03 'солнце мерцает и если чуть поднять камеру то вся трава будет черная'.
+# Shots taken WHILE the camera pitches (Camera.Tilt, deg/frame, not a cut), up past the sun and down into the grass,
+# then a combined turn+pitch, then still: flicker, black grass, a camera-locked thing at the horizon show here.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Тогда-вид p0_still the barn view still
+Когда --subject viewport set Camera.Tilt 0.3
+Когда frames 30
+Тогда-вид p1_up pitching up, slight raise (black grass?)
+Когда frames 40
+Тогда-вид p2_up pitching up, horizon low
+Когда frames 40
+Тогда-вид p3_up pitching up, sky and sun
+Когда --subject viewport set Camera.Tilt -0.3
+Когда frames 80
+Тогда-вид p4_down pitching down, back past the horizon
+Когда frames 70
+Тогда-вид p5_down pitching down into the grass
+Когда --subject viewport set Camera.Spin 0.5
+Когда --subject viewport set Camera.Tilt 0.3
+Когда frames 50
+Тогда-вид p6_turn_up turning and pitching up
+Когда --subject viewport set Camera.Spin 0
+Когда --subject viewport set Camera.Tilt 0
+Тогда-вид p7_stop just stopped
+Когда frames 120
+Тогда-вид p8_settled settled after the stop
