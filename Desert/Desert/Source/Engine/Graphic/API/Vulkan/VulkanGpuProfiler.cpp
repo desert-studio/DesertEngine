@@ -430,11 +430,11 @@ namespace Desert::Graphic::API::Vulkan
         // of the scopes that were timed untouched. The refusal raises the high-water mark, so the pool
         // is big enough the next time this frame index comes round.
         VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
-        const int32_t              index =
-             chunk != nullptr ? m_Recording->Recorder.BeginUnder( GpuViewScopeName( viewName, name ), &active,
-                                                                  chunk->GpuScopes,
-                                                                  ( chunk->GpuOrder << 24 ) | chunk->GpuOrderNext++ )
-                              : m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
+        const int32_t              index = chunk != nullptr
+                                                ? m_Recording->Recorder.BeginUnder(
+                                          GpuViewScopeName( viewName, name ), chunk->GpuRoot, chunk->GpuScopes,
+                                          ( chunk->GpuOrder << 24 ) | chunk->GpuOrderNext++ )
+                                                : m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
         if ( index < 0 )
             return -1;
         if ( chunk != nullptr )
@@ -464,6 +464,14 @@ namespace Desert::Graphic::API::Vulkan
             return;
         vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
+    }
+
+    GpuScopeRecorder::ChunkRootScope VulkanGpuProfiler::ChunkRoot( Common::Profiling::GpuQueue queue )
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( m_Recording == nullptr )
+            return {};
+        return m_Recording->Recorder.ChunkRoot( &ViewResourceRegistry::Active(), queue );
     }
 
     void VulkanGpuProfiler::SetQueue( Common::Profiling::GpuQueue queue )

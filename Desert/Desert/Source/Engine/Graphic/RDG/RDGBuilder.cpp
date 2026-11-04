@@ -8,6 +8,9 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
 #include <span>
 #include <vector>
 #include <memory>
@@ -55,6 +58,132 @@ namespace Desert::Graphic::RDG
                    access != Access::AccelStructBuildWrite && access != Access::CopySrc &&
                    access != Access::CopyDst && access != Access::ExternalWrite;
         }
+
+        // RDG-PARALLEL-1-1 (UE FRDGBuilder::Execute with r.RDG.ParallelExecute: each parallel pass set is a task,
+        // and the render thread goes on recording the serial passes; it meets a set only where the set's command
+        // list joins the stream). The record phase's chunks as tasks: JobSystem helpers claim them in chunk order
+        // and record them, while the calling thread walks the graph in pass order and records the serial passes.
+        // At a chunk's position the calling thread takes the chunk itself when no helper has claimed it yet (the
+        // pool may be busy with the game thread's work), else waits for the helper that has it. It never waits
+        // for a chunk nobody claimed, so a busy or empty pool only makes the walk serial, as before.
+        // Held by shared_ptr: a helper the pool runs after the record phase returned finds the share closed.
+        class ChunkTasks
+        {
+        public:
+            explicit ChunkTasks( uint32_t count ) : m_Recorded( count, 0 ), m_Count( count )
+            {
+            }
+
+            // The recorder every claim runs. Set once, before the first helper is submitted; it lives on the
+            // record phase's stack, which Close() outlives no helper's use of.
+            void SetRecorder( const std::function<void( uint32_t )>* recorder )
+            {
+                m_Recorder = recorder;
+            }
+
+            // A helper (a JobSystem worker): records the next unclaimed chunk until none is left.
+            void RunHelper()
+            {
+                uint32_t chunk = 0;
+                while ( Claim( chunk ) )
+                {
+                    // Finish() runs even if the recorder throws, or the calling thread waits for nothing.
+                    struct FinishGuard
+                    {
+                        ChunkTasks* Tasks;
+                        uint32_t    Chunk;
+                        ~FinishGuard()
+                        {
+                            Tasks->Finish( Chunk );
+                        }
+                    } finish{ this, chunk };
+                    // Per thread: the task workers' rows, apart from the calling thread's (Await).
+                    DESERT_PROFILE_SCOPE( "RDG: Record chunk (task)" );
+                    ( *m_Recorder )( chunk );
+                }
+            }
+
+            // The calling thread at chunk @p chunk's position in the walk: returns once the chunk is recorded.
+            // Chunks are claimed in index order and the walk reaches them in that order, so a chunk not claimed
+            // yet is the next one; the calling thread records it itself instead of waiting for a helper.
+            void Await( uint32_t chunk )
+            {
+                std::unique_lock<std::mutex> lock( m_Lock );
+                while ( m_Next <= chunk )
+                {
+                    const uint32_t mine = m_Next++;
+                    ++m_Running;
+                    lock.unlock();
+                    {
+                        DESERT_PROFILE_SCOPE( "RDG: Record chunk (render thread)" );
+                        ( *m_Recorder )( mine );
+                    }
+                    lock.lock();
+                    m_Recorded[mine] = 1;
+                    --m_Running;
+                }
+                if ( m_Recorded[chunk] == 0 )
+                {
+                    DESERT_PROFILE_WAIT( "RDG: Wait for chunk" );
+                    m_Done.wait( lock, [&] { return m_Recorded[chunk] != 0; } );
+                }
+            }
+
+            // Before the graph is abandoned and before the record phase returns: no helper claims a chunk any
+            // more, and every chunk a helper took is finished - it records into this graph's command buffers
+            // and reads the record phase's stack.
+            void Close()
+            {
+                std::unique_lock<std::mutex> lock( m_Lock );
+                m_Closed = true;
+                if ( m_Running != 0 )
+                {
+                    DESERT_PROFILE_WAIT( "RDG: Wait for chunk" );
+                    m_Done.wait( lock, [&] { return m_Running == 0; } );
+                }
+            }
+
+        private:
+            bool Claim( uint32_t& chunk )
+            {
+                const std::lock_guard<std::mutex> lock( m_Lock );
+                if ( m_Closed || m_Next >= m_Count )
+                    return false;
+                chunk = m_Next++;
+                ++m_Running;
+                return true;
+            }
+
+            void Finish( uint32_t chunk )
+            {
+                {
+                    const std::lock_guard<std::mutex> lock( m_Lock );
+                    m_Recorded[chunk] = 1;
+                    --m_Running;
+                }
+                m_Done.notify_all();
+            }
+
+            std::mutex                             m_Lock;
+            std::condition_variable                m_Done;
+            std::vector<uint8_t>                   m_Recorded; // by chunk; under m_Lock
+            const uint32_t                         m_Count;
+            uint32_t                               m_Next     = 0; // the first chunk nobody claimed
+            uint32_t                               m_Running  = 0; // claimed, not finished
+            bool                                   m_Closed   = false;
+            const std::function<void( uint32_t )>* m_Recorder = nullptr;
+        };
+
+        // Closes the record phase's chunk tasks on every way out of it (ChunkTasks::Close).
+        struct ChunkTasksCloser
+        {
+            std::shared_ptr<ChunkTasks>& Tasks;
+            ~ChunkTasksCloser()
+            {
+                if ( Tasks )
+                    Tasks->Close();
+            }
+        };
     } // namespace
 
     // ── Builder: resources ─────────────────────────────────────────────────────────────────────────────
@@ -1080,6 +1209,16 @@ namespace Desert::Graphic::RDG
             state.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
             state.FaultCulled.push_back( pass );
         };
+        // The record phase's chunk tasks (ChunkTasks), made once the chunks are begun. Closed - every chunk a
+        // helper took finished - before the calling thread abandons the graph, and on every way out of the record
+        // phase.
+        std::shared_ptr<ChunkTasks> chunkTasks;
+        const auto                  abandonGraph = [&]()
+        {
+            if ( chunkTasks )
+                chunkTasks->Close();
+            backend.AbandonGraph();
+        };
         // A backend failure abandons the graph on the calling thread; a worker only keeps it.
         const auto backendFailure = [&]( RecordState& state, std::string reason ) -> Common::BoolResultStr
         {
@@ -1088,7 +1227,7 @@ namespace Desert::Graphic::RDG
                 state.BackendFailure = std::move( reason );
                 return Common::MakeFormattedError( "{}", state.BackendFailure );
             }
-            backend.AbandonGraph();
+            abandonGraph();
             return frameFault( std::move( reason ), {} );
         };
 
@@ -1278,10 +1417,12 @@ namespace Desert::Graphic::RDG
 
         DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );
         // RDG-PARALLEL-2 (UE FRDGBuilder::Execute, r.RDG.ParallelExecute). A backend that records in parallel gets
-        // each long segment cut into chunks at render pass boundaries; workers record the chunks, and the calling
-        // thread replays them into the segment's command buffer in pass order. A NeverParallel pass, a short
-        // segment, and every pass after the first late fault record on the calling thread, in order, as before.
-        // A graph with a prerequisite that was not prepared records entirely on the calling thread.
+        // each graphics segment cut into chunks at render pass boundaries; task workers record the chunks, and the
+        // calling thread replays them into the segment's submission in pass order. RDG-PARALLEL-1-1: the chunks
+        // record WHILE the calling thread walks the graph and records the serial passes - a NeverParallel pass,
+        // the async compute segments, every pass after the first late fault - in order, as before; it meets a
+        // chunk only at the chunk's position (ChunkTasks::Await). A graph with a prerequisite that was not
+        // prepared records entirely on the calling thread.
         struct RecordChunk
         {
             RecordChunkDesc                  Desc;
@@ -1298,10 +1439,11 @@ namespace Desert::Graphic::RDG
                           []( const std::string& failure ) { return !failure.empty(); } );
         if ( m_ParallelExecute && backend.SupportsParallelRecording() && !anyPrepareFailure )
         {
-            // UE: r.RDG.ParallelExecute.PassMin / PassMax. A segment shorter than kSerialSegment is not worth a
-            // worker hand-off (the ImGui / display encode graphs); a chunk grows to about kChunkPasses passes.
-            constexpr uint32_t kSerialSegment = 24;
-            constexpr uint32_t kChunkPasses   = 24;
+            // UE: r.RDG.ParallelExecute.PassMin 1 / PassMax. Every graphics segment is cut, however short: the
+            // calling thread no longer waits for the chunks before it walks (RDG-PARALLEL-1-1), so a hand-off
+            // costs it a claim, not a stall - the segment of a few heavy passes between an async fork and its join
+            // is what the walk overlaps. A chunk grows to about kChunkPasses passes.
+            constexpr uint32_t kChunkPasses = 24;
             chunkAt.assign( result.Passes.size(), -1 );
             const auto cuttable = [&]( uint32_t position )
             {
@@ -1311,9 +1453,9 @@ namespace Desert::Graphic::RDG
             for ( const PipeSegment& segment : result.Segments )
             {
                 // Graphics segments only: an AsyncCompute segment's GPU timeline (the profiler's queue and its
-                // "RDG Async" row) is set by BeginPipeSegment on the calling thread, after the chunks record.
-                if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart || segment.OnPipe != Pipe::Graphics ||
-                     segment.LastPosition - segment.FirstPosition + 1 < kSerialSegment )
+                // "RDG Async" row) is set by BeginPipeSegment on the calling thread as the walk reaches it.
+                if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart ||
+                     segment.OnPipe != Pipe::Graphics )
                     continue;
                 bool chunkOpen = false;
                 for ( uint32_t position = segment.FirstPosition; position <= segment.LastPosition; )
@@ -1343,6 +1485,29 @@ namespace Desert::Graphic::RDG
                 }
             }
         }
+        // The active view is per recording thread (ViewResources.cpp t_ActiveView): a chunk recorded on a worker
+        // reads the same view's descriptor sets and block copies as the thread that runs the graph (UE: a parallel
+        // command list set records for its view), not the frame context.
+        ViewResources&                        recordingView = ViewResourceRegistry::Active();
+        const std::function<void( uint32_t )> recordChunk   = [&]( uint32_t c )
+        {
+            const ActiveViewScope viewScope( recordingView );
+            RecordChunk&          chunk = chunks[c];
+            chunk.LostRoot.assign( m_Passes.size(), -1 );
+            RecordState state{ chunk.LostRoot, chunk.Faults, chunk.FaultCulled, chunk.Late };
+            state.Worker = true;
+            backend.BeginChunk( c );
+            for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition; ++position )
+            {
+                if ( !recordPass( result.Passes[position], state ) )
+                    break;
+            }
+            backend.EndChunk( c );
+            chunk.BackendFailure = std::move( state.BackendFailure );
+        };
+        // After everything a chunk task reads (the chunks, the recorder, the plan): on every way out of the record
+        // phase the tasks are closed before any of it goes.
+        const ChunkTasksCloser closeChunkTasks{ chunkTasks };
         if ( !chunks.empty() )
         {
             std::vector<RecordChunkDesc> descs;
@@ -1355,32 +1520,19 @@ namespace Desert::Graphic::RDG
                 backend.AbandonGraph();
                 return frameFault( std::format( "graph '{}' chunks: {}", m_Name, chunksBegun.GetError() ), {} );
             }
-            // The active view is per recording thread (ViewResources.cpp t_ActiveView): a chunk recorded on a
-            // worker reads the same view's descriptor sets and block copies as the thread that runs the graph
-            // (UE: a parallel command list set records for its view), not the frame context.
-            ViewResources& recordingView = ViewResourceRegistry::Active();
-            Common::JobSystem::Get().ParallelRanges(
-                 chunks.size(), 1,
-                 [&]( size_t begin, size_t end )
-                 {
-                     const ActiveViewScope viewScope( recordingView );
-                     for ( size_t c = begin; c < end; ++c )
-                     {
-                         RecordChunk& chunk = chunks[c];
-                         chunk.LostRoot.assign( m_Passes.size(), -1 );
-                         RecordState state{ chunk.LostRoot, chunk.Faults, chunk.FaultCulled, chunk.Late };
-                         state.Worker = true;
-                         backend.BeginChunk( static_cast<uint32_t>( c ) );
-                         for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition;
-                               ++position )
-                         {
-                             if ( !recordPass( result.Passes[position], state ) )
-                                 break;
-                         }
-                         backend.EndChunk( static_cast<uint32_t>( c ) );
-                         chunk.BackendFailure = std::move( state.BackendFailure );
-                     }
-                 } );
+            // UE: the parallel pass sets are launched as tasks before the render thread executes the serial
+            // passes. One helper per worker at most; a chunk no helper claimed by the time the walk reaches it is
+            // recorded by the calling thread (ChunkTasks::Await), so a refused Submit costs only parallelism.
+            chunkTasks = std::make_shared<ChunkTasks>( static_cast<uint32_t>( chunks.size() ) );
+            chunkTasks->SetRecorder( &recordChunk );
+            Common::JobSystem& jobs    = Common::JobSystem::Get();
+            const size_t       helpers = std::min( chunks.size(), jobs.WorkerCount() );
+            for ( size_t h = 0; h < helpers; ++h )
+            {
+                std::shared_ptr<ChunkTasks> share = chunkTasks;
+                if ( !jobs.Submit( [share] { share->RunHelper(); } ) )
+                    break;
+            }
         }
         // Set once any pass faulted late: a chunk recorded on a worker did not see that fault, so every later
         // chunk is discarded and its passes record again on the calling thread (the rare path).
@@ -1388,6 +1540,7 @@ namespace Desert::Graphic::RDG
         // The calling thread's replay of one chunk: its passes' external states, its faults, then its commands.
         const auto replayChunk = [&]( RecordChunk& chunk, uint32_t index ) -> Common::BoolResultStr
         {
+            DESERT_PROFILE_SCOPE( "RDG: Replay chunk" );
             for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition; ++position )
             {
                 const CompiledPass& pass = result.Passes[position];
@@ -1396,7 +1549,7 @@ namespace Desert::Graphic::RDG
                 const Common::BoolResultStr recorded = RecordExternalStates( pass.Barriers );
                 if ( !recorded )
                 {
-                    backend.AbandonGraph();
+                    abandonGraph();
                     return frameFault(
                          std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, recorded.GetError() ), {} );
                 }
@@ -1413,13 +1566,13 @@ namespace Desert::Graphic::RDG
             m_LateSubstitutions.insert( m_LateSubstitutions.end(), chunk.Late.begin(), chunk.Late.end() );
             if ( !chunk.BackendFailure.empty() )
             {
-                backend.AbandonGraph();
+                abandonGraph();
                 return frameFault( std::move( chunk.BackendFailure ), {} );
             }
             const Common::BoolResultStr executed = backend.ExecuteChunk( index );
             if ( !executed )
             {
-                backend.AbandonGraph();
+                abandonGraph();
                 return frameFault( std::format( "graph '{}' chunk at pass '{}': {}", m_Name,
                                                 result.Passes[chunk.Desc.FirstPosition].Name, executed.GetError() ),
                                    {} );
@@ -1437,7 +1590,7 @@ namespace Desert::Graphic::RDG
             const Common::BoolResultStr segmentBegun = backend.BeginPipeSegment( segment );
             if ( !segmentBegun )
             {
-                backend.AbandonGraph();
+                abandonGraph();
                 return frameFault( std::format( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
                                                 segmentBegun.GetError() ),
                                    {} );
@@ -1447,6 +1600,10 @@ namespace Desert::Graphic::RDG
             for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition; )
             {
                 const int32_t chunk = chunkAt.empty() ? -1 : chunkAt[position];
+                // The chunk is recorded (by a helper, or here when none claimed it) before it is replayed or
+                // discarded: either reads what its recording wrote.
+                if ( chunk >= 0 )
+                    chunkTasks->Await( static_cast<uint32_t>( chunk ) );
                 if ( chunk >= 0 && !discardChunks )
                 {
                     RecordChunk&          replayed = chunks[static_cast<uint32_t>( chunk )];
@@ -1468,7 +1625,7 @@ namespace Desert::Graphic::RDG
             const Common::BoolResultStr segmentEnded = backend.EndPipeSegment( segment );
             if ( !segmentEnded )
             {
-                backend.AbandonGraph();
+                abandonGraph();
                 return frameFault( std::format( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
                                                 segmentEnded.GetError() ),
                                    {} );

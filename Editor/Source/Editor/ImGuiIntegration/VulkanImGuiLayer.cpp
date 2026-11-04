@@ -413,8 +413,11 @@ namespace Desert::Graphic::API::Vulkan
         compositeDesc.Format      = kUICompositeFormat;
         const Graphic::RDG::TextureRef composite = graph.CreateTexture( compositeDesc, "EditorUIComposite" );
         ImDrawData*                    drawData  = ::ImGui::GetDrawData();
+        // NeverParallel (RDG::PassFlags): the exec calls the ImGui Vulkan backend, third-party code that is not
+        // thread-safe; with every graphics segment cut into chunks (RDG-PARALLEL-1) it would record on a worker.
         graph.AddPass(
-             "EditorImGui", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
+             "EditorImGui", Graphic::RDG::PassFlags::Raster | Graphic::RDG::PassFlags::NeverParallel,
+             [&]( Graphic::RDG::PassBuilder& pass )
              { pass.ColorTarget( 0, composite, Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); },
              [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
              {

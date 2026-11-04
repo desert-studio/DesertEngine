@@ -2223,6 +2223,14 @@ namespace Desert::Graphic::API::Vulkan
             chunk.Failure.clear();
             const size_t pipe = chunk.Desc.OnPipe == RDG::Pipe::Graphics ? 0 : 1;
             perPipe[pipe]     = index + 1;
+            // RDG-PARALLEL-1-1: the chunk records while this thread walks the graph (its scope stack and its
+            // profiler queue change under it), so where the chunk's scopes hang is taken now, on its own pipe.
+            Common::Profiling::GpuQueue queue = Common::Profiling::GpuQueue::Graphics;
+            if ( pipe != 0 )
+                queue = Common::Profiling::GpuQueue::AsyncCompute;
+            chunk.Record.GpuRoot = {};
+            if ( m_Device.ChunkOrder != nullptr )
+                chunk.Record.GpuRoot = m_Device.ChunkOrder->ChunkRoot( queue );
         }
         for ( size_t pipe = 0; pipe < perPipe.size(); ++pipe )
         {
