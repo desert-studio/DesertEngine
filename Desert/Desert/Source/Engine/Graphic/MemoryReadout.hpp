@@ -146,6 +146,14 @@ namespace Desert::Graphic
         /// Empty when nothing was sampled or the table did not exist yet.
         [[nodiscard]] static std::optional<BindlessOccupancy> LastBindless();
 
+        /// GRASS-VRAM-BUDGET-1: the LAST sampled frame's device-local usage and budget (instants, not peaks: the
+        /// profile dump's line) and whether the usage passed the budget - past it the driver pages video memory in
+        /// and out and the frame stalls wherever the paged memory is next touched. 0 / false when nothing was
+        /// sampled or the budget is unknown (`DeviceMemoryReport::BudgetKnown`).
+        [[nodiscard]] static uint64_t LastDeviceLocalUsage();
+        [[nodiscard]] static uint64_t LastDeviceLocalBudget();
+        [[nodiscard]] static bool     OverBudget();
+
         /// The sampler's own lines: baseline, peak, and the growth between them. Separate from
         /// `MemoryReadout::Report()` because one is an instant and the other is a history, and a reader
         /// who cannot tell which he is holding will quote the wrong one.

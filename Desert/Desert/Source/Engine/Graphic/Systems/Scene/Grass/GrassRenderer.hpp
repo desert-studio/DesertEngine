@@ -383,7 +383,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> TileFeedback; // per frame in flight: read back
             RDG::ExternalBuffer                             TileTableImport, TileFeedbackImport;
             // GRASS-TILE-3: THE POOL IS VIDEO MEMORY (UE: the grass HISM's instance buffers are GPU resources, the
-            // host only uploads). The records (TilePool) and the free pages and tile headers (TileWords) are
+            // host only uploads). The records (TileSegments, below) and the free pages and tile headers (TileWords) are
             // written and read by the GPU alone, so they are device-local storage buffers (GRASS-VIEW-LAW-1:
             // StorageBuffer::CreateDeviceLocal, Persistence::DeviceOnly; until then graph buffers kept by
             // Builder::Extract, which have no device address) - not persistent StorageBuffers, which are
@@ -397,6 +397,20 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> TilePool, TileWords;
             RDG::ExternalBuffer                             TilePoolImport, TileWordsImport;
             RDG::BufferRef TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
+            // GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (Common/GrassVarietyRows.glslh; UE: a pooled buffer grows by
+            // pages inside its pool's budget, never by a second full copy): the records live in TileSegments, device-
+            // local buffers of kGrassTileSegmentPages pages appended as the pool grows; TilePool is their segment
+            // table (persistent: per segment its address, written once when the segment is made). TileRoom: the
+            // pages the free-page stack in TileWords has room for - every slot's tile at its most pages - and so the
+            // most the pool grows to; TileGrowFrom: the first page this frame's growth adds (TilePages: none), which
+            // the Free pass pushes on the stack. TilePoolCapped: the pool was held at the grass pools' share of the
+            // device-local budget (logged once).
+            std::vector<std::shared_ptr<ShaderResources::StorageBuffer>> TileSegments;
+            std::vector<RDG::ExternalBuffer>                             TileSegmentImports;
+            std::vector<RDG::BufferRef>                                  TileSegmentRefs;
+            uint32_t                                                     TileRoom       = 0;
+            uint32_t                                                     TileGrowFrom   = 0;
+            bool                                                         TilePoolCapped = false;
             // This frame's tile table (GrassGenerate.shader Tiles): the header, then TileFrees slots to free,
             // TileBuilds tiles to build, TileCulls tiles the tile cull walks (nearest first, GRASS-TILE-2).
             std::vector<glm::uvec4> TileEntries;
@@ -447,6 +461,12 @@ namespace Desert::Graphic::System
         // kGrassTileBuildsPerFrame - and its tile table (VarietyGpu::TileEntries). @p placement / @p thin: the
         // build's inputs (VarietyGpu::PlacementKey / ThinKey); @p cell the grid cell, @p radius the cull radius,
         // @p stray how far an instance lies from its cell (cm). False when a buffer was not made.
+        // GRASS-VRAM-BUDGET-1: the bytes every variety's tile pool segments hold but @p except's, and the grass
+        // pools' ceiling - kGrassTilePoolBudgetShare of the device-local budget (VK_EXT_memory_budget; the
+        // device-local heaps' size where the budget is unknown; 0 without a device), read once a frame
+        // (m_FrameTilePoolCap): a capped pool asks every frame, and each Device::QueryMemory is a driver query.
+        [[nodiscard]] uint64_t TilePoolBytes( const VarietyGpu* except ) const;
+        [[nodiscard]] uint64_t TilePoolCap();
         [[nodiscard]] bool UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement,
                                         std::vector<uint32_t> thin, glm::vec2 eye, float cell, float radius,
                                         float stray );
@@ -473,6 +493,8 @@ namespace Desert::Graphic::System
         // tiles are built (Count / Allocate / Write).
         std::vector<VarietyGpu*>         m_FrameTileFree;
         std::vector<VarietyGpu*>         m_FrameTileBuild;
+        // GRASS-VRAM-BUDGET-1: this frame's TilePoolCap, read on its first use (empty: not read yet this frame).
+        std::optional<uint64_t>          m_FrameTilePoolCap;
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral

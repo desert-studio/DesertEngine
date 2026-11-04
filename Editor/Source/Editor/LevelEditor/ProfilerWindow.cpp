@@ -13,6 +13,7 @@
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
+#include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <ImGui/imgui.h>
@@ -142,6 +143,19 @@ namespace Desert::Editor
                   prof.AvgWindowSeconds() );
         LOG_INFO( "[Profiler] Frame (wall) {:.3f} ms ({:.0f} FPS), GPU frame {:.3f} ms", frameMs, fps,
                   gpuFrameMs );
+        // GRASS-VRAM-BUDGET-1: the device-local memory the last sampled frame ran in (MemoryWatch). A frame past
+        // its budget is paged by the driver, and the GPU times below then say nothing about their passes.
+        if ( const uint64_t budget = Graphic::MemoryWatch::LastDeviceLocalBudget(); budget != 0u )
+        {
+            constexpr double MB    = 1024.0 * 1024.0;
+            const uint64_t   usage = Graphic::MemoryWatch::LastDeviceLocalUsage();
+            std::string_view state = "within it";
+            if ( Graphic::MemoryWatch::OverBudget() )
+                state = "OVER it";
+            LOG_INFO( "[Profiler] device-local {:.0f} MB of a {:.0f} MB budget ({}), run peak {:.0f} MB",
+                      static_cast<double>( usage ) / MB, static_cast<double>( budget ) / MB, state,
+                      static_cast<double>( Graphic::MemoryWatch::PeakDeviceLocalUsage() ) / MB );
+        }
         // cpu self: the row with its nested CPU scopes subtracted; cpu wait: the part of cpu ms blocked in a
         // Wait scope (fence, acquire, present, pacer) - cpu ms minus cpu wait is the row's real work.
         LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10}", "scope", "cpu ms", "x",
