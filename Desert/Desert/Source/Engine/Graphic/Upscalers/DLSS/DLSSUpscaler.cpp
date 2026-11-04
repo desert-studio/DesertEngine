@@ -1,5 +1,7 @@
 #include <Engine/Graphic/Upscalers/DLSS/DLSSUpscaler.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -643,6 +645,15 @@ namespace Desert::Graphic
         const RDG::TextureRef exposureRef = exposure.GetValue();
         const RDG::TextureRef normal      = rr ? guides.NormalRoughness : RDG::TextureRef{};
         const bool            traced      = rr && guides.HitDistanceTraced;
+        // The pass's GPU row splits in two: its child "<name>: NGX Evaluate" is everything slEvaluateFeature
+        // records (Streamline's transitions of the tagged images and NGX's network), the row's own self time is
+        // the render graph's barriers into the pass (VulkanRdgBackend::BeginPass opens the row before
+        // RecordBarriers). Nothing else is recorded here: the tags are eValidUntilPresent (no Streamline copy),
+        // the guides, the velocity and the exposure are passes of their own before this one (UE's DLSS plugin:
+        // GBuffer resolve, velocity combine, then the evaluate).
+        const char* evaluateZone = "DLSS: NGX Evaluate";
+        if ( rr )
+            evaluateZone = "DLSS-RR: NGX Evaluate";
         graph.AddPass(
              DebugName().data(), RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
@@ -663,8 +674,8 @@ namespace Desert::Graphic
                  // reset), which needs TRANSFER_DST usage and the transfer stage in the barrier into this pass.
                  pass.Write( output, RDG::Access::ExternalWrite );
              },
-             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr,
-              traced]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
+             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr, traced,
+              evaluateZone]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
              {
                  const auto commandBuffer = API::Vulkan::VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
@@ -696,6 +707,7 @@ namespace Desert::Graphic
                      *target = image.GetValue();
                  }
                  evaluation.EngineFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+                 DESERT_PROFILE_PASS_DYNAMIC( evaluateZone );
                  return Streamline::Runtime::Get().Evaluate( commandBuffer.GetValue(), evaluation );
              } );
 
