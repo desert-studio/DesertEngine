@@ -3,8 +3,8 @@
 // function per phase - FlushCullStack, the fork/join pass, MergeRenderPasses, CollectPassBarriers,
 // CompilePassOps, AllocateTransientResources, CreatePassBarriers, FinalizeResources - adapted to a graph
 // whose passes keep their declaration order except where HoistQueuedUploads moves a queued upload to the graph
-// head and ScheduleIntoAsyncWindows moves a graphics pass, along its dependency edges, into an async run's
-// overlap window.
+// head and ScheduleIntoAsyncWindows / SinkIntoAsyncWindows move a graphics pass, along its dependency edges,
+// into an async run's overlap window.
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -289,6 +289,7 @@ namespace Desert::Graphic::RDG
         void                                ChoosePipes();
         void                                HoistQueuedUploads();
         void                                ScheduleIntoAsyncWindows();
+        void                                SinkIntoAsyncWindows();
         void                                FindAsyncRuns();
         void                                CutRunsAtConsumers();
         void                                CreateAsyncSyncs();
@@ -1082,6 +1083,173 @@ namespace Desert::Graphic::RDG
         }
         std::copy( executed.begin(), executed.end(), m_Executed.begin() );
         m_PipeAt = std::move( pipes );
+    }
+
+    // ── S2 (pre, cont.). Independent graphics work sunk into the async windows (GPU-TURN-1) ──────────────
+    // The pull above fills a window only with graphics work declared AFTER the run's first consumer. On
+    // FPS-FIELD-BARN-TURN that is all there is and the graphics queue still idles 0.46 ms ("RDG Wait: graphics
+    // queue on async compute before 'Deferred: Composite'"): the screen-probe piece outlasts the graphics work
+    // between the run's fork ('HZB: Mip 0' / 'HZB: Mip 10') and that consumer. The work it lacks is declared
+    // BEFORE the fork - the shadow depths, which only the lighting after the join reads. UE renders them after
+    // the base pass for exactly this overlap (RenderShadowDepthMaps after the async Lumen dispatch, beside
+    // RenderLights; raster depth work beside compute tracing), by a hand-placed call order. Here the graph has
+    // the edges, so the compile decides it: a graphics pass before a run's fork that no pass before the run's
+    // first consumer depends on - a pass sunk with it aside - is moved, in its order, to just before that
+    // consumer (the pull's insertion point). It runs on Graphics while the run runs on AsyncCompute, and the
+    // fork, no longer queued behind it, signals earlier. Every dependency edge keeps its direction, so the
+    // graph's result is the same. The pull's order rules hold: a NeverParallel or ExternalQueue pass is never
+    // moved and nothing moves across one, and a Copy pass (a queued upload) stays where HoistQueuedUploads put
+    // it. A run whose first consumer is beyond the next run shares that run's window; positions before a
+    // window's insertion point are settled and never move again.
+    void Builder::Compiler::SinkIntoAsyncWindows()
+    {
+        if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
+            return;
+        // Direct predecessors and successors of each position (CSR), rebuilt after each move.
+        std::vector<uint32_t> predBegin;
+        std::vector<uint32_t> preds( m_Result.Edges.size() );
+        std::vector<uint32_t> succBegin;
+        std::vector<uint32_t> succs( m_Result.Edges.size() );
+        const auto buildAdjacency = [&]()
+        {
+            predBegin.assign( m_ExecutedCount + 1, 0 );
+            succBegin.assign( m_ExecutedCount + 1, 0 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+            {
+                ++predBegin[m_PositionOf[edge.To] + 1];
+                ++succBegin[m_PositionOf[edge.From] + 1];
+            }
+            for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+            {
+                predBegin[position + 1] += predBegin[position];
+                succBegin[position + 1] += succBegin[position];
+            }
+            std::vector<uint32_t> predFill( predBegin.begin(), predBegin.end() - 1 );
+            std::vector<uint32_t> succFill( succBegin.begin(), succBegin.end() - 1 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+            {
+                const uint32_t from     = m_PositionOf[edge.From];
+                const uint32_t to       = m_PositionOf[edge.To];
+                preds[predFill[to]++]   = from;
+                succs[succFill[from]++] = to;
+            }
+        };
+        const auto keepsOrder = [&]( uint32_t position )
+        {
+            const PassRecord& pass = m_Passes[m_Executed[position]];
+            return HasFlag( pass.Flags, PassFlags::NeverParallel ) || pass.External.has_value();
+        };
+        const auto isRaster = [&]( uint32_t position )
+        { return HasFlag( m_Passes[m_Executed[position]].Flags, PassFlags::Raster ); };
+        const auto dependsOn = [&]( uint32_t position, uint32_t on )
+        {
+            return std::find( preds.begin() + predBegin[position], preds.begin() + predBegin[position + 1], on ) !=
+                   preds.begin() + predBegin[position + 1];
+        };
+
+        buildAdjacency();
+        std::vector<bool>     sunk( m_ExecutedCount, false );
+        std::vector<uint32_t> order;
+        uint32_t              settled  = 0;
+        uint32_t              position = 0;
+        while ( position < m_ExecutedCount )
+        {
+            if ( m_PipeAt[position] != Pipe::AsyncCompute )
+            {
+                ++position;
+                continue;
+            }
+            const uint32_t first = position;
+            while ( position < m_ExecutedCount && m_PipeAt[position] == Pipe::AsyncCompute )
+                ++position;
+            const uint32_t last      = position - 1;
+            uint32_t       nextFirst = position;
+            while ( nextFirst < m_ExecutedCount && m_PipeAt[nextFirst] != Pipe::AsyncCompute )
+                ++nextFirst;
+            // The run's first consumer before the next run, and its fork: the latest graphics position a pass
+            // of the run depends on (every graphics position the run depends on is before `first`).
+            uint32_t join = nextFirst;
+            for ( uint32_t q = last + 1; q < nextFirst && join == nextFirst; ++q )
+            {
+                for ( uint32_t k = predBegin[q]; k < predBegin[q + 1]; ++k )
+                {
+                    if ( preds[k] >= first && preds[k] <= last )
+                        join = q;
+                }
+            }
+            uint32_t forkEnd = 0; // one past the fork; 0: the run depends on no graphics pass
+            for ( uint32_t a = first; a <= last; ++a )
+            {
+                for ( uint32_t k = predBegin[a]; k < predBegin[a + 1]; ++k )
+                {
+                    if ( m_PipeAt[preds[k]] != Pipe::AsyncCompute )
+                        forkEnd = std::max( forkEnd, preds[k] + 1 );
+                }
+            }
+            if ( join == nextFirst || keepsOrder( join ) )
+                continue;
+            uint32_t insertAt = join;
+            while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
+                    isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
+                --insertAt;
+            // Nothing moves across an order-keeping pass, nor out of an earlier window's settled positions.
+            uint32_t scanStart = settled;
+            for ( uint32_t q = settled; q < insertAt; ++q )
+            {
+                if ( keepsOrder( q ) )
+                    scanStart = q + 1;
+            }
+            settled = insertAt;
+            if ( forkEnd <= scanStart )
+                continue;
+            // From the fork back: a pass sinks when each of its successors is at or after the insertion point
+            // or sinks itself (positions from the fork on never sink, so a successor there keeps it).
+            std::fill( sunk.begin(), sunk.end(), false );
+            bool any = false;
+            for ( uint32_t q = forkEnd; q-- > scanStart; )
+            {
+                const PassFlags flags = m_Passes[m_Executed[q]].Flags;
+                if ( m_PipeAt[q] != Pipe::Graphics || HasFlag( flags, PassFlags::Copy ) ||
+                     !( HasFlag( flags, PassFlags::Raster ) || HasFlag( flags, PassFlags::Compute ) ) )
+                    continue;
+                bool free = true;
+                for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
+                    free = succs[k] >= insertAt || sunk[succs[k]];
+                sunk[q] = free;
+                any     = any || free;
+            }
+            if ( !any )
+                continue;
+            order.clear();
+            order.reserve( m_ExecutedCount );
+            for ( uint32_t q = 0; q < scanStart; ++q )
+                order.push_back( q );
+            for ( uint32_t q = scanStart; q < insertAt; ++q )
+            {
+                if ( !sunk[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = scanStart; q < insertAt; ++q )
+            {
+                if ( sunk[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = insertAt; q < m_ExecutedCount; ++q )
+                order.push_back( q );
+            std::vector<uint32_t> executed( m_ExecutedCount );
+            std::vector<Pipe>     pipes( m_ExecutedCount );
+            for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
+            {
+                executed[at]               = m_Executed[order[at]];
+                pipes[at]                  = m_PipeAt[order[at]];
+                m_PositionOf[executed[at]] = at;
+            }
+            std::copy( executed.begin(), executed.end(), m_Executed.begin() );
+            m_PipeAt = std::move( pipes );
+            // The run moved down by the sunk passes before it; positions from insertAt on did not move.
+            buildAdjacency();
+            position = nextFirst;
+        }
     }
 
     // ── S2. Async runs and their fork / join (UE's fork/join pass in Compile) ─────────────────────────────
@@ -2479,6 +2647,7 @@ namespace Desert::Graphic::RDG
         compiler.ChoosePipes();
         compiler.HoistQueuedUploads();
         compiler.ScheduleIntoAsyncWindows();
+        compiler.SinkIntoAsyncWindows();
         compiler.FindAsyncRuns();
         compiler.CreateAsyncSyncs();
         DESERT_PROFILE_PHASE( stages, "RDG Compile: lifetimes" );
