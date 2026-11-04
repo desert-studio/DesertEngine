@@ -363,6 +363,8 @@ namespace Common::Profiling
                    { return a.Pass != b.Pass ? a.Pass < b.Pass : a.GpuMs > b.GpuMs; } );
 
         ++m_PublishCount;
+        m_DisplayWindowFrames = m_WindowFrames;
+        m_DisplayClosedAt     = Clock::now();
         m_WindowFrames = 0;
         m_WindowStart  = now;
     }
