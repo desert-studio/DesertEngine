@@ -35,3 +35,15 @@ float TracedReflectionsAlpha(float roughness)
 {
 	return clamp((kTracedMaxRoughness - roughness) / kTracedRoughnessFade, 0.0, 1.0);
 }
+
+// UE Lumen reflections' tile classification (LumenReflections.cpp ReflectionTileClassification, MaxRoughnessToTrace):
+// a pixel rougher than the max is not traced - it takes the screen probe gather's rough specular, no ray. Under the
+// traced GI (roughFromGI: DeferredLighting's giMode >= 2, SceneRenderer TracedGatherAnswersRoughSpecular) the
+// composite mixes the traced reflection in by TracedReflectionsAlpha alone, so a texel whose alpha is 0 would be
+// walked for nothing; without traced GI the traced reflection answers the whole lobe and SSRPixelCanReflect's gate
+// stands, as for ScreenSpace. ONE statement for the classify and the trace (SSR.shader, Common/SSRTrace.glslh
+// SSRTexelTraces): a tile with no texel under the max is marked empty and costs no ray.
+bool TracedReflectionsPixelTraces(vec4 gbufferNormal, bool roughFromGI)
+{
+	return SSRPixelCanReflect(gbufferNormal) && (!roughFromGI || TracedReflectionsAlpha(gbufferNormal.a) > 0.0);
+}

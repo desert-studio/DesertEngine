@@ -97,6 +97,15 @@ namespace Desert::Graphic
                             "DESERT_REFLECTIONS_HIT_LIGHTING)"
                           : "SSRTrace (DESERT_GI_TRACER_HARDWARE, DESERT_REFLECTIONS_TRACED)";
         }
+
+        // Whether the composite takes the specular lobe past MaxRoughnessToTrace from the traced GI's final gather
+        // (DeferredLighting.shader giMode >= 2: UE MixSpecularAndRoughReflections over the screen probes' rough
+        // specular). ONE statement for the composite's GI branch and the traced reflections' classify, which then
+        // traces no texel that rough (SSRRenderer::TraceSettings::RoughSpecularFromGI).
+        bool TracedGatherAnswersRoughSpecular( const Common::Scalability::GIMethod gi, const bool tracedGather )
+        {
+            return gi != Common::Scalability::GIMethod::ScreenSpace && tracedGather;
+        }
     } // namespace
 
     RDG::TextureRef SceneRenderer::AddFrameNoSunCascades( RDG::Builder& graph )
@@ -878,10 +887,8 @@ namespace Desert::Graphic
         // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int             giMode        = gi == GIMethod::ScreenSpace            ? 1
-                                              : traced && refs.Transients.GIOccluded ? 3
-                                              : traced                               ? 2
-                                                                                     : 0;
+        const bool     roughFromGI   = TracedGatherAnswersRoughSpecular( gi, traced );
+        const int giMode = gi == GIMethod::ScreenSpace ? 1 : !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
                                            .ScreenSpaceSamples = m_ScreenSpaceGISamples,
@@ -1980,6 +1987,13 @@ namespace Desert::Graphic
         if ( ReflectionsTraced() )
             traced = MakeTracedReflectionReads( graph, textures, ssr, gbuffer, frame );
         settings.Traced   = traced.has_value();
+        // The opaque view's composite hands the lobe past MaxRoughnessToTrace to the traced GI's rough specular:
+        // the classify marks a tile of such texels empty and the trace walks none of them (UE Lumen reflections'
+        // tile classification). The front layer's glass composes the whole lobe from its trace: it keeps the gate.
+        settings.RoughSpecularFromGI =
+             settings.Traced && frontLayer == nullptr &&
+             TracedGatherAnswersRoughSpecular( m_RenderMethods.GlobalIllumination.Effective,
+                                               textures.Transients.GIDiffuse.IsValid() );
         const bool hitLit = traced && traced->HitGroups != nullptr;
         // The front layer's renderer starts its rays from the front layer's surface; every hit still reads the
         // opaque G-buffer, HZB and velocity above (Common/SSRTrace.glslh SSRSurfaceNormal).
@@ -1999,9 +2013,9 @@ namespace Desert::Graphic
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                            traceUniforms, traced ? &*traced : nullptr,
                                            frontLayer != nullptr ? &frontInputs : nullptr );
-                 // The G-buffer colours the trace does not sample stay declared as before.
-                 ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
-                 ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
+                 // Only the textures the trace samples (its block): an unsampled G-buffer colour declared here
+                 // joined the screen probes' async run at its last pass, the first reader of the shading word
+                 // ("ScreenProbes: Disocclusion"), and the graphics queue waited for the whole run before it.
              },
              [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
               seed]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -2024,8 +2038,6 @@ namespace Desert::Graphic
                      ssr.DeclareHitLightingBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory,
                                                      hzb, traceUniforms, camera, *traced,
                                                      frontLayer != nullptr ? &frontInputs : nullptr );
-                     ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
-                     ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
                  },
                  [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
                   sceneHistoryReadable, seed,
