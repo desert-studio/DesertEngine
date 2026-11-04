@@ -49,7 +49,8 @@ namespace Common::Logger
         // Holds the startup lines until the log file has a directory; generous, since a startup that
         // logs more than this before finding its own directory is itself the defect.
         inline constexpr std::size_t kEarlyLineCapacity = 16384;
-        // The most bytes of lines a writer queues before a caller waits for it (MakeAsyncWriterSink).
+        // The most memory a writer's queued lines take (each line's buffer object, logger name and text) before a
+        // caller waits for it (MakeAsyncWriterSink).
         inline constexpr std::size_t kWriterQueueBytes = std::size_t{ 64 } << 20;
     } // namespace Detail
 

@@ -3,8 +3,11 @@
 #include <spdlog/details/log_msg_buffer.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
+#include <exception>
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -48,7 +51,7 @@ namespace Common::Logger
                 std::unique_lock lock( m_Mutex );
                 m_Written.wait( lock, [this]() { return m_Stop || m_QueuedBytes < Detail::kWriterQueueBytes; } );
                 m_Queue.emplace_back( msg );
-                m_QueuedBytes += msg.payload.size();
+                m_QueuedBytes += QueuedSize( msg );
                 const std::uint64_t mine = ++m_Queued;
                 m_Wake.notify_one();
                 if ( msg.level >= spdlog::level::err )
@@ -83,6 +86,14 @@ namespace Common::Logger
             }
 
         private:
+            // What one queued line holds: the log_msg_buffer itself (its fmt buffer keeps 250 bytes inline, so a
+            // short line costs far more than its text) and the logger name and text it copies. Counting the text
+            // alone let a queue of short lines grow several times past kWriterQueueBytes.
+            static std::size_t QueuedSize( const spdlog::details::log_msg& line )
+            {
+                return sizeof( spdlog::details::log_msg_buffer ) + line.logger_name.size() + line.payload.size();
+            }
+
             void Run()
             {
                 std::vector<spdlog::details::log_msg_buffer> batch;
@@ -95,16 +106,55 @@ namespace Common::Logger
                     batch.swap( m_Queue );
                     lock.unlock();
                     for ( const spdlog::details::log_msg_buffer& line : batch )
-                        m_Target->log( line );
-                    m_Target->flush();
+                        Guarded( [&]() { m_Target->log( line ); } );
+                    Guarded( [&]() { m_Target->flush(); } );
                     lock.lock();
                     for ( const spdlog::details::log_msg_buffer& line : batch )
-                        m_QueuedBytes -= line.payload.size();
+                        m_QueuedBytes -= QueuedSize( line );
                     m_Done += batch.size();
                     batch.clear();
+                    // A stall's backlog (up to kWriterQueueBytes) is not kept as the two vectors' capacity once it
+                    // is written: a frame's lines are tens, a backlog after a held disk is hundreds of thousands.
+                    if ( batch.capacity() > kKeptBatchLines )
+                        std::vector<spdlog::details::log_msg_buffer>().swap( batch );
                     m_Written.notify_all();
                 }
             }
+
+            // A target that throws (spdlog's file sink on a full disk or a failed fflush: file_helper throws
+            // spdlog_ex) costs that write, never the process. On the caller's thread spdlog's logger caught the
+            // throw and handed it to its error handler; one leaving this thread is std::terminate, and the line
+            // count below would never reach a caller waiting for an error line. Reported on stderr at most once a
+            // second, as spdlog's default error handler does.
+            template <typename Write>
+            void Guarded( Write&& write )
+            {
+                try
+                {
+                    write();
+                }
+                catch ( const std::exception& error )
+                {
+                    Report( error.what() );
+                }
+                catch ( ... )
+                {
+                    Report( "unknown exception" );
+                }
+            }
+
+            void Report( const char* what )
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if ( m_Reported && now - m_LastReport < std::chrono::seconds( 1 ) )
+                    return;
+                m_Reported   = true;
+                m_LastReport = now;
+                std::fprintf( stderr, "[*** LOG ERROR ***] [log writer] %s\n", what );
+                std::fflush( stderr );
+            }
+
+            static constexpr std::size_t kKeptBatchLines = 4096; // Run: the batch capacity kept between batches
 
             std::shared_ptr<spdlog::sinks::sink>         m_Target;
             std::mutex                                   m_Mutex;
@@ -115,6 +165,8 @@ namespace Common::Logger
             std::uint64_t                                m_Queued      = 0; // lines ever queued
             std::uint64_t                                m_Done        = 0; // lines ever written and flushed
             bool                                         m_Stop        = false;
+            std::chrono::steady_clock::time_point        m_LastReport; // the writer thread's own (Report)
+            bool                                         m_Reported = false;
             std::thread                                  m_Writer; // last: started once the members above exist
         };
 
