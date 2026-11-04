@@ -1,6 +1,8 @@
 #include "MaterialInstance.hpp"
 #include "Material.hpp"
 
+#include <Engine/Core/RenderTask.hpp>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -9,6 +11,18 @@
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // THE FENCE FOR A PARAMETER WRITE. The render task applies instances while the game thread ticks the
+        // next frame (OVERLAP-ON-2), so a write from the tick (a script, a sequencer track, an editor panel)
+        // waits for the job in flight; the render task itself and the workers return at once. UE keeps a
+        // render-thread copy of the parameters instead (FMaterialInstanceResource): the next step.
+        void FenceMaterialWrite()
+        {
+            ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+        }
+    } // namespace
+
     MaterialInstance::MaterialInstance( Material* parentMaterial, const std::string& name )
          : m_ParentMaterial( parentMaterial ), m_Name( name )
     {
@@ -85,6 +99,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetFloat( const std::string& name, float value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Float );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -92,6 +107,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetInt( const std::string& name, int value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Int );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -99,6 +115,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetBool( const std::string& name, bool value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Bool );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -106,6 +123,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetVec2( const std::string& name, const glm::vec2& value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Vec2 );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -113,6 +131,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetVec3( const std::string& name, const glm::vec3& value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Vec3 );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -120,6 +139,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetVec4( const std::string& name, const glm::vec4& value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Vec4 );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -127,6 +147,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetMat4( const std::string& name, const glm::mat4& value )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, value, MaterialPropertyType::Mat4 );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -134,6 +155,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetTexture( const std::string& name, void* texture )
     {
+        FenceMaterialWrite();
         m_Properties.SetProperty( name, texture, MaterialPropertyType::Texture );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -160,6 +182,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetParameters( const MaterialPropertySet& properties )
     {
+        FenceMaterialWrite();
         m_Properties.CopyFrom( properties );
         m_bNeedsApply = true;
         PropagateToChildren();
@@ -201,6 +224,7 @@ namespace Desert::Graphic
 
     void MaterialInstance::ClearOverride( const std::string& name )
     {
+        FenceMaterialWrite();
         if ( !m_Properties.RemoveProperty( name ) )
             return;
         m_bNeedsApply = true;
@@ -209,6 +233,7 @@ namespace Desert::Graphic
 
     bool MaterialInstance::SetParamFromVec4( const std::string& name, const glm::vec4& value )
     {
+        FenceMaterialWrite();
         // Resolve the param's type so the vec4 is unpacked correctly. When this instance has never held the
         // param — the common case for a bare runtime instance created from a primitive + MaterialComponent
         // override (e.g. the Cornell Box walls) — fall back to the parent instance's declared type, then to
