@@ -5,13 +5,13 @@
 // of this frame's table is a run of one producer list's records (GpuDrawCompactEntry: its Args, a phase's or a
 // cascade's copy, by device address) with the address of the draw row its draws read. Modes (Compact.w):
 //   0 CLEAR: Counts[b] = 0 for every bin.
-//   1 GATHER: thread (k, entry) copies record k of the entry - Records + k x Stride, a VkDrawIndexedIndirectCommand
-//     as the producer's cull wrote it (instanceCount 0 included) - to slot FirstSlot + k of Commands, the entry's
+//   1 GATHER: thread (k, entry) copies record k of the entry - Records + k x Stride, a
+//     VkDrawIndexedIndirectCommand as the producer's cull wrote it (instanceCount 0 included) - to slot FirstSlot + k of Commands, the entry's
 //     draw row address to the same slot of DrawRows, and the entry's first thread adds its Count to its bin's
 //     drawn count. The slots are the CPU's (MeshRenderer lays the entries out in the per-variety path's draw
 //     order), so a bin draws its records in the order the per-variety draws did and the picture stays the same;
 //     a record the cull left empty is an empty draw of the GPU's front end, no CPU call.
-// "в UE так": the compaction appends with atomics (order free). "лучше так" here: fixed slots, the draw order of
+// UE: the compaction appends with atomics (order free). Better here: fixed slots, the draw order of
 // the per-variety path kept (depth-equal ties and the visibility buffer's tie-break resolve as before), the count
 // a sum; an appending compaction that drops the empty records is a mode of this program when the order stops
 // mattering.
