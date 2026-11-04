@@ -286,7 +286,9 @@ SurfaceOutput DefaultSurfaceOutput()
 // and hands the fragment stage the two per-draw words the push block carried (MaterialTransport.glslh MaterialIndex
 // and PrimitiveFlags; the flags here in GpuDriven::PrimitiveFlags' layout, DESERT_GPU_PRIMITIVE_*). UE: the primitive
 // id the base pass vertex factory forwards to the pixel shader.
-#ifdef DESERT_SURFACE_BINNED
+// A compacted bin's draw (DESERT_SURFACE_DRAW_ROWS, RENDER-JOB-CPU-4) hands them down the same way: its vertex
+// stage reads them from the draw's row (Common/GpuInstanceDrawRow.glslh).
+#if defined( DESERT_SURFACE_BINNED ) || defined( DESERT_SURFACE_DRAW_ROWS )
 #define DESERT_SURFACE_BINNED_VARYINGS \
     flat uint MaterialRow;             \
     flat uint PrimitiveFlags;
@@ -316,7 +318,7 @@ SurfaceOutput DefaultSurfaceOutput()
 // push block's MaterialIndex, or in a binned cell the row its vertex stage resolved. A global in a binned cell, set
 // by DESERT_SURFACE_BEGIN_FRAGMENT() first thing in every pass header's main(): the surface function that reads
 // `Material` is compiled before the pass header that declares v_Surface.
-#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+#if ( defined( DESERT_SURFACE_BINNED ) || defined( DESERT_SURFACE_DRAW_ROWS ) ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 uint g_SurfaceMaterialRow = 0u;
 #define DESERT_SURFACE_BEGIN_FRAGMENT() g_SurfaceMaterialRow = v_Surface.MaterialRow
 #else
