@@ -92,8 +92,45 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #include <Mesh/Surface/CasterWindLayer.glslh>
 #endif
 
+#ifdef DESERT_SURFACE_PASS_VisibilityResolve
+// THE VISIBILITY RESOLVE (GRASS-VIS-MESH-1, Mesh/Surface/Pass_VisibilityResolve.glslh): no instance is placed here -
+// the draw is one full-screen triangle (the first three indices, 0 1 2, of the producer's resolve mesh,
+// GpuInstancedRenderData::ResolveMesh, as Vertex_GrassBlade.glslh's), the fragment stage fetches the mesh triangle
+// its pixel's visibility word names.
+void main()
+{
+    const vec2 corner = vec2( float( ( gl_VertexIndex << 1 ) & 2 ), float( gl_VertexIndex & 2 ) );
+    gl_Position       = vec4( corner * 2.0 - 1.0, 0.0, 1.0 );
+}
+#else
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( out )
+#endif
+#ifdef DESERT_SURFACE_PASS_Visibility
+// THE VISIBILITY RASTER (GRASS-VIS-MESH-1, Mesh/Surface/Pass_Visibility.glslh): the mesh grass section's rows
+// (GrassMeshVisibility.glslh). The vertex stage is the masked depth cell's (position and the mask's UV, below).
+#include <Mesh/Surface/GrassMeshVisibility.glslh>
+layout( location = 15 ) flat out uint v_VisibilityRow;
+
+// The first row of this draw for slot @p slot: the slot's block, then the offset of the level's and the
+// submesh's triangles in it. The submesh is the one whose vertices hold @p vertex (the records are mesh-relative:
+// gl_VertexIndex = index + the submesh's VertexOffset); a triangle's three corners agree, the row is flat.
+uint GrassMeshVisibilityRow( const uint slot, const uint vertex )
+{
+    const uint level   = GrassMeshVisibilityLevel( slot );
+    const uint count   = min( MeshRows.Visibility.w, GRASS_MESH_VISIBILITY_MAX_SUBMESHES );
+    uint       submesh = 0u;
+    for ( uint s = 0u; s < count; ++s )
+    {
+        if ( vertex >= MeshRows.Submeshes[s].x && vertex - MeshRows.Submeshes[s].x < MeshRows.Submeshes[s].y )
+        {
+            submesh = s;
+            break;
+        }
+    }
+    const uint range = min( level * MeshRows.Visibility.w + submesh, GRASS_MESH_VISIBILITY_MAX_RANGES - 1u );
+    return MeshRows.Visibility.x + slot * MeshRows.Visibility.y + MeshRows.Ranges[range].z;
+}
 #endif
 
 void main()
@@ -143,8 +180,11 @@ void main()
     }
 #endif
 #endif
+#ifdef DESERT_SURFACE_PASS_Visibility
+    v_VisibilityRow = GrassMeshVisibilityRow( uint( gl_InstanceIndex ), uint( gl_VertexIndex ) );
+#endif
     const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB );
-#if ( defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_CASTER_PASS ) ) &&                           \
+#if ( defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_PASS_Visibility ) ) &&                           \
      defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
     // THE MASKED DEPTH CELLS - the view's early-Z pass and the casters (UE's depth-only / shadow-depth vertex factory:
     // position and the masked UV; MESH-GRASS-COST, as the blade's, Vertex_GrassBlade.glslh) - read one thing of the
@@ -230,3 +270,4 @@ void main()
                                          cameraUB.ShadowSlopeClamp );
 #endif
 }
+#endif // DESERT_SURFACE_PASS_VisibilityResolve

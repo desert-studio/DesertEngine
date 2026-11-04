@@ -27,6 +27,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <functional>
 #include <initializer_list>
@@ -550,13 +551,31 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
         if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
             return;
-        AddRaster(
-             graph, "Grass: Visibility Resolve", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
-             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderGrassVisibilityResolveManual( context ); },
-             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
-              args = visibility.ResolveArgs]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args ); } );
+        // GRASS-VIS-MESH-2: the blades and the mesh grass resolve in passes of their own, so the profile states
+        // each one's price ("Grass: Mesh Visibility Resolve" is what the mesh grass pays instead of the masked depth
+        // prepass + EQUAL G-buffer pair); a frame without a section of one path adds no pass for it.
+        struct ResolvePass
+        {
+            const char*    Name;
+            MeshVertexPath Path;
+        };
+        constexpr std::array<ResolvePass, 2> kResolvePasses{
+             ResolvePass{ "Grass: Visibility Resolve", MeshVertexPath::GrassBlade },
+             ResolvePass{ "Grass: Mesh Visibility Resolve", MeshVertexPath::Instanced } };
+        for ( const ResolvePass& resolve : kResolvePasses )
+        {
+            if ( !meshRenderer->DrawsGrassVisibility( resolve.Path ) )
+                continue;
+            const MeshVertexPath path = resolve.Path;
+            AddRaster(
+                 graph, resolve.Name, *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+                 RDG::LoadOp::Load(), {},
+                 [meshRenderer, path]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderGrassVisibilityResolveManual( context, path ); },
+                 [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
+                  args = visibility.ResolveArgs, path]( RDG::PassBuilder& pass )
+                 { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path ); } );
+        }
     }
 
     void SceneRenderer::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,

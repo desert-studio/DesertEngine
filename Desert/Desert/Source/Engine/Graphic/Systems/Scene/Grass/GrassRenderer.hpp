@@ -268,6 +268,9 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
+            // GRASS-VIS-MESH-1, Kind Mesh: per section (the variety's Sections order) its raster-stream rows
+            // (GrassMeshVisibilityGpu); null: the section draws through the prepass pair this frame.
+            std::vector<std::shared_ptr<ShaderResources::StorageBuffer>> MeshVisibility;
             uint32_t                                        Buckets     = 1;
             // The first bucket below kMinScreenRadiusForDepthPrepass through this frame's lens (MeshRenderer::
             // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.

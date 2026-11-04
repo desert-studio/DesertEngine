@@ -1884,7 +1884,11 @@ namespace Desert::Core::Preprocess
                       kSurfaceShadingModelDefine, shadingModelDefine ) +
                  ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() ) +
                  ( virtualGeometry ? std::format( "#define {} 1\n", kSurfaceVirtualGeometryDefine )
-                                   : std::string() );
+                                   : std::string() ) +
+                 // The visibility cells' fragment stage rebuilds its path's triangle (Pass_VisibilityResolve.glslh).
+                 ( pass == "Visibility" || pass == "VisibilityResolve"
+                        ? std::format( "#define DESERT_SURFACE_PATH_{} 1\n", path )
+                        : std::string() );
             // A binned cell's fragment `Material` reads the row its vertex stage resolved
             // (kSurfaceMaterialRowMacro): named ahead of the generated declarations, which default it to the push
             // block's.
@@ -1893,7 +1897,7 @@ namespace Desert::Core::Preprocess
                         : autoDecls;
             // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
             const bool wets =
-                 weather && ( pass == "Forward" || pass == "GBuffer" ) && !particle && path != kSurfaceRayHitPath;
+                 weather && ( pass == "Forward" || pass == "GBuffer" || pass == "VisibilityResolve" ) && !particle && path != kSurfaceRayHitPath;
             const std::string weatherDefines =
                  wets ? std::format( "#define {} 1\n#define {} {:#010x}u\n", kSurfaceWeatherDefine,
                                      kSurfaceWetnessKeyDefine,
@@ -3314,6 +3318,28 @@ namespace Desert::Core::Preprocess
                                                          includeBlock, autoDecls, result.Surface.Blend,
                                                          shadingModelDefine, result.Surface.ResponsiveAA,
                                                          opacityMaskFunction, false, heightFunctions, false ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
+
+            // The Instanced path's visibility raster and resolve cells (GRASS-VIS-MESH-1; UE: Nanite foliage), for
+            // every Opaque / Masked template with mesh cells: the landscape's mesh grass draws through them where the
+            // view takes the visibility buffer (MeshRenderer::DeclareMaskedDepthDraws), its triangle fetched back
+            // from the mesh (Mesh/Surface/GrassMeshVisibility.glslh).
+            if ( meshCells && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const std::string_view pass : kSurfaceGrassVisibilityPasses )
+                {
+                    constexpr std::string_view kInstancedPath = "Instanced";
+                    DShaderPass                cell;
+                    cell.Name  = SurfaceCellName( kInstancedPath, pass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                         stage, kInstancedPath, pass, *surfaceBlock, includeBlock,
+                                                         autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                         result.Surface.ResponsiveAA, opacityMaskFunction, false,
+                                                         heightFunctions, respondsToWeather ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );

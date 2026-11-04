@@ -22,5 +22,9 @@ void main()
                                                v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
 #endif
-    DesertWriteVisibility( ivec2( gl_FragCoord.xy ), gl_FragCoord.z, v_VisibilityRow, uint( gl_PrimitiveID ) );
+    // A row holds 128 triangles of one instance: a blade strip has fewer (its row is v_VisibilityRow), a mesh
+    // instance's draw one row per 128 of its triangles (GRASS-VIS-MESH-1, Mesh/Surface/GrassMeshVisibility.glslh).
+    const uint primitive = uint( gl_PrimitiveID );
+    DesertWriteVisibility( ivec2( gl_FragCoord.xy ), gl_FragCoord.z, v_VisibilityRow + ( primitive >> kVisTriangleBits ),
+                           primitive & kVisTriangleMask );
 }

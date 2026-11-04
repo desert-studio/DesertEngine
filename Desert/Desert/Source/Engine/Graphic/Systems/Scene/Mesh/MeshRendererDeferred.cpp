@@ -82,11 +82,18 @@ namespace Desert::Graphic::System
         m_EarlyZPostFrame.reset();
         // This frame's grass visibility sections, decided before the prepass and the G-buffer skip them (GRASS-VIS).
         m_GrassVisibilitySections.clear();
+        m_GrassVisibilityMeshSections = 0;
         if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
              m_SceneRenderer != nullptr && m_SceneRenderer->GetMainCamera() != nullptr )
             for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
-                if ( gpu.Path == MeshVertexPath::GrassBlade && GrassVisibilityReady( gpu ) )
+                if ( ( gpu.Path == MeshVertexPath::GrassBlade ||
+                       ( gpu.Path == MeshVertexPath::Instanced && gpu.MeshVisibility != nullptr ) ) &&
+                     GrassVisibilityReady( gpu ) )
+                {
                     m_GrassVisibilitySections.push_back( gpu.Key );
+                    if ( gpu.Path == MeshVertexPath::Instanced )
+                        ++m_GrassVisibilityMeshSections;
+                }
         if ( m_EarlyZPass == ::Common::Scalability::EarlyZPassMode::Off || m_SceneRenderer == nullptr ||
              m_SceneRenderer->GetMainCamera() == nullptr )
             return;
@@ -514,16 +521,17 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
                                                            const RDG::BufferRef visibility,
-                                                           const RDG::BufferRef resolveArgs )
+                                                           const RDG::BufferRef resolveArgs, const MeshVertexPath path )
     {
-        MeshRendererDetail::MeshDrawList& list = m_GrassVisibilityResolveDraws;
+        MeshRendererDetail::MeshDrawList& list =
+             path == MeshVertexPath::Instanced ? m_GrassMeshVisibilityResolveDraws : m_GrassVisibilityResolveDraws;
         list.Clear();
         m_GrassResolveArgs = resolveArgs;
-        if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !resolveArgs.IsValid() ||
+        if ( !DrawsGrassVisibility( path ) || !visibility.IsValid() || !resolveArgs.IsValid() ||
              !m_InstancedVisibilityResolvePipeline )
             return;
         BuildGpuInstancedDraws( list, m_InstancedVisibilityResolvePipeline.get(), MeshPass::VisibilityResolve,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false );
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false, path );
         list.Declare( pass, view,
                                                [visibility]( RDG::BindingBlockBuilder&         block,
                                                              const RDG::ShaderBindingLayout& layout )
@@ -535,8 +543,11 @@ namespace Desert::Graphic::System
                                                } );
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const
+    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
+                                                                            const MeshVertexPath     path ) const
     {
+        if ( path == MeshVertexPath::Instanced )
+            return m_GrassMeshVisibilityResolveDraws.Record( context );
         return m_GrassVisibilityResolveDraws.Record( context );
     }
 

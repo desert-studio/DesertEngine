@@ -14,6 +14,7 @@
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -33,6 +34,7 @@
 #include <iterator>
 #include <optional>
 #include <tuple>
+#include <unordered_set>
 
 namespace Desert::Graphic::System
 {
@@ -1025,8 +1027,9 @@ namespace Desert::Graphic::System
             // row cut to 32 bits here is never resolved.
             gpu.VisibilityRow = static_cast<uint32_t>( m_VisibilityRows );
             m_VisibilityRows += std::max( capacity, 1u );
-            gpu.ShapeData.Visibility = glm::uvec4( gpu.VisibilityRow, b.Segments,
-                                                   std::min( buckets, kGrassBladeVisibilityMaxBuckets ), 0u );
+            gpu.ShapeData.Visibility =
+                 glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ),
+                             std::max( capacity, 1u ) ); // w = the rows it owns (its resolve's bound)
             for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
                   first += capacities[bucket], ++bucket )
                 gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;
@@ -1035,6 +1038,101 @@ namespace Desert::Graphic::System
             {
                 LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
                 return nullptr;
+            }
+        }
+
+        // GRASS-VIS-MESH-1: a mesh variety's sections each take their rows of this frame's raster stream
+        // (GrassMeshVisibilityGpu, Mesh/Surface/GrassMeshVisibility.glslh; UE 5 Nanite's visible clusters): slot i
+        // owns RowsPerInstance rows, a level's submesh one row per 128 of its triangles. A section whose table
+        // cannot be stated (rows past kGrassVisibilityMaxRows, more submeshes or ranges than the table holds, a
+        // mesh without device addresses) has none and stays in the masked prepass and the EQUAL G-buffer
+        // (MeshRenderer admits only a tabled section), said once.
+        if ( !variety.Blade )
+        {
+            gpu.MeshVisibility.resize( variety.Sections.size() );
+            const auto&    geometry      = mesh.GetGeometry();
+            const auto     submeshCount  = static_cast<uint32_t>( submeshes.size() );
+            const uint64_t vertexAddress = geometry.Vertices ? geometry.Vertices->GetDeviceAddress() : 0u;
+            const uint64_t indexAddress  = geometry.Indices ? geometry.Indices->GetDeviceAddress() : 0u;
+            const uint64_t streamAddress = geometry.Streams ? geometry.Streams->GetDeviceAddress() : 0u;
+            // A mesh without a stream buffer reads the default streams (MeshVertexStreams: white, UV1 0,0), as the
+            // raster's binding 1 reads the shared default buffer: a zero stream address tells the resolve so
+            // (GRASS-VIS-MESH-2; most grass meshes author no colours nor second UV).
+            const bool addressed =
+                 vertexAddress != 0u && indexAddress != 0u && ( !geometry.Streams || streamAddress != 0u );
+            const bool fits = submeshCount <= kGrassMeshVisibilityMaxSubmeshes &&
+                              buckets <= kGrassBladeVisibilityMaxBuckets &&
+                              buckets * submeshCount <= kGrassMeshVisibilityMaxRanges;
+            constexpr uint32_t kRowTriangles = 1u << VirtualGeometry::kVisTriangleBits;
+            for ( size_t s = 0; s < variety.Sections.size(); ++s )
+            {
+                std::shared_ptr<ShaderResources::StorageBuffer>& table  = gpu.MeshVisibility[s];
+                const uint64_t                                   hidden = variety.Sections[s].HiddenSubmeshes;
+                GrassMeshVisibilityGpu                           rows{};
+                uint32_t                                         perInstance = 0;
+                for ( uint32_t level = 0; fits && level < buckets; ++level )
+                {
+                    uint32_t offset = 0;
+                    for ( uint32_t si = 0; si < submeshCount; ++si )
+                    {
+                        if ( ( ( hidden >> si ) & 1u ) != 0u )
+                            continue;
+                        const auto     indices   = SubmeshIndices( submeshes[si], level );
+                        const uint32_t triangles = indices.Count / 3u;
+                        rows.Ranges[level * submeshCount + si] =
+                             glm::uvec4( indices.First, triangles, offset, 0u );
+                        offset += ( triangles + kRowTriangles - 1u ) / kRowTriangles;
+                    }
+                    perInstance = std::max( perInstance, offset );
+                }
+                const uint64_t need = uint64_t{ capacity } * perInstance;
+                if ( !addressed || !fits || perInstance == 0u ||
+                     m_VisibilityRows + need > kGrassVisibilityMaxRows )
+                {
+                    table.reset();
+                    static std::unordered_set<uint64_t> s_Untabled;
+                    if ( s_Untabled.insert( variety.Key * 64u + s ).second )
+                    {
+                        LOG_INFO( "[Grass] variety {:016x} section {}: not drawn through the visibility buffer "
+                                  "(device addresses {}, {} submeshes x {} levels, {} rows past {}); it stays in "
+                                  "the masked depth prepass and the G-buffer.",
+                                  variety.Key, s, addressed, submeshCount, buckets, m_VisibilityRows + need,
+                                  kGrassVisibilityMaxRows );
+                    }
+                    continue;
+                }
+                rows.Visibility =
+                     glm::uvec4( static_cast<uint32_t>( m_VisibilityRows ), perInstance, buckets, submeshCount );
+                rows.Slots = glm::uvec4( capacity, 0u, 0u, 0u );
+                for ( uint32_t bucket = 0, first = 0; bucket < buckets; first += capacities[bucket], ++bucket )
+                    rows.BucketFirst[bucket / 4u][bucket % 4u] = first;
+                const uint64_t vertexAt = vertexAddress + geometry.VertexByteOffset;
+                uint64_t       streamAt = 0u; // 0: the default streams
+                if ( streamAddress != 0u )
+                    streamAt = streamAddress + geometry.StreamByteOffset;
+                const uint64_t indexAt = indexAddress + geometry.IndexByteOffset;
+                rows.Geometry[0] =
+                     glm::uvec4( static_cast<uint32_t>( vertexAt ), static_cast<uint32_t>( vertexAt >> 32u ),
+                                 static_cast<uint32_t>( streamAt ), static_cast<uint32_t>( streamAt >> 32u ) );
+                rows.Geometry[1] =
+                     glm::uvec4( static_cast<uint32_t>( indexAt ), static_cast<uint32_t>( indexAt >> 32u ),
+                                 geometry.VertexStride, static_cast<uint32_t>( sizeof( MeshVertexStreams ) ) );
+                for ( uint32_t si = 0; si < submeshCount; ++si )
+                {
+                    const uint32_t drawn = ( ( hidden >> si ) & 1u ) == 0u ? 1u : 0u;
+                    rows.Submeshes[si] =
+                         glm::uvec4( submeshes[si].VertexOffset, submeshes[si].VertexCount, drawn, 0u );
+                }
+                if ( !table )
+                    table = ShaderResources::StorageBuffer::Create( "GrassMeshVisibility",
+                                                                    sizeof( GrassMeshVisibilityGpu ), 13 );
+                if ( const auto wrote = table->SetData( &rows, sizeof( rows ) ); !wrote.IsSuccess() )
+                {
+                    LOG_ERROR( "[Grass] a mesh section's visibility rows were not written: {}", wrote.GetError() );
+                    table.reset();
+                    continue;
+                }
+                m_VisibilityRows += need;
             }
         }
 
@@ -1839,7 +1937,15 @@ namespace Desert::Graphic::System
 
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;
                 sections.reserve( variety.Sections.size() );
+                // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
+                // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are 0,
+                // 1, 2).
+                Desert::Mesh* const resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
+                {
+                    std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
+                    if ( s < gpu->MeshVisibility.size() )
+                        meshRows = gpu->MeshVisibility[s];
                     sections.push_back(
                          { .Mesh     = mesh,
                            .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
@@ -1850,6 +1956,8 @@ namespace Desert::Graphic::System
                            .Instances        = gpu->Instances,
                            .CameraIds        = gpu->CameraIds,
                            .BladeShape       = gpu->Shape,
+                           .MeshVisibility   = meshRows,
+                           .ResolveMesh      = resolveMesh,
                            .Refs             = &gpu->Refs,
                            .CameraRefs       = &gpu->CameraRefs,
                            .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
@@ -1868,6 +1976,7 @@ namespace Desert::Graphic::System
                            // The grass stands still but for the wind: a cached cascade keeps its rest pose.
                            .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
                                 .Generation = gpu->Generation, .Reach = gpu->Reach } } );
+                }
                 // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                 // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
                 // for a mesh (RayTracingGather.cpp).

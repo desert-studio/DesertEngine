@@ -38,6 +38,9 @@ namespace Desert::Graphic
     // shape.
     inline constexpr RDG::StorageBufferParameter kInstanceTransformsBlock{ "InstanceTransforms" };
     inline constexpr RDG::StorageBufferParameter kGrassBladeShapeBlock{ "GrassBladeShape" };
+    // GRASS-VIS-MESH-1: a mesh grass section's raster-stream rows (Mesh/Surface/GrassMeshVisibility.glslh), in the
+    // Instanced path's Visibility / VisibilityResolve cells only.
+    inline constexpr RDG::StorageBufferParameter kGrassMeshVisibilityBlock{ "GrassMeshVisibility" };
     // GPU-COST-22: a GPU-instanced list's ids (GpuInstanceRefs::Ids), in the kSurfaceInstanceIdsDefine cells only.
     inline constexpr RDG::StorageBufferParameter kGpuInstanceIdsBlock{ "GpuInstanceIds" };
 

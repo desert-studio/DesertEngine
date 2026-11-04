@@ -52,6 +52,23 @@ namespace Desert::Graphic::System
     // The strip levels BucketFirst holds (a blade's buckets are its strip's levels: Segments halved down to one).
     inline constexpr uint32_t kGrassBladeVisibilityMaxBuckets = 8u;
 
+    // GRASS-VIS-MESH-1: a mesh grass SECTION's raster-stream rows - Mesh/Surface/GrassMeshVisibility.glslh's
+    // GrassMeshVisibilityData, std430, byte for byte (GrassRenderer::PrepareVariety writes it every frame: the mesh's
+    // device addresses are read when used).
+    inline constexpr uint32_t kGrassMeshVisibilityMaxSubmeshes = 8u;
+    inline constexpr uint32_t kGrassMeshVisibilityMaxRanges    = 32u;
+    struct GrassMeshVisibilityGpu
+    {
+        glm::uvec4                Visibility{ 0u }; // first row, rows per instance, level count, submesh count
+        glm::uvec4                Slots{ 0u };      // x = the slots the section's list holds (its capacity)
+        std::array<glm::uvec4, 2> BucketFirst{};    // the first slot of bucket (= level) b < 8, [b / 4][b % 4]
+        // [0] vertex address lo, hi, stream address lo, hi; [1] index address lo, hi, vertex stride, stream stride
+        std::array<glm::uvec4, 2>                                Geometry{};
+        std::array<glm::uvec4, kGrassMeshVisibilityMaxSubmeshes> Submeshes{}; // VertexOffset, VertexCount, drawn, 0
+        std::array<glm::uvec4, kGrassMeshVisibilityMaxRanges>    Ranges{}; // L x submeshes + s: first index, triangles, row offset, 0
+    };
+    static_assert( sizeof( GrassMeshVisibilityGpu ) == 16 * ( 1 + 1 + 2 + 2 + 8 + 32 ) );
+
     // ONE level of the blade strip in blade space: (level + 1) rows of two vertices, position (side -1/+1, height
     // share t 0..1, 0), uv (side / 2 + 1/2, t), and two triangles per segment. GrassRenderer::BladeStrip draws it,
     // GrassBladeRayTracing shapes it into the level's BLAS.
