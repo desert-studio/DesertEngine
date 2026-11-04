@@ -181,8 +181,8 @@ namespace Desert::Graphic::RadianceCache
     // marked; a camera turning back would then re-trace what it saw a moment ago).
     inline constexpr uint32_t kProbeUnusedFramesBeforeFree = 8;
     // Priority buckets of the update (UE SelectMaxPriorityBucket's histogram; RC_PRIORITY_* of
-    // Common/RadianceCacheState.glslh): never traced of the coverage and of the fallback, kMaxClipmaps each, lights
-    // changed, and 25 for the age of the last trace.
+    // Common/RadianceCacheState.glslh): never traced of the coverage and of the fallback, kMaxClipmaps each,
+    // lights changed, and 25 for the age of the last trace.
     inline constexpr uint32_t kPriorityBuckets = 38;
     // Edge fade band of a clipmap, cells (UE GRadianceCacheClipmapFadeSize...: the dithered clipmap pick).
     inline constexpr float kClipmapFadeCells = 4.0f;

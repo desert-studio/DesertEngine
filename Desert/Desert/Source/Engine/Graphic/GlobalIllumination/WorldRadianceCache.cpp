@@ -163,7 +163,8 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t maxProbes = RadianceCache::MaxProbes( shape );
         m_Indirection =
              ShaderResources::StorageBuffer::Create( "RadianceCache.Indirection", entries * 4u, 1, true );
-        // Two stamps per entry, the coverage's and the fallback's (RadianceCacheStampIndex, RadianceCacheState.glslh).
+        // Two stamps per entry, the coverage's and the fallback's (RadianceCacheStampIndex of
+        // Common/RadianceCacheState.glslh).
         m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed", entries * 8u, 2, true );
         m_Probes   = ShaderResources::StorageBuffer::Create(
              "RadianceCache.Probes",
