@@ -38,8 +38,8 @@ namespace Desert::Graphic::System
             return gpu.Path == MeshVertexPath::Instanced ? std::max( 1u, gpu.Levels ) : 1u;
         }
 
-        // A section's buckets (GpuInstancedRenderData::PrepassBuckets): a mesh's LOD levels (a draw each), a
-        // blade's strip levels (the strip's submeshes, one draw).
+        // A section's buckets (GpuInstancedRenderData::PrepassBuckets): a mesh's LOD levels (one draw of a range of
+        // them, MeshDrawCommand::IndirectLevels), a blade's strip levels (the strip's submeshes, one draw).
         uint32_t BucketsOf( const MeshRenderer::GpuInstancedRenderData& gpu )
         {
             if ( gpu.Path == MeshVertexPath::GrassBlade )
@@ -479,12 +479,14 @@ namespace Desert::Graphic::System
                 continue;
             }
 
-            // The draws of buckets [first, end) through @p by: a mesh's one draw per LOD level the producer sorted its
-            // instances into, each reading its level's records; a blade's one draw of the strip, its records the
-            // strip levels (submesh b = bucket b), the levels outside the range hidden (BucketsHidden).
+            // The draws of buckets [first, end) through @p by: a mesh's ONE draw of the LOD levels the producer sorted
+            // its instances into, [first, end) - each drawn submesh one multi-draw over its record of every level
+            // (RENDER-CPU-COST-1, MeshDrawCommand::IndirectLevels; UE: one indirect draw per mesh batch, not a CPU
+            // call per level); a blade's one draw of the strip, its records the strip levels (submesh b = bucket b),
+            // the levels outside the range hidden (BucketsHidden).
             const auto addBuckets = [&]( const GpuInstancedDrawRecord& by, const uint32_t first, const uint32_t end )
             {
-                const auto add = [&]( const uint64_t hidden, const uint32_t level )
+                const auto add = [&]( const uint64_t hidden, const uint32_t level, const uint32_t levels )
                 {
                     list.Add( { .Pipeline           = by.Pipeline,
                                 .Mesh               = gpu.Mesh,
@@ -496,6 +498,7 @@ namespace Desert::Graphic::System
                                 .IndirectInstances  = refs.Instances,
                                 .IndirectIds        = refs.Ids,
                                 .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                                .IndirectLevels     = levels,
                                 .Push               = DrawPushFields{}
                                              .MaterialIndex( row )
                                              .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
@@ -505,11 +508,10 @@ namespace Desert::Graphic::System
                     return;
                 if ( gpu.Path == MeshVertexPath::GrassBlade )
                 {
-                    add( BucketsHidden( gpu.HiddenSubmeshes, by.Buckets, first, end ), 0u );
+                    add( BucketsHidden( gpu.HiddenSubmeshes, by.Buckets, first, end ), 0u, 1u );
                     return;
                 }
-                for ( uint32_t level = first; level < end; ++level )
-                    add( gpu.HiddenSubmeshes, level );
+                add( gpu.HiddenSubmeshes, first, end - first );
             };
             addBuckets( draw, 0u, prepassBuckets );
             if ( !prepassed || prepassBuckets >= draw.Buckets )
@@ -711,7 +713,9 @@ namespace Desert::Graphic::System
                                                          : 0u );
             InstanceWindPush restWind = wind;
             restWind.A                = glm::vec4( 0.0f );
-            const auto addPart = [&]( const uint32_t level, const uint64_t shift, const InstanceWindPush& push )
+            // RENDER-CPU-COST-1: the section's LOD levels are one draw per part (MeshDrawCommand::IndirectLevels),
+            // each drawn submesh one multi-draw over its record of every level from the cascade's set.
+            const auto addPart = [&]( const uint64_t shift, const InstanceWindPush& push )
             {
                 list.Add( { .Pipeline          = pipeline,
                             .Mesh              = gpu.Mesh,
@@ -723,19 +727,17 @@ namespace Desert::Graphic::System
                             .IndirectIds       = refs.Ids,
                             // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
                             // own list is its copy of the records, its rest part their twins.
-                            .IndirectArgsOffset = listBytes + shift + LevelArgsOffset( gpu, level + shadow.Set ),
+                            .IndirectArgsOffset = listBytes + shift + LevelArgsOffset( gpu, shadow.Set ),
+                            .IndirectLevels     = LevelsOf( gpu ),
                             .Push               = DrawPushFields{}
                                                      .Transform( glm::mat4( 1.0f ) )
                                                      .MaterialIndex( row )
                                                      .Wind( push ) } );
             };
-            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
-            {
-                if ( drawsRecords )
-                    addPart( level, 0u, wind );
-                if ( drawsTwins )
-                    addPart( level, gpu.CascadeRestShift, restWind );
-            }
+            if ( drawsRecords )
+                addPart( 0u, wind );
+            if ( drawsTwins )
+                addPart( gpu.CascadeRestShift, restWind );
         }
         return pending;
     }

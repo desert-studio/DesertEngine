@@ -267,7 +267,7 @@ namespace Desert::Graphic
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material,
                             std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
-                            SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
+                            SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order, uint32_t groups ) = 0;
         // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
         // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream /
         // index buffers (the group's shared binding: one bind per pipeline switch), then the indirect draws @p

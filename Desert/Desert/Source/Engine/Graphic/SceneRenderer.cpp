@@ -2367,7 +2367,11 @@ namespace Desert::Graphic
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Light grid + forward volumes" );
+        // RENDER-CPU-COST-1: a row of its own per step (the phase had none: 0.35 ms self on the turn).
+        DESERT_PROFILE_PHASES( lightGridPhases );
+        DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: Grid" );
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
+        DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: World grid + distance field" );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
         // path, after the virtual shadow map on the deferred one (its readers there are the glass and the
@@ -2386,6 +2390,7 @@ namespace Desert::Graphic
         // The forward depth prepass (UE forward: the full depth prepass, every forward frame) runs first: "VSM: Mark
         // Local" marks the pages its pixels read, as it does the deferred G-buffer's, and the base pass tests
         // CloserOrEqual against it and writes no depth.
+        DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: Forward prepass + volume" );
         if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
         {
             const RDG::TextureRef sceneDepth = AddFrameForwardDepthPrepass( graph, textures );
@@ -2406,6 +2411,7 @@ namespace Desert::Graphic
             }
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
+        DESERT_PROFILE_PHASE_END( lightGridPhases );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Base pass" );
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
@@ -2472,17 +2478,24 @@ namespace Desert::Graphic
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).
             DESERT_PROFILE_PHASE( addPhases, "Add passes: Post-occlusion + depth" );
+            // RENDER-CPU-COST-1: a row of its own per step (the phase had none: 0.67 ms self on the turn).
+            DESERT_PROFILE_PHASES( postOcclusionPhases );
+            DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Draw bins" );
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
+            DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Grass" );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
             if ( grassVisibility.IsValid() )
                 AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, grassVisibility );
+            DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Forward depth + normal" );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
+            DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Depth resolve + sky" );
             AddFrameDepthResolve( graph, textures );
             // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which
             // discards the texels it shades) and before every node that reads the scene colour. Not between the
             // traced GI's fork and its join: it loads every scene-target attachment, the velocity the screen
             // probes read on the async pipe among them (a graphics write after an async read joins the run there).
             AddFrameSkyBehindScene( graph, textures );
+            DESERT_PROFILE_PHASE_END( postOcclusionPhases );
 
             // THE PATH-TRACED FRAME (UE RenderPathTracing): the lit image is the path tracer's accumulation,
             // written over the scene colour in place of the deferred lighting chain - no SSAO, surface cache,
@@ -2513,6 +2526,10 @@ namespace Desert::Graphic
                 // permutation reads; under VirtualMaps the point/spot lights' pages share the sun's map: one page
                 // pass for both, and "VSM: Project Local" writes the local masks the composite reads as the traced
                 // ones.
+                // RENDER-CPU-COST-1: the lighting chain's setup in rows of its own (the phase had none: 0.53 ms
+                // self on the turn, scn-1104-073309).
+                DESERT_PROFILE_PHASES( lightingPhases );
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Virtual shadows + volume" );
                 m_FrameVsmPages.reset();
                 std::optional<FrontLayerSurface> frontLayerSurface;
                 if ( LocalShadowsAreVirtual() && meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws() )
@@ -2528,6 +2545,7 @@ namespace Desert::Graphic
                 // before its first reader (the front layer, the glass).
                 AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, {} );
 
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: SSAO + surface cache" );
                 AddFrameSSAO( graph, textures, gbuffer, frame );
                 AddFrameSurfaceCache( graph, textures, frame );
 
@@ -2537,6 +2555,7 @@ namespace Desert::Graphic
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 // ScreenSpace, SoftwareTraced and HardwareTraced run the same pass (the traced two its traced
                 // permutation over their tracer, AddFrameSSR).
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Screen trace + traced GI" );
                 const Common::Scalability::ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
                 System::SSRRenderer* const                  ssr =
                      ( reflections == Common::Scalability::ReflectionMethod::ScreenSpace ||
@@ -2563,6 +2582,7 @@ namespace Desert::Graphic
                 // translucency) come after the composite (AddFrameOpaqueFog). The cascades themselves cannot come
                 // here: the surface cache's card lighting reads them (AddFrameSurfaceCache: DeferredCascadeShadow)
                 // and both runs read the cards.
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Volumetric fog + clouds" );
                 AddFrameVolumetricFog( graph, textures, frame );
                 // THE CLOUDS BETWEEN THE SCREEN PROBES' FORK AND THEIR JOIN (UE: the volumetric render target
                 // traced before the lights while Lumen's gather runs on the async queue). The march, its temporal
@@ -2589,6 +2609,7 @@ namespace Desert::Graphic
                 }
                 // The pending capture's cube, measured by this view's GI (the radiance cache this frame's update
                 // just wrote) or, without traced GI, by the sky's irradiance - before the composite that reads it.
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Reflections + shadow masks" );
                 AddFrameReflectionCaptureUpdate( graph, textures, RadianceCacheRuns() );
 
                 // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
@@ -2640,6 +2661,7 @@ namespace Desert::Graphic
                                                    .Format = ViewTargetFormats::kSubsurfaceDiffuse },
                                  "SubsurfaceDiffuse" )
                           : RDG::TextureRef{};
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Composite + forward meshes" );
                 AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, localShadowMasks,
                                    megaLights, meshRenderer, lightDir, lightColor, frame, subsurfaceDiffuse );
                 if ( subsurfaceDiffuse.IsValid() )
@@ -2653,6 +2675,7 @@ namespace Desert::Graphic
                 AddFrameOpaqueFog( graph, textures, frame, OpaqueFogFroxels::AddedEarlier );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Scene copy, water + glass" );
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
                 // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces
                 // read): one copy serves this frame's refraction and next frame's SSR and screen probes.

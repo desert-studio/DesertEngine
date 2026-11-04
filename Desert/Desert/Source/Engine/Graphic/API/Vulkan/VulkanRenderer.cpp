@@ -37,6 +37,7 @@
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
 #include <Engine/Graphic/MeshDrawArguments.hpp>
+#include <Engine/Graphic/GpuDriven/IndirectDrawSubmission.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -1391,13 +1392,17 @@ namespace Desert::Graphic::API::Vulkan
          const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
          const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> push,
          const RDG::BufferRef args, const uint64_t offset, const SubmeshMask hiddenSubmeshMask,
-         const MeshDrawArgumentsOrder order )
+         const MeshDrawArgumentsOrder order, const uint32_t groups )
     {
         DESERT_PROFILE_FUNC();
         const RDG::PassContext& context = bindings.GetContext();
         if ( offset % 4u != 0u )
             return Common::MakeFormattedError( "{}: indirect arguments at byte {}, not a multiple of four",
                                                context.GetPassName(), offset );
+        if ( groups == 0u || ( groups > 1u && order != MeshDrawArgumentsOrder::Submesh ) )
+            return Common::MakeFormattedError(
+                 "{}: {} indirect record groups (one group per draw, several only in submesh order)",
+                 context.GetPassName(), groups );
         const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
         if ( !declared )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
@@ -1408,6 +1413,22 @@ namespace Desert::Graphic::API::Vulkan
                                                buffer.GetError() );
         const uint64_t bytes  = declared.GetValue().Desc->Bytes;
         const VkBuffer vkArgs = buffer.GetValue()->GetBuffer();
+        // RENDER-CPU-COST-1: a submesh's record of every group is one multi-draw at a stride of one group (the
+        // mesh's submesh count of records), split where the device's per-call limit says - as the binned groups
+        // are issued (RenderMeshIndirectGroup; one record per call without multiDrawIndirect).
+        uint32_t perCall = 1u;
+        if ( groups > 1u )
+        {
+            const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+            perCall                  = GpuDriven::SelectIndirectSubmission(
+                           { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
+                                              .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } )
+                           .MaxDrawsPerCall;
+        }
+        const uint64_t groupBytes = uint64_t{ mesh.GetSubmeshes().size() } * kMeshDrawArgumentsBytes;
+        if ( groups > 1u && groupBytes > uint64_t{ UINT32_MAX } )
+            return Common::MakeFormattedError( "{}: an indirect record group of {} bytes cannot be a draw stride",
+                                               context.GetPassName(), groupBytes );
         // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
         // The VSM caster draw instances through its remap (firstInstance = RemapBase), never a binned id stream.
         return WalkMeshSubmeshes(
@@ -1417,19 +1438,32 @@ namespace Desert::Graphic::API::Vulkan
              {
                  const uint64_t record =
                       order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
-                 const uint64_t at = offset + ( record * kMeshDrawArgumentsBytes );
-                 if ( at + kMeshDrawArgumentsBytes > bytes )
+                 const uint64_t at   = offset + ( record * kMeshDrawArgumentsBytes );
+                 const uint64_t last = at + ( uint64_t{ groups - 1u } * groupBytes );
+                 if ( last + kMeshDrawArgumentsBytes > bytes )
                      return Common::MakeFormattedError(
-                          "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",
-                          context.GetPassName(), drawn, at, declared.GetValue().Name, bytes );
-                 // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh pass.
-                 DrawCounter::RecordCpuIndirect();
-                 if ( indexCount == 0u )
-                     vkCmdDrawIndirect( RecordingTarget(), vkArgs, at, 1,
-                                        static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
-                 else
-                     vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs, at, 1,
-                                               static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
+                          "{}: indirect arguments of drawn submesh {} at byte {} ({} groups) past the end of '{}' "
+                          "({} bytes)",
+                          context.GetPassName(), drawn, at, groups, declared.GetValue().Name, bytes );
+                 for ( uint32_t first = 0; first < groups; first += perCall )
+                 {
+                     const uint32_t count = std::min( groups - first, perCall );
+                     const uint64_t from  = at + ( uint64_t{ first } * groupBytes );
+                     // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh
+                     // pass: one per call recorded.
+                     DrawCounter::RecordCpuIndirect();
+                     // One record: its own size (a group of one submesh is the record). Several: a group's
+                     // bytes apart, at least a record and a multiple of four (kMeshDrawArgumentsBytes is 20).
+                     uint32_t recordStride = static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) );
+                     if ( indexCount == 0u )
+                         recordStride = static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) );
+                     if ( count > 1u )
+                         recordStride = static_cast<uint32_t>( groupBytes );
+                     if ( indexCount == 0u )
+                         vkCmdDrawIndirect( RecordingTarget(), vkArgs, from, count, recordStride );
+                     else
+                         vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs, from, count, recordStride );
+                 }
                  return Common::MakeSuccess( true );
              } );
     }

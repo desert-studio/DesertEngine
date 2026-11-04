@@ -328,7 +328,10 @@ namespace Desert::Graphic::System
                     if ( draw.HiddenSubmeshMask.Hides( si ) )
                         continue;
                     ++draws;
-                    triangles += uint64_t{ SubmeshIndices( submeshes[si], draw.LodLevel ).Count / 3u };
+                    // A folded LOD chain (MeshDrawCommand::IndirectLevels): one call per submesh, every level's
+                    // triangles.
+                    for ( uint32_t level = 0; level < draw.IndirectLevels; ++level )
+                        triangles += uint64_t{ SubmeshIndices( submeshes[si], draw.LodLevel + level ).Count / 3u };
                 }
                 group.Add( draws, perInstance ? triangles : triangles * draw.InstanceCount, perInstance );
             }
@@ -521,6 +524,18 @@ namespace Desert::Graphic::System
             if ( recordedWith == nullptr )
             {
                 Fail( "mesh draw refused: its pipeline has no shader" );
+                return;
+            }
+            // MeshDrawCommand::IndirectLevels: at least one group, several only of the draw's own records.
+            if ( command.IndirectLevels == 0u )
+            {
+                Fail( "mesh draw refused: zero indirect record groups" );
+                return;
+            }
+            if ( command.IndirectLevels > 1u && !command.IndirectArgs.IsValid() )
+            {
+                Fail( std::format( "mesh draw refused: {} indirect record groups for a draw without records",
+                                   command.IndirectLevels ) );
                 return;
             }
             // A block per executor AND recording shader: one executor drawn through pipelines of two shaders
@@ -727,9 +742,9 @@ namespace Desert::Graphic::System
                 {
                     static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                              push, draw.IndirectArgs, draw.IndirectArgsOffset, draw.HiddenSubmeshMask,
-                              MeshDrawArgumentsOrder::Submesh );
+                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform,
+                              *draw.Material, push, draw.IndirectArgs, draw.IndirectArgsOffset,
+                              draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Submesh, draw.IndirectLevels );
                          !drawn.IsSuccess() )
                         return drawn;
                     continue;
@@ -737,9 +752,10 @@ namespace Desert::Graphic::System
                 if ( m_IndirectArguments.IsValid() )
                 {
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                              push, m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
-                              draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Drawn );
+                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform,
+                              *draw.Material, push, m_IndirectArguments,
+                              uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes, draw.HiddenSubmeshMask,
+                              MeshDrawArgumentsOrder::Drawn, 1u );
                          !drawn.IsSuccess() )
                         return drawn;
                     continue;

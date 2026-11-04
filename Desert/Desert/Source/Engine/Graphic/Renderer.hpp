@@ -182,11 +182,17 @@ namespace Desert::Graphic
         // kMeshDrawArgumentsBytes for
         // ::Submesh (a GPU-instanced draw, GpuInstances.hpp: @p offset = kGpuInstanceArgsHeaderBytes). A record
         // past the buffer is refused before it is drawn.
+        // @p groups (RENDER-CPU-COST-1; ::Submesh only, 1 for ::Drawn): the consecutive record groups the draw
+        // reads, one per LOD level of a GPU-instanced section (MeshDrawCommand::IndirectLevels), each one record
+        // per submesh of the mesh. Each drawn submesh is ONE vkCmdDrawIndexedIndirect of @p groups records at a
+        // stride of one group (submesh count x kMeshDrawArgumentsBytes), split at maxDrawIndirectCount, one record
+        // per call without multiDrawIndirect (GpuDriven::SelectIndirectSubmission): UE's one indirect draw per
+        // mesh batch instead of a CPU call per level. 0 is refused.
         [[nodiscard]] static Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material,
                             std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
-                            SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order );
+                            SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order, uint32_t groups );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything
