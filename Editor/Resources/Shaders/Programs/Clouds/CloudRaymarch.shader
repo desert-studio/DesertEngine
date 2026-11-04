@@ -253,6 +253,13 @@ Shader "CloudRaymarch"
         // exactly periodic and sampling past the region is the degenerate far path rather than a seam.
         Uniform(7) texture3D CloudModellingTexture;
         #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
+        // THE CONSERVATIVE DENSITY of the same three levels (Graphic::CloudProceduralClipmap::GetColumnImage):
+        // side x (3 x CLOUD_COLUMN_MAX_BANDS) x side RGBA8, row k * CLOUD_COLUMN_MAX_BANDS + b = height band b of
+        // level k, texel = each species' maximum over that band's rows of the column, dilated by the probe radius,
+        // toroidal like the volume. texelFetched by the coarse tier's probe
+        // (CloudProceduralColumnsEmpty) and nothing else; the march's own binding, not the field's.
+        Uniform(20) texture3D CloudColumnMaxTexture;
+        #define CloudColumnMaxTexture sampler3D(CloudColumnMaxTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
@@ -318,6 +325,16 @@ Shader "CloudRaymarch"
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
+        // The probe's texel of image row @p row (level * CLOUD_COLUMN_MAX_BANDS + band) at the toroidal
+        // coordinate @p uv in [0, 1): the texel the address falls in, never a filtered read — the dilation was
+        // built around whole texels.
+        vec4 CloudFetchColumnMax(int row, vec2 uv)
+        {
+            ivec2 side  = textureSize(CloudColumnMaxTexture, 0).xz;
+            ivec2 texel = min(ivec2(uv * vec2(side)), side - ivec2(1));
+            return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, row, texel.y), 0);
+        }
+        #define CLOUD_SAMPLE_COLUMN_MAX(row, uv) CloudFetchColumnMax((row), (uv))
 
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
@@ -623,20 +640,26 @@ Shader "CloudRaymarch"
             int   stepTotal = int(stepCount);
 
             // TWO STEP SIZES, and the whole point is that they are spent in different places. The fine
-            // step is the finest the march ever goes; the coarse one is a multiple of it and is used only
-            // while the ray is outside cloud, where the answer is exactly zero and any step size gives it
-            // correctly.
+            // step is Unreal's StepT — the segment over the count — and every lit sample is integrated over
+            // it; the coarse one is the search stride, used only while the ray is outside cloud, where the
+            // answer is exactly zero and any step size gives it correctly. On a short segment the two are
+            // equal (the fine step already IS the search lattice the library is calibrated on); on a long
+            // one the stride is up to CLOUD_COARSE_STEP_MULTIPLIER fine steps.
             //
-            // The budget therefore stops being a resolution and becomes a resolution WHERE IT MATTERS: a
-            // ray that crosses mostly empty sky finishes in a fraction of the iterations, and a ray inside
-            // cloud gets to spend all of them on the part that has something in it.
-            //
-            // The multiplier and its partner constant live in Common/CloudGeometry.glslh, together and
-            // next to the relation they have to satisfy — they are two numbers that must agree, and here
-            // they were two literals a hundred lines apart in a file no test can compile.
+            // The schedule's constants live in Common/CloudGeometry.glslh, together and next to the
+            // relations they have to satisfy — they are numbers that must agree, and here they were
+            // literals a hundred lines apart in a file no test can compile.
             float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                                  CLOUD_DISTANCE_TO_MAX_STEPS_KM);
-            float coarseStepKm = CloudCoarseStepKm(stepKm);
+            float coarseStepKm = CloudCoarseStepKm(length_km, stepKm, max(CloudMarch.x, CLOUD_MIN_STEPS));
+
+            // THE ITERATION CEILING IS TWICE THE COUNT, and the count is still the cost: a lit sample
+            // advances one fine step and none re-marches another's, so no ray integrates more than about
+            // stepTotal of them. The second half pays for the step-backs — each entry into a body
+            // re-marches (coarse - fine) of the segment — on a ray that enters many bodies and has few
+            // empty strides to buy them back with; bounded by the count alone that ray ended its march
+            // before the shell's far side. Every other ray leaves at segment.y first.
+            int   iterationTotal = 2 * stepTotal;
 
             // The start offset inside the first step, so the sample planes of neighbouring pixels do not
             // line up. Without it the uniform schedule draws the layer as a set of concentric shells —
@@ -804,12 +827,43 @@ Shader "CloudRaymarch"
             // Desert/Tests/Engine/CloudGeometry asserts it stays positive.
             const int kEmptyFineSamplesBeforeCoarse = CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE;
 
-            for (int i = 0; i < stepTotal; ++i)
+            // THE CONSERVATIVE PROBE OF THE COARSE TIER (CloudProceduralColumnsEmpty, CloudEmptyColumnAdvanceKm in
+            // Common/CloudGeometry.glslh): before the exact search sample, the column-max image's texels of the
+            // height bands the jump would cross say whether any column within the probe radius can hold cloud at
+            // those heights; where none can, the march jumps the whole reach on the search lattice without
+            // sampling it. The bound covers the procedural producer only, so a layer with sculpted bodies keeps
+            // the exact search everywhere — their boxes are not in the image.
+            bool  probeColumns       = CLOUD_AUTHORED_COUNT == 0;
+            float emptyColumnAdvance = CloudEmptyColumnAdvanceKm(length(rayDir.xz), coarseStepKm);
+            // The jump visits none of the lattice points before the one it lands on, so the stretch whose
+            // heights the probe must bound ends one stride short of the landing point.
+            float emptyColumnSkipKm  = emptyColumnAdvance - coarseStepKm;
+
+            for (int i = 0; i < iterationTotal; ++i)
             {
                 if (t >= segment.y)
                     break;
 
                 vec3  samplePos      = originKm + rayDir * t;
+
+                // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
+                // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the advance divides by.
+                // Its height is not linear in the ray (the shell is a sphere), so the bands the probe reads are
+                // those of the stretch's own lowest and highest point (CloudRayHeightFractionSpan), clipped to the
+                // segment the march would stop at anyway.
+                if (!fine && probeColumns)
+                {
+                    vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, t,
+                                                                     min(t + emptyColumnSkipKm, segment.y));
+                    if (CloudProceduralColumnsEmpty(params, samplePos.xz - params.WindOffsetKm.xz,
+                                                    CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
+                                                    skippedHeights.y))
+                    {
+                        t += emptyColumnAdvance;
+                        continue;
+                    }
+                }
+
                 float heightFraction = CloudHeightFraction(layer, samplePos);
 
                 // The field is handed the ALTITUDE above the layer's base, never the planet-relative
@@ -823,19 +877,27 @@ Shader "CloudRaymarch"
 
                 if (!fine)
                 {
-                    // Outside cloud: keep striding. On the first hit, step BACK one coarse step and drop
-                    // to fine, so the material between the last coarse sample and this one is not skipped
-                    // — that gap is a whole coarse step of cloud and its absence reads as a flat face.
+                    // Outside cloud: keep striding. On the first hit, drop to fine and step BACK to the
+                    // first fine position past the last empty coarse sample, so the material between that
+                    // sample and this one is not skipped — that gap is up to a whole coarse step of cloud
+                    // and its absence reads as a flat face. Where the stride IS the fine step there is no
+                    // gap: this sample is the next fine one, and it is integrated where it stands rather
+                    // than fetched a second time.
                     if (field.Profile > 0.0f)
                     {
                         fine     = true;
                         emptyRun = 0;
-                        t        = max(segment.x, t - coarseStepKm);
+                        if (coarseStepKm > stepKm)
+                        {
+                            t = max(segment.x, t - coarseStepKm + stepKm);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        t += coarseStepKm;
                         continue;
                     }
-
-                    t += coarseStepKm;
-                    continue;
                 }
 
                 if (field.Profile <= 0.0f)

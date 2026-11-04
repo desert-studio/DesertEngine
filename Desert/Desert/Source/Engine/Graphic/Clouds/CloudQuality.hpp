@@ -21,8 +21,9 @@ namespace Desert::Graphic
      * WHAT IS PINNED, AND BY WHAT. Measured on the shipped library; the numbers are in
      * Docs/Clouds/CALIBRATION.md section QT.
      *
-     *   * MAX STEPS cannot fall. The march's SEARCH step is CLOUD_COARSE_STEP_MULTIPLIER x
-     *     CLOUD_DISTANCE_TO_MAX_STEPS_KM / MaxSteps, so the finest chord it can be relied on to FIND is
+     *   * MAX STEPS cannot fall. The march's finest SEARCH step is the short-segment fine step,
+     *     CLOUD_DISTANCE_TO_MAX_STEPS_KM / MaxSteps (16 km since CLOUD-MARCH-COST-1, Unreal's StepT law;
+     *     CloudCoarseStepKm), so the finest chord it can be relied on to FIND is
      *     32 km / MaxSteps — 125 m at the component's 256. The two tightest shipped types (Altocumulus
      *     and Cirrus) place a median chord of 137 m, which is 1.10x that and no more. MaxSteps 234 is
      *     where the margin is gone; at 192 four of the nine shipped types are past Nyquist and at 128

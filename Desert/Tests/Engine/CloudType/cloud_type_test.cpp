@@ -944,10 +944,15 @@ TEST( CloudTypeLibrary, NoShippedTypePlacesStructureThinnerThanTheMarchCanFind )
     const float resolvableKm = CloudFinestResolvableChordKm( kComponentMaxSteps );
     ASSERT_GT( resolvableKm, 0.0f );
 
+    // The finest search stride is the short-segment fine step itself (CloudCoarseStepKm floors at it), so
+    // the two are printed from the schedule's own functions on a segment short enough to be that case.
+    const float shortSegmentKm = 0.5f * CLOUD_DISTANCE_TO_MAX_STEPS_KM / CLOUD_COARSE_STEP_MULTIPLIER;
+    const float shortFineKm =
+         CloudFineStepKm( shortSegmentKm, CLOUD_MIN_STEPS, kComponentMaxSteps, CLOUD_DISTANCE_TO_MAX_STEPS_KM );
     std::printf( "[CloudTypeLibrary] the march resolves chords down to %.0f m (fine step %.1f m, search "
-                 "step %.1f m at Max Steps %.0f)\n",
-                 resolvableKm * 1000.0f, CLOUD_DISTANCE_TO_MAX_STEPS_KM / kComponentMaxSteps * 1000.0f,
-                 CLOUD_COARSE_STEP_MULTIPLIER * CLOUD_DISTANCE_TO_MAX_STEPS_KM / kComponentMaxSteps * 1000.0f,
+                 "step %.1f m on a %.1f km segment at Max Steps %.0f)\n",
+                 resolvableKm * 1000.0f, shortFineKm * 1000.0f,
+                 CloudCoarseStepKm( shortSegmentKm, shortFineKm, kComponentMaxSteps ) * 1000.0f, shortSegmentKm,
                  kComponentMaxSteps );
 
     for ( const char* name : { kCloudTypeStratus, kCloudTypeCumulusHumilis, kCloudTypeCumulusMediocris,
