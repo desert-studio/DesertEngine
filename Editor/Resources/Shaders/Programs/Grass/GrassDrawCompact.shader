@@ -6,7 +6,8 @@
 // cascade's copy, by device address) with the address of the draw row its draws read. Modes (Compact.w):
 //   0 CLEAR: Counts[b] = 0 for every bin.
 //   1 GATHER: thread (k, entry) copies record k of the entry - Records + k x Stride, a
-//     VkDrawIndexedIndirectCommand as the producer's cull wrote it (instanceCount 0 included) - to slot FirstSlot + k of Commands, the entry's
+//     VkDrawIndexedIndirectCommand as the producer's cull wrote it (instanceCount 0 included) - to slot
+//     FirstSlot + k of Commands, the entry's
 //     draw row address to the same slot of DrawRows, and the entry's first thread adds its Count to its bin's
 //     drawn count. The slots are the CPU's (MeshRenderer lays the entries out in the per-variety path's draw
 //     order), so a bin draws its records in the order the per-variety draws did and the picture stays the same;
