@@ -1266,7 +1266,11 @@ namespace Desert::Graphic::System
         // alone - the grid and its jitter, the layer and its seed, the density range and the scales, a blade's
         // clump, scatter, patchiness and lean, the patches - and the field (its revision); the share its tiles
         // keep reads the thinning's distances. The view's planes, position and cascades are the tile cull's.
+        // RENDER-JOB-CPU-2: its 40 words (nine vec4, the layer, the seed, the field's revision) in one allocation,
+        // not the ten regrowths of 40 push_backs, per variety per frame.
+        constexpr std::size_t kPlacementWords = 9u * 4u + 4u;
         std::vector<uint32_t> placement;
+        placement.reserve( kPlacementWords );
         for ( const glm::vec4& words :
               { params.Range, params.ScaleX, glm::vec4( glm::vec3( params.ScaleY ), 0.0f ),
                 glm::vec4( glm::vec3( params.ScaleZ ), 0.0f ),
