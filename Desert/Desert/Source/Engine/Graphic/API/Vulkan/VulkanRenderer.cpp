@@ -1508,6 +1508,74 @@ namespace Desert::Graphic::API::Vulkan
              } );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectCount(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+         const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> push,
+         const RDG::BufferRef args, const uint64_t offset, const RDG::BufferRef count, const uint64_t countOffset,
+         const uint32_t maxDraws, const SubmeshMask hiddenSubmeshMask )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context      = bindings.GetContext();
+        const std::string_view  pass         = context.GetPassName();
+        const auto&             capabilities = EngineContext::GetInstance().GetCapabilities();
+        if ( !capabilities.SupportsDrawIndirectCount )
+            return Common::MakeFormattedError(
+                 "{}: a compacted bin's draw needs drawIndirectCount, which this device lacks", pass );
+        if ( maxDraws == 0u )
+            return Common::MakeSuccess( true );
+        if ( offset % 4u != 0u || countOffset % 4u != 0u )
+            return Common::MakeFormattedError(
+                 "{}: a compacted bin at byte {}, its count at byte {}: both must be multiples of four", pass,
+                 offset, countOffset );
+        if ( maxDraws > capabilities.MaxDrawIndirectCount )
+            return Common::MakeFormattedError( "{}: a compacted bin of {} draws passes maxDrawIndirectCount ({})",
+                                               pass, maxDraws, capabilities.MaxDrawIndirectCount );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, declared.GetError() );
+        const auto commands = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !commands )
+            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, commands.GetError() );
+        // The stride is a record (kGpuDrawBinCommandBytes = kMeshDrawArgumentsBytes = 20): at least a
+        // VkDrawIndexedIndirectCommand and a multiple of four, as vkCmdDrawIndexedIndirectCount asks.
+        const uint64_t end = offset + ( uint64_t{ maxDraws } * kMeshDrawArgumentsBytes );
+        if ( end > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: {} compacted commands at byte {} pass the end of '{}' ({} bytes)", pass, maxDraws, offset,
+                 declared.GetValue().Name, declared.GetValue().Desc->Bytes );
+        const auto countDeclared = context.GetBuffer( count, RDG::Access::IndirectArgs );
+        if ( !countDeclared )
+            return Common::MakeFormattedError( "{}: compacted count: {}", pass, countDeclared.GetError() );
+        const auto counts = VulkanRdgBackend::BufferOf( countDeclared.GetValue() );
+        if ( !counts )
+            return Common::MakeFormattedError( "{}: compacted count: {}", pass, counts.GetError() );
+        if ( countOffset + sizeof( uint32_t ) > countDeclared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: the compacted count at byte {} passes the end of '{}' ({} bytes)", pass, countOffset,
+                 countDeclared.GetValue().Name, countDeclared.GetValue().Desc->Bytes );
+        const VkBuffer vkArgs  = commands.GetValue()->GetBuffer();
+        const VkBuffer vkCount = counts.GetValue()->GetBuffer();
+        const auto     stride  = static_cast<uint32_t>( kMeshDrawArgumentsBytes );
+        // The walk binds the pass state, the mesh's buffers and the push block of its first drawn run; the bin's
+        // commands name every record's own indices, so that run's call is the bin's only one.
+        bool issued = false;
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
+             {
+                 if ( issued )
+                     return Common::MakeSuccess( true );
+                 if ( run.IndexCount == 0u )
+                     return Common::MakeFormattedError( "{}: a compacted bin's mesh is not indexed", pass );
+                 issued = true;
+                 // One CPU call of the mesh pass; its draws are the GPU's (RenderMeshIndirect likewise).
+                 DrawCounter::RecordCpuIndirect();
+                 vkCmdDrawIndexedIndirectCount( RecordingTarget(), vkArgs, offset, vkCount, countOffset, maxDraws,
+                                                stride );
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
                                                                       const GraphicsPipeline&      pipeline,
                                                                       const MeshGeometryBinding&   geometry,

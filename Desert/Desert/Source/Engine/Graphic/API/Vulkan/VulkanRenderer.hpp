@@ -114,7 +114,8 @@ namespace Desert::Graphic::API::Vulkan
                                                   MeshDrawArgumentsOrder order, uint32_t groups ) override;
         Common::BoolResultStr RenderMeshIndirectCount( const RDG::PassBindings& bindings,
                                                        const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                       const glm::mat4& transform, const MaterialExecutor& material,
+                                                       const glm::mat4&           transform,
+                                                       const MaterialExecutor&    material,
                                                        std::span<const std::byte> push, RDG::BufferRef args,
                                                        uint64_t offset, RDG::BufferRef count, uint64_t countOffset,
                                                        uint32_t maxDraws, SubmeshMask hiddenSubmeshMask ) override;
