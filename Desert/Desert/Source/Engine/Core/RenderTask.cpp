@@ -87,6 +87,9 @@ namespace Desert::Engine
             lock.unlock();
             {
                 DESERT_PROFILE_SCOPE( "Render task" );
+                // The job records into ITS frame's slot, not the game thread's (FrameManager::GetCurrentFrameIndex
+                // answers job.Slot on this thread for the scope).
+                const FrameManager::ScopedRecordingFrame recording( job.Slot );
                 Report( job.Name, job.Body() );
             }
             // THE JOB'S FRAME SLOT (FrameEndSync, from this side): a frame submitted while the job recorded
@@ -131,8 +134,9 @@ namespace Desert::Engine
         {
             const std::lock_guard<std::mutex> lock( m_Mutex );
             m_InFlight.store( true, std::memory_order_release );
-            m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ),
-                                         FrameManager::GetInstance().GetAbsoluteFrameCount() } );
+            const FrameManager& frames = FrameManager::GetInstance();
+            m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ), frames.GetAbsoluteFrameCount(),
+                                         frames.GetGameFrameIndex() } );
         }
         m_Wake.notify_one();
     }
@@ -192,8 +196,8 @@ namespace Desert::Engine
         {
             warned = true;
             LOG_WARN( "[RenderTask] a frame began while the previous frame's render work was still recording: "
-                      "joined it first (FrameEndSync). The graphics API's frame state is one submission list "
-                      "and one command buffer, not one per slot, so a job may not outlive its frame yet." );
+                      "joined it first (FrameEndSync). The frame's submissions and command buffer are per slot, "
+                      "but the render graph's frame objects and the GPU profiler still bind one slot at a time." );
         }
         Join();
     }

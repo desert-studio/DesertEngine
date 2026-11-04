@@ -102,10 +102,11 @@ namespace Desert::Graphic
 
     [[nodiscard]] Common::BoolResultStr Renderer::BeginFrame()
     {
-        // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync, UE FFrameEndSync): the previous frame's render
-        // work has recorded before this frame's submission list is cleared and its command buffer opened (the
-        // backend call below). Here and not at the loop's step 3, so every path that begins a frame passes it.
-        ::Desert::Engine::RenderTask::Get().FrameEndSync();
+        // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync) is not the first statement here any more
+        // (FRAME-SLOT-1): this frame's submission list and command buffer are its slot's own
+        // (VulkanRendererAPI::FrameSlotState), so the previous frame's job may still record into its slot. The
+        // backend's BeginFrame joins it after the slot's GPU wait, before it binds the render graph's
+        // single-slot frame objects; every path that begins a frame still passes it there.
 
         // THE MEMORY READING IS TAKEN HERE, ONCE A FRAME, IN THE SHIPPED PATH.
         //

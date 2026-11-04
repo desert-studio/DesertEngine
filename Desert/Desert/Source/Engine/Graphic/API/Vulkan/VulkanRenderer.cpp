@@ -64,14 +64,23 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::BeginFrame()
     {
         // THE STRUCTURAL GATE FOR EVERY vkCmd* IN THIS FILE. Nothing below records a command without
-        // m_CurrentCommandBuffer, and this is the only function that ever sets it — so leaving it null
+        // RecordingSlot().CommandBuffer, and this is the only function that ever sets it — so leaving it null
         // here turns all forty-odd recording entry points into no-ops without a guard in each of them.
         // Application::Run reads this result and ends the run, which is the intended exit.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeError( "the device is lost; no frame can be recorded. See the [DeviceLost] "
                                       "line above for the cause." );
+        }
+        // The frame state is one FrameSlotState per slot (RecordingSlot); a swapchain of more images than slots
+        // is refused by name before any slot index past the array is formed.
+        if ( const uint32_t inFlight = Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
+             inFlight > k_MaxFrameSlots )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "{} frames in flight; the renderer keeps frame state (FrameSlotState) for at most {}", inFlight,
+                 k_MaxFrameSlots );
         }
 
         // WAIT FOR GPU: THE FRAME'S CPU WAIT ON THE DEVICE, AND ITS FIRST STATEMENT (GPU-COST-11; UE: the RHI waits
@@ -87,10 +96,18 @@ namespace Desert::Graphic::API::Vulkan
             const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
             if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
             {
-                m_CurrentCommandBuffer = nullptr;
+                RecordingSlot().CommandBuffer = nullptr;
                 return Common::MakeFormattedError<bool>( "this frame's slot (frame N-k): {}", waited.GetError() );
             }
         }
+        // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync, UE FFrameEndSync), moved here from the top of
+        // Renderer::BeginFrame (FRAME-SLOT-1). The frame's own state - its submission list, its recording command
+        // buffer, its back-buffer entry - is its slot's (FrameSlotState) and a job records into the slot it was
+        // enqueued for, so the slot's GPU wait above does not need the previous frame's job finished. Everything
+        // below does: the deletion drain, the draw counters and the geometry pool, the virtual-geometry table,
+        // the render graph's frame objects (frame loop queue objects, transient heaps, pass descriptors, backend)
+        // and the GPU profiler, which bind ONE slot at a time.
+        ::Desert::Engine::RenderTask::Get().FrameEndSync();
         // The per-frame drain, under the fence just waited (VulkanAllocator::IsRetired), and the one-off command
         // buffers that have finished.
         {
@@ -144,7 +161,7 @@ namespace Desert::Graphic::API::Vulkan
         // only an output of PresentFinalImage's submission (Desert/Tests/Engine/EngineHost runs this same frame
         // with none). vkBeginCommandBuffer cannot report VK_ERROR_DEVICE_LOST (only out-of-memory), so its
         // failure is the refusal below and nothing more.
-        m_FrameSubmissions.clear();
+        RecordingSlot().Submissions.clear();
         const Common::BoolResultStr rdg = [this]
         {
             DESERT_PROFILE_SCOPE( "Vulkan: begin RDG frame" );
@@ -152,7 +169,7 @@ namespace Desert::Graphic::API::Vulkan
         }();
         if ( !rdg )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
         }
         const Common::ResultStr<VkCommandBuffer> frame = [this]
@@ -162,10 +179,10 @@ namespace Desert::Graphic::API::Vulkan
         }();
         if ( !frame )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "the frame's command buffer: {}", frame.GetError() );
         }
-        m_CurrentCommandBuffer = frame.GetValue();
+        RecordingSlot().CommandBuffer = frame.GetValue();
         ForgetBoundState(); // a freshly begun buffer holds no binding
 
         // Resolve the previous results and reset this frame's queries. Must be here: vkCmdResetQueryPool
@@ -188,7 +205,7 @@ namespace Desert::Graphic::API::Vulkan
         // order: a loss discovered mid-frame, between BeginFrame and here.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeError( "the device is lost; the frame is abandoned rather than closed." );
         }
 
@@ -198,11 +215,12 @@ namespace Desert::Graphic::API::Vulkan
             m_GpuProfiler.EndFrame();
 #endif
 
-            VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
+            VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( RecordingSlot().CommandBuffer ) );
             // The frame's graphics tail: the last submission, which signals RenderComplete and the fence.
-            m_FrameSubmissions.push_back(
-                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().Submissions.push_back(
+                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { RecordingSlot().CommandBuffer }, {}, {},
+                   {} } );
+            RecordingSlot().CommandBuffer = nullptr;
         }
         return BOOLSUCCESS;
     }
@@ -236,14 +254,15 @@ namespace Desert::Graphic::API::Vulkan
         if ( output != nullptr && output->HasAcquiredImage() )
         {
             frameOutput                         = output->GetFrameOutput();
-            frameOutput->FirstEntryAfterAcquire = m_BackBufferFirstEntry;
+            frameOutput->FirstEntryAfterAcquire = RecordingSlot().BackBufferFirstEntry;
         }
         {
             DESERT_PROFILE_SCOPE( "Vulkan: frame submit" );
-            const Common::BoolResultStr submitted =
-                 m_FrameLoop->Submit( slot, m_FrameSubmissions, frameOutput ? &*frameOutput : nullptr );
-            m_FrameSubmissions.clear();
-            m_BackBufferFirstEntry = 0;
+            const VulkanFrameOutput* const presentTo = frameOutput ? &*frameOutput : nullptr;
+            const Common::BoolResultStr    submitted =
+                 m_FrameLoop->Submit( slot, RecordingSlot().Submissions, presentTo );
+            RecordingSlot().Submissions.clear();
+            RecordingSlot().BackBufferFirstEntry = 0;
             if ( !submitted )
                 return Common::MakeError( submitted.GetError() );
         }
@@ -286,9 +305,22 @@ namespace Desert::Graphic::API::Vulkan
         }
         // A game-thread record while the views record on the render task joins them first (RenderTask).
         ::Desert::Engine::RenderTask::RecordGuard( "a graphics API recording entry point" );
-        if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
-            m_CurrentCommandBuffer = nullptr;
-        return m_CurrentCommandBuffer != nullptr;
+        if ( RecordingSlot().CommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+            RecordingSlot().CommandBuffer = nullptr;
+        return RecordingSlot().CommandBuffer != nullptr;
+    }
+
+    VulkanRendererAPI::FrameSlotState& VulkanRendererAPI::RecordingSlot()
+    {
+        // The slot of the frame THIS thread records (FrameManager::GetCurrentFrameIndex: a job's own slot on the
+        // render task, the game thread's slot elsewhere). BeginFrame refuses more frames in flight than
+        // k_MaxFrameSlots, and the slot index moves only after a frame has begun (NextFrame).
+        return m_FrameSlots[Engine::FrameManager::GetInstance().GetCurrentFrameIndex()];
+    }
+
+    const VulkanRendererAPI::FrameSlotState& VulkanRendererAPI::RecordingSlot() const
+    {
+        return m_FrameSlots[Engine::FrameManager::GetInstance().GetCurrentFrameIndex()];
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
@@ -1924,11 +1956,11 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( !m_RdgBackend )
             return fail( "the render graph frame objects were not begun (BeginFrame)" );
-        // The second writer of m_CurrentCommandBuffer after BeginFrame: it ends the frame's command buffer and
+        // The second writer of the recording target after BeginFrame: it ends the frame's command buffer and
         // re-arms a fresh one after the graph, so it asks the device-lost gate like BeginFrame does.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return fail( "the device is lost; the graph is not recorded" );
         }
         // The sink the profiler holds now: GPU timing can be switched on and off between frames.
@@ -1939,49 +1971,51 @@ namespace Desert::Graphic::API::Vulkan
 #endif
         // RDG-CONTRACTS B(3): the graph records into its own segment command buffers, so the frame command
         // buffer is split here: what was recorded before the graph is submitted before the graph.
-        const VkResult ended = vkEndCommandBuffer( m_CurrentCommandBuffer );
+        const VkResult ended = vkEndCommandBuffer( RecordingSlot().CommandBuffer );
         if ( ended != VK_SUCCESS )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             (void)NoteIfDeviceLost( ended, "vkEndCommandBuffer", __FILE__, __LINE__ );
             return fail(
                  std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
         }
-        m_FrameSubmissions.push_back(
-             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
+        RecordingSlot().Submissions.push_back(
+             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { RecordingSlot().CommandBuffer }, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
-        m_CurrentCommandBuffer                    = nullptr;
+        RecordingSlot().CommandBuffer                    = nullptr;
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         // A graph that failed inside an async segment never reached its EndPipeSegment: what records after the
         // graph is on the graphics queue whatever the graph left behind.
         if ( m_RdgDevice.Profiler != nullptr )
             m_RdgDevice.Profiler->SetQueue( ::Common::Profiling::GpuQueue::Graphics );
-        m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
-                                   std::make_move_iterator( segments.end() ) );
+        std::vector<VulkanRdgSubmission>& submissions = RecordingSlot().Submissions;
+        submissions.insert( submissions.end(), std::make_move_iterator( segments.begin() ),
+                            std::make_move_iterator( segments.end() ) );
 
         // Recording continues after the graph in a fresh graphics command buffer of this frame slot. A loss
         // noted while the graph recorded (a segment's vkEndCommandBuffer) must not re-arm the frame.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return fail( "the device was lost while the graph recorded" );
         }
         const Common::ResultStr<VkCommandBuffer> next =
              m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !next )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return fail( next.GetError() );
         }
-        m_CurrentCommandBuffer = next.GetValue();
+        RecordingSlot().CommandBuffer = next.GetValue();
         ForgetBoundState(); // a freshly begun buffer holds no binding
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
         {
             DESERT_PROFILE_PASS( "RDG: FrameFault clear" ); // recorded outside every pass of the graph
-            if ( const auto cleared = ClearFrameFaultExternals( m_CurrentCommandBuffer, graph, *frame ); !cleared )
+            if ( const auto cleared = ClearFrameFaultExternals( RecordingSlot().CommandBuffer, graph, *frame );
+                 !cleared )
                 return fail( std::format( "graph '{}': {}", graph.GetName(), cleared.GetError() ) );
         }
         return executed;
@@ -1993,10 +2027,10 @@ namespace Desert::Graphic::API::Vulkan
         // ExecuteGraph; a loss noted mid-graph still disarms here rather than arming the next segment.
         if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return;
         }
-        m_CurrentCommandBuffer = commandBuffer;
+        RecordingSlot().CommandBuffer = commandBuffer;
         // A segment's buffer may be one begun again since it last recorded (same handle, empty state).
         ForgetBoundState();
     }
@@ -2095,7 +2129,7 @@ namespace Desert::Graphic::API::Vulkan
         // THE LATE ACQUIRE (PRESENT-COST; UE resolves the viewport's back buffer at the final pass the same way).
         // The frame's last pass imports the back buffer, so by now the layers' update and every scene graph of
         // the frame are recorded, and the CPU waits on the display (FIFO, a full present queue) only after it has
-        // built the frame instead of before. Everything recorded so far is in m_FrameSubmissions or in the open
+        // built the frame instead of before. Everything recorded so far is in the slot's Submissions or in the open
         // frame command buffer, which is pushed at exactly the current size: no entry below that index can touch
         // the image, so the acquire semaphore is waited by the first graphics entry from there on
         // (VulkanFrameOutput::FirstEntryAfterAcquire), not by the frame's first.
@@ -2107,7 +2141,7 @@ namespace Desert::Graphic::API::Vulkan
                      "ImportBackBuffer: no swapchain image for this frame (the acquire was out of date and the "
                      "swapchain is rebuilt at the next frame boundary, or it failed; see the line above). The "
                      "frame is submitted without being presented." );
-            m_BackBufferFirstEntry = m_FrameSubmissions.size();
+            RecordingSlot().BackBufferFirstEntry = RecordingSlot().Submissions.size();
         }
         return swapChain->ImportBackBuffer( into );
     }

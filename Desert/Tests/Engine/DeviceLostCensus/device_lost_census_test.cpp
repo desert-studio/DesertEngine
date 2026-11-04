@@ -136,7 +136,7 @@ namespace
     // defect comes back, so the list is here and not inferred.
     //
     // The forty-odd vkCmd* entry points in VulkanRenderer.cpp are deliberately ABSENT, and that is an
-    // argument rather than an omission: none of them records without VulkanRendererAPI::m_CurrentCommandBuffer,
+    // argument rather than an omission: none of them records without RecordingSlot().CommandBuffer,
     // and only two functions ever set it, both on this list: BeginFrame (the frame's first command buffer)
     // and ExecuteGraph (RDG-CONTRACTS B(3): the frame is split at every graph and recording continues in a
     // fresh command buffer). The gates in those two therefore cover all of them, and
@@ -480,7 +480,7 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
     // THE INVARIANT THE vkCmd* EXEMPTION RESTS ON, ASSERTED RATHER THAN ASSUMED.
     //
     // Roughly forty recording entry points in VulkanRenderer.cpp carry no device-lost guard of their own.
-    // That is correct only while `m_CurrentCommandBuffer` — the field every one of them checks for null
+    // That is correct only while `RecordingSlot().CommandBuffer` — the field every one of them checks for null
     // before recording — is set to a real buffer only by the gated BeginFrame (the frame's first buffer), the
     // gated ExecuteGraph (the buffer after each graph) and SetGraphRecordingTarget (the graph backend's
     // segment buffers while a graph runs; it asks the gate itself), once each. A fourth writer would reopen
@@ -512,7 +512,7 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
         armer.End = armer.At + body.size();
     }
 
-    const std::string field = "m_CurrentCommandBuffer";
+    const std::string field = "RecordingSlot().CommandBuffer";
     std::vector<int>  armedOutside;
     for ( std::size_t at = 0; ( at = src.find( field, at ) ) != std::string::npos; at += field.size() )
     {
@@ -542,7 +542,7 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
         EXPECT_EQ( armer.Count, 1 ) << armer.Name << " must arm the command buffer exactly once";
     for ( int line : armedOutside )
         ADD_FAILURE() << file.filename().string() << ":" << line
-                      << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame, "
+                      << " assigns a command buffer to RecordingSlot().CommandBuffer OUTSIDE BeginFrame, "
                          "ExecuteGraph and SetGraphRecordingTarget. Every vkCmd* in this file is guarded by "
                          "that field being null on a lost device, and those three are the arming functions "
                          "the device-lost gate sits in front of.";
@@ -563,7 +563,8 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
     ASSERT_FALSE( gate.empty() ) << "VulkanRendererAPI::IsRecording is not in " << file.string();
     EXPECT_NE( gate.find( "AllowWork" ), std::string::npos ) << "IsRecording must ask the device-lost gate";
 
-    for ( const std::string raw : { "if ( !m_CurrentCommandBuffer", "if ( m_CurrentCommandBuffer )" } )
+    for ( const std::string raw :
+          { "if ( !RecordingSlot().CommandBuffer", "if ( RecordingSlot().CommandBuffer )" } )
         for ( std::size_t at = 0; ( at = src.find( raw, at ) ) != std::string::npos; at += raw.size() )
             ADD_FAILURE() << file.filename().string() << ":"
                           << 1 + std::count( src.begin(), src.begin() + static_cast<std::ptrdiff_t>( at ), '\n' )

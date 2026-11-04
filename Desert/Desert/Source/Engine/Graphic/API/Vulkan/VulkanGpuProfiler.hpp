@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
 #include <mutex>
 #include <span>
@@ -56,14 +58,16 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanGpuProfiler final : public Common::Profiling::IGpuProfilerSink
     {
     public:
-        // @p recordingTarget is the renderer's recording target (VulkanRendererAPI::m_CurrentCommandBuffer),
-        // read at every write and never copied. The frame is not one command buffer: ExecuteGraph ends the
+        // @p recordingTarget answers the renderer's recording target (VulkanRendererAPI::RecordingSlot(), the
+        // command buffer of the frame slot the calling thread records), asked at every write and never copied.
+        // The frame is not one command buffer: ExecuteGraph ends the
         // buffer BeginFrame armed, the graph records each pipe segment into its own, and a fresh one is armed
         // after it. A timestamp is a command like any other, so it goes where the recording is going at the
         // moment it is written — a pass scope into its segment's buffer, a scope that spans a graph opens in
         // the buffer before it and closes in the one after (all of them submitted in order, after the reset
         // at the head of the frame). A copy taken at BeginFrame is what wrote into an ended buffer.
-        explicit VulkanGpuProfiler( const VkCommandBuffer& recordingTarget ) : m_RecordingTarget( recordingTarget )
+        explicit VulkanGpuProfiler( std::function<VkCommandBuffer()> recordingTarget )
+             : m_RecordingTarget( std::move( recordingTarget ) )
         {
         }
         ~VulkanGpuProfiler() override;
@@ -170,7 +174,7 @@ namespace Desert::Graphic::API::Vulkan
         /// entered outside recording knows to do nothing.
         FrameQueries* m_Recording = nullptr;
         /// The renderer's recording target (see the constructor); VK_NULL_HANDLE while nothing records.
-        const VkCommandBuffer& m_RecordingTarget;
+        std::function<VkCommandBuffer()> m_RecordingTarget;
         // RDG-PARALLEL-1: a scope's timestamp goes into the command buffer of the graph chunk bound to the calling
         // thread (VulkanRecordContext), else into the renderer's target; the scope tree and the frame's queries are
         // shared by every recording thread, so every scope entry point holds m_Lock.
@@ -185,7 +189,7 @@ namespace Desert::Graphic::API::Vulkan
                 return chunk->CommandBuffer;
             if ( !OwnsRecordingTarget() )
                 return VK_NULL_HANDLE;
-            return m_RecordingTarget;
+            return m_RecordingTarget();
         }
         // True on the render task's thread, and on any thread while no view records on it.
         [[nodiscard]] static bool OwnsRecordingTarget();

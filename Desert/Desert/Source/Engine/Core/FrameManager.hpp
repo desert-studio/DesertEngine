@@ -95,10 +95,43 @@ namespace Desert::Engine
             }
         }
 
+        /// THE SLOT OF THE FRAME THIS THREAD RECORDS (UE: per-frame resources are indexed by the frame being
+        /// recorded, not by one global current frame). On the render task while it runs a job: the slot the job
+        /// was enqueued for (RenderTask stamps it, ScopedRecordingFrame binds it), so a job keeps reading and
+        /// writing its own slot after the game thread has submitted its frame and moved on (NextFrame). On every
+        /// other thread, and on the render task between jobs: the game thread's slot (GetGameFrameIndex).
         [[nodiscard]] uint32_t GetCurrentFrameIndex() const
+        {
+            if ( t_RecordingSlot != k_NoRecordingSlot )
+                return t_RecordingSlot;
+            return m_CurrentFrameIndex.load();
+        }
+        /// The game thread's slot, whatever the calling thread records: the slot NextFrame moves and the next
+        /// RenderTask::Enqueue stamps on its job.
+        [[nodiscard]] uint32_t GetGameFrameIndex() const
         {
             return m_CurrentFrameIndex.load();
         }
+
+        /// Binds @p slot as the calling thread's recording frame for the scope (RenderTask::ThreadMain, around
+        /// one job). Scopes nest: the previous binding comes back at the end.
+        class ScopedRecordingFrame
+        {
+        public:
+            explicit ScopedRecordingFrame( uint32_t slot ) : m_Previous( t_RecordingSlot )
+            {
+                t_RecordingSlot = slot;
+            }
+            ~ScopedRecordingFrame()
+            {
+                t_RecordingSlot = m_Previous;
+            }
+            ScopedRecordingFrame( const ScopedRecordingFrame& )            = delete;
+            ScopedRecordingFrame& operator=( const ScopedRecordingFrame& ) = delete;
+
+        private:
+            uint32_t m_Previous;
+        };
         [[nodiscard]] uint32_t GetMaxFramesInFlight() const
         {
             return m_MaxFramesInFlight.load();
@@ -111,6 +144,10 @@ namespace Desert::Engine
         }
 
     private:
+        static constexpr uint32_t k_NoRecordingSlot = 0xFFFFFFFFu;
+        // The recording frame of this thread (ScopedRecordingFrame); k_NoRecordingSlot: the game thread's slot.
+        static inline thread_local uint32_t t_RecordingSlot = k_NoRecordingSlot;
+
         std::atomic<uint32_t> m_CurrentFrameIndex{ 0 };
         std::atomic<uint32_t> m_MaxFramesInFlight{ 2 };
         std::atomic<uint64_t> m_AbsoluteFrameCount{ 0 };

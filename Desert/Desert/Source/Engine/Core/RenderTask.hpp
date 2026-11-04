@@ -36,8 +36,9 @@ namespace Desert::Engine
      *    a job reads is freed under it;
      *  - before the game thread records anything itself (RecordGuard, from every recording entry point of the
      *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment;
-     *  - at the frame boundary (FrameEndSync, from Renderer::PresentFinalImage and Renderer::BeginFrame): a job
-     *    never outlives the frame slot it records into.
+     *  - at the frame boundary (FrameEndSync): before frame N is submitted (Renderer::PresentFinalImage) and
+     *    before frame N+1 binds the render graph's single-slot frame objects (VulkanRendererAPI::BeginFrame,
+     *    after the slot's GPU wait). The frame's own state is per slot, and a job records into its own slot.
      * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
@@ -81,15 +82,16 @@ namespace Desert::Engine
         // waiting on that worker: a join there would deadlock).
         void JoinOnGameThread();
 
-        // GAME THREAD, THE FRAME BOUNDARY'S FENCE (UE FFrameEndSync), the first statement of
-        // Renderer::PresentFinalImage and Renderer::BeginFrame. Frame N's render work has recorded before frame N
-        // is submitted and frame N+1 opens, because the slot is not the job's: the graphics API keeps ONE
-        // submission list and ONE current command buffer (VulkanRendererAPI::BeginFrame clears the list,
-        // ExecuteGraph appends to it, PresentFinalImage submits it), and every per-frame resource a job writes is
-        // indexed by FrameManager::GetCurrentFrameIndex, which the submit advances (NextFrame). In today's loop
-        // the frame's own fence (VulkanImGui::End, Application::Run step 5) has joined already and this returns
-        // at once. A change that lets a job outlive its frame (UE's one-frame lag) meets this line, joins, and
-        // is named in the log once: the frame state per slot, with the slot carried by the job, comes first.
+        // GAME THREAD, THE FRAME BOUNDARY'S FENCE (UE FFrameEndSync): the first statement of
+        // Renderer::PresentFinalImage (frame N's submission takes its slot's list as it is, so N's jobs have
+        // recorded), and VulkanRendererAPI::BeginFrame right after the slot's GPU wait (frame N+1 binds the
+        // render graph's frame objects - frame loop queue objects, transient heaps, pass descriptors, backend -
+        // and the GPU profiler, which hold ONE slot at a time). The frame's own state - its submission list, its
+        // recording command buffer - is per slot (VulkanRendererAPI::FrameSlotState), and a job records into the
+        // slot it was enqueued for (QueuedJob::Slot, FrameManager::ScopedRecordingFrame), so the game thread
+        // moving to the next slot (NextFrame) no longer tears it. In today's loop the frame's own fence
+        // (VulkanImGui::End, Application::Run step 5) has joined already and this returns at once. A change that
+        // lets a job outlive its frame (UE's one-frame lag) meets this line, joins, and is named in the log once.
         // ThreadMain checks the same rule from the other side: a job that finishes in another frame than it was
         // enqueued in is an error.
         void FrameEndSync();
@@ -135,6 +137,10 @@ namespace Desert::Engine
             Job         Body;
             // FrameManager::GetAbsoluteFrameCount at Enqueue: the frame whose slot the job records into.
             uint64_t Frame = 0;
+            // FrameManager::GetGameFrameIndex at Enqueue: that slot. ThreadMain binds it as the thread's recording
+            // frame (FrameManager::ScopedRecordingFrame), so the job reads and writes its own slot's frame state
+            // even after the game thread has submitted its frame and moved on.
+            uint32_t Slot = 0;
         };
 
         void               ThreadMain();
