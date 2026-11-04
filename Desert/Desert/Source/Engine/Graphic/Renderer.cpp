@@ -276,10 +276,10 @@ namespace Desert::Graphic
                                   const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
                                   const std::span<const std::byte> push, const RDG::BufferRef args,
                                   const uint64_t offset, const SubmeshMask hiddenSubmeshMask,
-                                  const MeshDrawArgumentsOrder order )
+                                  const MeshDrawArgumentsOrder order, const uint32_t groups )
     {
         return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, push, args,
-                                                  offset, hiddenSubmeshMask, order );
+                                                  offset, hiddenSubmeshMask, order, groups );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )

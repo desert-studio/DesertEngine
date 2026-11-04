@@ -111,7 +111,7 @@ namespace Desert::Graphic::API::Vulkan
                                                   const glm::mat4& transform, const MaterialExecutor& material,
                                                   std::span<const std::byte> push, RDG::BufferRef args,
                                                   uint64_t offset, SubmeshMask hiddenSubmeshMask,
-                                                  MeshDrawArgumentsOrder order ) override;
+                                                  MeshDrawArgumentsOrder order, uint32_t groups ) override;
         Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
                                                        const GraphicsPipeline&      pipeline,
                                                        const MeshGeometryBinding&   geometry,

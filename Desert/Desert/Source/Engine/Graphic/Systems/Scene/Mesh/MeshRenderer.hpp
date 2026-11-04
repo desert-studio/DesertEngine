@@ -114,6 +114,12 @@ namespace Desert::Graphic::System
             // Where this draw's records begin in IndirectArgs: after the header, or a later level's group of
             // records (one per submesh) when the producer draws a LOD chain (GpuInstancedRenderData::Levels).
             uint64_t IndirectArgsOffset = kGpuInstanceArgsHeaderBytes;
+            // RENDER-CPU-COST-1 (UE: one indirect draw per mesh batch, never a CPU call per LOD): the record
+            // groups from IndirectArgsOffset this draw reads - a producer's consecutive LOD levels (LodLevel the
+            // first), each one record per submesh of the mesh. Each drawn submesh is ONE multi-draw over its
+            // record of every group (Renderer::RenderMeshIndirect @p groups), so a section's LOD chain is one draw
+            // of the list and one bind, not a draw per level. 1 without IndirectArgs.
+            uint32_t IndirectLevels = 1;
             // RENDER-THREADS M2 - what differs per draw travels WITH the draw (UE FMeshDrawCommand: immutable,
             // per-draw data by value), never through the shared material. Push: the draw's push values (transform,
             // primitive / material row, flags, wind, bone offset, skin cache), written by Record over a COPY of
