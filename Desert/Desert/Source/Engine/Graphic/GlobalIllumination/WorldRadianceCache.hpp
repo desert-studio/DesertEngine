@@ -106,6 +106,47 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef Radiance; // "RadianceCacheRadianceAtlasTexture"
     };
 
+    // PROBE-TRACE-COST-3: one frame's radiance cache update in counts - RC_COUNT_* of Common/RadianceCacheState.glslh,
+    // in this order, written by RadianceCacheSelect.shader once Mark, Update and Allocate are done. Where a camera
+    // turn's probes go: the entries the readers stamped and how many of them hold a probe never traced, against what
+    // the budget traced; the slots taken, refused (the atlas full) and freed, by why.
+    struct RadianceCacheUpdateCounts
+    {
+        static constexpr uint32_t kWords = 12u + RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
+        uint32_t Stamped       = 0; // entries a reader stamped this frame (RadianceCacheMark)
+        uint32_t NeverTraced   = 0; // ... whose probe was never traced (the never-traced priority buckets)
+        uint32_t Traced        = 0; // probes traced this frame: min(Stamped, Budget)
+        uint32_t Budget        = 0; // the Select pass's budget (ProbesPerFrame, MaxProbes on a full update)
+        uint32_t Allocated     = 0; // empty stamped entries that took a slot
+        uint32_t Failed        = 0; // ... that found none (the atlas is full)
+        uint32_t FreedStale    = 0; // the clipmap scrolled past the probe's cell
+        uint32_t FreedUnused   = 0; // unread for more than kProbeUnusedFramesBeforeFree frames
+        uint32_t FreedPressure = 0; // unread for more than the pressure's keep only (RADIANCE_CACHE_PRESSURE_KEEP_FRAMES)
+        uint32_t Pressed       = 0; // 1: the last frame refused a slot, so the pressure's keep applied
+        uint32_t Live          = 0; // slots held after Allocate
+        uint32_t MaxProbes     = 0; // the atlas's slots
+        std::array<uint32_t, RadianceCache::kMaxClipmaps> NeverTracedByClipmap{}; // NeverTraced per clipmap
+        bool                                              Valid = false; // a frame's words have come back
+    };
+    static_assert( RadianceCacheUpdateCounts::kWords == 18 ); // RC_COUNT_WORDS with RADIANCE_CACHE_MAX_CLIPMAPS 6
+
+    // RadianceCache.UpdateCounts read back through a frame-in-flight slot (ScreenProbeMissCounts' pattern): when the
+    // slot comes round again its fence has passed. Last() is the newest frame read, slots-in-flight late.
+    class RadianceCacheUpdateCountsReadback
+    {
+    public:
+        // Reads the slot of @p frameIndex, then hands it this frame's @p counts (extracted for the host).
+        void AddFrame( RDG::Builder& graph, uint64_t frameIndex, RDG::BufferRef counts );
+        [[nodiscard]] const RadianceCacheUpdateCounts& Last() const
+        {
+            return m_Last;
+        }
+
+    private:
+        std::vector<RDG::ExternalBuffer> m_Slots;
+        RadianceCacheUpdateCounts        m_Last;
+    };
+
     class WorldRadianceCache
     {
     public:
@@ -135,6 +176,11 @@ namespace Desert::Graphic::GlobalIllumination
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                          const RadianceCache::RadianceCacheInputs& shape,
                          const RadianceCacheUpdateInputs&          inputs );
+        // The newest update read back in counts (RadianceCacheUpdateCounts), frames in flight late.
+        [[nodiscard]] const RadianceCacheUpdateCounts& LastUpdateCounts() const
+        {
+            return m_UpdateCounts.Last();
+        }
 
     private:
         enum Pass : uint32_t
@@ -175,5 +221,6 @@ namespace Desert::Graphic::GlobalIllumination
         // The directional lighting of the last full update (empty until the first update after a reset).
         std::optional<DirectionalLighting> m_LitBy;
         uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
+        RadianceCacheUpdateCountsReadback  m_UpdateCounts;
     };
 } // namespace Desert::Graphic::GlobalIllumination

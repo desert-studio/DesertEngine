@@ -3,6 +3,7 @@
 // adapted as described in WorldRadianceCache.hpp.
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -46,6 +47,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheIrradianceOutTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheDepthOutTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheUpdateCountsUB );
     };
 } // namespace
 
@@ -75,10 +77,13 @@ namespace Desert::Graphic::GlobalIllumination
         };
         static_assert( sizeof( RadianceCachePush ) == 40 );
 
-        // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
+        // The update's event counters in the schedule header (RC_STAT_WORDS, Common/RadianceCacheState.glslh).
+        constexpr uint32_t kScheduleCounters = 6;
+        // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the update's event
+        // counters, the trace list.
         constexpr uint32_t ScheduleEntries( const uint32_t traced )
         {
-            return RadianceCache::kPriorityBuckets + 2u + traced;
+            return RadianceCache::kPriorityBuckets + 2u + kScheduleCounters + traced;
         }
 
         std::shared_ptr<Image2D> CreateAtlas( const std::string_view tag, const uint32_t side,
@@ -253,6 +258,9 @@ namespace Desert::Graphic::GlobalIllumination
         graph.QueueBufferUpload( markPointsBuffer, std::as_bytes( std::span( markPoints ) ) );
         const RDG::BufferRef schedule =
              graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( traced ) * 4ull }, "RadianceCache.Schedule" );
+        // This frame's update in counts (RadianceCacheSelect.shader writes every word), read back for the profile.
+        const RDG::BufferRef updateCounts = graph.CreateBuffer(
+             RDG::BufferDesc{ RadianceCacheUpdateCounts::kWords * 4ull }, "RadianceCache.UpdateCounts" );
 
         RadianceCachePush push;
         push.FrameIndex = ++m_FrameIndex;
@@ -273,8 +281,9 @@ namespace Desert::Graphic::GlobalIllumination
         const glm::uvec3 entryGroups( DivideRoundUp( grid * clipCount, 4u ), DivideRoundUp( grid, 4u ),
                                       DivideRoundUp( grid, 4u ) );
         const glm::uvec3 groups[PassCount] = {
-             glm::uvec3( DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ),
-                         DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ), 1u ),
+             // At least one group: Mark's first thread clears the schedule header Update and Allocate count into.
+             glm::uvec3( std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) ),
+                         std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) ), 1u ),
              entryGroups,
              entryGroups,
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
@@ -311,6 +320,9 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheFreeListUB, freeList, kRW )
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheScheduleUB, schedule, kRW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RadianceCachePush ) ) );
+                     if ( pass == Select )
+                         block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheUpdateCountsUB, updateCounts,
+                                        kRW );
                      if ( pass == Mark || pass == Allocate || pass == Trace )
                          block.Storage( WorldRadianceCacheShaderParameters::GIFrameUB, frame, kR );
                      if ( pass == Mark )
@@ -371,11 +383,53 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
+        m_UpdateCounts.AddFrame( graph, push.FrameIndex, updateCounts );
+
         return Common::MakeSuccess( RadianceCacheFrame{ .Params      = params,
                                                         .Indirection = indirection,
                                                         .Probes      = probes,
                                                         .Irradiance  = irradiance,
                                                         .Depth       = depth,
                                                         .Radiance    = radiance } );
+    }
+
+    void RadianceCacheUpdateCountsReadback::AddFrame( RDG::Builder& graph, const uint64_t frameIndex,
+                                                      const RDG::BufferRef counts )
+    {
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_Slots.size() != slots )
+        {
+            m_Slots.clear();
+            m_Slots.resize( slots );
+        }
+        RDG::ExternalBuffer& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
+        // The words this slot was handed slots-in-flight frames ago: its fence has passed.
+        if ( slot.Physical )
+        {
+            const std::span<const std::byte> bytes = slot.Physical->ReadForHost();
+            std::array<uint32_t, RadianceCacheUpdateCounts::kWords> words{};
+            if ( bytes.size() >= sizeof( words ) )
+            {
+                std::memcpy( words.data(), bytes.data(), sizeof( words ) );
+                // RC_COUNT_* of Common/RadianceCacheState.glslh, in order.
+                m_Last.Stamped       = words[0];
+                m_Last.NeverTraced   = words[1];
+                m_Last.Traced        = words[2];
+                m_Last.Budget        = words[3];
+                m_Last.Allocated     = words[4];
+                m_Last.Failed        = words[5];
+                m_Last.FreedStale    = words[6];
+                m_Last.FreedUnused   = words[7];
+                m_Last.FreedPressure = words[8];
+                m_Last.Pressed       = words[9];
+                m_Last.Live          = words[10];
+                m_Last.MaxProbes     = words[11];
+                for ( uint32_t clipmap = 0; clipmap < RadianceCache::kMaxClipmaps; ++clipmap )
+                    m_Last.NeverTracedByClipmap[clipmap] = words[12u + clipmap];
+                m_Last.Valid = true;
+            }
+        }
+        slot = RDG::ExternalBuffer{};
+        graph.Extract( counts, slot, RDG::Access::HostRead );
     }
 } // namespace Desert::Graphic::GlobalIllumination

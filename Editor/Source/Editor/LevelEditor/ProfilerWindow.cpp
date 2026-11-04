@@ -303,6 +303,29 @@ namespace Desert::Editor
                  "atlas had no free slot)",
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
         }
+        // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
+        // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the
+        // atlas full) and freed by why (GlobalIllumination::RadianceCacheUpdateCounts, frames in flight late).
+        const Graphic::GlobalIllumination::RadianceCacheUpdateCounts* const cacheUpdate =
+             renderer != nullptr ? renderer->GetRadianceCacheUpdateCounts() : nullptr;
+        if ( cacheUpdate == nullptr || !cacheUpdate->Valid )
+        {
+            const char* const why =
+                 cacheUpdate == nullptr ? "the view has no radiance cache" : "nothing read back yet";
+            LOG_INFO( "[Profiler] RadianceCache update: none ({})", why );
+        }
+        else
+        {
+            const Graphic::GlobalIllumination::RadianceCacheUpdateCounts& c = *cacheUpdate;
+            const auto&       never   = c.NeverTracedByClipmap;
+            const char* const pressed = c.Pressed != 0u ? " (pressed: the last frame refused a slot)" : "";
+            LOG_INFO( "[Profiler] RadianceCache update: stamped {} never traced {} (clipmaps {} {} {} {} {} {}) "
+                      "traced {}/{} | slots live {}/{} allocated {} failed {} | freed stale {} unused {} "
+                      "pressure {}{} (a frame, frames in flight late)",
+                      c.Stamped, c.NeverTraced, never[0], never[1], never[2], never[3], never[4], never[5],
+                      c.Traced, c.Budget, c.Live, c.MaxProbes, c.Allocated, c.Failed, c.FreedStale, c.FreedUnused,
+                      c.FreedPressure, pressed );
+        }
 #endif
         // GPU-CULL-2: per mesh pass how its draws were issued - the numbers of DesertCtl `state views.meshPasses`
         // (ControlService) from the same two sources, so a scenario reads them from the profile dump: bins = bin

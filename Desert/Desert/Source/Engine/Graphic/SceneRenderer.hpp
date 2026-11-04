@@ -462,6 +462,13 @@ namespace Desert::Graphic
             return m_ScreenProbeGather ? &m_ScreenProbeGather->LastMissReasons() : nullptr;
         }
 #endif
+        /// PROBE-TRACE-COST-3: the radiance cache update's counts (GlobalIllumination::RadianceCacheUpdateCounts,
+        /// read back slots-in-flight late): stamped, never traced, traced, slots taken / refused / freed by why.
+        /// nullptr while the view has no radiance cache.
+        [[nodiscard]] const GlobalIllumination::RadianceCacheUpdateCounts* GetRadianceCacheUpdateCounts() const
+        {
+            return m_RadianceCache ? &m_RadianceCache->LastUpdateCounts() : nullptr;
+        }
         /// VIRT-GEOM (DesertCtl `state views.virtualGeometry`): the VG instances this frame's draw bins made cut
         /// candidates of, and the clusters the main view's cluster cut drew (read back slots-in-flight late,
         /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn. Overflow: what the cut could not do

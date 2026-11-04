@@ -29,8 +29,8 @@ Buffer(4) RadianceCacheFreeListUB
 {
     int radianceCacheFreeList[];
 };
-// [0, RC_PRIORITY_BUCKETS) the priority histogram, then the traced count, the threshold bucket's taken count, and
-// the traced probes.
+// [0, RC_PRIORITY_BUCKETS) the priority histogram, then the traced count, the threshold bucket's taken count, the
+// update's event counters (RC_STAT_*), and the traced probes. Mark, the update's first pass, clears all but the list.
 Buffer(5) RadianceCacheScheduleUB
 {
     uint radianceCacheSchedule[];
@@ -39,7 +39,29 @@ Buffer(5) RadianceCacheScheduleUB
 #define RC_PRIORITY_BUCKETS 32u // RadianceCache::kPriorityBuckets
 #define RC_SCHEDULE_COUNT RC_PRIORITY_BUCKETS
 #define RC_SCHEDULE_TAKEN ( RC_PRIORITY_BUCKETS + 1u )
-#define RC_SCHEDULE_LIST ( RC_PRIORITY_BUCKETS + 2u )
+// THE UPDATE'S COUNTERS (PROBE-TRACE-COST-3): one word per event of this frame. Select copies them, with the
+// histogram's sums, to RadianceCache.UpdateCounts (WorldRadianceCache::LastUpdateCounts, the profile line
+// "RadianceCache update"), so a camera turn shows where its probes go: freed and why, allocated, refused a slot.
+#define RC_SCHEDULE_STATS ( RC_PRIORITY_BUCKETS + 2u )
+#define RC_STAT_ALLOCATED      0u // Allocate: an empty entry a reader stamped took a slot
+#define RC_STAT_FAILED         1u // Allocate: ... and found none (the atlas is full)
+#define RC_STAT_FREED_STALE    2u // Update: the clipmap scrolled past the probe's cell
+#define RC_STAT_FREED_UNUSED   3u // Update: unread for more than UnusedFrames
+#define RC_STAT_FREED_PRESSURE 4u // Update: unread for more than the pressure's keep but not UnusedFrames
+#define RC_STAT_PRESSED        5u // Update: 1 when the last frame refused a slot (the pressure's keep applies)
+#define RC_STAT_WORDS          6u // WorldRadianceCache.cpp kScheduleCounters
+#define RC_SCHEDULE_LIST ( RC_SCHEDULE_STATS + RC_STAT_WORDS )
+// The words Select writes to RadianceCache.UpdateCounts, in this order (GlobalIllumination::RadianceCacheUpdateCounts,
+// WorldRadianceCache.hpp).
+#define RC_COUNT_STAMPED                 0u // entries a reader stamped this frame (the histogram's sum)
+#define RC_COUNT_NEVER_TRACED            1u // ... whose probe was never traced (the never-traced buckets)
+#define RC_COUNT_TRACED                  2u // probes traced this frame: min(stamped, budget)
+#define RC_COUNT_BUDGET                  3u // the Select pass's budget (radianceCache.atlas.z)
+#define RC_COUNT_EVENTS                  4u // RC_STAT_WORDS words: the counters above, in their order
+#define RC_COUNT_LIVE                    ( RC_COUNT_EVENTS + RC_STAT_WORDS ) // slots held after Allocate
+#define RC_COUNT_MAX_PROBES              ( RC_COUNT_LIVE + 1u )
+#define RC_COUNT_NEVER_TRACED_BY_CLIPMAP ( RC_COUNT_MAX_PROBES + 1u ) // RADIANCE_CACHE_MAX_CLIPMAPS words
+#define RC_COUNT_WORDS                   ( RC_COUNT_NEVER_TRACED_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS ) // 18
 // NEVER TRACED, COARSEST CLIPMAP FIRST (UE ranks every new probe first; here new probes are also ranked by clipmap):
 // a never-traced probe of clipmap c ranks RC_PRIORITY_NEW_FINEST + c, the top buckets. A frame that brings more new
 // cells than the budget (a camera turn sweeping trees and grass) traces the coarse ones first. They are few, eight

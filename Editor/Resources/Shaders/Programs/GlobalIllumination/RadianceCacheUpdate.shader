@@ -2,7 +2,8 @@
 // THE RADIANCE CACHE UPDATE, 2/6 — FREE (UE UpdateCacheForUsedProbes, LumenRadianceCacheUpdate.usf): one thread per
 // indirection entry. An entry whose probe records another world cell (the clipmap scrolled past it) or that no
 // pixel read for RadianceCache::kProbeUnusedFramesBeforeFree frames returns its slot to the free list. With Reset
-// it instead initialises the state: every entry empty, every slot free. Also clears this frame's schedule header.
+// it instead initialises the state: every entry empty, every slot free. Each free is counted by why (RC_STAT_*, the
+// schedule header Mark cleared).
 Shader "RadianceCacheUpdate"
 {
     Compute
@@ -19,12 +20,16 @@ Shader "RadianceCacheUpdate"
             if ( id.x >= width || id.y >= grid || id.z >= grid )
                 return;
             const uint entry = id.x + width * ( id.y + grid * id.z );
-            if ( entry < RC_SCHEDULE_LIST )
-                radianceCacheSchedule[entry] = 0u;
+            // After a frame whose reads found the atlas full, a probe unread for the pixels' rotation frees its slot.
+            const bool pressed =
+                 Reset == 0u && radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex - 1u )] > 0;
             // This frame's failed allocations, counted by Allocate after this pass (the last frame's are the other
-            // parity's word, read below).
+            // parity's word, read above).
             if ( entry == 0u )
+            {
                 radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )] = 0;
+                radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_PRESSED] = pressed ? 1u : 0u;
+            }
             if ( Reset != 0u )
             {
                 radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
@@ -46,12 +51,14 @@ Shader "RadianceCacheUpdate"
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
             const ivec4 owner   = radianceCacheProbes[probe].cell;
             const bool  stale   = any( notEqual( owner.xyz, world ) ) || uint( owner.w ) != clipmap;
-            // After a frame whose reads found the atlas full, a probe unread for the pixels' rotation frees its slot.
-            const bool  pressed = radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex - 1u )] > 0;
             const uint  keep    = pressed ? min( UnusedFrames, RADIANCE_CACHE_PRESSURE_KEEP_FRAMES ) : UnusedFrames;
-            const bool  unused  = FrameIndex - radianceCacheLastUsed[entry] > keep;
+            const uint  age     = FrameIndex - radianceCacheLastUsed[entry];
+            const bool  unused  = age > keep;
             if ( stale || unused )
             {
+                const uint why = stale ? RC_STAT_FREED_STALE
+                                       : ( age > UnusedFrames ? RC_STAT_FREED_UNUSED : RC_STAT_FREED_PRESSURE );
+                atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + why], 1u );
                 const int slot = atomicAdd( radianceCacheFreeList[0], 1 );
                 radianceCacheFreeList[1 + slot] = int( probe );
                 radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;

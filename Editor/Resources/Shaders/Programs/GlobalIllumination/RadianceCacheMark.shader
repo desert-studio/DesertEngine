@@ -68,8 +68,14 @@ Shader "RadianceCacheMark"
         void main()
         {
             if ( gl_GlobalInvocationID.x == 0u && gl_GlobalInvocationID.y == 0u )
+            {
+                // This frame's schedule header - the histogram, the counts and the update's counters - cleared by
+                // the update's first pass, so Update counts its frees into it and Allocate its slots.
+                for ( uint i = 0u; i < RC_SCHEDULE_LIST; ++i )
+                    radianceCacheSchedule[i] = 0u;
                 for ( uint i = 0u; i < MarkPointHeader.x; ++i )
                     MarkPoint( MarkPointsData[i].xyz );
+            }
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
             if ( pixel.x >= Width || pixel.y >= Height )
                 return;
