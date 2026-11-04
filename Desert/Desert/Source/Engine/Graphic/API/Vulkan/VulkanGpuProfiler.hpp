@@ -106,6 +106,10 @@ namespace Desert::Graphic::API::Vulkan
         // inline): @p scopes (VulkanRecordContext::GpuScopesMade) are retracted, so the frame's [GpuOrder] trace,
         // tables and coverage hold each of those passes once, as its inline scope.
         void RetractChunkScopes( std::span<const int32_t> scopes );
+        // RDG-PARALLEL-1-1: on the dispatching thread, as the graph begins its chunks (before any records): where
+        // the chunks' scopes hang - the active view's stack on @p queue (the chunks' pipe) and the scope open on
+        // it now. The chunks record while the dispatching thread walks the graph, so they never read its stack.
+        [[nodiscard]] GpuScopeRecorder::ChunkRootScope ChunkRoot( Common::Profiling::GpuQueue queue );
 
         int32_t BeginDrawScope( std::string_view pass, std::string_view mesh, std::string_view material ) override;
         void    EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts ) override;

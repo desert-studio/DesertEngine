@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <Engine/Graphic/GpuTimestampLayout.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -87,6 +89,9 @@ namespace Desert::Graphic::API::Vulkan
         // dispatching thread re-stamps their order when it replays the chunk (VulkanGpuProfiler::StampChunkOrder),
         // so the frame's scope order is the replay order - the serial order - not the order chunks were planned.
         std::vector<int32_t> GpuScopesMade;
+        // RDG-PARALLEL-1-1: where a chunk's first scope hangs (VulkanGpuProfiler::ChunkRoot), taken when the
+        // chunks are begun; the dispatching thread's stack and queue change while the chunk records.
+        GpuScopeRecorder::ChunkRootScope GpuRoot;
 
         void ForgetBoundState()
         {

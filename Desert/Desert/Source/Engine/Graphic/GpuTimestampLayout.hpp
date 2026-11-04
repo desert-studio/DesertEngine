@@ -190,24 +190,41 @@ namespace Desert::Graphic
             m_Clock += count;
             return first;
         }
-        // A scope opened on a chunk's thread: it nests under @p open (the chunk's own open scopes), the first under
-        // the scope open on its (view, queue) stack - the dispatching thread's, untouched while chunks record - and
-        // is never pushed onto that shared stack. @p order: the chunk's tick << 24 | the chunk's scope count.
-        [[nodiscard]] int32_t BeginUnder( std::string name, const void* owner, std::vector<int32_t>& open,
+        // Where a chunk's scopes hang: its (view, queue) stack, the scope open on it, and the queue.
+        // RDG-PARALLEL-1-1: taken on the dispatching thread when the chunks are begun (ChunkRoot), because the
+        // chunks now record WHILE that thread walks the graph - its stack and its queue (SetQueue at an async
+        // segment) change under them, and a chunk is on its own pipe whatever segment the dispatching thread is
+        // in.
+        struct ChunkRootScope
+        {
+            uint32_t                    Stack  = 0;
+            int32_t                     Parent = kGpuNoParent;
+            Common::Profiling::GpuQueue Queue  = Common::Profiling::GpuQueue::Graphics;
+        };
+        [[nodiscard]] ChunkRootScope ChunkRoot( const void* owner, Common::Profiling::GpuQueue queue )
+        {
+            const uint32_t stackIndex = StackOf( owner, queue );
+            const auto&    shared     = m_Stacks[stackIndex].Open;
+            ChunkRootScope root{ stackIndex, kGpuNoParent, queue };
+            if ( !shared.empty() )
+                root.Parent = shared.back();
+            return root;
+        }
+        // A scope opened on a chunk's thread: it nests under @p open (the chunk's own open scopes), the first
+        // under
+        // @p root (ChunkRoot), and is never pushed onto the shared stack. @p order: the chunk's tick << 24 | the
+        // chunk's scope count.
+        [[nodiscard]] int32_t BeginUnder( std::string name, const ChunkRootScope& root, std::vector<int32_t>& open,
                                           uint64_t order )
         {
-            const uint32_t stackIndex = StackOf( owner, m_Queue );
-            const auto&    shared     = m_Stacks[stackIndex].Open;
-            const int32_t  parent     = !open.empty()    ? open.back()
-                                        : shared.empty() ? kGpuNoParent
-                                                         : shared.back();
+            const int32_t parent = !open.empty() ? open.back() : root.Parent;
             if ( parent != kGpuNoParent && m_Scopes[static_cast<size_t>( parent )].Name == name )
                 return -1;
             ++m_Requested;
             if ( m_Scopes.size() >= m_Capacity )
                 return -1;
             const auto index = static_cast<int32_t>( m_Scopes.size() );
-            m_Scopes.push_back( Scope{ std::move( name ), parent, stackIndex, m_Queue } );
+            m_Scopes.push_back( Scope{ std::move( name ), parent, root.Stack, root.Queue } );
             m_Scopes.back().Order = order;
             open.push_back( index );
             return index;
