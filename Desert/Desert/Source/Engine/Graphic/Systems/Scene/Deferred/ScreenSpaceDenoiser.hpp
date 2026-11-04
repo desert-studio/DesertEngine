@@ -104,6 +104,11 @@ namespace Desert::Graphic::System
         // Reflections.DownsampleFactor): 1 = every pixel traced; 2 = one pixel of each 2x2 block, rotated by
         // TraceSeed.
         uint32_t DownsampleFactor = 2;
+        // The trace's gate (SSRRenderer::TraceSettings::RoughSpecularFromGI): the composite answers the lobe past
+        // MaxRoughnessToTrace with the traced GI's rough specular, so a pixel that rough has no reflection signal
+        // (Common/SSRGate.glslh TracedReflectionsPixelTraces) - the reconstruction, the temporal accumulation and the
+        // convolution skip it as the trace did (UE: the reflection passes run on the traced tiles' texels only).
+        bool RoughSpecularFromGI = false;
     };
 
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
@@ -249,19 +254,21 @@ namespace Desert::Graphic::System
                           .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor, width,
+                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor,
+                  gate = SignalGate( in.RoughSpecularFromGI ), width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Reflections Reconstruction" );
                      const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ),
-                                           static_cast<float>( factor ), 0.0f );
+                                           static_cast<float>( factor ), gate );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, in.Trace, in.TraceRay, scene, frame, uniforms, width,
-                                              height, MinSampleCountReflections( in.DownsampleFactor ) );
+                                              height, MinSampleCountReflections( in.DownsampleFactor ),
+                                              SignalGate( in.RoughSpecularFromGI ) );
         }
 
         // UE IScreenSpaceDenoiser::DenoiseDiffuseIndirect. As DenoiseReflections, for diffuse light (the history
@@ -413,6 +420,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] static constexpr float MinSampleCountReflections( const uint32_t downsampleFactor )
         {
             return static_cast<float>( downsampleFactor * downsampleFactor );
+        }        // The pixel gate the reflections' passes push (Common/ScreenSpaceDenoise.glslh SSDPixelHasSignal's
+        // roughFromGI): 1 = the traced reflections' gate (ReflectionsDenoiserInputs::RoughSpecularFromGI), 0 = the
+        // screen trace's. The other signals push 0.
+        [[nodiscard]] static constexpr float SignalGate( const bool roughSpecularFromGI )
+        {
+            return roughSpecularFromGI ? 1.0f : 0.0f;
         }
 
         // The formats of the denoiser's images (ViewMemory counts them).
@@ -540,7 +553,8 @@ namespace Desert::Graphic::System
                                                    const RDG::TextureRef trace, const RDG::TextureRef traceRay,
                                                    const DenoiserSceneTextures& scene, const ViewFrame& frame,
                                                    const RDG::BufferRef uniforms, const uint32_t width,
-                                                   const uint32_t height, const float minSampleCount )
+                                                   const uint32_t height, const float minSampleCount,
+                                                   const float signalGate = 0.0f )
         {
             const std::string prefix   = SignalName( m_Signal ) + ".History";
             HistorySlot& previous = m_Slots[m_Parity];
@@ -556,8 +570,11 @@ namespace Desert::Graphic::System
                  AcquireSlot( graph, next, width, height, std::format( "{}{}", prefix, 1u - m_Parity ) );
             m_Parity = 1u - m_Parity;
 
-            const glm::vec4 temporalPush( readable ? 1.0f : 0.0f, static_cast<float>( m_Signal ),
-                                          MaxSampleCount( m_Signal ), minSampleCount );
+            const float                    historyReadable = readable ? 1.0f : 0.0f;
+            const std::array<glm::vec4, 2> temporalPush{
+                 glm::vec4( historyReadable, static_cast<float>( m_Signal ), MaxSampleCount( m_Signal ),
+                            minSampleCount ),
+                 glm::vec4( signalGate, 0.0f, 0.0f, 0.0f ) };
             HistorySlot*    stamped = &next;
             graph.AddPass(
                  "Denoise: Temporal Accumulation", RDG::PassFlags::Compute,
@@ -591,7 +608,7 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryCountTexture,
                                     written[1], RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserTemporalShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( temporalPush ) ) );
                  },
                  [this, temporalPush, stamped, index = frame.FrameIndex, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -609,7 +626,7 @@ namespace Desert::Graphic::System
             const RDG::TextureRef output =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), SignalName( m_Signal ) );
             graph.SetFaultDefault( output, RDG::FaultDefault::Black );
-            const glm::vec4 convolutionPush( 0.0f, static_cast<float>( m_Signal ), 0.0f, 0.0f );
+            const glm::vec4 convolutionPush( signalGate, static_cast<float>( m_Signal ), 0.0f, 0.0f );
             graph.AddPass(
                  "Denoise: History Convolution", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )

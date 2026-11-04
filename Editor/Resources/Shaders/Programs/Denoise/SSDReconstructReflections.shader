@@ -53,7 +53,8 @@ Shader "SSDReconstructReflections"
         {
         	vec4 Params; // x = the trace's frame seed (its 2x2 block rotation), y = kernel radius in trace texels
         	               // (Scalability Reflections.DenoiserRadius: 2 = 5x5), z = the trace's downsample factor
-        	               // (Scalability Reflections.DownsampleFactor: 1 or 2), w unused
+        	               // (Scalability Reflections.DownsampleFactor: 1 or 2), w = 1 under the traced reflections'
+        	               // gate (ScreenSpaceDenoiser::SignalGate, Common/ScreenSpaceDenoise.glslh SSDPixelHasSignal)
         };
 
         LocalSize(8, 8, 1);
@@ -79,7 +80,7 @@ Shader "SSDReconstructReflections"
         	const ivec2 grid  = textureSize(TileMaskTexture, 0);
         	const ivec2 tile  = min(ivec2(floor((vec2(pixel) + 0.5) * vec2(grid) / vec2(viewSize))), grid - 1);
         	const vec4  gb    = texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0);
-        	if (texelFetch(TileMaskTexture, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
+        	if (texelFetch(TileMaskTexture, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb, Params.w >= 0.5))
         	{
         		imageStore(ReconstructedSignalTexture, pixel, vec4(0.0));
         		return;
