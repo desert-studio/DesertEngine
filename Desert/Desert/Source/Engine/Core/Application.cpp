@@ -336,10 +336,19 @@ namespace Desert::Engine
                 // ITS RESULT USED TO BE DISCARDED — by this line, and by the two links beneath it, which
                 // both declared themselves void over a backend that returns one. A frame that could not
                 // acquire an image was therefore recorded and submitted anyway.
-                // RenderContext::BeginFrame applies a requested swapchain rebuild, under the frame the render task
-                // may still present (OVERLAP-ON-1): that frame is out first. REMAINDER-OVERLAP-ON-1: move the
-                // rebuild into the job "Frame: Begin", or join only when a rebuild is pending.
-                RenderTask::Get().Join();
+                // A REQUESTED SWAPCHAIN REBUILD IS APPLIED HERE, ON THE WINDOW'S THREAD, with nothing on the
+                // render task (RendererContext::BeginFrame): it releases the images the frame in flight presents
+                // and the capture staging that frame's window shot reads, and on Windows the swapchain's create
+                // and destroy talk to the window, whose messages only this thread pumps. So the loop joins, and
+                // announces that frame (the serial order), only when a rebuild is pending (OVERLAP-ON-3; UE:
+                // RHIResizeViewport runs on the game thread behind FlushRenderingCommands). Every other frame
+                // boundary overlaps the frame in flight.
+                if ( const std::shared_ptr<Graphic::SwapChain> swapChain = m_Window->GetWindowSwapChain();
+                     swapChain && swapChain->RebuildPending() )
+                {
+                    RenderTask::Get().Join();
+                    deliverPresented();
+                }
                 const auto prepared = m_Window->PrepareNextFrame();
                 if ( !prepared.IsSuccess() )
                 {

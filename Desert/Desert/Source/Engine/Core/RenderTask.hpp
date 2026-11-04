@@ -36,9 +36,9 @@ namespace Desert::Engine
      *    a job reads is freed under it;
      *  - before the game thread records anything itself (RecordGuard, from every recording entry point of the
      *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment;
-     *  - at the frame boundary (FrameEndSync): before frame N is submitted (Renderer::PresentFinalImage) and
-     *    before frame N+1 binds the render graph's single-slot frame objects (VulkanRendererAPI::BeginFrame,
-     *    after the slot's GPU wait). The frame's own state is per slot, and a job records into its own slot.
+     *  - at the frame boundary, with one frame of lag (SyncPreviousFrame, Application::Run step 4b): frame N-1's
+     *    jobs - its begin, views, interface, submit and present - are done before frame N's interface is
+     *    painted; and before a swapchain rebuild, only when one is pending (step 2, SwapChain::RebuildPending).
      * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
@@ -89,11 +89,10 @@ namespace Desert::Engine
         // and the GPU profiler, which hold ONE slot at a time). The frame's own state - its submission list, its
         // recording command buffer - is per slot (VulkanRendererAPI::FrameSlotState), and a job records into the
         // slot it was enqueued for (QueuedJob::Slot, FrameManager::ScopedRecordingFrame), so the game thread
-        // moving to the next slot (NextFrame) no longer tears it. In today's loop the frame's own fence
-        // (VulkanImGui::End, Application::Run step 5) has joined already and this returns at once. A change that
-        // lets a job outlive its frame (UE's one-frame lag) meets this line, joins, and is named in the log once.
-        // ThreadMain checks the same rule from the other side: a job that finishes in another frame than it was
-        // enqueued in is an error.
+        // moving to the next slot (NextFrame) no longer tears it. On the render task, where the frame's begin and
+        // its submit run as jobs (OVERLAP-ON-1), it returns at once; the game thread's fence, with one frame of
+        // lag, is SyncPreviousFrame (Application::Run step 4b). ThreadMain checks the rule from the other side: a
+        // job of frame F that starts after F was submitted is an error.
         void FrameEndSync();
         // GAME THREAD. THE FRAME BOUNDARY WITH ONE FRAME OF LAG (UE FFrameEndSync, bAllowOneFrameThreadLag):
         // returns when every job of a frame BEFORE the game thread's current one (GetGameFrameCount) has
