@@ -36,6 +36,7 @@ namespace Desert::Graphic
     {
         if ( material == nullptr || !( screenPixels > 0.0f ) )
             return;
+        std::lock_guard<std::mutex> lock( m_Lock );
         auto [it, first] = m_MaterialTextures.try_emplace( material );
         if ( first )
         {
@@ -56,10 +57,16 @@ namespace Desert::Graphic
             }
         }
         for ( const Common::AssetHandle& asset : it->second )
-            NoteAsset( asset, screenPixels );
+            NoteAssetLocked( asset, screenPixels );
     }
 
     void TextureStreamingDemand::NoteAsset( const Common::AssetHandle& asset, const float screenPixels )
+    {
+        std::lock_guard<std::mutex> lock( m_Lock );
+        NoteAssetLocked( asset, screenPixels );
+    }
+
+    void TextureStreamingDemand::NoteAssetLocked( const Common::AssetHandle& asset, const float screenPixels )
     {
         if ( static_cast<uint64_t>( asset ) == 0 || !( screenPixels > 0.0f ) )
             return;
@@ -70,6 +77,7 @@ namespace Desert::Graphic
     std::unordered_map<Common::AssetHandle, float> TextureStreamingDemand::TakeFrame()
     {
         // A material may be rebuilt (new texture bound) between frames: its texture list is resolved anew.
+        std::lock_guard<std::mutex> lock( m_Lock );
         m_MaterialTextures.clear();
         return std::exchange( m_Demand, {} );
     }

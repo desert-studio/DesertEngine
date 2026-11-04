@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -21,7 +22,9 @@ namespace Desert::Graphic
      * Submission happens before the frustum cull, so a texture behind the camera keeps its mips (UE's static
      * instances are distance-only too): turning around never meets a soft wall.
      *
-     * Main thread only: the submit path and Runtime::TextureService::UpdateStreaming both run there.
+     * Any thread, under one lock: the submit path notes on the render job's workers (OVERLAP-ON-7) while
+     * Runtime::TextureService::UpdateStreaming takes the frame on the main thread. A take that lands while a
+     * frame is still noting hands over what that frame noted so far; the rest goes into the next take.
      */
     class TextureStreamingDemand
     {
@@ -60,6 +63,9 @@ namespace Desert::Graphic
         }
 
     private:
+        void NoteAssetLocked( const Common::AssetHandle& asset, float screenPixels );
+
+        std::mutex                                     m_Lock; // guards m_Demand and m_MaterialTextures
         std::unordered_map<Common::AssetHandle, float> m_Demand;
         /// The asset textures each material binds, resolved once per frame per material.
         std::unordered_map<const Material*, std::vector<Common::AssetHandle>> m_MaterialTextures;
