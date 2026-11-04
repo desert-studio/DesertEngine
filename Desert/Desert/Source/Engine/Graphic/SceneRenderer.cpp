@@ -2674,8 +2674,8 @@ namespace Desert::Graphic
                 // order). Its froxels were added while the GI gathers (above, AddFrameVolumetricFog).
                 AddFrameOpaqueFog( graph, textures, frame, OpaqueFogFroxels::AddedEarlier );
 
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Scene copy, water + glass" );
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
                 // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces
                 // read): one copy serves this frame's refraction and next frame's SSR and screen probes.

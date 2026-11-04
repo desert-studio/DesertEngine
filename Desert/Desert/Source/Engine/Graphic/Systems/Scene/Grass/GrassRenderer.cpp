@@ -1723,10 +1723,15 @@ namespace Desert::Graphic::System
                 if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
                      mesh->GetGeometry().IndexCount == 0 )
                     continue;
+                // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self on
+                // the turn, scn-1104-073309); each row sums every variety's step.
+                DESERT_PROFILE_PHASES( varietyPhases );
+                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Prepare" );
                 VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame, volumes, meshes,
                                                   static_cast<uint64_t>( fieldGpu.Revision ) );
                 if ( gpu == nullptr )
                     continue;
+                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Import + register buffers" );
                 Common::BoolResultStr imported = Renderer::ImportBuffer( gpu->Instances, gpu->InstancesImport );
                 if ( imported )
                     imported = Renderer::ImportBuffer( gpu->Args, gpu->ArgsImport );
@@ -1786,6 +1791,7 @@ namespace Desert::Graphic::System
                 gpu->TileWordsRef          = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
                 gpu->TileTableRef          = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
                 gpu->TileFeedbackRef = graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
+                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
                 m_Frame.push_back( gpu );
                 if ( gpu->Drawn )
                     DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades );
@@ -1834,9 +1840,11 @@ namespace Desert::Graphic::System
                 // among them), so it is culled when the variety generates.
                 // Every frame: the camera's planes and the cascades' boxes are this frame's (GRASS-CULL-UNIFY-1).
                 m_FrameCull.push_back( gpu );
+                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
                 NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
                                           ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
+                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;
                 sections.reserve( variety.Sections.size() );
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
