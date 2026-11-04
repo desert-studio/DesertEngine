@@ -397,10 +397,10 @@ namespace Desert::Graphic::System
         static_assert( sizeof( GrassDrawCompactPush ) == 16 );
         // The bins' table holds every blade level of the frame's varieties this many times over: the lists of a
         // phase (the deferred early-Z pair and its G-buffer halves, the visibility raster, the forward pair) x the
-        // sections of a variety. A frame that passes it grows the table twice as large (GpuDrawBinFrame::Overflow).
+        // sections of a variety. A frame that passes it doubles the table (GpuDrawBinFrame::Overflow).
         inline constexpr uint32_t kDrawBinSlotsPerLevel = 32u;
         inline constexpr uint32_t kDrawBinMinSlots      = 1024u;
-        inline constexpr uint32_t kDrawBinMaxEntries    = 65535u; // the gather's dispatch y (a group row per entry)
+        inline constexpr uint32_t kDrawBinMaxEntries    = 65535u; // the gather's dispatch y, a row per entry
 
         uint64_t BufferAddress( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
@@ -2527,7 +2527,8 @@ namespace Desert::Graphic::System
         {
             using Buffer     = ShaderResources::StorageBuffer;
             const auto bytes = [need]( const uint64_t each ) { return static_cast<uint32_t>( need * each ); };
-            buffers.Commands = Buffer::CreateDeviceLocal( "GrassDrawBinCmds", bytes( kGpuDrawBinCommandBytes ), 1 );
+            const uint32_t commandBytes = bytes( kGpuDrawBinCommandBytes );
+            buffers.Commands = Buffer::CreateDeviceLocal( "GrassDrawBinCmds", commandBytes, 1 );
             buffers.Slots    = Buffer::CreateDeviceLocal( "GrassDrawBinSlots", bytes( kGpuDrawBinRowBytes ), 2 );
             buffers.Counts   = Buffer::CreateDeviceLocal( "GrassDrawBinCount", bytes( kGpuDrawBinCountBytes ), 3 );
             buffers.Entries  = Buffer::Create( "GrassDrawBinEntries", bytes( sizeof( GpuDrawCompactEntry ) ), 0 );
@@ -2565,8 +2566,8 @@ namespace Desert::Graphic::System
         table.Open = true;
 
         // The two runs (Compact.w): the clear of every bin's count, then the gather, its own pass so the graph
-        // puts the barrier between the writes of the counts. The clear's run also uploads the entries and the rows: by
-        // then every draw setup of the frame has filled the table (RDG::Builder::AddPass runs a setup at once).
+        // puts the barrier between the writes of the counts. The clear's run also uploads the entries and the
+        // rows: by then every draw setup of the frame has filled the table (RDG::Builder::AddPass runs a setup at once).
         const auto declare = [this, phase]( RDG::PassBuilder& pass )
         {
             const GpuDrawBinFrame& bins = m_DrawBins[phase];
