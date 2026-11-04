@@ -558,11 +558,11 @@ namespace Desert::Graphic::System
             // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
             // do not move (grass: only the wind moves them), the previous world is the world.
             uint32_t PrevInstanceOffset = 0;
-            // RENDER-JOB-CPU-3, THE SECTION'S DRAW ROWS (GpuInstances.hpp GpuInstanceDrawRow): per
-            // GpuInstanceDrawList the device address of the producer's row of this section for this frame in
-            // flight (0: no row of that list - the section draws per variety). With every row the section enters
-            // the compacted bins (MeshRenderer GpuDrawBins) unless Debug.Grass "per-variety draws" is on.
-            std::array<uint64_t, kGpuInstanceDrawLists> DrawRows{};
+            // RENDER-JOB-CPU-4, THE PRODUCER'S COMPACTED BINS (GpuInstances.hpp GpuDrawBinFrame) per phase (0: the
+            // camera's first phase, 1: post-occlusion). A blade section whose phase table is Open draws in it
+            // (MeshRenderer::DrawBinsOf: one RenderMeshIndirectCount per bin, its rows written by MeshRenderer)
+            // unless Debug.Grass "per-variety draws" is on. Null: the section draws per variety.
+            std::array<GpuDrawBinFrame*, 2> DrawBins{};
             // A world box every instance lies in, cm, when the producer has one (a particle emitter's fixed
             // Bounds through the entity's transform, VFXBoundsAt): the section is drawn only into the views and the cascades
             // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
@@ -2201,6 +2201,12 @@ namespace Desert::Graphic::System
         // it here, so the cooked hash is the acquired one (UE: a permutation declared once, the cook compiling
         // exactly what ShouldCompilePermutation admits).
         [[nodiscard]] static Core::ShaderVariant SurfaceInstanceIdsVariant( Core::ShaderVariant permutation = {} );
+        // RENDER-JOB-CPU-4: @p permutation with kSurfaceDrawRowsDefine (a compacted bin's grass blade cell).
+        [[nodiscard]] static Core::ShaderVariant SurfaceDrawRowsVariant( Core::ShaderVariant permutation = {} );
+        // Debug.Grass "per-variety draws": every grass section drawn by its own indirect draws, not in the
+        // compacted bins (the reference image the bins must match).
+        void SetGrassPerVarietyDraws( const bool perVariety ) { m_GrassPerVarietyDraws = perVariety; }
+        [[nodiscard]] bool GrassPerVarietyDraws() const { return m_GrassPerVarietyDraws; }
         // THE CELLS an id list is drawn through (UE ShouldCompilePermutation for the instance-id permutation):
         // the GPU-instanced paths, under every pass a camera list draws in (the geometry pass of either render
         // path: Forward, GBuffer, the Depth prepass; the grass visibility raster and its resolve) and the
@@ -3127,6 +3133,7 @@ namespace Desert::Graphic::System
             GraphicsPipeline*                     EqualCarrier     = nullptr;
             bool                                  ForwardVirtual   = false;
             ::Common::Scalability::EarlyZPassMode EarlyZ           = ::Common::Scalability::EarlyZPassMode::All;
+            bool DrawRows = false; // DrawBinsOf: the cells are the bins' (SurfaceDrawRowsVariant)
             // Resolved under the revision above.
             const DataDrivenMaterial* Parent            = nullptr;
             DataDrivenMaterial*       Cell              = nullptr; // null: refused (said once)
@@ -3149,6 +3156,14 @@ namespace Desert::Graphic::System
             uint32_t Buckets        = 0;
             uint32_t PrepassBuckets = 0;
         };
+        // RENDER-JOB-CPU-4: the phase table @p gpu's draws in @p pass enter (GpuInstancedRenderData::DrawBins), or
+        // null: Debug.Grass "per-variety draws" (m_GrassPerVarietyDraws), a device without drawIndirectCount or
+        // shaderDrawParameters, a mesh section (one mesh per variety: no gain until a shared geometry pool), the
+        // resolve (one triangle per section), a forward view under virtual local shadows (ForwardVirtualCell's
+        // permutation), or a producer without the table or the records' address.
+        [[nodiscard]] GpuDrawBinFrame* DrawBinsOf( const GpuInstancedRenderData& gpu, MeshPass pass,
+                                                   bool postOcclusion ) const;
+        bool m_GrassPerVarietyDraws = false;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
         // The record of @p gpu in @p pass through @p carrier (BuildGpuInstancedDraws' arguments; @p prepassed: the

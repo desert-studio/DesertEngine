@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
+#include <vector>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -25,6 +26,9 @@ namespace Desert::Graphic
         // GpuInstanceIds (cells in the kSurfaceInstanceIdsDefine permutation); the records' firstInstance and the
         // instance index count slots of this list. Invalid: the slot IS the row (Instances drawn directly).
         RDG::BufferRef Ids{};
+        // RENDER-JOB-CPU-4: the device address of Args' buffer (a compacted bin's gather copies the records
+        // from it, GpuDrawCompactEntry::Records); 0: the producer gave none, the section draws per variety.
+        uint64_t ArgsAddress = 0;
     };
 
     // The argument buffer: a 16-byte header (bucket count, total capacity, submesh count, last drawn count), one
@@ -117,6 +121,34 @@ namespace Desert::Graphic
         RDG::BufferRef Commands;
         RDG::BufferRef DrawRows;
         RDG::BufferRef Counts;
+    };
+
+    // RENDER-JOB-CPU-4, ONE PHASE'S BINS OF ONE FRAME. The producer (GrassRenderer) owns the buffers and adds the
+    // phase's gather ("Grass: Draw Gather" after "Grass: Camera Cull Finalize", "Grass: Draw Gather
+    // Post-Occlusion" after the post-occlusion finalize), whose setup opens the table (Open, the capacities, Refs,
+    // the addresses); MeshRenderer fills it while it builds the phase's lists in the draw passes' setups
+    // (BuildGpuInstancedDraws), which RDG::Builder::AddPass runs at once, so every entry is in before the gather
+    // EXECUTES: it uploads Entries and Rows (this frame's copies) and runs Programs/Grass/GrassDrawCompact.shader
+    // over them. A list that would pass a capacity is refused (said once); Overflow grows the buffers next frame.
+    struct GpuDrawBinFrame
+    {
+        GpuDrawBinRefs Refs;              // the bins' buffers in this frame's graph (valid while Open)
+        uint64_t       SlotsAddress = 0;  // device address of Refs.DrawRows' slot 0 (a bin's push: + its slot x 8)
+        uint64_t       RowsAddress  = 0;  // device address of this frame's row 0 (an entry's DrawRow: + row x 80)
+        uint32_t       SlotCapacity  = 0; // Refs.Commands / Refs.DrawRows slots
+        uint32_t       EntryCapacity = 0; // entries, and rows (one row per section and list at most)
+        uint32_t       BinCapacity   = 0; // Refs.Counts words
+        bool           Open          = false;
+        bool           Overflow      = false;
+        // This frame's content: the entries (FirstSlot final once their list is built), the rows they read, the
+        // slots and bins handed out so far.
+        std::vector<GpuDrawCompactEntry> Entries;
+        std::vector<GpuInstanceDrawRow>  Rows;
+        uint32_t                         Slots = 0;
+        uint32_t                         Bins  = 0;
+        // Per bin the frame-graph buffers its draws read by address (MeshDrawCommand::AddressedReads); reserved to
+        // BinCapacity when the table opens, so a bin's span stays valid while later bins are added.
+        std::vector<std::vector<RDG::BufferRef>> BinReads;
     };
 
     // What a cascade picks a grass blade strip's shadow record set and its caster density by (GPU-COST-20; UE
