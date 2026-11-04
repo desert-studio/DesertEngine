@@ -413,23 +413,28 @@ LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cell
 // node z * (cells + 1) + x, and every instance past this one is one grid row further. Instance 0 is the procedural
 // decode below (the dice rings, and the virtual shadow map's indirect draws).
 #define LANDSCAPE_GRID_FIRST_INSTANCE 1
+// ...and the grid it draws (TERRAIN-LOD-1: a section draws the tile's grid at its own LOD): instance
+// LANDSCAPE_GRID_FIRST_INSTANCE + gridLod * LANDSCAPE_GRID_LOD_INSTANCES + row (TerrainBatch.hpp
+// kLandscapeGridLodInstances is the same number).
+#define LANDSCAPE_GRID_LOD_INSTANCES 4096
 
-// Vertex @p vertex of the tile's draw: grid node @p vertex @p gridRow rows further (an indexed grid draw,
-// @p gridRow >= 0) or draw vertex @p vertex of the procedural decode (@p gridRow < 0).
+// Vertex @p vertex of the tile's draw: grid node @p vertex @p gridRow rows further on the grid the instance names
+// (an indexed grid draw, @p gridRow >= 0: gridLod * LANDSCAPE_GRID_LOD_INSTANCES + row) or draw vertex @p vertex of
+// the procedural decode of the tile's grid, Params.w (@p gridRow < 0).
 LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex, int gridRow )
 {
     int iquads  = int( CurrentTerrain.LandscapeTile.z + 0.5 );
-    int gridLod = int( CurrentTerrain.Params.w + 0.5 );
+    int gridLod = gridRow >= 0 ? gridRow / LANDSCAPE_GRID_LOD_INSTANCES : int( CurrentTerrain.Params.w + 0.5 );
     int stride  = LandscapeLodStride( gridLod );
     int cells   = ( iquads + stride - 1 ) / stride;
 
-    // The grid vertex (x, z), cell corners on the tile's LOD grid, of an undiced vertex.
+    // The grid vertex (x, z), cell corners on the draw's LOD grid, of an undiced vertex.
     int gx;
     int gz;
     if ( gridRow >= 0 )
     {
         int pitch = cells + 1;
-        int node  = vertex + gridRow * pitch;
+        int node  = vertex + ( gridRow - gridLod * LANDSCAPE_GRID_LOD_INSTANCES ) * pitch;
         int nz    = node / pitch;
         gx        = node - nz * pitch;
         gz        = nz;

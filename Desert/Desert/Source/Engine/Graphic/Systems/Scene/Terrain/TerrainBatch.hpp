@@ -54,9 +54,11 @@ namespace Desert::Graphic::System
     // instead of one checked).
     struct TerrainInstance
     {
-        // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = the tile's
-        // visibility layer + 1 (0 = no holes; LandscapeWeightDraw::VisibilityLayer, LandscapeVisibility),
-        // w = the LOD whose grid the tile is drawn with (floor of y; the vertex count is that grid's).
+        // x = tile extent (cm), y = the tile's FINEST continuous LOD (the least of its sections', SectionLods),
+        // z = the tile's visibility layer + 1 (0 = no holes; LandscapeWeightDraw::VisibilityLayer,
+        // LandscapeVisibility), w = the LOD of the tile's grid (floor of y): the grid the dice rings, the virtual
+        // shadow map's procedural draw and the ray tracing BLAS walk; a section's raster draw takes its own
+        // coarser grid (LandscapeDrawSplit::SectionGridLod).
         glm::vec4 Params{ 0.0f };
         // x = 1 / LOD blend range (UE's InvLODBlendRange), y = the tile's weight layer count (0 = no weightmap
         // bound; the surface keeps its ground), z = the weightmap's page count (LandscapeWeightmapPageCount
@@ -72,10 +74,17 @@ namespace Desert::Graphic::System
         // x/y = this tile's first sample in the landscape's global sample grid, z = quads per tile side,
         // w = vertical scale (cm per local height unit).
         glm::vec4 LandscapeTile{ 0.0f };
-        // The LOD a vertex on each border takes: max(tile, neighbour) for West, East, South, North.
-        glm::vec4 LodEdges{ 0.0f };
-        // ...and on each corner: the max of the four tiles sharing it, at (-x,-z), (+x,-z), (-x,+z), (+x,+z).
-        glm::vec4 LodCorners{ 0.0f };
+        // THE SECTIONS (TERRAIN-LOD-1; UE: a landscape component's sections each take their own LOD from their own
+        // bounds' screen size): x = a section's quads a side (LandscapeSectionQuads), y = the sections a tile side
+        // (LandscapeSectionCount), z = a section's coarsest grid LOD (LandscapeSectionMaxLod), w unused.
+        glm::vec4 Sections{ 0.0f };
+        // The continuous LOD of every section and of the ring of the neighbours' sections around them:
+        // kLandscapeSectionTable x kLandscapeSectionTable floats, section (sx, sz) for sx, sz in [-1, Sections.y]
+        // at (sz + 1) * kLandscapeSectionTable + sx + 1, four to a vec4 (0 = no neighbour there: nothing to agree
+        // with). A vertex's LOD is its section's, blended toward the max() with the section across its border
+        // (LandscapeVertexEval.glslh LandscapeVertexLod) - the same max() from both sides, so a seam between
+        // sections, and between tiles, is one value.
+        std::array<glm::vec4, 9> SectionLods{};
         // The colour each tile layer paints (rgb) and whether that layer is drawn at all (a = 1; a = 0 ignores
         // it), in the tile's layer order - layer i is page i / 4, channel i % 4. See LandscapeWeightDraw.
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerColors{};
@@ -160,29 +169,29 @@ namespace Desert::Graphic::System
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
     static_assert(
-         sizeof( TerrainInstance ) == 69 * sizeof( glm::vec4 ),
-         "TerrainInstance must stay sixty-nine 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         sizeof( TerrainInstance ) == 77 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay seventy-seven 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
          "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
               offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
-              offsetof( TerrainInstance, LandscapeTile ) == 64 && offsetof( TerrainInstance, LodEdges ) == 80 &&
-              offsetof( TerrainInstance, LodCorners ) == 96 && offsetof( TerrainInstance, LayerColors ) == 112 &&
-              offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
-              offsetof( TerrainInstance, LayerInput ) == 272 && offsetof( TerrainInstance, InputSlices ) == 304 &&
-              offsetof( TerrainInstance, GroundInput ) == 432 && offsetof( TerrainInstance, GrassCover ) == 448 &&
-              offsetof( TerrainInstance, GrassCoverLight ) == 576 &&
-              offsetof( TerrainInstance, GrassCoverRange ) == 704 &&
-              offsetof( TerrainInstance, Displacement ) == 832 &&
-              offsetof( TerrainInstance, DisplacementView ) == 848 &&
-              offsetof( TerrainInstance, DiceWindow ) == 864 &&
-              offsetof( TerrainInstance, DisplacementTiling ) == 880 &&
-              offsetof( TerrainInstance, InputTileSize ) == 896 &&
-              offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960 &&
-              offsetof( TerrainInstance, DicePool ) == 976 && offsetof( TerrainInstance, DiceClip ) == 992 &&
-              offsetof( TerrainInstance, GrassCoverFloorWidth ) == 1008 &&
-              offsetof( TerrainInstance, GrassCoverWiden ) == 1040 &&
-              offsetof( TerrainInstance, GrassCoverFarLodRadius ) == 1072,
+              offsetof( TerrainInstance, LandscapeTile ) == 64 && offsetof( TerrainInstance, Sections ) == 80 &&
+              offsetof( TerrainInstance, SectionLods ) == 96 && offsetof( TerrainInstance, LayerColors ) == 240 &&
+              offsetof( TerrainInstance, LayerAlphaBlend ) == 368 &&
+              offsetof( TerrainInstance, LayerInput ) == 400 && offsetof( TerrainInstance, InputSlices ) == 432 &&
+              offsetof( TerrainInstance, GroundInput ) == 560 && offsetof( TerrainInstance, GrassCover ) == 576 &&
+              offsetof( TerrainInstance, GrassCoverLight ) == 704 &&
+              offsetof( TerrainInstance, GrassCoverRange ) == 832 &&
+              offsetof( TerrainInstance, Displacement ) == 960 &&
+              offsetof( TerrainInstance, DisplacementView ) == 976 &&
+              offsetof( TerrainInstance, DiceWindow ) == 992 &&
+              offsetof( TerrainInstance, DisplacementTiling ) == 1008 &&
+              offsetof( TerrainInstance, InputTileSize ) == 1024 &&
+              offsetof( TerrainInstance, InputBlend ) == 1056 && offsetof( TerrainInstance, DiceRings ) == 1088 &&
+              offsetof( TerrainInstance, DicePool ) == 1104 && offsetof( TerrainInstance, DiceClip ) == 1120 &&
+              offsetof( TerrainInstance, GrassCoverFloorWidth ) == 1136 &&
+              offsetof( TerrainInstance, GrassCoverWiden ) == 1168 &&
+              offsetof( TerrainInstance, GrassCoverFarLodRadius ) == 1200,
          "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -265,9 +274,9 @@ namespace Desert::Graphic::System
     // (ComputeBoundsScreenRadiusSquared), adapted: the UE proxy's LOD0ScreenSize / LOD0DistributionSetting /
     // LODDistributionSetting / LODBlendRange are UE's defaults as constants (no per-landscape override yet),
     // no r.StaticMeshLODDistanceScale, and MaxLOD is the last stride-2^L grid of the tile (LandscapeLod.glslh)
-    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD per view: the main camera's
-    // for the camera's passes and the cascades (they draw the camera's vertices, so a sun shadow cannot swim
-    // against its caster), and a point/spot light's own, from its position, for that light's views — their
+    // instead of the heightmap's last mip. Each SECTION of a tile (below) takes ONE continuous LOD per view: the
+    // main camera's for the camera's passes and the cascades (they draw the camera's vertices, so a sun shadow cannot
+    // swim against its caster), and a point/spot light's own, from its position, for that light's views — their
     // depth is cached, and a camera-chosen LOD would redraw it on every camera move (TerrainRenderer).
     inline constexpr float kLandscapeLod0ScreenSize   = 0.5f;
     inline constexpr float kLandscapeLod0Distribution = 1.25f;
@@ -293,10 +302,10 @@ namespace Desert::Graphic::System
         float LastLODIndex                        = 0.0f;
     };
 
-    inline LandscapeLodSettings MakeLandscapeLodSettings( uint32_t quadsPerTile )
+    // UE's per-LOD screen-size ratios for a primitive whose coarsest grid LOD is @p maxLod.
+    inline LandscapeLodSettings MakeLandscapeLodSettingsTo( uint32_t maxLod )
     {
         LandscapeLodSettings settings;
-        const uint32_t       maxLod    = LandscapeMaxLod( quadsPerTile );
         float                divider   = std::max( kLandscapeLod0Distribution, 1.01f );
         float                ratio     = kLandscapeLod0ScreenSize;
         settings.LOD0ScreenSizeSquared = ratio * ratio;
@@ -313,6 +322,12 @@ namespace Desert::Graphic::System
         settings.LastLODScreenSizeSquared = last;
         settings.LastLODIndex             = static_cast<float>( maxLod );
         return settings;
+    }
+
+    // ...for a whole tile drawn as one section (its grid's coarsest LOD is LandscapeMaxLod).
+    inline LandscapeLodSettings MakeLandscapeLodSettings( uint32_t quadsPerTile )
+    {
+        return MakeLandscapeLodSettingsTo( LandscapeMaxLod( quadsPerTile ) );
     }
 
     inline float LandscapeLodFromScreenSize( const LandscapeLodSettings& settings, float screenSizeSquared )
@@ -354,6 +369,98 @@ namespace Desert::Graphic::System
         result.Edges   = glm::vec4( at( -1, 0 ), at( 1, 0 ), at( 0, -1 ), at( 0, 1 ) );
         result.Corners = glm::vec4( corner( -1, -1 ), corner( 1, -1 ), corner( -1, 1 ), corner( 1, 1 ) );
         return result;
+    }
+
+    // ── Landscape sections (TERRAIN-LOD-1) ──────────────────────────────────────────────────────────
+    //
+    // UE: a landscape component is drawn as sections, and each section takes its OWN LOD from its own bounds'
+    // screen size (FLandscapeRenderSystem::SectionLODValues; FLandscapeComponentSceneProxy's LOD0ScreenSize
+    // applies to the section's bounds, whatever its quads), its seams stitched by the morph toward the max()
+    // with the neighbour (LandscapeVertexFactory.ush CalcLOD). One LOD per 255-quad tile kept LOD 0 out to the
+    // tile sphere's reach (~76 m on FIELD_Barn's 23.5 cm grid) - every triangle past ~15 m sub-pixel along the
+    // view. Here a tile is split into sections of UE's 63-quad size (64 samples with the shared edge) on sample
+    // lines that are multiples of every section grid's stride, so a section is a window of the tile's grid at
+    // its own LOD (LandscapeSectionDrawsOf) and its vertices snap and morph in tile coordinates
+    // (LandscapeLod.glslh) without leaving it: a section's coarsest grid is two cells a side, morphing to its
+    // corners (LandscapeSectionMaxLod). A tile of at most one section's quads is one section - the tile, as
+    // before.
+    inline constexpr uint32_t kLandscapeMaxSections  = 4u;  // sections a tile side, at most
+    inline constexpr uint32_t kLandscapeSectionQuads = 64u; // a section's quads a side (UE's 63 + the shared edge)
+    // The side of TerrainInstance::SectionLods' table: the sections and a ring of the neighbours' around them.
+    // TerrainInstance.glslh LANDSCAPE_SECTION_TABLE is the same number.
+    inline constexpr uint32_t kLandscapeSectionTable = kLandscapeMaxSections + 2u;
+    static_assert( kLandscapeSectionTable * kLandscapeSectionTable <= 9u * 4u,
+                   "TerrainInstance::SectionLods holds the whole table" );
+
+    // A section's quads a side: kLandscapeSectionQuads, or a power-of-two share of the tile when the tile would
+    // need more than kLandscapeMaxSections of them (the power of two keeps every grid's stride dividing it).
+    inline uint32_t LandscapeSectionQuads( uint32_t quadsPerTile )
+    {
+        uint32_t span = 1u;
+        while ( span < quadsPerTile )
+            span <<= 1u;
+        return std::max( span / kLandscapeMaxSections, std::min( span, kLandscapeSectionQuads ) );
+    }
+
+    // Sections a tile side (the last one is narrower when the section does not divide the quads).
+    inline uint32_t LandscapeSectionCount( uint32_t quadsPerTile )
+    {
+        const uint32_t quads = std::max( quadsPerTile, 1u );
+        const uint32_t sq    = LandscapeSectionQuads( quads );
+        return ( quads + sq - 1u ) / sq;
+    }
+
+    // A section's coarsest grid LOD: its stride is half the section, so the morph target is the section's corners
+    // and no vertex snaps across a section line. A one-section tile keeps the tile's (LandscapeMaxLod).
+    inline uint32_t LandscapeSectionMaxLod( uint32_t quadsPerTile )
+    {
+        if ( LandscapeSectionCount( quadsPerTile ) <= 1u )
+            return LandscapeMaxLod( quadsPerTile );
+        return LandscapeMaxLod( LandscapeSectionQuads( quadsPerTile ) - 1u );
+    }
+
+    // A tile's sections' continuous LODs, row-major (sz * kLandscapeMaxSections + sx).
+    using LandscapeSectionLodArray = std::array<float, kLandscapeMaxSections * kLandscapeMaxSections>;
+
+    // A tile's SectionLods table and its finest section's LOD. `sectionsAt(dx, dz)` is the section LODs of the
+    // tile at that offset from this one (dx = dz = 0: this tile), or nullptr where there is none. Every tile of a
+    // landscape has the same quads, so the ring holds the neighbours' border sections exactly as they hold them.
+    struct LandscapeSectionLodTable
+    {
+        std::array<glm::vec4, 9> Lods{};
+        float                    Finest = 0.0f;
+    };
+
+    template <class SectionsAt>
+    LandscapeSectionLodTable LandscapeSectionLodsOf( uint32_t quadsPerTile, SectionsAt&& sectionsAt )
+    {
+        const int                sections = static_cast<int>( LandscapeSectionCount( quadsPerTile ) );
+        LandscapeSectionLodTable table;
+        table.Finest = std::numeric_limits<float>::max();
+        for ( int sz = -1; sz <= sections; ++sz )
+        {
+            for ( int sx = -1; sx <= sections; ++sx )
+            {
+                const int                       dx   = sx < 0 ? -1 : ( sx >= sections ? 1 : 0 );
+                const int                       dz   = sz < 0 ? -1 : ( sz >= sections ? 1 : 0 );
+                const LandscapeSectionLodArray* tile = sectionsAt( dx, dz );
+                const int                       local =
+                     ( sz - dz * sections ) * static_cast<int>( kLandscapeMaxSections ) + ( sx - dx * sections );
+                const float lod   = tile != nullptr ? ( *tile )[static_cast<size_t>( local )] : 0.0f;
+                const int   index = ( sz + 1 ) * static_cast<int>( kLandscapeSectionTable ) + sx + 1;
+                table.Lods[static_cast<size_t>( index / 4 )][index % 4] = lod;
+                if ( dx == 0 && dz == 0 )
+                    table.Finest = std::min( table.Finest, lod );
+            }
+        }
+        return table;
+    }
+
+    // The continuous LOD of section (sx, sz), sx, sz in [-1, sections], of a SectionLods table.
+    inline float LandscapeSectionLodAt( const std::array<glm::vec4, 9>& lods, int sx, int sz )
+    {
+        const int index = ( sz + 1 ) * static_cast<int>( kLandscapeSectionTable ) + sx + 1;
+        return lods[static_cast<size_t>( index / 4 )][index % 4];
     }
 
     // Vertices of a tile's draw at grid LOD `gridLod`: six per cell (LandscapeLod.glslh decodes them).
@@ -440,6 +547,11 @@ namespace Desert::Graphic::System
     // shadow map's indirect ones included, are instance 0. LandscapeDisplacement.glslh
     // LANDSCAPE_GRID_FIRST_INSTANCE is the same number.
     inline constexpr uint32_t kLandscapeGridFirstInstance = 1u;
+    // ...and which grid it draws (TERRAIN-LOD-1: a section draws the tile's grid at its own LOD): the first
+    // instance is kLandscapeGridFirstInstance + gridLod * kLandscapeGridLodInstances + the first row, the grid's
+    // rows never reaching the next LOD's block. LandscapeDisplacement.glslh LANDSCAPE_GRID_LOD_INSTANCES is the
+    // same number.
+    inline constexpr uint32_t kLandscapeGridLodInstances = 4096u;
 
     // Cells a side of a tile's grid at grid LOD @p gridLod (LandscapeLodVertexCount's: the last cell is narrower
     // when the stride does not divide the quads).
@@ -478,6 +590,15 @@ namespace Desert::Graphic::System
         // default; a scrolled cascade's strip narrows a draw to the patches it reaches
         // (TerrainRenderer::RecordShadowView), whose rings then ride with one of them.
         glm::ivec4 Window{ 0, 0, std::numeric_limits<int32_t>::max(), std::numeric_limits<int32_t>::max() };
+        // THE SECTIONS (TERRAIN-LOD-1): the tile's quads and grid LOD (Cells' grid: Hole and Window are in its
+        // cells), its sections a side and their quads, and the grid LOD each section draws with - the floor of its
+        // own LOD (no vertex of it takes a finer one: LandscapeVertexEval.glslh LandscapeVertexLod), never finer
+        // than the tile's grid, and the tile's grid where the dice rings reach it (their hole is that grid's cells).
+        uint32_t                                                             Quads        = 0;
+        uint32_t                                                             GridLod      = 0;
+        uint32_t                                                             Sections     = 1;
+        uint32_t                                                             SectionQuads = 0;
+        std::array<uint8_t, kLandscapeMaxSections * kLandscapeMaxSections> SectionGridLod{};
     };
 
     // The split of the row's draw at grid LOD @p gridLod: LandscapeDicedVertexCount's walk, kept as the decode
@@ -487,7 +608,23 @@ namespace Desert::Graphic::System
                                                     const TerrainInstance& row )
     {
         LandscapeDrawSplit split;
-        split.Cells = LandscapeLodCells( quadsPerTile, gridLod );
+        split.Cells        = LandscapeLodCells( quadsPerTile, gridLod );
+        split.Quads        = quadsPerTile;
+        split.GridLod      = gridLod;
+        split.Sections     = LandscapeSectionCount( quadsPerTile );
+        split.SectionQuads = LandscapeSectionQuads( quadsPerTile );
+        const uint32_t coarsest = std::max( LandscapeSectionMaxLod( quadsPerTile ), gridLod );
+        for ( uint32_t sz = 0; sz < split.Sections; ++sz )
+        {
+            for ( uint32_t sx = 0; sx < split.Sections; ++sx )
+            {
+                const float lod = std::max(
+                     LandscapeSectionLodAt( row.SectionLods, static_cast<int>( sx ), static_cast<int>( sz ) ), 0.0f );
+                const uint32_t own = static_cast<uint32_t>( std::floor( std::min( lod, 31.0f ) ) );
+                split.SectionGridLod[sz * kLandscapeMaxSections + sx] =
+                     static_cast<uint8_t>( std::clamp( own, gridLod, coarsest ) );
+            }
+        }
         if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
             return split;
         const int  cells = static_cast<int>( split.Cells );
@@ -503,66 +640,168 @@ namespace Desert::Graphic::System
             inner = outer;
         }
         split.Hole = inner;
+        // The rings' hole is cut from the tile's grid (LOD 0 here): a section it reaches draws that grid.
+        if ( inner.z > inner.x && inner.w > inner.y )
+        {
+            for ( uint32_t sz = 0; sz < split.Sections; ++sz )
+            {
+                for ( uint32_t sx = 0; sx < split.Sections; ++sx )
+                {
+                    const int32_t x0 = static_cast<int32_t>( sx * split.SectionQuads );
+                    const int32_t z0 = static_cast<int32_t>( sz * split.SectionQuads );
+                    const int32_t x1 = std::min( x0 + static_cast<int32_t>( split.SectionQuads ), cells );
+                    const int32_t z1 = std::min( z0 + static_cast<int32_t>( split.SectionQuads ), cells );
+                    if ( inner.x < x1 && x0 < inner.z && inner.y < z1 && z0 < inner.w )
+                        split.SectionGridLod[sz * kLandscapeMaxSections + sx] = 0u;
+                }
+            }
+        }
         return split;
     }
 
     // One indexed draw of a grid's index buffer: IndexCount indices from FirstIndex, the nodes offset by FirstRow
-    // whole rows (the draw's vertex offset), Rows instances, each one row further.
+    // whole rows (the draw's vertex offset), Rows instances, each one row further - of the tile's grid at GridLod,
+    // whose index buffer is the one of Cells cells a side.
     struct LandscapeGridRange
     {
         uint32_t FirstIndex = 0;
         uint32_t IndexCount = 0;
         uint32_t FirstRow   = 0;
         uint32_t Rows       = 1;
+        uint32_t GridLod    = 0;
+        uint32_t Cells      = 0;
     };
 
+    // A run of one section row's sections drawing one grid, less the hole, is at most four rectangles.
     struct LandscapeGridRanges
     {
-        std::array<LandscapeGridRange, 4> Ranges{};
-        uint32_t                          Count = 0;
+        std::array<LandscapeGridRange, kLandscapeMaxSections * kLandscapeMaxSections * 4> Ranges{};
+        uint32_t                                                                      Count = 0;
     };
 
-    // The grid's cells inside @p split.Window and outside @p split.Hole as index ranges: the window's rows below
-    // the hole and its rows above it are each one rectangle, the hole's rows left of it and right of it are each
-    // one. A rectangle as wide as the grid is one contiguous range of its rows; a narrower one is one range of
-    // row 0's indices (its columns), instanced once per row. Every cell of the window outside the hole once, none
-    // inside it; the whole grid's window gives the four ranges around the hole (one range without a hole).
+    // THE SECTIONS' DRAWS (TERRAIN-LOD-1): every section's cells on its own grid (LandscapeDrawSplit::
+    // SectionGridLod), inside @p split.Window and outside @p split.Hole (both in the tile grid's cells, converted to
+    // samples and to each section grid's cells; a coarser cell half inside the window is drawn whole, the window
+    // being already a superset of what its strip reaches), as index ranges. A section row's run of sections on one
+    // grid is one rectangle, less the hole's part of it (the rows below it, its rows left and right of it, the rows
+    // above it); a rectangle as wide as its grid is one contiguous range of its rows, a narrower one a range of row
+    // 0's indices (its columns) instanced once per row, grown down when the rectangle under it has its columns and
+    // grid. Every cell of the window outside the hole once, none inside it.
     inline LandscapeGridRanges LandscapeGridRangesOf( const LandscapeDrawSplit& split )
     {
         LandscapeGridRanges ranges;
-        const int32_t       cells = static_cast<int32_t>( split.Cells );
-        const auto          rect  = [&]( int32_t x0, int32_t x1, int32_t z0, int32_t z1 )
+        const int32_t       quads = static_cast<int32_t>( split.Quads );
+        const int32_t       tile  = static_cast<int32_t>( split.Cells );
+        const int32_t       base  = static_cast<int32_t>( split.GridLod );
+        // A tile-grid cell line in samples (the last line is the tile's last sample).
+        const auto samples = [&]( const int32_t c ) { return std::min( std::clamp( c, 0, tile ) << base, quads ); };
+        const int32_t wx0      = samples( split.Window.x );
+        const int32_t wz0      = samples( split.Window.y );
+        const int32_t wx1      = samples( split.Window.z );
+        const int32_t wz1      = samples( split.Window.w );
+        const int32_t hx0      = samples( split.Hole.x );
+        const int32_t hz0      = samples( split.Hole.y );
+        const int32_t hx1      = samples( split.Hole.z );
+        const int32_t hz1      = samples( split.Hole.w );
+        bool          lastWide = false;
+        const auto    rect     = [&]( const uint32_t gridLod, const int32_t cells, const int32_t x0, const int32_t x1,
+                               const int32_t z0, const int32_t z1 )
         {
             if ( x1 <= x0 || z1 <= z0 )
                 return;
-            const uint32_t width = static_cast<uint32_t>( x1 - x0 );
-            const uint32_t rows  = static_cast<uint32_t>( z1 - z0 );
-            if ( x0 == 0 && x1 == cells )
-                ranges.Ranges[ranges.Count++] = LandscapeGridRange{ static_cast<uint32_t>( z0 ) * split.Cells * 6u,
-                                                                    rows * split.Cells * 6u, 0u, 1u };
+            const uint32_t     width = static_cast<uint32_t>( x1 - x0 );
+            const uint32_t     rows  = static_cast<uint32_t>( z1 - z0 );
+            const uint32_t     side  = static_cast<uint32_t>( cells );
+            const bool         wide  = x0 == 0 && x1 == cells;
+            LandscapeGridRange range;
+            range.GridLod = gridLod;
+            range.Cells   = side;
+            if ( wide )
+            {
+                range.FirstIndex = static_cast<uint32_t>( z0 ) * side * 6u;
+                range.IndexCount = rows * side * 6u;
+            }
             else
-                ranges.Ranges[ranges.Count++] = LandscapeGridRange{ static_cast<uint32_t>( x0 ) * 6u, width * 6u,
-                                                                    static_cast<uint32_t>( z0 ), rows };
+            {
+                range.FirstIndex = static_cast<uint32_t>( x0 ) * 6u;
+                range.IndexCount = width * 6u;
+                range.FirstRow   = static_cast<uint32_t>( z0 );
+                range.Rows       = rows;
+            }
+            if ( ranges.Count > 0u )
+            {
+                LandscapeGridRange& last = ranges.Ranges[ranges.Count - 1u];
+                if ( last.GridLod == gridLod && lastWide == wide )
+                {
+                    if ( wide && last.FirstIndex + last.IndexCount == range.FirstIndex )
+                    {
+                        last.IndexCount += range.IndexCount;
+                        return;
+                    }
+                    if ( !wide && last.FirstIndex == range.FirstIndex && last.IndexCount == range.IndexCount &&
+                         last.FirstRow + last.Rows == range.FirstRow )
+                    {
+                        last.Rows += range.Rows;
+                        return;
+                    }
+                }
+            }
+            ranges.Ranges[ranges.Count++] = range;
+            lastWide                      = wide;
         };
-        const int32_t wx0 = std::clamp( split.Window.x, 0, cells );
-        const int32_t wz0 = std::clamp( split.Window.y, 0, cells );
-        const int32_t wx1 = std::clamp( split.Window.z, 0, cells );
-        const int32_t wz1 = std::clamp( split.Window.w, 0, cells );
-        // The hole's part inside the window.
-        const int32_t hx0 = std::clamp( split.Hole.x, wx0, wx1 );
-        const int32_t hz0 = std::clamp( split.Hole.y, wz0, wz1 );
-        const int32_t hx1 = std::clamp( split.Hole.z, wx0, wx1 );
-        const int32_t hz1 = std::clamp( split.Hole.w, wz0, wz1 );
-        if ( hx1 <= hx0 || hz1 <= hz0 )
+        const int32_t sq = static_cast<int32_t>( std::max( split.SectionQuads, 1u ) );
+        for ( uint32_t sz = 0; sz < split.Sections; ++sz )
         {
-            rect( wx0, wx1, wz0, wz1 );
-            return ranges;
+            uint32_t runStart = 0;
+            for ( uint32_t sx = 1; sx <= split.Sections; ++sx )
+            {
+                const uint32_t gridLod = split.SectionGridLod[sz * kLandscapeMaxSections + runStart];
+                if ( sx < split.Sections && split.SectionGridLod[sz * kLandscapeMaxSections + sx] == gridLod )
+                    continue;
+                // The run [runStart, sx) of sections on grid gridLod, in samples, then in that grid's cells (a
+                // section line is on every section grid; the tile's last sample closes the last cell).
+                const int32_t stride = 1 << gridLod;
+                const int32_t cells  = static_cast<int32_t>( LandscapeLodCells( split.Quads, gridLod ) );
+                const auto    lo     = [&]( const int32_t s ) { return s / stride; };
+                const auto    hi     = [&]( const int32_t s ) { return ( s + stride - 1 ) / stride; };
+                const int32_t ax     = static_cast<int32_t>( runStart ) * sq;
+                const int32_t az     = static_cast<int32_t>( sz ) * sq;
+                const int32_t bx     = std::min( static_cast<int32_t>( sx ) * sq, quads );
+                const int32_t bz     = std::min( az + sq, quads );
+                const int32_t x0     = lo( std::max( ax, wx0 ) );
+                const int32_t z0     = lo( std::max( az, wz0 ) );
+                const int32_t x1     = hi( std::min( bx, wx1 ) );
+                const int32_t z1     = hi( std::min( bz, wz1 ) );
+                runStart             = sx;
+                if ( x1 <= x0 || z1 <= z0 )
+                    continue;
+                // The hole's part of the rectangle (only a section on the tile's grid meets it: LandscapeDrawSplitOf).
+                const int32_t ix0 = std::clamp( lo( hx0 ), x0, x1 );
+                const int32_t iz0 = std::clamp( lo( hz0 ), z0, z1 );
+                const int32_t ix1 = std::clamp( hi( hx1 ), x0, x1 );
+                const int32_t iz1 = std::clamp( hi( hz1 ), z0, z1 );
+                if ( ix1 <= ix0 || iz1 <= iz0 )
+                {
+                    rect( gridLod, cells, x0, x1, z0, z1 );
+                    continue;
+                }
+                rect( gridLod, cells, x0, x1, z0, iz0 );   // the rows below the hole
+                rect( gridLod, cells, x0, ix0, iz0, iz1 ); // its rows, left of it
+                rect( gridLod, cells, ix1, x1, iz0, iz1 ); // its rows, right of it
+                rect( gridLod, cells, x0, x1, iz1, z1 );   // the rows above it
+            }
         }
-        rect( wx0, wx1, wz0, hz0 ); // the rows below the hole
-        rect( wx0, hx0, hz0, hz1 ); // its rows, left of it
-        rect( hx1, wx1, hz0, hz1 ); // its rows, right of it
-        rect( wx0, wx1, hz1, wz1 ); // the rows above it
         return ranges;
+    }
+
+    // The triangles a draw rasters: its rings' and its grid ranges' (TerrainRenderer's census of the camera's).
+    inline uint64_t LandscapeDrawTriangles( const LandscapeDrawSplit& split )
+    {
+        uint64_t                  triangles = split.RingVertices / 3u;
+        const LandscapeGridRanges ranges    = LandscapeGridRangesOf( split );
+        for ( uint32_t r = 0; r < ranges.Count; ++r )
+            triangles += uint64_t{ ranges.Ranges[r].IndexCount / 3u } * ranges.Ranges[r].Rows;
+        return triangles;
     }
 
     // The dice pool's vertices for the row (LandscapeDisplacement.glslh LandscapeDecodePoolVertex walks the same

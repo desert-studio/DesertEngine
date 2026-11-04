@@ -67,23 +67,32 @@ float LandscapeLodMorph( float a, float b, float t )
     return a + ( b - a ) * t;
 }
 
-// The continuous LOD of a vertex at tile-local (x, z): the tile's own LOD in the middle, blended towards the
-// LOD of the nearest border, which IS that border's value on the border. `edges` = max(tile, neighbour) for
-// West, East, South, North; `corners` = max of the four tiles at (-x,-z), (+x,-z), (-x,+z), (+x,+z). Both are
-// symmetric, so the two tiles of a border compute one value for every vertex on it.
-float LandscapeCalcLod( float x, float z, float quads, float center, vec4 edges, vec4 corners, float invBlendRange )
+// The continuous LOD of a vertex at section-local (x, z) of a section of quadsX x quadsZ quads (a tile's last
+// section is narrower when the section does not divide the tile; a one-section tile is the tile): the section's
+// own LOD in the middle, blended towards the LOD of the nearest border, which IS that border's value on the
+// border. `edges` = max(section, neighbour) for West, East, South, North; `corners` = max of the four sections
+// at (-x,-z), (+x,-z), (-x,+z), (+x,+z). Both are symmetric, so the two sections of a border - of one tile or of
+// two - compute one value for every vertex on it.
+float LandscapeCalcSectionLod( float x, float z, float quadsX, float quadsZ, float center, vec4 edges, vec4 corners,
+                               float invBlendRange )
 {
-    float dx = x / quads * 2.0f - 1.0f;
-    float dz = z / quads * 2.0f - 1.0f;
+    float dx = x / quadsX * 2.0f - 1.0f;
+    float dz = z / quadsZ * 2.0f - 1.0f;
     // On a border the distance is 1 by test, not by division (fast math again).
-    float ax = ( x <= 0.0f || x >= quads ) ? 1.0f : abs( dx );
-    float az = ( z <= 0.0f || z >= quads ) ? 1.0f : abs( dz );
+    float ax = ( x <= 0.0f || x >= quadsX ) ? 1.0f : abs( dx );
+    float az = ( z <= 0.0f || z >= quadsZ ) ? 1.0f : abs( dz );
     if ( ax >= 1.0f && az >= 1.0f )
         return dx < 0.0f ? ( dz < 0.0f ? corners.x : corners.z ) : ( dz < 0.0f ? corners.y : corners.w );
 
     float lb        = clamp( 1.0f - ( 1.0f - max( ax, az ) ) * invBlendRange, 0.0f, 1.0f );
     float neighbour = ax > az ? ( dx < 0.0f ? edges.x : edges.y ) : ( dz < 0.0f ? edges.z : edges.w );
     return ( 1.0f - lb ) * center + lb * neighbour;
+}
+
+// ...of a square section of `quads` quads (the whole tile when it is one section).
+float LandscapeCalcLod( float x, float z, float quads, float center, vec4 edges, vec4 corners, float invBlendRange )
+{
+    return LandscapeCalcSectionLod( x, z, quads, quads, center, edges, corners, invBlendRange );
 }
 
 #endif // LANDSCAPE_LOD_GLSLH
