@@ -2285,8 +2285,10 @@ namespace Desert::Graphic::API::Vulkan
             if ( pipe != 0 )
                 queue = Common::Profiling::GpuQueue::AsyncCompute;
             chunk.Record.GpuRoot = {};
+#if DESERT_DEV_INSTRUMENTS // the GPU profiler is a dev instrument: Shipping declares no VulkanGpuProfiler
             if ( m_Device.ChunkOrder != nullptr )
                 chunk.Record.GpuRoot = m_Device.ChunkOrder->ChunkRoot( queue );
+#endif
         }
         for ( size_t pipe = 0; pipe < perPipe.size(); ++pipe )
         {
@@ -2367,8 +2369,10 @@ namespace Desert::Graphic::API::Vulkan
         }
         chunk.CommandBuffer = VK_NULL_HANDLE; // the segment's submission holds it now
         SetRecording( continuation.GetValue() );
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Device.ChunkOrder != nullptr )
             m_Device.ChunkOrder->StampChunkOrder( chunk.Record.GpuScopesMade );
+#endif
         // The frame recorder's bind cache does not describe the continuation (a freshly begun buffer).
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
@@ -2383,8 +2387,10 @@ namespace Desert::Graphic::API::Vulkan
         // never written. RDG-PARALLEL-5: its passes are recorded again inline, each with a scope of its own, so
         // the chunk's scopes are retracted: [GpuOrder] holds every pass once, no duplicate row read untimed.
         Chunk& chunk = *m_Chunks[index];
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Device.ChunkOrder != nullptr )
             m_Device.ChunkOrder->RetractChunkScopes( chunk.Record.GpuScopesMade );
+#endif
         chunk.Record.GpuScopesMade.clear();
         chunk.CommandBuffer = VK_NULL_HANDLE; // ended, never submitted: reset with the slot's arena
     }
