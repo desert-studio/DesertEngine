@@ -57,7 +57,7 @@ Shader "SSDReconstructShadowVisibility"
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0)))
+        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0), false))
         	{
         		imageStore(ReconstructedSignalTexture, pixel, vec4(0.0));
         		return;

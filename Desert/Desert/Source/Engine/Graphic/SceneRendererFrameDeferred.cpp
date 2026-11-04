@@ -2003,25 +2003,55 @@ namespace Desert::Graphic
              frontLayer != nullptr ? System::SSRRenderer::FrontLayerInputs{ .Normal = frontLayer->Normal,
                                                                             .Depth  = frontLayer->Depth }
                                    : System::SSRRenderer::FrontLayerInputs{};
+        // UE Lumen reflections' tile classification: the classify lists the texels it hands the trace, the trace
+        // runs one thread per listed texel by an indirect dispatch (SSR.shader). The hit-lit classify keeps no
+        // list: its ray generation traces every texel.
+        std::optional<System::SSRRenderer::TraceList> traceList;
+        if ( !hitLit )
+            traceList = System::SSRRenderer::CreateTraceList( graph, *traceTargets );
+        const System::SSRRenderer::TraceList* const listPtr = traceList ? &*traceList : nullptr;
+        const bool                                  hardwareTraced =
+             traced && traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
+        const System::SSRRenderer::TracedReads* const tracedPtr = traced ? &*traced : nullptr;
+        const System::SSRRenderer::FrontLayerInputs* const frontPtr = frontLayer != nullptr ? &frontInputs : nullptr;
+        const char* const classifyName = !traced          ? "Deferred: SSR"
+                                         : hitLit         ? "Deferred: Reflections (classify)"
+                                         : hardwareTraced ? "Deferred: Reflections (HardwareTraced)"
+                                                          : "Deferred: Reflections (SoftwareTraced)";
+        const char* const traceName    = !traced          ? "Deferred: SSR Trace"
+                                         : hardwareTraced ? "Deferred: Reflections Trace (HardwareTraced)"
+                                                          : "Deferred: Reflections Trace (SoftwareTraced)";
         graph.AddPass(
-             !traced  ? "Deferred: SSR"
-             : hitLit ? "Deferred: Reflections (classify)"
-             : traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery
-                  ? "Deferred: Reflections (HardwareTraced)"
-                  : "Deferred: Reflections (SoftwareTraced)",
-             RDG::PassFlags::Compute,
+             classifyName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
-                                           traceUniforms, traced ? &*traced : nullptr,
-                                           frontLayer != nullptr ? &frontInputs : nullptr );
+                                           traceUniforms, System::SSRRenderer::TraceStage::Classify, listPtr,
+                                           tracedPtr, frontPtr );
                  // Only the textures the trace samples (its block): an unsampled G-buffer colour declared here
                  // joined the screen probes' async run at its last pass, the first reader of the shading word
                  // ("ScreenProbes: Disocclusion"), and the graphics queue waited for the whole run before it.
              },
              [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
               seed]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+             { return ssrPtr->RecordClassify( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+        if ( traceList )
+        {
+            graph.AddPass(
+                 traceName, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
+                                               traceUniforms, System::SSRRenderer::TraceStage::Trace, listPtr,
+                                               tracedPtr, frontPtr );
+                 },
+                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                  sceneHistoryReadable, seed,
+                  listArgs = traceList->Args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                     return ssrPtr->RecordTraceList( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                     listArgs );
+                 } );
+        }
         if ( hitLit )
         {
             // THE HIT-LIT TRACE (Reflections.HitLighting): every trace texel from the ray tracing pipeline, after
@@ -2063,7 +2093,8 @@ namespace Desert::Graphic
                                                              .TileMask             = tiles,
                                                              .TraceSeed            = seed,
                                                              .ReconstructionRadius = m_ReflectionDenoiserRadius,
-                                                             .DownsampleFactor     = traceTargets->DownsampleFactor },
+                                                             .DownsampleFactor     = traceTargets->DownsampleFactor,
+                                                             .RoughSpecularFromGI  = settings.RoughSpecularFromGI },
                           // The reflecting surface's own normal, depth and motion: the front layer's for its
                           // renderer, whose history is its own.
                           System::DenoiserSceneTextures{

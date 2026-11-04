@@ -2,13 +2,15 @@
 Shader "SSR"
 {
     // Screen-space reflections: tile classification and the trace (full or half resolution,
-    // Reflections.DownsampleFactor), in ONE compute dispatch.
-    // One workgroup per screen tile (grid = ceil(size / 8), tiles stretched over the
-    // target). The workgroup first decides whether any pixel of its tile passes the trace's G-buffer gate
-    // (Common/SSRGate.glslh) and writes that verdict to the tile mask the denoiser's reconstruction reads;
-    // then it traces the trace texels whose source pixel the tile owns - or writes 0 for them when
-    // nothing in the tile can reflect. Every trace texel is written every frame, so the target needs no clear,
-    // and the classify costs no pass of its own (it used to be a dispatch, and before that a render pass).
+    // Reflections.DownsampleFactor), two dispatches of ONE compute program (SsrParams3.w names the stage), as UE
+    // Lumen reflections classify tiles into a compacted list of trace texels and trace that list indirectly.
+    // CLASSIFY ("SSR: Classify"): one workgroup per screen tile (grid = ceil(size / 8), tiles stretched over the
+    // target). The workgroup decides whether any pixel of its tile passes the trace's G-buffer gate
+    // (Common/SSRGate.glslh) and writes that verdict to the tile mask the denoiser's reconstruction reads; then it
+    // LISTS the trace texels whose source pixel the tile owns and passes the gate (Common/SSRTrace.glslh
+    // ssrTraceList, sizing the trace's indirect arguments) and writes 0 for the others it owns.
+    // TRACE ("SSR: Trace"): one thread per listed texel, so a wave never idles on a texel nobody traces. Every trace
+    // texel is written every frame by one of the two, so the target needs no clear.
     //
     // The trace (SSR2): per traced texel, Reflections.RaysPerPixel rays whose directions are drawn from the GGX
     // distribution of VISIBLE normals (Heitz 2018; UE MonteCarlo.ush ImportanceSampleVisibleGGX), each walked over the
@@ -61,11 +63,35 @@ Shader "SSR"
     {
         #include <Common/SSRTrace.glslh>
 
-        void main()
+        #if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+        // --- THE TRACE (SsrParams3.w = 1, "SSR: Trace"): one thread per texel the classify listed, over the indirect
+        // dispatch the classify sized (UE LumenReflectionTracing.usf over ReflectionTracingTileIndirectArgs). Every
+        // lane of a wave walks a ray: none idles on a texel its tile does not own or a pixel too rough to trace. ---
+        void TraceListed()
+        {
+        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	if (index >= ssrTraceListArgs.w)
+        		return;
+        	const uint  listedTexel = ssrTraceList[index];
+        	const ivec2 q           = ivec2(int(listedTexel & 0xFFFFu), int(listedTexel >> 16u));
+        	const ivec2 full   = textureSize(GBufferNormalTexture, 0);
+        	const ivec2 src    = SSRTraceSourcePixel(q, int(SsrParams3.x + 0.5), int(CameraPosition.w), full);
+        	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
+        	vec4 trace = TraceFrom(src, full, ray);
+        	imageStore(SsrTraceTexture, q, trace);
+        	imageStore(TraceRayTexture, q, ray);
+        }
+        #endif
+
+        // --- THE CLASSIFY (SsrParams3.w = 0, "SSR: Classify"): one workgroup per screen tile. ---
+        void ClassifyTile()
         {
         	if (gl_LocalInvocationIndex == 0u)
         	{
         		s_TileReflects = 0u;
+        #if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+        		s_ListCount = 0u;
+        #endif
         	}
         	barrier();
 
@@ -96,9 +122,9 @@ Shader "SSR"
         #if defined( DESERT_REFLECTIONS_HIT_LIGHTING )
         	// Hit lighting: the "HitLighting" ray generation traces every texel after this classify.
         	return;
-        #endif
+        #else
 
-        	// --- Trace: the trace texels whose source pixel THIS tile owns. A pixel's owner is the tile whose quad
+        	// --- List: the trace texels whose source pixel THIS tile owns. A pixel's owner is the tile whose quad
         	// rasterizes it (floor((x + 0.5) / scale)); the stretched ranges above overlap by a pixel, ownership does
         	// not, so every trace texel is written by exactly one thread. The tile owns at most 8 pixels per axis
         	// (scale <= 8), starting at `first` (p0, or p0 + 1 when p0 is the previous tile's); 8 texels per axis
@@ -112,12 +138,43 @@ Shader "SSR"
         	ivec2 src       = SSRTraceSourcePixel(q, factor, frame, full);
         	const bool owns = q.x < traceSize.x && q.y < traceSize.y && ivec2(floor((vec2(src) + 0.5) / scale)) == tile;
 
-        	if (!owns)
+        	// Listed when the tile reflects and the texel's own pixel passes the trace's gate (the one TraceFrom asks
+        	// first, SSRTexelTraces); any other texel the tile owns is written here as the trace writes a texel that
+        	// reflects nothing, so every trace texel is still written every frame and the target needs no clear.
+        	const bool listed = owns && tileReflects && SSRTexelTraces(SSRSurfaceNormal(src));
+        	if (owns && !listed)
+        	{
+        		imageStore(SsrTraceTexture, q, vec4(0.0));
+        		imageStore(TraceRayTexture, q, vec4(0.0, 0.0, 0.0, -126.0));
+        	}
+        	// UE's per-tile compaction: a groupshared count, one global atomic per tile, and the trace's workgroup
+        	// count raised to the end of this tile's run (atomicMax), so the indirect arguments need no pass.
+        	uint slot = 0u;
+        	if (listed)
+        		slot = atomicAdd(s_ListCount, 1u);
+        	barrier();
+        	if (gl_LocalInvocationIndex == 0u && s_ListCount > 0u)
+        	{
+        		s_ListStart = atomicAdd(ssrTraceListArgs.w, s_ListCount);
+        		atomicMax(ssrTraceListArgs.x,
+        		          (s_ListStart + s_ListCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (listed)
+        		ssrTraceList[s_ListStart + slot] = uint(q.x) | (uint(q.y) << 16u);
+        #endif
+        }
+
+        void main()
+        {
+        #if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+        	if (SsrParams3.w >= 0.5)
+        	{
+        		TraceListed();
         		return;
-        	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
-        	vec4 trace = tileReflects ? TraceFrom(src, full, ray) : vec4(0.0);
-        	imageStore(SsrTraceTexture, q, trace);
-        	imageStore(TraceRayTexture, q, ray);
+        	}
+        #endif
+        	ClassifyTile();
         }
     }
 
