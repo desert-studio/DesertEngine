@@ -51,6 +51,9 @@ namespace Desert::Graphic::API::Vulkan
         bool ExternalBufferExportFd      = false;
         bool ExternalTimelineExportWin32 = false;
         bool ExternalTimelineExportFd    = false;
+        // The device's extension list names VK_EXT_shader_float8: its matrix units multiply 8-bit floats
+        // (CapabilityCatalog::TensorFloat8). Listed, not enabled: no engine shader uses FP8.
+        bool ShaderFloat8 = false;
 
         // Third-party upscaler runtimes, each true only when its SDK is integrated AND its runtime loaded AND it
         // reported the device as supported (NGX "DLSS available", XeSS query, MetalFX
@@ -89,6 +92,7 @@ namespace Desert::Graphic::API::Vulkan
     //   AsyncCompute      = SeparateComputeFamily and not Portability.
     //   Timing            = None without timestamp bits; EncoderBounds under Portability on Apple; else AnyStage.
     //   Class             = Discrete / Integrated from Type; AppleUnified for Apple vendor id.
+    //   TensorFloat8      = ShaderFloat8.
     //   Sharing           = Win32 iff ExternalMemoryWin32 + ExternalSemaphoreWin32 present and both Win32 export
     //                       bits; else Fd iff the same for Fd; else None (Metal is not probed yet).
     //   RenderScale.Max   = min(200, 100 * MaxImageDimension2D / output dimension at the reference 3840)

@@ -1,5 +1,7 @@
 #include <Engine/Graphic/Upscalers/DLSS/DLSSUpscaler.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -575,6 +577,11 @@ namespace Desert::Graphic
              .Preset = inputs.Quality->As<Common::Scalability::DlssPreset>( PresetParameter( mode.GetValue() ) ),
              .RRPreset =
                   inputs.Quality->As<Common::Scalability::DlssRRPreset>( RRPresetParameter( mode.GetValue() ) ) };
+        if ( rr && options.RRPreset == Common::Scalability::DlssRRPreset::Auto )
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>(
+                 "{}: the Ray Reconstruction preset is Auto in a resolved quality (Resolve settles it against the "
+                 "device catalog)",
+                 DebugName() );
         if ( const auto applied = feature.Apply( options ); !applied )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
                                                                         applied.GetError() );
@@ -636,6 +643,11 @@ namespace Desert::Graphic
         const RDG::TextureRef exposureRef = exposure.GetValue();
         const RDG::TextureRef normal      = rr ? guides.NormalRoughness : RDG::TextureRef{};
         const bool            traced      = rr && guides.HitDistanceTraced;
+        // The pass's child zone: NGX's own work (slEvaluateFeature records it), apart from the barriers into
+        // the pass. The guides ("DLSS-RR: Guides") and the exposure are passes of their own before it.
+        const char* evaluateZone = "DLSS: NGX Evaluate";
+        if ( rr )
+            evaluateZone = "DLSS-RR: NGX Evaluate";
         graph.AddPass(
              DebugName().data(), RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
@@ -656,8 +668,8 @@ namespace Desert::Graphic
                  // reset), which needs TRANSFER_DST usage and the transfer stage in the barrier into this pass.
                  pass.Write( output, RDG::Access::ExternalWrite );
              },
-             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr,
-              traced]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
+             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr, traced,
+              evaluateZone]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
              {
                  const auto commandBuffer = API::Vulkan::VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
@@ -689,6 +701,7 @@ namespace Desert::Graphic
                      *target = image.GetValue();
                  }
                  evaluation.EngineFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+                 DESERT_PROFILE_PASS_DYNAMIC( evaluateZone );
                  return Streamline::Runtime::Get().Evaluate( commandBuffer.GetValue(), evaluation );
              } );
 
