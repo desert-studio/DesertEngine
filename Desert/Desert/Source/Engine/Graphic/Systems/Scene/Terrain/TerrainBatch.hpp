@@ -599,7 +599,18 @@ namespace Desert::Graphic::System
         uint32_t                                                             Sections     = 1;
         uint32_t                                                             SectionQuads = 0;
         std::array<uint8_t, kLandscapeMaxSections * kLandscapeMaxSections> SectionGridLod{};
+        // THE SECTIONS THE VIEW SEES (TERRAIN-COST-2; UE culls every landscape component against the view before
+        // it draws it): bit sz * kLandscapeMaxSections + sx set = section (sx, sz)'s grid cells are drawn. Every
+        // section by default (the casters' draws); the camera's rasters clear the sections outside its frustum
+        // (TerrainRenderer LandscapeSectionViewMask). The dice rings are not in it: their draw is the procedural
+        // one.
+        uint32_t Visible = ~0u;
     };
+
+    inline bool LandscapeSectionVisible( const LandscapeDrawSplit& split, uint32_t sx, uint32_t sz )
+    {
+        return ( ( split.Visible >> ( sz * kLandscapeMaxSections + sx ) ) & 1u ) != 0u;
+    }
 
     // The split of the row's draw at grid LOD @p gridLod: LandscapeDicedVertexCount's walk, kept as the decode
     // keeps it (a ring with no cells leaves the finer square the inner one). RingVertices + (Cells^2 - Hole's
@@ -756,8 +767,16 @@ namespace Desert::Graphic::System
             for ( uint32_t sx = 1; sx <= split.Sections; ++sx )
             {
                 const uint32_t gridLod = split.SectionGridLod[sz * kLandscapeMaxSections + runStart];
-                if ( sx < split.Sections && split.SectionGridLod[sz * kLandscapeMaxSections + sx] == gridLod )
+                const bool     shown   = LandscapeSectionVisible( split, runStart, sz );
+                if ( sx < split.Sections && split.SectionGridLod[sz * kLandscapeMaxSections + sx] == gridLod &&
+                     LandscapeSectionVisible( split, sx, sz ) == shown )
                     continue;
+                // A run of sections the view does not see draws nothing (LandscapeDrawSplit::Visible).
+                if ( !shown )
+                {
+                    runStart = sx;
+                    continue;
+                }
                 // The run [runStart, sx) of sections on grid gridLod, in samples, then in that grid's cells (a
                 // section line is on every section grid; the tile's last sample closes the last cell).
                 const int32_t stride = 1 << gridLod;
@@ -822,6 +841,22 @@ namespace Desert::Graphic::System
                 inner = area;
         }
         return total;
+    }
+
+    // THE DICE POOL'S CORNERS (TERRAIN-COST-2; UE Nanite displaces each vertex once and its triangles index it):
+    // the grid nodes of the camera's fade square (ring 0, which holds every pooled cell) - (x1 - x0 + 1) x (z1 -
+    // z0 + 1), row-major from (x0, z0) - each evaluated once a frame (LandscapeEvaluateVertex: its LOD, morph,
+    // height and gradient) by the pool's first dispatch, and read by every sub-vertex of the up to four diced
+    // cells around it (LandscapeDicePool.shader); 0 when the row pools nothing.
+    inline uint32_t LandscapeDicePoolCornerCount( uint32_t quadsPerTile, uint32_t gridLod,
+                                                  const TerrainInstance& row )
+    {
+        if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
+            return 0u;
+        const glm::ivec4 r = LandscapeDiceRingRect( row, 0, static_cast<int>( quadsPerTile ), true );
+        if ( LandscapeDiceRectArea( r ) == 0u )
+            return 0u;
+        return static_cast<uint32_t>( ( r.z - r.x + 1 ) * ( r.w - r.y + 1 ) );
     }
 
     // THE VIEW'S FOOTPRINT ON THE GROUND (TerrainInstance.DiceClip): the world XZ rectangle (x0, z0, x1, z1) that
