@@ -105,23 +105,38 @@ namespace Desert::Graphic::API::Vulkan
         // GOOD frame's count standing as if it were the failed one's — or would zero the very number that
         // explains the failure. Rolling at the top means the readable count always belongs to the last
         // frame that actually recorded.
-        DrawCounter::Roll();
-        // The geometry pool's bind counters roll with the draw counter, and its released spans older than the
-        // frames in flight return to the free lists before this frame uploads anything (GeometryPool).
-        GeometryPool::Get().BeginFrame();
+        //
+        // THE FRAME HEAD'S STAGES, EACH A ROW (THREAD-OVERLAP-1): "Renderer: BeginFrame" measured 0.78 ms of self
+        // time on the field turn with "Wait for GPU" at 0.005 ms, all of it on the game thread before the render
+        // task has a job; each stage below is a row of its own so the profile names where it goes.
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: draw counter + geometry pool" );
+            DrawCounter::Roll();
+            // The geometry pool's bind counters roll with the draw counter, and its released spans older than the
+            // frames in flight return to the free lists before this frame uploads anything (GeometryPool).
+            GeometryPool::Get().BeginFrame();
+        }
         // The virtual-geometry cluster tables follow the pool's frame rule: released rows retire, rows registered
         // since the last frame (StaticMesh::Invalidate) go up before any pass reads them.
-        if ( const Common::BoolResultStr uploaded = VirtualGeometry::VirtualMeshTable::Get().RT_Upload();
-             !uploaded )
-            LOG_ERROR( "{}; virtual-geometry meshes registered since the last frame are not on the device",
-                       uploaded.GetError() );
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: virtual-geometry table upload" );
+            if ( const Common::BoolResultStr uploaded = VirtualGeometry::VirtualMeshTable::Get().RT_Upload();
+                 !uploaded )
+            {
+                LOG_ERROR( "{}; virtual-geometry meshes registered since the last frame are not on the device",
+                           uploaded.GetError() );
+            }
+        }
 
         // Before any view begins: a vendor runtime that refused a method since the catalog offered it withdraws
         // it here, and Resolve lowers it (VulkanPhysicalDevice::RefreshRuntimeOffers) - the frame's views read a
         // resolution that no longer names a method that cannot run.
-        SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-             ->GetPhysicalDevice()
-             ->RefreshRuntimeOffers();
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: refresh runtime offers" );
+            SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                 ->GetPhysicalDevice()
+                 ->RefreshRuntimeOffers();
+        }
 
         // ONE PATH, WINDOW OR NOT. The slot's fence was waited at the top ("Wait for GPU"); BeginRdgFrame began
         // its objects; the frame records into a graphics command buffer of the slot, already begun. A window is
@@ -129,13 +144,21 @@ namespace Desert::Graphic::API::Vulkan
         // with none). vkBeginCommandBuffer cannot report VK_ERROR_DEVICE_LOST (only out-of-memory), so its
         // failure is the refusal below and nothing more.
         m_FrameSubmissions.clear();
-        if ( const Common::BoolResultStr rdg = BeginRdgFrame(); !rdg )
+        const Common::BoolResultStr rdg = [this]
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: begin RDG frame" );
+            return BeginRdgFrame();
+        }();
+        if ( !rdg )
         {
             m_CurrentCommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
         }
-        const Common::ResultStr<VkCommandBuffer> frame =
-             m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
+        const Common::ResultStr<VkCommandBuffer> frame = [this]
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: frame command buffer" );
+            return m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
+        }();
         if ( !frame )
         {
             m_CurrentCommandBuffer = nullptr;
@@ -148,7 +171,10 @@ namespace Desert::Graphic::API::Vulkan
         // is illegal inside a render pass, and this is the one point in the frame where the command buffer
         // is recording and no pass is open.
 #if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.BeginFrame();
+        {
+            DESERT_PROFILE_SCOPE( "GPU profiler: resolve + reset" );
+            m_GpuProfiler.BeginFrame();
+        }
 #endif
 
         return BOOLSUCCESS;

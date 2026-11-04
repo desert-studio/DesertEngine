@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
@@ -119,8 +120,14 @@ namespace Desert::Graphic
         // The paragraph above says this reading is taken "in the shipped path" — it was written when
         // there was no configuration in which anything was NOT in the shipped path. A player's frame does
         // not pay for a number no player can read.
+        //
+        // A ROW OF ITS OWN (THREAD-OVERLAP-1): the sample is a driver query (vkGetPhysicalDeviceMemoryProperties2
+        // with the budget chain) and a process query, both inside "Renderer: BeginFrame" and outside the
+        // backend's stage rows - unnamed, it would stay in that row's self time, the 0.78 ms the stages are
+        // there to name.
 #if DESERT_DEV_INSTRUMENTS
         {
+            DESERT_PROFILE_SCOPE( "Memory: frame sample" );
             const bool wasOver = MemoryWatch::OverBudget();
             MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() );
             // GRASS-VRAM-BUDGET-1: ONE line where the run enters the over-budget state and one where it leaves it

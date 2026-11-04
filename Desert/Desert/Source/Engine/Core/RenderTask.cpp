@@ -66,7 +66,16 @@ namespace Desert::Engine
         std::unique_lock<std::mutex> lock( m_Mutex );
         for ( ;; )
         {
-            m_Wake.wait( lock, [this]() { return m_Stop || !m_Jobs.empty(); } );
+            {
+                // THE RENDER THREAD WAITING FOR THE GAME THREAD (THREAD-OVERLAP-1): the time from the frame's last
+                // job to the next one handed over - the game thread's frame head (events, BeginFrame, the world
+                // tick, BeginScene) and tail (the interface graph, submit, present) that no view overlaps. The
+                // mirror of "Render task: Join" (the game thread waiting for this one); the two together are the
+                // frame's whole cross-thread wait. Closes when the next job arrives, so it is counted in the
+                // window of the frame it waited for.
+                DESERT_PROFILE_WAIT( "Render task: wait for game thread" );
+                m_Wake.wait( lock, [this]() { return m_Stop || !m_Jobs.empty(); } );
+            }
             // Stop drains first: a job enqueued before Shutdown still runs, so its renderer's bracket closes.
             if ( m_Jobs.empty() )
                 return;
