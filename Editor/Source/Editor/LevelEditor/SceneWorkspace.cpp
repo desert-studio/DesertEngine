@@ -26,6 +26,8 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 
 #include <array>
 #include <format>
@@ -57,43 +59,36 @@ namespace Desert::Editor
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
-    bool SceneWorkspace::GrassInstancesSettling() const
+    SceneWorkspace::FrameCensusSources SceneWorkspace::CaptureFrameCensusSources() const
     {
-        if ( m_SceneRenderer && m_SceneRenderer->GrassInstancesSettling() )
-            return true;
+        FrameCensusSources sources;
+        sources.Renderers.reserve( 1 + m_ExtraScenes.size() + m_ExtraViewports.size() );
+        if ( m_SceneRenderer )
+            sources.Renderers.push_back( m_SceneRenderer.get() );
         for ( const auto& document : m_ExtraScenes )
-            if ( document->Renderer && document->Renderer->GrassInstancesSettling() )
-                return true;
+            if ( document->Renderer )
+                sources.Renderers.push_back( document->Renderer.get() );
         for ( const auto& viewport : m_ExtraViewports )
-            if ( viewport->Renderer && viewport->Renderer->GrassInstancesSettling() )
-                return true;
-        return false;
+            if ( viewport->Renderer )
+                sources.Renderers.push_back( viewport->Renderer.get() );
+        if ( m_ActiveScene )
+            sources.Displacement = &m_ActiveScene->GetRayTracingCache().GetDisplacement();
+        return sources;
     }
 
-    bool SceneWorkspace::SubsurfaceHistoryConverging() const
+    SceneWorkspace::FrameCensus SceneWorkspace::ReadFrameCensus( const FrameCensusSources& sources )
     {
-        if ( m_SceneRenderer && m_SceneRenderer->SubsurfaceHistoryConverging() )
-            return true;
-        for ( const auto& document : m_ExtraScenes )
-            if ( document->Renderer && document->Renderer->SubsurfaceHistoryConverging() )
-                return true;
-        for ( const auto& viewport : m_ExtraViewports )
-            if ( viewport->Renderer && viewport->Renderer->SubsurfaceHistoryConverging() )
-                return true;
-        return false;
-    }
-
-    bool SceneWorkspace::MaterialPipelinesCompiling() const
-    {
-        if ( m_SceneRenderer && m_SceneRenderer->GetStandInDraws() > 0 )
-            return true;
-        for ( const auto& document : m_ExtraScenes )
-            if ( document->Renderer && document->Renderer->GetStandInDraws() > 0 )
-                return true;
-        for ( const auto& viewport : m_ExtraViewports )
-            if ( viewport->Renderer && viewport->Renderer->GetStandInDraws() > 0 )
-                return true;
-        return false;
+        FrameCensus census;
+        census.DisplacementUnsettled = sources.Displacement && sources.Displacement->GetStats().Unsettled > 0;
+        for ( const Graphic::SceneRenderer* renderer : sources.Renderers )
+        {
+            census.SubsurfaceHistoryConverging =
+                 census.SubsurfaceHistoryConverging || renderer->SubsurfaceHistoryConverging();
+            census.MaterialPipelinesCompiling =
+                 census.MaterialPipelinesCompiling || renderer->GetStandInDraws() > 0;
+            census.GrassInstancesSettling = census.GrassInstancesSettling || renderer->GrassInstancesSettling();
+        }
+        return census;
     }
 
     void SceneWorkspace::RebuildRenderRegistry()

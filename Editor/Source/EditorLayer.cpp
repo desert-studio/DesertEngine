@@ -47,7 +47,6 @@
 
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -720,15 +719,38 @@ namespace Desert::Editor
         return m_Shots.AdmitFrame( frame );
     }
 
-    std::function<void()> EditorLayer::CaptureFramePresented()
+    std::function<void()> EditorLayer::CaptureFramePresented( bool handedOver )
     {
         const ControlService::BuiltFrame                 built = m_Control.CaptureBuiltFrame();
         const std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
-        return [this, built, shot] { AnnounceFramePresented( built, shot ); };
+        // Inline (serial mode, the overlap off) nothing records under the announcement: the census is read
+        // there, at today's point of it.
+        if ( !handedOver )
+            return [this, built, shot] { AnnounceFramePresented( built, shot, nullptr ); };
+        // THE FRAME'S OWN CENSUS (OVERLAP-ON-5; UE: what a frame reports about itself is captured by a render
+        // command in that frame's order and read on the game thread after the fence). The views write the four
+        // entries while they record on the render task; this job runs after this frame's views and before its
+        // submit and present (Application::Run captures before enqueueing them), so it copies THIS frame's values
+        // before frame N+1's views can overwrite them. The announcement reads the copy behind step 4b's fence.
+        // The frame's own work (FrameOwner): a world's tick does not join for it (JoinUnlessOwnedBy).
+        auto census = std::make_shared<SceneWorkspace::FrameCensus>();
+        {
+            const ::Desert::Engine::RenderTask::ScopedOwner frameWork(
+                 ::Desert::Engine::RenderTask::FrameOwner() );
+            ::Desert::Engine::RenderTask::Get().Enqueue(
+                 "Editor: frame census",
+                 [census, sources = m_Workspace.CaptureFrameCensusSources()]() -> Common::BoolResultStr
+                 {
+                     *census = SceneWorkspace::ReadFrameCensus( sources );
+                     return BOOLSUCCESS;
+                 } );
+        }
+        return [this, built, shot, census] { AnnounceFramePresented( built, shot, census.get() ); };
     }
 
-    void EditorLayer::AnnounceFramePresented( const ControlService::BuiltFrame&                  built,
-                                              const std::optional<ShotDirector::RecordedFrame>& shot )
+    void EditorLayer::AnnounceFramePresented( const ControlService::BuiltFrame&                 built,
+                                              const std::optional<ShotDirector::RecordedFrame>& shot,
+                                              const SceneWorkspace::FrameCensus*                recorded )
     {
         // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the frame just submitted is read back and
         // written, the --flight sampled, and on the capture's last frame the profiler dump, the --flight CSV
@@ -739,15 +761,13 @@ namespace Desert::Editor
             return;
         }
         m_Startup.RevealWhenReady();
-        // What the frame just presented drew: displaced primitives still on their base mesh (ControlService).
-        // Read at the announcement, NOT captured with the frame: its renderer decides these while the frame's views
-        // record on the render task, so at the frame's end they may still be written (REMAINDER-OVERLAP-ON-3).
-        const auto& scene = m_Workspace.ActiveScene();
-        const bool  displacementUnsettled =
-             scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
+        // What the frame just presented drew (ControlService's after-the-frame entries): its own census, copied in
+        // its own order (CaptureFramePresented), never the next frame's views; inline, read now.
+        const SceneWorkspace::FrameCensus census =
+             recorded ? *recorded : SceneWorkspace::ReadFrameCensus( m_Workspace.CaptureFrameCensusSources() );
         if ( const auto quit = m_Control.OnFramePresented(
-                  built, displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
-                  m_Workspace.MaterialPipelinesCompiling(), m_Workspace.GrassInstancesSettling() ) )
+                  built, census.DisplacementUnsettled, census.SubsurfaceHistoryConverging,
+                  census.MaterialPipelinesCompiling, census.GrassInstancesSettling ) )
             m_Application->Close( *quit );
     }
 
