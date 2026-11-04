@@ -420,7 +420,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] static constexpr float MinSampleCountReflections( const uint32_t downsampleFactor )
         {
             return static_cast<float>( downsampleFactor * downsampleFactor );
-        }        // The pixel gate the reflections' passes push (Common/ScreenSpaceDenoise.glslh SSDPixelHasSignal's
+        }
+
+        // The pixel gate the reflections' passes push (Common/ScreenSpaceDenoise.glslh SSDPixelHasSignal's
         // roughFromGI): 1 = the traced reflections' gate (ReflectionsDenoiserInputs::RoughSpecularFromGI), 0 = the
         // screen trace's. The other signals push 0.
         [[nodiscard]] static constexpr float SignalGate( const bool roughSpecularFromGI )
