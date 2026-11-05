@@ -291,11 +291,15 @@ namespace Desert::Runtime
             return;
         }
         if ( !created )
+        {
             LOG_ERROR( "[TextureService] '{}' was read but no GPU texture could be built from it: {}. Materials "
                        "naming it sample the slot's schema default; it is not retried.",
                        path, outcome.Error );
+        }
         else
+        {
             ClaimTextureImage( created, handle );
+        }
         SettleAtHandOff( handle );
     }
 
