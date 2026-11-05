@@ -74,6 +74,10 @@ namespace Desert::Editor::Tools
                     return "VoxMorph";
                 case MS::Tool::VoxBlend:
                     return "VoxBlend";
+                case MS::Tool::Boolean:
+                    return "Boolean";
+                case MS::Tool::Trim:
+                    return "Trim";
                 default:
                     return "?";
             }
@@ -139,12 +143,13 @@ namespace Desert::Editor::Tools
                tool == MS::Tool::HoleFill || tool == MS::Tool::Remesh || tool == MS::Tool::Simplify ||
                tool == MS::Tool::Jacket || tool == MS::Tool::Project || tool == MS::Tool::WeldEdges ||
                tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph ||
-               tool == MS::Tool::VoxBlend;
+               tool == MS::Tool::VoxBlend || tool == MS::Tool::Boolean || tool == MS::Tool::Trim;
     }
 
     bool MeshProcessingTool::SelectionStillMatches() const
     {
-        if ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxBlend )
+        if ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxBlend ||
+             m_Session->Tool == MS::Tool::Boolean || m_Session->Tool == MS::Tool::Trim )
         {
             const auto& selection = Core::SelectionManager::GetSelection();
             return selection.size() == 2 && selection[0] == m_Session->Entity && selection[1] == m_Session->Other;
@@ -242,7 +247,11 @@ namespace Desert::Editor::Tools
             const bool createsEntity =
                  m_Session && ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxMorph ||
                                 m_Session->Tool == MS::Tool::VoxBlend );
-            if ( !( createsEntity ? AcceptCreateFromSelected( scene, ms ) : Accept( scene, ms ) ) )
+            const bool boolean =
+                 m_Session && ( m_Session->Tool == MS::Tool::Boolean || m_Session->Tool == MS::Tool::Trim );
+            if ( !( boolean         ? AcceptBoolean( scene, ms )
+                    : createsEntity ? AcceptCreateFromSelected( scene, ms )
+                                    : Accept( scene, ms ) ) )
                 return; // refused: the tool stays open with its preview, and says why
             if ( endTool )
                 ms.ActiveTool = MS::Tool::None;
@@ -254,21 +263,27 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
-        if ( ms.ActiveTool == MS::Tool::VoxBoolean || ms.ActiveTool == MS::Tool::VoxBlend )
+        const bool boolean = ms.ActiveTool == MS::Tool::Boolean || ms.ActiveTool == MS::Tool::Trim;
+        if ( ms.ActiveTool == MS::Tool::VoxBoolean || ms.ActiveTool == MS::Tool::VoxBlend || boolean )
         {
-            auto pair = Core::SelectedPairInSpaceOfA( scene, ms.ActiveTool == MS::Tool::VoxBlend ? "VoxBlend"
-                                                                                                 : "VoxBoolean" );
+            // A Boolean keeps B's triangles, so B's material IDs are remapped into A's slot table.
+            auto pair = Core::SelectedPairInSpaceOfA( scene, ProcessingToolName( ms.ActiveTool ),
+                                                      ms.ActiveTool == MS::Tool::Boolean );
             if ( !pair.IsSuccess() )
             {
                 ms.DeformStatus = pair.GetError();
                 return;
             }
             Core::SelectedMeshPair p = pair.ExtractValue();
+            Core::SelectedMeshPair booleanInputs;
+            if ( boolean )
+                booleanInputs = p;
             m_Session = Session{ ms.ActiveTool, p.A, std::move( p.MeshA ), std::move( p.CommittedA ), nullptr };
             m_Session->Other          = p.B;
             m_Session->OtherInput     = std::move( p.MeshBInA );
             m_Session->OtherCommitted = std::move( p.CommittedB );
             m_Session->NameA          = std::move( p.NameA );
+            m_Session->BooleanInputs  = std::move( booleanInputs );
             HideOther( scene );
             Recompute( scene, ms, *m_Session );
             return;
@@ -378,6 +393,7 @@ namespace Desert::Editor::Tools
         m_VoxBoolean    = ms.VoxBoolean;
         m_VoxMorph      = ms.VoxMorph;
         m_VoxBlend      = ms.VoxBlend;
+        m_Boolean          = ms.Boolean;
         m_Normals       = ms.AttribNormals;
         m_Tangents      = ms.AttribTangents;
         m_HoleFill         = ms.MeshHoleFill;
@@ -407,9 +423,10 @@ namespace Desert::Editor::Tools
         session.Pending        = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = session.Tool, input = session.Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
-              voxBlend = m_VoxBlend, other = session.OtherInput, normals = m_Normals, tangents = m_Tangents,
-              holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket, remesh = m_Remesh,
-              simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges, targetMesh = session.TargetMesh,
+              voxBlend = m_VoxBlend, boolean = m_Boolean, booleanInputs = session.BooleanInputs,
+              other = session.OtherInput, normals = m_Normals, tangents = m_Tangents, holeFill = m_HoleFill,
+              holes = m_HoleFillSelected, jacket = m_Jacket, remesh = m_Remesh, simplify = m_Simplify,
+              project = m_Project, weldEdges = m_WeldEdges, targetMesh = session.TargetMesh,
               targetToInput = session.TargetToInput, warp = m_Warp, latticeSettings = m_Lattice,
               points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
               objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
@@ -432,6 +449,10 @@ namespace Desert::Editor::Tools
                          return Geometry::VoxMorph( *input, voxMorph, cancel.get() );
                      case MS::Tool::VoxBlend:
                          return Geometry::VoxBlend( *input, *other, voxBlend, cancel.get() );
+                     case MS::Tool::Boolean:
+                         return Core::RunBooleanTool( Core::BooleanTool::Boolean, boolean, booleanInputs );
+                     case MS::Tool::Trim:
+                         return Core::RunBooleanTool( Core::BooleanTool::Trim, boolean, booleanInputs );
                      case MS::Tool::HoleFill:
                          return Geometry::HoleFill( *input, holes, holeFill );
                      case MS::Tool::Jacket:
@@ -623,6 +644,35 @@ namespace Desert::Editor::Tools
                   ms.DeformStatus );
         m_Session.reset();
         Core::SelectionManager::SetSelection( applied.GetValue() );
+        return true;
+    }
+
+    bool MeshProcessingTool::AcceptBoolean( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        const char* tool   = ProcessingToolName( ms.ActiveTool );
+        const auto  refuse = [&]( const std::string& why )
+        {
+            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", tool, why );
+            ToastManager::Push( std::format( "{} Accept refused: {}", tool, why ), ToastLevel::Error, 10.0f );
+            return false;
+        };
+        if ( !m_Session || !m_Session->Preview )
+            return refuse( ms.DeformStatus.empty() ? std::string( "select the two entities with a mesh" )
+                                                   : ms.DeformStatus );
+        // A goes back to what it held and B is shown again: the undo step records the scene as it was.
+        Restore( scene, *m_Session );
+        const auto done = Core::CommitBooleanTool(
+             scene, m_Session->Tool == MS::Tool::Trim ? Core::BooleanTool::Trim : Core::BooleanTool::Boolean,
+             ms.Boolean, m_Session->BooleanInputs, m_Session->Preview );
+        if ( !done.IsSuccess() )
+        {
+            // Refused: the preview stays on screen and B hidden, the tool open.
+            if ( const auto refA = scene.FindEntityByID( m_Session->Entity ); refA )
+                (void)ECS::SetEditableMesh( scene.GetRegistry(), refA->get().GetHandle(), m_Session->Preview );
+            HideOther( scene );
+            return refuse( done.GetError() );
+        }
+        m_Session.reset();
         return true;
     }
 
@@ -938,6 +988,11 @@ namespace Desert::Editor::Tools
                 return !( ms.VoxMorph == m_VoxMorph );
             case MS::Tool::VoxBlend:
                 return !( ms.VoxBlend == m_VoxBlend );
+            // What the operator computes; Write To and the inputs' handling only matter to Accept.
+            case MS::Tool::Boolean:
+                return ms.Boolean.Operation != m_Boolean.Operation;
+            case MS::Tool::Trim:
+                return ms.Boolean.Trimmed != m_Boolean.Trimmed || ms.Boolean.Side != m_Boolean.Side;
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

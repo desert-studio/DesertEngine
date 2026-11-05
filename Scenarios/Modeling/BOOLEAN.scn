@@ -1,5 +1,5 @@
-# BOOLEAN: Difference A - B of a 100 cm Box and a radius-50 Sphere sunk into its top corner leaves a spherical bite; Undo brings both inputs back
-# Ours applies Boolean at once (no preview session, unlike UE UCSGMeshesTool): its "Cancel" is the one undo step it records.
+# BOOLEAN: Boolean is a tool session as UE UCSGMeshesTool - the result of a 100 cm Box and a radius-50 Sphere previews on the Box (the Sphere hidden), a change of operation recomputes it, Cancel leaves both inputs, Accept writes it as one undo step
+# The Sphere sits over the Box's +X top edge (Translation 40,60,40): Difference leaves a spherical bite, Union a bulge.
 Дано run Panel "Open Modeling"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 230,260,300
@@ -23,6 +23,16 @@
 Дано run Modeling "Boolean inputs: Delete Inputs"
 Тогда-вид 0_inputs the Box with the Sphere sunk into its near top corner
 Когда run Modeling "Boolean tool: Boolean"
-Тогда 1_difference the Box has a smooth spherical bite cut out of its near top corner; the Sphere is gone from viewport and Outliner
+Тогда 1_preview_diff the Box shows a smooth spherical bite where the Sphere was; the Sphere itself is hidden; the tool bar at the viewport bottom reads Boolean with Accept and Cancel; Outliner still lists both Box and Sphere
+Когда run Modeling "Boolean operation: Union"
+Тогда 2_preview_union the Box and the Sphere fused into one surface (the sphere's dome bulging out of the Box); the tool bar still reads Boolean
+Когда run Modeling "Active tool: Cancel"
+Тогда 3_cancel the whole Box and the Sphere in its corner, as before the tool; no tool bar; Outliner lists Box and Sphere only
+Когда run Entity Box
+Когда run Entity "Add to selection Sphere"
+Когда run Modeling "Boolean operation: Difference A - B"
+Когда run Modeling "Boolean tool: Boolean"
+Когда run Modeling "Active tool: Accept"
+Тогда 4_accept the Box with a spherical bite, the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
 Когда run Action Undo
-Тогда 2_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both
+Тогда 5_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both

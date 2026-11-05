@@ -300,9 +300,10 @@ namespace Desert::Editor
             LOG_WARN( "{0}: the Modeling panel has no scene", Core::ToString( tool ) );
             return;
         }
-        if ( const auto done = Core::ApplyBooleanTool( *m_Scene, tool, Core::BooleanArgsFromModelingState() );
-             !done )
-            LOG_WARN( "{0}", done.GetError() );
+        // Opens the tool session (MeshProcessingTool): the result previews until the tool bar's Accept.
+        using MS             = Core::ModelingState;
+        MS::Get().ActiveTool = tool == Core::BooleanTool::Trim ? MS::Tool::Trim : MS::Tool::Boolean;
+        Core::ViewportMode::Set( Core::EditorMode::Modeling );
     }
 
     void ModelingPanel::Transform( Core::XformOperation op )
@@ -397,6 +398,8 @@ namespace Desert::Editor
             DrawBooleanOutput();
             if ( ImGui::Button( Core::ToString( Core::BooleanTool::Boolean ), ImVec2( -1.0f, 0.0f ) ) )
                 RunBoolean( Core::BooleanTool::Boolean );
+            if ( ms.ActiveTool == Core::ModelingState::Tool::Boolean )
+                ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Merge" ) )
         {
@@ -589,6 +592,8 @@ namespace Desert::Editor
         DrawBooleanOutput();
         if ( ImGui::Button( Core::ToString( Core::BooleanTool::Trim ), ImVec2( -1.0f, 0.0f ) ) )
             RunBoolean( Core::BooleanTool::Trim );
+        if ( ms.ActiveTool == Core::ModelingState::Tool::Trim )
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
     }
 
     // UE's Transform palette: Edit Pivot, Bake Transform and Split. In UE each is a tool with its own Accept;

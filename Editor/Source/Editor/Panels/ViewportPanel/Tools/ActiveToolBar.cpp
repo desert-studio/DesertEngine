@@ -60,6 +60,12 @@ namespace Desert::Editor::Tools
             // UE's Voxel Boolean previews until Accept, which creates the result entity (MeshProcessingTool).
             case T::VoxBoolean:
                 return { ICON_MDI_CUBE_OUTLINE, "VoxBoolean", true };
+            // UE's Boolean / Trim preview the result on A (B hidden) until Accept writes it; Cancel leaves both
+            // inputs as they were (MeshProcessingTool, MeshBooleanTool).
+            case T::Boolean:
+                return { ICON_MDI_VECTOR_DIFFERENCE, "Boolean", true };
+            case T::Trim:
+                return { ICON_MDI_CONTENT_CUT, "Trim", true };
             // UE's Voxel Morphology previews until Accept, which creates the result entity (MeshProcessingTool).
             case T::VoxMorph:
                 return { ICON_MDI_CUBE_SEND, "VoxMorph", true };

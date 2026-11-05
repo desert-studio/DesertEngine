@@ -144,6 +144,9 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> OtherInput;
             std::shared_ptr<const Geometry::DynamicMesh3> OtherCommitted;
             std::string NameA; // VoxBoolean's A / VoxMorph's input: names the result
+            // Boolean / Trim: both inputs as the operator and Accept take them (B baked into A's space, the
+            // material table of a Boolean).
+            Core::SelectedMeshPair BooleanInputs;
             // UE UBaseCreateFromSelectedTool hides its inputs while the preview shows: B is hidden for the session
             // (A draws the preview) and put back by Restore - on Cancel, on a selection change, and before Accept
             // records its undo step. OtherHidden: B was hidden by the session; OtherVisibility: B's
@@ -172,6 +175,10 @@ namespace Desert::Editor::Tools
         // NEW entity (a copy of A carrying the result), the inputs are deleted / hidden / kept - all one undo
         // step.
         [[nodiscard]] bool AcceptCreateFromSelected( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // Boolean's and Trim's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the previewed result is
+        // written as Core::CommitBooleanTool says (into the operated input or a new entity, the inputs deleted /
+        // hidden / kept) - one undo step.
+        [[nodiscard]] bool AcceptBoolean( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
         [[nodiscard]] bool SelectionStillMatches() const;
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
@@ -190,6 +197,7 @@ namespace Desert::Editor::Tools
         Geometry::VoxBooleanSettings m_VoxBoolean;
         Geometry::VoxMorphSettings   m_VoxMorph;
         Geometry::VoxBlendSettings   m_VoxBlend;
+        Core::BooleanToolArgs        m_Boolean;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::HoleFillSettings m_HoleFill;
