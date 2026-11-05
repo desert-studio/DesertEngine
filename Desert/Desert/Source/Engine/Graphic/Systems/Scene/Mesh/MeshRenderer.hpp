@@ -1998,10 +1998,10 @@ namespace Desert::Graphic::System
         // out: a scrolled cache keeps the level it was drawn at, PlanCascadeCache). @p windSplit: a reached caster
         // is split between the layers by the wind ring around the camera, which no content key can hold.
         // THE MOVERS OF A CASCADE (CascadeStaticSignature, SHADOW-CACHE-MOTION): a skinned caster reaching it is
-        // KEYED - its entry, meshes, sections and transform in Casters, its bones and morph blend in Pose, its posed
-        // box in Bounds - and the movable layer is kept while that key holds; any other mover (wind time, instances
-        // the GPU moves, casters gathered for other queues, particles submitted after the plan, a non-mesh caster
-        // with no key) is UNKEYED, named, and the movable layer is drawn every frame it reaches the cascade.
+        // KEYED - its entry, meshes, sections and transform in Casters, its bones and morph blend in Pose, its
+        // posed box in Bounds - and the movable layer is kept while that key holds; any other mover (wind time,
+        // instances the GPU moves, casters gathered for other queues, particles submitted after the plan, a
+        // non-mesh caster with no key) is UNKEYED, named, and the movable layer is drawn each frame.
         struct CascadeMovers
         {
             bool                              Keyed   = false;

@@ -1289,10 +1289,10 @@ namespace Desert::Graphic::System
                 state.Placement    = placement;
                 state.CasterVP     = m_CascadeCasterVP[v];
 
-                // THE MOVABLE LAYER (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a primitive
-                // that updates). Keyed movers only (CascadeMovers): their casters and poses, the caster matrix and
-                // the bias the movable pass draws with. Their box in framebuffer texels (x right, y down, as
-                // CascadeScrollStrips), its corners through the caster matrix, grown two texels and kept on the map.
+                // THE MOVABLE LAYER (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a
+                // primitive that updates). Keyed movers only (CascadeMovers): their casters and poses, the caster
+                // matrix and the bias the movable pass draws with. Their box in framebuffer texels (x right, y
+                // down, as CascadeScrollStrips): its corners through the caster matrix, grown two texels.
                 state.MovableKey.reset();
                 state.MovableRect.reset();
                 if ( movers.Keyed && movers.Unkeyed == nullptr )
@@ -1380,7 +1380,8 @@ namespace Desert::Graphic::System
                     {
                         std::string restored = "none";
                         if ( state.MovableRegion )
-                            restored = std::format( "{}x{} texels", state.MovableRegion->z, state.MovableRegion->w );
+                            restored =
+                                 std::format( "{}x{} texels", state.MovableRegion->z, state.MovableRegion->w );
                         else if ( state.Rebuild )
                             restored = "whole layer";
                         LOG_INFO( "[Shadow] cascade {}.{} movable key changed ({}); restore {}", v / kMaxCascades,
