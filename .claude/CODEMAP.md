@@ -46,7 +46,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `GameplayDebugger` — 11 files, 1,209 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 31 files, 2,504 lines
-- `Geometry` — 90 files, 21,735 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, ClusterDag, ClusterDagSettings, ClusterGroupRecord, ClusterHierarchyNode, ClusterRecord, ClusterSphere, … (+117)
+- `Geometry` — 90 files, 21,738 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, ClusterDag, ClusterDagSettings, ClusterGroupRecord, ClusterHierarchyNode, ClusterRecord, ClusterSphere, … (+117)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,411 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
 - `Geometry/MeshCore/CompGeom` — 8 files, 1,363 lines: ConstrainedDelaunay2, Delaunay2
@@ -185,7 +185,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Control` — 9 files, 3,573 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DeviceSnapshot, DocumentSnapshot, DrawBinViewSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, ForwardPrepassSnapshot, … (+25)
 - `Core/GraphCanvas` — 4 files, 908 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 287 lines: Bone, RigBuilder
-- `Core/Selection` — 24 files, 4,747 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BooleanToolArgs, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+11)
+- `Core/Selection` — 24 files, 4,758 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BooleanToolArgs, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+11)
 - `Generated` — 1 files, 13 lines
 - `ImGuiIntegration` — 5 files, 603 lines: ImGuiLayer, VulkanImGui
 - `Import` — 48 files, 10,275 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+17)
