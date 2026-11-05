@@ -3,7 +3,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -49,23 +51,40 @@ namespace Desert::Graphic::API::Vulkan
                                           std::source_location where = std::source_location::current() );
 
         /// A one-off graphics submission that nobody waited for: the buffer, the thread pool that allocated it
-        /// and the fence its completion signals. The buffer is freed only by RT_ReleaseSubmitted.
+        /// and the upload timeline value its completion signals (NewestUploadSync's semaphore; one source of
+        /// completion for every upload, no fence per submission). The buffer is freed only by
+        /// RT_ReleaseSubmitted.
         struct Submitted
         {
             VkCommandBuffer Buffer = VK_NULL_HANDLE;
             OneShotPool*    Pool   = nullptr;
-            VkFence         Fence  = VK_NULL_HANDLE;
+            uint64_t        Value  = 0;
         };
 
         /// Ends and submits @p commandBuffer on the graphics queue WITHOUT waiting for it — the caller polls
         /// IsComplete() on later frames. The flush above blocks the calling thread until the GPU is done,
         /// which is what made a thumbnail readback a main-thread stall (TH3).
+        /// QUEUED, NOT WAITED, IN QUEUE ORDER WITH THE FRAMES (VK-SUBMIT-THREAD step 3): while a frame loop
+        /// runs, the submission is an entry of its submit thread (VulkanFrameLoop::EnqueueUnwaited), after the
+        /// frames handed to it so far, and the call returns at once with the value reserved at that place; it
+        /// waits neither the submit thread nor the GPU. A queued submission the driver refuses still signals its
+        /// value (from the host) and ends the run (the frame loop's failure), so no holder waits forever on it.
+        /// Inline (submitted before the return) when no loop runs or its thread has exited.
         Common::ResultStr<Submitted> RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer );
 
-        /// True once the submission's fence has signalled. Never blocks.
+        /// True once the submission's value is reached on the upload timeline, false while it is still queued
+        /// or executing. Never blocks.
         [[nodiscard]] bool IsComplete( const Submitted& submitted ) const;
 
-        /// Waits for the fence (normally already signalled), then frees the buffer and destroys the fence.
+        /// True when the submission was queued and then refused by the driver (SubmitQueuedUpload): its value is
+        /// reached all the same (host-signalled, so no holder waits forever), but nothing it recorded ran, so a
+        /// reader of what it was to write (a readback's staging copy) gets an error, not those bytes. Never
+        /// blocks.
+        [[nodiscard]] bool IsRefused( const Submitted& submitted ) const;
+
+        /// Waits for the value (normally already reached; a host wait before its submission is legal for a
+        /// timeline), then frees the buffer. Never on the submit thread for a submission still queued behind
+        /// the entry it runs: that wait would be on itself.
         void RT_ReleaseSubmitted( const Submitted& submitted );
 
         /// AN UPLOAD NOBODY WAITS FOR (UE's deferred texture upload: the game thread never sleeps on the GPU).
@@ -73,8 +92,9 @@ namespace Desert::Graphic::API::Vulkan
         /// release of what the buffer reads, i.e. its staging copy) once its fence has signalled - polled by
         /// CollectFinished on every frame and on every later submission here, or waited for at Destroy.
         /// Readers on the graphics queue need nothing more: submission order is the dependency, the recorded
-        /// barriers make the copy visible. Readers on another queue wait the upload timeline it signals (NewestUploadSync). On a refused submit nothing reads the staging copy, so @p afterGpu
-        /// runs at once and the refusal is answered.
+        /// barriers make the copy visible. Readers on another queue wait the upload timeline it signals
+        /// (NewestUploadSync). On a refused submit nothing reads the staging copy, so @p afterGpu runs at once
+        /// and the refusal is answered; a queued submission refused later runs it once its value is signalled.
         /// WHY: every texture the TextureService finished paid a blocking one-off flush behind the whole frame's
         /// GPU work. On warm Bistro (1296 distance fields) that was 2-8 s per texture and ~45% of a 6.4 s
         /// main-thread frame (sample of the p8 boot), and the slow frames then piled up 1 GB of owed deletions.
@@ -86,11 +106,12 @@ namespace Desert::Graphic::API::Vulkan
 
         /// THE UPLOAD SYNC POINT (UE: the async compute pipe waits on the graphics fence of the work submitted
         /// before it). Every RT_SubmitCommandBufferGraphic signals @p Timeline with the next value, in queue
-        /// submission order; @p Value is the newest one already handed to the queue (0: none yet, nothing to
-        /// wait). A reader on ANOTHER queue (the frame's first async-compute submission, a one-off on the
-        /// compute or transfer queue) waits Timeline >= Value on the GPU and is then ordered after every
-        /// upload the CPU had submitted when it read this. Graphics-queue readers need nothing: submission
-        /// order already covers them.
+        /// submission order; @p Value is the newest one already submitted (or host-signalled after a refusal),
+        /// never one only reserved for a queued submission (0: none yet, nothing to wait). A reader on ANOTHER
+        /// queue (the frame's first async-compute submission, a one-off on the compute or transfer queue) reads
+        /// it in queue order, on the submit thread, so it waits Timeline >= Value on the GPU and is ordered
+        /// after every upload handed over before it. Graphics-queue readers need nothing: submission order
+        /// already covers them.
         struct UploadSyncPoint
         {
             VkSemaphore Timeline = VK_NULL_HANDLE;
@@ -134,7 +155,7 @@ namespace Desert::Graphic::API::Vulkan
         /// the Vulkan calls on a pool are made by its owning thread only, which is what synchronises them.
         mutable std::mutex m_PoolMutex;
 
-        /// Submissions made by RT_SubmitGraphicThenRelease, oldest first, until their fence is seen signalled.
+        /// Submissions made by RT_SubmitGraphicThenRelease, oldest first, until their value is seen reached.
         /// Guarded by m_InFlightMutex, which is never held while m_PoolMutex is taken by the same thread first.
         struct InFlight
         {
@@ -149,12 +170,44 @@ namespace Desert::Graphic::API::Vulkan
         /// The timeline semaphore of UploadSyncPoint, created with the allocator (VK_NULL_HANDLE when
         /// vkCreateSemaphore refused: every graphics one-off submit is then refused by name).
         VkSemaphore m_UploadTimeline = VK_NULL_HANDLE;
-        /// Held across "pick the next value + vkQueueSubmit": a timeline must be signalled with increasing
-        /// values in submission order, and uploads are submitted from several threads. Taken before the
-        /// device's queue mutex (inside SubmitToQueue), never after it.
-        std::mutex m_UploadSubmitMutex;
-        /// The newest value whose signal is already submitted; published after the submit returns, so a
-        /// reader never waits on a value nothing will signal. The ONE source of UploadSyncPoint::Value.
+
+        /// THE UPLOAD VALUES (VK-SUBMIT-THREAD step 3). A timeline must be signalled with increasing values in
+        /// submission order. A queued upload's value is RESERVED at its place in the submit thread's queue
+        /// (ReserveUploadValue, called by VulkanFrameLoop::EnqueueUnwaited under its hand-off lock) and
+        /// signalled when the thread reaches it (SubmitQueuedUpload); an inline upload (no loop runs) reserves
+        /// and submits in one step (SubmitUploadInline). Values never skip: a queued refusal host-signals its
+        /// value, an inline refusal gives its value back. Lock order: the frame loop's hand-off lock, then
+        /// m_UploadSubmitMutex, then the device's queue mutex (inside SubmitToQueue); never the other way, and
+        /// m_UploadSubmitMutex is never held while waiting for the submit thread (the inline wait releases it).
+        uint64_t ReserveUploadValue() noexcept;
+        /// vkQueueSubmit of one unwaited graphics one-off that signals @p value; publishes nothing.
+        VkResult SubmitUpload( VkCommandBuffer commandBuffer, uint64_t value ) const noexcept;
+        /// The submit thread's half of a queued upload: submits it; on a refusal signals @p value from the host
+        /// (after the value before it, VUID-VkSemaphoreSignalInfo-value-03259); publishes @p value either way.
+        /// Empty on success, else the failure the frame loop records.
+        std::string SubmitQueuedUpload( VkCommandBuffer commandBuffer, uint64_t value ) noexcept;
+        /// An upload with no loop to queue on: waits until no reserved value is still unsubmitted (only at the
+        /// loop's registration, when another uploader already queued on it), then reserves the next value into
+        /// @p value, submits and publishes it. A refusal gives the value back.
+        VkResult SubmitUploadInline( VkCommandBuffer commandBuffer, uint64_t& value ) noexcept;
+        /// Publishes @p value as submitted and wakes an inline uploader waiting for it.
+        void PublishUploadValue( uint64_t value ) noexcept;
+        /// The upload timeline's current value (0 when it cannot be read, e.g. on a lost device). Never blocks.
+        [[nodiscard]] uint64_t UploadCompletedValue() const noexcept;
+        /// Waits on the host until the upload timeline reaches @p value; the VkResult of the wait.
+        VkResult WaitUploadValue( uint64_t value ) const noexcept;
+
+        /// Guards m_UploadReservedValue, m_RefusedUploadValues and every write of m_UploadSubmittedValue (see THE
+        /// UPLOAD VALUES). Mutable: IsRefused reads under it.
+        mutable std::mutex      m_UploadSubmitMutex;
+        std::condition_variable m_UploadPublished; // a value was published (SubmitUploadInline waits on it)
+        /// The newest value handed out; equal to m_UploadSubmittedValue when no queued upload is pending.
+        uint64_t m_UploadReservedValue = 0;
+        /// The values of queued submissions the driver refused, ascending (IsRefused). Recorded BEFORE the host
+        /// signal, so a holder that sees the value reached also sees it here. Only a failing run appends.
+        std::vector<uint64_t> m_RefusedUploadValues;
+        /// The newest value whose signal is already submitted (or host-signalled); published only after that,
+        /// so a reader never waits on a value nothing will signal. The ONE source of UploadSyncPoint::Value.
         std::atomic<uint64_t> m_UploadSubmittedValue{ 0 };
 
         /// The pools, keyed by (thread, queue family). Pools are never destroyed before Destroy(), so a

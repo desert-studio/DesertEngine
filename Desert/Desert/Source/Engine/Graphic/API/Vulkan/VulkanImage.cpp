@@ -61,8 +61,10 @@ namespace Desert::Graphic::API::Vulkan
         // access of the layout being left (ALL_COMMANDS for a read-only or GENERAL image, so a frame still
         // sampling it finishes first) and of the layout being entered (ALL_COMMANDS / SHADER_READ for a sampled
         // image). A reader on another queue waits the upload timeline on the GPU (CommandBufferAllocator::
-        // NewestUploadSync: FlushOneShot, VulkanFrameLoop::Submit). @p staging, when there is one, is released once the fence is seen signalled; on a
-        // refused submit it is released at once, since nothing reads it. Also how a begun buffer is handed back
+        // NewestUploadSync: FlushOneShot, VulkanFrameLoop::ExecuteFrame). @p staging, when there is one, is
+        // released once its upload timeline value is seen reached (CommandBufferAllocator::CollectFinished; the
+        // submission is queued on the submit thread and this returns at once); on a refused submit it is
+        // released at once, since nothing reads it. Also how a begun buffer is handed back
         // on an error path: empty, it costs one submit and no wait (the blocking flush it replaced waited the
         // whole queue ahead of it for nothing).
         Common::BoolResultStr SubmitWithoutWait( const VkCommandBuffer cmd, VulkanAllocator* const allocator = nullptr,
@@ -921,6 +923,12 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !IsComplete() )
                     return Common::MakeError<std::vector<uint8_t>>(
                          "ReadBytes: the GPU copy has not completed yet; poll IsComplete() first" );
+                // Reached but refused (CommandBufferAllocator::IsRefused): the copy never ran, so the staging
+                // buffer holds no pixels of the image; the refusal is the answer, not its uninitialised bytes.
+                if ( CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
+                    return Common::MakeError<std::vector<uint8_t>>(
+                         "ReadBytes: the copy's submission was refused by the driver (see the log); nothing was "
+                         "copied" );
                 std::vector<uint8_t> raw( static_cast<std::size_t>( m_Bytes ) );
                 MappedMemory         mapped = Allocator()->MapMemory( m_Allocation );
                 const auto           read   = mapped.ReadInto( raw.data(), raw.size() );
