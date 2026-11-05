@@ -76,4 +76,43 @@ namespace Desert::Geometry
     // selection is empty, in @p mode. Refused on a negative tolerance and when there is nothing to clean.
     [[nodiscard]] Common::ResultStr<RegionOutcome> CleanMesh( const DynamicMesh3& mesh, float weldTolerance,
                                                               ElementMode mode );
+
+    // BRIDGE two face regions (UE FDynamicMeshEditor::StitchVertexLoopsMinimal after RemoveTriangles, the
+    // pattern of UE PolyEdit's Bridge Edges applied to the loops around two faces): the selection's whole
+    // triangles must form exactly two edge-disjoint connected regions, each bounded by ONE loop, the two loops
+    // with the same vertex count. Both regions are removed and their loops are joined by a strip of quads (one
+    // new polygroup, planar quad normals, UVs projected per quad); the vertex pairing is the rotation of the
+    // second loop, walked against the first, with the least summed squared distance - a twist-free tube. The
+    // result selects the new strip, in the selection's mode.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> BridgeSelection( const DynamicMesh3&     mesh,
+                                                                    const ElementSelection& selection );
+
+    // COLLAPSE the selected edges (UE PolyEdit Collapse Edge, EEditMeshPolygonsToolActions::CollapseEdge):
+    // every selected mesh edge still present is collapsed to its midpoint (DynamicMesh3::CollapseEdge, UE's
+    // default options: no hole, tetrahedron or boundary bowtie collapse). Edge mode only. Refused when no edge
+    // could be collapsed; the edges refused by the link condition are counted in the report. The result
+    // selection is empty, in Edge mode.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> CollapseSelection( const DynamicMesh3&     mesh,
+                                                                      const ElementSelection& selection );
+
+    // EXTRUDE EDGE, UE PolyEdit Extrude on boundary edges (FExtrudeBoundaryEdges, "in the adjacent face's
+    // plane" direction): every selected edge must be OPEN (a closed edge has no side to extrude into - the
+    // refusal names it); each end moves `distance` cm along the mean outward direction, in the plane of the
+    // edge's triangle, of the selected edges through it, so a chain shares its new vertices. Each edge gets a
+    // quad wound with its triangle, all in one new polygroup. The result selects the new quads' edges.
+    [[nodiscard]] Common::ResultStr<RegionOutcome>
+    ExtrudeEdgeSelection( const DynamicMesh3& mesh, const ElementSelection& selection, float distance );
+
+    // FLIP, UE PolyEdit ApplyFlipSelection (FDynamicMeshEditor::ReverseTriangleOrientations with normals
+    // inverted): the region's triangles change winding, their normals point the other way. Nothing moves; the
+    // selection comes back as it went in.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> FlipSelection( const DynamicMesh3&     mesh,
+                                                                  const ElementSelection& selection );
+
+    // RETRIANGULATE, UE PolyEdit ApplyRetriangulate: each polygroup the selection's whole triangles belong to
+    // is removed with its interior vertices and its boundary loop refilled with no interior vertex (HoleFill
+    // Minimal: ear clip, then the area-minimising flips) in the SAME group. A group bounded by more than one
+    // loop (a ring) is refused, as in UE. The result selects the new triangles, in the selection's mode.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> RetriangulateSelection( const DynamicMesh3&     mesh,
+                                                                           const ElementSelection& selection );
 } // namespace Desert::Geometry

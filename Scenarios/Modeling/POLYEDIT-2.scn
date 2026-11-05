@@ -1,0 +1,82 @@
+# POLYEDIT-2: UE PolyEdit Bridge, Collapse Edge, Extrude (open) Edge and Flip, each one undo step
+# (MeshSelectionOperations -> Geometry MeshElementOperation BridgeSelection / CollapseSelection /
+# ExtrudeEdgeSelection / FlipSelection). A 100 cm Box 60 cm above the origin (clear of the ground), PolyEdit level. The front (+Z) and back (-Z)
+# faces are inset 25 cm first - bridging the cube's own faces would lay the tube on its outer walls - then the two
+# inner faces are bridged into a tunnel. The +X+Z vertical edge is collapsed. Extrude Edge works on OPEN edges (as
+# UE's), so the top face is deleted first and the back ring's top edge is extruded 25 cm. The -X face is flipped.
+# Fourteen undo steps bring the cube back: the six mesh edits (Inset, Bridge, Collapse, Delete, Extrude Edge,
+# Flip) and, between them, the four selection-mode switches and four picks (each an undo step, as UE's selection
+# transactions); the editor.log [History] lines name each one.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.6,-0.45,0.65
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,60,0
+Дано run Entity Box
+Дано run Modeling "Select Elements tool"
+Дано run Modeling "Mesh selection level: PolyEdit"
+Дано run Modeling "Mesh selection mode: PolyGroup"
+Дано --subject modeling set Element.Distance 25
+Дано --subject viewport set Camera.Direction 0,0,-1
+Дано run "Level Viewport" "Focus Selected"
+Дано run Modeling "Mesh selection: pick at the viewport centre"
+Дано --subject viewport set Camera.Direction 0,0,1
+Дано run "Level Viewport" "Focus Selected"
+Дано run Modeling "Mesh selection: add pick at the viewport centre"
+Дано run Modeling "Mesh operation: Inset"
+Когда run Modeling "Mesh operation: Bridge"
+Когда --subject viewport set Camera.Position 40,75,-230
+Когда --subject viewport set Camera.Direction -0.17,-0.065,0.98
+Тогда-вид 1_bridge a square tunnel 50 x 50 cm runs straight through the cube from the front face to the back one; the background is seen through it, its four inner walls are lit and solid
+Когда run Modeling "Mesh selection mode: Edge"
+Когда --subject viewport set Camera.Direction -0.7,0,-0.7
+Когда run "Level Viewport" "Focus Selected"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh operation: Collapse"
+Когда --subject viewport set Camera.Position 200,180,200
+Когда --subject viewport set Camera.Direction -0.66,-0.4,-0.66
+Тогда-вид 2_collapse the cube's front-right vertical edge is gone: its two ends meet in one point half way up, the faces beside it slope into that point; no crack or hole opens, the tunnel is still there
+Когда run Modeling "Mesh selection mode: PolyGroup"
+Когда --subject viewport set Camera.Direction 0,-1,0.05
+Когда run "Level Viewport" "Focus Selected"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh operation: Delete"
+Когда run Modeling "Mesh selection mode: Edge"
+Когда --subject viewport set Camera.Direction 0,-0.7,0.714
+Когда run "Level Viewport" "Focus Selected"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh operation: Extrude Edge"
+Когда --subject viewport set Camera.Position -220,170,-160
+Когда --subject viewport set Camera.Direction 0.77,-0.31,0.56
+Тогда-вид 3_extrude_edge_minusz the top face is open; seen from -Z: if the extruded edge is the -Z wall's top edge a flat strip 25 cm tall rises straight up, continuing the back wall above the cube
+Когда --subject viewport set Camera.Position -160,190,230
+Когда --subject viewport set Camera.Direction 0.54,-0.37,-0.76
+Тогда-вид 3_extrude_edge the same mesh seen from +Z: the top face is open and one wall's top edge carries a flat strip 25 cm tall rising straight up, continuing that wall above the cube
+Когда run Modeling "Mesh selection mode: PolyGroup"
+Когда --subject viewport set Camera.Direction 1,0,0.05
+Когда run "Level Viewport" "Focus Selected"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh operation: Flip"
+Когда --subject viewport set Camera.Position -230,120,-80
+Когда --subject viewport set Camera.Direction 0.92,-0.24,0.32
+Тогда-вид 4_flip the left (-X) face is turned inside out: seen from outside it shows its back side (culled or dark), the cube's inside is visible through it
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда --subject viewport set Camera.Position -200,170,-200
+Когда --subject viewport set Camera.Direction 0.66,-0.4,0.66
+Тогда-вид 5_undo after fourteen Undo the closed 100 cm cube is back: no tunnel, no collapsed edge, top face present, no strip, every face lit from outside
