@@ -1843,6 +1843,12 @@ namespace Desert::Graphic::System
             return ( castShadows ? Flags::kCastsShadow : 0u ) | ( castContactShadow ? 0u : Flags::kNoContactShadow );
         };
 
+        // The frame's stand-in census starts here, the one MeshRenderer step every render path takes before any
+        // pass is declared (GetStandInDraws). It was reset in DeclareGenericDraws, the deferred path's
+        // "Deferred: Generic" setup: the forward path (the Wireframe and lighting-debug views) never ran it, so
+        // one stand-in draw while a pipeline compiled held the control gate's MaterialPipelines raised for good
+        // (WIREFRAME-QUIESCENCE), and under deferred it wiped the counts of the passes declared before it.
+        m_StandInDraws = 0;
         registry.BeginFrame( frame );
         GpuDriven::GpuScene& scene = registry.Scene();
 

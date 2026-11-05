@@ -1,0 +1,13 @@
+# WIREFRAME-QUIESCENCE: the editor settles in the Wireframe view as it does in Lit. Wireframe is switched on FIRST,
+# before the deferred path compiled the scene's glass: its forward pipeline compiles under the Wireframe view (the
+# forward path) and the one stand-in frame must not hold the gate (LOD-MANAGER scn-1105-091510 hung 10 min here).
+Дано run Panel "Open Modeling"
+Когда run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Position 0,120,260
+Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,40,0
+Тогда 1_wireframe the box's wireframe edges are visible; the run reached this frame in under 60 s (no 'pipeline is still compiling' hang)
+Когда run View "View mode: Lit"
+Тогда 2_lit the box shaded in Lit
