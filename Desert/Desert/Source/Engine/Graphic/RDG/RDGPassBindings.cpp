@@ -480,7 +480,7 @@ namespace Desert::Graphic::RDG
     BindingBlockBuilder PassBuilder::Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
                                                std::shared_ptr<const OtherRouteFill>             other )
     {
-        std::vector<DeclaredBindingBlock>& blocks = m_Builder.m_Passes[m_Pass].Blocks;
+        auto& blocks = m_Builder.m_Passes[m_Pass].Blocks; // CPU-FRAME-ARENA: an arena vector
         blocks.push_back( DeclaredBindingBlock{ layout, std::move( other ), {}, 0 } );
         return BindingBlockBuilder( *this, BindingBlockRef{ m_Pass, static_cast<uint32_t>( blocks.size() - 1 ) } );
     }

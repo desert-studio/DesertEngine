@@ -443,7 +443,7 @@ namespace Desert::Graphic::RDG
                                    std::optional<uint32_t> root )
     {
         m_RootOf[p] = static_cast<int32_t>( root.value_or( p ) );
-        m_Result.Faults.push_back( { p, m_Passes[p].Name, stage, std::move( reason ), root } );
+        m_Result.Faults.push_back( { p, std::string( m_Passes[p].Name ), stage, std::move( reason ), root } );
     }
 
     bool Builder::Compiler::LoadsAttachment( uint32_t p, uint32_t resource ) const
@@ -845,7 +845,7 @@ namespace Desert::Graphic::RDG
                 continue;
             }
             m_Result.CulledPasses.push_back( p );
-            m_Result.CulledPassNames.push_back( m_Passes[p].Name );
+            m_Result.CulledPassNames.emplace_back( m_Passes[p].Name );
         }
         m_ExecutedCount = static_cast<uint32_t>( m_Executed.size() );
     }

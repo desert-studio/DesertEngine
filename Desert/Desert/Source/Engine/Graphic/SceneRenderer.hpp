@@ -3,6 +3,8 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <atomic>
+#include <chrono>
+#include <memory>
 #include <mutex>
 #include <string_view>
 #include <unordered_set>
@@ -1995,6 +1997,12 @@ namespace Desert::Graphic
         // The RESOLVED quality (SCAL1): the only product of the scalability system a renderer reads.
         Common::Scalability::ResolvedQuality m_Quality = Common::Scalability::QualityState::Resolved();
         bool m_ParallelSetup = false; // set per frame where the view's setup starts
+        // CPU-FRAME-ARENA: the view's ONE render graph (UE: FRDGBuilder over FRDGAllocator), kept across frames so
+        // its record arrays and its frame arena keep their capacity; OnUpdate resets it when the frame's graph
+        // scope ends (RDG::Builder::Reset). Built on the first frame.
+        std::unique_ptr<RDG::Builder> m_Graph;
+        // When this view last logged its '[Memory] frame arena' line (one a second, dev instruments).
+        std::chrono::steady_clock::time_point m_FrameArenaLoggedAt{};
         // What this VIEW is drawing on top of the world. NOT refreshed from the scene — pushed in by
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.

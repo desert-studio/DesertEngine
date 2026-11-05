@@ -330,8 +330,8 @@ namespace Desert::Graphic::RDG
             RecordError( fmt::format( "graph '{}': texture '{}' is not a volume but has depth {}", m_Name, name,
                                       desc.Size.Depth ) );
 
-        ResourceRecord record;
-        record.Name    = std::string( name );
+        ResourceRecord record( m_Arena );
+        record.Name.assign( name.data(), name.size() );
         record.Kind    = ResourceKind::Texture;
         record.Texture = desc;
         m_Resources.push_back( std::move( record ) );
@@ -362,8 +362,8 @@ namespace Desert::Graphic::RDG
         if ( desc.Bytes == 0 )
             RecordError( fmt::format( "graph '{}': buffer '{}' has zero bytes", m_Name, name ) );
 
-        ResourceRecord record;
-        record.Name   = std::string( name );
+        ResourceRecord record( m_Arena );
+        record.Name.assign( name.data(), name.size() );
         record.Kind   = ResourceKind::Buffer;
         record.Buffer = desc;
         m_Resources.push_back( std::move( record ) );
@@ -419,8 +419,8 @@ namespace Desert::Graphic::RDG
                                       m_Name, name, texture.SubresourceStates.size(),
                                       texture.Desc.SubresourceCount(), texture.Desc.Mips, texture.Desc.Layers ) );
 
-        ResourceRecord record;
-        record.Name        = std::string( name );
+        ResourceRecord record( m_Arena );
+        record.Name.assign( name.data(), name.size() );
         record.Kind        = ResourceKind::Texture;
         record.Texture     = texture.Desc;
         record.ExternalTex = &texture;
@@ -431,8 +431,8 @@ namespace Desert::Graphic::RDG
     BufferRef Builder::RegisterExternal( ExternalBuffer& buffer, std::string_view name )
     {
         CheckNotInSetupTask( m_Name, "RegisterExternal" );
-        ResourceRecord record;
-        record.Name        = std::string( name );
+        ResourceRecord record( m_Arena );
+        record.Name.assign( name.data(), name.size() );
         record.Kind        = ResourceKind::Buffer;
         record.Buffer      = buffer.Desc;
         record.ExternalBuf = &buffer;
@@ -521,14 +521,34 @@ namespace Desert::Graphic::RDG
         record.ExtractOwner   = CurrentResourceAttribution();
     }
 
+    void Builder::Reset() noexcept
+    {
+        // The records first: their arena containers give nothing back, and the arena reset below then runs the
+        // execs' destructors and rewinds every block (CPU-FRAME-ARENA). Every member a new builder starts with
+        // is set back to that value here; m_Name and the arena's blocks are what the owner keeps.
+        m_Passes.clear();
+        m_Resources.clear();
+        m_Prerequisites.clear();
+        m_PrerequisiteIndex.clear();
+        m_DeclarationError.clear();
+        m_Executed        = false;
+        m_PassCulling     = true;
+        m_AsyncCompute    = true;
+        m_ParallelExecute = true;
+        m_FaultDefaults   = FaultDefaults{};
+        m_Report          = ExecuteReport{};
+        m_LateSubstitutions.clear();
+        m_Arena.Reset();
+    }
+
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
     {
         CheckNotInSetupTask( m_Name, "BeginPass" );
         const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
-        PassRecord record;
-        record.Name = std::string( name );
+        PassRecord record( m_Arena );
+        record.Name.assign( name.data(), name.size() );
         // SetAsyncCompute( false ): the request is dropped here, before Compile sees it (the declaration check
         // below still reads what the caller declared).
         record.Flags = m_AsyncCompute ? flags
@@ -712,7 +732,7 @@ namespace Desert::Graphic::RDG
              &prerequisite, static_cast<uint32_t>( m_Builder.m_Prerequisites.size() ) );
         if ( inserted )
             m_Builder.m_Prerequisites.push_back( &prerequisite );
-        std::vector<uint32_t>& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
+        auto& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
         if ( std::find( declared.begin(), declared.end(), entry->second ) == declared.end() )
             declared.push_back( entry->second );
     }
@@ -1299,7 +1319,8 @@ namespace Desert::Graphic::RDG
                                     std::optional<uint32_t> root )
         {
             state.LostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
-            state.Faults.push_back( { pass, m_Passes[pass].Name, stage, std::move( reason ), root } );
+            state.Faults.push_back(
+                 { pass, std::string( m_Passes[pass].Name ), stage, std::move( reason ), root } );
             state.FaultCulled.push_back( pass );
         };
         // The record phase's chunk tasks (ChunkTasks), made once the chunks are begun. Closed - every chunk a
