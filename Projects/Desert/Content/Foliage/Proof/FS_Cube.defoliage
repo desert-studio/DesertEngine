@@ -5,26 +5,30 @@
         "Versions": {
             "FOLT": 10
         },
-        "Dependencies": ["5f0161b9e6ed62cc63dd359f0301c8e8"]
+        "Dependencies": ["cc62ede6b961015fe8c801039f35dd63"]
     },
     "Kind": "Mesh",
+    "Mesh": {
+        "Guid": "cc62ede6b961015fe8c801039f35dd63",
+        "Path": "Meshes/Modeling/Box.stmesh"
+    },
     "Prefab": {
         "Guid": "",
         "Path": ""
     },
     "Density": 20.0,
-    "Scaling": "Uniform",
+    "Scaling": "LockXY",
     "ScaleX": {
-        "Min": 1.0,
-        "Max": 1.0
+        "Min": 2.0,
+        "Max": 2.0
     },
     "ScaleY": {
-        "Min": 1.0,
-        "Max": 1.0
+        "Min": 0.30000001192092896,
+        "Max": 0.30000001192092896
     },
     "ScaleZ": {
-        "Min": 1.0,
-        "Max": 1.0
+        "Min": 0.5,
+        "Max": 0.5
     },
     "ZOffset": {
         "Min": 0.0,
@@ -53,10 +57,6 @@
         "Height": 100.0
     },
     "IncludeInHLOD": true,
-    "Mesh": {
-        "Guid": "5f0161b9e6ed62cc63dd359f0301c8e8",
-        "Path": "Meshes/Modeling/Box.stmesh"
-    },
     "Procedural": {
         "CollisionRadius": 150.0,
         "ShadeRadius": 150.0,
@@ -73,8 +73,8 @@
         "MaxAge": 10.0,
         "OverlapPriority": 2.0,
         "ProceduralScale": {
-            "Min": 2.4,
-            "Max": 3.2
+            "Min": 2.4000000953674316,
+            "Max": 3.200000047683716
         },
         "ScaleCurve": [
             {
