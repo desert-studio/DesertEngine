@@ -1482,11 +1482,12 @@ namespace Desert::Graphic::System
     {
         if ( passState == nullptr )
             return nullptr;
-        const auto          lock = SetupCacheLock(); // m_CellPipelines and the pipeline cache: concurrent builds
         MeshCellPipelineKey key{ passState, cellShader,
                                  permutation != nullptr ? permutation->GetVariant().Hash() : 0u };
         if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
+        if ( MissInSetupTask( "a cell pipeline" ) )
+            return nullptr;
         auto& slot = m_CellPipelines[key];
 
         auto shader =
@@ -1564,7 +1565,8 @@ namespace Desert::Graphic::System
             }
         }
         const bool standInReady = standIn != nullptr && standIn->GetReadiness() == PipelineReadiness::Ready;
-        const auto lock         = SetupCacheLock(); // the tracker and m_StandInDraws: concurrent builds
+        if ( MissInSetupTask( "the pipeline tracker" ) ) // every call writes the tracker: serial only
+            return MaterialPipelineTracker::CellDraw::Nothing;
         const auto before       = m_MaterialPipelines.StateOf( key );
         const auto choice       = m_MaterialPipelines.ChooseCell( key, reports, standInReady );
         if ( choice.Draw != MaterialPipelineTracker::CellDraw::Own )
@@ -1584,9 +1586,10 @@ namespace Desert::Graphic::System
     MeshRenderer::StandInCell* MeshRenderer::StandIn( const MeshVertexPath path, const MeshPass pass )
     {
         const uint32_t key  = ( static_cast<uint32_t>( path ) * 16u ) + static_cast<uint32_t>( pass );
-        const auto     lock = SetupCacheLock(); // m_StandIns: concurrent builds
         if ( const auto found = m_StandIns.find( key ); found != m_StandIns.end() )
             return found->second.Material ? &found->second : nullptr;
+        if ( MissInSetupTask( "a default-surface stand-in" ) )
+            return nullptr;
         auto& slot    = m_StandIns[key];
         slot.Material = CreateCellMaterial( path, pass );
         if ( slot.Material )

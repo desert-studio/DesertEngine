@@ -594,9 +594,10 @@ namespace Desert::Graphic::System
         {
             const auto first    = words.begin() + 1;
             const auto last     = words.begin() + static_cast<std::ptrdiff_t>( end );
-            // The frame's interned masks are shared by concurrent builds (a node never moves once inserted, so
-            // the span outlives the lock).
-            const auto lock     = SetupCacheLock();
+            // Interned in the frame's set (a node never moves once inserted, so the span outlives this call): a
+            // serial walk's write. A setup task walks nothing (DrawBuildPhase); one that does is a bug.
+            if ( MissInSetupTask( "an interned walk mask" ) )
+                return std::nullopt;
             const auto interned = m_ClusterWalkWords.emplace( first, last ).first;
             walk                = SubmeshMask{ low.Low, std::span<const uint64_t>( *interned ) };
         }

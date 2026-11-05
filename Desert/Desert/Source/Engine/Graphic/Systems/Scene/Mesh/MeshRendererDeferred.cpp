@@ -4,6 +4,8 @@
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Common/Core/JobSystem.hpp>
 
+#include <cassert>
+
 namespace Desert::Graphic::System
 {
     void MeshRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
@@ -24,10 +26,15 @@ namespace Desert::Graphic::System
         // THE DEFERRED EARLY-Z PAIRING (UE r.EarlyZPass; DeferredPrepassHalf): when "Deferred: Masked Depth
         // Prepass" drew this frame's groups, the G-buffer draws them EQUAL through their DepthEqual cells (the
         // Equal half) and every other one as before (the Rest half), each half one call of the same builders.
-        // RENDER-PARALLEL-SETUP (UE FParallelMeshDrawCommandPass): the two halves build on two setup tasks, each
-        // into its own list with its own scratch, from what the prepass decided before them (m_PrepassCellDraws,
-        // read-only here); the lists are appended in the serial order - Equal, Rest statics, the Rest half's
-        // GPU-instanced sections (built here, serially, after the join), Rest skinned - and the ISM counts summed.
+        // RENDER-PARALLEL-SETUP (UE FParallelMeshDrawCommandPass: what a task needs is resolved before the tasks,
+        // which only read). A serial pre-pass first - one walk of the queue, each half's split, every renderer
+        // cache miss, the ISM culls and copies, every shared-material write (DrawBuildPhase::Resolve), the Equal
+        // half first, as the serial builds always filled the caches - then the two halves' per-object recording
+        // on two setup tasks, each into its own list from its own scratch (DrawBuildPhase::Record), then the
+        // instance uploads. The skinned halves stay serial: their walk resolves a material per section. The
+        // lists are appended in the serial order - Equal, Rest statics, the Rest half's GPU-instanced sections
+        // (built here, serially, after the join), Rest skinned - and the ISM counts summed. The same calls run
+        // with RenderPipeline.ParallelSetup off (the tasks inline, in launch order), so the frame is the same.
         if ( m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && PrepassCurrent() )
         {
             MeshDrawList& equalDraws  = m_GBufferHalfDraws[0];
@@ -36,28 +43,49 @@ namespace Desert::Graphic::System
             equalDraws.Clear();
             restStatic.Clear();
             restSkinned.Clear();
+            DrawBuildScratch&   equalScratch = m_DrawBuildScratch[0];
+            DrawBuildScratch&   restScratch  = m_DrawBuildScratch[1];
             const DrawBuildMode equal{ .Pass = MeshPass::GBuffer, .Half = DeferredPrepassHalf::Equal };
             const DrawBuildMode rest{ .Pass = MeshPass::GBuffer, .Half = DeferredPrepassHalf::Rest };
-            uint32_t            equalIsm = 0;
-            uint32_t            restIsm  = 0;
+            uint32_t            ismInstances = 0;
+            {
+                DESERT_PROFILE_SCOPE( "Mesh: GBuffer halves resolve" );
+                const DrawBuildMode equalResolve{ .Pass  = MeshPass::GBuffer,
+                                                  .Half  = DeferredPrepassHalf::Equal,
+                                                  .Phase = DrawBuildPhase::Resolve };
+                const DrawBuildMode restResolve{ .Pass  = MeshPass::GBuffer,
+                                                 .Half  = DeferredPrepassHalf::Rest,
+                                                 .Phase = DrawBuildPhase::Resolve,
+                                                 .Walk  = &equalScratch };
+                ismInstances += BuildStaticDraws( equalDraws, equalResolve, equalScratch );
+                ismInstances += BuildStaticDraws( restStatic, restResolve, restScratch );
+            }
             {
                 DESERT_PROFILE_SCOPE( "Mesh: GBuffer halves (tasks + join)" );
+                const DrawBuildMode equalRecord{ .Pass  = MeshPass::GBuffer,
+                                                 .Half  = DeferredPrepassHalf::Equal,
+                                                 .Phase = DrawBuildPhase::Record };
+                const DrawBuildMode restRecord{ .Pass  = MeshPass::GBuffer,
+                                                .Half  = DeferredPrepassHalf::Rest,
+                                                .Phase = DrawBuildPhase::Record };
                 ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
                 tasks.Launch( "Mesh: GBuffer Equal half",
                               [&]() noexcept
                               {
-                                  equalIsm = BuildStaticDraws( equalDraws, equal, m_DrawBuildScratch[0] );
-                                  BuildSkinnedDraws( equalDraws, equal, m_DrawBuildScratch[0] );
+                                  static_cast<void>( BuildStaticDraws( equalDraws, equalRecord, equalScratch ) );
                               } );
                 tasks.Launch( "Mesh: GBuffer Rest half",
                               [&]() noexcept
                               {
-                                  restIsm = BuildStaticDraws( restStatic, rest, m_DrawBuildScratch[1] );
-                                  BuildSkinnedDraws( restSkinned, rest, m_DrawBuildScratch[1] );
+                                  static_cast<void>( BuildStaticDraws( restStatic, restRecord, restScratch ) );
                               } );
                 tasks.Join();
             }
-            m_IsmInstancesDrawn = equalIsm + restIsm;
+            FlushStaticUploads( equalScratch );
+            FlushStaticUploads( restScratch );
+            BuildSkinnedDraws( equalDraws, equal, equalScratch );
+            BuildSkinnedDraws( restSkinned, rest, restScratch );
+            m_IsmInstancesDrawn = ismInstances;
             m_GBufferDraws.Append( equalDraws );
             m_GBufferDraws.Append( restStatic );
             BuildRestGpuInstancedDraws( m_GBufferDraws );
@@ -206,8 +234,21 @@ namespace Desert::Graphic::System
         auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr || built == nullptr )
             return nullptr;
-        const auto lock = SetupCacheLock(); // the material service's siblings: concurrent builds
+        // The service's permutation lookup interns the sibling (SiblingOf): a write, so never on a setup task.
+        if ( MissInSetupTask( "a DepthEqual sibling" ) )
+            return nullptr;
         return materials->GetVariant( built, path, MeshPass::GBuffer, SurfaceDepthEqualVariant() );
+    }
+
+    bool MeshRenderer::MissInSetupTask( const std::string_view what ) const
+    {
+        if ( !::Common::TaskGroup::InTask() )
+            return false;
+        LOG_ERROR( "[RenderTask] MeshRenderer: {} was not resolved before the setup tasks "
+                   "(DrawBuildPhase::Resolve missed it); not drawn",
+                   what );
+        assert( false && "MeshRenderer: a renderer cache missed inside a setup task (Common::TaskGroup)" );
+        return true;
     }
 
     std::shared_ptr<GraphicsPipeline> MeshRenderer::EarlyZTwinPipeline( const std::shared_ptr<Shader>& shader,

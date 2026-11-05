@@ -1082,7 +1082,8 @@ namespace Desert::Graphic::System
         if ( const auto found = m_FrameMaterialRows.find( key );
              found != m_FrameMaterialRows.end() && found->second.Sync == m_MaterialRowSync )
             return found->second.Index;
-        const auto lock = SetupCacheLock(); // m_MissingMaterialRowReported: concurrent builds
+        if ( MissInSetupTask( "a scene material row" ) )
+            return std::nullopt;
         if ( m_MissingMaterialRowReported.insert( material ).second )
             LOG_ERROR( "[MeshRenderer] '{}' has no row in the scene material table this frame (SyncGpuScene registers "
                        "every queued draw's row before the upload); its draws are not recorded.",
@@ -1093,7 +1094,8 @@ namespace Desert::Graphic::System
     bool MeshRenderer::LendMaterialTable( DataDrivenMaterial& material ) const
     {
         // Find: a surface template with no parameters declares no Materials row block.
-        const auto lock = SetupCacheLock(); // the material's block: concurrent builds
+        if ( MissInSetupTask( "a Materials-block lend" ) ) // a write: a Resolve call's (DrawBuildPhase)
+            return false;
         auto* const block = material.Find<StorageBufferProperty>( kMaterialRowBlock );
         if ( block == nullptr )
             return true;
