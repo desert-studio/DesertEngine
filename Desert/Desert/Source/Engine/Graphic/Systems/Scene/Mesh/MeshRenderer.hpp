@@ -1926,8 +1926,11 @@ namespace Desert::Graphic::System
         // G-buffer half's serial pre-pass - the walk, the half's split, every cache miss (cell pipelines,
         // two-sided twins, stand-ins, material service siblings, the tracker, the instanced variant instances,
         // the material rows), the ISM culls and their copies, and every shared-material write (Lend, ApplyTo,
-        // SetPushMatrix) - into the call's DrawBuildScratch. Record: the half's setup task - the per-object
-        // buckets, levels and draws, from that plan into its own list and scratch; FlushStaticUploads after the
+        // SetPushMatrix) - into the call's DrawBuildScratch. It prepares what the Record call draws and no more:
+        // the bucketing both calls make (bucketGroup) asks a group's singles material only of a group left a
+        // single draw, and a set is prepared only when a batch or an ISM draws into it. Record: the half's setup
+        // task - the per-object buckets, levels and draws, from that plan into its own list and scratch;
+        // FlushStaticUploads after the
         // join. A miss in a Record call is a bug (MissInSetupTask).
         enum class DrawBuildPhase : uint8_t
         {
@@ -3377,6 +3380,9 @@ namespace Desert::Graphic::System
             GraphicsPipeline*          OneSided = nullptr; // CellPipeline( instanced state, Mat )
             GraphicsPipeline*          TwoSided = nullptr; // CullPermutation( OneSided, true )
             bool                       Lent     = false;
+            // A Resolve call: a group's bucketing (BuildStaticDraws' bucketGroup) gives this set an auto-batched
+            // draw, so its Record call packs one; with no ISM draw either, the set is not prepared at all.
+            bool Drawn = false;
         };
         // @p set's packed transforms into its recorder's InstanceTransforms block, at final size.
         static void UploadInstanceTransforms( InstancedBatchSet& set );
@@ -3474,6 +3480,12 @@ namespace Desert::Graphic::System
             std::size_t                                     InstSetCount = 0;
             std::vector<ObjDraw>                            Singles;
             std::vector<uint32_t>                           LodLevels;
+            // BuildStaticDraws' bucketing of one group (bucketGroup): its (mesh, hidden mask) buckets, reused by
+            // index as InstSets are (BucketCount of them in use), and one bucket's batchable objects.
+            using MeshBucket = std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>;
+            std::vector<MeshBucket>                         Buckets;
+            std::size_t                                     BucketCount = 0;
+            std::vector<ObjDraw>                            Batchable;
             std::vector<uint64_t>                           WalkWords; // CpuWalkHidden's
             // A Resolve call's plan, which the same half's Record call reads (DrawBuildPhase). WalkGroups: the
             // walk's groups before the half's split (the other half's Resolve takes them, DrawBuildMode::Walk);

@@ -1967,269 +1967,303 @@ namespace Desert::Graphic::System
             // RENDER-PARALLEL-SETUP (UE RDG setup tasks): the field's varieties in three passes. The serial half
             // in variety order (PrepareVariety: the entry, read-back counts, rebuilt buffers, visibility rows),
             // the pure plans on TaskGroup tasks (PlanVariety: the params and the tile build's inputs, a task its
-            // own slot and entry), then the serial apply in variety order (ApplyVariety: the params' upload, the
-            // tiles, whose pool budget spans varieties; then the import, the graph and the sections below). Every
-            // shared write keeps the variety order whatever thread ran a plan: RenderPipeline.ParallelSetup 0, 1
-            // make the same frame.
+            // own contiguous slice of plans and their entries), then the serial apply in variety order
+            // (ApplyVariety: the params' upload, the tiles, whose pool budget spans varieties; then the import,
+            // the graph and the sections below). Every shared write keeps the variety order whatever thread ran a
+            // plan: RenderPipeline.ParallelSetup 0, 1 make the same frame.
+            // RISK 8: a key is (root, layer, grass type, variety): one entry, so one plan of it at a time. The
+            // varieties run in contiguous SEGMENTS of unique keys, each prepared, planned and applied before the
+            // next one is prepared, and a repeated key starts the next segment - so the repeat is prepared after
+            // its first's Apply, as the sequential code ran it. With no repeat the field is one segment, as
+            // before.
             std::vector<VarietyPlan> plans;
             plans.reserve( field.Varieties.size() );
-            for ( const GrassVarietyDraw& variety : field.Varieties )
+            for ( std::size_t cursor = 0; cursor < field.Varieties.size(); )
             {
-                Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
-                if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
-                     mesh->GetGeometry().IndexCount == 0 )
-                    continue;
-                // A key is (root, layer, grass type, variety): one entry, so one plan, per variety a frame.
-                const bool repeated = std::any_of( plans.begin(), plans.end(),
-                                                   [&variety]( const VarietyPlan& plan )
-                                                   { return plan.Variety->Key == variety.Key; } );
-                if ( repeated )
+                plans.clear();
+                for ( ; cursor < field.Varieties.size(); ++cursor )
                 {
-                    LOG_ERROR( "[Grass] variety key {:#x} is queued twice in one field; the repeat is not drawn",
-                               variety.Key );
-                    continue;
+                    const GrassVarietyDraw& variety = field.Varieties[cursor];
+                    Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
+                    if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
+                         mesh->GetGeometry().IndexCount == 0 )
+                        continue;
+                    const bool repeated =
+                         std::any_of( plans.begin(), plans.end(), [&variety]( const VarietyPlan& plan )
+                                      { return plan.Variety->Key == variety.Key; } );
+                    if ( repeated )
+                        break; // the next segment starts at the repeat, after this one's Apply
+                    // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self
+                    // on the turn, scn-1104-073309); each row sums every variety's step.
+                    DESERT_PROFILE_PHASES( varietyPhases );
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Prepare" );
+                    plans.emplace_back();
+                    const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
+                    if ( PrepareVariety( variety, *mesh, frame, volumes, meshes, revision, plans.back() ) ==
+                         nullptr )
+                        plans.pop_back();
                 }
-                // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self on
-                // the turn, scn-1104-073309); each row sums every variety's step.
-                DESERT_PROFILE_PHASES( varietyPhases );
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Prepare" );
-                plans.emplace_back();
-                const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
-                if ( PrepareVariety( variety, *mesh, frame, volumes, meshes, revision, plans.back() ) == nullptr )
-                    plans.pop_back();
-            }
-            {
-                DESERT_PROFILE_PHASES( planPhases );
-                DESERT_PROFILE_PHASE( planPhases, "Grass: Plan varieties (tasks + join)" );
-                Common::TaskGroup tasks( parallelSetup );
-                for ( VarietyPlan& plan : plans )
-                    tasks.Launch( "Grass variety: Plan", [this, &plan] { PlanVariety( plan ); } );
-                tasks.Join();
-            }
-            for ( VarietyPlan& plan : plans )
-            {
-                const GrassVarietyDraw& variety = *plan.Variety;
-                Desert::Mesh* const     mesh    = plan.MeshAsset;
-                DESERT_PROFILE_PHASES( varietyPhases );
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Apply params + tiles" );
-                if ( !ApplyVariety( plan ) )
-                    continue;
-                VarietyGpu* const gpu = plan.Gpu;
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Import + register buffers" );
-                Common::BoolResultStr imported = Renderer::ImportBuffer( gpu->Instances, gpu->InstancesImport );
-                if ( imported )
-                    imported = Renderer::ImportBuffer( gpu->Args, gpu->ArgsImport );
-                if ( imported )
-                    imported = Renderer::ImportBuffer( gpu->Params, gpu->ParamsImport );
-                if ( imported )
-                    imported = Renderer::ImportBuffer( gpu->Feedback, gpu->FeedbackImport );
-                for ( const auto& [buffer, into] : { std::pair{ &gpu->CameraIds, &gpu->CameraIdsImport },
-                                                     std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
-                                                     std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
-                                                     std::pair{ &gpu->Chunks, &gpu->ChunksImport },
-                                                     std::pair{ &gpu->LawScales, &gpu->LawScalesImport },
-                                                     std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
-                                                     std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
-                                                     std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
-                                                     std::pair{ &gpu->TilePool, &gpu->TilePoolImport },
-                                                     std::pair{ &gpu->FullIds, &gpu->FullIdsImport } } )
-                    if ( imported )
-                        imported = Renderer::ImportBuffer( *buffer, *into );
-                // RENDER-JOB-CPU-2: the tile table, the pool's words and the tile feedback are read and written by
-                // the tile passes alone (bindGenerate), which run only for a variety that frees or builds tiles
-                // this frame - they are imported there (below), not on a frame that only turns the camera.
-                // GRASS-VRAM-BUDGET-1: the pool's segments, which the passes read and write by address.
-                gpu->TileSegmentImports.resize( gpu->TileSegments.size() );
-                for ( std::size_t s = 0; s < gpu->TileSegments.size() && imported; ++s )
-                    imported = Renderer::ImportBuffer( gpu->TileSegments[s], gpu->TileSegmentImports[s] );
-                if ( !imported )
                 {
-                    LOG_ERROR( "[Grass] a variety's buffers are not in the frame graph: {}", imported.GetError() );
-                    continue;
-                }
-                gpu->Refs.Instances = graph.RegisterExternal( gpu->InstancesImport, "GrassInstances" );
-                gpu->Refs.Args      = graph.RegisterExternal( gpu->ArgsImport, "GrassArgs" );
-                gpu->Refs.ArgsAddress = BufferAddress( gpu->Args ); // a compacted bin's gather reads them
-                gpu->ParamsRef      = graph.RegisterExternal( gpu->ParamsImport, "GrassParams" );
-                gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
-                // GRASS-VIEW-LAW-1: the full list reads Instances' rows through FullIds too (RT, list-less cascades).
-                gpu->Refs.Ids = graph.RegisterExternal( gpu->FullIdsImport, "GrassFullIds" );
-                // GPU-COST-22: every list reads the one Instances through its ids (GpuInstanceRefs::Ids).
-                gpu->CameraRefs.Instances  = gpu->Refs.Instances;
-                gpu->CameraRefs.Ids        = graph.RegisterExternal( gpu->CameraIdsImport, "GrassCameraIds" );
-                gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
-                gpu->CameraRefs.ArgsAddress = BufferAddress( gpu->CameraArgs );
-                gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
-                gpu->ChunksRef            = graph.RegisterExternal( gpu->ChunksImport, "GrassChunks" );
-                gpu->LawScalesRef         = graph.RegisterExternal( gpu->LawScalesImport, "GrassLawScales" );
-                gpu->PostRefs.Instances    = gpu->Refs.Instances;
-                gpu->PostRefs.Ids          = gpu->CameraRefs.Ids;
-                gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
-                gpu->PostRefs.ArgsAddress = BufferAddress( gpu->PostArgs );
-                gpu->CascadeRefs.Instances = gpu->Refs.Instances;
-                gpu->CascadeRefs.Ids       = graph.RegisterExternal( gpu->CascadeIdsImport, "GrassCascadeIds" );
-                gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
-                gpu->CascadeRefs.ArgsAddress = BufferAddress( gpu->CascadeArgs ); // the cascades' bins gather them
-                gpu->FieldRef              = fieldGpu.Ref;
-                gpu->FieldBuffer           = fieldGpu.Buffer;
-                gpu->TilePoolRef           = graph.RegisterExternal( gpu->TilePoolImport, "GrassTileSegments" );
-                gpu->TileSegmentRefs.clear();
-                for ( RDG::ExternalBuffer& segment : gpu->TileSegmentImports )
-                    gpu->TileSegmentRefs.push_back( graph.RegisterExternal( segment, "GrassTilePool" ) );
-                // Last frame's handles name another graph's resources: invalid until the tile passes import them.
-                gpu->TileWordsRef    = {};
-                gpu->TileTableRef    = {};
-                gpu->TileFeedbackRef = {};
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
-                m_Frame.push_back( gpu );
-                if ( gpu->Drawn )
-                    DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades );
-                const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
-                gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
-                gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                if ( gpu->FrameKey != gpu->GenerateKey )
-                {
-                    gpu->GenerateKey       = gpu->FrameKey;
-                    ++gpu->Generation;
-                }
-                gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
-                gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                if ( gpu->LawKey != gpu->LawedKey )
-                {
-                    gpu->LawedKey = gpu->LawKey;
-                    ++gpu->LawGeneration;
-                }
-                // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over the
-                // build's chunks. The tile passes run on a frame that frees or builds tiles and read the table written
-                // then (a per-frame-in-flight copy); a fresh pool's Init pass writes its words first.
-                const bool grown = gpu->TileGrowFrom != gpu->TilePages; // GRASS-VRAM-BUDGET-1
-                bool       tiles = gpu->PoolFresh || grown || gpu->TileFrees != 0u || gpu->TileBuilds != 0u;
-                if ( tiles )
-                {
-                    const auto bytes = static_cast<uint32_t>( gpu->TileEntries.size() * sizeof( glm::uvec4 ) );
-                    if ( const auto wrote = gpu->TileTable->SetData( gpu->TileEntries.data(), bytes );
-                         !wrote.IsSuccess() )
+                    DESERT_PROFILE_PHASES( planPhases );
+                    DESERT_PROFILE_PHASE( planPhases, "Grass: Plan varieties (tasks + join)" );
+                    // RISK 9 (UE FParallelMeshDrawCommandPass: the task count follows the workers, not the items):
+                    // the plans in about WorkerCount() + 1 contiguous slices - the joining thread runs one too -
+                    // one task each, so each plan is still written by exactly one task, in variety order within
+                    // it.
+                    const std::size_t participants = Common::JobSystem::Get().WorkerCount() + 1;
+                    const std::size_t slices       = std::min( plans.size(), participants );
+                    Common::TaskGroup tasks( parallelSetup );
+                    for ( std::size_t s = 0; s < slices; ++s )
                     {
-                        // No tile pass runs for it this frame; a new pool next frame builds its tiles again.
-                        LOG_ERROR( "[Grass] the variety's tile table was not written: {}", wrote.GetError() );
-                        gpu->TilePoolMade = false;
-                        tiles             = false;
+                        const std::size_t first = plans.size() * s / slices;
+                        const std::size_t last  = plans.size() * ( s + 1 ) / slices;
+                        tasks.Launch( "Grass variety: Plan",
+                                      [this, &plans, first, last]() noexcept
+                                      {
+                                          for ( std::size_t i = first; i < last; ++i )
+                                              PlanVariety( plans[i] );
+                                      } );
                     }
-                    else
+                    tasks.Join();
+                }
+                for ( VarietyPlan& plan : plans )
+                {
+                    const GrassVarietyDraw& variety = *plan.Variety;
+                    Desert::Mesh* const     mesh    = plan.MeshAsset;
+                    DESERT_PROFILE_PHASES( varietyPhases );
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Apply params + tiles" );
+                    if ( !ApplyVariety( plan ) )
+                        continue;
+                    VarietyGpu* const gpu = plan.Gpu;
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Import + register buffers" );
+                    Common::BoolResultStr imported =
+                         Renderer::ImportBuffer( gpu->Instances, gpu->InstancesImport );
+                    if ( imported )
+                        imported = Renderer::ImportBuffer( gpu->Args, gpu->ArgsImport );
+                    if ( imported )
+                        imported = Renderer::ImportBuffer( gpu->Params, gpu->ParamsImport );
+                    if ( imported )
+                        imported = Renderer::ImportBuffer( gpu->Feedback, gpu->FeedbackImport );
+                    for ( const auto& [buffer, into] : { std::pair{ &gpu->CameraIds, &gpu->CameraIdsImport },
+                                                         std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
+                                                         std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
+                                                         std::pair{ &gpu->Chunks, &gpu->ChunksImport },
+                                                         std::pair{ &gpu->LawScales, &gpu->LawScalesImport },
+                                                         std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
+                                                         std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
+                                                         std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
+                                                         std::pair{ &gpu->TilePool, &gpu->TilePoolImport },
+                                                         std::pair{ &gpu->FullIds, &gpu->FullIdsImport } } )
+                        if ( imported )
+                            imported = Renderer::ImportBuffer( *buffer, *into );
+                    // RENDER-JOB-CPU-2: the tile table, the pool's words and the tile feedback are read and
+                    // written by the tile passes alone (bindGenerate), which run only for a variety that frees or
+                    // builds tiles this frame - they are imported there (below), not on a frame that only turns
+                    // the camera. GRASS-VRAM-BUDGET-1: the pool's segments, which the passes read and write by
+                    // address.
+                    gpu->TileSegmentImports.resize( gpu->TileSegments.size() );
+                    for ( std::size_t s = 0; s < gpu->TileSegments.size() && imported; ++s )
+                        imported = Renderer::ImportBuffer( gpu->TileSegments[s], gpu->TileSegmentImports[s] );
+                    if ( !imported )
                     {
-                        // The tile passes' own buffers, imported after the table's write (the copy it wrote).
-                        Common::BoolResultStr tileImported =
-                             Renderer::ImportBuffer( gpu->TileTable, gpu->TileTableImport );
-                        if ( tileImported )
-                            tileImported = Renderer::ImportBuffer( gpu->TileWords, gpu->TileWordsImport );
-                        if ( tileImported )
-                            tileImported = Renderer::ImportBuffer( gpu->TileFeedback, gpu->TileFeedbackImport );
-                        if ( !tileImported )
+                        LOG_ERROR( "[Grass] a variety's buffers are not in the frame graph: {}",
+                                   imported.GetError() );
+                        continue;
+                    }
+                    gpu->Refs.Instances   = graph.RegisterExternal( gpu->InstancesImport, "GrassInstances" );
+                    gpu->Refs.Args        = graph.RegisterExternal( gpu->ArgsImport, "GrassArgs" );
+                    gpu->Refs.ArgsAddress = BufferAddress( gpu->Args ); // a compacted bin's gather reads them
+                    gpu->ParamsRef        = graph.RegisterExternal( gpu->ParamsImport, "GrassParams" );
+                    gpu->FeedbackRef      = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
+                    // GRASS-VIEW-LAW-1: the full list reads Instances' rows through FullIds too (RT, list-less
+                    // cascades).
+                    gpu->Refs.Ids = graph.RegisterExternal( gpu->FullIdsImport, "GrassFullIds" );
+                    // GPU-COST-22: every list reads the one Instances through its ids (GpuInstanceRefs::Ids).
+                    gpu->CameraRefs.Instances = gpu->Refs.Instances;
+                    gpu->CameraRefs.Ids       = graph.RegisterExternal( gpu->CameraIdsImport, "GrassCameraIds" );
+                    gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
+                    gpu->CameraRefs.ArgsAddress = BufferAddress( gpu->CameraArgs );
+                    gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
+                    gpu->ChunksRef            = graph.RegisterExternal( gpu->ChunksImport, "GrassChunks" );
+                    gpu->LawScalesRef         = graph.RegisterExternal( gpu->LawScalesImport, "GrassLawScales" );
+                    gpu->PostRefs.Instances   = gpu->Refs.Instances;
+                    gpu->PostRefs.Ids         = gpu->CameraRefs.Ids;
+                    gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
+                    gpu->PostRefs.ArgsAddress = BufferAddress( gpu->PostArgs );
+                    gpu->CascadeRefs.Instances = gpu->Refs.Instances;
+                    gpu->CascadeRefs.Ids  = graph.RegisterExternal( gpu->CascadeIdsImport, "GrassCascadeIds" );
+                    gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
+                    gpu->CascadeRefs.ArgsAddress =
+                         BufferAddress( gpu->CascadeArgs ); // the cascades' bins gather them
+                    gpu->FieldRef    = fieldGpu.Ref;
+                    gpu->FieldBuffer = fieldGpu.Buffer;
+                    gpu->TilePoolRef = graph.RegisterExternal( gpu->TilePoolImport, "GrassTileSegments" );
+                    gpu->TileSegmentRefs.clear();
+                    for ( RDG::ExternalBuffer& segment : gpu->TileSegmentImports )
+                        gpu->TileSegmentRefs.push_back( graph.RegisterExternal( segment, "GrassTilePool" ) );
+                    // Last frame's handles name another graph's resources: invalid until the tile passes import
+                    // them.
+                    gpu->TileWordsRef    = {};
+                    gpu->TileTableRef    = {};
+                    gpu->TileFeedbackRef = {};
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
+                    m_Frame.push_back( gpu );
+                    if ( gpu->Drawn )
+                        DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z,
+                                                  gpu->DrawnCascades );
+                    const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
+                    gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
+                    gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                    if ( gpu->FrameKey != gpu->GenerateKey )
+                    {
+                        gpu->GenerateKey = gpu->FrameKey;
+                        ++gpu->Generation;
+                    }
+                    gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
+                    gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                    if ( gpu->LawKey != gpu->LawedKey )
+                    {
+                        gpu->LawedKey = gpu->LawKey;
+                        ++gpu->LawGeneration;
+                    }
+                    // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over
+                    // the build's chunks. The tile passes run on a frame that frees or builds tiles and read the
+                    // table written then (a per-frame-in-flight copy); a fresh pool's Init pass writes its words
+                    // first.
+                    const bool grown = gpu->TileGrowFrom != gpu->TilePages; // GRASS-VRAM-BUDGET-1
+                    bool       tiles = gpu->PoolFresh || grown || gpu->TileFrees != 0u || gpu->TileBuilds != 0u;
+                    if ( tiles )
+                    {
+                        const auto bytes = static_cast<uint32_t>( gpu->TileEntries.size() * sizeof( glm::uvec4 ) );
+                        if ( const auto wrote = gpu->TileTable->SetData( gpu->TileEntries.data(), bytes );
+                             !wrote.IsSuccess() )
                         {
-                            // As an unwritten table: no tile pass this frame, a new pool next frame.
-                            LOG_ERROR( "[Grass] the variety's tile buffers are not in the frame graph: {}",
-                                       tileImported.GetError() );
+                            // No tile pass runs for it this frame; a new pool next frame builds its tiles again.
+                            LOG_ERROR( "[Grass] the variety's tile table was not written: {}", wrote.GetError() );
                             gpu->TilePoolMade = false;
                             tiles             = false;
                         }
                         else
                         {
-                            gpu->TileWordsRef = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
-                            gpu->TileTableRef = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
-                            gpu->TileFeedbackRef =
-                                 graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
-                            if ( gpu->PoolFresh )
-                                gpu->TilePoolMade = true;
+                            // The tile passes' own buffers, imported after the table's write (the copy it wrote).
+                            Common::BoolResultStr tileImported =
+                                 Renderer::ImportBuffer( gpu->TileTable, gpu->TileTableImport );
+                            if ( tileImported )
+                                tileImported = Renderer::ImportBuffer( gpu->TileWords, gpu->TileWordsImport );
+                            if ( tileImported )
+                                tileImported =
+                                     Renderer::ImportBuffer( gpu->TileFeedback, gpu->TileFeedbackImport );
+                            if ( !tileImported )
+                            {
+                                // As an unwritten table: no tile pass this frame, a new pool next frame.
+                                LOG_ERROR( "[Grass] the variety's tile buffers are not in the frame graph: {}",
+                                           tileImported.GetError() );
+                                gpu->TilePoolMade = false;
+                                tiles             = false;
+                            }
+                            else
+                            {
+                                gpu->TileWordsRef =
+                                     graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
+                                gpu->TileTableRef =
+                                     graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
+                                gpu->TileFeedbackRef =
+                                     graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
+                                if ( gpu->PoolFresh )
+                                    gpu->TilePoolMade = true;
+                            }
                         }
                     }
-                }
-                if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
-                    m_FrameTileFree.push_back( gpu );
-                if ( tiles && gpu->TileBuilds != 0u )
-                    m_FrameTileBuild.push_back( gpu );
-                // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
-                // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
-                // among them), so it is culled when the variety generates.
-                // Every frame: the camera's planes and the cascades' boxes are this frame's (GRASS-CULL-UNIFY-1).
-                m_FrameCull.push_back( gpu );
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
-                NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
-                                          ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
+                    if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
+                        m_FrameTileFree.push_back( gpu );
+                    if ( tiles && gpu->TileBuilds != 0u )
+                        m_FrameTileBuild.push_back( gpu );
+                    // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
+                    // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
+                    // among them), so it is culled when the variety generates.
+                    // Every frame: the camera's planes and the cascades' boxes are this frame's
+                    // (GRASS-CULL-UNIFY-1).
+                    m_FrameCull.push_back( gpu );
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
+                    NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
+                                              ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
-                // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no allocation
-                // once grown) and handed to the mesh renderer by move, so no buffer handle is copied twice.
-                thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
-                std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
-                sections.clear();
-                sections.reserve( variety.Sections.size() );
-                // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
-                // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are 0,
-                // 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw the
-                // grass mesh's own first triangle, not the screen.
-                Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
-                if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
-                    resolveMesh = nullptr;
-                for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
-                {
-                    std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
-                    if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
-                        meshRows = gpu->MeshVisibility[s];
-                    sections.push_back(
-                         { .Mesh     = mesh,
-                           .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
-                           .Material = variety.Sections[s].Material,
-                           .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
-                           .CastShadows      = variety.Placement.CastDynamicShadow,
-                           .Wind             = variety.Wind,
-                           .Instances        = gpu->Instances,
-                           .CameraIds        = gpu->CameraIds,
-                           .BladeShape       = gpu->Shape,
-                           .MeshVisibility   = meshRows,
-                           .ResolveMesh      = resolveMesh,
-                           .Refs             = &gpu->Refs,
-                           .CameraRefs       = &gpu->CameraRefs,
-                           .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
-                           .CascadeIds       = gpu->CascadeIds,
-                           .FullIds          = gpu->FullIds,
-                           .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
-                           .CascadeMask      = gpu->CascadeMask,
-                           .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
-                           .CascadeRestShift = gpu->CascadeRestShift,
-                           .Capacity         = gpu->Capacity,
-                           .BucketCapacities = gpu->BucketCapacities,
-                           .Levels           = variety.Blade ? 1u : gpu->Buckets,
-                           .PrepassBuckets   = gpu->PrepassBuckets,
-                           .ShadowLod        = gpu->ShadowLod,
-                           .Key              = gpu->Index * 64u + s,
-                           // The grass stands still but for the wind: a cached cascade keeps its rest pose.
-                           .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
-                                .Generation = gpu->Generation, .Reach = gpu->Reach } } );
-                    // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
-                    sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
+                    // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no
+                    // allocation once grown) and handed to the mesh renderer by move, so no buffer handle is
+                    // copied twice.
+                    thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
+                    std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
+                    sections.clear();
+                    sections.reserve( variety.Sections.size() );
+                    // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
+                    // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are
+                    // 0, 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw
+                    // the grass mesh's own first triangle, not the screen.
+                    Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
+                    if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
+                        resolveMesh = nullptr;
+                    for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
+                    {
+                        std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
+                        if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
+                            meshRows = gpu->MeshVisibility[s];
+                        sections.push_back(
+                             { .Mesh     = mesh,
+                               .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
+                               .Material = variety.Sections[s].Material,
+                               .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
+                               .CastShadows      = variety.Placement.CastDynamicShadow,
+                               .Wind             = variety.Wind,
+                               .Instances        = gpu->Instances,
+                               .CameraIds        = gpu->CameraIds,
+                               .BladeShape       = gpu->Shape,
+                               .MeshVisibility   = meshRows,
+                               .ResolveMesh      = resolveMesh,
+                               .Refs             = &gpu->Refs,
+                               .CameraRefs       = &gpu->CameraRefs,
+                               .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
+                               .CascadeIds       = gpu->CascadeIds,
+                               .FullIds          = gpu->FullIds,
+                               .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
+                               .CascadeMask      = gpu->CascadeMask,
+                               .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
+                               .CascadeRestShift = gpu->CascadeRestShift,
+                               .Capacity         = gpu->Capacity,
+                               .BucketCapacities = gpu->BucketCapacities,
+                               .Levels           = variety.Blade ? 1u : gpu->Buckets,
+                               .PrepassBuckets   = gpu->PrepassBuckets,
+                               .ShadowLod        = gpu->ShadowLod,
+                               .Key              = gpu->Index * 64u + s,
+                               // The grass stands still but for the wind: a cached cascade keeps its rest pose.
+                               .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
+                                    .Generation = gpu->Generation, .Reach = gpu->Reach } } );
+                        // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
+                        sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
+                    }
+                    // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
+                    // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf
+                    // rules for a mesh (RayTracingGather.cpp).
+                    if ( variety.Blade && m_BladeRayTracing.IsRequired() )
+                    {
+                        uint64_t nonOpaque = 0;
+                        for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                            if ( MeshRenderer::ShadingOf( section ).Masked )
+                                nonOpaque |= ~section.HiddenSubmeshes;
+                        const auto blas = m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh,
+                                                                            gpu->ShapeData, nonOpaque );
+                        if ( blas )
+                            for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                                section.BladeGeometry = blas.GetValue();
+                        else
+                            LOG_ERROR(
+                                 "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
+                                 blas.GetError() );
+                    }
+                    for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                        meshes.SubmitGpuInstanced( std::move( section ) );
+                    sections.clear();
                 }
-                // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
-                // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
-                // for a mesh (RayTracingGather.cpp).
-                if ( variety.Blade && m_BladeRayTracing.IsRequired() )
-                {
-                    uint64_t nonOpaque = 0;
-                    for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
-                        if ( MeshRenderer::ShadingOf( section ).Masked )
-                            nonOpaque |= ~section.HiddenSubmeshes;
-                    const auto blas =
-                         m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh, gpu->ShapeData, nonOpaque );
-                    if ( blas )
-                        for ( MeshRenderer::GpuInstancedRenderData& section : sections )
-                            section.BladeGeometry = blas.GetValue();
-                    else
-                        LOG_ERROR(
-                             "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
-                             blas.GetError() );
-                }
-                for ( MeshRenderer::GpuInstancedRenderData& section : sections )
-                    meshes.SubmitGpuInstanced( std::move( section ) );
-                sections.clear();
             }
         }
         // GRASS-TILE-1: the varieties that built tiles (a turning camera builds none; it only re-culls).
