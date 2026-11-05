@@ -31,7 +31,8 @@ namespace Desert::Graphic
         None = 0,       // rendered as requested
         Scalability,    // the machine's ceiling (Scalability "<Group>.Method") is lower
         Override,       // machine.json overrides "<Group>.Method": it replaces the request, up or down
-        Device,         // the device cannot run it (no ray query in the CapabilityCatalog)
+        Device,         // the device cannot run it (no ray query in the CapabilityCatalog; worded "emulated RT"
+                        // when its RayTracingAccel is Emulated, whose catalog lists no ray tracing mode)
         DevicePipeline, // the device has no ray tracing pipeline (CapabilityCatalog RayTracingPipeline):
                         // PathTraced
         PathTracerPair, // PathTraced on one of GI / reflections only: the path tracer is one integrator for both
@@ -119,6 +120,10 @@ namespace Desert::Graphic
         // The shadow supplements, after the same rule (distance-field shadows refused at load until they land).
         bool ContactShadows       = false;
         bool DistanceFieldShadows = false;
+        // The catalog's RayTracingAccel: words a Device limit ("emulated RT" / "no ray query",
+        // FormatRenderMethods). The same for every view on the device; nothing branches on it.
+        Common::Scalability::RayTracingAcceleration RayTracingAccel =
+             Common::Scalability::RayTracingAcceleration::None;
 
         bool operator==( const RenderMethods& ) const = default;
     };

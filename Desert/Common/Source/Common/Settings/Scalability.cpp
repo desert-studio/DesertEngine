@@ -918,10 +918,11 @@ namespace Common::Scalability
             r.Set( parameter, static_cast<ParameterValue>( method ), reason );
         }
 
+        // Ray query itself, never "any ray tracing mode": the pipeline does not imply it (a driver may expose the
+        // pipeline alone), and the traced methods trace with ray query.
         [[nodiscard]] bool OffersRayQuery( const CapabilityCatalog& catalog )
         {
-            return std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
-                                []( RayTracingMode m ) { return m != RayTracingMode::None; } );
+            return CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayQuery );
         }
 
         // Largest offered <= value; the list's front when none is (MSAACounts / AnisotropyLevels are ascending
