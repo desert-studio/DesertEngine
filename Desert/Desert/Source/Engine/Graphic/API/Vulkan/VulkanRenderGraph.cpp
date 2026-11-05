@@ -1926,10 +1926,16 @@ namespace Desert::Graphic::API::Vulkan
         // 04071), and an EXCLUSIVE one could not cover a read the graph never saw (a bindless upload).
         for ( const bool ownershipCall : { true, false } )
         {
-            VkPipelineStageFlags               srcStages = 0;
-            VkPipelineStageFlags               dstStages = 0;
-            std::vector<VkImageMemoryBarrier>  images;
-            std::vector<VkBufferMemoryBarrier> buffers;
+            // CPU-FRAME-ARENA (MEM-7): the batch lives in the recording thread's scratch, not on the heap.
+            Common::Memory::FrameArena&                        scratch = ScratchArena();
+            const Common::Memory::FrameArena::ScopedMark       scratchMark( scratch );
+            const Common::Memory::ArenaAllocator<std::byte>    scratchAlloc( scratch );
+            VkPipelineStageFlags                               srcStages = 0;
+            VkPipelineStageFlags                               dstStages = 0;
+            Common::Memory::ArenaVector<VkImageMemoryBarrier>  images( scratchAlloc );
+            Common::Memory::ArenaVector<VkBufferMemoryBarrier> buffers( scratchAlloc );
+            images.reserve( barriers.size() );
+            buffers.reserve( barriers.size() );
             for ( const RDG::Barrier& barrier : barriers )
             {
                 const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
@@ -2007,11 +2013,15 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::PrepareRecording( std::span<const RDG::CompiledPass> passes )
     {
-        m_PreparedRenderPasses.clear();
+        // CPU-FRAME-ARENA (MEM-7): the entries are kept across graphs, so each one's clear values keep their
+        // capacity; an entry with no Source is not prepared for this graph (BeginRenderPass resolves its pass).
         uint32_t count = 0;
         for ( const RDG::CompiledPass& pass : passes )
             count = std::max( count, pass.Pass + 1 );
-        m_PreparedRenderPasses.resize( count );
+        if ( m_PreparedRenderPasses.size() < count )
+            m_PreparedRenderPasses.resize( count );
+        for ( PreparedRenderPass& entry : m_PreparedRenderPasses )
+            entry.Source = nullptr;
         // Every pass that opens a render pass (a merged pass continues the one its first pass opened; a pass a
         // fault re-opens resolves in BeginRenderPass). Sequential, before any pass records: no lock.
         for ( const RDG::CompiledPass& pass : passes )
@@ -2066,15 +2076,23 @@ namespace Desert::Graphic::API::Vulkan
                                            []( const RDG::AttachmentDecision& a ) { return a.IsResolve; } );
         // Attachment order in the render pass: colour slots first (unused slots have no attachment), depth
         // last; views and clear values follow the same order.
+        // CPU-FRAME-ARENA (MEM-7): the per-pass lists live in the recording thread's scratch, not on the heap.
+        Common::Memory::FrameArena&                     scratch = ScratchArena();
+        const Common::Memory::FrameArena::ScopedMark    scratchMark( scratch );
+        const Common::Memory::ArenaAllocator<std::byte> scratchAlloc( scratch );
+        using ColourView = std::pair<VkImageView, VkClearValue>;
         RdgRenderPassKey key;
         key.Colours.resize( colourCount, RdgAttachmentKey{} );
-        std::vector<std::pair<VkImageView, VkClearValue>> colourViews( colourCount,
-                                                                       { VK_NULL_HANDLE, VkClearValue{} } );
-        std::pair<VkImageView, VkClearValue>              depthView{ VK_NULL_HANDLE, VkClearValue{} };
-        std::vector<VkImageView> resolveViews( resolves ? colourCount : 0u, VK_NULL_HANDLE );
+        const ColourView                        noView{ VK_NULL_HANDLE, VkClearValue{} };
+        Common::Memory::ArenaVector<ColourView> colourViews( colourCount, noView, scratchAlloc );
+        ColourView                              depthView    = noView;
+        uint32_t                                resolveCount = 0;
+        if ( resolves )
+            resolveCount = colourCount;
+        const VkImageView                        noImageView = VK_NULL_HANDLE;
+        Common::Memory::ArenaVector<VkImageView> resolveViews( resolveCount, noImageView, scratchAlloc );
         if ( resolves )
             key.Resolves.resize( colourCount, RdgAttachmentKey{} );
-        std::vector<std::weak_ptr<VulkanRdgTexture>> textures;
         VkExtent2D                                   extent{ 0, 0 };
         uint32_t                                     layers = 1;
         for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
@@ -2084,7 +2102,6 @@ namespace Desert::Graphic::API::Vulkan
                  texture->GetView( { attachment.Mip, 1, attachment.BaseLayer, attachment.LayerCount }, true );
             if ( !view )
                 return Common::MakeFormattedError( "attachment of '{}': {}", pass.Name, view.GetError() );
-            textures.push_back( texture );
             const RDG::TextureDesc& desc = texture->GetDesc();
             extent                       = { std::max( 1u, desc.Size.Width >> attachment.Mip ),
                                              std::max( 1u, desc.Size.Height >> attachment.Mip ) };
@@ -2136,8 +2153,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !renderPass )
             return Common::MakeFormattedError( "render pass of '{}': {}", pass.Name, renderPass.GetError() );
 
-        std::vector<VkImageView>  views;
-        std::vector<VkClearValue> clears;
+        // The clear values go straight into @p out (a kept entry keeps their capacity); a failure below leaves
+        // @p out without a Source, which every caller treats as not prepared.
+        Common::Memory::ArenaVector<VkImageView> views( scratchAlloc );
+        std::vector<VkClearValue>&               clears = out.Clears;
+        views.reserve( pass.Attachments.size() );
+        clears.clear();
         for ( const auto& [view, clear] : colourViews )
         {
             if ( view != VK_NULL_HANDLE )
@@ -2165,7 +2186,8 @@ namespace Desert::Graphic::API::Vulkan
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         for ( const FramebufferEntry& entry : m_Framebuffers )
         {
-            if ( entry.RenderPass == renderPass.GetValue() && entry.Views == views &&
+            if ( entry.RenderPass == renderPass.GetValue() &&
+                 std::equal( entry.Views.begin(), entry.Views.end(), views.begin(), views.end() ) &&
                  entry.Extent.width == extent.width && entry.Extent.height == extent.height &&
                  entry.Layers == layers )
             {
@@ -2188,14 +2210,19 @@ namespace Desert::Graphic::API::Vulkan
             if ( result != VK_SUCCESS )
                 return Common::MakeFormattedError( "framebuffer of '{}': vkCreateFramebuffer failed ({})",
                                                    pass.Name, static_cast<int>( result ) );
-            m_Framebuffers.push_back(
-                 { renderPass.GetValue(), views, std::move( textures ), extent, layers, framebuffer } );
+            // The attachments' textures, in attachment order: only a new entry keeps them (a found one had them).
+            std::vector<std::weak_ptr<VulkanRdgTexture>> textures;
+            textures.reserve( pass.Attachments.size() );
+            for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
+                textures.push_back( m_Textures[attachment.Resource] );
+            std::vector<VkImageView> kept( views.begin(), views.end() );
+            m_Framebuffers.push_back( { renderPass.GetValue(), std::move( kept ), std::move( textures ), extent,
+                                        layers, framebuffer } );
         }
 
         out.RenderPass    = renderPass.GetValue();
         out.Framebuffer   = framebuffer;
         out.Extent        = extent;
-        out.Clears        = std::move( clears );
         out.Compatibility = RdgCompatibilityKey( key );
         return Common::MakeSuccess( true );
     }
@@ -2291,6 +2318,7 @@ namespace Desert::Graphic::API::Vulkan
             chunk.Labels.clear();
             chunk.CommandBuffer = VK_NULL_HANDLE;
             chunk.Failure.clear();
+            chunk.Scratch.Reset(); // CPU-FRAME-ARENA: no mark is live between graphs; folds its blocks into one
             const size_t pipe = chunk.Desc.OnPipe == RDG::Pipe::Graphics ? 0 : 1;
             perPipe[pipe]     = index + 1;
             // RDG-PARALLEL-1-1: the chunk records while this thread walks the graph (its scope stack and its
@@ -2645,7 +2673,9 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::Release()
     {
-        m_PreparedRenderPasses.clear();
+        // CPU-FRAME-ARENA (MEM-7): kept with their capacity; no Source points into the ended graph.
+        for ( PreparedRenderPass& entry : m_PreparedRenderPasses )
+            entry.Source = nullptr;
         m_Textures.clear();
         m_Buffers.clear();
         // The allocator's open graph ends with the backend's hold (EndGraph, AbandonGraph, a new BeginGraph).

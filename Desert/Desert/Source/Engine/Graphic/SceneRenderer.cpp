@@ -38,6 +38,8 @@
 #include <unordered_set>
 #include <mutex>
 #include <Common/Core/Units.hpp>
+#include <Common/Core/Algorithms/ScopeExit.hpp>
+#include <Common/Core/Memory/FrameArena.hpp>
 
 #include <Common/Core/Profiler.hpp>
 
@@ -1723,7 +1725,16 @@ namespace Desert::Graphic
         // the plan, so the phase's own self is only the timer's; every stage below names what it costs.
         DESERT_PROFILE_PHASES( setupPhases );
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Graph + view resolution" );
-        RDG::Builder graph( "SceneView" );
+        // CPU-FRAME-ARENA (UE: FRDGBuilder over FRDGAllocator): the view's ONE graph, kept across frames so its
+        // record arrays and frame arena keep their capacity. It resets when this scope ends - after ExecuteGraph
+        // and after every local declared below is gone, where the per-frame builder used to be destroyed.
+        if ( m_Graph == nullptr )
+            m_Graph = std::make_unique<RDG::Builder>( "SceneView" );
+        RDG::Builder& graph = *m_Graph;
+        SCOPE_EXIT
+        {
+            graph.Reset();
+        };
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
         // RenderPipeline.AsyncCompute: the AsyncCompute passes below (the PreOpaque particle simulation chain,
         // SSAO, the light grids, the global distance field update and near-field cull, the radiance cache, the
@@ -2970,6 +2981,20 @@ namespace Desert::Graphic
             if ( m_FrameGpuScene != nullptr )
                 m_FrameGpuScene->CommitFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         }
+#if DESERT_DEV_INSTRUMENTS
+        // CPU-FRAME-ARENA: what the view's graph arena holds at the end of this frame's graph, once a second. In a
+        // steady scene the block count settles in the first frames (Reset folds a chain into one block).
+        const auto arenaNow = std::chrono::steady_clock::now();
+        if ( arenaNow - m_FrameArenaLoggedAt >= std::chrono::seconds( 1 ) )
+        {
+            m_FrameArenaLoggedAt                          = arenaNow;
+            const Common::Memory::FrameArena::Stats arena = graph.GetArenaStats();
+            LOG_INFO( "[Memory] frame arena view '{}': {} B used, {} B peak, {} B reserved in {} block(s), "
+                      "{} passes",
+                      m_ViewResources.GetName(), arena.UsedBytes, arena.PeakBytes, arena.ReservedBytes,
+                      arena.Blocks, graph.GetPassCount() );
+        }
+#endif
         textures.ResetInvalidatedHistories();
     }
 

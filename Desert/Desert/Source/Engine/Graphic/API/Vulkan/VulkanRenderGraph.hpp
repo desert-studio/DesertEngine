@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Memory/FrameArena.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -793,6 +794,9 @@ namespace Desert::Graphic::API::Vulkan
             Chunk*               PreviousChunk   = nullptr;
             VulkanRecordContext* PreviousContext = nullptr;
             uint32_t             PreviousArena   = 0;
+            // CPU-FRAME-ARENA (MEM-7): the barrier and render-pass scratch of its passes (ScratchArena). Reset by
+            // BeginChunks; every user takes it under a ScopedMark, so it is empty between two calls.
+            Common::Memory::FrameArena Scratch;
         };
         // The chunk bound to the calling thread by BeginChunk, when it is this backend's; else null.
         [[nodiscard]] Chunk* BoundChunk() const noexcept
@@ -814,6 +818,14 @@ namespace Desert::Graphic::API::Vulkan
             Chunk* const chunk = BoundChunk();
             return chunk != nullptr ? chunk->PassSets : m_PassSets;
         }
+        // CPU-FRAME-ARENA (MEM-7; UE: FMemStack per thread): the scratch of the calling thread's recording - its
+        // chunk's arena on a worker, the backend's own on the thread that records without a chunk (the same split
+        // as RecordingBuffer). Taken under a FrameArena::ScopedMark: it is empty again when the taker returns.
+        [[nodiscard]] Common::Memory::FrameArena& ScratchArena() noexcept
+        {
+            Chunk* const chunk = BoundChunk();
+            return chunk != nullptr ? chunk->Scratch : m_Scratch;
+        }
         [[nodiscard]] std::vector<int32_t>& ProfilerScopesState() noexcept
         {
             Chunk* const chunk = BoundChunk();
@@ -821,6 +833,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         std::vector<std::unique_ptr<Chunk>> m_Chunks; // reused across graphs; the first m_ChunkCount are this graph's
         uint32_t                            m_ChunkCount = 0;
+        Common::Memory::FrameArena          m_Scratch; // ScratchArena of the thread recording without a chunk
         static inline thread_local Chunk*   t_Chunk      = nullptr;
 
         struct FramebufferEntry
