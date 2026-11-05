@@ -1,4 +1,5 @@
 #include "MaterialService.hpp"
+#include <atomic>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
 
@@ -350,6 +351,13 @@ namespace Desert::Runtime
         // OVERLAP-ON-2), and a join under the lock would wait for a job that waits for the lock. A thread that
         // already holds the lock does not join; off the game thread the join returns at once.
         thread_local uint32_t t_ServiceDepth = 0;
+
+        // A graveyard collection is waiting behind the render work in flight (CollectGarbage): one at a time.
+        std::atomic<bool>& CollectQueued()
+        {
+            static std::atomic<bool> queued{ false };
+            return queued;
+        }
         class ServiceGuard
         {
         public:
@@ -1142,11 +1150,33 @@ namespace Desert::Runtime
 
     void MaterialService::CollectGarbage()
     {
-        const ServiceGuard serviceLock( true );
-        // Safe point: no frame is being recorded (caller guarantees frame start). Only the materials whose
-        // last possible frame has retired are destroyed; the rest wait for a later frame start.
-        const auto& frames = Engine::FrameManager::GetInstance();
-        m_Graveyard.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+        // ONE SYNC PER FRAME (CPU-ONE-SYNC; UE: deferred deletion behind the rendering thread). The frame loop
+        // calls this every frame, and a writer's guard here joined the render task every frame: frame N-1's
+        // interface, submit and present had to finish before the world tick could start, and the render thread
+        // idled through the tick ("Render task: wait for game thread" 0.76 ms). Now the graveyard is only LOOKED
+        // AT here - the reader lock, no join - and when it holds anything the destruction runs as a command
+        // behind the render work in flight (RenderTask::AfterJoin): at the frame's own fence (Scene::OnUpdate's
+        // join, step 4b SyncPreviousFrame), or at once when nothing is in flight (serial mode, tests, bakes).
+        {
+            const ServiceGuard serviceLock( false );
+            if ( m_Graveyard.Size() == 0 )
+                return;
+        }
+        if ( CollectQueued().exchange( true ) )
+            return;
+        ::Desert::Engine::RenderTask::Get().AfterJoin(
+             [this]()
+             {
+                 CollectQueued().store( false );
+                 // No job is in flight here (a deferred command), so the writer's join below returns at once.
+                 const ServiceGuard serviceLock( true );
+                 ::Desert::Engine::RenderTask::CheckRenderStateWrite( "MaterialService: graveyard collect" );
+                 // Only the materials whose last possible frame has retired are destroyed (the GPU side: the
+                 // slot fence of frame N - frames in flight was waited at BeginFrame); the rest wait for a later
+                 // collection.
+                 const auto& frames = Engine::FrameManager::GetInstance();
+                 m_Graveyard.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+             } );
     }
 
     Graphic::Material* MaterialService::GetByExternalHandle( const Common::UUID& handle ) const
