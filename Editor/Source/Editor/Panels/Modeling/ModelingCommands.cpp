@@ -197,13 +197,16 @@ namespace Desert::Editor
         // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs
         // a line drawn in the viewport (the knife, Alt+K).
         for ( const Core::MeshOperation op :
-              { Core::MeshOperation::Delete, Core::MeshOperation::Extrude, Core::MeshOperation::PushPull,
-                Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
-                Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
-                Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Disconnect,
-                Core::MeshOperation::Bridge, Core::MeshOperation::Collapse, Core::MeshOperation::ExtrudeEdge,
-                Core::MeshOperation::Flip, Core::MeshOperation::Retriangulate } )
+              { Core::MeshOperation::Delete,     Core::MeshOperation::Extrude,
+                Core::MeshOperation::PushPull,   Core::MeshOperation::Offset,
+                Core::MeshOperation::Inset,      Core::MeshOperation::Outset,
+                Core::MeshOperation::Bevel,      Core::MeshOperation::InsertEdgeLoop,
+                Core::MeshOperation::Clean,      Core::MeshOperation::Subdivide,
+                Core::MeshOperation::Mirror,     Core::MeshOperation::PlaneCut,
+                Core::MeshOperation::FillHole,   Core::MeshOperation::WeldEdges,
+                Core::MeshOperation::Disconnect, Core::MeshOperation::Bridge,
+                Core::MeshOperation::Collapse,   Core::MeshOperation::ExtrudeEdge,
+                Core::MeshOperation::Flip,       Core::MeshOperation::Retriangulate } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ),
                                   [&scene, op]

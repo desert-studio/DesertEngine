@@ -400,6 +400,7 @@ namespace Desert::Editor::Commands
                 const bool applied = Apply( m_Before );
                 if ( applied && m_Alongside )
                     m_Alongside->Undo();
+                LOG_INFO( "[Undo] undo '{0}': {1}", m_Label, applied ? "the mesh before it is back" : "dropped" );
                 return applied;
             }
             bool Redo() override
@@ -407,6 +408,7 @@ namespace Desert::Editor::Commands
                 const bool applied = Apply( m_After );
                 if ( applied && m_Alongside )
                     m_Alongside->Redo();
+                LOG_INFO( "[Undo] redo '{0}': {1}", m_Label, applied ? "the edited mesh is back" : "dropped" );
                 return applied;
             }
 
@@ -415,7 +417,11 @@ namespace Desert::Editor::Commands
             {
                 auto e = FindEntity( m_Entity );
                 if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
+                {
+                    LOG_WARN( "[Undo] '{0}': entity {1} has no static mesh in the scene any more", m_Label,
+                              static_cast<uint64_t>( m_Entity ) );
                     return false;
+                }
                 auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
                 // Null is the asset-only entity (a Modeling tool lifted its .stmesh): PlanMeshRestore drops
                 // the EditableMesh.
@@ -1247,15 +1253,28 @@ namespace Desert::Editor::Commands
                            std::shared_ptr<const Geometry::DynamicMesh3> before,
                            std::unique_ptr<ICommand>                     alongside )
     {
+        // A refusal here leaves an edit on screen that no Undo can take back: it is named, never silent.
         if ( !Ready() )
+        {
+            LOG_ERROR( "[Undo] '{0}' was NOT recorded: the scene commands are not bound to a scene", label );
             return;
+        }
         auto e = FindEntity( uuid );
         if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
+        {
+            LOG_ERROR( "[Undo] '{0}' was NOT recorded: entity {1} is {2} in the scene the commands edit", label,
+                       static_cast<uint64_t>( uuid ), e ? "without a static mesh" : "not" );
             return;
+        }
         std::shared_ptr<const Geometry::DynamicMesh3> after =
              e->GetComponent<ECS::StaticMeshComponent>().GetEditableMesh();
         if ( after == before )
+        {
+            LOG_WARN( "[Undo] '{0}' was not recorded: entity {1}'s mesh is the one the edit began with", label,
+                      static_cast<uint64_t>( uuid ) );
             return;
+        }
+        LOG_INFO( "[Undo] recorded '{0}' on entity {1}", label, static_cast<uint64_t>( uuid ) );
         CommandHistory::Get().PushEntityEdit(
              std::make_unique<MeshReplacementCommand>( uuid, label, std::move( before ), std::move( after ),
                                                        std::move( alongside ) ),

@@ -34,12 +34,12 @@ namespace Desert::Editor::Core
         InsertEdgeLoop,
         Cut,
         Clean,
-        Subdivide,  // mesh-wide, like Clean: no selection in, none out
-        Mirror,     // mesh-wide
-        PlaneCut,   // mesh-wide; Keep Both Halves splits the entity in two
-        FillHole,   // the open loops through a selected edge, or every loop
-        WeldEdges,  // mesh-wide, UE's coincidence tolerance: no distance
-        Disconnect, // UE PolyEdit Disconnect: the selected faces cut loose along their border, nothing moves
+        Subdivide,     // mesh-wide, like Clean: no selection in, none out
+        Mirror,        // mesh-wide
+        PlaneCut,      // mesh-wide; Keep Both Halves splits the entity in two
+        FillHole,      // the open loops through a selected edge, or every loop
+        WeldEdges,     // mesh-wide, UE's coincidence tolerance: no distance
+        Disconnect,    // UE PolyEdit Disconnect: the selected faces cut loose along their border, nothing moves
         Bridge,        // two face regions removed, their border loops joined by a strip of quads
         Collapse,      // UE PolyEdit Collapse Edge: each selected edge to its midpoint
         ExtrudeEdge,   // UE PolyEdit Extrude on open edges: a quad strip out of the border, Distance cm
@@ -51,7 +51,8 @@ namespace Desert::Editor::Core
     // ModelingState (ArgsFromModelingState) - one value per knob; the knife adds its plane.
     struct MeshOperationArgs
     {
-        float Distance      = 0.0f;  // Extrude .. Outset, Extrude Edge (cm, signed for Push/Pull and Offset); Bevel's width
+        float Distance =
+             0.0f; // Extrude .. Outset, Extrude Edge (cm, signed for Push/Pull and Offset); Bevel's width
         float LoopPosition  = 0.5f;  // Insert Edge Loop, in (0, 1) along each ring edge
         float WeldTolerance   = 0.01f; // Clean, and Mirror's seam, cm
         Geometry::SubdivideSettings Subdivide{};

@@ -437,7 +437,8 @@ namespace Desert::Geometry
     namespace
     {
         // The region's edge-connected components (triangles sharing an edge), each sorted.
-        std::vector<std::vector<int32_t>> RegionComponents( const DynamicMesh3& mesh, const std::vector<int32_t>& region )
+        std::vector<std::vector<int32_t>> RegionComponents( const DynamicMesh3&         mesh,
+                                                            const std::vector<int32_t>& region )
         {
             const std::unordered_set<int32_t> inRegion( region.begin(), region.end() );
             std::unordered_set<int32_t>       seen;
@@ -466,9 +467,8 @@ namespace Desert::Geometry
 
         // The border loops of a triangle set, each walked the way the set's own triangles wind it (a -> b where
         // a triangle of the set has the edge a -> b and the triangle across it, if any, is not in the set).
-        Common::ResultStr<std::vector<std::vector<int>>> RegionLoops( const DynamicMesh3&         mesh,
-                                                                       const std::vector<int32_t>& region,
-                                                                       const char*                 name )
+        Common::ResultStr<std::vector<std::vector<int>>>
+        RegionLoops( const DynamicMesh3& mesh, const std::vector<int32_t>& region, const char* name )
         {
             const std::unordered_set<int32_t> inRegion( region.begin(), region.end() );
             std::unordered_map<int, int>      next;
@@ -536,7 +536,8 @@ namespace Desert::Geometry
 
     // ── Bridge ─────────────────────────────────────────────────────────────────────────────────────────
 
-    Common::ResultStr<RegionOutcome> BridgeSelection( const DynamicMesh3& before, const ElementSelection& selection )
+    Common::ResultStr<RegionOutcome> BridgeSelection( const DynamicMesh3&     before,
+                                                      const ElementSelection& selection )
     {
         const GroupTopology topology = PolyEditTopology( before );
         auto                region   = RegionTriangles( before, topology, selection, "Bridge" );
@@ -593,7 +594,7 @@ namespace Desert::Geometry
         for ( size_t i = 0; i < n; ++i )
             loop2[i] = loops[1][( i + bestShift ) % n];
 
-        auto                 mesh = std::make_shared<DynamicMesh3>( before );
+        auto                 mesh    = std::make_shared<DynamicMesh3>( before );
         std::vector<int32_t> removed = components[0];
         removed.insert( removed.end(), components[1].begin(), components[1].end() );
         if ( !DynamicMeshEditor( mesh.get() ).RemoveTriangles( removed, true ) )
@@ -626,7 +627,8 @@ namespace Desert::Geometry
 
     // ── Collapse ───────────────────────────────────────────────────────────────────────────────────────
 
-    Common::ResultStr<RegionOutcome> CollapseSelection( const DynamicMesh3& before, const ElementSelection& selection )
+    Common::ResultStr<RegionOutcome> CollapseSelection( const DynamicMesh3&     before,
+                                                        const ElementSelection& selection )
     {
         if ( selection.Mode() != ElementMode::Edge )
             return Common::MakeFormattedError<RegionOutcome>(
@@ -634,10 +636,10 @@ namespace Desert::Geometry
                  ToString( selection.Mode() ) );
         if ( selection.Empty() )
             return Common::MakeError<RegionOutcome>( "Mesh Collapse: nothing is selected" );
-        auto                                  mesh = std::make_shared<DynamicMesh3>( before );
+        auto                                    mesh = std::make_shared<DynamicMesh3>( before );
         const DynamicMesh3::CollapseEdgeOptions options{};
-        int                                   collapsed = 0, refused = 0, gone = 0;
-        int                                   firstRefused = -1;
+        int                                     collapsed = 0, refused = 0, gone = 0;
+        int                                     firstRefused = -1;
         for ( const int e : selection.Ids() )
         {
             if ( !mesh->IsEdge( e ) )
@@ -659,15 +661,16 @@ namespace Desert::Geometry
                  selection.Size(), firstRefused );
         if ( mesh->HasAttributes() && mesh->Attributes()->PrimaryNormals() != nullptr )
             MeshNormals::QuickRecomputeOverlayNormals( *mesh );
-        return Finish( std::move( mesh ), "Collapse", ElementSelection( ElementMode::Edge ),
-                       fmt::format( "{} edges collapsed to their midpoints, {} refused, {} gone with an earlier one",
-                                    collapsed, refused, gone ) );
+        return Finish(
+             std::move( mesh ), "Collapse", ElementSelection( ElementMode::Edge ),
+             fmt::format( "{} edges collapsed to their midpoints, {} refused, {} gone with an earlier one",
+                          collapsed, refused, gone ) );
     }
 
     // ── Extrude Edge ───────────────────────────────────────────────────────────────────────────────────
 
-    Common::ResultStr<RegionOutcome> ExtrudeEdgeSelection( const DynamicMesh3& before, const ElementSelection& selection,
-                                                           float distance )
+    Common::ResultStr<RegionOutcome> ExtrudeEdgeSelection( const DynamicMesh3&     before,
+                                                           const ElementSelection& selection, float distance )
     {
         if ( selection.Mode() != ElementMode::Edge )
             return Common::MakeFormattedError<RegionOutcome>(
@@ -676,21 +679,23 @@ namespace Desert::Geometry
         if ( selection.Empty() )
             return Common::MakeError<RegionOutcome>( "Mesh Extrude Edge: nothing is selected" );
         if ( !( std::abs( distance ) > 0.0f ) )
-            return Common::MakeError<RegionOutcome>( "Mesh Extrude Edge: the distance is 0 cm - nothing to extrude" );
+            return Common::MakeError<RegionOutcome>(
+                 "Mesh Extrude Edge: the distance is 0 cm - nothing to extrude" );
         // Each edge as its triangle winds it (a -> b), with its outward direction in that triangle's plane.
         struct OpenEdge
         {
-            int        A = -1, B = -1;
+            int A = -1, B = -1;
         };
-        std::vector<OpenEdge>                   edges;
-        std::unordered_map<int, glm::dvec3>     direction;
+        std::vector<OpenEdge>               edges;
+        std::unordered_map<int, glm::dvec3> direction;
         for ( const int e : selection.Ids() )
         {
             if ( !before.IsEdge( e ) )
                 continue;
             if ( !before.IsBoundaryEdge( e ) )
                 return Common::MakeFormattedError<RegionOutcome>(
-                     "Mesh Extrude Edge: edge {} is closed (two faces meet on it) - only an open border edge can be "
+                     "Mesh Extrude Edge: edge {} is closed (two faces meet on it) - only an open border edge can "
+                     "be "
                      "extruded; Delete or Disconnect a face beside it first",
                      e );
             const int     t  = before.GetEdgeT( e ).A;
@@ -698,11 +703,12 @@ namespace Desert::Geometry
             const Index2i ev = before.GetEdgeV( e );
             OpenEdge      edge;
             for ( int j = 0; j < 3; ++j )
-                if ( ( tv[j] == ev.A || tv[j] == ev.B ) && ( tv[( j + 1 ) % 3] == ev.A || tv[( j + 1 ) % 3] == ev.B ) )
+                if ( ( tv[j] == ev.A || tv[j] == ev.B ) &&
+                     ( tv[( j + 1 ) % 3] == ev.A || tv[( j + 1 ) % 3] == ev.B ) )
                     edge = OpenEdge{ tv[j], tv[( j + 1 ) % 3] };
-            const glm::dvec3 out = glm::cross( before.GetVertex( edge.B ) - before.GetVertex( edge.A ),
-                                               before.GetTriNormal( t ) );
-            const double     len = glm::length( out );
+            const glm::dvec3 out =
+                 glm::cross( before.GetVertex( edge.B ) - before.GetVertex( edge.A ), before.GetTriNormal( t ) );
+            const double len = glm::length( out );
             if ( !( len > 1e-12 ) )
                 return Common::MakeFormattedError<RegionOutcome>(
                      "Mesh Extrude Edge: edge {} has zero length or a degenerate triangle ({})", e, t );
@@ -718,8 +724,9 @@ namespace Desert::Geometry
         {
             const double len = glm::length( dir );
             if ( !( len > 1e-12 ) )
-                return Common::MakeFormattedError<RegionOutcome>(
-                     "Mesh Extrude Edge: the edges through vertex {} point opposite ways - no direction to extrude", v );
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Extrude Edge: the edges through vertex {} "
+                                                                  "point opposite ways - no direction to extrude",
+                                                                  v );
             moved[v] = mesh->AppendVertex( before.GetVertex( v ) + dir / len * static_cast<double>( distance ) );
         }
         const int            group = mesh->HasTriangleGroups() ? mesh->AllocateTriangleGroup() : 0;

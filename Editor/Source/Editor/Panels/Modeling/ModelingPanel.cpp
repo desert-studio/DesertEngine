@@ -2365,14 +2365,10 @@ namespace Desert::Editor
         // Offset, PushPull, Inset, Outset, Bevel, InsertEdgeLoop, Retriangulate. Fill Hole and Weld Edges sit
         // under UE's Mesh Repair palette; they share this grid instead of a category of two. Then UE PolyEdit's
         // Faces (Disconnect, Flip) and Edges (Bridge, Collapse, Extrude Edge) actions.
-        const MO grid[8][2] = { { MO::Delete, MO::Extrude },
-                                { MO::Offset, MO::PushPull },
-                                { MO::Inset, MO::Outset },
-                                { MO::Bevel, MO::InsertEdgeLoop },
-                                { MO::Retriangulate, MO::Flip },
-                                { MO::FillHole, MO::WeldEdges },
-                                { MO::Disconnect, MO::Bridge },
-                                { MO::Collapse, MO::ExtrudeEdge } };
+        const MO grid[8][2] = { { MO::Delete, MO::Extrude },     { MO::Offset, MO::PushPull },
+                                { MO::Inset, MO::Outset },       { MO::Bevel, MO::InsertEdgeLoop },
+                                { MO::Retriangulate, MO::Flip }, { MO::FillHole, MO::WeldEdges },
+                                { MO::Disconnect, MO::Bridge },  { MO::Collapse, MO::ExtrudeEdge } };
         for ( const auto& row : grid )
         {
             if ( ImGui::Button( Core::ToString( row[0] ), ImVec2( half, 0.0f ) ) )
