@@ -40,17 +40,21 @@ namespace Desert::ShaderResources::API::Vulkan
     }
 
     Common::BoolResultStr MakeMappedBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
-                                                uint32_t size, std::unique_ptr<MappedBufferCopy>& out )
+                                                uint32_t size, std::unique_ptr<MappedBufferCopy>& out,
+                                                const MappedCopyMemory memory )
     {
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.usage              = usage;
         bufferInfo.size               = size;
 
-        auto*      allocator = Allocator();
-        VkBuffer   buffer    = VK_NULL_HANDLE;
-        const auto allocated = allocator->RT_AllocateBuffer( std::string( debugName ), bufferInfo,
-                                                             VMA_MEMORY_USAGE_CPU_TO_GPU, buffer );
+        auto*          allocator = Allocator();
+        VkBuffer       buffer    = VK_NULL_HANDLE;
+        VmaMemoryUsage usageOf   = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        if ( memory == MappedCopyMemory::Readback )
+            usageOf = VMA_MEMORY_USAGE_GPU_TO_CPU; // HOST_VISIBLE, HOST_CACHED preferred (MEM-3)
+        const auto allocated =
+             allocator->RT_AllocateBuffer( std::string( debugName ), bufferInfo, usageOf, buffer );
         if ( !allocated.IsSuccess() )
             return Common::MakeFormattedError<bool>( "{} byte(s) could not be allocated: {}", size,
                                                      allocated.GetError() );

@@ -20,6 +20,15 @@ namespace Desert::ShaderResources::API::Vulkan
         uint64_t               CopyId = 0;
     };
 
+    // The memory a mapped copy lives in (MakeMappedBufferCopy): Upload CPU_TO_GPU (the host writes, the device
+    // reads; uncached device-local BAR where the device has it), Readback GPU_TO_CPU (the device writes, the host
+    // reads through its cache; MEM-3).
+    enum class MappedCopyMemory : uint8_t
+    {
+        Upload   = 0,
+        Readback = 1,
+    };
+
     // One host-mapped VkBuffer: a view's copy for one frame in flight, or a persistent storage buffer's
     // single shared buffer - or, made by MakeDeviceBufferCopy, a device-only storage buffer's unmapped
     // device-local one (its Write refuses: MappedMemory is unmapped). Owns its buffer from the moment it is allocated, so a copy that fails to map is
@@ -57,7 +66,7 @@ namespace Desert::ShaderResources::API::Vulkan
 
     private:
         friend Common::BoolResultStr MakeMappedBufferCopy( std::string_view, VkBufferUsageFlags, uint32_t,
-                                                           std::unique_ptr<MappedBufferCopy>& );
+                                                           std::unique_ptr<MappedBufferCopy>&, MappedCopyMemory );
         friend Common::BoolResultStr MakeDeviceBufferCopy( std::string_view, VkBufferUsageFlags, uint32_t,
                                                            std::unique_ptr<MappedBufferCopy>& );
 
@@ -76,8 +85,11 @@ namespace Desert::ShaderResources::API::Vulkan
     // VkDescriptorBufferInfo was then written into a set — undefined behaviour in the driver, visible only
     // as one frame in flight rendering wrong. The refusal carries the allocator's own reason; the caller
     // adds which buffer, view and frame it was for.
+    // @p memory Readback (MEM-3, Persistence::PerFrameReadback): GPU_TO_CPU - HOST_VISIBLE | HOST_CACHED where the
+    // device has it - for a copy the GPU writes and the host reads back; Upload: CPU_TO_GPU.
     NO_DISCARD Common::BoolResultStr MakeMappedBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
-                                                           uint32_t size, std::unique_ptr<MappedBufferCopy>& out );
+                                                           uint32_t size, std::unique_ptr<MappedBufferCopy>& out,
+                                                           MappedCopyMemory memory = MappedCopyMemory::Upload );
 
     // GRASS-VIEW-LAW-1 (Persistence::DeviceOnly): allocates one DEVICE-LOCAL buffer of `size` bytes named
     // `debugName` and does not map it - the GPU alone writes and reads it, so it never takes the host-visible
