@@ -1370,15 +1370,10 @@ namespace Desert::Graphic
         m_Systems.AutoExposure->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
-<<<<<<< land-cpu4
         // UE's Exposure Compensation applies to the manual exposure too (2^AutoExposureBias).
         const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey ) *
                                      std::exp2( post.AutoExposureBias );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
-=======
-        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
         m_Systems.Tonemap->SetParams( manualExposure );
->>>>>>> origin/task/CPU-LEAD-SMALL
         // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
         // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
         // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
@@ -1412,7 +1407,6 @@ namespace Desert::Graphic
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
-<<<<<<< land-cpu4
         // The compensation moves it too: the bias and the curve's lowest key (AutoExposureRules.hpp).
         const float lowestCompensation =
              post.AutoExposureBias +
@@ -1421,20 +1415,11 @@ namespace Desert::Graphic
              LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey ) *
              std::exp2( lowestCompensation );
         const float lowestExposure = post.AutoExposure ? lowestAutoExposure : manualExposure;
-        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetTonemapOperator( post.Tonemapper );
+        m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
+        m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] ) )
             combine->SetGrade( post );
-=======
-        m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling(
-             post.AutoExposure ? LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey )
-                               : manualExposure ) );
-        m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
-        m_Systems.Tonemap->SetWhitePoint( post.WhitePoint );
->>>>>>> origin/task/CPU-LEAD-SMALL
 
         m_Systems.Skybox->SetBackdropVisible( m_DebugView.ShowSkyBackdrop && !m_DebugView.WireframeMode );
         m_Systems.Mesh->SetWireframe( m_DebugView.WireframeMode );
@@ -1525,20 +1510,11 @@ namespace Desert::Graphic
              .Rings =
                   DofRingsForQuality( m_Quality.As<int>( Common::Scalability::Parameter::DepthOfFieldQuality ) ) };
 
-<<<<<<< land-cpu4
-        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
-             ->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
-                          EV100ToLuminance( post.AutoExposureMaxEV100 ) );
-        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
-             ->SetCompensation( post.AutoExposureBias, post.AutoExposureCurveKeyCount, post.AutoExposureCurveEV100,
-                                post.AutoExposureCurveBias );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
-=======
         m_Systems.AutoExposure->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
                                            EV100ToLuminance( post.AutoExposureMaxEV100 ) );
+        m_Systems.AutoExposure->SetCompensation( post.AutoExposureBias, post.AutoExposureCurveKeyCount,
+                                                 post.AutoExposureCurveEV100, post.AutoExposureCurveBias );
         m_Systems.Tonemap->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
->>>>>>> origin/task/CPU-LEAD-SMALL
         // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).
         m_Systems.Tonemap->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
         m_Systems.Bloom->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
