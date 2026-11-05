@@ -434,7 +434,7 @@ namespace Common
         // A job the pool refuses (shutting down) owes nothing: the task stays unclaimed and Join runs it.
         std::shared_ptr<Shared> shared = m_Shared;
         JobSystem::Get().Submit(
-             [shared, index]
+             [shared, index]() noexcept
              {
                  std::function<void()> body;
                  const char*           taskName = nullptr;

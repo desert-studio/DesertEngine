@@ -2145,7 +2145,8 @@ namespace Desert::Graphic::System
                             od.HasOverrides = true;
                             break;
                         }
-                bucketFor( obj->Mesh, hiddenOf( obj ) ).push_back( od );
+                od.Hidden = hiddenOf( obj );
+                bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
 
             for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
@@ -2219,6 +2220,10 @@ namespace Desert::Graphic::System
                     plan.Batches.push_back( batch );
                 }
             }
+            // The singles' levels, decided here with the batches' (the record replays them, it decides nothing).
+            for ( ObjDraw& single : plan.Singles )
+                single.Level = ComputeLOD( single.Obj->Transform, single.Obj->Mesh, single.Obj->ForcedLOD,
+                                           single.Obj->LODBias );
         };
         // A plan's batches packed into its set (a Full or a Record call; a Resolve call packs nothing).
         const auto packBatches = [&]( const DrawBuildScratch::StaticGroupPlan& plan )
@@ -2248,6 +2253,8 @@ namespace Desert::Graphic::System
         {
             plans.resize( groups.size() );
             std::size_t planned = 0; // the objects of the opaque groups
+            DESERT_PROFILE_PHASES( planPhases );
+            DESERT_PROFILE_PHASE( planPhases, "Mesh: Static group sets" ); // serial: setForGroup per group
             for ( std::size_t gi = 0; gi < groups.size(); ++gi )
             {
                 DrawBuildScratch::StaticGroupPlan& plan = plans[gi];
@@ -2269,7 +2276,7 @@ namespace Desert::Graphic::System
                 plan.Set = setForGroup( groups[gi].first );
                 planned += groups[gi].second.size();
             }
-            DESERT_PROFILE_SCOPE( "Mesh: Static bucketing" );
+            DESERT_PROFILE_PHASE( planPhases, "Mesh: Static bucketing (tasks + join)" );
             constexpr std::size_t kBucketSliceMin = 128; // objects: below it a task costs more than it buckets
             const std::size_t     participants    = ::Common::JobSystem::Get().WorkerCount() + 1;
             const std::size_t     slices = std::clamp<std::size_t>( planned / kBucketSliceMin, 1u, participants );
@@ -2420,8 +2427,8 @@ namespace Desert::Graphic::System
                             .Mesh              = obj->Mesh,
                             .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
-                            .HiddenSubmeshMask = hiddenOf( obj ),
-                            .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                            .HiddenSubmeshMask = singles[i].Hidden,
+                            .LodLevel          = singles[i].Level,
                             .Push     = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj->GpuPrimitive )
@@ -2632,8 +2639,8 @@ namespace Desert::Graphic::System
                 {
                     // The recorder's state before its Record call packs a draw: lent the material table, given
                     // the frame's scene state, its pipelines resolved (FlushStaticUploads uploads the transforms
-                    // after the join). Only a set its Record call draws through: a group's batch (Drawn, the
-                    // bucketing both calls make) or an ISM's; the Full call skips an empty set alike.
+                    // after the join). Only a set its Record call draws through: a group's batch (Drawn, from
+                    // the group's plan) or an ISM's; the Full call skips an empty set alike.
                     if ( !set.Drawn && set.IsmDraws.empty() )
                         continue;
                     set.Lent = LendMaterialTable( *set.Mat );

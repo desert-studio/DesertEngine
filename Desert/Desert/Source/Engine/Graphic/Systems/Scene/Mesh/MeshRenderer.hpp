@@ -1945,11 +1945,11 @@ namespace Desert::Graphic::System
         // two-sided twins, stand-ins, material service siblings, the tracker, the instanced variant instances,
         // the material rows), the ISM culls and their copies, and every shared-material write (Lend, ApplyTo,
         // SetPushMatrix) - into the call's DrawBuildScratch. It prepares what the Record call draws and no more:
-        // the bucketing both calls make (bucketGroup) asks a group's singles material only of a group left a
-        // single draw, and a set is prepared only when a batch or an ISM draws into it. Record: the half's setup
-        // task - the per-object buckets, levels and draws, from that plan into its own list and scratch;
-        // FlushStaticUploads after the
-        // join. A miss in a Record call is a bug (MissInSetupTask).
+        // the group plan it makes once (planGroup, on setup tasks: buckets, batches, singles and their levels)
+        // asks a group's singles material only of a group whose plan keeps a single draw, and a set is prepared
+        // only when a batch or an ISM draws into it. Record: the half's setup task - packs and records that plan
+        // into its own list and scratch and decides nothing; FlushStaticUploads after the join. A miss in a
+        // Record call is a bug (MissInSetupTask).
         enum class DrawBuildPhase : uint8_t
         {
             Full,
@@ -3353,6 +3353,10 @@ namespace Desert::Graphic::System
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
             bool                        HasOverrides = false;
+            // A single draw's plan (BuildStaticDraws' planGroup): the mask it was bucketed by and, for a single,
+            // its LOD level - decided on the setup task, replayed by the call that records it.
+            SubmeshMask Hidden{};
+            uint32_t    Level = 0;
         };
         struct InstancedDraw
         {
@@ -3398,8 +3402,9 @@ namespace Desert::Graphic::System
             GraphicsPipeline*          OneSided = nullptr; // CellPipeline( instanced state, Mat )
             GraphicsPipeline*          TwoSided = nullptr; // CullPermutation( OneSided, true )
             bool                       Lent     = false;
-            // A Resolve call: a group's bucketing (BuildStaticDraws' bucketGroup) gives this set an auto-batched
-            // draw, so its Record call packs one; with no ISM draw either, the set is not prepared at all.
+            // A Resolve call: a group's plan (BuildStaticDraws' planGroup, StaticGroupPlan::Batches) gives this
+            // set an auto-batched draw, so its Record call packs one; with no ISM draw either, the set is not
+            // prepared.
             bool Drawn = false;
         };
         // @p set's packed transforms into its recorder's InstanceTransforms block, at final size.
