@@ -40,7 +40,17 @@ namespace Desert::ShaderResources
         /// device-local memory that the host never maps - no CPU image, no host write, read by address or
         /// bound like any storage buffer. The BAR heap (256 MB without resizable BAR) is not spent on it.
         DeviceOnly = 2,
+        /// GRASS-GPU-DRIVEN-DRAWS (MEM-3; UE FRHIGPUBufferReadback's staging buffer): PerFrame copies in
+        /// HOST_VISIBLE | HOST_CACHED memory (VMA GPU_TO_CPU) - the GPU writes them, the host reads them back
+        /// FramesInFlight frames later through the CPU cache instead of uncached BAR reads.
+        PerFrameReadback = 3,
     };
+
+    /// True for the lifetimes whose copies are one per (view x frame in flight): PerFrame, PerFrameReadback.
+    [[nodiscard]] constexpr bool IsPerFrameLifetime( const Persistence life )
+    {
+        return life == Persistence::PerFrame || life == Persistence::PerFrameReadback;
+    }
 
     /// What a write of @c size bytes at @c offset may do to a buffer of the current capacity.
     enum class BufferWriteVerdict : uint8_t
@@ -80,7 +90,7 @@ namespace Desert::ShaderResources
             return BufferWriteVerdict::RefuseWouldNotFitAnyBuffer;
         if ( required <= currentSize )
             return BufferWriteVerdict::Fits;
-        if ( life != Persistence::PerFrame )
+        if ( !IsPerFrameLifetime( life ) )
             return BufferWriteVerdict::RefuseWouldDestroyPersistentState;
         return BufferWriteVerdict::Grow;
     }

@@ -1064,7 +1064,7 @@ namespace Desert::Graphic::System
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
             if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
                  !gpu.Feedback || gpu.Feedback->GetSize() != feedbackBytes )
-                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", feedbackBytes, 1 );
+                gpu.Feedback = ShaderResources::StorageBuffer::CreateReadback( "GrassFeedback", feedbackBytes, 1 );
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
@@ -1690,8 +1690,8 @@ namespace Desert::Graphic::System
             gpu.TileTable = ShaderResources::StorageBuffer::Create(
                  "GrassTileTable", ( 1u + 2u * ( slots + kGrassTileBuildsPerFrame ) ) * sizeof( glm::uvec4 ), 12 );
             if ( !gpu.TileFeedback )
-                gpu.TileFeedback = ShaderResources::StorageBuffer::Create( "GrassTileFeedback",
-                                                                           kGrassTileFeedbackWords * 4u, 13 );
+                gpu.TileFeedback = ShaderResources::StorageBuffer::CreateReadback(
+                     "GrassTileFeedback", kGrassTileFeedbackWords * 4u, 13 );
         }
         if ( !gpu.TileTable || !gpu.TileFeedback || !gpu.TilePool || !gpu.TileWords || !gpu.Chunks )
         {

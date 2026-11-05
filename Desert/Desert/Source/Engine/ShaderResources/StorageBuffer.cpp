@@ -46,6 +46,33 @@ namespace Desert::ShaderResources
         return nullptr;
     }
 
+    std::shared_ptr<StorageBuffer> StorageBuffer::CreateReadback( const std::string_view debugName, uint32_t size,
+                                                                  uint32_t binding )
+    {
+        switch ( Graphic::RendererAPI::GetAPIType() )
+        {
+            case Graphic::RendererAPIType::None:
+                return nullptr;
+            case Graphic::RendererAPIType::Vulkan:
+            {
+                // As Create: a buffer whose active copy cannot be made and mapped does not leave this function.
+                auto       buffer = std::make_shared<API::Vulkan::VulkanStorageBuffer>( debugName, size, binding,
+                                                                                        Persistence::PerFrameReadback );
+                const auto usable = buffer->EnsureMapped();
+                if ( !usable.IsSuccess() )
+                {
+                    LOG_ERROR( "[StorageBuffer] read-back '{}' ({} bytes, binding {}) is not usable and was not "
+                               "created: {}",
+                               debugName, size, binding, usable.GetError() );
+                    return nullptr;
+                }
+                return buffer;
+            }
+        }
+        DESERT_VERIFY( false, "Unknown RenderingAPI" );
+        return nullptr;
+    }
+
     std::shared_ptr<StorageBuffer> StorageBuffer::CreateDeviceLocal( const std::string_view debugName,
                                                                      uint32_t size, uint32_t binding )
     {

@@ -85,7 +85,7 @@ namespace Desert::ShaderResources::API::Vulkan
         // One buffer shared by every frame and view (AcrossFrames or DeviceOnly).
         bool IsPersistent() const
         {
-            return m_Lifetime != Persistence::PerFrame;
+            return !IsPerFrameLifetime( m_Lifetime );
         }
         bool IsDeviceOnly() const
         {

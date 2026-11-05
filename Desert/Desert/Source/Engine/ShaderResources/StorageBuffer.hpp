@@ -59,6 +59,13 @@ namespace Desert::ShaderResources
         static std::shared_ptr<StorageBuffer> Create( const std::string_view debugName, uint32_t size,
                                                       uint32_t binding, bool persistent = false );
 
+        // MEM-3, A GPU-WRITTEN BUFFER THE HOST READS BACK (Persistence::PerFrameReadback; UE
+        // FRHIGPUBufferReadback's staging buffer): per (view x frame in flight) like Create's per-frame buffer,
+        // its copies in HOST_VISIBLE | HOST_CACHED memory, so ReadBack reads through the CPU cache instead of
+        // uncached BAR memory. SetData still lands (a CPU reset of the words). Null (with the reason logged)
+        // when the active copy cannot be made.
+        static std::shared_ptr<StorageBuffer> CreateReadback( const std::string_view debugName, uint32_t size,
+                                                              uint32_t binding );
         // GRASS-VIEW-LAW-1, A GPU-AUTHORED BUFFER IN VIDEO MEMORY (Persistence::DeviceOnly; UE: a pooled RDG
         // buffer kept across graphs, e.g. the landscape grass instance buffers). ONE device-local buffer shared by
         // every frame and view, never mapped: no CPU image (GetData is null), SetData and ReadBack are refused

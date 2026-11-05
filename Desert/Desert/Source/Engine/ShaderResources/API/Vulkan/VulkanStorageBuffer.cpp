@@ -115,9 +115,12 @@ namespace Desert::ShaderResources::API::Vulkan
                                                          std::unique_ptr<IBlockCopy>& out ) const
     {
         std::unique_ptr<MappedBufferCopy> copy;
-        const auto                        made = MakeMappedBufferCopy(
-             std::format( "{}-StorageBuffer-{}-Frame{}", m_BufferName, viewName, frameIndex ), StorageUsage(), GetSize(),
-             copy );
+        // MEM-3: a read-back buffer's copies are host-cached (Persistence::PerFrameReadback).
+        const MappedCopyMemory memory =
+             m_Lifetime == Persistence::PerFrameReadback ? MappedCopyMemory::Readback : MappedCopyMemory::Upload;
+        const auto made = MakeMappedBufferCopy(
+             std::format( "{}-StorageBuffer-{}-Frame{}", m_BufferName, viewName, frameIndex ), StorageUsage(),
+             GetSize(), copy, memory );
         if ( !made.IsSuccess() )
             return Common::MakeFormattedError<bool>( "storage buffer '{}' copy for view '{}', frame {}: {}",
                                                      m_BufferName, viewName, frameIndex, made.GetError() );
