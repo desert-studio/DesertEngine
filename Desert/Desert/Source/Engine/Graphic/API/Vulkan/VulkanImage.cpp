@@ -62,8 +62,9 @@ namespace Desert::Graphic::API::Vulkan
         // sampling it finishes first) and of the layout being entered (ALL_COMMANDS / SHADER_READ for a sampled
         // image). A reader on another queue waits the upload timeline on the GPU (CommandBufferAllocator::
         // NewestUploadSync: FlushOneShot, VulkanFrameLoop::ExecuteFrame). @p staging, when there is one, is
-        // released once the fence is seen signalled; on a
-        // refused submit it is released at once, since nothing reads it. Also how a begun buffer is handed back
+        // released once its upload timeline value is seen reached (CommandBufferAllocator::CollectFinished; the
+        // submission is queued on the submit thread and this returns at once); on a refused submit it is
+        // released at once, since nothing reads it. Also how a begun buffer is handed back
         // on an error path: empty, it costs one submit and no wait (the blocking flush it replaced waited the
         // whole queue ahead of it for nothing).
         Common::BoolResultStr SubmitWithoutWait( const VkCommandBuffer cmd, VulkanAllocator* const allocator = nullptr,

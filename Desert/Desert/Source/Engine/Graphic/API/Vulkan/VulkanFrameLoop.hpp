@@ -69,9 +69,11 @@ namespace Desert::Graphic::API::Vulkan
     //   - a swapchain rebuild, a device-idle wait and the teardown drain the thread first (Drain, and
     //     DrainSubmitThread from VulkanLogicalDevice::WaitIdle), and the destructor joins it;
     //   - EVERY ONE-OFF SUBMISSION (CommandBufferAllocator: the unwaited uploads and the blocking flushes, on any
-    //     queue) is ordered work of this thread while it runs (SubmitOrdered), FIFO with the frames: an upload
-    //     a frame thread makes for frame N+1 reaches the queue after frame N's draws, as it did when the frame
-    //     thread submitted N itself, and the upload timeline value is picked in that same queue order;
+    //     queue) is ordered work of this thread while it runs, FIFO with the frames: an upload a frame thread
+    //     makes for frame N+1 reaches the queue after frame N's draws, as it did when the frame thread submitted
+    //     N itself. An UNWAITED upload is queued and its caller goes on (EnqueueUnwaited, step 3: UE's render
+    //     thread enqueues an RHI command); its upload timeline value is reserved at its place in the queue, so
+    //     reservation order is signal order. Only a BLOCKING flush waits for its turn (SubmitOrdered);
     //   - the destructor drains and joins the thread (Stop) BEFORE it unregisters the loop, and no lock is held
     //     across a drain: a release or an upload made during the teardown is still run in order, and nothing
     //     queued here outlives the loop (it is destroyed before the VMA allocator, VulkanContext::Shutdown).
@@ -120,6 +122,18 @@ namespace Desert::Graphic::API::Vulkan
         // thread has exited or failed a frame, it runs inline on the caller, after everything handed over was
         // handled. @p submit must not wait for the GPU (the caller waits its fence afterwards).
         static VkResult SubmitOrdered( const std::function<VkResult()>& submit );
+        // AN UNWAITED ONE-OFF vkQueueSubmit, QUEUED IN ORDER AND NOT WAITED (VK-SUBMIT-THREAD step 3; UE 5.x:
+        // the render thread enqueues the upload as an RHI command and goes on). Under the hand-off lock, at the
+        // entry's place in the queue, @p reserve runs once and its value is stored with @p submit, by value; the
+        // submit thread later calls submit( reserved ) after everything handed over before it. What reserve
+        // hands out (the upload timeline value) is therefore in queue order, which is signal order. A non-empty
+        // result of submit is the loop's failure (the next Submit / WaitSlot return it); submit must have
+        // signalled the value anyway, so no waiter hangs. Returns at once: never waits for the submit thread or
+        // the GPU, and is legal on the submit thread itself (the entry runs after the current one), and after a
+        // failed frame (the thread runs one-offs after it). Nothing queued, nothing run: no loop is registered
+        // or its thread has exited, and then every entry handed over before has run (the caller submits inline).
+        static std::optional<uint64_t> EnqueueUnwaited( const std::function<uint64_t()>&       reserve,
+                                                        std::function<std::string( uint64_t )> submit ) noexcept;
 
         VulkanRdgQueueObjects& GetQueueObjects()
         {
@@ -136,8 +150,8 @@ namespace Desert::Graphic::API::Vulkan
             std::optional<VulkanFrameOutput>    Output;
             std::optional<VulkanPresentRequest> Present;
         };
-        // One entry of the submit thread's queue, in hand-off order: a slot's frame, a deferred release or a
-        // one-off submission.
+        // One entry of the submit thread's queue, in hand-off order: a slot's frame, a deferred release, a
+        // blocking one-off submission or an unwaited one.
         struct QueuedWork
         {
             uint64_t              Ticket = 0;
@@ -147,7 +161,11 @@ namespace Desert::Graphic::API::Vulkan
             // handled; the thread writes *Result before it marks the ticket handled (under m_Mutex).
             const std::function<VkResult()>* Ordered = nullptr;
             VkResult*                        Result  = nullptr;
-            // Neither set: the slot's frame.
+            // Set: an EnqueueUnwaited entry, owned by the entry (its caller has returned), with the value its
+            // reserve gave at the hand-off.
+            std::function<std::string( uint64_t )> Unwaited;
+            uint64_t                               Reserved = 0;
+            // None set: the slot's frame.
         };
 
         void ThreadMain();
@@ -162,6 +180,9 @@ namespace Desert::Graphic::API::Vulkan
         bool EnqueueRelease( std::function<void()>& release );
         // SubmitOrdered on this loop (not on its submit thread): queued and waited, or inline (see there).
         VkResult RunOrdered( const std::function<VkResult()>& submit );
+        // EnqueueUnwaited on this loop: queued with its reserved value unless the thread has exited.
+        std::optional<uint64_t> QueueUnwaited( const std::function<uint64_t()>&        reserve,
+                                               std::function<std::string( uint64_t )>& submit ) noexcept;
         // Drains and joins the submit thread: everything queued before the thread exits runs (the destructor,
         // before the loop is unregistered; idempotent).
         void Stop();
@@ -201,7 +222,8 @@ namespace Desert::Graphic::API::Vulkan
         std::string             m_Failure; // the first failure the submit thread met; empty while none
         bool                    m_Stop = false;
         // Set by the submit thread as it returns, under m_Mutex and only with m_Queue empty: from then on
-        // nothing is queued (EnqueueRelease, RunOrdered and Submit check it), so no entry is left unrun.
+        // nothing is queued (EnqueueRelease, RunOrdered, QueueUnwaited and Submit check it), so no entry is left
+        // unrun.
         bool                    m_Exited = false;
         std::thread             m_Thread; // declared last: started once everything above exists
     };

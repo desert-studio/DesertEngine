@@ -223,6 +223,14 @@ namespace Desert::Graphic::API::Vulkan
                     DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
                     *work.Result = ( *work.Ordered )();
                 }
+                else if ( work.Unwaited )
+                {
+                    // An unwaited one-off (step 3), run after a failed frame as well: nobody waits for this
+                    // entry, so its refusal is the loop's failure, after the callee signalled its value.
+                    DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
+                    failure       = work.Unwaited( work.Reserved );
+                    work.Unwaited = nullptr; // what it captured dies here, on this thread
+                }
                 else
                 {
                     failure = RunFrame( work.Slot, earlierFailed );
@@ -279,12 +287,13 @@ namespace Desert::Graphic::API::Vulkan
         // them by submission order, but an AsyncCompute entry on a separate compute queue is not, and the first
         // one may run before any graphics entry of the frame and read a buffer or image whose copy has not
         // landed. Read ONCE, HERE ON THE SUBMIT THREAD (VK-SUBMIT-THREAD step 2), not at the hand-off: every
-        // upload a resource of the frame needed was handed to this thread before the frame was (SubmitOrdered,
+        // upload a resource of the frame needed was handed to this thread before the frame was (EnqueueUnwaited,
         // FIFO), so it has been submitted and its value published by now, while at the hand-off it may still sit
-        // in the queue. A newer value (an upload made inline before the loop ran) is already submitted as well,
-        // so the wait is always signalled. Only the FIRST async-compute entry waits; the later ones follow it on
-        // the same queue. ALL_COMMANDS, not COMPUTE_SHADER: an async segment also copies and reads indirect
-        // arguments, and at the head of the batch the wider stage costs nothing.
+        // in the queue (the value is reserved there, but only a submitted or host-signalled one is published). A
+        // newer value (an upload made inline before the loop ran) is already submitted as well, so the wait is
+        // always signalled. Only the FIRST async-compute entry waits; the later ones follow it on the same queue.
+        // ALL_COMMANDS, not COMPUTE_SHADER: an async segment also copies and reads indirect arguments, and at the
+        // head of the batch the wider stage costs nothing.
         const CommandBufferAllocator::UploadSyncPoint uploads =
              CommandBufferAllocator::GetInstance().NewestUploadSync();
         bool waitedOnUploads = uploads.Value == 0; // nothing uploaded yet: nothing to wait
@@ -547,5 +556,47 @@ namespace Desert::Graphic::API::Vulkan
                 return loop->RunOrdered( submit );
         }
         return submit();
+    }
+
+    std::optional<uint64_t>
+    VulkanFrameLoop::QueueUnwaited( const std::function<uint64_t()>&        reserve,
+                                    std::function<std::string( uint64_t )>& submit ) noexcept
+    {
+        uint64_t reserved = 0;
+        {
+            const std::scoped_lock lock( m_Mutex );
+            // Queued while the thread runs, stopping and after a failed frame included: it runs the whole queue
+            // before it exits. Once it has exited the queue is empty and stays so: the caller submits inline,
+            // after every entry handed over, with no wait.
+            if ( m_Exited )
+                return std::nullopt;
+            // RESERVED HERE, under the lock that fixes the entry's place: two uploaders' values are in their
+            // tickets' order, so the thread signals them in increasing order (a timeline must be).
+            reserved              = reserve();
+            const uint64_t ticket = ++m_NextTicket;
+            m_Queue.push_back( QueuedWork{ .Ticket   = ticket,
+                                           .Slot     = 0,
+                                           .Release  = {},
+                                           .Ordered  = nullptr,
+                                           .Result   = nullptr,
+                                           .Unwaited = std::move( submit ),
+                                           .Reserved = reserved } );
+        }
+        m_Wake.notify_one();
+        return reserved;
+    }
+
+    std::optional<uint64_t>
+    VulkanFrameLoop::EnqueueUnwaited( const std::function<uint64_t()>&       reserve,
+                                      std::function<std::string( uint64_t )> submit ) noexcept
+    {
+        // No t_OnSubmitThread case: nothing here waits, so the submit thread may queue behind itself. Inline
+        // there instead would overtake the uploads already queued behind the current entry, whose values are
+        // lower than one picked now.
+        const ActiveLoopLease  lease;
+        VulkanFrameLoop* const loop = lease.Get();
+        if ( loop == nullptr )
+            return std::nullopt;
+        return loop->QueueUnwaited( reserve, submit );
     }
 } // namespace Desert::Graphic::API::Vulkan
