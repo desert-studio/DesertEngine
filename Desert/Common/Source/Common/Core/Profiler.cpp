@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 
 namespace Common::Profiling
 {
@@ -131,13 +132,16 @@ namespace Common::Profiling
                 }
 
                 // Adds every touched row into @p merged (by id) and leaves the half empty.
-                void DrainInto( std::vector<ScopeAccum>& merged )
+                // @p touched gains each id that was empty in @p merged before this.
+                void DrainInto( std::vector<ScopeAccum>& merged, std::vector<uint32_t>& touched )
                 {
                     for ( const uint32_t id : Touched )
                     {
                         ScopeAccum& row = ( *Pages[id / kPageRows] )[id % kPageRows];
                         if ( id >= merged.size() )
                             merged.resize( id + 1 );
+                        if ( merged[id].Empty() )
+                            touched.push_back( id );
                         merged[id] += row;
                         row = ScopeAccum{};
                     }
@@ -174,10 +178,63 @@ namespace Common::Profiling
                 return Halves[old];
             }
         };
+
+        // THE WINDOW BEING ACCUMULATED (Profiler::BeginFrame): every thread's samples drained into it once a
+        // frame, so a row knows each frame's cost (ScopeResult::MaxMs / P99Ms) and a frame its own largest
+        // self rows (HitchFrame). Written by the frame thread alone.
+        struct WindowState
+        {
+            struct FrameRecord
+            {
+                double                                 FrameMs = 0.0; // wall, BeginFrame to BeginFrame
+                std::array<uint32_t, kHitchTopScopes> Ids{};
+                std::array<double, kHitchTopScopes>   SelfMs{};
+                uint32_t                               Count = 0;
+
+                // Keeps the kHitchTopScopes largest self times, largest first.
+                void Offer( const uint32_t id, const double selfMs ) noexcept
+                {
+                    if ( Count == kHitchTopScopes && selfMs <= SelfMs[Count - 1] )
+                        return;
+                    uint32_t at = Count < kHitchTopScopes ? Count++ : Count - 1;
+                    for ( ; at > 0 && SelfMs[at - 1] < selfMs; --at )
+                    {
+                        Ids[at]    = Ids[at - 1];
+                        SelfMs[at] = SelfMs[at - 1];
+                    }
+                    Ids[at]    = id;
+                    SelfMs[at] = selfMs;
+                }
+            };
+
+            std::vector<ScopeAccum>                        Frame; // the frame being drained, by id
+            std::vector<uint32_t>                          FrameTouched;
+            std::vector<ScopeAccum>                        Accum; // the window, by id
+            std::vector<uint32_t>                          Touched;
+            std::vector<std::vector<float>>                RowFrames; // by id: cpu ms of each frame it ran in
+            std::vector<FrameRecord>                       Frames;
+            std::vector<double>                            FrameMsScratch;
+            std::vector<uint32_t>                          HitchScratch;
+            double                                         NamedMs = 0.0; // the frame thread's outermost ms
+            std::chrono::high_resolution_clock::time_point LastFrameAt{};
+            bool                                           HaveLastFrame = false;
+        };
     } // namespace Detail
 
     namespace
     {
+        // The @p q quantile (nearest rank) of a row's per-frame cost over @p frames frames: @p sorted holds the
+        // frames it ran in, ascending; every other frame of the window cost it 0.
+        double QuantileWithIdle( const std::vector<float>& sorted, const uint32_t frames, const double q )
+        {
+            const uint64_t n    = std::max<uint64_t>( frames, sorted.size() );
+            const auto     rank = std::max<uint64_t>( 1, static_cast<uint64_t>( std::ceil( q * double( n ) ) ) );
+            const uint64_t idle = n - sorted.size();
+            if ( rank <= idle )
+                return 0.0;
+            return static_cast<double>( sorted[static_cast<size_t>( rank - idle - 1 )] );
+        }
+
         // The calling thread's buffer (Profiler::LocalStats). Trivially destructible, so it can be read at any
         // point of the thread's exit, including after the retirer below has run.
         thread_local Detail::ThreadStats* t_Stats        = nullptr;
@@ -271,6 +328,9 @@ namespace Common::Profiling
     void Profiler::BeginFrame()
     {
         Detail::ThreadStats* const frameStats = LocalStats(); // the caller is the frame thread
+        if ( !m_Window )
+            m_Window = std::make_unique<Detail::WindowState>();
+        Detail::WindowState& window = *m_Window;
 
         const auto now = Clock::now();
         if ( !m_WindowStarted )
@@ -279,6 +339,62 @@ namespace Common::Profiling
             m_WindowStarted = true;
         }
         ++m_WindowFrames;
+
+        // THE FRAME DRAIN (UE FThreadStats: per-thread packets merged at the frame's end): every thread's half
+        // of the frame that just ended, by name id - once a frame, not once a window, so a row knows each frame's
+        // cost and a frame its own largest rows. A thread that exited since the last drain left both halves
+        // (nobody flips a retired buffer's halves again) and is dropped here.
+        {
+            std::lock_guard<std::mutex> lock( m_ThreadsMutex );
+            for ( auto it = m_Threads.begin(); it != m_Threads.end(); )
+            {
+                Detail::ThreadStats& stats   = **it;
+                const bool           retired = stats.Retired.load( std::memory_order_acquire );
+                if ( retired )
+                {
+                    for ( Detail::ThreadStats::Half& half : stats.Halves )
+                        half.DrainInto( window.Frame, window.FrameTouched );
+                    it = m_Threads.erase( it );
+                    continue;
+                }
+                Detail::ThreadStats::Half& half = stats.Flip();
+                half.DrainInto( window.Frame, window.FrameTouched );
+                if ( &stats == frameStats )
+                    window.NamedMs += half.OutermostMs;
+                half.OutermostMs = 0.0;
+                ++it;
+            }
+        }
+
+        // The drained frame into the window: its rows' sums, each row's cost this frame, its top self rows.
+        {
+            Detail::WindowState::FrameRecord record;
+            if ( window.HaveLastFrame )
+                record.FrameMs = std::chrono::duration<double, std::milli>( now - window.LastFrameAt ).count();
+            if ( window.Accum.size() < window.Frame.size() )
+            {
+                window.Accum.resize( window.Frame.size() );
+                window.RowFrames.resize( window.Frame.size() );
+            }
+            for ( const uint32_t id : window.FrameTouched )
+            {
+                Detail::ScopeAccum& row = window.Frame[id];
+                if ( window.Accum[id].Empty() )
+                    window.Touched.push_back( id );
+                window.Accum[id] += row;
+                if ( row.Calls > 0 )
+                {
+                    window.RowFrames[id].push_back( static_cast<float>( row.TotalMs ) );
+                    record.Offer( id, row.SelfMs );
+                }
+                row = Detail::ScopeAccum{};
+            }
+            window.FrameTouched.clear();
+            if ( window.HaveLastFrame )
+                window.Frames.push_back( record );
+            window.LastFrameAt   = now;
+            window.HaveLastFrame = true;
+        }
 
         const double windowMs    = std::chrono::duration<double, std::milli>( now - m_WindowStart ).count();
         const double windowLimit = static_cast<double>( m_AvgWindowSec ) * 1000.0;
@@ -289,43 +405,16 @@ namespace Common::Profiling
         if ( !forceClose && ( holdOpen || windowMs < windowLimit || m_WindowFrames == 0 ) )
             return; // still accumulating this window
 
-        // THE MERGE: every thread's half of the window, by name id. A thread that exited since the last
-        // publication left both halves (nobody flips a retired buffer's halves again) and is dropped here.
-        std::vector<Detail::ScopeAccum> merged;
-        double                          frameNamedMs = 0.0;
-        {
-            std::lock_guard<std::mutex> lock( m_ThreadsMutex );
-            for ( auto it = m_Threads.begin(); it != m_Threads.end(); )
-            {
-                Detail::ThreadStats& stats   = **it;
-                const bool           retired = stats.Retired.load( std::memory_order_acquire );
-                if ( retired )
-                {
-                    for ( Detail::ThreadStats::Half& half : stats.Halves )
-                        half.DrainInto( merged );
-                    it = m_Threads.erase( it );
-                    continue;
-                }
-                Detail::ThreadStats::Half& half = stats.Flip();
-                half.DrainInto( merged );
-                if ( &stats == frameStats )
-                    frameNamedMs = half.OutermostMs;
-                half.OutermostMs = 0.0;
-                ++it;
-            }
-        }
-
         // Window elapsed: publish the AVERAGE per-frame cost of every scope over the window.
-        const double inv = 1.0 / static_cast<double>( m_WindowFrames );
+        const double   inv    = 1.0 / static_cast<double>( m_WindowFrames );
+        const uint32_t frames = m_WindowFrames;
         m_Display.clear();
         {
             std::lock_guard<std::mutex> lock( m_NameMutex );
-            for ( uint32_t id = 0; id < merged.size(); ++id )
+            for ( const uint32_t id : window.Touched )
             {
-                const Detail::ScopeAccum& result = merged[id];
-                if ( result.Empty() )
-                    continue;
-                ScopeResult avg;
+                Detail::ScopeAccum& result = window.Accum[id];
+                ScopeResult         avg;
                 avg.Name    = m_NameText[id];
                 avg.TotalMs = result.TotalMs * inv;                                              // avg ms / frame
                 avg.Calls = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
@@ -334,7 +423,54 @@ namespace Common::Profiling
                 avg.GpuMs     = result.GpuMs * inv; // avg GPU ms / frame
                 avg.GpuSelfMs = result.GpuSelfMs * inv;
                 avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
+                std::vector<float>& perFrame = window.RowFrames[id];
+                if ( !perFrame.empty() )
+                {
+                    std::sort( perFrame.begin(), perFrame.end() );
+                    avg.MaxMs = static_cast<double>( perFrame.back() );
+                    avg.P99Ms = QuantileWithIdle( perFrame, frames, 0.99 );
+                    perFrame.clear();
+                }
+                result = Detail::ScopeAccum{};
                 m_Display.push_back( std::move( avg ) );
+            }
+            window.Touched.clear();
+
+            // THE HITCHES: the window's frames over kHitchFactor x its median wall time, slowest first.
+            m_DisplayHitches.clear();
+            m_DisplayHitchCount = 0;
+            m_DisplayMedianMs   = 0.0;
+            if ( !window.Frames.empty() )
+            {
+                window.FrameMsScratch.clear();
+                for ( const Detail::WindowState::FrameRecord& record : window.Frames )
+                    window.FrameMsScratch.push_back( record.FrameMs );
+                const auto middle = window.FrameMsScratch.begin() +
+                                    static_cast<std::ptrdiff_t>( window.FrameMsScratch.size() / 2 );
+                std::nth_element( window.FrameMsScratch.begin(), middle, window.FrameMsScratch.end() );
+                m_DisplayMedianMs = *middle;
+                window.HitchScratch.clear();
+                for ( uint32_t f = 0; f < window.Frames.size(); ++f )
+                    if ( m_DisplayMedianMs > 0.0 && window.Frames[f].FrameMs > kHitchFactor * m_DisplayMedianMs )
+                        window.HitchScratch.push_back( f );
+                m_DisplayHitchCount = static_cast<uint32_t>( window.HitchScratch.size() );
+                std::sort( window.HitchScratch.begin(), window.HitchScratch.end(),
+                           [&window]( uint32_t a, uint32_t b )
+                           { return window.Frames[a].FrameMs > window.Frames[b].FrameMs; } );
+                if ( window.HitchScratch.size() > kMaxPublishedHitches )
+                    window.HitchScratch.resize( kMaxPublishedHitches );
+                for ( const uint32_t f : window.HitchScratch )
+                {
+                    const Detail::WindowState::FrameRecord& record = window.Frames[f];
+                    HitchFrame                              hitch;
+                    hitch.FrameMs  = record.FrameMs;
+                    hitch.MedianMs = m_DisplayMedianMs;
+                    hitch.Frame    = f;
+                    for ( uint32_t k = 0; k < record.Count; ++k )
+                        hitch.Top.emplace_back( m_NameText[record.Ids[k]], record.SelfMs[k] );
+                    m_DisplayHitches.push_back( std::move( hitch ) );
+                }
+                window.Frames.clear();
             }
         }
         if ( m_SortByTime )
@@ -345,7 +481,8 @@ namespace Common::Profiling
                        []( const ScopeResult& a, const ScopeResult& b ) { return a.Name < b.Name; } );
 
         m_DisplayFrameMs      = windowMs * inv; // avg frame time over the window
-        m_DisplayFrameNamedMs = frameNamedMs * inv;
+        m_DisplayFrameNamedMs = window.NamedMs * inv;
+        window.NamedMs        = 0.0;
 
         // The mesh draw split's groups, averaged over the same frames (empty when the split was off all window).
         {
@@ -497,8 +634,14 @@ namespace Common::Profiling
         // lands in a LATER window than the CPU sample of the same scope. Over a window of hundreds of
         // frames that shifts the average by the lag divided by the window — well under a per cent — and it
         // keeps the read off the GPU's critical path, which is the whole point.
-        const uint32_t             nameId = LocalScopeName( {}, name ).Id;
-        Detail::ThreadStats* const stats  = LocalStats();
+        AddGpuSample( LocalScopeName( {}, name ).Id, inclusiveMs, selfMs );
+    }
+
+    void Profiler::AddGpuSample( const uint32_t nameId, const double inclusiveMs, const double selfMs )
+    {
+        if ( !m_Enabled || nameId == kNoScopeName )
+            return;
+        Detail::ThreadStats* const stats = LocalStats();
         if ( stats == nullptr )
             return;
         stats->Write( nameId,
@@ -509,6 +652,40 @@ namespace Common::Profiling
                           row.GpuCalls += 1;
                       } );
     }
+
+    const char* Profiler::ScopeNameText( const uint32_t id )
+    {
+        std::lock_guard<std::mutex> lock( m_NameMutex );
+        return id < m_NameText.size() ? m_NameText[id].c_str() : "";
+    }
+
+#if USE_OPTICK
+    ::Optick::EventDescription* Profiler::OptickEventOf( const InternedScopeName& name )
+    {
+        thread_local std::vector<::Optick::EventDescription*> t_Events;
+        if ( name.Id == kNoScopeName || name.Text == nullptr )
+        {
+            static ::Optick::EventDescription* const s_Unnamed =
+                 ::Optick::EventDescription::Create( "(unnamed scope)", __FILE__, __LINE__ );
+            return s_Unnamed;
+        }
+        if ( name.Id < t_Events.size() && t_Events[name.Id] != nullptr )
+            return t_Events[name.Id];
+        ::Optick::EventDescription* made = nullptr;
+        {
+            std::lock_guard<std::mutex> lock( m_NameMutex );
+            if ( name.Id >= m_OptickEvents.size() )
+                m_OptickEvents.resize( name.Id + 1, nullptr );
+            if ( m_OptickEvents[name.Id] == nullptr ) // the table's text lives as long as the process
+                m_OptickEvents[name.Id] = ::Optick::EventDescription::Create( name.Text, __FILE__, __LINE__ );
+            made = m_OptickEvents[name.Id];
+        }
+        if ( name.Id >= t_Events.size() )
+            t_Events.resize( name.Id + 1, nullptr );
+        t_Events[name.Id] = made;
+        return made;
+    }
+#endif
 
     void Profiler::AddDrawSplitSample( std::string_view pass, std::string_view mesh, std::string_view material,
                                        double gpuMs, const DrawSplitCounts& counts )
