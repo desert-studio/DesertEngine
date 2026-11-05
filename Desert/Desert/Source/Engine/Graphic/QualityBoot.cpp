@@ -3,10 +3,12 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/GlfwWindowMode.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -149,6 +151,18 @@ namespace Desert::Graphic::QualityBoot
             MachineSettings::KeepInSession( "unattended run" );
         }
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
+        // The recommended upscaler for this device at the display's refresh rate (RecommendUpscaler): its reason
+        // is logged on every start; ApplyRecommended applies it with the benchmark's levels only (the first run
+        // below, or the editor's "Apply recommended"), never over a selection machine.json holds.
+        {
+            const auto     window    = EngineContext::GetInstance().GetWindow();
+            const void*    native    = window ? window->GetNativeWindow() : nullptr;
+            const uint32_t refreshHz = GlfwDisplayRefreshHz( native );
+            Common::Scalability::UpscalerRecommendation upscaler =
+                 Common::Scalability::RecommendUpscaler( capabilities.Catalog, refreshHz );
+            LOG_INFO( "[Scalability] recommended upscaler: {}", upscaler.Reason );
+            Common::Scalability::QualityState::SetUpscalerRecommendation( std::move( upscaler ) );
+        }
         // Quality.Levels was read from the former positional list or missed a group of this build: the file is
         // rewritten by group name, with the level each group actually starts on (no legacy form kept on disk).
         if ( MachineSettings::LevelsMigrated() && !start.FromRecommended && !thisProcess )

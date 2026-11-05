@@ -76,7 +76,10 @@ namespace Desert::Graphic::API::Vulkan
             // The builder's RayTracingAccel override (VulkanCapabilityCatalog): the profile's answer first, then
             // the measured probe. Only under a profile; without one the field keeps its "not set" default.
             if ( !caps.Profile.Name.empty() )
+            {
                 probe.ProfileRayTracingAccel = caps.Profile.RayTracingAccel;
+                probe.ProfileArchitecture    = caps.Profile.Architecture;
+            }
             return probe;
         }
     } // namespace

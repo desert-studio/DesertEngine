@@ -94,6 +94,47 @@ namespace Common::Scalability
              static_cast<float>( 100.0 * std::exp( logSum / static_cast<double>( passes.size() ) ) ) );
     }
 
+    UpscalerRecommendation RecommendUpscaler( const CapabilityCatalog& catalog, const uint32_t targetHz )
+    {
+        const std::string_view architecture =
+             kGpuArchitectureNames[static_cast<std::size_t>( catalog.Architecture )];
+        UpscalerRecommendation recommendation;
+        if ( !CapabilityCatalog::Offers( catalog.AntiAliasingMethods, AntiAliasingMethod::DLSS ) )
+        {
+            recommendation.Reason = std::format(
+                 "the table's anti-aliasing level stands: DLSS Super Resolution is not offered here ({})",
+                 architecture );
+            return recommendation;
+        }
+        if ( catalog.Architecture != GpuArchitecture::Turing && catalog.Architecture != GpuArchitecture::Ampere )
+        {
+            recommendation.Reason = std::format(
+                 "the table's anti-aliasing level stands: {} is not a pre-Ada RTX architecture (Turing, Ampere)",
+                 architecture );
+            return recommendation;
+        }
+        if ( targetHz < kHighRefreshTargetHz )
+        {
+            recommendation.Reason =
+                 std::format( "the table's anti-aliasing level stands: {} at a {} Hz display, below {} Hz",
+                              architecture, targetHz, kHighRefreshTargetHz );
+            return recommendation;
+        }
+        const auto key = []( const Parameter parameter ) { return std::string( SpecOf( parameter ).Key ); };
+        const ParameterValue presetK = static_cast<ParameterValue>( DlssPreset::K );
+        recommendation.Overrides     = {
+             { key( Parameter::AntiAliasingMethod ), static_cast<ParameterValue>( AntiAliasingMethod::DLSS ) },
+             { key( Parameter::DlssPresetPerformance ), presetK },
+             { key( Parameter::DlssPresetUltraPerformance ), presetK },
+        };
+        recommendation.Reason = std::format(
+             "DLSS Super Resolution, preset K for Performance and Ultra Performance: {} at a {} Hz display (Ray "
+             "Reconstruction costs 3.4-3.5 ms there against ~0.9 ms for Super Resolution K; NVIDIA's M / L "
+             "defaults are its heavier networks); Ray Reconstruction stays the path tracer's denoiser",
+             architecture, targetHz );
+        return recommendation;
+    }
+
     bool CacheValid( const std::optional<RecommendedQuality>& cached, const BenchmarkCacheKey& now )
     {
         return cached.has_value() && cached->Key == now;

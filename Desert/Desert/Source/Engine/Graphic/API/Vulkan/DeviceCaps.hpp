@@ -201,6 +201,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::Scalability::RayTracingAcceleration RayTracingAccel =
              Common::Scalability::RayTracingAcceleration::Hardware; ///< Emulated on GTX 10/16
         bool     HideVendorUpscalers   = false; ///< no DLSS / DLSS-RR / frame generation (no tensor cores)
+        Common::Scalability::GpuArchitecture Architecture =
+             Common::Scalability::GpuArchitecture::Other; ///< the played card's (CapabilityCatalog::Architecture)
         bool     HideCooperativeMatrix = false;
         bool     HideShaderFloat16     = false;
         bool     HideInt64Atomics      = false;

@@ -529,6 +529,7 @@ namespace Desert::Graphic::API::Vulkan
                                 .VideoMemoryMiB        = 6144 },
                  DeviceProfile{ .Name            = "rtx2060",
                                 .RayTracingAccel = RayTracingAcceleration::Hardware,
+                                .Architecture    = Common::Scalability::GpuArchitecture::Turing,
                                 .VideoMemoryMiB  = 6144 },
             };
             return table;
