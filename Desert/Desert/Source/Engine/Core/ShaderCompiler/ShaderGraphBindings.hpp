@@ -138,7 +138,15 @@ namespace Desert::Core
     inline constexpr uint32_t kVsmReadLocalLightsBinding  = kSceneReadBindingFirst + 27u;
     static_assert( kVsmReadFrameDataBinding == 49u && kVsmReadLocalLightsBinding == 52u,
                    "Mesh/ForwardLocalLights.glslh spells 49-52" );
-    inline constexpr uint32_t kSceneReadBindingCount = 28u;
+    // THE VIEW'S DBUFFER (DECALS-DBUFFER; UE DBufferA/B/C): what the frame's decals projected onto the depth
+    // prepass BEFORE the G-buffer (A base colour, B world normal, C roughness / metallic / AO, each premultiplied
+    // by the decals' opacity with the transmittance left in alpha). Declared by Common/DBuffer.glslh into the
+    // G-buffer writers that receive decals; bound by name from the frame graph (BindSceneViewInputs), System.Black
+    // (transmittance 1: no decal) where the frame records no decal pass.
+    inline constexpr uint32_t kDBufferABinding       = kSceneReadBindingFirst + 28u;
+    inline constexpr uint32_t kDBufferBBinding       = kSceneReadBindingFirst + 29u;
+    inline constexpr uint32_t kDBufferCBinding       = kSceneReadBindingFirst + 30u;
+    inline constexpr uint32_t kSceneReadBindingCount = 31u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -206,7 +214,8 @@ namespace Desert::Core
     // paragraph on moving it above (10-22: no generated `.shader` under Resources spells a TextureBinding).
     inline constexpr uint32_t kGraphOwnedBindingFirst =
          kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 63u,
+    // Then from 63: the DBuffer's three slots joined the scene-read range (DECALS-DBUFFER).
+    static_assert( kGraphOwnedBindingFirst == 66u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -274,6 +283,9 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kVsmReadPageTableBinding ),
          DESERT_SCENE_BINDING_ROW( kVsmReadPhysicalPoolBinding ),
          DESERT_SCENE_BINDING_ROW( kVsmReadLocalLightsBinding ),
+         DESERT_SCENE_BINDING_ROW( kDBufferABinding ),
+         DESERT_SCENE_BINDING_ROW( kDBufferBBinding ),
+         DESERT_SCENE_BINDING_ROW( kDBufferCBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),

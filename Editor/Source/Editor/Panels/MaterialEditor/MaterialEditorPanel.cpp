@@ -107,6 +107,10 @@ namespace Desert::Editor
                     return "UI";
                 case D::Particle:
                     return "Particle";
+                case D::DeformStamp:
+                    return "Deform Stamp";
+                case D::DeferredDecal:
+                    return "Deferred Decal";
             }
             return "engine-internal";
         }

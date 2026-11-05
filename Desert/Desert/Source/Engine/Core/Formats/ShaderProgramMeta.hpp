@@ -214,9 +214,22 @@ namespace Desert::Core::Formats
         UI,      // the fill of a 2D UI element, rasterized by the Render2D batcher
         Particle,   // a VFX fragment (a stack module or a compiled emitter stack), compiled INTO a simulation
                     // program; never drawn and never assigned to a renderable
-        DeformStamp // the shape of a surface-deformation stamp (DEFORM-FIELD): a `Stamp { ... }` fragment compiled
-                    // INTO the deformation field's stamp program (Programs/Deformation/DeformStampApply.shader);
-                    // never drawn and never assigned to a renderable
+        DeformStamp, // the shape of a surface-deformation stamp (DEFORM-FIELD): a `Stamp { ... }` fragment
+                     // compiled INTO the deformation field's stamp program (Programs/Deformation/DeformStampApply
+                     // .shader); never drawn and never assigned to a renderable
+        DeferredDecal // UE MD_DeferredDecal (DECALS-DBUFFER): a box projector's material, drawn by
+                      // System::DecalRenderer into the view's DBuffer (Common/DBuffer.glslh) before the G-buffer;
+                      // assigned to a DecalComponent, never to a mesh
+    };
+
+    // UE EDecalDBufferMaskTechnique / the DBuffer's three targets: which of them a DeferredDecal material writes
+    // (its `DecalChannels` line). A DecalComponent may only mask channels OFF (its ChannelMask).
+    enum DecalChannel : uint8_t
+    {
+        kDecalChannelBaseColor          = 1u << 0u, // DBufferA
+        kDecalChannelNormal             = 1u << 1u, // DBufferB
+        kDecalChannelRoughnessMetalAO   = 1u << 2u, // DBufferC
+        kDecalChannelAll = kDecalChannelBaseColor | kDecalChannelNormal | kDecalChannelRoughnessMetalAO
     };
 
     // The enum's own spelling, for diagnostics. It lives beside the enum so a domain added above cannot
@@ -249,6 +262,8 @@ namespace Desert::Core::Formats
                 return "Particle";
             case ShaderDomain::DeformStamp:
                 return "DeformStamp";
+            case ShaderDomain::DeferredDecal:
+                return "DeferredDecal";
         }
         return "Unspecified";
     }
@@ -275,6 +290,7 @@ namespace Desert::Core::Formats
     inline constexpr ShaderDomain kTerrainPathDomain = ShaderDomain::Terrain;
     inline constexpr ShaderDomain kVolumePathDomain  = ShaderDomain::Volume;
     inline constexpr ShaderDomain kUIPathDomain      = ShaderDomain::UI;
+    inline constexpr ShaderDomain kDecalPathDomain   = ShaderDomain::DeferredDecal;
 
     constexpr bool DrawnByMeshPath( ShaderDomain domain )
     {
@@ -304,6 +320,14 @@ namespace Desert::Core::Formats
     constexpr bool DrawnByUIPath( ShaderDomain domain )
     {
         return domain == kUIPathDomain;
+    }
+
+    // The decal path is System::DecalRenderer: a unit box per DecalComponent, rasterized over the depth prepass
+    // into the DBuffer - fed the box's world-to-decal transform and the view, no vertex stream. A mesh slot asks
+    // DrawnByMeshPath and refuses a decal material by name; the decal path refuses every other domain.
+    constexpr bool DrawnByDecalPath( ShaderDomain domain )
+    {
+        return domain == kDecalPathDomain;
     }
 
     // What a template's `Properties Binding(n) TextureBinding(n)` asked for. Carried on the metadata (and
@@ -395,6 +419,9 @@ namespace Desert::Core::Formats
         std::vector<ShaderParam> Params;
         ShaderRenderState        State;
         ShaderDomain             Domain = ShaderDomain::Unspecified;
+        // A DeferredDecal shader's `DecalChannels` line (DecalChannel bits): the DBuffer targets it writes, so the
+        // decal pass masks the others' blend writes off. Parse-time only (Meta is not serialized); 0 elsewhere.
+        uint8_t DecalChannelMask = 0u;
 
         // Additional named passes declared by the shader (DSL `Pass "Name" { ... }` blocks).
         // Each is a separate program registered in the ShaderService as "<Shader>/<Pass>";

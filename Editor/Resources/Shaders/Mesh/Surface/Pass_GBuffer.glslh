@@ -24,6 +24,12 @@ layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 #include <Mesh/Surface/SurfaceWeather.glslh>
 #endif
 
+// The view's decals (DECALS-DBUFFER, Common/DBuffer.glslh), folded in by the one writer below: every mesh G-buffer
+// cell but the particles' (a sprite is not in the prepass depth the decals project onto; UE: no DBuffer on
+// translucent-sorted or particle vertex factories).
+#ifndef DESERT_SURFACE_PARTICLE_SPRITE
+#define DESERT_SURFACE_DBUFFER_RECEIVE
+#endif
 // The six G-buffer slots and their one writer (shared with the visibility resolve, Pass_VisibilityResolve.glslh).
 #include <Mesh/Surface/GBufferOutputs.glslh>
 #ifdef DESERT_SURFACE_PARALLAX

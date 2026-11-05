@@ -1,0 +1,87 @@
+#ifndef DESERT_DBUFFER_GLSLH
+#define DESERT_DBUFFER_GLSLH
+// THE VIEW'S DBUFFER (DECALS-DBUFFER; UE DBufferA/B/C, DBufferCommon.ush): the frame's decals projected onto the
+// depth prepass BEFORE the G-buffer, so each G-buffer writer folds them into its own surface and the deferred
+// composite, the GI and the reflections light a decal as the surface it lies on. A texel holds the decals'
+// premultiplied sum, and in alpha the TRANSMITTANCE left of the surface beneath (cleared to 1):
+//   A = base colour x opacity                 B = (world normal x 0.5 + 0.5) x opacity
+//   C = (roughness, metallic, AO) x opacity   alpha of each = 1 - opacity
+// The decal pass blends premultiplied (rgb = src + dst x (1 - src.a), alpha = dst x (1 - src.a)), so decals stack
+// in sort order. A frame without decals binds System.Black (0, 0, 0, 1): transmittance 1, and the fold below keeps
+// the surface's exact bits (the byte-equal frame). ONE encoding for the writer (DESERT_DBUFFER_WRITER: the decal
+// pass, which declares none of the reads) and every reader (the mesh G-buffer cells, TerrainGBuffer.shader).
+
+// The writer's three outputs for one decal fragment of @p opacity (0..1); a channel the decal does not write
+// outputs zero with zero opacity, which the blend leaves as it was.
+vec4 DesertDBufferEncodeA( const vec3 baseColor, const float opacity )
+{
+    return vec4( baseColor * opacity, opacity );
+}
+vec4 DesertDBufferEncodeB( const vec3 worldNormal, const float opacity )
+{
+    return vec4( ( worldNormal * 0.5 + 0.5 ) * opacity, opacity );
+}
+vec4 DesertDBufferEncodeC( const float roughness, const float metallic, const float ao, const float opacity )
+{
+    return vec4( vec3( roughness, metallic, ao ) * opacity, opacity );
+}
+
+// A world point in a decal's box (UE: the inverse of DecalToWorld): the box is the unit cube [-1, 1]^3 of
+// @p worldToDecal, x / y the texture plane, z the projection axis. Shared by the decal pass and the ray-hit
+// reader.
+vec3 DesertDecalLocal( const mat4 worldToDecal, const vec3 worldPosition )
+{
+    return ( worldToDecal * vec4( worldPosition, 1.0 ) ).xyz;
+}
+// 1 inside the box, falling to 0 over the last @p edge (0..1, in box units) of the projection axis, 0 outside.
+float DesertDecalBoxFade( const vec3 local, const float edge )
+{
+    if ( any( greaterThan( abs( local ), vec3( 1.0 ) ) ) )
+        return 0.0;
+    return clamp( ( 1.0 - abs( local.z ) ) / max( edge, 1.0e-4 ), 0.0, 1.0 );
+}
+
+#ifndef DESERT_DBUFFER_WRITER
+#include <Generated/SceneBindings.glslh>
+// Read with texelFetch at the receiver's own pixel (the DBuffer is the render resolution the G-buffer rasters at),
+// through a shared sampler state of its own (point, clamped; FrameGraphRefs.hpp kSceneViewDBufferSampler): a
+// G-buffer cell declares no other shared sampler a second declaration could collide with.
+layout( binding = kDBufferABinding ) uniform texture2D DBufferATexture;
+layout( binding = kDBufferBBinding ) uniform texture2D DBufferBTexture;
+layout( binding = kDBufferCBinding ) uniform texture2D DBufferCTexture;
+Uniform sampler DBufferSampler;
+
+struct DesertDBufferTexel
+{
+    vec4 A;
+    vec4 B;
+    vec4 C;
+};
+
+DesertDBufferTexel DesertReadDBuffer( const ivec2 pixel )
+{
+    DesertDBufferTexel t;
+    t.A = texelFetch( sampler2D( DBufferATexture, DBufferSampler ), pixel, 0 );
+    t.B = texelFetch( sampler2D( DBufferBTexture, DBufferSampler ), pixel, 0 );
+    t.C = texelFetch( sampler2D( DBufferCTexture, DBufferSampler ), pixel, 0 );
+    return t;
+}
+
+// THE ONE FOLD every receiver applies (UE ApplyDBufferData), each channel skipped where its transmittance is 1:
+// a texel no decal covers keeps its exact bits (a renormalised normal would not).
+void DesertApplyDBuffer( const DesertDBufferTexel t, inout vec3 baseColor, inout vec3 worldNormal,
+                         inout float roughness, inout float metallic, inout float ao )
+{
+    if ( t.A.a < 1.0 )
+        baseColor = baseColor * t.A.a + t.A.rgb;
+    if ( t.B.a < 1.0 )
+        worldNormal = normalize( worldNormal * t.B.a + ( t.B.rgb * 2.0 - ( 1.0 - t.B.a ) ) );
+    if ( t.C.a < 1.0 )
+    {
+        roughness = roughness * t.C.a + t.C.r;
+        metallic  = metallic * t.C.a + t.C.g;
+        ao        = ao * t.C.a + t.C.b;
+    }
+}
+#endif
+#endif

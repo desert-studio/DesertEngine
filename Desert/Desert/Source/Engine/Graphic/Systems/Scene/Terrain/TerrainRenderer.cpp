@@ -2177,9 +2177,9 @@ namespace Desert::Graphic::System
                             std::nullopt, std::nullopt, CameraDiceCullArgs() );
     }
 
-    void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
+    void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
-        // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples no scene/view input.
+        // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples the view's DBuffer alone.
         const GraphicsPipeline* const pipeline = GBufferPassPipeline();
         if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr ||
              pipeline == nullptr || m_ViewDraws.empty() )
@@ -2188,7 +2188,7 @@ namespace Desert::Graphic::System
         }
         const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::GBuffer );
         PrepareGroupExecutors( pass, executors );
-        (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, nullptr, m_DicePool, m_DiceCells,
+        (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, &view, m_DicePool, m_DiceCells,
                                   CameraDiceCullArgs() );
     }
 

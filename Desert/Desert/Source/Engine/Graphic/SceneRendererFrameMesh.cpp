@@ -690,10 +690,11 @@ namespace Desert::Graphic
              graph, "TerrainGBuffer", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return terrain->RenderGBufferManual( context ); },
-             [terrain]( RDG::PassBuilder& pass )
+             // The view's inputs as they stand AFTER "Deferred: Decals" (AddFrameGBuffer): the DBuffer it wrote.
+             [terrain, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              {
                  DESERT_PROFILE_SCOPE( "Terrain: GBuffer setup" );
-                 terrain->DeclareGBufferDraws( pass );
+                 terrain->DeclareGBufferDraws( pass, view );
              } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
