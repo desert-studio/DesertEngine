@@ -2,6 +2,7 @@
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
+#include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -14,6 +15,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshJacketOperation.hpp>
@@ -78,6 +80,8 @@ namespace Desert::Editor::Tools
                     return "Boolean";
                 case MS::Tool::Trim:
                     return "Trim";
+                case MS::Tool::Pattern:
+                    return "Pattern";
                 default:
                     return "?";
             }
@@ -87,6 +91,32 @@ namespace Desert::Editor::Tools
         {
             auto ref = scene.FindEntityByID( id );
             return ref ? ref->get().GetWorldTransform() : glm::mat4( 1.0f );
+        }
+
+        // The Pattern session's operator (UE UPatternTool's preview): every copy of @p input at its pattern
+        // transform, side by side in the source's object space - the mesh the source draws while the tool is
+        // open. The same layout Core::ApplyXformOperation writes on Accept (Geometry::PatternTransforms).
+        Common::ResultStr<Geometry::DeformOutcome> PatternPreview( const Geometry::DynamicMesh3&    input,
+                                                                   const Geometry::PatternSettings& settings,
+                                                                   const Geometry::ProgressCancel*  cancel )
+        {
+            auto transforms = Geometry::PatternTransforms( settings );
+            if ( !transforms.IsSuccess() )
+                return Common::MakeError<Geometry::DeformOutcome>( transforms.GetError() );
+            std::vector<Geometry::MergePart> parts;
+            parts.reserve( transforms.GetValue().size() );
+            for ( const glm::mat4& m : transforms.GetValue() )
+                parts.push_back( { input, m, {} } );
+            if ( cancel != nullptr && cancel->Cancelled() )
+                return Common::MakeError<Geometry::DeformOutcome>( "Pattern: cancelled" );
+            auto merged = Geometry::MergeMeshes( parts );
+            if ( !merged.IsSuccess() )
+                return Common::MakeError<Geometry::DeformOutcome>( merged.GetError() );
+            Geometry::DeformOutcome out;
+            out.Mesh = std::move( merged.ExtractValue().Mesh );
+            out.Report =
+                 std::format( "Pattern ({}): {} copies", Geometry::ToString( settings.Shape ), parts.size() );
+            return out;
         }
 
         // UE UMeshSpaceDeformerTool::Setup: the gizmo on the mesh's bounds centre, its Z (the deformation axis)
@@ -143,7 +173,8 @@ namespace Desert::Editor::Tools
                tool == MS::Tool::HoleFill || tool == MS::Tool::Remesh || tool == MS::Tool::Simplify ||
                tool == MS::Tool::Jacket || tool == MS::Tool::Project || tool == MS::Tool::WeldEdges ||
                tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph ||
-               tool == MS::Tool::VoxBlend || tool == MS::Tool::Boolean || tool == MS::Tool::Trim;
+               tool == MS::Tool::VoxBlend || tool == MS::Tool::Boolean || tool == MS::Tool::Trim ||
+               tool == MS::Tool::Pattern;
     }
 
     bool MeshProcessingTool::SelectionStillMatches() const
@@ -154,6 +185,9 @@ namespace Desert::Editor::Tools
             const auto& selection = Core::SelectionManager::GetSelection();
             return selection.size() == 2 && selection[0] == m_Session->Entity && selection[1] == m_Session->Other;
         }
+        // Pattern previews on one source: a second selected entity ends the session (Accept writes the selection).
+        if ( m_Session->Tool == MS::Tool::Pattern && Core::SelectionManager::GetSelection().size() != 1 )
+            return false;
         // Project: the source is still the first of the two selected and the target the second.
         const auto selected = SessionEntity( m_Session->Tool );
         if ( m_Session->Tool == MS::Tool::Project &&
@@ -249,7 +283,9 @@ namespace Desert::Editor::Tools
                                 m_Session->Tool == MS::Tool::VoxBlend );
             const bool boolean =
                  m_Session && ( m_Session->Tool == MS::Tool::Boolean || m_Session->Tool == MS::Tool::Trim );
+            const bool pattern = m_Session && m_Session->Tool == MS::Tool::Pattern;
             if ( !( boolean         ? AcceptBoolean( scene, ms )
+                    : pattern       ? AcceptPattern( scene, ms )
                     : createsEntity ? AcceptCreateFromSelected( scene, ms )
                                     : Accept( scene, ms ) ) )
                 return; // refused: the tool stays open with its preview, and says why
@@ -286,6 +322,12 @@ namespace Desert::Editor::Tools
             m_Session->BooleanInputs  = std::move( booleanInputs );
             HideOther( scene );
             Recompute( scene, ms, *m_Session );
+            return;
+        }
+        // UE UPatternTool lays out every selected mesh; ours previews one source (the session's single input).
+        if ( ms.ActiveTool == MS::Tool::Pattern && Core::SelectionManager::GetSelection().size() != 1 )
+        {
+            ms.DeformStatus = "Pattern: select one entity with a static mesh.";
             return;
         }
         const auto selected = SessionEntity( ms.ActiveTool );
@@ -394,6 +436,7 @@ namespace Desert::Editor::Tools
         m_VoxMorph      = ms.VoxMorph;
         m_VoxBlend      = ms.VoxBlend;
         m_Boolean          = ms.Boolean;
+        m_Pattern          = ms.XformPattern;
         m_Normals       = ms.AttribNormals;
         m_Tangents      = ms.AttribTangents;
         m_HoleFill         = ms.MeshHoleFill;
@@ -423,12 +466,12 @@ namespace Desert::Editor::Tools
         session.Pending        = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = session.Tool, input = session.Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
-              voxBlend = m_VoxBlend, boolean = m_Boolean, booleanInputs = session.BooleanInputs,
-              other = session.OtherInput, normals = m_Normals, tangents = m_Tangents, holeFill = m_HoleFill,
-              holes = m_HoleFillSelected, jacket = m_Jacket, remesh = m_Remesh, simplify = m_Simplify,
-              project = m_Project, weldEdges = m_WeldEdges, targetMesh = session.TargetMesh,
-              targetToInput = session.TargetToInput, warp = m_Warp, latticeSettings = m_Lattice,
-              points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
+              voxBlend = m_VoxBlend, boolean = m_Boolean, pattern = m_Pattern,
+              booleanInputs = session.BooleanInputs, other = session.OtherInput, normals = m_Normals,
+              tangents = m_Tangents, holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket,
+              remesh = m_Remesh, simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges,
+              targetMesh = session.TargetMesh, targetToInput = session.TargetToInput, warp = m_Warp,
+              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
               objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
@@ -453,6 +496,8 @@ namespace Desert::Editor::Tools
                          return Core::RunBooleanTool( Core::BooleanTool::Boolean, boolean, booleanInputs );
                      case MS::Tool::Trim:
                          return Core::RunBooleanTool( Core::BooleanTool::Trim, boolean, booleanInputs );
+                     case MS::Tool::Pattern:
+                         return PatternPreview( *input, pattern, cancel.get() );
                      case MS::Tool::HoleFill:
                          return Geometry::HoleFill( *input, holes, holeFill );
                      case MS::Tool::Jacket:
@@ -672,6 +717,36 @@ namespace Desert::Editor::Tools
             HideOther( scene );
             return refuse( done.GetError() );
         }
+        m_Session.reset();
+        return true;
+    }
+
+    bool MeshProcessingTool::AcceptPattern( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        const auto refuse = [&]( const std::string& why )
+        {
+            LOG_ERROR( "[Modeling] Pattern Accept refused: {0}", why );
+            ToastManager::Push( std::format( "Pattern Accept refused: {}", why ), ToastLevel::Error, 10.0f );
+            return false;
+        };
+        if ( !m_Session || !m_Session->Preview )
+            return refuse( ms.DeformStatus.empty() ? std::string( "select one entity with a static mesh" )
+                                                   : ms.DeformStatus );
+        // The source goes back to what it held, so the undo step records the scene as it was; then the layout the
+        // preview showed (m_Pattern) is written as Core::ApplyXformOperation does - merged into the source, or the
+        // copies as new entities - one undo step.
+        Restore( scene, *m_Session );
+        Core::XformArgs args = Core::XformArgsFromModelingState();
+        args.Pattern         = m_Pattern;
+        const auto done      = Core::ApplyXformOperation( scene, Core::XformOperation::Pattern, args );
+        if ( !done.IsSuccess() )
+        {
+            // Refused: the preview stays on screen and the tool open.
+            if ( const auto ref = scene.FindEntityByID( m_Session->Entity ); ref )
+                (void)ECS::SetEditableMesh( scene.GetRegistry(), ref->get().GetHandle(), m_Session->Preview );
+            return refuse( done.GetError() );
+        }
+        LOG_INFO( "[Modeling] Pattern accepted: {0}", ms.DeformStatus );
         m_Session.reset();
         return true;
     }
@@ -993,6 +1068,9 @@ namespace Desert::Editor::Tools
                 return ms.Boolean.Operation != m_Boolean.Operation;
             case MS::Tool::Trim:
                 return ms.Boolean.Trimmed != m_Boolean.Trimmed || ms.Boolean.Side != m_Boolean.Side;
+            // The layout; Separate entities only matters to Accept.
+            case MS::Tool::Pattern:
+                return !( ms.XformPattern == m_Pattern );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

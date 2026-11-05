@@ -2828,6 +2828,7 @@ namespace Desert::Editor
             case T::VoxBlend:
             case T::Boolean:
             case T::Trim:
+            case T::Pattern:
             case T::PaintGroups:                // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }

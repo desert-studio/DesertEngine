@@ -66,6 +66,9 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_VECTOR_DIFFERENCE, "Boolean", true };
             case T::Trim:
                 return { ICON_MDI_CONTENT_CUT, "Trim", true };
+            // UE's Pattern previews the copies on the source until Accept writes them (MeshProcessingTool).
+            case T::Pattern:
+                return { ICON_MDI_DOTS_GRID, "Pattern", true };
             // UE's Voxel Morphology previews until Accept, which creates the result entity (MeshProcessingTool).
             case T::VoxMorph:
                 return { ICON_MDI_CUBE_SEND, "VoxMorph", true };

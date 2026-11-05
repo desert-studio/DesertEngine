@@ -179,6 +179,9 @@ namespace Desert::Editor::Tools
         // written as Core::CommitBooleanTool says (into the operated input or a new entity, the inputs deleted /
         // hidden / kept) - one undo step.
         [[nodiscard]] bool AcceptBoolean( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // Pattern's Accept (UE UPatternTool::OnShutdown): the source is restored and the previewed layout is
+        // written by Core::ApplyXformOperation (merged into the source or as new entities) - one undo step.
+        [[nodiscard]] bool AcceptPattern( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
         [[nodiscard]] bool SelectionStillMatches() const;
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
@@ -198,6 +201,7 @@ namespace Desert::Editor::Tools
         Geometry::VoxMorphSettings   m_VoxMorph;
         Geometry::VoxBlendSettings   m_VoxBlend;
         Core::BooleanToolArgs        m_Boolean;
+        Geometry::PatternSettings    m_Pattern;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::HoleFillSettings m_HoleFill;

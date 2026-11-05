@@ -1,0 +1,37 @@
+# PATTERN-SESSION: Pattern is a tool session as UE UPatternTool - copies of the selected Box preview on it, a change of shape / count recomputes them, Cancel creates nothing, Accept writes them (here as separate entities) as one undo step
+# 100 cm Box at the origin, Spacing 150 cm: Grid 3 x 3 over X and Z, Line along X.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 300,650,1050
+Дано --subject viewport set Camera.Direction -0.02,-0.55,-0.83
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано --subject modeling set Pattern.Spacing 150
+Дано --subject modeling set Pattern.SpacingB 150
+Дано run Modeling "Pattern axis: X"
+Дано run Modeling "Pattern axis B: Z"
+Дано run Modeling "Pattern: Separate entities: on"
+Тогда-вид 0_box one 100 cm Box at the origin
+Когда run Modeling "Pattern shape: Grid"
+Когда --subject modeling set Pattern.Count 3
+Когда --subject modeling set Pattern.CountB 3
+Когда run Modeling "XForm: Pattern"
+Тогда 1_preview_grid a 3 x 3 grid of Box copies on the floor plane; the tool bar at the viewport bottom reads Pattern with Accept and Cancel; Outliner still lists one Box
+Когда run Modeling "Pattern shape: Line"
+Когда --subject modeling set Pattern.Count 5
+Тогда 2_preview_line five Box copies in one line along X; tool bar still reads Pattern; Outliner one Box
+Когда run Modeling "Active tool: Cancel"
+Тогда 3_cancel one Box only, no copies; no tool bar; Outliner lists one Box, no new entities
+Когда run Entity Box
+Когда --subject modeling set Pattern.Count 4
+Когда run Modeling "XForm: Pattern"
+Когда run Modeling "Active tool: Accept"
+Тогда 4_accept four Boxes in a line along X; Outliner lists Box, Box Pattern 1, Box Pattern 2, Box Pattern 3; no tool bar
+Когда run Action Undo
+Тогда 5_undo one Box again; Outliner lists one Box

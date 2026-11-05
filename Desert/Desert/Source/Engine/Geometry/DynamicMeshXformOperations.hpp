@@ -191,6 +191,8 @@ namespace Desert::Geometry
         float Radius         = 300.0f;
         float SweepDegrees   = 360.0f; // +-360 = a full ring (no copy doubled on the source)
         bool  OrientToCircle = true;   // each copy turned with its position, like UE's "Orient"
+
+        bool operator==( const PatternSettings& ) const = default;
     };
 
     // The copies' transforms in the source's own space; copy 0 is always the identity (the source stays where
