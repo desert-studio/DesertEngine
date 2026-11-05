@@ -228,6 +228,11 @@ namespace Desert::Graphic
         // Strength's is: the fields only mean anything once Enabled is true.
         float BorderFadeUv = 0.0f;
         bool  Enabled      = false;
+        // WHICH CONTENT the map holds: VolumetricCloudRenderer::GetShadowMapContentGeneration, moved by every
+        // accepted march that rewrote the copy the readers sample (a full re-march, the hero patch, a band refresh
+        // swapped to the front). A reader that caches its own result across frames (the Sky-View LUT,
+        // SkyboxRenderer::DeclareAtmosphereLutNodes) keys on it with WorldToMap; a per-frame reader ignores it.
+        uint64_t MapGeneration = 0;
 
         /// Whether there is a map to read at all. The ONE predicate — a consumer that spelled it out for
         /// itself would be free to spell it differently, and the symptom of that is one render path

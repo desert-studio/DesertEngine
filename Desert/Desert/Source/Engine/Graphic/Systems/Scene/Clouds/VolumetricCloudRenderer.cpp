@@ -1539,6 +1539,10 @@ namespace Desert::Graphic::System
         if ( m_ShadowMapValid )
         {
             const uint32_t frontBefore = m_ShadowRefresh.Front;
+            // The front's texels are new when this frame re-marched it whole or patched the hero rectangle into
+            // it; a band into the back counts once the back is swapped in (below).
+            if ( m_ShadowHeroPlanned || m_ShadowRefreshPlan.Kind == CloudShadowRefreshKind::Full )
+                ++m_ShadowMapContentGeneration;
             if ( m_ShadowHeroPlanned )
             {
                 // The front now carries this frame's slot-A march over the hero rectangle, and nothing of slot A
@@ -1557,6 +1561,7 @@ namespace Desert::Graphic::System
             // A completed back became the front: it was marched without slot A and carries no patch yet.
             if ( m_ShadowRefresh.Front != frontBefore )
             {
+                ++m_ShadowMapContentGeneration;
                 m_ShadowHeroBuilt     = false;
                 m_ShadowHeroFrontRect = {};
             }

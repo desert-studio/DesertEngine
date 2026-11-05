@@ -1930,6 +1930,12 @@ namespace Desert::Graphic
         FrameTextures textures( graph );
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Sky light" );
         AddFrameSkyLight( graph, textures );
+        // The cloud layer's shadow map BEFORE the per-view sky LUTs: they march the sun term through it (UE
+        // VolumetricCloud "Shadow On Atmosphere" - the aerial perspective and the Sky-View LUT darken under a
+        // cloud), as do the lit passes and the froxels after them. It reads no depth, G-buffer or LUT; the
+        // frame's refusals below it are error returns that drop the whole graph.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Cloud shadow map" );
+        AddFrameCloudShadowMap( graph, textures );
         // The per-view sky LUTs (Sky-View, aerial perspective) right after the cached pair they sample, ahead of
         // every reader (UE RenderSkyAtmosphereLookUpTables, before the base pass): the sky behind the scene, the
         // clouds wherever they are added, the fog, the translucency - all read this frame's LUTs.
@@ -2387,11 +2393,9 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Add passes" );
         // The passes, by stage (GPU-COST-13): one row per stage of building the graph, inside "Add passes".
         DESERT_PROFILE_PHASES( addPhases );
-        DESERT_PROFILE_PHASE( addPhases, "Add passes: Particles + cloud shadow" );
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Particles" );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesSimulate( graph );
-
-        AddFrameCloudShadowMap( graph, textures );
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
@@ -4962,8 +4966,9 @@ namespace Desert::Graphic
         // FROM THE VIEW AND NOT FROM THE CONSTANT, because the quality tier scales the map's extent and
         // the fade is a fixed WORLD width across it — a consumer reading a fixed UV would put the
         // gradient in the wrong place on every tier but one.
-        cloudShadow.BorderFadeUv = view.BorderFadeUv;
-        cloudShadow.Enabled      = true;
+        cloudShadow.BorderFadeUv  = view.BorderFadeUv;
+        cloudShadow.Enabled       = true;
+        cloudShadow.MapGeneration = clouds->GetShadowMapContentGeneration();
         return cloudShadow;
     }
 
