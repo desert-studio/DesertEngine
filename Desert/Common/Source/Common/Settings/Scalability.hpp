@@ -399,6 +399,14 @@ namespace Common::Scalability
         // SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute. Key "RenderPipeline.ParallelExecute": equal
         // at every level (a CPU recording choice, not a quality step), so only a machine override names it.
         ParallelExecute,
+        // 0/1: a view's pure setup runs as tasks on the workers (RENDER-PARALLEL-SETUP; UE RDG setup tasks,
+        // FRDGBuilder::AddSetupTask): the grass varieties' plans and the deferred G-buffer and masked draw lists
+        // are computed by index on Common::TaskGroup tasks, then applied on the render thread in fixed order. 0 =
+        // every task runs inline in launch order: the same plans, for a byte-compare and as the rollback. Read by
+        // SceneRenderer::OnUpdate; the Editor's `--parallel-setup <0|1>` overrides it for the session
+        // (RenderConfig::ParallelSetupOverride). Key "RenderPipeline.ParallelSetup": equal at every level (a CPU
+        // scheduling choice, not a quality step), so only a machine override names it.
+        ParallelSetup,
         // The landscape grass blades' shadow LOD bias (GPU-COST-20; UE r.Shadow LOD bias / grass shadow LOD): each
         // step draws a blade into every cascade as if the cascade's texel were twice as wide - a strip level
         // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->

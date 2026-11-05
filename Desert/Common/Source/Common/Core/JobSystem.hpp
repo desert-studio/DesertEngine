@@ -326,4 +326,46 @@ namespace Common
         size_t                   m_BackgroundCap     = 1; // BackgroundWorkerCap()
         bool                     m_Stop              = false;
     };
+
+    // A VIEW'S SETUP TASKS AND THE JOIN THAT ENDS THEM (RENDER-PARALLEL-SETUP; UE FRDGBuilder::AddSetupTask over
+    // UE::Tasks, FParallelMeshDrawCommandPass). The render thread launches pure setup work - a plan computed by
+    // index into a slot of its own - joins, and then applies the plans serially in a fixed order, so the frame
+    // does not depend on which thread ran what. A task touches no shared member state and never the render graph
+    // (RDG::Builder's entry points check InTask() and say so with a "[RenderTask]" line).
+    //
+    // Launch() submits a High job (JobPriority) per task. Join() CLAIMS AND RUNS every task no worker has started
+    // yet on the calling thread, and only then waits - and only for tasks a worker is already running - so the
+    // join never waits on a queued job (the ParallelRanges argument: no deadlock when every worker is busy, and a
+    // task may itself run a TaskGroup or a ParallelFor). A task body is noexcept by contract (UE::Tasks and
+    // AddSetupTask carry no exceptions): a failure is a value in the task's own plan slot, and a throw ends the
+    // process at the throw site, crash dump there. Parallel off (RenderPipeline.ParallelSetup 0): Launch runs
+    // the task at once on the calling thread, in launch order - the same plans, the A/B and the rollback.
+    class TaskGroup
+    {
+    public:
+        explicit TaskGroup( bool parallel );
+        ~TaskGroup(); // joins what was not joined (RAII, as std::jthread): the tasks write the launcher's frames
+        TaskGroup( const TaskGroup& )            = delete;
+        TaskGroup& operator=( const TaskGroup& ) = delete;
+
+        /// @p name a string with static storage (the profiler's row for the task).
+        void Launch( const char* name, std::function<void()> task );
+
+        /// Runs every unstarted task here, then waits for the running ones.
+        void Join() noexcept;
+
+        [[nodiscard]] bool Parallel() const noexcept
+        {
+            return m_Parallel;
+        }
+
+        /// True on a thread that is running a TaskGroup task (a worker, or the joining thread inside Join).
+        [[nodiscard]] static bool InTask() noexcept;
+
+    private:
+        struct Shared;
+        std::shared_ptr<Shared> m_Shared;
+        bool                    m_Parallel = false;
+        bool                    m_Joined   = true;
+    };
 } // namespace Common

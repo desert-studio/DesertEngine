@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <array>
 #include <map>
+#include <string_view>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -234,6 +235,10 @@ namespace Desert::Graphic::System
             void SetBinned( BinnedIssue issue );
             // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
             void               Add( MeshDrawCommand command );
+            // Moves @p other's commands to the end of this list, as if each had been Added here in its order (the
+            // blocks of first use, the triangles, the first error): a concurrent build's own list joining the
+            // pass's. @p other holds plain commands only (no SetBinned / SetIndirect) and is left cleared.
+            void               Append( MeshDrawList& other );
             void               Fail( std::string error );
             [[nodiscard]] bool IsEmpty() const
             {
@@ -908,6 +913,30 @@ namespace Desert::Graphic::System
                                                                 const Desert::Mesh*       mesh,
                                                                 GpuDriven::PrimitiveIndex primitive,
                                                                 uint64_t                  hidden );
+        // The same walk into the caller's @p words (a concurrent build's DrawBuildScratch::WalkWords), not the
+        // renderer's m_ClusterWalkScratch: reads only this frame's candidates and the draw-command cache.
+        [[nodiscard]] std::optional<SubmeshMask> CpuWalkHidden( const ClusterWalkView&    view,
+                                                                const Desert::Mesh*       mesh,
+                                                                GpuDriven::PrimitiveIndex primitive,
+                                                                uint64_t hidden, std::vector<uint64_t>& words );
+        // THE SAME WALK WITHOUT ITS ONE WRITE (a chunk of the static walk on a setup task, BuildStaticDraws; UE
+        // FParallelMeshDrawCommandPass: the chunks compute, only the interning stays serial). Nullopt: the record
+        // is not walked. Else Low is the mask's first word and @p words[1, 1 + HighWords) the words past submesh
+        // 63 that CpuWalkHidden interns (InternWalkWords); HighWords 0: the mask is Low alone. Writes only @p
+        // words.
+        struct UninternedWalk
+        {
+            uint64_t    Low       = 0;
+            std::size_t HighWords = 0;
+        };
+        [[nodiscard]] std::optional<UninternedWalk> CpuWalkUninterned( const ClusterWalkView&    view,
+                                                                       const Desert::Mesh*       mesh,
+                                                                       GpuDriven::PrimitiveIndex primitive,
+                                                                       uint64_t                  hidden,
+                                                                       std::vector<uint64_t>&    words ) const;
+        // The mask of first word @p low and words past submesh 63 @p high, interned in m_ClusterWalkWords: a
+        // serial walk's write (nullopt in a setup task, MissInSetupTask).
+        [[nodiscard]] std::optional<SubmeshMask> InternWalkWords( uint64_t low, std::span<const uint64_t> high );
         // THE CLUSTER-CUT CANDIDATES OF THIS FRAME (SceneRenderer::AddFrameDrawBins, after InstanceCull's main
         // phase took them with candidates appended): per primitive, the submeshes whose DAG rows InstanceCull
         // appends for EVERY cut view (MakeVirtualGeometryCandidates' spans, one bit per submesh, no 64 cap). Such
@@ -1851,8 +1880,28 @@ namespace Desert::Graphic::System
         // Build the draws of one lit mesh node into @p list (the node's setup; MeshDrawList says why). The
         // per-group material state (Materials[] / bones / instance SSBOs, the shared scene state) is written
         // here, at final size, before any draw is recorded; a refused build is the list's error.
-        void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
-        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
+        // The call's mode (DrawBuildMode) and its own reused vectors (DrawBuildScratch) are parameters, not
+        // renderer state: the G-buffer's two early-Z halves record on two setup tasks at once
+        // (DeclareGBufferDraws), after a serial Resolve call per half filled every renderer cache they read and
+        // made every shared write (DrawBuildPhase). There is no lock: a Record call only reads.
+        // Returns the ISM instances drawn (GetIsmInstancesDrawn; a Depth half and a Record call count none).
+        struct DrawBuildMode;
+        struct DrawBuildScratch;
+        [[nodiscard]] uint32_t BuildStaticDraws( MeshRendererDetail::MeshDrawList& list, const DrawBuildMode& mode,
+                                                 DrawBuildScratch& scratch );
+        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list, const DrawBuildMode& mode,
+                                DrawBuildScratch& scratch );
+        // The Rest half's GPU-generated sections (the landscape grass, BuildGpuInstancedDraws), which a None-half
+        // BuildStaticDraws builds as its tail: DeclareGBufferDraws builds them serially after the halves joined,
+        // appended where the Rest half's tail was. BuildGpuInstancedDraws stays off the tasks (not audited).
+        void BuildRestGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list );
+        // After a Record call joined: the instance transforms it packed, uploaded into each lent recorder's
+        // InstanceTransforms block (serial; the recorders' other writes were the Resolve call's).
+        void FlushStaticUploads( DrawBuildScratch& scratch );
+        // A renderer cache missed @p what inside a setup task (Common::TaskGroup::InTask): the serial Resolve
+        // call did not resolve it, which is a bug. Says so with a "[RenderTask]" line, asserts, and returns true;
+        // the caller then draws nothing for it. False off a task (the caller fills the cache).
+        [[nodiscard]] bool MissInSetupTask( std::string_view what ) const;
         // The static and instanced state of one geometry pass (Forward, GBuffer, Depth): the per-object pass state,
         // the stand-in that records a waiting material's objects and its pipeline, the instanced pass state and
         // the renderer's instanced spare. Forward under the Wireframe view: the wireframe twins; under VirtualMaps:
@@ -1886,9 +1935,39 @@ namespace Desert::Graphic::System
             Equal,
             Rest,
         };
-        // Whether the half being built takes the group of @p source (its surface) keyed @p key.
+        // ONE CALL OF BuildStaticDraws / BuildSkinnedDraws (UE: the pass-setup context
+        // FParallelMeshDrawCommandPass hands each pass by value): the pass it builds for - Forward
+        // (MeshGeometryPass), GBuffer ("Deferred: GBuffer") or Depth ("Forward: Depth Prepass", "Deferred: Masked
+        // Depth Prepass") - and the early-Z half.
+        // WHICH PART OF ONE CALL runs (RENDER-PARALLEL-SETUP; UE FParallelMeshDrawCommandPass: what a task needs
+        // is resolved before the tasks, which only read). Full: all of it (every serial pass). Resolve: the
+        // G-buffer half's serial pre-pass - the walk, the half's split, every cache miss (cell pipelines,
+        // two-sided twins, stand-ins, material service siblings, the tracker, the instanced variant instances,
+        // the material rows), the ISM culls and their copies, and every shared-material write (Lend, ApplyTo,
+        // SetPushMatrix) - into the call's DrawBuildScratch. It prepares what the Record call draws and no more:
+        // the group plan it makes once (planGroup, on setup tasks: buckets, batches, singles and their levels)
+        // asks a group's singles material only of a group whose plan keeps a single draw, and a set is prepared
+        // only when a batch or an ISM draws into it. Record: the half's setup task - packs and records that plan
+        // into its own list and scratch and decides nothing; FlushStaticUploads after the join. A miss in a
+        // Record call is a bug (MissInSetupTask).
+        enum class DrawBuildPhase : uint8_t
+        {
+            Full,
+            Resolve,
+            Record,
+        };
+        struct DrawBuildMode
+        {
+            MeshPass            Pass  = MeshPass::Forward;
+            DeferredPrepassHalf Half  = DeferredPrepassHalf::None;
+            DrawBuildPhase      Phase = DrawBuildPhase::Full;
+            // Resolve: the other half's scratch whose walk this half takes (one walk of the queue for both).
+            const DrawBuildScratch* Walk = nullptr;
+        };
+        // Whether @p half takes the group of @p source (its surface) keyed @p key.
         struct PrepassCellKey;
-        [[nodiscard]] bool DeferredHalfTakes( const DataDrivenMaterial* source, const PrepassCellKey& key ) const;
+        [[nodiscard]] bool DeferredHalfTakes( DeferredPrepassHalf half, const DataDrivenMaterial* source,
+                                              const PrepassCellKey& key ) const;
         // Whether this frame's EarlyZPass puts @p surface in the deferred prepass: Masked = IsMaskedSurface, All =
         // every non-translucent surface, Off = none.
         [[nodiscard]] bool EarlyZAdmits( const DataDrivenMaterial* surface ) const;
@@ -2361,9 +2440,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>            m_SkinnedGBufferEqualPipeline;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferEqualMaterial;
         MaterialInstancePtr                          m_InstancedGBufferEqualInstance;
-        // This frame's EarlyZPass (SetEarlyZPass) and the half being built (DeferredPrepassHalf).
-        ::Common::Scalability::EarlyZPassMode m_EarlyZPass   = ::Common::Scalability::EarlyZPassMode::All;
-        DeferredPrepassHalf m_DeferredHalf = DeferredPrepassHalf::None;
+        // This frame's EarlyZPass (SetEarlyZPass); the half being built is the builders' DrawBuildMode.
+        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::All;
         // GRASS-VIS's two pass states (carriers: CellPipeline swaps in the section's cell): the visibility raster
         // (the masked prepass's depth state with depth writes off) and the resolve (the G-buffer's instanced state,
         // CullMode None - a full-screen triangle). Null: no grass visibility path, the sections keep the G-buffer.
@@ -2377,9 +2455,6 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>             m_SkinnedGBufferShader;
         std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
         std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
-        // The pass BuildStaticDraws / BuildSkinnedDraws build for: Forward (MeshGeometryPass), GBuffer ("Deferred:
-        // GBuffer") or Depth ("Forward: Depth Prepass"); set by the Declare that calls them, Forward otherwise.
-        MeshPass m_GeometryPass = MeshPass::Forward;
         // THE FORWARD DEPTH PREPASS's cells (SetupDepthPrepass): the default surface's (path x Depth) programs as
         // pass states, the instanced spare (material + instance), the unowned spares - the G-buffer pass's set,
         // for the view's depth. Null = refused (said by SetupDepthPrepass).
@@ -2435,7 +2510,7 @@ namespace Desert::Graphic::System
         // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
         // or Depth on the forward path, with the prepass's cells): static/instanced/grass/skinned not under the
         // Wireframe view (@p wireframeReplaced: the path has a wireframe twin writing its own depth).
-        [[nodiscard]] bool PairsWithPrepass( bool wireframeReplaced ) const;
+        [[nodiscard]] bool PairsWithPrepass( MeshPass pass, bool wireframeReplaced ) const;
         // This frame's prepass decision for @p key, when the prepass ran this frame and decided it.
         [[nodiscard]] std::optional<MaterialPipelineTracker::CellDraw> PrepassCellDraw( const PrepassCellKey& key ) const;
         [[nodiscard]] bool PrepassCurrent() const;
@@ -3278,6 +3353,10 @@ namespace Desert::Graphic::System
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
             bool                        HasOverrides = false;
+            // A single draw's plan (BuildStaticDraws' planGroup): the mask it was bucketed by and, for a single,
+            // its LOD level - decided on the setup task, replayed by the call that records it.
+            SubmeshMask Hidden{};
+            uint32_t    Level = 0;
         };
         struct InstancedDraw
         {
@@ -3316,7 +3395,20 @@ namespace Desert::Graphic::System
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
             std::vector<InstancedDraw>  Draws;
+            // A Resolve call (DrawBuildPhase): the ISMs' instances and draws, which the Record call puts behind
+            // the auto-batched ones (the Full call's order), and the recorder's pipelines and its Materials lend.
+            std::vector<glm::mat4>     IsmTransforms;
+            std::vector<InstancedDraw> IsmDraws;
+            GraphicsPipeline*          OneSided = nullptr; // CellPipeline( instanced state, Mat )
+            GraphicsPipeline*          TwoSided = nullptr; // CullPermutation( OneSided, true )
+            bool                       Lent     = false;
+            // A Resolve call: a group's plan (BuildStaticDraws' planGroup, StaticGroupPlan::Batches) gives this
+            // set an auto-batched draw, so its Record call packs one; with no ISM draw either, the set is not
+            // prepared.
+            bool Drawn = false;
         };
+        // @p set's packed transforms into its recorder's InstanceTransforms block, at final size.
+        static void UploadInstanceTransforms( InstancedBatchSet& set );
 
         // One recorded generic draw, resolved in BuildGenericDraws' first pass and recorded after every recording
         // material was lent the scene material table. Row: its row in that table (SyncGpuScene).
@@ -3350,20 +3442,27 @@ namespace Desert::Graphic::System
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
         // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
         // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
-        // do not). The key is the field's immutable transforms snapshot (MeshECSSystem replaces it on a revision
-        // change, never edits it; held, so its address is not reused while the entry lives) and its mesh; every
-        // other input CollectIsmInstances reads is stored by value and compared: the mesh's local box and LOD
-        // screen sizes (an edited mesh keeps its address), the view frustum's six planes, the field's cull
-        // distance, the wind's bounds pad (the only part of the wind the cull reads) and the LOD view. Equal
+        // do not). The key is every input CollectIsmInstances reads that is the field's own: its immutable
+        // transforms snapshot (MeshECSSystem replaces it on a revision change, never edits it; held, so its
+        // address is not reused while the entry lives), its mesh, its cull distance and the wind's bounds pad (the
+        // only part of the wind the cull reads). So two ISMs share an entry only when their culls are the same
+        // cull (the sections of one field), and a call's culls write disjoint entries (RENDER-PARALLEL-SETUP: on
+        // setup tasks). The inputs a call gives are stored by value and compared: the mesh's local box and LOD
+        // screen sizes (an edited mesh keeps its address), the view frustum's six planes and the LOD view. Equal
         // inputs give the same instances and levels bit for bit, so a hit draws byte for byte what a rebuild
         // draws. Shared by every pass that walks the main view in the frame (the masked depth prepass, both
         // G-buffer halves, the forward base pass) and by the next frames while nothing moved. An entry no pass
         // asked for during a frame is dropped by ClearQueues (the field left the scene or changed snapshot).
         struct IsmViewCullKey
         {
-            const std::vector<glm::mat4>* Transforms                                = nullptr;
-            const Desert::Mesh*           Mesh                                      = nullptr;
-            bool                          operator==( const IsmViewCullKey& ) const = default;
+            const std::vector<glm::mat4>* Transforms = nullptr;
+            const Desert::Mesh*           Mesh       = nullptr;
+            // InstanceCullDistance Min / Max and WindBoundsPad by bit pattern (std::bit_cast): a NaN is one key
+            // too.
+            uint32_t CullMinBits                               = 0;
+            uint32_t CullMaxBits                               = 0;
+            uint32_t PadBits                                   = 0;
+            bool     operator==( const IsmViewCullKey& ) const = default;
         };
         struct IsmViewCullKeyHash
         {
@@ -3374,26 +3473,39 @@ namespace Desert::Graphic::System
             std::shared_ptr<const std::vector<glm::mat4>> Snapshot; // the key's transforms, held
             Common::Math::AABB                            LocalBounds{};
             std::array<glm::vec4, 6>                      Planes{}; // (normal, distance) per Core::FrustumPlane
-            InstanceCullDistance                          Cull{};
-            float                                         BoundsPad = 0.0f;
             Geometry::LODView                             View{};
             std::vector<float>                            LodScreenSizes;
             std::vector<glm::mat4>                        Visible;
             std::vector<uint32_t>                         Levels;
             uint64_t                                      Generation = 0; // the last frame a pass asked for it
+            uint64_t                                      Call       = 0; // the last call that looked it up
         };
         std::unordered_map<IsmViewCullKey, IsmViewCull, IsmViewCullKeyHash> m_IsmViewCulls;
         uint64_t                                                            m_IsmViewCullGeneration = 0;
-        // ISM @p ism's instances the main view @p frustum / @p view keeps, and the level of each
-        // (CollectIsmInstances with the view as both the cull and the LOD view), from m_IsmViewCulls when every
-        // input is the cached entry's, else collected into it.
-        const IsmViewCull& CachedIsmViewCull( const InstancedMeshRenderData& ism, const Core::Frustum& frustum,
-                                              const Geometry::LODView& view );
+        uint64_t m_IsmViewCullCall = 0; // one per Full / Resolve call's ISM loop (BuildStaticDraws)
+        // ISM @p ism's entry for the main view @p frustum / @p view, stamped for this frame and call - serial, it
+        // may insert. Stale false: every input is the entry's, and its Visible / Levels are the cull
+        // (CollectIsmInstances with the view as both the cull and the LOD view), or this call already looked it up
+        // (a second section of the field: its inputs are the first's). Stale true: the new inputs are stored, and
+        // CollectIsmViewCull fills the entry before it is read - a setup task may, it writes that entry alone - so
+        // each entry is filled at most once per call.
+        struct IsmViewCullLookup
+        {
+            IsmViewCull* Entry = nullptr;
+            bool         Stale = false;
+        };
+        [[nodiscard]] IsmViewCullLookup LookUpIsmViewCull( const InstancedMeshRenderData& ism,
+                                                           const Core::Frustum&           frustum,
+                                                           const Geometry::LODView&       view );
+        static void CollectIsmViewCull( IsmViewCull& entry, const InstancedMeshRenderData& ism,
+                                        const Core::Frustum& frustum );
         uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
         // outer vector would destroy them and hand the steady state an allocation per material per frame.
-        // `m_ScratchInstSetCount` is how many of them this frame is using.
+        // `InstSetCount` is how many of them this call is using. One scratch per concurrent BuildStaticDraws /
+        // BuildSkinnedDraws call (m_DrawBuildScratch: [0] the serial builds and the Equal half, [1] the Rest
+        // half).
         //
         // INDIRECT, AND THAT IS THE POINT AND NOT AN OVERSIGHT. The accumulation hands out a POINTER to
         // one set and then keeps filling it while later groups may ask for sets of their own; held by
@@ -3403,9 +3515,107 @@ namespace Desert::Graphic::System
         // is exactly the kind of "safe for now" that the next edit in DrawStaticMeshes turns into a
         // corrupted draw list. A unique_ptr costs one indirection per access and makes the address
         // stable by construction.
-        std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
-        std::size_t                                     m_ScratchInstSetCount = 0;
-        std::vector<ObjDraw>        m_ScratchSingles;
+        struct DrawBuildScratch
+        {
+            std::vector<std::unique_ptr<InstancedBatchSet>> InstSets;
+            std::size_t                                     InstSetCount = 0;
+            std::vector<uint64_t>                           WalkWords; // CpuWalkHidden's
+            // THE BUCKETING OF ONE SLICE OF GROUPS (BuildStaticDraws' planGroup, one setup task per slice): the
+            // group's (mesh, hidden mask) buckets, reused by index as InstSets are (BucketCount of them in use),
+            // one bucket's batchable objects and their levels. Read by no one past the group's plan.
+            using MeshBucket = std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>;
+            struct BucketScratch
+            {
+                std::vector<MeshBucket> Buckets;
+                std::size_t             BucketCount = 0;
+                std::vector<ObjDraw>    Batchable;
+                std::vector<uint32_t>   LodLevels;
+            };
+            std::vector<BucketScratch> BucketSlices;
+            // A Resolve call's plan, which the same half's Record call reads (DrawBuildPhase). WalkGroups: the
+            // walk's groups before the half's split (the other half's Resolve takes them, DrawBuildMode::Walk);
+            // Groups: this half's (split, the stand-in group appended); GroupPlans: one per Groups entry, reused
+            // by index so their vectors keep their capacity.
+            using StaticGroup = std::pair<DataDrivenMaterial*, std::vector<const StaticMeshRenderData*>>;
+            // One instanced draw of a group's plan: Count objects of Instances from First, all of Mesh at Level.
+            struct PlannedBatch
+            {
+                Desert::Mesh* Mesh = nullptr;
+                SubmeshMask   Hidden{};
+                uint32_t      Level         = 0;
+                uint32_t      MaterialIndex = 0;
+                uint32_t      First         = 0;
+                uint32_t      Count         = 0;
+            };
+            // UE FParallelMeshDrawCommandPass: the setup decides, the record replays. The group's bucketing is
+            // made ONCE, by the call that plans (Full or Resolve), from one read of the objects' instances: its
+            // batches and its singles. A Record call packs and records exactly these and buckets nothing, so the
+            // Resolve call's answers (Set->Drawn, DrawMat) are the plan's by construction.
+            struct StaticGroupPlan
+            {
+                InstancedBatchSet*  Set      = nullptr; // where its batches accumulate (setForGroup), or none
+                DataDrivenMaterial* DrawMat  = nullptr; // records its singles, lent and applied; null: not drawn
+                GraphicsPipeline*   OneSided = nullptr; // CellPipeline( pass state, DrawMat )
+                GraphicsPipeline*   TwoSided = nullptr; // CullPermutation( OneSided, true )
+                bool                      Opaque   = false;   // not empty, not Translucent: planned at all
+                std::vector<PlannedBatch> Batches;            // empty without a Set
+                std::vector<const StaticMeshRenderData*> Instances; // the batches' objects, batch after batch
+                std::vector<ObjDraw>                     Singles;   // the per-object draws, in bucket order
+            };
+            std::vector<StaticGroup>                                     WalkGroups;
+            std::unordered_map<const StaticMeshRenderData*, SubmeshMask> Walked; // masks unlike the entry's
+            std::vector<StaticGroup>                                     Groups;
+            std::vector<StaticGroupPlan>                                 GroupPlans;
+            bool                                                         Planned = false; // Resolve completed
+            // ONE CHUNK OF THE STATIC WALK (BuildStaticDraws: one setup task each, WalkStaticChunk), reused by
+            // index so its vectors keep their capacity: its groups in first-seen order (GroupCount of Groups in
+            // use), the records whose walk mask is not their own HiddenSubmeshes (Masks: the words past submesh 63
+            // still to intern, HighWords of them from WordsAt in Words) and its CpuWalkUninterned words.
+            struct WalkedMask
+            {
+                const StaticMeshRenderData* Data      = nullptr;
+                uint64_t                    Low       = 0;
+                uint32_t                    WordsAt   = 0;
+                uint32_t                    HighWords = 0;
+            };
+            struct StaticWalkChunk
+            {
+                std::vector<StaticGroup> Groups;
+                std::size_t              GroupCount = 0;
+                std::vector<WalkedMask>  Masks;
+                std::vector<uint64_t>    Words;
+                std::vector<uint64_t>    WalkWords;
+            };
+            std::vector<StaticWalkChunk> WalkChunks;
+            // A Full / Resolve call's ISMs past their serial checks, in queue order (IsmQueued: the set and the
+            // cull entry each packs from), and the stale entries their culls fill on setup tasks (IsmStale: each
+            // once).
+            struct QueuedIsm
+            {
+                const InstancedMeshRenderData* Ism = nullptr;
+                SubmeshMask                    Hidden{};
+                DataDrivenMaterial*            Mat      = nullptr;
+                InstancedBatchSet*             Set      = nullptr;
+                const IsmViewCull*             Cull     = nullptr;
+                bool                           StandsIn = false;
+            };
+            struct StaleIsmCull
+            {
+                IsmViewCull*                   Entry = nullptr;
+                const InstancedMeshRenderData* Ism   = nullptr;
+            };
+            std::vector<QueuedIsm>    IsmQueued;
+            std::vector<StaleIsmCull> IsmStale;
+        };
+        std::array<DrawBuildScratch, 2> m_DrawBuildScratch;
+        // Records [first, last) of m_StaticQueue walked in the main view @p view / @p frustum into @p chunk
+        // (BuildStaticDraws' static walk): CpuWalkUninterned, the frustum test, the section's surface. A setup
+        // task may run it: it reads the queue and the walk's inputs and writes @p chunk alone.
+        void WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum, std::size_t first,
+                              std::size_t last, DrawBuildScratch::StaticWalkChunk& chunk ) const;
+        // The G-buffer halves' own lists (DeclareGBufferDraws: Equal, Rest statics, Rest skinned), appended to
+        // m_GBufferDraws in the old order once the tasks joined. Members so the vectors keep their capacity.
+        std::array<MeshRendererDetail::MeshDrawList, 3> m_GBufferHalfDraws;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         // A per-object caster: its entry and the submeshes it hides (the entry's, plus a VSM level's clustered
         // ones).

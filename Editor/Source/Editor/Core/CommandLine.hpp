@@ -101,6 +101,7 @@ namespace Desert::Editor
          { "--device-profile", true, "gtx1660" },
          { "--log-level", true, "debug" },
          { "--rdg-compile-cache", true, "0" },
+         { "--parallel-setup", true, "0" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
@@ -177,6 +178,10 @@ namespace Desert::Editor
         /// `--rdg-compile-cache <0|1>`: the render graph's compiled-plan cache (RDG::CompileCache, switched by
         /// Graphic::RenderConfig::RdgCompileCache). 0 compiles every graph every frame, as before the cache.
         bool RdgCompileCache = true;
+
+        /// `--parallel-setup <0|1>`: RenderPipeline.ParallelSetup for this session (Graphic::RenderConfig::
+        /// ParallelSetupOverride), no machine.json written. 0 runs every setup task inline (the A/B). -1: unset.
+        int ParallelSetup = -1;
 
         /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
         /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
@@ -560,6 +565,17 @@ namespace Desert::Editor
                          value );
                 }
                 options.RdgCompileCache = value == "1";
+            }
+            else if ( arg == "--parallel-setup" )
+            {
+                if ( value != "0" && value != "1" )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--parallel-setup '{}' is neither 0 (every setup task inline, in launch order) nor 1 "
+                         "(setup tasks on the workers).",
+                         value );
+                }
+                options.ParallelSetup = value == "1" ? 1 : 0;
             }
             else if ( arg == "--stream-delay-ticks" )
             {

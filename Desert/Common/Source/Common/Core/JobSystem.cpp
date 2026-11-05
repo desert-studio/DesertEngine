@@ -313,4 +313,132 @@ namespace Common
                 worker.join();
         m_Workers.clear();
     }
+
+    namespace
+    {
+        // How many TaskGroup tasks this thread is inside (a task may run a group of its own).
+        thread_local uint32_t t_TaskDepth = 0;
+    } // namespace
+
+    /// The tasks one TaskGroup shares with the jobs it submitted. Held by shared_ptr, so a job the pool runs after
+    /// the group was joined and destroyed finds every task claimed rather than a dead object. A task is CLAIMED
+    /// ONCE, UNDER THE LOCK, together with the count of tasks a worker runs: "every task claimed and nothing
+    /// active" then really means no thread will touch the launcher's frame again (RangeShare's argument).
+    struct TaskGroup::Shared
+    {
+        struct Task
+        {
+            const char*           Name = nullptr;
+            std::function<void()> Body;
+            bool                  Claimed = false;
+        };
+
+        std::mutex              Mutex;
+        std::condition_variable Done;
+        std::vector<Task>       Tasks;
+        size_t                  Active = 0; // tasks a WORKER runs right now
+
+        /// Under the lock: task @p index, unless someone has it. @p helper counts the claim as active.
+        bool Claim( const size_t index, std::function<void()>& body, const char*& name, const bool helper )
+        {
+            std::lock_guard<std::mutex> lk( Mutex );
+            if ( index >= Tasks.size() || Tasks[index].Claimed )
+                return false;
+            Tasks[index].Claimed = true;
+            body                 = std::move( Tasks[index].Body );
+            name                 = Tasks[index].Name;
+            if ( helper )
+                ++Active;
+            return true;
+        }
+
+        /// A task body is noexcept by contract: no catch here, a throw terminates at its own site.
+        void Run( const char* name, std::function<void()>& body ) noexcept
+        {
+#if DESERT_DEV_INSTRUMENTS
+            OPTICK_EVENT_DYNAMIC( name );
+#else
+            (void)name;
+#endif
+            ++t_TaskDepth;
+            body();
+            --t_TaskDepth;
+            body = nullptr; // the task's captures die on the thread that ran it, before the join returns
+        }
+
+        void Finish()
+        {
+            std::lock_guard<std::mutex> lk( Mutex );
+            if ( --Active == 0 )
+                Done.notify_all();
+        }
+    };
+
+    TaskGroup::TaskGroup( const bool parallel )
+         : m_Shared( std::make_shared<Shared>() ), m_Parallel( parallel && JobSystem::Get().WorkerCount() > 0 )
+    {
+    }
+
+    TaskGroup::~TaskGroup()
+    {
+        if ( !m_Joined )
+            Join();
+    }
+
+    bool TaskGroup::InTask() noexcept
+    {
+        return t_TaskDepth > 0;
+    }
+
+    void TaskGroup::Launch( const char* name, std::function<void()> task )
+    {
+        m_Joined = false;
+        if ( !m_Parallel )
+        {
+            // The switch off: the task runs here and now, still under InTask (the builder's check holds either
+            // way).
+            m_Shared->Run( name, task );
+            return;
+        }
+        size_t index = 0;
+        {
+            std::lock_guard<std::mutex> lk( m_Shared->Mutex );
+            index = m_Shared->Tasks.size();
+            m_Shared->Tasks.push_back( Shared::Task{ name, std::move( task ), false } );
+        }
+        // A job the pool refuses (shutting down) owes nothing: the task stays unclaimed and Join runs it.
+        std::shared_ptr<Shared> shared = m_Shared;
+        JobSystem::Get().Submit(
+             [shared, index]() noexcept
+             {
+                 std::function<void()> body;
+                 const char*           taskName = nullptr;
+                 if ( !shared->Claim( index, body, taskName, true ) )
+                     return;
+                 shared->Run( taskName, body );
+                 shared->Finish();
+             },
+             JobPriority::High );
+    }
+
+    void TaskGroup::Join() noexcept
+    {
+        m_Joined = true;
+        // THE CALLER WORKS FIRST: every task no worker has claimed runs here, so the wait below is only ever for a
+        // task that is running on a worker - never for a job still in a queue.
+        for ( size_t index = 0;; ++index )
+        {
+            {
+                std::lock_guard<std::mutex> lk( m_Shared->Mutex );
+                if ( index >= m_Shared->Tasks.size() )
+                    break;
+            }
+            std::function<void()> body;
+            const char*           name = nullptr;
+            if ( m_Shared->Claim( index, body, name, false ) )
+                m_Shared->Run( name, body );
+        }
+        std::unique_lock<std::mutex> lk( m_Shared->Mutex );
+        m_Shared->Done.wait( lk, [this] { return m_Shared->Active == 0; } );
+    }
 } // namespace Common

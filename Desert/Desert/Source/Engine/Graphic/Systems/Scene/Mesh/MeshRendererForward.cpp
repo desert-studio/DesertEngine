@@ -9,6 +9,10 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
+#include <algorithm>
+#include <bit>
 #include <format>
 #include <iterator>
 #include <unordered_map>
@@ -1197,6 +1201,8 @@ namespace Desert::Graphic::System
         {
             return it->second.get();
         }
+        if ( MissInSetupTask( "a two-sided twin pipeline" ) )
+            return nullptr;
         GraphicsPipelineSpecification spec = pipeline->GetSpecification();
         spec.CullMode                      = CullMode::None;
         spec.DebugName                     = std::format( "{}_TwoSided", spec.DebugName );
@@ -1493,13 +1499,19 @@ namespace Desert::Graphic::System
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     std::size_t MeshRenderer::IsmViewCullKeyHash::operator()( const IsmViewCullKey& key ) const noexcept
     {
-        const std::size_t h = std::hash<const void*>{}( key.Transforms );
-        return h ^ ( std::hash<const void*>{}( key.Mesh ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u ) );
+        std::size_t h       = std::hash<const void*>{}( key.Transforms );
+        const auto  combine = [&h]( const std::size_t v )
+        { h ^= v + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u ); };
+        combine( std::hash<const void*>{}( key.Mesh ) );
+        combine( std::hash<uint32_t>{}( key.CullMinBits ) );
+        combine( std::hash<uint32_t>{}( key.CullMaxBits ) );
+        combine( std::hash<uint32_t>{}( key.PadBits ) );
+        return h;
     }
 
-    const MeshRenderer::IsmViewCull& MeshRenderer::CachedIsmViewCull( const InstancedMeshRenderData& ism,
-                                                                      const Core::Frustum&           frustum,
-                                                                      const Geometry::LODView&       view )
+    MeshRenderer::IsmViewCullLookup MeshRenderer::LookUpIsmViewCull( const InstancedMeshRenderData& ism,
+                                                                     const Core::Frustum&           frustum,
+                                                                     const Geometry::LODView&       view )
     {
         const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
         std::array<glm::vec4, 6> planes{};
@@ -1508,32 +1520,112 @@ namespace Desert::Graphic::System
             const Core::Frustum::Plane& plane = frustum.GetPlane( static_cast<Core::FrustumPlane>( p ) );
             planes[p]                         = glm::vec4( plane.Normal, plane.Distance );
         }
-        const float               pad      = WindBoundsPad( ism.Wind );
+        const IsmViewCullKey      key{ .Transforms  = ism.Transforms.get(),
+                                       .Mesh        = ism.Mesh,
+                                       .CullMinBits = std::bit_cast<uint32_t>( ism.CullDistance.Min ),
+                                       .CullMaxBits = std::bit_cast<uint32_t>( ism.CullDistance.Max ),
+                                       .PadBits     = std::bit_cast<uint32_t>( WindBoundsPad( ism.Wind ) ) };
         const std::vector<float>& lodSizes = ism.Mesh->GetLODScreenSizes();
-        IsmViewCull&              entry    = m_IsmViewCulls[IsmViewCullKey{ ism.Transforms.get(), ism.Mesh }];
+        IsmViewCull&              entry    = m_IsmViewCulls[key];
         entry.Generation                   = m_IsmViewCullGeneration;
+        // A second ISM of the key in this call (the field's other sections): the same inputs, one cull.
+        if ( entry.Call == m_IsmViewCullCall )
+            return { .Entry = &entry, .Stale = false };
+        entry.Call = m_IsmViewCullCall;
         const bool same = entry.Snapshot == ism.Transforms && entry.LocalBounds.Min == localBounds.Min &&
                           entry.LocalBounds.Max == localBounds.Max && entry.Planes == planes &&
-                          entry.Cull.Min == ism.CullDistance.Min && entry.Cull.Max == ism.CullDistance.Max &&
-                          entry.BoundsPad == pad && entry.View.Origin == view.Origin &&
-                          entry.View.Projection == view.Projection && entry.LodScreenSizes == lodSizes;
+                          entry.View.Origin == view.Origin && entry.View.Projection == view.Projection &&
+                          entry.LodScreenSizes == lodSizes;
         if ( same )
-            return entry;
-        DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
+            return { .Entry = &entry, .Stale = false };
         entry.Snapshot       = ism.Transforms;
         entry.LocalBounds    = localBounds;
         entry.Planes         = planes;
-        entry.Cull           = ism.CullDistance;
-        entry.BoundsPad      = pad;
         entry.View           = view;
         entry.LodScreenSizes = lodSizes;
-        CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, view, view,
-                             lodSizes, entry.Visible, entry.Levels );
-        return entry;
+        return { .Entry = &entry, .Stale = true };
     }
 
-    void MeshRenderer::BuildStaticDraws( MeshDrawList& list )
+    void MeshRenderer::CollectIsmViewCull( IsmViewCull& entry, const InstancedMeshRenderData& ism,
+                                           const Core::Frustum& frustum )
     {
+        DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
+        CollectIsmInstances( *ism.Transforms, entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
+                             entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels );
+    }
+
+    void MeshRenderer::WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum,
+                                        const std::size_t first, const std::size_t last,
+                                        DrawBuildScratch::StaticWalkChunk& chunk ) const
+    {
+        chunk.GroupCount = 0;
+        chunk.Masks.clear();
+        chunk.Words.clear();
+        // The chunk's own groupFor: its groups reused by index, so their vectors keep their capacity.
+        const auto groupOf = [&chunk]( DataDrivenMaterial* mat ) -> std::vector<const StaticMeshRenderData*>&
+        {
+            for ( std::size_t g = 0; g < chunk.GroupCount; ++g )
+                if ( chunk.Groups[g].first == mat )
+                    return chunk.Groups[g].second;
+            if ( chunk.GroupCount == chunk.Groups.size() )
+                chunk.Groups.emplace_back();
+            DrawBuildScratch::StaticGroup& made = chunk.Groups[chunk.GroupCount++];
+            made.first                          = mat;
+            made.second.clear();
+            return made.second;
+        };
+        for ( std::size_t i = first; i < last; ++i )
+        {
+            const StaticMeshRenderData& data = m_StaticQueue[i];
+            if ( data.Mesh == nullptr || !data.MaterialSlots )
+                continue;
+
+            // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
+            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
+            // work.
+            const std::optional<UninternedWalk> walk =
+                 CpuWalkUninterned( view, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes, chunk.WalkWords );
+            if ( !walk )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                continue;
+            // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).
+            if ( walk->HighWords != 0u || walk->Low != data.HiddenSubmeshes )
+            {
+                chunk.Masks.push_back( { .Data      = &data,
+                                         .Low       = walk->Low,
+                                         .WordsAt   = static_cast<uint32_t>( chunk.Words.size() ),
+                                         .HighWords = static_cast<uint32_t>( walk->HighWords ) } );
+                const auto high = chunk.WalkWords.begin() + 1;
+                chunk.Words.insert( chunk.Words.end(), high,
+                                    high + static_cast<std::ptrdiff_t>( walk->HighWords ) );
+            }
+
+            // The entry's section slot drives its batch (one entry per section material, made at submit by
+            // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
+            if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
+                groupOf( slot.Surface ).push_back( &data );
+        }
+    }
+
+    uint32_t MeshRenderer::BuildStaticDraws( MeshDrawList& list, const DrawBuildMode& mode,
+                                             DrawBuildScratch& scratch )
+    {
+        uint32_t ismInstances = 0; // the ISM instances drawn (returned; a Depth half counts none)
+        // DrawBuildPhase: a Record call takes what its half's Resolve call planned into the scratch, and only it.
+        const bool resolveCall = mode.Phase == DrawBuildPhase::Resolve;
+        const bool recordCall  = mode.Phase == DrawBuildPhase::Record;
+        if ( recordCall && !scratch.Planned )
+            return 0;
+        if ( !recordCall )
+        {
+            scratch.Planned      = false;
+            scratch.InstSetCount = 0;
+            scratch.Groups.clear();
+            scratch.Walked.clear();
+            if ( mode.Walk == nullptr )
+                scratch.WalkGroups.clear();
+        }
         // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
         // function are drawn INSIDE it, so `if ( m_StaticQueue.empty() ) return;` meant an Instanced
         // Static Mesh was drawn only in a scene that also held at least one ordinary static mesh —
@@ -1551,14 +1643,14 @@ namespace Desert::Graphic::System
         // empty it. The shadow pass has its own loop and never had this guard, which is why the draw
         // counter still reported thousands of instances while the colour frame held none.
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
-            return;
+            return 0;
         // The Wireframe view's static and instanced twins write their own depth: not prepassed.
-        if ( m_GeometryPass == MeshPass::Depth && WireframeView() )
-            return;
+        if ( mode.Pass == MeshPass::Depth && WireframeView() )
+            return 0;
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
-            return;
+            return 0;
 
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
@@ -1580,7 +1672,7 @@ namespace Desert::Graphic::System
         // Group draws by material so each material's per-object data fills ONE storage buffer, indexed
         // per draw (GPU-scene style). Objects of the same material that wrote a shared buffer per-draw
         // would otherwise collapse to the last writer.
-        std::vector<std::pair<DataDrivenMaterial*, std::vector<const StaticMeshRenderData*>>> groups;
+        auto&      groups   = scratch.Groups;
         const auto groupFor = [&]( DataDrivenMaterial* mat ) -> std::vector<const StaticMeshRenderData*>&
         {
             for ( auto& [m, v] : groups )
@@ -1598,44 +1690,90 @@ namespace Desert::Graphic::System
         // test against the depth it wrote. The deferred early-Z pass walks the G-buffer's CPU records alone: a
         // record the G-buffer bins hold is drawn by its bin, with its own depth.
         const ClusterWalkView mainWalk =
-             m_GeometryPass == MeshPass::Depth && m_DeferredHalf != DeferredPrepassHalf::Depth
+             mode.Pass == MeshPass::Depth && mode.Half != DeferredPrepassHalf::Depth
                   ? UnbinnedWalkView( GpuDriven::MeshPass::DepthPrepass )
-                  : BinnedWalkView( m_GeometryPass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
+                  : BinnedWalkView( mode.Pass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
                                                                         : GpuDriven::MeshPass::GBuffer,
                                     kBinnedMainView );
-        std::unordered_map<const StaticMeshRenderData*, SubmeshMask> walked;
+        auto&      walked   = scratch.Walked;
         const auto hiddenOf = [&walked]( const StaticMeshRenderData* obj ) -> SubmeshMask
         {
             const auto found = walked.find( obj );
             return found != walked.end() ? found->second : SubmeshMask{ obj->HiddenSubmeshes };
         };
-        // The CPU walk of the queue, timed as one row (GPU-COST-37: Add passes' split).
+        // The CPU walk of the queue, timed as one row (GPU-COST-37: Add passes' split). ONE walk for both G-buffer
+        // halves: the Rest half's Resolve call takes the Equal half's (DrawBuildMode::Walk), and a Record call
+        // walks nothing (its groups are its Resolve call's).
+        if ( resolveCall && mode.Walk != nullptr )
+        {
+            groups = mode.Walk->WalkGroups;
+            walked = mode.Walk->Walked;
+        }
+        else if ( !recordCall )
         {
             DESERT_PROFILE_SCOPE( "Mesh: Static walk" );
-            for ( const auto& data : m_StaticQueue )
+            // ON THE WORKERS (RENDER-PARALLEL-SETUP; UE FParallelMeshDrawCommandPass / ComputeViewVisibility: the
+            // walk is a ParallelFor over contiguous chunks, each into its own list, merged in primitive order).
+            // About WorkerCount() + 1 chunks of the queue - the joining thread walks one too - none below
+            // kStaticWalkChunkMin records; each is one setup task writing only its own
+            // DrawBuildScratch::WalkChunks entry (WalkStaticChunk). The merge is serial and in queue order: per
+            // chunk, its masks interned in queue order (the walk's one write, InternWalkWords), then its groups in
+            // first-seen order appended through groupFor. A material's first record lies in the first chunk that
+            // holds it, at its first place there, so the groups come out in the serial walk's first-seen order,
+            // and each group's records in queue order: the same groups, records and masks as one walk of the whole
+            // queue. ParallelSetup 0 walks the chunks inline, in queue order.
+            constexpr std::size_t kStaticWalkChunkMin = 128; // records: below it a task costs more than it walks
+            const std::size_t     queued              = m_StaticQueue.size();
+            const std::size_t     participants        = ::Common::JobSystem::Get().WorkerCount() + 1;
+            const std::size_t chunks = std::clamp<std::size_t>( queued / kStaticWalkChunkMin, 1u, participants );
+            if ( scratch.WalkChunks.size() < chunks )
+                scratch.WalkChunks.resize( chunks );
             {
-                if ( data.Mesh == nullptr || !data.MaterialSlots )
-                    continue;
-
-                // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it
-                // and the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no
-                // culling work.
-                const std::optional<SubmeshMask> walk =
-                     CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
-                if ( !walk )
-                    continue;
-                if ( !IsVisibleInView( frustum, data.Transform,
-                                       Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
-                    continue;
-                if ( !( *walk == SubmeshMask{ data.HiddenSubmeshes } ) )
-                    walked.emplace( &data, *walk );
-
-                // The entry's section slot drives its batch (one entry per section material, made at submit by
-                // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked
-                // out).
-                if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
-                    groupFor( slot.Surface ).push_back( &data );
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                for ( std::size_t c = 0; c < chunks; ++c )
+                {
+                    const std::size_t                  first = queued * c / chunks;
+                    const std::size_t                  last  = queued * ( c + 1 ) / chunks;
+                    DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
+                    tasks.Launch( "Mesh: Static walk chunk",
+                                  [this, &mainWalk, &frustum, &chunk, first, last]() noexcept
+                                  { WalkStaticChunk( mainWalk, frustum, first, last, chunk ); } );
+                }
+                tasks.Join();
             }
+            // A mask that cannot be interned (a walk inside a setup task, MissInSetupTask) drops its record, as
+            // the serial walk's CpuWalkHidden did: none in a Full or a Resolve call.
+            std::vector<const StaticMeshRenderData*> unwalked;
+            for ( std::size_t c = 0; c < chunks; ++c )
+            {
+                const DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
+                for ( const DrawBuildScratch::WalkedMask& masked : chunk.Masks )
+                {
+                    std::optional<SubmeshMask> mask = SubmeshMask{ masked.Low };
+                    if ( masked.HighWords != 0u )
+                        mask = InternWalkWords( masked.Low, std::span<const uint64_t>( chunk.Words )
+                                                                 .subspan( masked.WordsAt, masked.HighWords ) );
+                    if ( !mask )
+                        unwalked.push_back( masked.Data );
+                    else if ( !( *mask == SubmeshMask{ masked.Data->HiddenSubmeshes } ) )
+                        walked.emplace( masked.Data, *mask );
+                }
+                for ( std::size_t g = 0; g < chunk.GroupCount; ++g )
+                {
+                    const auto& [mat, objects] = chunk.Groups[g];
+                    if ( unwalked.empty() )
+                    {
+                        auto& into = groupFor( mat );
+                        into.insert( into.end(), objects.begin(), objects.end() );
+                        continue;
+                    }
+                    for ( const StaticMeshRenderData* obj : objects )
+                        if ( std::find( unwalked.begin(), unwalked.end(), obj ) == unwalked.end() )
+                            groupFor( mat ).push_back( obj );
+                }
+            }
+            if ( resolveCall )
+                scratch.WalkGroups = groups; // before this half's split: the other half's Resolve call takes it
         }
 
         // Accumulators for the auto-instanced path (shared across ALL material groups). The shared instanced
@@ -1661,19 +1799,19 @@ namespace Desert::Graphic::System
         // both have their instanced cells.
         // The deferred early-Z pairing (DeferredPrepassHalf): the prepass's companion is the G-buffer's DepthEqual
         // cells, the Equal half's is the prepass's; the Rest half pairs with nothing.
-        const StaticPassCells cells = StaticCellsOf( m_GeometryPass, m_DeferredHalf == DeferredPrepassHalf::Equal );
+        const StaticPassCells cells = StaticCellsOf( mode.Pass, mode.Half == DeferredPrepassHalf::Equal );
         std::optional<StaticPassCells> companion;
-        if ( m_DeferredHalf == DeferredPrepassHalf::Depth )
+        if ( mode.Half == DeferredPrepassHalf::Depth )
             companion = StaticCellsOf( MeshPass::GBuffer, /*depthEqual*/ true );
-        else if ( m_DeferredHalf == DeferredPrepassHalf::Equal )
+        else if ( mode.Half == DeferredPrepassHalf::Equal )
             companion = StaticCellsOf( MeshPass::Depth );
-        else if ( m_DeferredHalf == DeferredPrepassHalf::None && PairsWithPrepass( /*wireframeReplaced*/ true ) )
-            companion = StaticCellsOf( m_GeometryPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth );
+        else if ( mode.Half == DeferredPrepassHalf::None && PairsWithPrepass( mode.Pass, /*wireframe*/ true ) )
+            companion = StaticCellsOf( mode.Pass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth );
         GraphicsPipeline* const   instancedPipeline = cells.InstancedState;
         DataDrivenMaterial* const instancedMaterial = cells.InstancedSpare;
         MaterialInstance* const   instancedInstance = cells.InstancedInstance;
         const bool     instancingOn  = cells.InstancingOn && ( !companion || companion->InstancingOn );
-        const MeshPass instancedPass = m_GeometryPass;
+        const MeshPass instancedPass = mode.Pass;
         auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
         // A `.demat`'s (Instanced x pass) and per-object (Static x pass) cells: the Forward ones through their
         // virtual-shadow permutation (ForwardVirtualCell), the others the service's sibling.
@@ -1701,20 +1839,25 @@ namespace Desert::Graphic::System
         //
         // Reused by index so the inner vectors keep their capacity; clearing the outer vector would
         // destroy them and put an allocation per material back into the steady state.
-        auto& instSets        = m_ScratchInstSets;
-        m_ScratchInstSetCount = 0;
+        auto& instSets = scratch.InstSets; // InstSetCount reset above (a Record call keeps its Resolve's sets)
         const auto setFor     = [&]( DataDrivenMaterial* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
         {
-            for ( std::size_t i = 0; i < m_ScratchInstSetCount; ++i )
+            for ( std::size_t i = 0; i < scratch.InstSetCount; ++i )
                 if ( instSets[i]->Mat == recorder )
                     return *instSets[i];
-            if ( m_ScratchInstSetCount == instSets.size() )
+            if ( scratch.InstSetCount == instSets.size() )
                 instSets.push_back( std::make_unique<InstancedBatchSet>() );
-            InstancedBatchSet& set = *instSets[m_ScratchInstSetCount++];
+            InstancedBatchSet& set = *instSets[scratch.InstSetCount++];
             set.Mat                = recorder;
             set.Inst               = inst;
             set.Transforms.clear();
             set.Draws.clear();
+            set.IsmTransforms.clear();
+            set.IsmDraws.clear();
+            set.OneSided = nullptr;
+            set.TwoSided = nullptr;
+            set.Lent     = false;
+            set.Drawn    = false;
             return set;
         };
 
@@ -1843,12 +1986,12 @@ namespace Desert::Graphic::System
             if ( !companion )
                 return cellDrawIn( cells, mat, twoSided, perObject );
             const PrepassCellKey key{ mat, MeshVertexPath::Static, twoSided, perObject };
-            if ( m_GeometryPass == MeshPass::Forward || m_DeferredHalf == DeferredPrepassHalf::Equal )
+            if ( mode.Pass == MeshPass::Forward || mode.Half == DeferredPrepassHalf::Equal )
                 if ( const auto decided = PrepassCellDraw( key ) )
                     return *decided;
             const CellDraw draw =
                  worse( cellDrawIn( cells, mat, twoSided, perObject ), cellDrawIn( *companion, mat, twoSided, perObject ) );
-            if ( m_GeometryPass == MeshPass::Depth )
+            if ( mode.Pass == MeshPass::Depth )
                 m_PrepassCellDraws[key] = draw;
             return draw;
         };
@@ -1861,6 +2004,7 @@ namespace Desert::Graphic::System
                     twoSided = twoSided || inst->IsTwoSided();
             return twoSided;
         };
+        if ( !recordCall ) // a Record call's groups were split by its Resolve call
         {
             std::vector<const StaticMeshRenderData*> standingIn;
             for ( auto& [mat, objects] : groups )
@@ -1869,7 +2013,8 @@ namespace Desert::Graphic::System
                     continue;
                 const bool twoSided = groupTwoSided( mat, objects );
                 // The deferred early-Z half this group belongs to (DeferredHalfTakes): out of the other halves.
-                if ( !DeferredHalfTakes( mat, PrepassCellKey{ mat, MeshVertexPath::Static, twoSided, true } ) )
+                if ( !DeferredHalfTakes( mode.Half, mat,
+                                         PrepassCellKey{ mat, MeshVertexPath::Static, twoSided, true } ) )
                 {
                     objects.clear();
                     continue;
@@ -1882,52 +2027,117 @@ namespace Desert::Graphic::System
             }
             // The deferred early-Z pass draws no stand-in: a group whose cells are still in the driver keeps its
             // own clip and depth in the G-buffer's Rest half (its record is not Own).
-            if ( !standingIn.empty() && standIn != nullptr && m_DeferredHalf != DeferredPrepassHalf::Depth )
+            if ( !standingIn.empty() && standIn != nullptr && mode.Half != DeferredPrepassHalf::Depth )
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
         }
         const DataDrivenMaterial* const standInKey = standIn != nullptr ? standIn->Material.get() : nullptr;
 
-        for ( auto& [mat, objects] : groups )
+        // WHICH MATERIAL RECORDS A GROUP's SINGLES (the comment where the singles take it), each refusal said once
+        // per material. A Record call takes its Resolve call's answer (StaticGroupPlan::DrawMat). Asked only of a
+        // group whose plan keeps a single draw (R5), and @p singleCount() counts those singles for the refusal.
+        // The once-sets are the function's, not the lambda's, because a generic lambda's statics are one per
+        // instantiation.
+        static bool                                          s_WarnedSecondUnowned = false;
+        static std::unordered_set<const DataDrivenMaterial*> s_WarnedNoGBufferVariant;
+        const auto drawMatOf = [&]( DataDrivenMaterial* mat, const auto& singleCount ) -> DataDrivenMaterial*
         {
-            // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
-            // no opaque bucket, no instanced variant is asked of them.
-            if ( objects.empty() || IsTranslucent( mat ) )
-                continue;
+            if ( mode.Pass == MeshPass::Forward )
+                return ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
+            DataDrivenMaterial* drawMat   = nullptr;
+            auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
+            if ( mat == standInKey )
+            {
+                // the stand-in's own cell of this pass, never the spare
+                drawMat = standInDraw != nullptr ? standInDraw->Material.get() : nullptr;
+            }
+            else if ( materials->Owns( mat ) )
+            {
+                drawMat = cells.DepthEqual ? DepthEqualCell( mat, MeshVertexPath::Static )
+                                           : materials->GetVariant( mat, MeshVertexPath::Static, mode.Pass );
+            }
+            else
+            {
+                // A material a RENDERER built rather than a `.demat` — in practice only
+                // MeshECSSystem's default, standing in for a mesh whose slot did not resolve. It has
+                // no asset, so the service has no sibling of it; this pass keeps one of its own. See
+                // SetupGBufferPass for why one is enough, and this is the check that says so.
+                if ( unownedServed != nullptr && unownedServed != mat )
+                {
+                    if ( !s_WarnedSecondUnowned )
+                    {
+                        s_WarnedSecondUnowned = true;
+                        LOG_ERROR( "[MeshRenderer] A second renderer-owned mesh material reached the "
+                                   "deferred pass in one frame. Both groups would fill ONE Materials[] "
+                                   "buffer and the last one recorded would decide the colours of both. "
+                                   "The G-buffer pass keeps a single spare material because the engine "
+                                   "had exactly one such material (MeshECSSystem's default); it now has "
+                                   "more, and this pass needs one spare per material." );
+                    }
+                }
+                unownedServed = mat;
+                drawMat       = mode.Pass == MeshPass::GBuffer ? m_GBufferUnownedMaterial.get()
+                                                               : m_DepthUnownedMaterial.get();
+            }
+            if ( drawMat == nullptr )
+            {
+                // Not a quiet skip: the objects in this group simply would not appear in a deferred
+                // scene, which reads as "my mesh is invisible" and not as "one material has no
+                // G-buffer variant". Once per material, because this runs every frame.
+                if ( s_WarnedNoGBufferVariant.insert( mat ).second )
+                    LOG_ERROR( "[MeshRenderer] No (Static x GBuffer) material for a mesh material; its "
+                               "{} object(s) are NOT drawn into the G-buffer and will be missing from "
+                               "the deferred scene. MaterialService logged which shader refused.",
+                               singleCount() );
+            }
+            return drawMat;
+        };
 
-            // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
-            // Asked once per group rather than per mesh bucket: the answer depends on the material
-            // alone, and the ISM loop below asks the same question of its own materials.
-            InstancedBatchSet* groupSet = setForGroup( mat );
-
+        // WHAT A GROUP RECORDS (R5; GAP 1, UE FParallelMeshDrawCommandPass: the setup decides once, the record
+        // replays). Its objects by (mesh, hidden mask): a mesh's batchable ones go per LOD level into one
+        // instanced draw of the group's set when the level holds two, and everything else is a single draw - into
+        // the group's plan @p plan (DrawBuildScratch::StaticGroupPlan), with @p slice's buckets. Made ONCE, by the
+        // call that plans (Full or Resolve), from one read of each object's instance; a Record call packs and
+        // records the plan and buckets nothing, so what its Resolve call lent, applied and marked Drawn is what it
+        // records. A setup task runs it, one slice of groups each: it reads the group, the walk's masks and the
+        // objects' instances, and writes @p plan and @p slice alone.
+        const auto planGroup = [&]( const std::vector<const StaticMeshRenderData*>& objects, const bool standsIn,
+                                    DrawBuildScratch::StaticGroupPlan& plan,
+                                    DrawBuildScratch::BucketScratch&   slice )
+        {
+            plan.Batches.clear();
+            plan.Instances.clear();
+            plan.Singles.clear();
             // Sub-group this material's objects by Mesh*; a sub-group of >= 2 identical meshes collapses into
             // one instanced draw. Singletons (and everything when instancing is off / wireframe) take the
             // classic per-object path below — which also preserves their individual material overrides.
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
-            // section of its twins, one mask for the whole instanced draw.
-            std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>> byMesh;
+            // section of its twins, one mask for the whole instanced draw. The buckets are the slice's, reused
+            // by index: no allocation per group in the steady state.
+            auto& buckets        = slice.Buckets;
+            slice.BucketCount    = 0;
             const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
             {
-                for ( auto& [key, v] : byMesh )
-                    if ( key.first == mesh && key.second == hidden )
-                        return v;
-                byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<ObjDraw>{} );
-                return byMesh.back().second;
+                for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
+                    if ( buckets[bi].first.first == mesh && buckets[bi].first.second == hidden )
+                        return buckets[bi].second;
+                if ( slice.BucketCount == buckets.size() )
+                    buckets.emplace_back();
+                DrawBuildScratch::MeshBucket& made = buckets[slice.BucketCount++];
+                made.first                         = std::make_pair( mesh, hidden );
+                made.second.clear();
+                return made.second;
             };
 
             // Each object's row is the scene material table's (SyncGpuScene); here only its instance and whether
             // it overrides anything (an overriding object leaves the batch).
-            // Translucency split: a material whose template is BlendMode Translucent is skipped by every
-            // opaque pass (forward + deferred G-buffer) and drawn ONLY by RenderGlassManual (a dedicated material
-            // per translucent cell), which composites forward over the scene with blending.
             for ( const auto* obj : objects )
             {
                 ObjDraw od;
-                od.Obj  = obj;
+                od.Obj = obj;
                 // A stand-in object is the default surface, not the material it waits for: its own instance, its
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
-                od.Inst = mat == standInKey
-                               ? standIn->Instance.get()
-                               : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
+                od.Inst = standsIn ? standIn->Instance.get()
+                                   : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
                 if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
                         if ( prop.bIsOverridden )
@@ -1935,93 +2145,213 @@ namespace Desert::Graphic::System
                             od.HasOverrides = true;
                             break;
                         }
-                bucketFor( obj->Mesh, hiddenOf( obj ) ).push_back( od );
+                od.Hidden = hiddenOf( obj );
+                bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
 
-            auto& singles = m_ScratchSingles;
-            singles.clear();
-            for ( auto& [meshKey, bucket] : byMesh )
+            for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
             {
-                Desert::Mesh* const       mesh   = meshKey.first;
-                const SubmeshMask         hidden = meshKey.second;
+                Desert::Mesh* const         mesh   = buckets[bi].first.first;
+                const SubmeshMask           hidden = buckets[bi].first.second;
+                const std::vector<ObjDraw>& bucket = buckets[bi].second;
                 // Per-object state a shared batch entry can't carry: hidden submeshes, the
                 // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
                 // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
                 // entry, so an overridden instance in it would silently render with someone
                 // else's values. All of those take the per-object path.
-                std::vector<ObjDraw> batchable;
-                for ( auto& od : bucket )
+                auto& batchable = slice.Batchable;
+                batchable.clear();
+                for ( const auto& od : bucket )
                 {
                     if ( !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow || od.HasOverrides )
-                        singles.push_back( od );
+                        plan.Singles.push_back( od );
                     else
                         batchable.push_back( od );
                 }
-
-                if ( groupSet != nullptr && batchable.size() >= 2 )
+                if ( plan.Set == nullptr || batchable.size() < 2 )
                 {
-                    // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
-                    // The per-object path below computes a LOD and passes it to the draw; this path
-                    // recorded its draw with the default, level 0. So the SAME object rendered at a
-                    // different detail depending on whether it happened to find a twin to batch with —
-                    // both ends of the chain (the policy and the draw) looked right and the link
-                    // between them silently lost a property.
-                    //
-                    // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
-                    // its batch stays one draw instead of splitting into four identical ones.
-                    const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
-                    auto&          levels   = m_ScratchLodLevels;
-                    levels.clear();
-                    levels.reserve( batchable.size() );
-                    for ( const auto& od : batchable )
-                        levels.push_back( std::min(
-                             ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
-                             maxLevel ) );
+                    plan.Singles.insert( plan.Singles.end(), batchable.begin(), batchable.end() );
+                    continue;
+                }
+                // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
+                // The per-object path below computes a LOD and passes it to the draw; this path
+                // recorded its draw with the default, level 0. So the SAME object rendered at a
+                // different detail depending on whether it happened to find a twin to batch with —
+                // both ends of the chain (the policy and the draw) looked right and the link
+                // between them silently lost a property.
+                //
+                // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
+                // its batch stays one draw instead of splitting into four identical ones.
+                const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+                auto&          levels   = slice.LodLevels;
+                levels.clear();
+                levels.reserve( batchable.size() );
+                for ( const auto& od : batchable )
+                    levels.push_back( std::min(
+                         ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
+                         maxLevel ) );
 
-                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                {
+                    const auto count = static_cast<uint32_t>( std::count( levels.begin(), levels.end(), level ) );
+                    if ( count < 2 )
                     {
-                        const auto firstInstance = static_cast<uint32_t>( groupSet->Transforms.size() );
+                        // A level with a single member is cheaper as a per-object draw, and that is
+                        // the same threshold the batch itself is chosen by.
                         for ( std::size_t i = 0; i < batchable.size(); ++i )
                             if ( levels[i] == level )
-                                groupSet->Transforms.push_back( batchable[i].Obj->Transform );
-
-                        const uint32_t count =
-                             static_cast<uint32_t>( groupSet->Transforms.size() ) - firstInstance;
-                        if ( count < 2 )
-                        {
-                            // A level with a single member is cheaper as a per-object draw, and that is
-                            // the same threshold the batch itself is chosen by.
-                            groupSet->Transforms.resize( firstInstance );
-                            for ( std::size_t i = 0; i < batchable.size(); ++i )
-                                if ( levels[i] == level )
-                                    singles.push_back( batchable[i] );
-                            continue;
-                        }
-
-                        InstancedDraw d;
-                        d.Mesh          = mesh;
-                        d.InstanceCount = count;
-                        d.FirstInstance = firstInstance;
-                        // No batchable object carries overrides (filtered above), so every instance of
-                        // the batch genuinely shares the parent material's effective values: the first one's
-                        // table row (a batch carries receivers only, so the row is the receiving one), or the
-                        // default surface's for a stand-in group.
-                        d.MaterialIndex =
-                             mat == standInKey ? m_StandInMaterialRows[0] : batchable[0].Obj->MaterialRow;
-                        d.HiddenSubmeshMask = hidden;
-                        d.LodLevel      = level;
-                        groupSet->Draws.push_back( d );
+                                plan.Singles.push_back( batchable[i] );
+                        continue;
                     }
-                }
-                else
-                {
-                    for ( const auto& od : batchable )
-                        singles.push_back( od );
+                    // No batchable object carries overrides (filtered above), so every instance of
+                    // the batch genuinely shares the parent material's effective values: the first one's
+                    // table row (a batch carries receivers only, so the row is the receiving one), or the
+                    // default surface's for a stand-in group.
+                    DrawBuildScratch::PlannedBatch batch;
+                    batch.Mesh          = mesh;
+                    batch.Hidden        = hidden;
+                    batch.Level         = level;
+                    batch.MaterialIndex = standsIn ? m_StandInMaterialRows[0] : batchable[0].Obj->MaterialRow;
+                    batch.First         = static_cast<uint32_t>( plan.Instances.size() );
+                    batch.Count         = count;
+                    for ( std::size_t i = 0; i < batchable.size(); ++i )
+                        if ( levels[i] == level )
+                            plan.Instances.push_back( batchable[i].Obj );
+                    plan.Batches.push_back( batch );
                 }
             }
+            // The singles' levels, decided here with the batches' (the record replays them, it decides nothing).
+            for ( ObjDraw& single : plan.Singles )
+                single.Level = ComputeLOD( single.Obj->Transform, single.Obj->Mesh, single.Obj->ForcedLOD,
+                                           single.Obj->LODBias );
+        };
+        // A plan's batches packed into its set (a Full or a Record call; a Resolve call packs nothing).
+        const auto packBatches = [&]( const DrawBuildScratch::StaticGroupPlan& plan )
+        {
+            for ( const DrawBuildScratch::PlannedBatch& batch : plan.Batches )
+            {
+                InstancedDraw d;
+                d.Mesh              = batch.Mesh;
+                d.InstanceCount     = batch.Count;
+                d.FirstInstance     = static_cast<uint32_t>( plan.Set->Transforms.size() );
+                d.MaterialIndex     = batch.MaterialIndex;
+                d.HiddenSubmeshMask = batch.Hidden;
+                d.LodLevel          = batch.Level;
+                for ( uint32_t i = 0; i < batch.Count; ++i )
+                    plan.Set->Transforms.push_back( plan.Instances[batch.First + i]->Transform );
+                plan.Set->Draws.push_back( d );
+            }
+        };
 
-            if ( singles.empty() )
+        // A Record call's groups are its Resolve call's, one plan each. A call that plans: serial, in group order,
+        // each group's set (setForGroup makes the sets in the order the one loop made them); then the bucketing
+        // on setup tasks, about WorkerCount() + 1 contiguous slices of about equal object counts (the joining
+        // thread buckets one too), none below kBucketSliceMin objects. ParallelSetup 0 runs the slices inline, in
+        // group order: the same plans.
+        auto& plans = scratch.GroupPlans;
+        if ( !recordCall )
+        {
+            plans.resize( groups.size() );
+            std::size_t planned = 0; // the objects of the opaque groups
+            DESERT_PROFILE_PHASES( planPhases );
+            DESERT_PROFILE_PHASE( planPhases, "Mesh: Static group sets" ); // serial: setForGroup per group
+            for ( std::size_t gi = 0; gi < groups.size(); ++gi )
+            {
+                DrawBuildScratch::StaticGroupPlan& plan = plans[gi];
+                plan.Set                                = nullptr;
+                plan.DrawMat                            = nullptr;
+                plan.OneSided                           = nullptr;
+                plan.TwoSided                           = nullptr;
+                plan.Batches.clear();
+                plan.Instances.clear();
+                plan.Singles.clear();
+                // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
+                // no opaque bucket, no instanced variant is asked of them.
+                plan.Opaque = !groups[gi].second.empty() && !IsTranslucent( groups[gi].first );
+                if ( !plan.Opaque )
+                    continue;
+                // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
+                // Asked once per group rather than per mesh bucket: the answer depends on the material
+                // alone, and the ISM loop below asks the same question of its own materials.
+                plan.Set = setForGroup( groups[gi].first );
+                planned += groups[gi].second.size();
+            }
+            DESERT_PROFILE_PHASE( planPhases, "Mesh: Static bucketing (tasks + join)" );
+            constexpr std::size_t kBucketSliceMin = 128; // objects: below it a task costs more than it buckets
+            const std::size_t     participants    = ::Common::JobSystem::Get().WorkerCount() + 1;
+            const std::size_t     slices = std::clamp<std::size_t>( planned / kBucketSliceMin, 1u, participants );
+            if ( scratch.BucketSlices.size() < slices )
+                scratch.BucketSlices.resize( slices );
+            ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+            std::size_t         first   = 0;
+            std::size_t         reached = 0; // the opaque objects of groups [0, first)
+            for ( std::size_t s = 0; s < slices && first < groups.size(); ++s )
+            {
+                // Slice s ends where the objects reach planned * (s + 1) / slices; the last one at the end.
+                const bool        lastSlice = s + 1 == slices;
+                const std::size_t target    = planned * ( s + 1 ) / slices;
+                std::size_t       last      = first;
+                while ( last < groups.size() && ( lastSlice || reached < target ) )
+                {
+                    if ( plans[last].Opaque )
+                        reached += groups[last].second.size();
+                    ++last;
+                }
+                if ( last == first )
+                    continue;
+                DrawBuildScratch::BucketScratch& slice = scratch.BucketSlices[s];
+                tasks.Launch( "Mesh: Static bucketing slice",
+                              [&groups, &plans, &planGroup, standInKey, &slice, first, last]() noexcept
+                              {
+                                  for ( std::size_t gi = first; gi < last; ++gi )
+                                      if ( plans[gi].Opaque )
+                                          planGroup( groups[gi].second, groups[gi].first == standInKey, plans[gi],
+                                                     slice );
+                              } );
+                first = last;
+            }
+            tasks.Join();
+        }
+        else if ( plans.size() != groups.size() )
+        {
+            static_cast<void>( MissInSetupTask( "the static group plans" ) );
+            return 0;
+        }
+
+        for ( std::size_t gi = 0; gi < groups.size(); ++gi )
+        {
+            auto* const                        mat  = groups[gi].first;
+            DrawBuildScratch::StaticGroupPlan& plan = plans[gi];
+            if ( !plan.Opaque )
                 continue;
+            // A Resolve call plans what its Record call records and nothing more (UE FParallelMeshDrawCommandPass:
+            // the setup prepares exactly what the parallel tasks record): the group's set is drawn when the plan
+            // batches into it, and only when the plan keeps singles the material that records them (lent the
+            // material table and given the frame's scene state here, serially) and that material's one- and
+            // two-sided pipelines. A group whose objects all batch asks drawMatOf nothing, as the Full call never
+            // did (R5): no twin refusal, no unowned spare for it.
+            if ( resolveCall )
+            {
+                if ( !plan.Batches.empty() )
+                    plan.Set->Drawn = true;
+                if ( plan.Singles.empty() )
+                    continue;
+                DataDrivenMaterial* const drawMat = drawMatOf( mat, [&plan] { return plan.Singles.size(); } );
+                if ( drawMat != nullptr && LendMaterialTable( *drawMat ) )
+                {
+                    DESERT_PROFILE_SCOPE( "Mesh: SharedSceneSetup (1x/group)" );
+                    frameState.ApplyTo( static_cast<Material*>( drawMat ) );
+                    plan.DrawMat  = drawMat;
+                    plan.OneSided = CellPipeline( staticPassState, *drawMat );
+                    plan.TwoSided = CullPermutation( plan.OneSided, /*twoSided*/ true );
+                }
+                continue;
+            }
+
+            packBatches( plan );
+            if ( plan.Singles.empty() )
+                continue;
+            const auto& singles = plan.Singles;
 
             // WHICH MATERIAL RECORDS THE DRAW. The group is keyed by the (surface x Static x Forward)
             // material a mesh slot resolved to, but the deferred pass rasterizes with the G-buffer
@@ -2037,70 +2367,18 @@ namespace Desert::Graphic::System
             // The forward pass under Shadows.Method VirtualMaps: the same `.demat`'s DESERT_LOCAL_SHADOW_VSM
             // permutation (ForwardVirtualCell), which reads the view's virtual shadow map in place of the atlas.
             // The G-buffer and depth passes record through the slot's twin of their own pass.
-            const bool          viewTwin = m_GeometryPass != MeshPass::Forward;
-            DataDrivenMaterial* drawMat =
-                 viewTwin ? mat : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
+            DataDrivenMaterial* drawMat = plan.DrawMat; // a Record call's, resolved by its Resolve call
+            if ( !recordCall )
+                drawMat = drawMatOf( mat, [&singles] { return singles.size(); } );
             if ( drawMat == nullptr )
-                continue; // MaterialService named the material and the permutation it refused
-            if ( viewTwin )
-            {
-                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-                if ( mat == standInKey )
-                {
-                    // the stand-in's own cell of this pass, never the spare
-                    drawMat = standInDraw != nullptr ? standInDraw->Material.get() : nullptr;
-                }
-                else if ( materials->Owns( mat ) )
-                {
-                    drawMat = cells.DepthEqual ? DepthEqualCell( mat, MeshVertexPath::Static )
-                                               : materials->GetVariant( mat, MeshVertexPath::Static, m_GeometryPass );
-                }
-                else
-                {
-                    // A material a RENDERER built rather than a `.demat` — in practice only
-                    // MeshECSSystem's default, standing in for a mesh whose slot did not resolve. It has
-                    // no asset, so the service has no sibling of it; this pass keeps one of its own. See
-                    // SetupGBufferPass for why one is enough, and this is the check that says so.
-                    if ( unownedServed != nullptr && unownedServed != mat )
-                    {
-                        static bool s_WarnedSecondUnowned = false;
-                        if ( !s_WarnedSecondUnowned )
-                        {
-                            s_WarnedSecondUnowned = true;
-                            LOG_ERROR( "[MeshRenderer] A second renderer-owned mesh material reached the "
-                                       "deferred pass in one frame. Both groups would fill ONE Materials[] "
-                                       "buffer and the last one recorded would decide the colours of both. "
-                                       "The G-buffer pass keeps a single spare material because the engine "
-                                       "had exactly one such material (MeshECSSystem's default); it now has "
-                                       "more, and this pass needs one spare per material." );
-                        }
-                    }
-                    unownedServed = mat;
-                    drawMat       = m_GeometryPass == MeshPass::GBuffer ? m_GBufferUnownedMaterial.get()
-                                                                        : m_DepthUnownedMaterial.get();
-                }
-
-                if ( drawMat == nullptr )
-                {
-                    // Not a quiet skip: the objects in this group simply would not appear in a deferred
-                    // scene, which reads as "my mesh is invisible" and not as "one material has no
-                    // G-buffer variant". Once per material, because this runs every frame.
-                    static std::unordered_set<const DataDrivenMaterial*> s_WarnedNoGBufferVariant;
-                    if ( s_WarnedNoGBufferVariant.insert( mat ).second )
-                        LOG_ERROR( "[MeshRenderer] No (Static x GBuffer) material for a mesh material; its "
-                                   "{} object(s) are NOT drawn into the G-buffer and will be missing from "
-                                   "the deferred scene. MaterialService logged which shader refused.",
-                                   singles.size() );
-                    continue;
-                }
-            }
+                continue; // refused out loud by drawMatOf, or MaterialService named what it refused
 
             // ---- Classic per-object path (singletons / wireframe) ----
             // The material is read through the scene material table (GpuScene::AddMaterialRow): each object's row
             // was registered by SyncGpuScene, stable for as long as its instance is drawn and re-uploaded only when
             // a value changes, so the drawn material's Materials block is lent the table and each draw names its
             // row. No per-frame per-group refill: one source of the values, the row the cached draws name too.
-            if ( !LendMaterialTable( *drawMat ) )
+            if ( !recordCall && !LendMaterialTable( *drawMat ) ) // a Record call's was lent by its Resolve call
                 continue;
 
             // SHARED per-frame scene data (camera / lights / shadow / env) is written ONCE per material
@@ -2112,6 +2390,7 @@ namespace Desert::Graphic::System
             // instance's parent — in the G-buffer pass it is the pass's own twin. Every write is by block
             // NAME and guarded, so a G-buffer material that declares only the camera receives only the
             // camera, and the fourteen blocks it no longer has cost it nothing.
+            if ( !recordCall ) // a Record call's group was given the scene state by its Resolve call
             {
                 DESERT_PROFILE_SCOPE( "Mesh: SharedSceneSetup (1x/group)" );
                 frameState.ApplyTo( static_cast<Material*>( drawMat ) );
@@ -2136,17 +2415,20 @@ namespace Desert::Graphic::System
                 // state, drawMat's template fixes the program: its cell's sets are the ones Bind binds. A null
                 // pipeline (the cell's program refused) is refused by the list, the pass's error - never a
                 // skipped object.
-                GraphicsPipeline* pipeline = CellPipeline( staticPassState, *drawMat );
-                pipeline =
-                     CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
+                const bool        twoSided = inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided();
+                GraphicsPipeline* pipeline = nullptr;
+                if ( recordCall )
+                    pipeline = twoSided ? plan.TwoSided : plan.OneSided;
+                else
+                    pipeline = CullPermutation( CellPipeline( staticPassState, *drawMat ), twoSided );
                 // View pass (forward or G-buffer): World / PrevWorld come from the object's motion row; the push
                 // carries the submesh transform RELATIVE to it (identity, RenderMesh multiplies the submesh's in).
                 list.Add( { .Pipeline          = pipeline,
                             .Mesh              = obj->Mesh,
                             .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
-                            .HiddenSubmeshMask = hiddenOf( obj ),
-                            .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                            .HiddenSubmeshMask = singles[i].Hidden,
+                            .LodLevel          = singles[i].Level,
                             .Push     = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj->GpuPrimitive )
@@ -2162,7 +2444,7 @@ namespace Desert::Graphic::System
         // AND IT IS NOT SILENT WHEN IT CANNOT. The queue has no per-object fallback, so "instancing is
         // unavailable" means "these entities do not appear". §1.4: that is refused out loud, with the
         // pass it happened in and how many entities it cost, rather than substituted with nothing.
-        if ( !instancingOn && !m_InstancedQueue.empty() )
+        if ( !recordCall && !instancingOn && !m_InstancedQueue.empty() )
         {
             static bool s_WarnedNoInstancedCell = false;
             if ( !s_WarnedNoInstancedCell )
@@ -2172,18 +2454,28 @@ namespace Desert::Graphic::System
                            "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
                            "). An ISM is one entity holding N transforms and has no per-object path to "
                            "fall back to, so nothing of it reaches the frame.",
-                           m_InstancedQueue.size(), MeshPassName( m_GeometryPass ),
+                           m_InstancedQueue.size(), MeshPassName( mode.Pass ),
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
                            instancedInstance ? "ok" : "MISSING" );
             }
         }
 
-        if ( instancingOn )
+        if ( instancingOn && !recordCall ) // a Record call's ISMs were culled and packed by its Resolve call
         {
-            // The deferred halves count into one total (DeclareGBufferDraws zeroes it; the prepass does not count).
+            // The deferred halves count into one total (DeclareGBufferDraws sums the Resolve calls'; the prepass
+            // does not count).
             DESERT_PROFILE_SCOPE( "Mesh: ISM draws" );
-            if ( m_DeferredHalf == DeferredPrepassHalf::None )
-                m_IsmInstancesDrawn = 0;
+            // THREE STEPS (RENDER-PARALLEL-SETUP; UE FParallelMeshDrawCommandPass: what a task needs is resolved
+            // before the tasks, and each task writes only its own slot). Serial, in queue order: each ISM's
+            // checks, its set (setFor / setForGroup) and its cull entry (LookUpIsmViewCull). On setup tasks: the
+            // stale entries' culls, each entry written by one task (its key is every input of the field's own, and
+            // a call looks an entry up once). Serial, in queue order: the packing from each ISM's entry. The sets
+            // are made in the order the one loop made them and every ISM packs the same cull, so the sets,
+            // instances and draws are the same; ParallelSetup 0 runs the culls inline, in queue order.
+            const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+            ++m_IsmViewCullCall;
+            scratch.IsmQueued.clear();
+            scratch.IsmStale.clear();
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
@@ -2195,7 +2487,8 @@ namespace Desert::Graphic::System
                      field < m_FieldPrimitives.size() )
                 {
                     const std::optional<SubmeshMask> walk =
-                         CpuWalkHidden( mainWalk, ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes );
+                         CpuWalkHidden( mainWalk, ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes,
+                                        scratch.WalkWords );
                     if ( !walk )
                         continue;
                     ismHidden = *walk;
@@ -2210,14 +2503,14 @@ namespace Desert::Graphic::System
                 // bark map should be. setForGroup names the refusal when the cell does not exist.
                 // A cell still in the driver (RDG-PSO): the ISM is recorded by the instanced spare — the default
                 // surface — with its defaults row, until the cell is Ready.
-                if ( !DeferredHalfTakes( mat, PrepassCellKey{ mat, MeshVertexPath::Static, ism.Material->IsTwoSided(),
-                                                              false } ) )
+                const PrepassCellKey ismKey{ mat, MeshVertexPath::Static, ism.Material->IsTwoSided(), false };
+                if ( !DeferredHalfTakes( mode.Half, mat, ismKey ) )
                     continue;
                 const CellDraw ismDraw = cellDrawOf( mat, ism.Material->IsTwoSided(), /*perObject*/ false );
                 if ( ismDraw == CellDraw::Nothing )
                     continue;
                 const bool ismStandsIn = ismDraw == CellDraw::DefaultSurface;
-                if ( ismStandsIn && m_DeferredHalf == DeferredPrepassHalf::Depth )
+                if ( ismStandsIn && mode.Half == DeferredPrepassHalf::Depth )
                     continue; // no stand-in in the early-Z pass: the Rest half draws it with its own depth
                 InstancedBatchSet* ismSet =
                      ismStandsIn ? &setFor( instancedMaterial, instancedInstance ) : setForGroup( mat );
@@ -2237,13 +2530,62 @@ namespace Desert::Graphic::System
                 // The LOD question is per instance for the same reason the visibility question is: the
                 // batch is one entity but forty thousand placements, and the near ones and the far ones
                 // of a single ISM are not the same object to a renderer.
-                // Walked once per change of its inputs, not once per pass per frame (CachedIsmViewCull).
-                const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
-                const IsmViewCull&            culled  = CachedIsmViewCull( ism, frustum, mainView );
-                const std::vector<glm::mat4>& visible = culled.Visible;
-                const std::vector<uint32_t>&  levels  = culled.Levels;
-                if ( m_DeferredHalf != DeferredPrepassHalf::Depth )
-                    m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
+                // Walked once per change of its inputs, not once per pass per frame (LookUpIsmViewCull).
+                const IsmViewCullLookup cull = LookUpIsmViewCull( ism, frustum, mainView );
+                if ( cull.Stale )
+                    scratch.IsmStale.push_back( { .Entry = cull.Entry, .Ism = &ism } );
+                scratch.IsmQueued.push_back( { .Ism      = &ism,
+                                               .Hidden   = ismHidden,
+                                               .Mat      = mat,
+                                               .Set      = ismSet,
+                                               .Cull     = cull.Entry,
+                                               .StandsIn = ismStandsIn } );
+            }
+
+            // The stale culls in about WorkerCount() + 1 contiguous slices of about equal instance counts (a field
+            // costs its instances), each one setup task; the joining thread runs one too.
+            if ( !scratch.IsmStale.empty() )
+            {
+                DESERT_PROFILE_SCOPE( "Mesh: ISM view culls" );
+                const std::vector<DrawBuildScratch::StaleIsmCull>& stale = scratch.IsmStale;
+                std::size_t                                        total = 0;
+                for ( const DrawBuildScratch::StaleIsmCull& item : stale )
+                    total += item.Ism->Transforms->size();
+                const std::size_t participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+                const std::size_t slices       = std::min( stale.size(), participants );
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                std::size_t         first   = 0;
+                std::size_t         reached = 0; // the instances of stale[0, first)
+                for ( std::size_t s = 0; s < slices && first < stale.size(); ++s )
+                {
+                    // Slice s ends where the instances reach total * (s + 1) / slices; the last one at the end.
+                    const bool        lastSlice = s + 1 == slices;
+                    const std::size_t target    = total * ( s + 1 ) / slices;
+                    std::size_t       last      = first + 1;
+                    reached += stale[first].Ism->Transforms->size();
+                    while ( last < stale.size() && ( lastSlice || reached < target ) )
+                        reached += stale[last++].Ism->Transforms->size();
+                    tasks.Launch( "Mesh: ISM view cull",
+                                  [&stale, &frustum, first, last]() noexcept
+                                  {
+                                      for ( std::size_t i = first; i < last; ++i )
+                                          CollectIsmViewCull( *stale[i].Entry, *stale[i].Ism, frustum );
+                                  } );
+                    first = last;
+                }
+                tasks.Join();
+            }
+
+            for ( const DrawBuildScratch::QueuedIsm& queued : scratch.IsmQueued )
+            {
+                const InstancedMeshRenderData& ism         = *queued.Ism;
+                DataDrivenMaterial* const      mat         = queued.Mat;
+                InstancedBatchSet* const       ismSet      = queued.Set;
+                const bool                     ismStandsIn = queued.StandsIn;
+                const std::vector<glm::mat4>&  visible     = queued.Cull->Visible;
+                const std::vector<uint32_t>&   levels      = queued.Cull->Levels;
+                if ( mode.Half != DeferredPrepassHalf::Depth )
+                    ismInstances += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
 
@@ -2256,22 +2598,25 @@ namespace Desert::Graphic::System
                 if ( !materialIndex )
                     continue;
 
+                // A Resolve call packs them apart; its Record call puts them behind the auto-batched instances.
+                std::vector<glm::mat4>& ismTransforms = resolveCall ? ismSet->IsmTransforms : ismSet->Transforms;
+                std::vector<InstancedDraw>& ismDraws  = resolveCall ? ismSet->IsmDraws : ismSet->Draws;
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
                     InstancedDraw d;
                     d.Mesh          = ism.Mesh;
-                    d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
+                    d.FirstInstance = static_cast<uint32_t>( ismTransforms.size() );
                     d.MaterialIndex = *materialIndex;
-                    d.HiddenSubmeshMask = ismHidden;
+                    d.HiddenSubmeshMask = queued.Hidden;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                     d.Wind           = PackViewInstanceWind( ism.Wind );
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
-                            ismSet->Transforms.push_back( visible[i] );
-                    d.InstanceCount = static_cast<uint32_t>( ismSet->Transforms.size() ) - d.FirstInstance;
-                    ismSet->Draws.push_back( d );
+                            ismTransforms.push_back( visible[i] );
+                    d.InstanceCount = static_cast<uint32_t>( ismTransforms.size() ) - d.FirstInstance;
+                    ismDraws.push_back( d );
                 }
             }
         }
@@ -2279,7 +2624,7 @@ namespace Desert::Graphic::System
         // ---- Instanced path: upload the packed SSBOs ONCE (at final size) before recording any instanced
         // draw, so the descriptor points at the final VkBuffer (a later grow reallocates it). Scene data is
         // uploaded a single time for the whole frame; each batch is then one instanced draw call. ----
-        if ( m_ScratchInstSetCount != 0 )
+        if ( scratch.InstSetCount != 0 )
         {
             DESERT_PROFILE_SCOPE( "Mesh: Instanced Batches" );
 
@@ -2287,37 +2632,76 @@ namespace Desert::Graphic::System
             // per-draw transform is unused; it is named rather than repeated as a literal.
             const glm::mat4 unusedModelTransform( 1.0F );
 
-            for ( std::size_t si = 0; si < m_ScratchInstSetCount; ++si )
+            for ( std::size_t si = 0; si < scratch.InstSetCount; ++si )
             {
                 InstancedBatchSet& set = *instSets[si];
+                if ( resolveCall )
+                {
+                    // The recorder's state before its Record call packs a draw: lent the material table, given
+                    // the frame's scene state, its pipelines resolved (FlushStaticUploads uploads the transforms
+                    // after the join). Only a set its Record call draws through: a group's batch (Drawn, from
+                    // the group's plan) or an ISM's; the Full call skips an empty set alike.
+                    if ( !set.Drawn && set.IsmDraws.empty() )
+                        continue;
+                    set.Lent = LendMaterialTable( *set.Mat );
+                    if ( !set.Lent )
+                        continue;
+                    frameState.ApplyTo( static_cast<Material*>( set.Mat ) );
+                    set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
+                    set.OneSided = CellPipeline( instancedPipeline, *set.Mat );
+                    set.TwoSided = CullPermutation( set.OneSided, /*twoSided*/ true );
+                    continue;
+                }
+                if ( recordCall )
+                {
+                    // The Resolve call's ISM instances, behind the auto-batched ones (the Full call's order).
+                    const auto base = static_cast<uint32_t>( set.Transforms.size() );
+                    set.Transforms.insert( set.Transforms.end(), set.IsmTransforms.begin(),
+                                           set.IsmTransforms.end() );
+                    for ( InstancedDraw d : set.IsmDraws )
+                    {
+                        d.FirstInstance += base;
+                        set.Draws.push_back( d );
+                    }
+                }
                 if ( set.Draws.empty() )
                     continue;
 
-                // UPLOAD AT FINAL SIZE BEFORE THE FIRST DRAW OF THIS SET IS RECORDED — growing a storage
-                // buffer reallocates the VkBuffer under a draw already recorded against the old one. It
-                // is per SET and no longer per pass, and that is not a weakening: a set's buffers are
-                // only ever written here, once, and the draws that read them are recorded immediately
-                // after, before any other set touches its own.
-                if ( auto* sb =
-                          set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
-                    sb->SetRawData( set.Transforms.data(),
-                                    static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
-                // The draws' rows are the scene material table's (SyncGpuScene).
-                if ( !LendMaterialTable( *set.Mat ) )
-                    continue;
+                if ( recordCall )
+                {
+                    if ( !set.Lent )
+                        continue; // refused by its Resolve call's lend, said there
+                }
+                else
+                {
+                    // UPLOAD AT FINAL SIZE BEFORE THE FIRST DRAW OF THIS SET IS RECORDED — growing a storage
+                    // buffer reallocates the VkBuffer under a draw already recorded against the old one. It
+                    // is per SET and no longer per pass, and that is not a weakening: a set's buffers are
+                    // only ever written here, once, and the draws that read them are recorded immediately
+                    // after, before any other set touches its own. (A Record call's: FlushStaticUploads,
+                    // before the pass is declared - MeshDrawList::Add keeps the material, not its buffers.)
+                    UploadInstanceTransforms( set );
+                    // The draws' rows are the scene material table's (SyncGpuScene).
+                    if ( !LendMaterialTable( *set.Mat ) )
+                        continue;
 
-                // The recorder, not the instance's parent: they differ on the G-buffer pass (skinned path).
-                frameState.ApplyTo( static_cast<Material*>( set.Mat ) );
-                set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
+                    // The recorder, not the instance's parent: they differ on the G-buffer pass (skinned path).
+                    frameState.ApplyTo( static_cast<Material*>( set.Mat ) );
+                    set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
+                }
+                const bool setTwoSided = set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided();
 
                 for ( const auto& d : set.Draws )
                 {
                     // set.Mat is the recorder (the material's (Instanced x pass) variant or the renderer's
                     // spare): its cell is the program, as it is the sets'. A refused cell pipeline is null and
                     // the list refuses it, the pass's error.
-                    const GraphicsPipeline* instancedDrawPipeline =
-                         CullPermutation( CellPipeline( instancedPipeline, *set.Mat ),
-                                          set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided() );
+                    const GraphicsPipeline* instancedDrawPipeline = nullptr;
+                    if ( recordCall )
+                        instancedDrawPipeline = setTwoSided ? set.TwoSided : set.OneSided;
+                    else
+                        instancedDrawPipeline =
+                             CullPermutation( CellPipeline( instancedPipeline, *set.Mat ), setTwoSided );
                     list.Add( { .Pipeline          = instancedDrawPipeline,
                                 .Mesh              = d.Mesh,
                                 .Transform         = unusedModelTransform,
@@ -2338,11 +2722,47 @@ namespace Desert::Graphic::System
         // early-Z pairing BuildGpuInstancedDraws pairs them itself (DeclareMaskedDepthDraws, m_MaskedPrepassed):
         // once, in the Rest half's plain G-buffer state.
         if ( instancingOn &&
-             ( m_DeferredHalf == DeferredPrepassHalf::None || m_DeferredHalf == DeferredPrepassHalf::Rest ) )
+             mode.Half == DeferredPrepassHalf::None ) // the Rest half: BuildRestGpuInstancedDraws
         {
             DESERT_PROFILE_SCOPE( "Mesh: GPU-instanced draws" );
             BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState,
                                     companion ? &*companion : nullptr, false );
+        }
+        if ( resolveCall )
+            scratch.Planned = true;
+        return ismInstances;
+    }
+
+    void MeshRenderer::BuildRestGpuInstancedDraws( MeshDrawList& list )
+    {
+        // BuildStaticDraws's gates for its tail (a queue to walk, a camera); the Rest half pairs with nothing,
+        // so its instancing is its own cells'.
+        if ( ( m_StaticQueue.empty() && m_InstancedQueue.empty() ) || m_SceneRenderer->GetMainCamera() == nullptr )
+            return;
+        const StaticPassCells cells = StaticCellsOf( MeshPass::GBuffer, /*depthEqual*/ false );
+        if ( !cells.InstancingOn )
+            return;
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        DESERT_PROFILE_SCOPE( "Mesh: GPU-instanced draws" );
+        BuildGpuInstancedDraws( list, cells.InstancedState, MeshPass::GBuffer, frameState, nullptr, false );
+    }
+
+    void MeshRenderer::UploadInstanceTransforms( InstancedBatchSet& set )
+    {
+        if ( auto* sb = set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
+            sb->SetRawData( set.Transforms.data(),
+                            static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+    }
+
+    void MeshRenderer::FlushStaticUploads( DrawBuildScratch& scratch )
+    {
+        // Serial, after the Record calls joined and before the pass is declared: each set's buffer at final size
+        // (the draws keep their material, not its buffers - MeshDrawList::Add), in the sets' order.
+        for ( std::size_t si = 0; si < scratch.InstSetCount; ++si )
+        {
+            InstancedBatchSet& set = *scratch.InstSets[si];
+            if ( set.Lent && !set.Draws.empty() )
+                UploadInstanceTransforms( set );
         }
     }
 
@@ -2411,7 +2831,8 @@ namespace Desert::Graphic::System
         return cells;
     }
 
-    void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )
+    void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list, const DrawBuildMode& mode,
+                                          DrawBuildScratch& scratch )
     {
         if ( m_SkinnedQueue.empty() )
             return;
@@ -2437,8 +2858,8 @@ namespace Desert::Graphic::System
             return pass == MeshPass::Depth ? m_SkinnedDepthPipeline.get()
                                            : WireframePipelineOr( m_SkinnedPipeline.get() );
         };
-        const MeshPass cellPass  = m_GeometryPass;
-        const bool     equalHalf = m_DeferredHalf == DeferredPrepassHalf::Equal;
+        const MeshPass cellPass  = mode.Pass;
+        const bool     equalHalf = mode.Half == DeferredPrepassHalf::Equal;
         // The Wireframe view's skinned twin writes its own depth, as the static and instanced ones: not prepassed.
         if ( cellPass == MeshPass::Depth && WireframeView() )
             return;
@@ -2449,14 +2870,14 @@ namespace Desert::Graphic::System
         // Wireframe view: the twin is not prepassed). The deferred early-Z pairing: the prepass's companion is the
         // G-buffer's equal state, the Equal half's the prepass; the Rest half pairs with nothing.
         std::optional<MeshPass> companionPass;
-        if ( m_DeferredHalf == DeferredPrepassHalf::Depth )
+        if ( mode.Half == DeferredPrepassHalf::Depth )
             companionPass = MeshPass::GBuffer;
         else if ( equalHalf )
             companionPass = MeshPass::Depth;
-        else if ( m_DeferredHalf == DeferredPrepassHalf::None && PairsWithPrepass( /*wireframeReplaced*/ true ) )
+        else if ( mode.Half == DeferredPrepassHalf::None && PairsWithPrepass( mode.Pass, /*wireframe*/ true ) )
             companionPass = cellPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth;
         // The companion's G-buffer is the equal one (only the deferred prepass pairs with the G-buffer).
-        const bool companionEqual = m_DeferredHalf == DeferredPrepassHalf::Depth;
+        const bool companionEqual = mode.Half == DeferredPrepassHalf::Depth;
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -2509,12 +2930,13 @@ namespace Desert::Graphic::System
             for ( const auto& section : data.Sections )
                 if ( section.Material != nullptr && section.Instance != nullptr &&
                      CpuWalkHidden(
-                          cellPass == MeshPass::Depth && m_DeferredHalf != DeferredPrepassHalf::Depth
+                          cellPass == MeshPass::Depth && mode.Half != DeferredPrepassHalf::Depth
                                ? UnbinnedWalkView( GpuDriven::MeshPass::DepthPrepass )
                                : BinnedWalkView( cellPass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
                                                                                : GpuDriven::MeshPass::GBuffer,
                                                  kBinnedMainView ),
-                          /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive, section.HiddenSubmeshes ) )
+                          /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive, section.HiddenSubmeshes,
+                          scratch.WalkWords ) )
                     if ( DataDrivenMaterial* const mat = passMaterial( section.Material ) )
                         groupFor( mat ).push_back( { &data, &section } );
         }
@@ -2553,7 +2975,7 @@ namespace Desert::Graphic::System
                 DataDrivenMaterial* const source = objects.front().Section->Material;
                 const PrepassCellKey      key{ source, MeshVertexPath::Skinned, twoSided, true };
                 // The deferred early-Z half this group belongs to (DeferredHalfTakes): out of the other halves.
-                if ( !DeferredHalfTakes( source, key ) )
+                if ( !DeferredHalfTakes( mode.Half, source, key ) )
                 {
                     objects.clear();
                     continue;
@@ -2590,7 +3012,7 @@ namespace Desert::Graphic::System
                     objects.clear(); // Nothing: before the reveal, said once by ChooseCellDraw
             }
             // No stand-in in the deferred early-Z pass (as the static path): the Rest half draws it with its own depth.
-            if ( !standingIn.empty() && standIn != nullptr && m_DeferredHalf != DeferredPrepassHalf::Depth )
+            if ( !standingIn.empty() && standIn != nullptr && mode.Half != DeferredPrepassHalf::Depth )
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
         }
 

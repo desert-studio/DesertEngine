@@ -3,11 +3,13 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/JobSystem.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -25,6 +27,17 @@ namespace Desert::Graphic::RDG
 {
     namespace
     {
+        // RENDER-PARALLEL-SETUP: a setup task (Common::TaskGroup) computes a plan and touches no graph; only the
+        // render thread adds passes, creates and registers resources. An entry reached from a task is a race on
+        // the graph, so it is named here - a log line and an assert, never RecordError (the same race again).
+        void CheckNotInSetupTask( std::string_view graph, std::string_view entry )
+        {
+            if ( !Common::TaskGroup::InTask() )
+                return;
+            LOG_ERROR( "[RenderTask] graph '{}': Builder::{} was called from a setup task", graph, entry );
+            assert( false && "RDG::Builder entry point called from a setup task (Common::TaskGroup)" );
+        }
+
         bool RdgIsAttachmentAccess( Access access )
         {
             return access == Access::ColorTarget || access == Access::DepthWrite || access == Access::DepthRead;
@@ -261,6 +274,7 @@ namespace Desert::Graphic::RDG
                                                     ExternalTexture* depth, std::string_view name,
                                                     std::span<ExternalTexture* const> resolves )
     {
+        CheckNotInSetupTask( m_Name, "ImportFramebuffer" );
         ImportedFramebuffer imported;
         if ( !resolves.empty() && resolves.size() != colors.size() )
             RecordError( std::format( "graph '{}': ImportFramebuffer('{}') has {} colour(s) and {} resolve(s)",
@@ -295,6 +309,7 @@ namespace Desert::Graphic::RDG
 
     TextureRef Builder::CreateTexture( const TextureDesc& desc, std::string_view name )
     {
+        CheckNotInSetupTask( m_Name, "CreateTexture" );
         const uint32_t maxMips = Core::Formats::MipChainLength( std::max(
              { desc.Size.Width, desc.Size.Height, desc.Dim == TextureDim::Tex3D ? desc.Size.Depth : 1u } ) );
         if ( desc.Size.Width == 0 || desc.Size.Height == 0 || desc.Size.Depth == 0 || desc.Mips == 0 ||
@@ -343,6 +358,7 @@ namespace Desert::Graphic::RDG
 
     BufferRef Builder::CreateBuffer( const BufferDesc& desc, std::string_view name )
     {
+        CheckNotInSetupTask( m_Name, "CreateBuffer" );
         if ( desc.Bytes == 0 )
             RecordError( fmt::format( "graph '{}': buffer '{}' has zero bytes", m_Name, name ) );
 
@@ -356,6 +372,7 @@ namespace Desert::Graphic::RDG
 
     void Builder::QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
     {
+        CheckNotInSetupTask( m_Name, "QueueBufferUpload" );
         const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
         const std::string     name   = record != nullptr ? record->Name : fmt::format( "#{}", buffer.Index );
         std::string           error;
@@ -395,6 +412,7 @@ namespace Desert::Graphic::RDG
 
     TextureRef Builder::RegisterExternal( ExternalTexture& texture, std::string_view name )
     {
+        CheckNotInSetupTask( m_Name, "RegisterExternal" );
         if ( texture.SubresourceStates.size() != texture.Desc.SubresourceCount() )
             RecordError( fmt::format( "graph '{}': external texture '{}' carries {} subresource states for {} "
                                       "subresources ({} mips x {} layers)",
@@ -412,6 +430,7 @@ namespace Desert::Graphic::RDG
 
     BufferRef Builder::RegisterExternal( ExternalBuffer& buffer, std::string_view name )
     {
+        CheckNotInSetupTask( m_Name, "RegisterExternal" );
         ResourceRecord record;
         record.Name        = std::string( name );
         record.Kind        = ResourceKind::Buffer;
@@ -424,6 +443,7 @@ namespace Desert::Graphic::RDG
     void Builder::Extract( TextureRef texture, ExternalTexture& into, Access final,
                            std::initializer_list<Access> later )
     {
+        CheckNotInSetupTask( m_Name, "Extract" );
         if ( FindResource( texture.Index, ResourceKind::Texture ) == nullptr )
         {
             RecordError(
@@ -469,6 +489,7 @@ namespace Desert::Graphic::RDG
 
     void Builder::Extract( BufferRef buffer, ExternalBuffer& into, Access final )
     {
+        CheckNotInSetupTask( m_Name, "Extract" );
         if ( FindResource( buffer.Index, ResourceKind::Buffer ) == nullptr )
         {
             RecordError( fmt::format( "graph '{}': Extract of invalid buffer handle {}", m_Name, buffer.Index ) );
@@ -502,6 +523,7 @@ namespace Desert::Graphic::RDG
 
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
     {
+        CheckNotInSetupTask( m_Name, "BeginPass" );
         const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );

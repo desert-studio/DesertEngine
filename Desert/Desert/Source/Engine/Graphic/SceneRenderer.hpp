@@ -844,6 +844,12 @@ namespace Desert::Graphic
         // This frame's point/spot shadows are the virtual shadow map's (Shadows resolved to VirtualMaps, not path
         // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs, and every forward
         // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
+        // This frame's RenderPipeline.ParallelSetup (or the --parallel-setup override): a pass may build its
+        // setup on Common::TaskGroup tasks (MeshRenderer::DeclareGBufferDraws' early-Z halves).
+        [[nodiscard]] bool ParallelSetup() const
+        {
+            return m_ParallelSetup;
+        }
         [[nodiscard]] bool LocalShadowsAreVirtual() const;
         // This frame's point/spot lights have virtual-shadow-map pages (m_LocalLightsVirtualPages, resolved once
         // per frame by AssignLocalShadowMaskSlots through RenderMethods' LocalLightsVirtualPages):
@@ -1988,6 +1994,7 @@ namespace Desert::Graphic
         // "Not pushed to" therefore has to mean "this machine's answer" here rather than "the defaults".
         // The RESOLVED quality (SCAL1): the only product of the scalability system a renderer reads.
         Common::Scalability::ResolvedQuality m_Quality = Common::Scalability::QualityState::Resolved();
+        bool m_ParallelSetup = false; // set per frame where the view's setup starts
         // What this VIEW is drawing on top of the world. NOT refreshed from the scene — pushed in by
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
