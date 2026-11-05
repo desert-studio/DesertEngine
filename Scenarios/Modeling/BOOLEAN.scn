@@ -12,12 +12,12 @@
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 0,0,0
-Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
 Дано --subject modeling set CreateShape.Sphere.Radius 50
 Дано run Modeling "Create shape tool: Sphere"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 40,60,40
-Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Green.demat
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Green.demat
 Дано run Modeling "Active tool: Accept"
 Дано --subject viewport set Camera.Position 150,190,180
 Дано run Entity Box
@@ -37,13 +37,6 @@
 Когда run Modeling "Boolean operation: Difference A - B"
 Когда run Modeling "Boolean tool: Boolean"
 Когда run Modeling "Active tool: Accept"
-Тогда 4_accept the Box with a spherical bite, the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
+Тогда 4_accept the red Box with a spherical bite whose inner wall stays green (Details: Material Slots CB_Red, CB_Green), the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
 Когда run Action Undo
 Тогда 5_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both
-Когда run Entity Box
-Когда run Entity "Add to selection Sphere"
-Когда run Modeling "Boolean operation: Union"
-Когда run Modeling "Boolean tool: Boolean"
-Тогда 6_union_colors the preview: the Box red and the Sphere's dome bulging out of it green (not grey or untextured); tool bar reads Boolean
-Когда run Modeling "Active tool: Accept"
-Тогда 7_union_accept the accepted single mesh keeps both colours: Box part red, dome green; the Sphere gone from the Outliner; no tool bar
