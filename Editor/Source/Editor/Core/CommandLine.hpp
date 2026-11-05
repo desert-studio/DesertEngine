@@ -100,6 +100,7 @@ namespace Desert::Editor
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
+         { "--gpu-order-trace", false, nullptr },
          { "--play", false, nullptr },
          { "--console", false, nullptr }, // Windows: opens a console window (Engine/EntryPoint.hpp)
          { "--crash-test", true, "segv" },
@@ -329,6 +330,8 @@ namespace Desert::Editor
                     options.Shot.GpuTiming = false;
                 else if ( arg == "--gpu-profile-frame-only" )
                     options.Shot.GpuFrameOnly = true;
+                else if ( arg == "--gpu-order-trace" )
+                    options.Shot.GpuOrderTrace = true;
                 else if ( arg == "--play" )
                     options.Shot.Play = true;
                 // `--console` is acted on in main(), before the application exists; nothing to record here.

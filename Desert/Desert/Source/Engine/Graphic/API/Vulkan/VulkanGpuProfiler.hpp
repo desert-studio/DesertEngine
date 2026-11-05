@@ -113,7 +113,7 @@ namespace Desert::Graphic::API::Vulkan
         // RDG-PARALLEL-1-1: on the dispatching thread, as the graph begins its chunks (before any records): where
         // the chunks' scopes hang - the active view's stack on @p queue (the chunks' pipe) and the scope open on
         // it now. The chunks record while the dispatching thread walks the graph, so they never read its stack.
-        [[nodiscard]] GpuScopeRecorder::ChunkRootScope ChunkRoot( Common::Profiling::GpuQueue queue );
+        [[nodiscard]] GpuChunkRootScope ChunkRoot( Common::Profiling::GpuQueue queue );
 
         int32_t BeginDrawScope( std::string_view pass, std::string_view mesh, std::string_view material ) override;
         void    EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts ) override;
@@ -134,7 +134,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             VkQueryPool      Pool       = VK_NULL_HANDLE;
             uint32_t         QueryCount = 0;
-            GpuScopeRecorder Recorder;
+            // Keyed by the profiler row id (Profiler::LocalScopeName): no string per scope.
+            GpuScopeRecorder<uint32_t> Recorder;
             bool             FrameTotalWritten = false; // queries 0/1 were written and not yet resolved
 
             // THE MESH DRAW SPLIT's own pool (Profiler::MeshDrawSplit): group i = queries 2i / 2i+1. Created
@@ -155,7 +156,9 @@ namespace Desert::Graphic::API::Vulkan
         void ResolveDraws( FrameQueries& frame );
         // The Unaccounted rows (Profiler.hpp, kGpuUnaccountedGraphicsScope): what of each queue's timeline no
         // scope covered, and the named gaps of the graphics one. Reads m_ResultScratch as Resolve left it.
-        void PublishUnaccounted( const std::vector<GpuScopeRecorder::Scope>& scopes );
+        void PublishUnaccounted( std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes );
+        // Whether row @p nameId is an async segment's (GpuAsyncSegmentLabelStart), decided once per id.
+        [[nodiscard]] bool IsSegmentRow( uint32_t nameId );
 
         VkDevice m_Device = VK_NULL_HANDLE;
 
@@ -177,7 +180,9 @@ namespace Desert::Graphic::API::Vulkan
         std::function<VkCommandBuffer()> m_RecordingTarget;
         // RDG-PARALLEL-1: a scope's timestamp goes into the command buffer of the graph chunk bound to the calling
         // thread (VulkanRecordContext), else into the renderer's target; the scope tree and the frame's queries are
-        // shared by every recording thread, so every scope entry point holds m_Lock.
+        // shared by every recording thread. CPU-ONE-SYNC: a chunk's scope (BeginUnder / EndUnder on a task
+        // worker) takes NO lock - it claims its slot atomically and touches only its chunk's list; m_Lock is held
+        // by the shared-stack path (one dispatching thread, so uncontended) and the draw split.
         // The renderer's target belongs to the render task while the views record on it (RenderTask, the same rule
         // VulkanRendererAPI::IsRecording follows): a thread with no chunk of its own then gets VK_NULL_HANDLE, the
         // "nothing records" answer every scope entry point already honours. vkCmd* on a buffer another thread is
@@ -200,6 +205,11 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<uint64_t> m_ResultScratch;
         // The last pass-order trace Resolve logged (see there); a new line only when the order changes.
         std::string m_LastLoggedOrder;
+        // [GpuOrder] (CPU-ONE-SYNC): the order is compared by a hash of (depth, row id) per scope, built with no
+        // string; the text is built and logged only under Profiler::GpuOrderTrace (--gpu-order-trace).
+        uint64_t m_LastOrderHash = 0;
+        // Per row id: 0 unknown, 1 an async segment's row, 2 not (IsSegmentRow).
+        std::vector<uint8_t> m_SegmentById;
         /// Per-scope working values during Resolve. Members rather than locals so their capacity survives
         /// between frames instead of being rebuilt from nothing every time. -1 in m_Inclusive marks a
         /// scope whose two queries did not both land.

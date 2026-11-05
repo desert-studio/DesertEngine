@@ -288,6 +288,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // measured, and its frame time is the one a budget decision should be taken on.
     Common::Profiling::Profiler::Get().GpuEnabled()    = options.Shot.GpuProfile && options.Shot.GpuTiming;
     Common::Profiling::Profiler::Get().GpuPassScopes() = !options.Shot.GpuFrameOnly;
+    Common::Profiling::Profiler::Get().GpuOrderTrace() = options.Shot.GpuOrderTrace;
 
     // THE SPLASH, AS EARLY AS IT CAN SAY SOMETHING TRUE. Not earlier: the project it names and the cooked
     // picture's path both exist only once the project is open, three blocks up, and a refusal above this

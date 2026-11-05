@@ -91,7 +91,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<int32_t> GpuScopesMade;
         // RDG-PARALLEL-1-1: where a chunk's first scope hangs (VulkanGpuProfiler::ChunkRoot), taken when the
         // chunks are begun; the dispatching thread's stack and queue change while the chunk records.
-        GpuScopeRecorder::ChunkRootScope GpuRoot;
+        GpuChunkRootScope GpuRoot;
 
         void ForgetBoundState()
         {
