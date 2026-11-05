@@ -165,20 +165,43 @@ namespace Desert::Editor
         }
         // cpu self: the row with its nested CPU scopes subtracted; cpu wait: the part of cpu ms blocked in a
         // Wait scope (fence, acquire, present, pacer) - cpu ms minus cpu wait is the row's real work.
-        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10}", "scope", "cpu ms", "x",
-                  "gpu ms", "gpu self", "x", "cpu self", "cpu wait" );
+        // cpu max / cpu p99: the row's cpu ms in its costliest frame of the window and the 99th percentile over
+        // the window's frames (CPU-PROFILER-ZERO-COST; appended after the old columns, which keep their places).
+        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10} {:>10} {:>10}", "scope",
+                  "cpu ms", "x", "gpu ms", "gpu self", "x", "cpu self", "cpu wait", "cpu max", "cpu p99" );
 
         for ( const auto& s : prof.LastFrame() )
         {
             if ( std::string_view( s.Name ).starts_with( gapPrefix ) )
                 continue; // printed below, largest first
-            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f}", s.Name,
-                      s.TotalMs, s.Calls, s.GpuMs, s.GpuSelfMs, s.GpuCalls, s.SelfMs, s.WaitMs );
+            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>10.3f} "
+                      "{:>10.3f}",
+                      s.Name, s.TotalMs, s.Calls, s.GpuMs, s.GpuSelfMs, s.GpuCalls, s.SelfMs, s.WaitMs, s.MaxMs,
+                      s.P99Ms );
             // SELF time is the only summable column — the inclusive one counts a parent's microseconds
             // again in each child. The frame bracket is the denominator and the Unaccounted rows are its
             // remainder, not passes, so they stay out.
             if ( s.GpuCalls > 0 && !isRemainder( s.Name ) )
                 gpuSumMs += s.GpuSelfMs;
+        }
+
+        // [Hitch]: each frame of the window over kHitchFactor x its median wall time (slowest first, at most
+        // kMaxPublishedHitches) with its five largest self rows; one "none" line when no frame was.
+        if ( prof.LastHitches().empty() )
+            LOG_INFO( "[Hitch] none: no frame of {} over {:.1f}x the window median {:.3f} ms",
+                      prof.LastWindowFrames(), Common::Profiling::kHitchFactor, prof.LastFrameMedianMs() );
+        for ( const Common::Profiling::HitchFrame& hitch : prof.LastHitches() )
+        {
+            std::string top;
+            for ( const auto& [name, selfMs] : hitch.Top )
+            {
+                if ( !top.empty() )
+                    top += ", ";
+                top += fmt::format( "{} {:.3f}", name, selfMs );
+            }
+            LOG_INFO( "[Hitch] frame {} of {}: {:.3f} ms = {:.2f}x median {:.3f} ms ({} hitch(es)); top self: {}",
+                      hitch.Frame, prof.LastWindowFrames(), hitch.FrameMs, hitch.FrameMs / hitch.MedianMs,
+                      hitch.MedianMs, prof.LastHitchCount(), top );
         }
 
         // UNACCOUNTED, CPU (UE "stat unit"): the frame thread's wall time outside every outermost scope it

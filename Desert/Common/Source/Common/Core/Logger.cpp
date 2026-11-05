@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -26,13 +27,72 @@ namespace Common::Logger
     {
         constexpr const char* kLogFileName = "engine_log.txt";
 
+        // The file's line format without its colour marks and end of line: what TakeLogLines hands out is the
+        // line exactly as the file holds it.
+        constexpr const char* kRingPattern = "[%T.%e][%l][Desert]: %v";
+
+        // THE PARSED LINE RING (TakeLogLines). Written by the file writer's thread, read by the Logs panel;
+        // s_RingCount is published after the slots, so a reader that sees no new count takes no lock.
+        std::mutex                 s_RingMutex;
+        std::vector<LogLine>       s_Ring;
+        std::atomic<std::uint64_t> s_RingCount{ 0 };
+
+        // Under s_RingMutex. A message of several lines becomes several ring lines: the first carries the
+        // message's level, the rest are plain (info), exactly as a reader of the file used to parse them.
+        void PushRingText( std::string_view text, spdlog::level::level_enum level )
+        {
+            if ( s_Ring.empty() )
+                s_Ring.resize( Detail::kLineRingCapacity );
+            std::uint64_t count = s_RingCount.load( std::memory_order_relaxed );
+            std::size_t   begin = 0;
+            while ( begin <= text.size() )
+            {
+                std::size_t end = text.find( '\n', begin );
+                if ( end == std::string_view::npos )
+                    end = text.size();
+                std::string_view line = text.substr( begin, end - begin );
+                if ( !line.empty() && line.back() == '\r' )
+                    line.remove_suffix( 1 );
+                if ( !line.empty() )
+                {
+                    LogLine& slot = s_Ring[count % Detail::kLineRingCapacity];
+                    slot.Text.assign( line.data(), line.size() );
+                    slot.Level = level;
+                    ++count;
+                }
+                level = spdlog::level::info;
+                begin = end + 1;
+            }
+            s_RingCount.store( count, std::memory_order_release );
+        }
+
+        // The level a formatted line's own "[time][level]" field names (the early lines carried into the file
+        // at its first placement), info when it names none.
+        spdlog::level::level_enum LevelOfFormatted( std::string_view line )
+        {
+            const std::size_t open = line.find( "][" );
+            if ( line.empty() || line.front() != '[' || open == std::string_view::npos )
+                return spdlog::level::info;
+            const std::size_t close = line.find( ']', open + 2 );
+            if ( close == std::string_view::npos )
+                return spdlog::level::info;
+            const std::string_view                         name  = line.substr( open + 2, close - open - 2 );
+            const std::optional<spdlog::level::level_enum> level = LevelFromName( name );
+            return level.value_or( spdlog::level::info );
+        }
+
         // MakeAsyncWriterSink's sink (Logger.hpp): the caller copies its line into the queue; the writer thread
         // writes the queue to the target in order and flushes it after every batch.
         class AsyncWriterSink final : public spdlog::sinks::sink
         {
         public:
-            explicit AsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target )
-                 : m_Target( std::move( target ) ), m_Writer( [this]() { Run(); } )
+            // @p feedsRing: the log file's writer, which also hands each line it writes to the line ring.
+            explicit AsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target, bool feedsRing = false )
+                 : m_Target( std::move( target ) ),
+                   m_RingFormatter( feedsRing ? std::make_unique<spdlog::pattern_formatter>(
+                                                     kRingPattern, spdlog::pattern_time_type::local, "" )
+                                              : nullptr ),
+                   m_Writer( [this]() { Run(); } )
             {
             }
 
@@ -108,6 +168,8 @@ namespace Common::Logger
                     for ( const spdlog::details::log_msg_buffer& line : batch )
                         Guarded( [&]() { m_Target->log( line ); } );
                     Guarded( [&]() { m_Target->flush(); } );
+                    if ( m_RingFormatter )
+                        Guarded( [&]() { FeedRing( batch ); } );
                     lock.lock();
                     for ( const spdlog::details::log_msg_buffer& line : batch )
                         m_QueuedBytes -= QueuedSize( line );
@@ -154,9 +216,24 @@ namespace Common::Logger
                 std::fflush( stderr );
             }
 
+            // The writer thread, after a batch is in the file: the same lines, formatted as the file holds
+            // them, into the line ring under one lock for the batch.
+            void FeedRing( const std::vector<spdlog::details::log_msg_buffer>& batch )
+            {
+                const std::lock_guard lock( s_RingMutex );
+                for ( const spdlog::details::log_msg_buffer& line : batch )
+                {
+                    m_RingText.clear();
+                    m_RingFormatter->format( line, m_RingText );
+                    PushRingText( std::string_view( m_RingText.data(), m_RingText.size() ), line.level );
+                }
+            }
+
             static constexpr std::size_t kKeptBatchLines = 4096; // Run: the batch capacity kept between batches
 
             std::shared_ptr<spdlog::sinks::sink>         m_Target;
+            std::unique_ptr<spdlog::formatter>           m_RingFormatter; // set on the file writer only
+            spdlog::memory_buf_t                         m_RingText;      // the writer thread's (FeedRing)
             std::mutex                                   m_Mutex;
             std::condition_variable                      m_Wake;    // the writer: lines queued, or stop
             std::condition_variable                      m_Written; // callers: a batch is written
@@ -183,6 +260,59 @@ namespace Common::Logger
     std::shared_ptr<spdlog::sinks::sink> MakeAsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target )
     {
         return std::make_shared<AsyncWriterSink>( std::move( target ) );
+    }
+
+    namespace Detail
+    {
+        std::atomic<int>& LevelThreshold() noexcept
+        {
+#if defined( DESERT_CONFIG_DEBUG )
+            static std::atomic<int> s_Threshold{ static_cast<int>( spdlog::level::trace ) };
+#else
+            static std::atomic<int> s_Threshold{ static_cast<int>( spdlog::level::info ) };
+#endif
+            return s_Threshold;
+        }
+    } // namespace Detail
+
+    void SetLevel( const spdlog::level::level_enum level )
+    {
+        Detail::LevelThreshold().store( static_cast<int>( level ), std::memory_order_relaxed );
+    }
+
+    spdlog::level::level_enum Level()
+    {
+        const int threshold = Detail::LevelThreshold().load( std::memory_order_relaxed );
+        return static_cast<spdlog::level::level_enum>( threshold );
+    }
+
+    std::optional<spdlog::level::level_enum> LevelFromName( const std::string_view name )
+    {
+        if ( name == "warn" )
+            return spdlog::level::warn;
+        for ( int level = spdlog::level::trace; level < spdlog::level::off; ++level )
+        {
+            const spdlog::string_view_t text = spdlog::level::to_string_view(
+                 static_cast<spdlog::level::level_enum>( level ) );
+            if ( name == std::string_view( text.data(), text.size() ) )
+                return static_cast<spdlog::level::level_enum>( level );
+        }
+        return std::nullopt;
+    }
+
+    std::uint64_t TakeLogLines( const std::uint64_t next, std::vector<LogLine>& out )
+    {
+        if ( s_RingCount.load( std::memory_order_acquire ) == next )
+            return next;
+        const std::lock_guard lock( s_RingMutex );
+        const std::uint64_t   count  = s_RingCount.load( std::memory_order_relaxed );
+        const std::uint64_t   oldest = count > Detail::kLineRingCapacity ? count - Detail::kLineRingCapacity : 0;
+        std::uint64_t         at     = next < oldest ? oldest : next;
+        if ( at > count )
+            at = oldest; // a number past the end belongs to no ring this process wrote: start from what is kept
+        for ( ; at < count; ++at )
+            out.push_back( s_Ring[at % Detail::kLineRingCapacity] );
+        return count;
     }
 
     void DrainLog()
@@ -272,7 +402,23 @@ namespace Common::Logger
         placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
         // Replacing the slot destroys the previous writer (it joins after the drain above), which closes the
         // previous file, so removing it works on Windows too.
-        *slot = MakeAsyncWriterSink( std::move( placed ) );
+        // The first placement seeds the line ring with the startup lines it carried into the file; a later
+        // one moves a file whose lines the ring already holds.
+        if ( previous.empty() )
+        {
+            const std::lock_guard lock( s_RingMutex );
+            std::string_view text( carried );
+            for ( std::size_t begin = 0; begin < text.size(); )
+            {
+                std::size_t end = text.find( '\n', begin );
+                if ( end == std::string_view::npos )
+                    end = text.size();
+                const std::string_view line = text.substr( begin, end - begin );
+                PushRingText( line, LevelOfFormatted( line ) );
+                begin = end + 1;
+            }
+        }
+        *slot = std::make_shared<AsyncWriterSink>( std::move( placed ), true );
         if ( !previous.empty() )
             std::filesystem::remove( previous, ec ); // the old copy would be a second, stale log
 
