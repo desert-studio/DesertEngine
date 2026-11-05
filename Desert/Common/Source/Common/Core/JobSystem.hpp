@@ -62,7 +62,11 @@ namespace Common
             Destroy();
         }
 
-        void operator()()
+        // THE JOB RUNS INSIDE A noexcept FUNCTION (UE: engine code does not catch). A throw from the callable
+        // ends the process at the job, through std::terminate and EntryPoint's handler, which prints what()
+        // and the stack. It never unwinds into the worker loop, which could only swallow it or die later.
+        // A job that can fail returns a value; a ThirdParty call that throws is wrapped once at its boundary.
+        void operator()() noexcept
         {
             m_Ops->Invoke( m_Storage );
         }
@@ -74,7 +78,7 @@ namespace Common
     private:
         struct Ops
         {
-            void ( *Invoke )( void* );
+            void ( *Invoke )( void* ) noexcept;
             void ( *MoveTo )( void* src, void* dst ); // dst is uninitialized; src is destroyed
             void ( *Destroy )( void* );
         };
@@ -83,21 +87,19 @@ namespace Common
         // rejects the destructor-call syntax on a template parameter naming a closure ("class has no
         // destructor called '~D'"). destroy_at is equivalent, standard, and accepted by both compilers.
         template <typename D>
-        static constexpr Ops s_InlineOps = {
-            []( void* s ) { ( *static_cast<D*>( s ) )(); },
-            []( void* src, void* dst )
-            {
-                new ( dst ) D( std::move( *static_cast<D*>( src ) ) );
-                std::destroy_at( static_cast<D*>( src ) );
-            },
-            []( void* s ) { std::destroy_at( static_cast<D*>( s ) ); } };
+        static constexpr Ops s_InlineOps = { []( void* s ) noexcept { ( *static_cast<D*>( s ) )(); },
+                                             []( void* src, void* dst )
+                                             {
+                                                 new ( dst ) D( std::move( *static_cast<D*>( src ) ) );
+                                                 std::destroy_at( static_cast<D*>( src ) );
+                                             },
+                                             []( void* s ) { std::destroy_at( static_cast<D*>( s ) ); } };
 
         template <typename D>
-        static constexpr Ops s_HeapOps = {
-            []( void* s ) { ( **static_cast<D**>( s ) )(); },
-            []( void* src, void* dst )
-            { *static_cast<D**>( dst ) = *static_cast<D**>( src ); },
-            []( void* s ) { delete *static_cast<D**>( s ); } };
+        static constexpr Ops s_HeapOps = { []( void* s ) noexcept { ( **static_cast<D**>( s ) )(); },
+                                           []( void* src, void* dst )
+                                           { *static_cast<D**>( dst ) = *static_cast<D**>( src ); },
+                                           []( void* s ) { delete *static_cast<D**>( s ); } };
 
         void MoveFrom( InlineJob& other ) noexcept
         {
@@ -172,14 +174,28 @@ namespace Common
         // flight (and waits for them) must take this one back.
         bool Submit( InlineJob job );
 
-        // Submit with a result: returns a std::future for the callable's return value.
+        // Submit with a result: returns a std::future for the callable's return value. A promise and not a
+        // packaged_task: packaged_task catches the callable's throw into the future, which a caller that never
+        // calls get() never sees. Here the callable runs inside the job's noexcept call (InlineJob), so a throw
+        // ends the process at the job; a callable that can fail returns its error as the value. A job the pool
+        // refused (shutting down) still leaves a broken promise in the future.
         template <typename F>
         auto Async( F&& fn ) -> std::future<std::invoke_result_t<F>>
         {
-            using R   = std::invoke_result_t<F>;
-            auto task = std::make_shared<std::packaged_task<R()>>( std::forward<F>( fn ) );
-            auto fut  = task->get_future();
-            Submit( [task] { ( *task )(); } );
+            using R      = std::invoke_result_t<F>;
+            auto promise = std::make_shared<std::promise<R>>();
+            auto fut     = promise->get_future();
+            Submit(
+                 [promise, call = std::forward<F>( fn )]() mutable
+                 {
+                     if constexpr ( std::is_void_v<R> )
+                     {
+                         call();
+                         promise->set_value();
+                     }
+                     else
+                         promise->set_value( call() );
+                 } );
             return fut;
         }
 

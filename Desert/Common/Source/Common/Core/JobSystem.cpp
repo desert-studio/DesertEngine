@@ -2,7 +2,6 @@
 
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/DevInstruments.hpp>
-#include <Common/Core/Logger.hpp>
 
 // Optick is on the shipping link line and contributes nothing to it, because after the two guards below
 // no translation unit in this engine references a single Optick symbol — the profiling macros are empty
@@ -11,7 +10,6 @@
 #include <optick.h>
 
 #include <algorithm>
-#include <exception>
 #include <memory>
 
 namespace Common
@@ -86,22 +84,10 @@ namespace Common
             RecordingFrame& binding = RecordingFrame::OfThisThread();
             binding                 = queued.Recording;
 
-            // Never let a throwing job escape the worker thread: an uncaught exception here unwinds
-            // through this loop (and Optick's per-thread ThreadScope) and calls std::terminate(), taking
-            // the WHOLE app down — which showed up as a hard crash mid-startup while a background asset
-            // preload threw. Swallow + log so one bad job degrades gracefully and names itself.
-            try
-            {
-                job();
-            }
-            catch ( const std::exception& e )
-            {
-                LOG_ERROR( "[JobSystem] Worker job threw '{}' — swallowed to keep the app alive.", e.what() );
-            }
-            catch ( ... )
-            {
-                LOG_ERROR( "[JobSystem] Worker job threw a non-std exception — swallowed to keep the app alive." );
-            }
+            // NOTHING IS CAUGHT HERE. InlineJob::operator() is noexcept, so a job that throws ends the process at
+            // the job, and EntryPoint's terminate handler prints what() and the stack. Catching it here would
+            // leave the job's tail unrun (its counter, its hand-over) and the failure would surface far away.
+            job();
 
             binding = RecordingFrame{};
             // The job's captures die here, unbound: a deletion they queue takes the game thread's frame, as on
@@ -178,6 +164,14 @@ namespace Common
                 Done.wait( lk, [this] { return Active == 0; } );
             }
         };
+
+        // EVERY RANGE RUNS INSIDE THIS noexcept FUNCTION, on the caller and on each helper. A body that throws
+        // ends the process at the range that threw (std::terminate, EntryPoint's handler). So no helper is left
+        // running against a caller frame that unwound, and no throw reaches a worker loop one level up.
+        void RunRange( const std::function<void( size_t, size_t )>& body, size_t begin, size_t end ) noexcept
+        {
+            body( begin, end );
+        }
     } // namespace
 
     void JobSystem::ParallelRanges( size_t count, size_t grain,
@@ -191,7 +185,7 @@ namespace Common
         const size_t ranges = ( count + grain - 1 ) / grain;
         if ( ranges == 1 || m_Workers.empty() )
         {
-            body( 0, count );
+            RunRange( body, 0, count );
             return;
         }
 
@@ -216,40 +210,21 @@ namespace Common
                      size_t index = 0;
                      while ( share->Claim( index, true ) )
                      {
-                         // Finish() must run even if the body throws, or the caller waits for a helper
-                         // that is already gone. The worker loop logs and swallows the exception above us.
-                         struct Guard
-                         {
-                             RangeShare* Share;
-                             ~Guard()
-                             {
-                                 Share->Finish();
-                             }
-                         } guard{ share.get() };
-
+                         // RunRange returns or ends the process, so Finish() always follows a claimed range.
                          const size_t begin = index * grain;
-                         ( *bodyPtr )( begin, std::min( count, begin + grain ) );
+                         RunRange( *bodyPtr, begin, std::min( count, begin + grain ) );
+                         share->Finish();
                      }
                  } );
         }
 
         // THE CALLER WORKS TOO, and it is what makes the loop independent of the pool: if every worker is
         // busy the cursor still empties, here, serially.
-        try
+        size_t index = 0;
+        while ( share->Claim( index, false ) )
         {
-            size_t index = 0;
-            while ( share->Claim( index, false ) )
-            {
-                const size_t begin = index * grain;
-                body( begin, std::min( count, begin + grain ) );
-            }
-        }
-        catch ( ... )
-        {
-            // A throwing body still leaves helpers running against this stack frame. Drain them before
-            // letting the exception out, or the frame dies underneath them.
-            share->WaitForHelpers();
-            throw;
+            const size_t begin = index * grain;
+            RunRange( body, begin, std::min( count, begin + grain ) );
         }
 
         share->WaitForHelpers();

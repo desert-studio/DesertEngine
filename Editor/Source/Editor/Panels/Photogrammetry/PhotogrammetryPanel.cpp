@@ -270,6 +270,10 @@ namespace Desert::Editor
     {
         StopCamera();
         CancelJob();
+        // A worker cannot join itself (join throws resource_deadlock_would_occur), and the panel it captures
+        // would die under it: closing the panel from its own worker is a broken invariant, said at its site.
+        DESERT_VERIFY( m_Worker.get_id() != std::this_thread::get_id(),
+                       "~PhotogrammetryPanel runs on its own worker thread" );
         if ( m_Worker.joinable() )
             m_Worker.join();
         ReleasePreview();

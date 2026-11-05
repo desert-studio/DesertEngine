@@ -121,7 +121,8 @@ namespace Desert::Destruction
         }
         catch ( const std::exception& error )
         {
-            // The pool dropped the job unrun (shutting down) or the bake threw.
+            // The pool dropped the job unrun (shutting down): a broken promise. A bake that throws ends the
+            // process at the job (JobSystem::Async), so it never arrives here.
             return Common::MakeFormattedError<RuntimeFractureResult>( "the fracture job did not run: {}",
                                                                       error.what() );
         }
@@ -130,7 +131,7 @@ namespace Desert::Destruction
     void RuntimeFractureQueue::Cancel( Ticket ticket )
     {
         std::erase_if( m_Queued, [ticket]( const auto& entry ) { return entry.first == ticket; } );
-        // A packaged task's future does not block: the job finishes into nothing, counted until it has.
+        // A promise's future does not block: the job finishes into nothing, counted until it has.
         if ( const auto running = m_Running.find( ticket ); running != m_Running.end() )
         {
             m_Cancelled.push_back( std::move( running->second ) );
