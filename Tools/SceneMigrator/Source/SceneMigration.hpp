@@ -425,7 +425,18 @@ namespace Desert::Migration
     //       with the declared defaults and the migrator's save states them. Scenes and prefabs alike.
     inline constexpr int kSceneVersionVolumetricFog = 71;
 
-    static_assert( kSceneVersionVolumetricFog == kSceneVersion,
+    //  72 - A VIEW ASKS FOR "TRACED", NOT FOR A TRACER (TRACED-METHOD-AXIS; UE: the volume picks Lumen,
+    //       r.Lumen.HardwareRayTracing the tracer). PostProcessSettings.GlobalIlluminationMethod is a
+    //       Common::Scalability::GIRequest (Off 0, Lightmaps 1, ScreenSpace 2, ProbeVolume 3, Traced 4,
+    //       PathTraced 5) and ReflectionsMethod a ReflectionRequest (Off 0, Captures 1, ScreenSpace 2, Traced 3,
+    //       PathTraced 4). A v64..v71 file stated the rendered ladders: GI SoftwareTraced 4 / HardwareTraced 5 /
+    //       PathTraced 6, reflections SoftwareTraced 3 / HardwareTraced 4 / PathTraced 5. Both traced numbers
+    //       become Traced (GI 4, reflections 3) and PathTraced moves down one; the rest keep their number. A value
+    //       outside the old ladder is refused, naming the entity (MigrateTracedRequestV71ToV72). Scenes and
+    //       prefabs alike, the record and every prefab override.
+    inline constexpr int kSceneVersionTracedRequest = 72;
+
+    static_assert( kSceneVersionTracedRequest == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -827,6 +838,17 @@ namespace Desert::Migration
     // Drops every PostProcessVolume.Settings.Gamma kSceneVersionDisplayTransfer names, in the record and in every
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateTracedRequestV71ToV72 did to one file.
+    struct TracedRequestReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod / ReflectionsMethod numbers changed
+        std::vector<std::string> Refused;      // a Settings block or a value that is not on the old ladder
+    };
+
+    // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod and ReflectionsMethod by the old ->
+    // new tables kSceneVersionTracedRequest states, in the record and in every prefab override. PURE.
+    TracedRequestReport MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
 
     // What MigrateLightRotationV0ToV1 did to one file.
     struct SunRotationReport
@@ -1255,6 +1277,9 @@ namespace Desert::Migration
         bool                  DisplayTransferRaised = false; // below kSceneVersionDisplayTransfer
         DisplayTransferReport DisplayTransfer;
 
+        bool                TracedRequestRaised = false; // below kSceneVersionTracedRequest
+        TracedRequestReport TracedRequest;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -1272,7 +1297,7 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised;
+                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised;
         }
     };
 

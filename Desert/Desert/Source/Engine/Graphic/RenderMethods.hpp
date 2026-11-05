@@ -47,12 +47,17 @@ namespace Desert::Graphic
     template <typename Method>
     struct ResolvedMethod
     {
-        Method      Requested{}; // the view's PostProcessSettings
+        // The view's PostProcessSettings on this ladder (Common::Scalability::LadderOf): a Traced request is its
+        // best tracer, HardwareTraced; `TracedRequest` says so, and the rows print "Traced" for it.
+        Method      Requested{};
         Method      Ceiling{};   // the machine's Scalability value (a level's ceiling, or an override's choice)
         Method      Effective{}; // what the frame renders
         MethodLimit Limit = MethodLimit::None;
         // Limit == Program: the program that did not build (MethodRefusal::Program, static storage).
         std::string_view Program;
+        // The request was the Traced family: the tracer (hardware or software rays) was the machine's ceiling and
+        // the device's, never the view's (TRACED-METHOD-AXIS).
+        bool TracedRequest = false;
 
         [[nodiscard]] bool Lowered() const
         {
@@ -192,6 +197,13 @@ namespace Desert::Graphic
     // built) is lowered here to HardwareTraced on both axes with MethodLimit::FrameScene, before any pass is
     // declared, so the frame renders - and the overlay names - one decision. PURE.
     void LowerPathTracingForFrame( RenderMethods& methods, bool rayTracedSceneReady );
+
+    // The tracer GI / reflections run this frame, one row each, only for an axis on a traced rung
+    // (Common::Scalability::IsTracerRung): "GI tracer: Hardware", or "GI tracer: Software (<the limit that stopped
+    // hardware rays>)" - the device ("emulated RT: ..." / "the device offers no ray query"), the machine's ceiling
+    // ("Scalability GlobalIllumination.Method is SoftwareTraced") or an override. ReportRenderMethods logs each
+    // distinct row once.
+    [[nodiscard]] std::vector<std::string> FormatTracers( const RenderMethods& methods );
 
     // One row per axis: "GI: ScreenSpace" or, lowered, "GI: HardwareTraced -> ScreenSpace (device: no ray query)".
     // The log line and the overlay print exactly these.

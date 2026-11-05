@@ -570,6 +570,10 @@ namespace
         if ( report.VolumetricFogRaised )
             out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
                 << " (fog and lights state the Volumetric Fog fields at their defaults)";
+        if ( report.TracedRequestRaised && report.TracedRequest.Restated > 0 )
+            out << " scene ->v" << Desert::Migration::kSceneVersionTracedRequest << " ("
+                << report.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
+                << "SoftwareTraced / HardwareTraced are Traced)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

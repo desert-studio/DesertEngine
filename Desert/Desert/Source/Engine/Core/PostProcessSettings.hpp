@@ -61,18 +61,22 @@ namespace Desert::Core
         // Graphic::ResolveRenderMethods' minimum of this, the machine's Scalability ceiling and the device, walked
         // down to an implemented method; a downgrade is one log line and an overlay row. A declared method whose
         // renderer has not landed is refused where it is set (Refuse) — the loader, Details and scripts alike.
-        // Taken whole when volumes blend (a method has no value between two).
+        // Taken whole when volumes blend (a method has no value between two). GI and reflections ask for a method
+        // FAMILY (GIRequest / ReflectionRequest): Traced names no tracer - hardware or software rays are the
+        // machine's Scalability ceiling and the device's (TRACED-METHOD-AXIS; UE r.Lumen.HardwareRayTracing).
         //
         //  ScreenSpace          — gathers from sun-lit G-buffer neighbours inside the lighting pass: only geometry
         //                         on screen bounces, no denoiser.
         //  ProbeVolume          — the world radiance cache (probes on the global distance field, every light and
         //                         the sky, off screen too) read per pixel: the cheap traced path.
-        //  SoftwareTraced       — the same cache behind screen probes traced per frame: contact detail and
-        //                         rough reflections.
+        //  Traced               — the same cache behind screen probes traced per frame: contact detail and
+        //                         rough reflections; ray query over the TLAS where the machine and the device
+        //                         admit hardware rays, else the distance fields.
         PROPERTY( DisplayName( "Method" ), Category( "Global Illumination" ),
-                  Refuse( "Common::Scalability::RefuseGIMethod" ),
-                  Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
-        Common::Scalability::GIMethod GlobalIlluminationMethod = Common::Scalability::GIMethod::ScreenSpace;
+                  Refuse( "Common::Scalability::RefuseGIRequest" ),
+                  Tooltip( "Requested method; Traced runs hardware or software rays by the machine's "
+                           "Scalability and the device. The viewport overlay shows the effective one." ) )
+        Common::Scalability::GIRequest GlobalIlluminationMethod = Common::Scalability::GIRequest::ScreenSpace;
         // The screen-space gather's strength (ScreenSpace only: the traced methods carry the lights' own energy).
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
@@ -81,9 +85,11 @@ namespace Desert::Core
         // after SSR1, so a view no volume touches reflects, as UE's ScreenSpaceReflectionIntensity default does.
         // Off = the sky's prefiltered environment only.
         PROPERTY( DisplayName( "Method" ), Category( "Reflections" ),
-                  Refuse( "Common::Scalability::RefuseReflectionMethod" ),
-                  Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
-        Common::Scalability::ReflectionMethod ReflectionsMethod = Common::Scalability::ReflectionMethod::ScreenSpace;
+                  Refuse( "Common::Scalability::RefuseReflectionRequest" ),
+                  Tooltip( "Requested method; Traced runs hardware or software rays by the machine's "
+                           "Scalability and the device. The viewport overlay shows the effective one." ) )
+        Common::Scalability::ReflectionRequest ReflectionsMethod =
+             Common::Scalability::ReflectionRequest::ScreenSpace;
         PROPERTY( DisplayName( "SSR Intensity" ), Category( "Reflections" ), Range( 0.0f, 1.0f ) )
         float SSRIntensity = 1.0f;
         PROPERTY( DisplayName( "SSR Max Distance" ), Category( "Reflections" ), Length, Range( 100.0f, 20000.0f ) )

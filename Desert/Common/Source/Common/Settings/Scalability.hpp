@@ -123,7 +123,10 @@ namespace Common::Scalability
         // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
         // also applies the device (no device narrowing here: the device's limit and this one are reported
         // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
-        // is a limit, not a request, and the resolution never lands on an unimplemented method.
+        // is a limit, not a request, and the resolution never lands on an unimplemented method. The ceiling names
+        // the RENDERED ladder, so its traced rung is the machine's tracer ceiling (UE r.Lumen.HardwareRayTracing
+        // per Scalability level): SoftwareTraced keeps a view's Traced request on software rays, HardwareTraced
+        // admits hardware rays where the device has them (TRACED-METHOD-AXIS; a view's request names no tracer).
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod

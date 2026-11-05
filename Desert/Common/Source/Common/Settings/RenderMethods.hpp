@@ -71,6 +71,98 @@ namespace Common::Scalability
         PathTraced,     // the path tracer, GIMethod::PathTraced's other half (one integrator); RT pipeline device
     };
 
+    // THE VIEW'S REQUEST NAMES NO TRACER (TRACED-METHOD-AXIS; UE: the post-process volume picks Lumen, and
+    // r.Lumen.HardwareRayTracing - project, Scalability, device - picks hardware or software). A view's
+    // PostProcessSettings asks for a method FAMILY on these ladders; `Traced` is "trace", and which TRACER runs it
+    // is the machine's and the device's: the Scalability ceiling's traced rung ("<Group>.Method" SoftwareTraced
+    // caps the tracer at software, HardwareTraced admits hardware) and the device's rays (ray query on hardware
+    // RT, CapabilityCatalog RayTracingModes / RayTracingAccel). Graphic::ResolveRenderMethods lifts the request
+    // onto the rendered ladder (LadderOf: Traced -> HardwareTraced, the best tracer), applies the ceiling and
+    // walks the device down to SoftwareTraced, and logs the tracer with its reason ("GI tracer: Software (...)").
+    // Stored by number in scene files: scene v72 (Tools/SceneMigrator, MigrateTracedRequestV71ToV72) folded the
+    // numbers SoftwareTraced / HardwareTraced older files wrote into Traced.
+    enum class GIRequest : int
+    {
+        Off = 0,
+        Lightmaps,
+        ScreenSpace,
+        ProbeVolume,
+        Traced,
+        PathTraced,
+    };
+    enum class ReflectionRequest : int
+    {
+        Off = 0,
+        Captures,
+        ScreenSpace,
+        Traced,
+        PathTraced,
+    };
+    // Which tracer a traced method runs: the resolved half of a Traced request (the log line and the overlay).
+    enum class Tracer : int
+    {
+        Software = 0, // the global / mesh distance fields and the surface cache (SoftwareTraced)
+        Hardware,     // ray query over the view's TLAS (HardwareTraced)
+    };
+
+    // A request on its rendered ladder: every family is its own method, Traced is the best tracer
+    // (HardwareTraced), which the resolution walks down to SoftwareTraced where the ceiling or the device stops
+    // hardware rays.
+    [[nodiscard]] constexpr GIMethod LadderOf( const GIRequest request )
+    {
+        switch ( request )
+        {
+            case GIRequest::Off:
+                return GIMethod::Off;
+            case GIRequest::Lightmaps:
+                return GIMethod::Lightmaps;
+            case GIRequest::ScreenSpace:
+                return GIMethod::ScreenSpace;
+            case GIRequest::ProbeVolume:
+                return GIMethod::ProbeVolume;
+            case GIRequest::Traced:
+                return GIMethod::HardwareTraced;
+            case GIRequest::PathTraced:
+                return GIMethod::PathTraced;
+        }
+        return GIMethod::Off;
+    }
+    [[nodiscard]] constexpr ReflectionMethod LadderOf( const ReflectionRequest request )
+    {
+        switch ( request )
+        {
+            case ReflectionRequest::Off:
+                return ReflectionMethod::Off;
+            case ReflectionRequest::Captures:
+                return ReflectionMethod::Captures;
+            case ReflectionRequest::ScreenSpace:
+                return ReflectionMethod::ScreenSpace;
+            case ReflectionRequest::Traced:
+                return ReflectionMethod::HardwareTraced;
+            case ReflectionRequest::PathTraced:
+                return ReflectionMethod::PathTraced;
+        }
+        return ReflectionMethod::Off;
+    }
+    // The two rungs a Traced request lands on, and which tracer each runs (PathTraced is its own integrator, the
+    // rest trace no rays of either kind).
+    [[nodiscard]] constexpr bool IsTracerRung( const GIMethod method )
+    {
+        return method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced;
+    }
+    [[nodiscard]] constexpr bool IsTracerRung( const ReflectionMethod method )
+    {
+        return method == ReflectionMethod::SoftwareTraced || method == ReflectionMethod::HardwareTraced;
+    }
+    [[nodiscard]] constexpr Tracer TracerOf( const GIMethod method )
+    {
+        return method == GIMethod::HardwareTraced ? Tracer::Hardware : Tracer::Software;
+    }
+    [[nodiscard]] constexpr Tracer TracerOf( const ReflectionMethod method )
+    {
+        return method == ReflectionMethod::HardwareTraced ? Tracer::Hardware : Tracer::Software;
+    }
+
     enum class ShadowMethod : int
     {
         CascadedMaps = 0, // the sun's cascaded shadow maps
@@ -166,6 +258,16 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( GIMethod::PathTraced ) + 1 == kGIMethodNames.size() );
     static_assert( static_cast<std::size_t>( ReflectionMethod::PathTraced ) + 1 == kReflectionMethodNames.size() );
     static_assert( static_cast<std::size_t>( ShadowMethod::Stochastic ) + 1 == kShadowMethodNames.size() );
+    // A view's request (PostProcessSettings) and the resolved tracer, by name: Details, the overlay and the log.
+    inline constexpr std::array<std::string_view, 6> kGIRequestNames{ "Off",         "Lightmaps", "ScreenSpace",
+                                                                      "ProbeVolume", "Traced",    "PathTraced" };
+    inline constexpr std::array<std::string_view, 5> kReflectionRequestNames{ "Off", "Captures", "ScreenSpace",
+                                                                              "Traced", "PathTraced" };
+    inline constexpr std::array<std::string_view, 2> kTracerNames{ "Software", "Hardware" };
+    static_assert( static_cast<std::size_t>( GIRequest::PathTraced ) + 1 == kGIRequestNames.size() );
+    static_assert( static_cast<std::size_t>( ReflectionRequest::PathTraced ) + 1 ==
+                   kReflectionRequestNames.size() );
+    static_assert( static_cast<std::size_t>( Tracer::Hardware ) + 1 == kTracerNames.size() );
 
     // ---- What this build renders. The ONE table per enum; a method's task flips its row. ----------------------
     // GI HardwareTraced is NOT here: GITracing's ray-query tracer and its shader permutation exist, but the
@@ -311,7 +413,11 @@ namespace Common::Scalability
     // ---- The refusal every setter of a VIEW'S method applies (scene loader, Details, scripts) ----------------
     // Attached to the reflected fields as PROPERTY( Refuse( ... ) ); the value is the stored integer. Empty =
     // admitted; otherwise the reason, one sentence. A number that is no enumerator is refused by the reflection
-    // layer itself, before these run.
+    // layer itself, before these run. The view's request (GIRequest / ReflectionRequest) is refused when its rung
+    // on the rendered ladder (LadderOf) is not implemented; the Scalability ceilings (Scalability.cpp) name the
+    // rendered ladder itself and are refused by RefuseGIMethod / RefuseReflectionMethod.
+    [[nodiscard]] std::string_view RefuseGIRequest( std::int64_t value );
+    [[nodiscard]] std::string_view RefuseReflectionRequest( std::int64_t value );
     [[nodiscard]] std::string_view RefuseGIMethod( std::int64_t value );
     [[nodiscard]] std::string_view RefuseReflectionMethod( std::int64_t value );
     [[nodiscard]] std::string_view RefuseShadowMethod( std::int64_t value );
