@@ -21,7 +21,7 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitLandscapeGrass( Draw ); // a copy: every replay gets the whole draw (RenderCommand)
+            renderer.SubmitLandscapeGrass( Draw ); // by reference: read until EndScene; the command outlives it
         }
     };
 } // namespace Desert::Graphic::Render

@@ -20,7 +20,7 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitWaterZone( Zone ); // a copy: every replay gets the whole zone (RenderCommand)
+            renderer.SubmitWaterZone( Zone ); // by reference: read until EndScene, which this command outlives
         }
     };
 } // namespace Desert::Graphic::Render

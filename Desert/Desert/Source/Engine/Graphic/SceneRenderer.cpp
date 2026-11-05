@@ -4038,8 +4038,9 @@ namespace Desert::Graphic
     void SceneRenderer::PrepareMesh( Mesh& mesh )
     {
         // THE ONE PLACE A MESH'S GPU SIDE IS MADE FROM ITS CPU DATA: the renderer's intake, on the game thread at
-        // the update's fence (RenderCommand::Prepare, Scene::OnUpdate). Geometry set on the game side
-        // (ECS::SetEditableMesh, DynamicMesh::Update before a first draw) carries no device buffers until here
+        // the update's fence (RenderCommand::Prepare, Scene::OnUpdate). Geometry set or edited on the game side
+        // (ECS::SetEditableMesh's new mesh, DynamicMesh::Update) only raised the mesh's pending flag; the render
+        // revision, the BLAS release and the device buffers change here, with no view job reading the mesh
         // (Mesh::EnsureGpuResources). A failed upload is reported once and the replays drop the draw.
         if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
             LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}", uploaded.GetError() );
@@ -4193,16 +4194,16 @@ namespace Desert::Graphic
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
-    void SceneRenderer::SubmitLandscapeGrass( System::GrassFieldDraw draw )
+    void SceneRenderer::SubmitLandscapeGrass( const System::GrassFieldDraw& draw )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Submit( std::move( draw ) );
+        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Submit( draw );
     }
 
-    void SceneRenderer::SubmitWaterZone( System::WaterZoneDraw zone )
+    void SceneRenderer::SubmitWaterZone( const System::WaterZoneDraw& zone )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Submit( std::move( zone ) );
+        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Submit( zone );
     }
 
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,

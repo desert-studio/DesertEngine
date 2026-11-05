@@ -1101,10 +1101,13 @@ namespace Desert::Core
                 // fence above (RenderCommand::Prepare). The arena is this update's one: the next update records
                 // into the other arena, and this one is cleared only behind this update's views ("Scene: CmdBuffer
                 // Clear"). What the replay writes - the renderer's per-frame draw lists - is render-owned, so it
-                // is written on the render task, after BeginScene's state and before OnUpdate reads it. NOT HELD
-                // YET: a game-thread edit of a drawn mesh's CPU side while the job runs (MarkGpuStale from the
-                // editor's step 5) races the job's reads of that mesh (CPU-ONE-SYNC-RETURN, REMAINDER).
-                // Registration order - NOT
+                // is written on the render task, after BeginScene's state and before OnUpdate reads it. A
+                // game-thread edit of a drawn mesh while the job runs (DynamicMesh::Update from an editor tool,
+                // a system ticking past the previous frame's views) writes only what no replay reads: its CPU
+                // arrays and a pending flag (Mesh::MarkGpuStale). The revision, the BLAS and the device
+                // buffers change at the next fence (SceneRenderer::PrepareMesh, CPU-ONE-SYNC step 5).
+                // ECS::SetEditableMesh builds a new mesh and retires the old one behind the views
+                // (SetStaticMesh, RetireRenderCache). Registration order - NOT
                 // completion order - so the frame's submission order is the old sequential path's.
                 auto* const                     renderer = &*view.Renderer;
                 const SystemCommandArena* const replayed = &arena;

@@ -387,13 +387,15 @@ namespace Desert::Graphic
             return m_ViewExtent;
         }
 
+        // GAME THREAD, at the update's fence (RenderCommand::Prepare): applies @p mesh's pending edit - the render
+        // revision, the BLAS release, the device buffers made from its CPU geometry (Mesh::EnsureGpuResources) -
+        // with no view job in flight. The submits below only read the result (they may run on the render task).
+        static void PrepareMesh( Mesh& mesh );
+
         // WHETHER A MESH IS WITHIN ITS MAX DRAW DISTANCE FROM THIS VIEW (UE's LDMaxDrawDistance): asked by the
         // mesh draw commands before they submit, so a mesh beyond it enters no queue and no pass — lit, shadow,
         // velocity or debug — of this view. Measured from the view's main camera and stretched by its lens
         // (Graphic::IsWithinDrawDistance). maxDrawDistance <= 0, or no camera yet: drawn.
-        // GAME THREAD, at the update's fence (RenderCommand::Prepare): makes @p mesh's device buffers from its CPU
-        // geometry when they are stale. The submits below only read the result (they may run on the render task).
-        static void PrepareMesh( Mesh& mesh );
         [[nodiscard]] bool IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
                                                     float maxDrawDistance ) const;
 
@@ -418,12 +420,16 @@ namespace Desert::Graphic
                                   const System::LandscapeWeightDraw&               weights );
 
         // Submit one landscape root's grass for this frame (from LandscapeECSSystem via
-        // DrawLandscapeGrassCommand).
-        void SubmitLandscapeGrass( System::GrassFieldDraw draw );
+        // DrawLandscapeGrassCommand). BY REFERENCE, NOT COPIED (REVIEW-FIX R6; UE: a mesh draw command reads its
+        // proxy's data in place): @p draw is the recorded command's, which outlives this bracket - the arena is
+        // cleared only behind every view and capture face that replayed it (Scene::OnUpdate, "Scene: CmdBuffer
+        // Clear") - and the grass renderer keeps the reference only until EndScene clears its queue.
+        void SubmitLandscapeGrass( const System::GrassFieldDraw& draw );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
-        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
-        void SubmitWaterZone( System::WaterZoneDraw zone );
+        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6). By reference, as
+        // SubmitLandscapeGrass: @p zone is the recorded command's, kept until EndScene.
+        void SubmitWaterZone( const System::WaterZoneDraw& zone );
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for

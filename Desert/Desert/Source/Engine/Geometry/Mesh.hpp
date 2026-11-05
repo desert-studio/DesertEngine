@@ -221,11 +221,20 @@ namespace Desert
         // marks its GPU side stale; the renderer calls this when the mesh is submitted for drawing (the
         // pattern of UE's render proxy / InitResources). One upload per change: the flag drops whether or
         // not the upload succeeds, so a failure is reported once, not once per frame.
+        // THE FENCE'S HALF OF AN EDIT (CPU-ONE-SYNC step 5; UE: the game thread builds new render data and the
+        // render command queue swaps it in). Called only by SceneRenderer::PrepareMesh, on the game thread with
+        // no view job in flight (Scene::OnUpdate's intake, RenderTask::AfterJoin): everything a replay reads -
+        // the render revision MorphedMeshFor and the shadow caches key by, the BLAS, the device geometry - is
+        // replaced HERE, never under a job. MarkGpuStale, the edit's half, only raises the flag.
         [[nodiscard]] Common::BoolResultWithCodes<MeshError> EnsureGpuResources()
         {
             if ( !m_GpuStale )
                 return Common::MakeSuccessWithCodes<bool, MeshError>( true );
             m_GpuStale = false;
+            // New content under the same address: every cache keyed by the mesh's render identity redraws it.
+            m_RenderRevision.Bump();
+            // A BLAS built from the old positions would let rays hit geometry the raster no longer draws.
+            m_RayTracingGeometry.reset();
             return Invalidate();
         }
         [[nodiscard]] bool IsGpuStale() const
@@ -239,15 +248,16 @@ namespace Desert
         }
 
     protected:
-        // The CPU data changed and the GPU buffers no longer hold it (or were never made).
-        void MarkGpuStale()
+        // The CPU data changed and the GPU buffers no longer hold it (or were never made). THE EDIT'S HALF: a
+        // pending flag and nothing a replay reads. The game thread may call it while a view job replays this
+        // mesh (an editor tool in the interface step, a system's tick past the previous frame's views); the
+        // revision bump, the BLAS release and the upload are the fence's (EnsureGpuResources). The flag itself
+        // is game-thread state: no job reads it (ReadyForDraw asks the geometry's residency).
+        void MarkGpuStale() noexcept
         {
             m_GpuStale = true;
-            m_RenderRevision.Bump();
-            // A BLAS built from the old positions would let rays hit geometry the raster no longer draws.
-            m_RayTracingGeometry.reset();
         }
-        bool               m_GpuStale = false;
+        bool               m_GpuStale = false; // written and read on the game thread only
         MeshRenderRevision m_RenderRevision;
 
         // Called by every subclass that (re)builds its LOD chain: the resolved sizes follow the level count.
