@@ -343,6 +343,7 @@ namespace Desert::ECS
                 weights.Weightmap       = gpu.Weightmap;
                 weights.Revision        = gpu.WeightRevision;
                 weights.LayerCount = channels.Count;
+                weights.EmptyLayers     = gpu.EmptyLayers;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
                 weights.LayerNames      = channels.Names;
@@ -429,7 +430,17 @@ namespace Desert::ECS
         if ( weightmap.IsSuccess() )
         {
             if ( weightsDirty || gpu.Weightmap.get() != previousWeightmap )
+            {
                 gpu.WeightRevision = ++m_Revision;
+                // The layer allocation of the pixels just written (LandscapeWeightmapTexels: channel i is layer
+                // i's weights, a channel past the tile's layers zero).
+                const std::vector<Landscape::LandscapeWeightLayer>& layers = heights.WeightLayers();
+                gpu.EmptyLayers                                            = 0u;
+                for ( size_t i = 0; i < Landscape::kLandscapeMaxWeightLayers; ++i )
+                    if ( i >= layers.size() || std::all_of( layers[i].Weights.begin(), layers[i].Weights.end(),
+                                                            []( const uint8_t w ) { return w == 0u; } ) )
+                        gpu.EmptyLayers |= 1u << i;
+            }
             return;
         }
         gpu.Weightmap.reset();

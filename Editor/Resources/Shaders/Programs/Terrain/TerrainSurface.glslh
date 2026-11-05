@@ -140,8 +140,11 @@
                 vec2  g     = LandscapeTileSampleCoord( CurrentTerrain, v_WorldPos );
                 vec2  size  = vec2( textureSize( WeightmapTexture, 0 ) );
                 float pages = LandscapeTilePages( CurrentTerrain );
-                w0          = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
-                if ( pages > 1.5 )
+                // A page whose four channels are empty on the whole tile (its layer allocation,
+                // LandscapeTilePageEmpty) reads 0 everywhere: not fetched. Tile-uniform, so no lane diverges.
+                if ( !LandscapeTilePageEmpty( CurrentTerrain, 0 ) )
+                    w0 = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
+                if ( pages > 1.5 && !LandscapeTilePageEmpty( CurrentTerrain, 1 ) )
                     w1 = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 1.0, size, pages ) );
                 if ( LandscapeTileIsHole( CurrentTerrain, w0, w1 ) )
                     discard;

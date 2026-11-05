@@ -37,6 +37,22 @@ float LandscapeTilePages( TerrainInstance t )
     return t.Params2.z;
 }
 
+// THE TILE'S LAYER ALLOCATION (UE: a component samples only the weightmap layers allocated to it): 1 per channel
+// of page @p page that is zero at every sample of the tile (GroundInput.y, bit i = channel i; LandscapeECSSystem
+// censuses it with the pixels; 0 = unknown, every channel walked). Such a channel filters to exactly 0 anywhere on
+// the tile, so dropping it changes no weight: the surface walks only the rest, and a page that is all empty
+// (LandscapeTilePageEmpty) is not fetched.
+vec4 LandscapeTileEmptyPage( TerrainInstance t, int page )
+{
+    const uint bits = ( uint( t.GroundInput.y + 0.5 ) >> uint( 4 * page ) ) & 15u;
+    return vec4( float( bits & 1u ), float( ( bits >> 1u ) & 1u ), float( ( bits >> 2u ) & 1u ),
+                 float( ( bits >> 3u ) & 1u ) );
+}
+bool LandscapeTilePageEmpty( TerrainInstance t, int page )
+{
+    return ( ( uint( t.GroundInput.y + 0.5 ) >> uint( 4 * page ) ) & 15u ) == 15u;
+}
+
 // UE's Landscape Visibility Mask on the tile's pages: true where the visibility layer punches a hole.
 bool LandscapeTileIsHole( TerrainInstance t, vec4 w0, vec4 w1 )
 {
@@ -320,8 +336,14 @@ TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m,
 
     if ( LandscapeTileHasLayers( t ) )
     {
-        vec4 drawn0 = vec4( t.LayerColors[0].a, t.LayerColors[1].a, t.LayerColors[2].a, t.LayerColors[3].a );
-        vec4 drawn1 = vec4( t.LayerColors[4].a, t.LayerColors[5].a, t.LayerColors[6].a, t.LayerColors[7].a );
+        // The layers the blend walks: the ones the root names, of those only the ones painted somewhere on this
+        // tile (its layer allocation, LandscapeTileEmptyPage) - an unpainted one is no longer a height-blend
+        // candidate (pass 1 skipped where no allocated layer is height-blended), as UE leaves it out of the
+        // component.
+        vec4 drawn0 = vec4( t.LayerColors[0].a, t.LayerColors[1].a, t.LayerColors[2].a, t.LayerColors[3].a ) *
+                      ( vec4( 1.0 ) - LandscapeTileEmptyPage( t, 0 ) );
+        vec4 drawn1 = vec4( t.LayerColors[4].a, t.LayerColors[5].a, t.LayerColors[6].a, t.LayerColors[7].a ) *
+                      ( vec4( 1.0 ) - LandscapeTileEmptyPage( t, 1 ) );
 
         // Each channel's blend type: its input's (UE's per-layer ELandscapeLayerBlendType); a layer no input names
         // keeps its layer info's painting rule (NoWeightBlend = laid over, as UE's alpha).

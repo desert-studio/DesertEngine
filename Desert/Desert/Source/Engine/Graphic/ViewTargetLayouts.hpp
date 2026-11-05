@@ -52,6 +52,14 @@ namespace Desert::Graphic
                                    1 };
     }
 
+    // The G-buffer's depth ALONE: the deferred view's early-Z pass ("Deferred: Masked Depth Prepass", "Deferred:
+    // Terrain Depth Prepass"; UE DepthPass) draws into it before the G-buffer fill, which then tests it and writes
+    // none.
+    inline RenderTargetLayout GBufferDepthLayout()
+    {
+        return RenderTargetLayout{ {}, ViewTargetFormats::kGBufferDepth, 1 };
+    }
+
     // The translucent front layer's G-buffer ("Translucency: Front Layer G-buffer", Mesh/Surface/Pass_FrontLayer.glslh;
     // UE FrontLayerTranslucency GBufferA + SceneDepth): the G-buffer normal slot's format (normal + roughness, read by
     // the reflection trace exactly as the opaque one), the view's velocity format (the reflection denoiser's
