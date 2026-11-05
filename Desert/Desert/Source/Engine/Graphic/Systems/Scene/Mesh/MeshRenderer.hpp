@@ -1107,6 +1107,9 @@ namespace Desert::Graphic::System
             uint32_t                 Layer = 0; // the cascade: its layer of the array
             std::string              Name;
             bool                     ToCache = false; // the layer into the cache (a scrolled cascade's static depth)
+            // FromCache only: the texels (x, y, width, height) restored, the rest of the layer kept - a cascade
+            // whose keyed movers moved over a still static layer (CascadeCacheState::MapMovableRect); empty, all.
+            std::vector<glm::uvec4> Regions;
         };
         struct CascadeCacheScroll
         {
@@ -1992,10 +1995,25 @@ namespace Desert::Graphic::System
         // (ShadowIsmInstances, gathered here when no view walked the field yet): what the layer draws.
         // @p casterVP: the box the casters are taken from (this frame's caster matrix, or the one a scrolled cache
         // was drawn with). @p withLod: the levels the camera chose are part of the key (a content key leaves them
-        // out: a scrolled cache keeps the level it was drawn at, PlanCascadeCache). @p windSplit: a reached caster is
-        // split between the layers by the wind ring around the camera, which no content key can hold.
+        // out: a scrolled cache keeps the level it was drawn at, PlanCascadeCache). @p windSplit: a reached caster
+        // is split between the layers by the wind ring around the camera, which no content key can hold.
+        // THE MOVERS OF A CASCADE (CascadeStaticSignature, SHADOW-CACHE-MOTION): a skinned caster reaching it is
+        // KEYED - its entry, meshes, sections and transform in Casters, its bones and morph blend in Pose, its posed
+        // box in Bounds - and the movable layer is kept while that key holds; any other mover (wind time, instances
+        // the GPU moves, casters gathered for other queues, particles submitted after the plan, a non-mesh caster
+        // with no key) is UNKEYED, named, and the movable layer is drawn every frame it reaches the cascade.
+        struct CascadeMovers
+        {
+            bool                              Keyed   = false;
+            const char*                       Unkeyed = nullptr;
+            ShadowSignatureHash               Casters;
+            ShadowSignatureHash               Pose;
+            std::optional<Common::Math::AABB> Bounds;
+            [[nodiscard]] bool                Any() const { return Keyed || Unkeyed != nullptr; }
+        };
+        // @p movers: the movable casters that reach the box (CascadeMovers), added to.
         [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, const glm::mat4& casterVP, bool withLod,
-                                                       bool& movable, bool& windSplit );
+                                                       CascadeMovers& movers, bool& windSplit );
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
@@ -2544,6 +2562,24 @@ namespace Desert::Graphic::System
             glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) }; // CascadeScrollStrips
             // ...and each strip's texels (x, y, width, height): the scissor its draws are recorded under.
             glm::uvec4 StripRects[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
+            // THE MOVABLE LAYER'S KEY (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a
+            // primitive that updates): CascadeMovers' casters and poses with the caster matrix and bias, the key
+            // of what the movable casters draw. This frame's (MovableKey: nullopt when no mover reaches the
+            // cascade or a mover no key holds does, CascadeMovers::Unkeyed) and the one the map's movable depth
+            // was drawn with (MapMovableKey: nullopt when the map holds none or one no key held). While the two
+            // are equal and the static layer stands, the map is last frame's: no restore, no movable draw.
+            std::optional<uint64_t> MovableKey;
+            std::optional<uint64_t> MapMovableKey;
+            // The texels (x, y, width, height) the keyed movers cover this frame (MovableRect) and the ones the
+            // map's movable depth was drawn under (MapMovableRect); nullopt: not known, the whole layer. A key
+            // change over a standing static layer restores and redraws only their union (MovableRegion).
+            std::optional<glm::uvec4> MovableRect;
+            std::optional<glm::uvec4> MapMovableRect;
+            // This frame: the union a rebuild restores and draws its movers under; nullopt, the whole layer.
+            std::optional<glm::uvec4> MovableRegion;
+            // The last reason logged for the movable layer ("[Shadow] cascade ... movable key ..."): one line a
+            // change.
+            std::string MovableLogged;
         };
         CascadePlacement m_CascadePlacement[kCascadeViews]; // this frame's fits (UpdateCascades)
         // The instance snapshots the static layers' keys were taken over, held one frame longer than the queue

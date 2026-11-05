@@ -137,7 +137,8 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context, RDG::TextureRef source,
-                                                     RDG::TextureRef target, uint32_t targetLayer ) override;
+                                                     RDG::TextureRef target, uint32_t targetLayer,
+                                                     std::span<const glm::uvec4> regions ) override;
         Common::BoolResultStr ScrollGraphDepthIntoLayer( const RDG::PassContext& context, RDG::TextureRef source,
                                                          RDG::TextureRef target, uint32_t targetLayer, int32_t shiftX,
                                                          int32_t shiftY, float clearDepth ) override;
