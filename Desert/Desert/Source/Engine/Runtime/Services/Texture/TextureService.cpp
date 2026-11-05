@@ -169,8 +169,16 @@ namespace Desert::Runtime
                  uint64_t bytes = 0;
                  if ( cooked.IsSuccess() )
                  {
-                     outcome.Cooked = cooked.ExtractValue();
-                     bytes          = outcome.Cooked->UploadBytes();
+                     // CPU-STREAM-UPLOAD-RING: the device image, its views and the staging write happen HERE, on
+                     // the worker; the main thread only records the copies (PumpUploads).
+                     auto prepared = Graphic::Texture2D::PrepareCooked( cooked.ExtractValue() );
+                     if ( prepared.IsSuccess() )
+                     {
+                         outcome.Prepared = prepared.ExtractValue();
+                         bytes            = outcome.Prepared->Bytes;
+                     }
+                     else
+                         outcome.Error = prepared.GetError();
                  }
                  else
                      outcome.Error = cooked.GetError();
@@ -179,7 +187,7 @@ namespace Desert::Runtime
     }
 
     void TextureService::FinishCook( const Assets::AssetHandle& handle, const uint64_t ticket,
-                                     TextureCookOutcome outcome )
+                                     TextureCookOutcome outcome, const double recordMs )
     {
         // THE RESULT IS CHECKED SHARED. Only the frame loop moves a cooking entry (a worker's Require starts
         // nothing on it), so what is read here still holds when the commit below takes the lock again.
@@ -207,21 +215,22 @@ namespace Desert::Runtime
         // the same texture (Texture2D::ReplaceLevels -- the Image2D every material slot and override points at
         // keeps its address and bindless slot, UE's RHIUpdateTextureReference), so no holder is rebuilt or left
         // with a released image. A read that fails leaves the resident levels drawing.
-        // THE GPU WORK RUNS UNLOCKED: a render worker's Require or AwaitedBy does not wait behind an upload.
+        // THE GPU WORK RUNS UNLOCKED: a render worker's Require or AwaitedBy does not wait behind an upload. The
+        // prepared image's copies were recorded by RecordUploads, with the table unlocked too.
         const bool                          streamed = built != nullptr;
-        const bool                          cooked   = outcome.Cooked.has_value();
+        const bool                          prepared = outcome.Prepared.has_value();
         bool                                replaced = false;
         std::shared_ptr<Graphic::Texture2D> created;
         uint32_t                            firstMip = 0, fullWidth = 0, fullHeight = 0;
         std::vector<uint64_t>               levelBytes;
-        if ( cooked )
+        if ( prepared )
         {
             const auto     began = std::chrono::steady_clock::now();
-            const uint64_t bytes = outcome.Cooked->UploadBytes();
-            firstMip             = outcome.Cooked->FirstMip;
-            fullWidth            = outcome.Cooked->FullWidth;
-            fullHeight           = outcome.Cooked->FullHeight;
-            levelBytes           = outcome.Cooked->FullLevelBytes;
+            const uint64_t bytes = outcome.Prepared->Bytes;
+            firstMip             = outcome.Prepared->FirstMip;
+            fullWidth            = outcome.Prepared->FullWidth;
+            fullHeight           = outcome.Prepared->FullHeight;
+            levelBytes           = outcome.Prepared->FullLevelBytes;
             if ( streamed )
             {
                 // THE UPLOAD NOW, THE SWAP AT THE HAND-OFF (OVERLAP-ON-7; UE FRenderAssetUpdate: the RHI swap is a
@@ -229,7 +238,7 @@ namespace Desert::Runtime
                 // live Image2D every material slot names (its views, layout and bindless row) takes them only
                 // once the render work in flight has finished: RenderTask::AfterJoin runs it at once when nothing
                 // is in flight, else at the next Join (Scene::OnUpdate's, before this tick's views).
-                auto staged = built->StageLevels( std::move( *outcome.Cooked ) );
+                auto staged = built->StagePrepared( *outcome.Prepared );
                 replaced    = staged.IsSuccess();
                 if ( replaced )
                     AdoptAtHandOff( built, staged.ExtractValue() );
@@ -238,7 +247,7 @@ namespace Desert::Runtime
             }
             else
             {
-                auto made = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
+                auto made = Graphic::Texture2D::CreateFromPrepared( *outcome.Prepared );
                 if ( made.IsSuccess() )
                 {
                     created  = made.ExtractValue();
@@ -247,10 +256,10 @@ namespace Desert::Runtime
                 else
                     outcome.Error = made.GetError();
             }
-            LOG_DEBUG(
-                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes, from mip {})", name,
-                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
-                 bytes, firstMip );
+            const double settledMs =
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
+            LOG_DEBUG( "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes, from mip {})",
+                       name, settledMs + recordMs, bytes, firstMip );
         }
 
         // THE COMMIT, EXCLUSIVE.
@@ -262,7 +271,7 @@ namespace Desert::Runtime
                 return;
             Entry& entry  = it->second;
             entry.Cooking = false;
-            if ( cooked )
+            if ( prepared )
             {
                 entry.FullWidth  = fullWidth;
                 entry.FullHeight = fullHeight;
@@ -538,20 +547,185 @@ namespace Desert::Runtime
 
     std::size_t TextureService::PumpUploads()
     {
-        auto taken = m_Uploads->TakeWithinBudget( m_UploadSettings.BytesPerFrame );
-        for ( auto& item : taken )
+        // THE UPLOAD BATCHES THE GPU HAS FINISHED (their upload-timeline value is reached): dropping them retires
+        // the upload-ring slices they copied out of. Never waits: an unfinished batch stays for a later pump.
+        std::erase_if( m_UploadBatches,
+                       []( const std::unique_ptr<Graphic::GpuBatch>& batch ) { return batch->IsComplete(); } );
+        // Every recording holds an admission, so CooksInFlight bounds both lists: reserved once, never grown here.
+        if ( m_Recording.capacity() < m_UploadSettings.CooksInFlight )
         {
-            // Read before the move: argument evaluation order is unspecified (clang L->R, MSVC R->L).
-            const Assets::AssetHandle handle = item.Handle;
-            const uint64_t            ticket = item.Ticket;
-            FinishCook( handle, ticket, std::move( item.Data ) );
+            m_Recording.reserve( m_UploadSettings.CooksInFlight );
+            m_Finished.reserve( m_UploadSettings.CooksInFlight );
         }
-        // Every taken result, stale ones included, was one admitted cook: its decoded pixels are gone now.
+
+        // New results only while what is already recording leaves room in this frame's budget. A recording the
+        // ring refused (Starved) is not owed: the slices it waits for are held by the results still queued and by
+        // the recordings behind it, which retire them only once their own copies are recorded -- counting it
+        // kept them queued, and the ring full, for good.
+        uint64_t owed = 0;
+        for ( const RecordingUpload& recording : m_Recording )
+            if ( !recording.Starved )
+                owed += recording.Remaining;
+        std::size_t takenCount = 0;
+        // The cooks whose results leave this pump: each gives its admission back once, in the commit below.
+        std::size_t released = 0;
+        if ( owed < m_UploadSettings.BytesPerFrame )
+        {
+            auto taken = m_Uploads->TakeWithinBudget( m_UploadSettings.BytesPerFrame - owed );
+            takenCount = taken.size();
+            for ( auto& item : taken )
+            {
+                // Read before the move: argument evaluation order is unspecified (clang L->R, MSVC R->L).
+                const Assets::AssetHandle handle = item.Handle;
+                const uint64_t            ticket = item.Ticket;
+                if ( !item.Data.Prepared )
+                {
+                    // The read failed: it settles now (FinishCook drops a stale one) and its admission goes back.
+                    FinishCook( handle, ticket, std::move( item.Data ), 0.0 );
+                    ++released;
+                    continue;
+                }
+                // A prepared one keeps its admission while it records (RecordingUpload); when it is stale,
+                // RecordUploads' shared check drops it in this same pump.
+                RecordingUpload recording;
+                recording.Handle    = handle;
+                recording.Ticket    = ticket;
+                recording.Remaining = item.Data.Prepared->Bytes;
+                recording.Prepared  = std::move( *item.Data.Prepared );
+                m_Recording.push_back( std::move( recording ) );
+            }
+        }
+        released += RecordUploads();
+
+        // THE ADMISSIONS GO BACK EXCLUSIVE, in one section that also starts the cooks they make room for.
         const std::unique_lock table( m_TableLock );
-        for ( std::size_t released = 0; released < taken.size(); ++released )
+        for ( ; released > 0; --released )
             m_CookAdmission.Release();
         StartAdmittedCooks();
-        return taken.size();
+        return takenCount;
+    }
+
+    void TextureService::FailRecording( const RecordingUpload& recording, const std::string& error )
+    {
+        // Settled by name rather than drawn with unwritten levels; FinishCook checks the ticket SHARED (a stale
+        // recording is dropped there) and commits the failure EXCLUSIVE. The caller frees its image, unlocked.
+        TextureCookOutcome failed;
+        failed.Error = error;
+        FinishCook( recording.Handle, recording.Ticket, std::move( failed ), recording.RecordMs );
+    }
+
+    std::size_t TextureService::RecordUploads()
+    {
+        if ( m_Recording.empty() )
+            return 0;
+        // WHICH RECORDINGS STILL BELONG TO THEIR ENTRY'S COOK, asked SHARED in one section. Only the frame loop
+        // moves a cooking entry, so the answer holds while the copies are recorded below with the table unlocked.
+        {
+            const std::shared_lock table( m_TableLock );
+            for ( RecordingUpload& recording : m_Recording )
+            {
+                const auto it = m_Entries.find( recording.Handle );
+                recording.Stale =
+                     it == m_Entries.end() || !it->second.Cooking || it->second.CookTicket != recording.Ticket;
+            }
+        }
+        // A stale one goes with its image and its ring slice, freed here with the table unlocked.
+        std::size_t left =
+             std::erase_if( m_Recording, []( const RecordingUpload& recording ) { return recording.Stale; } );
+        if ( m_Recording.empty() )
+            return left;
+
+        // ONE COMMAND BUFFER FOR EVERY COPY OF THIS PUMP (CPU-STREAM-UPLOAD-RING; UE FRHIResourceUpdateBatcher),
+        // queued on the submit thread in order with the frames (GpuBatch::Submit ->
+        // RT_SubmitCommandBufferGraphic), so a texture finished below is copied before the first frame that
+        // samples it.
+        auto begun = Graphic::GpuBatch::Begin();
+        if ( !begun.IsSuccess() )
+        {
+            LOG_ERROR( "[TextureService] no upload batch this frame: {}. {} texture(s) wait for the next one.",
+                       begun.GetError(), m_Recording.size() );
+            return left;
+        }
+        std::unique_ptr<Graphic::GpuBatch> batch = begun.ExtractValue();
+        uint64_t                           spent = 0;
+        m_Finished.clear();
+        for ( RecordingUpload& recording : m_Recording )
+            recording.InThisBatch = false;
+        for ( auto it = m_Recording.begin(); it != m_Recording.end(); )
+        {
+            if ( spent >= m_UploadSettings.BytesPerFrame )
+                break;
+            const uint64_t budget   = m_UploadSettings.BytesPerFrame - spent;
+            const auto     began    = std::chrono::steady_clock::now();
+            auto           step     = it->Prepared.Image->RecordUploadStep( *batch, budget );
+            const auto     recorded = std::chrono::steady_clock::now() - began;
+            it->RecordMs += std::chrono::duration<double, std::milli>( recorded ).count();
+            if ( !step.IsSuccess() )
+            {
+                RecordingUpload failed = std::move( *it );
+                it                     = m_Recording.erase( it );
+                FailRecording( failed, step.GetError() );
+                ++left;
+                continue;
+            }
+            const Graphic::Image2D::RecordedUploadStep done = step.GetValue();
+            if ( done.Bytes == 0 && !done.Complete )
+            {
+                // THE RING HAS NO ROOM FOR THIS ONE'S LEVELS (they were never staged): it waits, the others go on.
+                // Stopping here kept the order and deadlocked the pump, since the recordings behind it hold slices
+                // that retire only once their own copies are recorded.
+                it->Starved = true;
+                ++it;
+                continue;
+            }
+            it->Starved     = false;
+            it->InThisBatch = true;
+            spent += done.Bytes;
+            it->Remaining = it->Remaining > done.Bytes ? it->Remaining - done.Bytes : 0;
+            if ( !done.Complete )
+                break; // the budget is spent: its next levels are the next frame's
+            m_Finished.push_back( std::move( *it ) );
+            it = m_Recording.erase( it );
+        }
+        if ( const auto submitted = batch->Submit(); !submitted.IsSuccess() )
+        {
+            // NOTHING RECORDED ABOVE WILL RUN, and every image with a step in it now counts levels as copied that
+            // never were: each such texture fails by name rather than draw unwritten levels (the device is most
+            // likely lost). The recordings this batch did not reach are untouched and stay.
+            std::string error = "the upload batch was not submitted: ";
+            error += submitted.GetError();
+            LOG_ERROR( "[TextureService] {}", error );
+            for ( const RecordingUpload& done : m_Finished )
+                FailRecording( done, error );
+            left += m_Finished.size();
+            m_Finished.clear();
+            for ( auto it = m_Recording.begin(); it != m_Recording.end(); )
+            {
+                if ( !it->InThisBatch )
+                {
+                    ++it;
+                    continue;
+                }
+                RecordingUpload failed = std::move( *it );
+                it                     = m_Recording.erase( it );
+                FailRecording( failed, error );
+                ++left;
+            }
+            return left;
+        }
+        m_UploadBatches.push_back( std::move( batch ) );
+
+        // THE TEXTURES WHOSE LAST LEVEL IS IN THE BATCH JUST SUBMITTED: they are drawn from here on (FinishCook:
+        // checked shared, made unlocked, committed exclusive), and their cooks' admissions go back (PumpUploads).
+        for ( RecordingUpload& done : m_Finished )
+        {
+            TextureCookOutcome outcome;
+            outcome.Prepared = std::move( done.Prepared );
+            FinishCook( done.Handle, done.Ticket, std::move( outcome ), done.RecordMs );
+        }
+        left += m_Finished.size();
+        m_Finished.clear();
+        return left;
     }
 
     void TextureService::StartAdmittedCooks()
@@ -785,14 +959,14 @@ namespace Desert::Runtime
     void TextureService::Clear()
     {
         // The rows leave the table under the lock and are destroyed after it: their GPU textures are freed (and
-        // their requests released) with the table unlocked.
+        // their requests released) with the table unlocked. So are the results already queued and the recordings
+        // (CPU-STREAM-UPLOAD-RING: each holds the device image its worker made), whose slots go back under the
+        // lock; the cooks already on a worker keep theirs until their (now stale) results are taken.
         std::unordered_map<Assets::AssetHandle, Entry> dropped;
+        auto                                           queued = m_Uploads->TakeWithinBudget( UINT64_MAX );
         {
             const std::unique_lock table( m_TableLock );
-            // The cooks already on a worker keep their slots until their (now stale) results are taken; the
-            // results already queued are dropped here, and so are their slots.
-            for ( std::size_t released = m_Uploads->TakeWithinBudget( UINT64_MAX ).size(); released > 0;
-                  --released )
+            for ( std::size_t released = queued.size() + m_Recording.size(); released > 0; --released )
                 m_CookAdmission.Release();
             m_CookAdmission.DropWaiting();
             dropped.swap( m_Entries );
@@ -800,6 +974,12 @@ namespace Desert::Runtime
             m_Waiters.Clear();
             m_AnyWaiting.store( false, std::memory_order_release );
         }
+        // Frame loop only, so nothing joined these since their admissions went back. The batches keep what their
+        // copies read until the GPU has finished (GpuBatch::Retain), waiting for it as they go.
+        m_Recording.clear();
+        m_Finished.clear();
+        m_UploadBatches.clear();
+        queued.clear();
         m_Retiring.Clear();
     }
 } // namespace Desert::Runtime

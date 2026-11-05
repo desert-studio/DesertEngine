@@ -20,6 +20,13 @@ namespace Desert::Core::Formats
         Zero,      // read in frames that do not write it; cleared to zero (colour) / 0.0 (depth) at creation
     };
 
+    // See Image2DSpecification::Upload.
+    enum class ImageUpload : uint8_t
+    {
+        Submitted, // creation copies the pixels to a staging buffer of its own and submits the copy itself
+        Recorded,  // creation writes them to the upload ring; Image2D::RecordUploadStep records the copies later
+    };
+
     enum class Image2DUsage
     {
         Image2D,
@@ -679,6 +686,14 @@ namespace Desert::Core::Formats
         // declares `Zero` here and the backend clears it once at creation; every other data-less image must
         // be written before it is read, which DESERT_POISON_NEW_MEMORY checks. Refused together with `Data`.
         ImageInitialContent InitialContent = ImageInitialContent::Undefined;
+
+        // HOW `Data` REACHES THE DEVICE (CPU-STREAM-UPLOAD-RING). `Submitted`: inside creation, through a staging
+        // buffer and a submission of the image's own. `Recorded`: creation makes the device image and its views
+        // and writes the levels into the upload ring -- no command buffer, no submission, so a cook worker may
+        // make it -- and the copies are recorded by the frame's thread into its one upload batch, a few levels per
+        // frame (Image2D::RecordUploadStep); the image is unread, and has no bindless slot, until that answers
+        // Complete. A plain sampled 2D image with pixel data only; anything else is refused.
+        ImageUpload Upload = ImageUpload::Submitted;
 
         /// SRGB views the image through the `*_SRGB` variant of `Format` (hardware decode on sample).
         TextureColorSpace ColorSpace = TextureColorSpace::Linear;

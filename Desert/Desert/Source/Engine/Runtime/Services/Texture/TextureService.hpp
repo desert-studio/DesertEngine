@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/GpuBatch.hpp>
+
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRef.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -53,7 +55,8 @@ namespace Desert::Runtime
     /// What a cook worker hands the frame loop: the decoded texture, or why there is none.
     struct TextureCookOutcome
     {
-        std::optional<Graphic::CookedTexture2D> Cooked;
+        /// The worker made the image and staged its levels (Texture2D::PrepareCooked); copies not recorded yet.
+        std::optional<Graphic::Texture2D::PreparedTexture2D> Prepared;
         std::string                             Error;
     };
 
@@ -214,7 +217,36 @@ namespace Desert::Runtime
         void SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
         void StartAdmittedCooks();
         /// One upload result: checked shared, the GPU image staged or created unlocked, committed exclusive.
-        void FinishCook( const Assets::AssetHandle& handle, uint64_t ticket, TextureCookOutcome outcome );
+        /// @p recordMs: the main-thread time the upload's copies took to record (RecordUploads), in its log line.
+        /// Called with the table lock released; it does not give the cook's admission back (its caller does).
+        void FinishCook( const Assets::AssetHandle& handle, uint64_t ticket, TextureCookOutcome outcome,
+                         double recordMs );
+
+        /// A prepared texture whose copies PumpUploads records, a few levels a frame (CPU-STREAM-UPLOAD-RING). It
+        /// holds its cook's admission (CookAdmission) until it leaves m_Recording: on the full path its decoded
+        /// pixels are still in CPU memory, which is what CooksInFlight bounds. Frame loop only, outside the table
+        /// lock: no worker reaches m_Recording; its rows name their entry by handle and ticket, never by address.
+        struct RecordingUpload
+        {
+            Assets::AssetHandle                   Handle;
+            uint64_t                              Ticket    = 0;
+            uint64_t                              Remaining = 0;
+            double                                RecordMs  = 0.0;
+            Graphic::Texture2D::PreparedTexture2D Prepared;
+            /// Its last step found no room in the upload ring: it waits for slices to retire and is not owed.
+            bool Starved = false;
+            /// A step of it is in the batch this pump records (failed with that batch if it is not submitted).
+            bool InThisBatch = false;
+            /// RecordUploads' shared check found its entry cleared or re-cooked: dropped with the table unlocked.
+            bool Stale = false;
+        };
+        /// PumpUploads' second half: one batch for the copies of m_Recording within the frame's budget. Checks
+        /// the rows SHARED, records the copies and settles the finished ones (FinishCook) with the table
+        /// unlocked. Answers how many recordings left m_Recording: each owes its cook's admission back.
+        std::size_t RecordUploads();
+        /// Settles @p recording as failed with @p error (FinishCook: dropped there when stale). Its admission is
+        /// its caller's to give back.
+        void FailRecording( const RecordingUpload& recording, const std::string& error );
 
         /// Guards m_Entries, m_ReportedMissing, m_Waiters, m_CookAdmission and m_NextCookTicket.
         mutable std::shared_mutex m_TableLock;
@@ -244,5 +276,12 @@ namespace Desert::Runtime
         uint64_t m_LoggedResident = 0, m_LoggedWanted = 0;
         /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).
         mutable CookAdmission<Assets::AssetHandle> m_CookAdmission{ m_UploadSettings.CooksInFlight };
+        /// Main thread: the prepared textures being recorded, in the order their reads finished. At most
+        /// CooksInFlight (each holds an admission): both are reserved to it once, so no pump allocates them.
+        std::vector<RecordingUpload> m_Recording;
+        /// Main thread, RecordUploads only: the recordings whose last level the batch being recorded holds.
+        std::vector<RecordingUpload> m_Finished;
+        /// The pumps' upload batches until the GPU has finished them: dropping one retires its upload-ring slices.
+        std::vector<std::unique_ptr<Graphic::GpuBatch>> m_UploadBatches;
     };
 } // namespace Desert::Runtime
