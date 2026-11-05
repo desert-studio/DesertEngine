@@ -1307,6 +1307,53 @@ CloudFieldSample SampleCloudField( CloudFieldParams params, float heightFraction
 // linear radiance. Convergence needs about thirty samples on THIS quadrature; see
 // ECS::kCloudLightMarchMaxSamples and Docs/Clouds/CALIBRATION.md section OE-FIX. Anyone shortening
 // @p marchKm again may lower the count with it, and by the square.
+//
+// FOUR SAMPLES AT A TIME, AND NO `break` BETWEEN THEM (CLOUDS-MARCH-LATENCY). The march runs at about five
+// and a half warps per SM, too few to hide a texture fetch behind other warps, so the latency has to be
+// hidden inside the thread (Volkov, "Better Performance at Lower Occupancy", GTC 2010): the samples of a
+// shadow ray do not depend on one another — only the sum does — but a loop that may stop after any one of
+// them lets the compiler issue the next sample's fetches only once the last one has returned. A group of
+// CLOUD_LIGHT_GROUP samples is written out with no exit inside it, so all of their fetches are in flight
+// at once, and the exit becomes a MASK: each sample's shell test is the test the loop used to stop on,
+// carried cumulatively (a sample counts only while every sample before it was inside), which is exactly
+// the set of samples the `break` let through, summed in the same order. The result is the same quadrature
+// sample for sample; the price is that a group the ray leaves the shell inside still evaluates its
+// remaining samples (at most three per ray, and masked), while a group that starts outside is skipped
+// whole, as the `break` skipped it. The count is not rounded: the samples past the last whole group run
+// one at a time below the groups, on the same rule.
+#define CLOUD_LIGHT_GROUP 4
+
+// Sample @p i (1-based) of the squared quadrature: xyz where it is, w its segment's share of the march.
+// `previous` is the last sample's `current`, written out rather than carried, so the samples of a group
+// share no state — and it is the same two multiplies on the same operands, so the same float.
+vec4 CloudLightSampleAt( vec3 positionKm, vec3 toSun, float marchKm, int i, float invCount )
+{
+    float previousStep = float( i - 1 ) * invCount;
+    float previous     = previousStep * previousStep;
+    float normalized   = float( i ) * invCount;
+    float current      = normalized * normalized;
+    float segment      = current - previous;
+
+    vec3 samplePos = positionKm + toSun * ( marchKm * ( previous + segment * 0.5f ) );
+    return vec4( samplePos.x, samplePos.y, samplePos.z, segment );
+}
+
+// Leaving the shell ends the march. Without this the samples keep accumulating against a height fraction
+// clamped to 1, which draws a shadow from cloud that is not there.
+bool CloudLightSampleInShell( CloudLayer layer, vec4 lightSample )
+{
+    float radius = length( vec3( lightSample.x, lightSample.y, lightSample.z ) );
+    return !( radius > layer.TopRadiusKm || radius < layer.BottomRadiusKm );
+}
+
+// Where sample @p lightSample reads the field: xyz the field position, w its height fraction in the layer.
+vec4 CloudLightFieldAt( CloudLayer layer, vec4 lightSample )
+{
+    vec3  samplePos      = vec3( lightSample.x, lightSample.y, lightSample.z );
+    float heightFraction = CloudHeightFraction( layer, samplePos );
+    return vec4( samplePos.x, length( samplePos ) - layer.BottomRadiusKm, samplePos.z, heightFraction );
+}
+
 float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 positionKm, vec3 toSun,
                               float marchKm, int sampleCount, float extinctionPerKm )
 {
@@ -1319,38 +1366,85 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
     // per-program constant could have separated them.
     params.ShadowRay = CLOUD_RAY_SHADOW;
 
+    // THE MEDIUM IS CALLED IN THIS BODY AND NOT IN A HELPER, on purpose: ShaderGraph's volume domain test
+    // derives what a shadow ray asks of an authored medium from the text of this function alone.
+    //
+    // THE EXTINCTION IS THE SAMPLE'S, NOT THE LAYER'S, and it has to be read here as well as in the view
+    // march. A shadow ray from a congestus tower passes through the stratocumulus deck beneath it: with one
+    // extinction for the whole shell the deck would shade the tower as if it were made of the tower's own
+    // material, and the ice of a cirrus at a quarter of a cumulus' opacity would cast a cumulus' shadow.
     float accumulated = 0.0f;
-    float previous    = 0.0f;
     float invCount    = 1.0f / float( sampleCount );
+    bool  inside      = true; // every sample so far was inside the shell
 
-    for ( int i = 1; i <= sampleCount; ++i )
+    int groups = sampleCount / CLOUD_LIGHT_GROUP;
+    for ( int groupIndex = 0; groupIndex < groups; ++groupIndex )
     {
-        float normalized = float( i ) * invCount;
-        float current    = normalized * normalized;
-        float segment    = current - previous;
+        int first = 1 + groupIndex * CLOUD_LIGHT_GROUP;
 
-        vec3 samplePos = positionKm + toSun * ( marchKm * ( previous + segment * 0.5f ) );
+        // Positions and shell tests first — arithmetic only, no fetch waits on them.
+        vec4 s0  = CloudLightSampleAt( positionKm, toSun, marchKm, first, invCount );
+        vec4 s1  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 1, invCount );
+        vec4 s2  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 2, invCount );
+        vec4 s3  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 3, invCount );
+        // Each test taken before the && rather than inside it, so no short-circuit branch stands between
+        // the four samples.
+        bool shell0 = CloudLightSampleInShell( layer, s0 );
+        bool shell1 = CloudLightSampleInShell( layer, s1 );
+        bool shell2 = CloudLightSampleInShell( layer, s2 );
+        bool shell3 = CloudLightSampleInShell( layer, s3 );
+        bool in0    = inside && shell0;
+        bool in1    = in0 && shell1;
+        bool in2    = in1 && shell2;
+        bool in3    = in2 && shell3;
+        if ( !in0 )
+            break; // the `break` the loop always had: nothing from here on is inside
 
-        // Leaving the shell ends the march. Without this the samples keep accumulating against a height
-        // fraction clamped to 1, which draws a shadow from cloud that is not there.
-        float radius = length( samplePos );
-        if ( radius > layer.TopRadiusKm || radius < layer.BottomRadiusKm )
+        // Four independent field evaluations — their fetches overlap.
+        vec4 f0 = CloudLightFieldAt( layer, s0 );
+        vec4 f1 = CloudLightFieldAt( layer, s1 );
+        vec4 f2 = CloudLightFieldAt( layer, s2 );
+        vec4 f3 = CloudLightFieldAt( layer, s3 );
+        vec3 p0 = vec3( f0.x, f0.y, f0.z );
+        vec3 p1 = vec3( f1.x, f1.y, f1.z );
+        vec3 p2 = vec3( f2.x, f2.y, f2.z );
+        vec3 p3 = vec3( f3.x, f3.y, f3.z );
+
+        CloudFieldSample m0 = SampleCloudField( params, f0.w, p0 );
+        CloudFieldSample m1 = SampleCloudField( params, f1.w, p1 );
+        CloudFieldSample m2 = SampleCloudField( params, f2.w, p2 );
+        CloudFieldSample m3 = SampleCloudField( params, f3.w, p3 );
+
+        float d0 = CloudSampleDensity( params, m0, p0 ) * extinctionPerKm *
+                   CloudSampleExtinctionFactor( params, m0, p0 ) * s0.w;
+        float d1 = CloudSampleDensity( params, m1, p1 ) * extinctionPerKm *
+                   CloudSampleExtinctionFactor( params, m1, p1 ) * s1.w;
+        float d2 = CloudSampleDensity( params, m2, p2 ) * extinctionPerKm *
+                   CloudSampleExtinctionFactor( params, m2, p2 ) * s2.w;
+        float d3 = CloudSampleDensity( params, m3, p3 ) * extinctionPerKm *
+                   CloudSampleExtinctionFactor( params, m3, p3 ) * s3.w;
+
+        // Summed in sample order, as the one-at-a-time loop summed them. A SELECT and not a multiply by
+        // the mask: a sample past the shell is evaluated against a clamped height and must not be able
+        // to bring a non-finite value into the sum.
+        accumulated += in0 ? d0 : 0.0f;
+        accumulated += in1 ? d1 : 0.0f;
+        accumulated += in2 ? d2 : 0.0f;
+        accumulated += in3 ? d3 : 0.0f;
+        inside = in3;
+    }
+
+    for ( int i = 1 + groups * CLOUD_LIGHT_GROUP; i <= sampleCount; ++i )
+    {
+        vec4 lightSample = CloudLightSampleAt( positionKm, toSun, marchKm, i, invCount );
+        inside           = inside && CloudLightSampleInShell( layer, lightSample );
+        if ( !inside )
             break;
-
-        float heightFraction = CloudHeightFraction( layer, samplePos );
-        vec3  fieldPos       = vec3( samplePos.x, length( samplePos ) - layer.BottomRadiusKm, samplePos.z );
-
-        CloudFieldSample field   = SampleCloudField( params, heightFraction, fieldPos );
-        float            density = CloudSampleDensity( params, field, fieldPos );
-
-        // THE EXTINCTION IS THE SAMPLE'S, NOT THE LAYER'S, and it has to be read here as well as in the
-        // view march. A shadow ray from a congestus tower passes through the stratocumulus deck beneath
-        // it: with one extinction for the whole shell the deck would shade the tower as if it were made of
-        // the tower's own material, and the ice of a cirrus at a quarter of a cumulus' opacity would cast
-        // a cumulus' shadow.
-        accumulated += density * extinctionPerKm * CloudSampleExtinctionFactor( params, field, fieldPos ) *
-                       segment;
-        previous = current;
+        vec4             fieldAt  = CloudLightFieldAt( layer, lightSample );
+        vec3             fieldPos = vec3( fieldAt.x, fieldAt.y, fieldAt.z );
+        CloudFieldSample field    = SampleCloudField( params, fieldAt.w, fieldPos );
+        accumulated += CloudSampleDensity( params, field, fieldPos ) * extinctionPerKm *
+                       CloudSampleExtinctionFactor( params, field, fieldPos ) * lightSample.w;
     }
 
     // The weights above are fractions of the march, so the whole length scales the sum exactly once, here.
