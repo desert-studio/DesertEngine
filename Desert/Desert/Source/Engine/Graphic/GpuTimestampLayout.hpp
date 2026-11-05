@@ -370,10 +370,12 @@ namespace Desert::Graphic
     //
     // The relation this exists for: for any tree whose children lie inside their parents, the self times
     // sum to the root's inclusive time. Nothing else in the breakdown may be summed.
-    [[nodiscard]] inline std::vector<double> GpuSelfTimes( const std::vector<double>&  inclusiveMs,
-                                                           const std::vector<int32_t>& parents )
+    //
+    // Written into @p self (CPU-ONE-SYNC: the profiler's resolve reuses one vector, no allocation per frame).
+    inline void GpuSelfTimes( const std::vector<double>& inclusiveMs, const std::vector<int32_t>& parents,
+                              std::vector<double>& self )
     {
-        std::vector<double> self = inclusiveMs;
+        self.assign( inclusiveMs.begin(), inclusiveMs.end() );
 
         const size_t count = inclusiveMs.size() < parents.size() ? inclusiveMs.size() : parents.size();
         for ( size_t i = 0; i < count; ++i )
@@ -390,8 +392,6 @@ namespace Desert::Graphic
         for ( size_t i = 0; i < self.size(); ++i )
             if ( inclusiveMs[i] >= 0.0 && self[i] < 0.0 )
                 self[i] = 0.0;
-
-        return self;
     }
 
     // One scope's interval on its queue's timeline, in ms from the frame bracket's begin. A scope whose two
@@ -423,13 +423,17 @@ namespace Desert::Graphic
     // time no scope was around - work recorded outside every scope, barriers between them, and idle - and can
     // never go negative. Intervals are clipped to the span. The relation it exists for: UncoveredMs plus the
     // union's length is the span's length.
-    [[nodiscard]] inline GpuCoverage GpuCoverageOf( const std::vector<GpuInterval>& intervals,
-                                                    std::vector<int32_t> members, double spanBeginMs,
-                                                    double spanEndMs )
+    //
+    // NO ALLOCATION PER FRAME (CPU-ONE-SYNC): @p members is the caller's list, filtered and sorted IN PLACE (by
+    // begin, then by index - the stable order of a list given in index order, without stable_sort's buffer, and
+    // the same order again when the sorted list is passed once more), and @p coverage keeps its gaps' capacity.
+    inline void GpuCoverageOf( const std::vector<GpuInterval>& intervals, std::vector<int32_t>& members,
+                               const double spanBeginMs, const double spanEndMs, GpuCoverage& coverage )
     {
-        GpuCoverage coverage;
+        coverage.UncoveredMs = 0.0;
+        coverage.Gaps.clear();
         if ( spanEndMs <= spanBeginMs )
-            return coverage;
+            return;
 
         std::erase_if( members,
                        [&]( int32_t index )
@@ -437,11 +441,13 @@ namespace Desert::Graphic
                            return index < 0 || static_cast<size_t>( index ) >= intervals.size() ||
                                   !intervals[static_cast<size_t>( index )].Valid;
                        } );
-        std::stable_sort( members.begin(), members.end(),
-                          [&]( int32_t a, int32_t b ) {
-                              return intervals[static_cast<size_t>( a )].BeginMs <
-                                     intervals[static_cast<size_t>( b )].BeginMs;
-                          } );
+        std::sort( members.begin(), members.end(),
+                   [&]( int32_t a, int32_t b )
+                   {
+                       const double beginA = intervals[static_cast<size_t>( a )].BeginMs;
+                       const double beginB = intervals[static_cast<size_t>( b )].BeginMs;
+                       return beginA != beginB ? beginA < beginB : a < b;
+                   } );
 
         double  cursor    = spanBeginMs;
         int32_t lastEnded = kGpuNoParent;
@@ -468,6 +474,5 @@ namespace Desert::Graphic
             coverage.Gaps.push_back( GpuUncovered{ lastEnded, kGpuNoParent, spanEndMs - cursor } );
             coverage.UncoveredMs += spanEndMs - cursor;
         }
-        return coverage;
     }
 } // namespace Desert::Graphic

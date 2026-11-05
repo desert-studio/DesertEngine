@@ -173,11 +173,15 @@ namespace Desert::Graphic::SurfaceCache
             GlobalIllumination::Pipeline Tracer;
         };
         // States @p origins of engine frame @p engineFrame and resolves the budget and the card tracer from the
-        // scene: @p registry's unbound post-process volumes (ResolveViewSettings without a view position) and
-        // @p deferred (the scene's rendering path) under the machine's quality and the device catalogue, minus the
-        // tracers whose lighting program did not build here (RefuseLightingTracer).
-        void BeginFrame( uint64_t engineFrame, std::vector<glm::vec3> origins, const entt::registry& registry,
-                         bool deferred );
+        // scene: @p scenePost, its unbound post-process volumes (ResolveViewSettings without a view position, read
+        // off the registry by the caller on the game thread), and @p deferred (the scene's rendering path) under
+        // the machine's quality and the device catalogue, minus the tracers whose lighting program did not build
+        // here (RefuseLightingTracer). RENDER-OWNED (CPU-ONE-SYNC): the views in flight read m_FrameViews and
+        // m_Refusals, so Scene::OnUpdate runs this as a render command (RenderTask::Enqueue), in order behind
+        // them; a capture face calls it with nothing in flight (RenderTask::CheckRenderStateWrite names any other
+        // call).
+        void BeginFrame( uint64_t engineFrame, std::vector<glm::vec3> origins,
+                         const Core::PostProcessSettings& scenePost, bool deferred );
         // The views stated for @p engineFrame; null when BeginFrame did not run in it.
         [[nodiscard]] const FrameViews* ViewsOf( uint64_t engineFrame ) const
         {

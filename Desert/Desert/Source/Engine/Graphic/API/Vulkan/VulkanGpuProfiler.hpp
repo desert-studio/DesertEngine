@@ -217,6 +217,12 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<double>  m_Self;
         std::vector<int32_t> m_Parents;
         std::vector<GpuInterval> m_Intervals;
+        // PublishUnaccounted's scratch (CPU-ONE-SYNC): cleared each frame, never reallocated once grown.
+        std::vector<int32_t> m_GraphicsScopes;
+        std::vector<int32_t> m_AsyncPasses;
+        std::vector<int32_t> m_AsyncSegments;
+        GpuCoverage          m_Coverage;
+        std::string          m_GapName;
     };
 } // namespace Desert::Graphic::API::Vulkan
 

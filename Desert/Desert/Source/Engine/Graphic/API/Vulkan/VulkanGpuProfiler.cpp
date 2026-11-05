@@ -655,7 +655,7 @@ namespace Desert::Graphic::API::Vulkan
         // (GpuScopeRecorder), so one pass over the interleaved list is each view's partition at once. The
         // arithmetic lives in Engine/Graphic/GpuTimestampLayout.hpp and is asserted by
         // Tests/Engine/GpuTimestampLayout.
-        m_Self = GpuSelfTimes( m_Inclusive, m_Parents );
+        GpuSelfTimes( m_Inclusive, m_Parents, m_Self );
 
         for ( size_t i = 0; i < scopeCount; ++i )
             if ( m_Inclusive[i] >= 0.0 )
@@ -707,9 +707,9 @@ namespace Desert::Graphic::API::Vulkan
 
         const size_t scopeCount = scopes.size();
         m_Intervals.resize( scopeCount );
-        std::vector<int32_t>   graphicsScopes;
-        std::vector<int32_t>   asyncPasses;
-        std::vector<int32_t>   asyncSegments;
+        m_GraphicsScopes.clear();
+        m_AsyncPasses.clear();
+        m_AsyncSegments.clear();
         // A segment row of a view carries the view's name first ("scene view #1 | RDG Async: ..",
         // GpuViewScopeName): the prefix is matched on the row's text, after the view's (IsSegmentRow).
         for ( size_t i = 0; i < scopeCount; ++i )
@@ -723,18 +723,19 @@ namespace Desert::Graphic::API::Vulkan
             m_Intervals[i]   = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
             const auto index = static_cast<int32_t>( i );
             if ( scopes[i].Queue == GpuQueue::Graphics )
-                graphicsScopes.push_back( index );
+                m_GraphicsScopes.push_back( index );
             else if ( IsSegmentRow( scopes[i].Name ) )
-                asyncSegments.push_back( index );
+                m_AsyncSegments.push_back( index );
             else
-                asyncPasses.push_back( index );
+                m_AsyncPasses.push_back( index );
         }
 
         auto& profiler = Common::Profiling::Profiler::Get();
 
         // THE GRAPHICS QUEUE: the bracket minus the union of every graphics scope in it, and where it sits.
-        const GpuCoverage graphics =
-             GpuCoverageOf( m_Intervals, std::move( graphicsScopes ), frameInterval.BeginMs, frameInterval.EndMs );
+        // m_Coverage is read here before the async pass below reuses it.
+        GpuCoverageOf( m_Intervals, m_GraphicsScopes, frameInterval.BeginMs, frameInterval.EndMs, m_Coverage );
+        const GpuCoverage& graphics = m_Coverage;
         profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedGraphicsScope, graphics.UncoveredMs,
                                graphics.UncoveredMs );
         for ( const GpuUncovered& gap : graphics.Gaps )
@@ -748,23 +749,25 @@ namespace Desert::Graphic::API::Vulkan
             std::string_view before = "frame end";
             if ( gap.Before != kGpuNoParent )
                 before = profiler.ScopeNameText( scopes[static_cast<size_t>( gap.Before )].Name );
-            const std::string name = std::string( Common::Profiling::kGpuGapScopePrefix ) + std::string( after ) +
-                                     " -> " + std::string( before );
-            profiler.AddGpuSample( name.c_str(), gap.Ms, gap.Ms );
+            m_GapName.assign( Common::Profiling::kGpuGapScopePrefix );
+            m_GapName.append( after ).append( " -> " ).append( before );
+            profiler.AddGpuSample( m_GapName.c_str(), gap.Ms, gap.Ms );
         }
 
         // THE ASYNC COMPUTE QUEUE: each segment minus the union of the async passes inside it. No segment row
         // this frame (async off, or every segment demoted to the graphics queue) publishes nothing, which the
         // dump already reads as "no segment".
-        if ( asyncSegments.empty() )
+        if ( m_AsyncSegments.empty() )
             return;
         double asyncUncoveredMs = 0.0;
-        for ( const int32_t segment : asyncSegments )
+        for ( const int32_t segment : m_AsyncSegments )
         {
             const GpuInterval& span = m_Intervals[static_cast<size_t>( segment )];
             if ( span.Valid )
-                asyncUncoveredMs +=
-                     GpuCoverageOf( m_Intervals, asyncPasses, span.BeginMs, span.EndMs ).UncoveredMs;
+            {
+                GpuCoverageOf( m_Intervals, m_AsyncPasses, span.BeginMs, span.EndMs, m_Coverage );
+                asyncUncoveredMs += m_Coverage.UncoveredMs;
+            }
         }
         profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedAsyncScope, asyncUncoveredMs, asyncUncoveredMs );
     }
