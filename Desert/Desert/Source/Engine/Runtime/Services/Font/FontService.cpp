@@ -119,6 +119,7 @@ namespace Desert::Runtime
         auto font    = std::make_shared<Font>();
         font->Atlas = std::move( atlas );
         font->Baked = std::move( baked );
+        font->Revision = ++m_NextRevision; // under the exclusive lock taken above
         Font* raw   = font.get();
         m_Fonts[key] = std::move( font );
         LOG_INFO( "[FontService] {} '{}' @ {}px -> {}x{} atlas in {} ms", fromCache ? "Loaded cached" : "Baked",

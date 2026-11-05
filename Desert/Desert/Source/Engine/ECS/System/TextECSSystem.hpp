@@ -43,10 +43,12 @@ namespace Desert::ECS
         // label. @p drawn is also what the cache is keyed on, so a language change rebuilds the glyph
         // mesh for free: nothing else would have told it to.
         static void RebuildGlyphMeshIfStale( TextComponent& text, const std::string& drawn,
-                                             const std::string& fontPath, const Text::BakedFont& baked )
+                                             const std::string& fontPath, const Runtime::Font& font )
         {
+            // The revision too: a glyph request re-bakes the atlas (FontService::RequestGlyphs) with the same
+            // path and size but new UVs, and a mesh laid on the old bake would sample the wrong glyphs.
             if ( text.RuntimeMesh && text.BuiltText == drawn && text.BuiltFont == fontPath &&
-                 text.BuiltSize == text.Size )
+                 text.BuiltSize == text.Size && text.BuiltFontRevision == font.Revision )
             {
                 return;
             }
@@ -59,10 +61,11 @@ namespace Desert::ECS
             RetireRenderCache( text.RuntimeMesh );
             TextComponent laidOut = text;
             laidOut.Text          = drawn;
-            text.RuntimeMesh      = BuildTextMesh( laidOut, baked );
+            text.RuntimeMesh      = BuildTextMesh( laidOut, font.Baked );
             text.BuiltText        = drawn;
             text.BuiltFont        = fontPath;
             text.BuiltSize        = text.Size;
+            text.BuiltFontRevision = font.Revision;
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -101,7 +104,7 @@ namespace Desert::ECS
                          return;
                      const std::string fontPath = fontSvc->PathForHandle( fontHandle );
 
-                     RebuildGlyphMeshIfStale( text, drawn, fontPath, font->Baked );
+                     RebuildGlyphMeshIfStale( text, drawn, fontPath, *font );
                      if ( !text.RuntimeMesh )
                          return;
 

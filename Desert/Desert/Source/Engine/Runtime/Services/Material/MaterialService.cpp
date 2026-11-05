@@ -497,8 +497,11 @@ namespace Desert::Runtime
         {
             return Common::MakeError( "Material asset is invalid" );
         }
-        // It inserts into the maps the render workers read, so it locks as Register does (it never locked).
-        const WriteGuard serviceLock( true );
+        // It inserts into the maps the render workers read, so it locks exclusively (it never locked). It joins no
+        // render job: it builds and destroys no material, and a shell it replaces is read only under this lock or
+        // through a strong reference (ShellOf), so a lookup miss's rule holds - a streamed-in scene's first use of
+        // a material no longer waits for the frame being recorded.
+        const WriteGuard serviceLock( false );
         const auto       handle = materialAsset->GetMetadata().Handle;
         if ( const auto refusal = RefuseOnCollision( handle, materialAsset ); !refusal )
             return refusal;
@@ -511,8 +514,9 @@ namespace Desert::Runtime
 
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceTemplate() const
     {
-        const ReadGuard serviceLock;
-        const auto assets = m_Assets.lock();
+        // The manager is copied under the lock and asked with it released: no other service's lock is taken
+        // under this one, so an asset manager that registers a material under its own lock cannot cross it.
+        const auto assets = LockAssetManager();
         if ( !assets )
             return Common::MakeError<std::string>(
                  std::string( "no asset manager is bound, so no template declares 'Default Surface' yet" ) );
@@ -529,7 +533,6 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
-        const ReadGuard serviceLock;
         auto templateName = DefaultSurfaceTemplate();
         if ( !templateName )
             return templateName;
@@ -544,8 +547,8 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::StandInSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
-        const ReadGuard serviceLock;
-        const auto assets = m_Assets.lock();
+        // As DefaultSurfaceTemplate: the manager is asked with this service's lock released.
+        const auto assets = LockAssetManager();
         if ( !assets )
             return Common::MakeError<std::string>(
                  std::string( "no asset manager is bound, so no template declares 'Role StandInSurface' yet" ) );
@@ -1044,16 +1047,12 @@ namespace Desert::Runtime
 
     bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
     {
-        Assets::AssetHandle asset;
-        {
-            const ReadGuard serviceLock;
-            const auto      it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
-            if ( it == m_BuiltToAsset.end() )
-                return false;
-            asset = it->second;
-        }
-        // Asked of the texture service with this one unlocked: no other service's lock is taken under it.
-        return ResourceRegistry::GetTextureService()->AwaitedBy( asset );
+        // ASKED UNDER THIS LOCK, SHARED. TextureService has no lock of its own: its waiters are written by a
+        // build (CreateSurfaceMaterial -> ApplySurfaceAsset -> RebuildWhenReady) under this lock's exclusive
+        // mode, so a render worker reading them with this lock released raced another worker's insert.
+        const ReadGuard serviceLock;
+        const auto      it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
     }
 
     uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const
@@ -1137,8 +1136,18 @@ namespace Desert::Runtime
         {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
-            // UE bOverrideSubsurfaceProfile: the childmost instance that states a profile wins.
-            ApplySubsurfaceProfile( *instance, ( *it )->Data().SubsurfaceProfile );
+            // UE bOverrideSubsurfaceProfile: the childmost instance that states a profile wins. The row is
+            // resolved under the exclusive lock: SubsurfaceProfileService has no lock of its own, its one caller
+            // is this service, and the build's IndexFor (ApplySurfaceAsset) runs on a render worker under it.
+            if ( const auto& profile = ( *it )->Data().SubsurfaceProfile; profile.has_value() )
+            {
+                float row = 0.0f;
+                {
+                    const WriteGuard subsurface( false );
+                    row = SubsurfaceProfileRow( *profile );
+                }
+                instance->SetParamFromVec4( "SubsurfaceProfileIndex", glm::vec4( row ) );
+            }
             // The childmost instance that states TwoSided wins, as its parameters do.
             if ( ( *it )->Data().TwoSided.has_value() )
                 instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );

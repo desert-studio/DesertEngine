@@ -539,6 +539,7 @@ namespace Desert::ECS
         std::string                  BuiltText;
         std::string                  BuiltFont; // resolved ttf path used for the current mesh (font-change guard)
         float                        BuiltSize = 0.0f;
+        uint64_t                     BuiltFontRevision = 0; // Runtime::Font::Revision the mesh's UVs were laid on
     };
 
     // SkinnedMeshComponent's authored state as a value (field meanings on the component below).

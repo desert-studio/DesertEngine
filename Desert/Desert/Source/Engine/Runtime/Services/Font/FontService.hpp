@@ -18,6 +18,9 @@ namespace Desert::Runtime
     {
         std::shared_ptr<Graphic::Image2D> Atlas; // RGBA8; RGB is the multi-channel distance field, A = 255
         Text::BakedFont                   Baked; // metrics: glyph UVs/advances + vertical metrics
+        // Unique per bake for the service's lifetime (never reused, not reset by Clear): a glyph request re-bakes
+        // the atlas with new UVs, so a text laid out on an older revision is rebuilt (TextECSSystem).
+        uint64_t Revision = 0;
     };
 
     // Owns baked fonts keyed by (ttf path + bake pixel height). First request for a key reads the TTF
@@ -77,5 +80,6 @@ namespace Desert::Runtime
         std::unordered_map<std::string, std::vector<uint32_t>> m_ExtraGlyphs; // ttf path -> extra codepoints
         std::vector<std::string>                               m_Available;   // registered paths (for the picker)
         bool                                                   m_Scanned = false;
+        uint64_t m_NextRevision                                          = 0; // Font::Revision of the last bake
     };
 } // namespace Desert::Runtime
