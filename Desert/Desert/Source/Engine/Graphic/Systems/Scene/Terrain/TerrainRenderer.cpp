@@ -87,7 +87,8 @@ namespace
     constexpr std::string_view kDiceCullPass      = "Landscape: Dice Cull";
     constexpr std::string_view kDiceCullShader    = "LandscapeDiceCull";
     constexpr uint32_t         kDiceCullLocalSize = 64; // LocalSize of the shader
-    constexpr uint32_t         kDiceLevels        = static_cast<uint32_t>( kLandscapeDiceLevels );
+    constexpr uint32_t         kDiceLevels =
+         static_cast<uint32_t>( Desert::Graphic::System::kLandscapeDiceLevels );
     // A record is a VkDrawIndirectCommand - vertexCount (the cull adds to it), instanceCount, firstVertex,
     // firstInstance - and ring level l's draw starts at kLandscapeDiceCulledVertex x (l + 1)
     // (LandscapeDisplacement.glslh LANDSCAPE_DICE_CULLED_VERTEX, the same number).
