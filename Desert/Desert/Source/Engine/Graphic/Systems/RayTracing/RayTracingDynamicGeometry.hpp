@@ -61,9 +61,17 @@ namespace Desert::Graphic::RayTracing
     {
     public:
         // Makes the buffers and the BLAS fit @p layout (recreating all three when it changed) and plans this
-        // frame's build. @p update asks for a refit; it is granted only when nothing was recreated.
+        // frame's build. @p update asks for a refit; it is granted only when nothing was recreated and the BLAS
+        // holds a committed build (IsBuilt): a refit never reads a source no submitted build wrote.
         [[nodiscard]] virtual Common::ResultStr<RayTracingDynamicGeometryPlan>
         Prepare( const RayTracingDynamicMeshLayout& layout, bool update ) = 0;
+        // THE BUILD COMMITS ON GRAPH END (UE FRayTracingGeometry: valid once its build was submitted). True when
+        // the BLAS holds the build the last Prepare planned: RecordBuild recorded it and that graph ended (the
+        // storage external's RecordFinalState, which RDG calls only after EndGraph succeeded). Prepare clears it;
+        // it stays false when that build was never recorded (the producer or the RT scene failed after Prepare)
+        // or its graph was abandoned. A producer counts its BLAS as holding what it declared only while this is
+        // true; otherwise the build is still pending, and the next frame BUILDS it again.
+        [[nodiscard]] virtual bool                 IsBuilt() const        = 0;
         [[nodiscard]] virtual RDG::ExternalBuffer& GetVertices()          = 0;
         [[nodiscard]] virtual RDG::ExternalBuffer& GetIndices()           = 0;
         // Bytes of the vertex and index buffers (GetMemoryBytes is the BLAS storage alone).

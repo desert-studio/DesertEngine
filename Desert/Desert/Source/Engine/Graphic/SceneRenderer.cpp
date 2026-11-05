@@ -2175,7 +2175,8 @@ namespace Desert::Graphic
                            "frame: {}",
                            m_ViewResources.GetName(), landscape.GetError() );
             }
-            // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
+            // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS,
+            // and those tiles stay pending (their target's IsBuilt is false), so the next frame builds them.
             DESERT_PROFILE_PHASE( planPhases, "Plan: TLAS + RT scene" );
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
             // The blade grass's level BLASes (GrassBladeRayTracing.hpp) join the same dynamic-geometry pass: their

@@ -177,7 +177,11 @@ namespace Desert::Graphic::RayTracing
             TileState& state = m_Tiles[tile.Entity];
             if ( !state.Target )
                 state.Target = CreateRayTracingDynamicMeshGeometry( "Landscape" );
-            const bool sameBuild = state.Valid && state.Key == key;
+            // The BLAS holds state.Key / Instance only once the graph that built them ended (IsBuilt): a build
+            // still pending (its graph abandoned, or never recorded after an error) is BUILT again and stays in
+            // Changed, never refit from or read as storage no submitted build wrote.
+            const bool committed = state.Valid && state.Target->IsBuilt();
+            const bool sameBuild = committed && state.Key == key;
             const bool sameRow =
                  sameBuild && std::memcmp( &state.Instance, &instance, sizeof( System::TerrainInstance ) ) == 0;
 
@@ -206,6 +210,7 @@ namespace Desert::Graphic::RayTracing
                           : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
                 rows.push_back( instance );
                 work.push_back( std::move( job ) );
+                // Pending: Prepare cleared the target's IsBuilt; it commits these when this graph ends.
                 state.Key      = key;
                 state.Instance = instance;
                 state.Valid    = true;

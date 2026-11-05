@@ -31,7 +31,8 @@
 //     request of the RT scene's ONE dynamic-geometry pass, "RayTracingScene.DynamicGeometry" (BUILD when the grid,
 //     the heights or the holes changed — a sculpt or paint stroke bumps the revision — REFIT when only the
 //     continuous LOD moved the morphed vertices; no request when the tile's row and revisions are what the BLAS
-//     already holds: its storage is then GetFrame().Resident, read by the TLAS all the same).
+//     already holds - a build whose graph ended, RayTracingDynamicMeshGeometryTarget::IsBuilt: its storage is then
+//     GetFrame().Resident, read by the TLAS all the same).
 // Renderer-side only: the module boundary keeps Renderer and Landscape apart, so the inputs are what the terrain
 // renderer receives (heightmap image, LandscapeTileDraw, LandscapeWeightDraw), never LandscapeTileData.
 namespace Desert::Graphic
@@ -196,7 +197,8 @@ namespace Desert::Graphic::RayTracing
         // builds join RayTracingScene.DynamicGeometry). @p required = RayTracingSceneRequired of the view's
         // methods: false drops every tile's state and declares nothing. Tiles not in @p tiles are dropped (their
         // API objects retire on the frame ring). Errors: the pipeline is missing, a tile's target could not be
-        // prepared, or the vertex node could not be declared (the frame then has no landscape in its TLAS).
+        // prepared, or the vertex node could not be declared (the frame then has no landscape in its TLAS; a tile
+        // prepared before the error stays pending, so the next call builds it again).
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, FrameTextures& textures, bool required,
                                                        std::span<const LandscapeRayTracingTile> tiles );
 
@@ -220,11 +222,14 @@ namespace Desert::Graphic::RayTracing
             bool           operator==( const BuildKey& ) const = default;
         };
 
+        // Key / Instance: what the last declared build was made from (Valid: one was declared). The BLAS holds
+        // them only while Target->IsBuilt() (that build's graph ended); until then the build is pending, and a
+        // pending tile at the next AddPasses is BUILT again (UE FRayTracingGeometry: valid once submitted).
         struct TileState
         {
             std::unique_ptr<RayTracingDynamicMeshGeometryTarget> Target;
             BuildKey                                             Key;
-            System::TerrainInstance                              Instance; // the row the BLAS holds
+            System::TerrainInstance                              Instance;
             bool                                                 Valid = false;
         };
 

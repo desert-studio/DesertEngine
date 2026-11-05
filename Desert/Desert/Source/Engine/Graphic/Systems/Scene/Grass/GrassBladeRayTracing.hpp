@@ -124,6 +124,8 @@ namespace Desert::Graphic::System
             uint64_t  NonOpaque                           = 0;
             bool      operator==( const BladeKey& ) const = default;
         };
+        // Key: what the last declared builds were made from (Valid: they were declared). The levels hold it only
+        // while every target IsBuilt (their graph ended); otherwise the builds are pending and are made again.
         struct VarietyState
         {
             BladeKey                                                                      Key;
