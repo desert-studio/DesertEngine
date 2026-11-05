@@ -1,0 +1,97 @@
+{
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "f32cc7775b374cdca6291277a8ebd1e3",
+        "Versions": {
+            "FOLT": 10
+        },
+        "Dependencies": [
+            "5f0161b9e6ed62cc63dd359f0301c8e8"
+        ]
+    },
+    "Kind": "Mesh",
+    "Prefab": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Density": 20.0,
+    "Scaling": "Uniform",
+    "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ScaleY": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ScaleZ": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ZOffset": {
+        "Min": 0.0,
+        "Max": 0.0
+    },
+    "AlignToNormal": false,
+    "RandomYaw": false,
+    "RandomPitchAngle": 0.0,
+    "GroundSlopeAngle": {
+        "Min": 0.0,
+        "Max": 90.0
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [],
+    "MinimumLayerWeight": 0.0,
+    "CullDistance": {
+        "Min": 0.0,
+        "Max": 0.0
+    },
+    "Wind": {
+        "Strength": 0.0,
+        "Speed": 0.5,
+        "Height": 100.0
+    },
+    "IncludeInHLOD": true,
+    "Mesh": {
+        "Guid": "5f0161b9e6ed62cc63dd359f0301c8e8",
+        "Path": "Meshes/Modeling/Box.stmesh"
+    },
+    "Procedural": {
+        "CollisionRadius": 150.0,
+        "ShadeRadius": 150.0,
+        "NumSteps": 2,
+        "InitialSeedDensity": 1.0,
+        "AverageSpreadDistance": 600.0,
+        "SpreadVariance": 300.0,
+        "SeedsPerStep": 2,
+        "DistributionSeed": 9184,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": true,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 2.0,
+        "ProceduralScale": {
+            "Min": 2.4,
+            "Max": 3.2
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    },
+    "Collision": {
+        "Enabled": false,
+        "Profile": "BlockAll",
+        "Shape": "Mesh"
+    }
+}
