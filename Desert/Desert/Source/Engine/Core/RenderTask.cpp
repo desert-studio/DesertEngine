@@ -186,6 +186,19 @@ namespace Desert::Engine
             Join();
     }
 
+    void RenderTask::CheckRenderStateWrite( const std::string_view site )
+    {
+        RenderTask& task = Get();
+        if ( !task.OnGameThread() || !task.InFlight() )
+            return;
+        // Game thread only past this line, so the set needs no lock.
+        static std::unordered_set<std::string> named;
+        if ( named.emplace( site ).second )
+            LOG_ERROR( "[RenderTask] '{}' wrote render-owned state on the game thread while a render job was in "
+                       "flight: defer it (RenderTask::AfterJoin) or join first.",
+                       site );
+    }
+
     void RenderTask::FrameEndSync()
     {
         if ( !InFlight() || !OnGameThread() )

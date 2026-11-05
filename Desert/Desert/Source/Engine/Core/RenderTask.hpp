@@ -82,6 +82,12 @@ namespace Desert::Engine
         // waiting on that worker: a join there would deadlock).
         void JoinOnGameThread();
 
+        // THE OWNERSHIP CHECK (CPU-ONE-SYNC). Render-owned state - what a job in flight may read (a material's
+        // pools, a retire queue, a surface cache) - is written on the game thread only while no job is in flight
+        // (inside a deferred command, AfterJoin, or after a Join) or on the render task itself. A game-thread
+        // write that breaks it is named once per @p site (an error, so a scenario's log check goes red).
+        static void CheckRenderStateWrite( std::string_view site );
+
         // GAME THREAD, THE FRAME BOUNDARY'S FENCE (UE FFrameEndSync): the first statement of
         // Renderer::PresentFinalImage (frame N's submission takes its slot's list as it is, so N's jobs have
         // recorded), and VulkanRendererAPI::BeginFrame right after the slot's GPU wait (frame N+1 binds the
