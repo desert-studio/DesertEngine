@@ -101,7 +101,8 @@ namespace Desert::Editor::Core
         // What each component holds now (ToolTargetMesh::Committed): the "before" a hidden input keeps.
         std::shared_ptr<const Geometry::DynamicMesh3> CommittedA, CommittedB;
         // With @p remapMaterials: A's material slots, then B's not already among them; MeshBInA's material IDs
-        // index this table (a Boolean keeps B's triangles, so the result's slots are the table).
+        // index this table, so a preview drawn on A with these slots shows both inputs' materials (UE
+        // UCSGMeshesTool). A Boolean's result takes the table; a Trim keeps the operated mesh's used slots.
         std::vector<Common::AssetHandle> MaterialSlots;
     };
     // Refused, with the scene untouched: a selection of other than two entities; an entity without an editable
