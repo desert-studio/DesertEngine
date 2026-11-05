@@ -179,6 +179,7 @@ namespace
          "Desert/Desert/Source/Engine/ECS/HeroCloudComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/PostProcessVolumeComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/WindSourceComponent.hpp",
+         "Desert/Desert/Source/Engine/ECS/DecalComponent.hpp",
     };
 
     constexpr const char* kRegistry = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";

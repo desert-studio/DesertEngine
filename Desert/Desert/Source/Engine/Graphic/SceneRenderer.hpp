@@ -29,6 +29,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/Systems/Scene/Decals/DecalRenderer.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
@@ -906,6 +907,10 @@ namespace Desert::Graphic
         {
             return m_PointLight;
         }
+
+        // This frame's decal boxes (ECS::DecalECSSystem): "Deferred: Decals" draws them into the DBuffer, and any
+        // decal forces the full early-Z (the receivers are the prepass depth).
+        void AddDecal( const System::DecalProxy& decal );
 
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
                            const LocalLightShadowSettings&          shadow );
@@ -1878,6 +1883,9 @@ namespace Desert::Graphic
         std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
+        // "Deferred: Decals" (DECALS-DBUFFER): this frame's decals, faded and sorted per view; a typed member, its
+        // lists reserved once and cleared each frame beside the lights.
+        System::DecalRenderer m_Decals;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalLightShadowSettings> m_SpotLightShadows;

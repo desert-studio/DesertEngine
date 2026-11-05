@@ -3084,6 +3084,7 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
+        m_Decals.ClearQueue();
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
@@ -4852,6 +4853,11 @@ namespace Desert::Graphic
     {
         m_PointLight.PointLights.push_back( pointLight );
         m_PointLightShadows.push_back( shadow );
+    }
+
+    void SceneRenderer::AddDecal( const System::DecalProxy& decal )
+    {
+        m_Decals.Add( decal );
     }
 
     void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
