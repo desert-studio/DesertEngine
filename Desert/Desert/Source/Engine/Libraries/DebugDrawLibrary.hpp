@@ -28,7 +28,8 @@ namespace Desert::Libraries
         static void Line( const glm::vec3& start, const glm::vec3& end, const glm::vec3& color = glm::vec3( 1.0f ),
                           float duration = 0.0f, float thickness = 0.0f, bool foreground = false );
 
-        FUNCTION( ScriptCallable, ScriptName( "point" ), Tooltip( "A three-axis cross size cm across." ) )
+        FUNCTION( ScriptCallable, ScriptName( "point" ),
+                  Tooltip( "A square size pixels wide on screen at any distance (UE DrawDebugPoint)." ) )
         static void Point( const glm::vec3& position, float size = 10.0f,
                            const glm::vec3& color = glm::vec3( 1.0f ), float duration = 0.0f,
                            bool foreground = false );

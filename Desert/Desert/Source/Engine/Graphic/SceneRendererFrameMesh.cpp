@@ -402,6 +402,34 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
+    void SceneRenderer::AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures,
+                                                 const SystemRasterPass& pass, const RDG::TextureRef display,
+                                                 const RDG::TextureRef depth, const glm::uvec2 extent )
+    {
+        if ( !pass.ExecuteFunc || !display.IsValid() )
+            return;
+        RenderPassDeclaration declared;
+        declared.SetTargetExtent( extent );
+        if ( pass.Declare )
+            pass.Declare( declared, textures.GraphRefs() );
+        std::vector<RDG::TextureRef> images;
+        if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
+            return;
+        graph.AddPass(
+             pass.Name,
+             RDG::PassFlags::Raster | RDG::PassFlags::NeverCull |
+                  ( pass.NeverParallel ? RDG::PassFlags::NeverParallel : RDG::PassFlags::None ),
+             [&]( RDG::PassBuilder& node )
+             {
+                 DeclareOn( node, images, declared );
+                 node.ColorTarget( 0, display, RDG::LoadOp::Load() );
+                 if ( depth.IsValid() )
+                     node.DepthTarget( depth, RDG::LoadOp::Load(), /*write*/ false );
+             },
+             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+                  RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
+    }
+
     RDG::TextureRef SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
     {
         // THE FORWARD PATH'S DEPTH PREPASS (UE: the forward renderer's full DepthPass; FDepthPassMeshProcessor):

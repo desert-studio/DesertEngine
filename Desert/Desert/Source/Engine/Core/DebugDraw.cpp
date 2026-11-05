@@ -47,6 +47,17 @@ namespace Desert::Core
                                           .Depth            = style.Depth } );
     }
 
+    void DebugDrawWorld::AddPoint( const glm::vec3& position, const float sizePixels, const DebugDrawStyle& style )
+    {
+        m_Points.push_back( DebugDrawPoint{ .Position         = position,
+                                            .Color            = style.Color,
+                                            .SizePixels       = std::max( sizePixels, 0.0f ),
+                                            .RemainingSeconds = style.Duration,
+                                            .OneFrame         = IsOneFrame( style ),
+                                            .Persistent       = style.Persistent,
+                                            .Depth            = style.Depth } );
+    }
+
     void DebugDrawWorld::AddString( const glm::vec3& position, std::string text, const float scale,
                                     const DebugDrawStyle& style )
     {
@@ -75,6 +86,7 @@ namespace Desert::Core
     void DebugDrawWorld::Tick( const float deltaSeconds, const bool advancesFrame )
     {
         AgeItems( m_Lines, deltaSeconds, advancesFrame );
+        AgeItems( m_Points, deltaSeconds, advancesFrame );
         AgeItems( m_Strings, deltaSeconds, advancesFrame );
         AgeItems( m_Panels, deltaSeconds, advancesFrame );
     }
@@ -82,6 +94,7 @@ namespace Desert::Core
     void DebugDrawWorld::FlushPersistentLines()
     {
         std::erase_if( m_Lines, []( const DebugDrawLine& line ) { return !line.OneFrame; } );
+        std::erase_if( m_Points, []( const DebugDrawPoint& point ) { return !point.OneFrame; } );
     }
 
     void DebugDrawWorld::FlushStrings()
@@ -141,16 +154,9 @@ namespace Desert::Core
             scene.GetDebugDraw().AddLine( start, end, style );
         }
 
-        void Point( Scene& scene, const glm::vec3& position, const float size, const DebugDrawStyle& style )
+        void Point( Scene& scene, const glm::vec3& position, const float sizePixels, const DebugDrawStyle& style )
         {
-            DebugDrawWorld& world = scene.GetDebugDraw();
-            const float     h     = std::max( size, 0.0f ) * 0.5f;
-            for ( int axis = 0; axis < 3; ++axis )
-            {
-                glm::vec3 d( 0.0f );
-                d[axis] = h;
-                world.AddLine( position - d, position + d, style );
-            }
+            scene.GetDebugDraw().AddPoint( position, sizePixels, style );
         }
 
         void Box( Scene& scene, const glm::vec3& center, const glm::vec3& extent, const glm::quat& rotation,

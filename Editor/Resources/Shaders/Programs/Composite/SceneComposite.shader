@@ -180,27 +180,23 @@ Shader "SceneComposite"
 
         	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
         	// the display transfer function and belongs to neither of them.
-        	vec3 mappedColor = (TonemapOperator < 0.5) ? TonemapACES(color)
-        	                                             : TonemapReinhard(color, WhitePoint);
+            //
+            // THE HDR OUTPUT TRANSFORM (HDR-OUTPUT p4; UE r.HDR.Display.OutputDevice + ACES 1.3 output transforms):
+            // the SAME operator at the display's peak (TonemapACESOutput, Common/TonemapACES.glslh) — SDR is its
+            // headroom-1 case, so an SDR frame is unchanged and an HDR frame's shadows and mid-tones are the SDR
+            // frame's; above mid grey highlights follow ACES's SSTS shoulder up to the headroom instead of
+            // clipping to paper white. The Reinhard operator takes the same SSTS ratio on its brightest channel
+            // (hue kept). The HDR value is written EXTENDED-sRGB encoded (sign-free, unclamped): the UI composites
+            // over it in the encoded space it always did, and DisplayEncodeScRGB linearises the lot.
+            float headroom = (DisplayOutput > 0.5) ? max(DisplayHeadroom, 1.0) : 1.0;
+        	vec3 mappedColor;
+            if (TonemapOperator < 0.5)
+                mappedColor = TonemapACESOutput(color, headroom);
+            else
+                mappedColor = TonemapReinhard(color, WhitePoint)
+                            * AcesPeakRatio(max(max(color.r, color.g), color.b), headroom);
 
-        	vec3 mapped = LinearToSrgb(mappedColor);
-
-            // THE HDR OUTPUT TRANSFORM (HDR-OUTPUT p1). Below the knee the HDR picture IS the SDR one (the
-            // SDR rendition of an HDR frame — clamp to paper white — equals the SDR frame there, so captures
-            // stay comparable); above it the highlights the SDR curve crushed into white are lifted toward the
-            // display's headroom over HdrSpanStops, hue kept (one scale on all three channels). The written
-            // value is the EXTENDED sRGB encoding (sign-free, unclamped): the UI composites over it in the same
-            // encoded space it always did, and the display encode (DisplayEncodeScRGB) linearises the lot.
-            if (DisplayOutput > 0.5 && DisplayHeadroom > 1.0)
-            {
-                const float HdrKnee      = 2.0;  // exposed linear: ACES has rolled past ~0.8 here
-                const float HdrSpanStops = 5.0;  // stops above the knee to reach the headroom
-                float peak  = max(max(color.r, color.g), color.b);
-                float lift  = clamp(log2(max(peak, 1.0e-6) / HdrKnee) / HdrSpanStops, 0.0, 1.0);
-                lift        = lift * lift * (3.0 - 2.0 * lift);
-                vec3 hdr    = mappedColor * mix(1.0, DisplayHeadroom, lift);
-                mapped      = LinearToSrgbExtended(hdr);
-            }
+        	vec3 mapped = headroom > 1.0 ? LinearToSrgbExtended(mappedColor) : LinearToSrgb(mappedColor);
 
             // The Local Exposure view mode (UE VisualizeLocalExposure, "Local Exposure"): the picture's own grey
             // tinted green where local exposure lifts it, red where it pulls it down, saturating at +-2 EV.

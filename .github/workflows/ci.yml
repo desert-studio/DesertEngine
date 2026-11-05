@@ -1582,6 +1582,11 @@ jobs:
     name: Windows ${{ matrix.config }} build
     # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- was `needs: [ format ]`.
     runs-on: windows-2022
+    # ONE PACKAGING RUN PER REF AT A TIME (CI-PKG-DEADLINE): two parallel runs both restore an empty texture
+    # cache and neither one's cooked entries reach the other; the second waits for the first one's cache save.
+    concurrency:
+      group: win-release-package-${{ github.ref }}
+      cancel-in-progress: false
     timeout-minutes: 150
     strategy:
       matrix:

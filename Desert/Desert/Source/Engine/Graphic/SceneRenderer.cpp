@@ -16,6 +16,9 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/PixelPack.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
@@ -2855,19 +2858,11 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
-            // The engine's debug lines (bounding boxes), the first overlay.
+            // The engine's debug lines (bounding boxes), the first overlay. The scene's gameplay debug drawing
+            // is not here: it draws over the final image (AddFrameDebugDraw, below).
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
                 AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
-            // The scene's gameplay debug drawing (Core/DebugDraw.hpp): its lines over the engine's, its strings
-            // over both. A reflection capture's face shows the game scene only, as for the extension passes.
-            if ( m_DebugDraw && !m_ViewProfile.SceneCapture )
-            {
-                if ( m_DebugDraw->HasLines() )
-                    AddSystemRaster( graph, textures, m_DebugDraw->LinesPass(), overlay );
-                if ( m_DebugDraw->HasStrings() )
-                    AddSystemRaster( graph, textures, m_DebugDraw->StringsPass(), overlay );
-            }
 #endif // DESERT_DEV_INSTRUMENTS
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
@@ -2903,6 +2898,10 @@ namespace Desert::Graphic
             if ( const std::shared_ptr<Image2D> display = GetFinalImage() )
             {
                 const RDG::TextureRef displayRef = textures.Import( display, "Display" );
+#if DESERT_DEV_INSTRUMENTS
+                // The gameplay debug drawing over the final image, under the game UI.
+                AddFrameDebugDraw( graph, textures, displayRef, overlay );
+#endif // DESERT_DEV_INSTRUMENTS
                 if ( m_BackdropBlurNeeded && displayRef.IsValid() )
                     AddFrameBackdropBlur( graph, textures, { displayRef } );
                 AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, {} );
@@ -4474,6 +4473,52 @@ namespace Desert::Graphic
             m_TemporalUpscaler = CreateTemporalUpscaler( method );
     }
 
+#if DESERT_DEV_INSTRUMENTS
+    void SceneRenderer::AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures,
+                                           const RDG::TextureRef display, const OverlayTargets& overlay )
+    {
+        // THE GAMEPLAY DEBUG DRAWING (Core/DebugDraw.hpp) OVER THE DISPLAY-REFERRED FINAL IMAGE (UE: the editor
+        // primitives - ULineBatchComponent's lines, DrawDebugPoint's squares - composite after the tonemapper,
+        // depth-tested against the scene). Drawn into the scene colour before the post chain, a line's colour was
+        // scene light: the auto exposure and the tonemapper reshaped it, and its hue drifted as the exposure
+        // adapted. Here the colour given is the colour on screen. A reflection capture's face shows the game
+        // scene only, as for the extension passes.
+        if ( !m_DebugDraw || m_ViewProfile.SceneCapture || !display.IsValid() )
+            return;
+        const std::shared_ptr<Framebuffer> displayTarget = GetDisplayFramebuffer();
+        if ( !displayTarget )
+            return;
+        const glm::uvec2 extent{ displayTarget->GetFramebufferWidth(), displayTarget->GetFramebufferHeight() };
+        if ( m_DebugDraw->HasLines() )
+        {
+            // The depth the items are tested against: the overlay set's (output extent) after the temporal
+            // resolve; without one, the single-sample scene depth, which has the display's extent only when the
+            // view renders at 100 %.
+            RDG::TextureRef depth;
+            if ( overlay.IsValid() && overlay.Extent == extent )
+                depth = overlay.Depth;
+            else if ( !overlay.IsValid() )
+            {
+                const std::shared_ptr<Image2D> sceneDepth = GetComputeSceneDepth();
+                if ( sceneDepth && sceneDepth->GetWidth() == extent.x && sceneDepth->GetHeight() == extent.y )
+                    depth = textures.Import( sceneDepth, "SceneDepth" );
+            }
+            if ( depth.IsValid() )
+            {
+                m_DebugDrawDepthRefused = false;
+                AddDisplayOverlayRaster( graph, textures, m_DebugDraw->LinesPass(), display, depth, extent );
+            }
+            else if ( !std::exchange( m_DebugDrawDepthRefused, true ) )
+                LOG_ERROR( "[DebugDraw] the debug lines and points are not drawn: no scene depth of the final "
+                           "image's {}x{} to test them against (no temporal resolve and a render extent other "
+                           "than the output's)",
+                           extent.x, extent.y );
+        }
+        if ( m_DebugDraw->HasStrings() )
+            AddDisplayOverlayRaster( graph, textures, m_DebugDraw->StringsPass(), display, {}, extent );
+    }
+#endif // DESERT_DEV_INSTRUMENTS
+
     SceneRenderer::OverlayTargets SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
                                                                    const ViewFrame&      frame,
                                                                    const RDG::TextureRef exposure,
@@ -4670,6 +4715,42 @@ namespace Desert::Graphic
             return nullptr;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         return static_cast<const System::TonemapRenderer*>( it->second.get() )->GetHdrRenditionImage();
+    }
+
+    void SceneRenderer::LogHdrRenditionPeak() const
+    {
+        // On an HDR output the captured PNG is the SDR rendition (Graphic::SetSdrCaptureRendition); the HDR
+        // transform of the same frame is the tonemap's second target, and its peak is read here.
+        if ( !SdrCaptureRenditionRequested() || !CurrentDisplayOutput().IsHDR() )
+            return;
+        const auto image = GetHdrRenditionImage();
+        if ( !image )
+        {
+            LOG_ERROR( "[Display] the HDR output's capture has no HDR rendition (the view drew none): no peak" );
+            return;
+        }
+        auto begun = image->BeginReadbackBytes();
+        if ( !begun.IsSuccess() )
+        {
+            LOG_ERROR( "[Display] HDR rendition readback refused: {}", begun.GetError() );
+            return;
+        }
+        Renderer::GetInstance().WaitDeviceIdle();
+        const auto bytes = begun.GetValue()->ReadBytes();
+        if ( !bytes.IsSuccess() )
+        {
+            LOG_ERROR( "[Display] HDR rendition readback failed: {}", bytes.GetError() );
+            return;
+        }
+        const std::size_t pixels = static_cast<std::size_t>( image->GetWidth() ) * image->GetHeight();
+        // The rendition holds SceneComposite's extended-sRGB encoding: the brightest code is the brightest light.
+        const ScRGBPeak peak   = FindScRGBPeak( bytes.GetValue().data(), bytes.GetValue().size(), pixels );
+        const float     linear = SrgbToLinearExtended( peak.Value );
+        const float     paper  = CurrentDisplayOutput().PaperWhiteNits;
+        LOG_INFO( "[Display] HDR rendition of the captured frame: peak {:.3f} x paper white ({:.0f} nits) at view "
+                  "pixel ({}, {}) of {}x{}; headroom {:.3f}",
+                  linear, linear * paper, peak.Pixel % image->GetWidth(), peak.Pixel / image->GetWidth(),
+                  image->GetWidth(), image->GetHeight(), CurrentDisplayOutput().Headroom );
     }
 
     std::shared_ptr<Desert::Graphic::Framebuffer> SceneRenderer::GetDisplayFramebuffer() const

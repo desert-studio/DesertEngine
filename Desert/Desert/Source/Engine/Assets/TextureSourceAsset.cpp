@@ -431,13 +431,13 @@ namespace Desert::Assets
         switch ( speed )
         {
             case Project::TextureEncodeSpeed::Final:
-                return { settings.FinalEffort, std::nullopt };
+                return { settings.FinalEffort, std::nullopt, settings.FastEffort };
             case Project::TextureEncodeSpeed::FinalIfAvailable:
-                return { settings.FastEffort, settings.FinalEffort };
+                return { settings.FastEffort, settings.FinalEffort, settings.FastEffort };
             case Project::TextureEncodeSpeed::Fast:
                 break;
         }
-        return { settings.FastEffort, std::nullopt };
+        return { settings.FastEffort, std::nullopt, settings.FastEffort };
     }
 
     std::optional<std::string> FetchTexturePlatformData( const TextureAssetKey& key )
