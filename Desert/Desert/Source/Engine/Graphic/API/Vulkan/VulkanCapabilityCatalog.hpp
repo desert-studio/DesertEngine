@@ -30,6 +30,7 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps Caps;
 
         uint32_t             VendorId         = 0; // 0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel, 0x106B Apple
+        uint32_t             DeviceId         = 0; // PCI device id (NVIDIA: the die, GpuArchitecture)
         VkPhysicalDeviceType Type             = VK_PHYSICAL_DEVICE_TYPE_OTHER;
         uint64_t             DeviceLocalBytes = 0; // Mac: Metal recommendedMaxWorkingSetSize
 
@@ -74,6 +75,8 @@ namespace Desert::Graphic::API::Vulkan
         // (non-empty Name); empty = no profile. The host copies DeviceRestrictions::Profile here beside
         // ProbeCatalog: no query of this device can report the acceleration of the device it plays.
         std::optional<Common::Scalability::RayTracingAcceleration> ProfileRayTracingAccel;
+        // The played device profile's GpuArchitecture, under a profile only (as ProfileRayTracingAccel).
+        std::optional<Common::Scalability::GpuArchitecture> ProfileArchitecture;
 
         std::vector<VkSurfaceFormatKHR> SurfaceFormats; // vkGetPhysicalDeviceSurfaceFormatsKHR
         std::vector<VkPresentModeKHR>   PresentModes;   // vkGetPhysicalDeviceSurfacePresentModesKHR

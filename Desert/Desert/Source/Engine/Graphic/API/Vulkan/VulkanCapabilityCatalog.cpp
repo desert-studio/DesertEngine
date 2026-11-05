@@ -17,6 +17,24 @@ namespace Desert::Graphic::API::Vulkan
         constexpr uint32_t kVendorNvidia = 0x10DE;
         constexpr uint32_t kVendorApple  = 0x106B;
 
+        // NVIDIA's PCI device ids by die (the upper bits name the chip): TU10x / TU11x 0x1E00-0x21FF, except
+        // GA100 0x20B0-0x20FF; GA10x 0x2200-0x25FF, except GH100 0x2330-0x233F (Hopper: FP8 tensor cores, so
+        // costed as Ada); AD10x 0x2600-0x28FF; GB1xx / GB20x 0x2900 and up. Below 0x1E00 (Pascal and older, no
+        // tensor cores): Other. A GTX 16 (TU116 / TU117) is a Turing die without tensor cores; Streamline offers
+        // it no DLSS, so RecommendUpscaler stops at the offer before it reads the architecture.
+        GpuArchitecture NvidiaArchitecture( const uint32_t deviceId )
+        {
+            if ( deviceId >= 0x2900 )
+                return GpuArchitecture::Blackwell;
+            if ( deviceId >= 0x2600 || ( deviceId >= 0x2330 && deviceId < 0x2340 ) )
+                return GpuArchitecture::Ada;
+            if ( deviceId >= 0x2200 || ( deviceId >= 0x20B0 && deviceId < 0x2100 ) )
+                return GpuArchitecture::Ampere;
+            if ( deviceId >= 0x1E00 )
+                return GpuArchitecture::Turing;
+            return GpuArchitecture::Other;
+        }
+
         // The render-scale ceiling is stated against a 4K output: a supersampled 3840-wide frame at P % needs a
         // 3840 * P / 100 wide target, which the device must be able to create.
         constexpr uint32_t kReferenceOutputWidth = 3840;
@@ -200,6 +218,11 @@ namespace Desert::Graphic::API::Vulkan
         else
             catalog.Class = DeviceClass::Unknown;
         catalog.VideoMemory = probe.DeviceLocalBytes;
+        // A played profile is the card it names (an RTX 2060 is Turing on any host); else the die's.
+        if ( probe.ProfileArchitecture.has_value() )
+            catalog.Architecture = *probe.ProfileArchitecture;
+        else if ( probe.VendorId == kVendorNvidia )
+            catalog.Architecture = NvidiaArchitecture( probe.DeviceId );
 
         return catalog;
     }

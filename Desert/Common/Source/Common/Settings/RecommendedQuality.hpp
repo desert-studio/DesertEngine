@@ -106,6 +106,18 @@ namespace Common::Scalability
     [[nodiscard]] float DeviceClassPerfIndex( DeviceClass deviceClass, uint64_t videoMemory,
                                               const ScalabilityTable& table );
 
+    // The display target from which the upscaler is chosen for frame rate (RecommendUpscaler).
+    inline constexpr uint32_t kHighRefreshTargetHz = 120;
+
+    // PURE. The recommended temporal upscaler for this device at a display target of @p targetHz (the monitor's
+    // refresh rate; 0 = unknown, below every target). UE: the DLSS plugin keeps Ray Reconstruction a switch on
+    // top of Super Resolution and the recommendation picks per GPU architecture. Rule: DLSS offered on a pre-Ada
+    // RTX (Turing, Ampere) at >= kHighRefreshTargetHz -> AntiAliasing.Method DLSS (Super Resolution) and DLSS
+    // preset K for Performance and Ultra Performance (NVIDIA's M / L there are its heavier networks); Ray
+    // Reconstruction stays where the path tracer asks for it (PathTracing.Denoiser). Anything else: no override,
+    // the table's AntiAliasing level stands. The reason names the rule that decided, every time.
+    [[nodiscard]] UpscalerRecommendation RecommendUpscaler( const CapabilityCatalog& catalog, uint32_t targetHz );
+
     // PURE. Does `cached` answer for this device? Re-run when it does not, or when nothing is cached.
     [[nodiscard]] bool CacheValid( const std::optional<RecommendedQuality>& cached, const BenchmarkCacheKey& now );
 } // namespace Common::Scalability

@@ -1,0 +1,20 @@
+# FPS-FIELD-BARN-TURN-SR: FPS-FIELD-BARN-TURN under DLSS Super Resolution instead of the machine's Ray
+# Reconstruction (UPSCALE-SR-120HZ, the recommended 120 Hz path on Turing / Ampere): the same view, still air and
+# turn, so its GPU tables compare line by line with TURN's RR run. The method is set for this run only (an
+# unattended run keeps the quality in session); machine.json stays byte-for-byte as it was.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано run Anti-Aliasing "Anti-Aliasing: DLSS"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Когда profile-dump
+Тогда-вид t0_still the barn view still: field, barn, trees and sky drawn
+Когда --subject viewport set Camera.Spin 1
+Когда frames 360
+Когда profile-dump
+Когда --subject viewport set Camera.Spin 0
+Когда --subject viewport set Camera.Direction 0.15,0.03,-1
+Когда frames 60
+Тогда-вид t1_turn the barn view after a full turn: the same field, barn, trees and sky as t0_still

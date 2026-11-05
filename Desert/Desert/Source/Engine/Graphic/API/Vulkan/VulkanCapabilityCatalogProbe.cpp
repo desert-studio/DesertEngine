@@ -28,6 +28,7 @@ namespace Desert::Graphic::API::Vulkan
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties( physicalDevice, &properties );
         probe.VendorId                    = properties.vendorID;
+        probe.DeviceId                    = properties.deviceID;
         probe.Type                        = properties.deviceType;
         probe.ColorSampleCounts           = properties.limits.framebufferColorSampleCounts;
         probe.DepthSampleCounts           = properties.limits.framebufferDepthSampleCounts;

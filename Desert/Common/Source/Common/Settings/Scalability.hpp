@@ -543,6 +543,17 @@ namespace Common::Scalability
         bool operator==( const ParameterOverride& ) const = default;
     };
 
+    // THE RECOMMENDED TEMPORAL UPSCALER (RecommendUpscaler, RecommendedQuality.hpp): the overrides
+    // QualityState::ApplyRecommended adds to the benchmark's levels, and why. Empty Overrides = the table's
+    // AntiAliasing level stands. Reason is the host's log line: the architecture, the target and the rule.
+    struct UpscalerRecommendation
+    {
+        std::vector<ParameterOverride> Overrides;
+        std::string                    Reason;
+
+        bool operator==( const UpscalerRecommendation& ) const = default;
+    };
+
     // One level per group, PERSISTED BY GROUP NAME (machine.json: {"Textures": "High", ...}), the way UE keys
     // sg.TextureQuality & co. and the way ParameterOverride keys its parameter: a group added to or moved in the
     // enum never shifts what a file says about the others. In memory it is indexed by Group. Its JSON form is
@@ -750,6 +761,9 @@ namespace Common::Scalability
         static ApplyReport ClearOverride( Parameter parameter );
         static ApplyReport ApplyPreset( const AntiAliasingPreset& preset ); // Decompose + overrides
         static ApplyReport ApplyRecommended( const std::array<Level, kGroupCount>& levels ); // benchmark result
+        // The host's upscaler recommendation for this device and display (QualityBoot, RecommendUpscaler):
+        // ApplyRecommended adds its overrides to the levels. Never set = the levels alone.
+        static void SetUpscalerRecommendation( UpscalerRecommendation recommendation );
 
         [[nodiscard]] static const QualitySelection&  Selection();
         [[nodiscard]] static const ResolvedQuality&   Resolved();

@@ -1029,6 +1029,7 @@ namespace Common::Scalability
             CapabilityCatalog                                     Catalog;
             QualitySelection                                      Selection;
             ResolvedQuality                                       Resolved;
+            UpscalerRecommendation                                RecommendedUpscaler;
             QualityState::Saver                                   Save = nullptr;
             bool                                                  SessionOnly = false;
             std::vector<std::pair<QualityState::Listener, void*>> Listeners;
@@ -1611,12 +1612,19 @@ namespace Common::Scalability
 
     QualityState::ApplyReport QualityState::ApplyRecommended( const std::array<Level, kGroupCount>& levels )
     {
-        // UE's benchmark sets the group levels and nothing else; overrides belong to a choice the player made,
-        // and the host calls this on a first run with no saved choice (QualityBoot) or when the user asks for it
-        // (the editor Scalability panel's "Apply recommended").
+        // UE's benchmark sets the group levels; overrides belong to a choice the player made, and the host calls
+        // this on a first run with no saved choice (QualityBoot) or when the user asks for it (the editor
+        // Scalability panel's "Apply recommended"). The one override set it adds is the recommended upscaler
+        // (UE: the DLSS plugin's per-architecture choice), which the levels cannot express.
         QualitySelection selection;
-        selection.Levels = levels;
+        selection.Levels    = levels;
+        selection.Overrides = S().RecommendedUpscaler.Overrides;
         return Apply( selection );
+    }
+
+    void QualityState::SetUpscalerRecommendation( UpscalerRecommendation recommendation )
+    {
+        S().RecommendedUpscaler = std::move( recommendation );
     }
 
     bool QualityState::Initialized()
