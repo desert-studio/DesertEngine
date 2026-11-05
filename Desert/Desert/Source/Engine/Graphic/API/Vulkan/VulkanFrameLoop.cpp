@@ -199,12 +199,17 @@ namespace Desert::Graphic::API::Vulkan
                 // entry queued before this ran and none is queued after it (the callers run inline instead).
                 m_Exited = true;
                 m_Handled.notify_all();
+                {
+                    // No entry is left to return a place, so a producer at the bound stops waiting (it then
+                    // finds m_Exited and runs inline). m_Mutex, then the bound's lock: the one order.
+                    const std::scoped_lock bound( m_UnwaitedBound.Mutex );
+                    m_UnwaitedBound.Closed = true;
+                }
+                m_UnwaitedBound.Room.notify_all();
                 return;
             }
             QueuedWork work = std::move( m_Queue.front() );
             m_Queue.pop_front();
-            if ( work.Unwaited )
-                --m_QueuedUnwaited; // room under the depth bound; the producer wakes on m_Handled below
             const bool earlierFailed = !m_Failure.empty();
             lock.unlock();
             std::string failure;
@@ -214,6 +219,8 @@ namespace Desert::Graphic::API::Vulkan
                 DESERT_PROFILE_SCOPE( "Vulkan submit" );
                 failure = RunEntry( work, earlierFailed );
             }
+            // The entry's place under the depth bound is returned as it ends, outside m_Mutex.
+            work.Bound = UnwaitedSlot();
             lock.lock();
             if ( !failure.empty() && m_Failure.empty() )
                 m_Failure = std::move( failure );
@@ -264,16 +271,14 @@ namespace Desert::Graphic::API::Vulkan
                 return false;
             QueuedWork work = std::move( m_Queue.front() );
             m_Queue.pop_front();
-            if ( work.Unwaited )
-                --m_QueuedUnwaited;
             const bool earlierFailed = !m_Failure.empty();
             lock.unlock();
-            m_Handled.notify_all(); // a producer held at the depth bound sees the room
             std::string failure;
             {
                 DESERT_PROFILE_SCOPE( "Vulkan: wait answered on the submit thread" );
                 failure = RunEntry( work, earlierFailed );
             }
+            work.Bound = UnwaitedSlot(); // its place returned as it ends, outside m_Mutex
             lock.lock();
             if ( !failure.empty() && m_Failure.empty() )
                 m_Failure = std::move( failure );
@@ -617,17 +622,14 @@ namespace Desert::Graphic::API::Vulkan
     VulkanFrameLoop::QueueUnwaited( const std::function<uint64_t()>&        reserve,
                                     std::function<std::string( uint64_t )>& submit ) noexcept
     {
-        uint64_t reserved = 0;
+        // THE DEPTH BOUND (kMaxQueuedUnwaited): a place is taken here, before the reservation and outside
+        // m_Mutex, and the entry owns it until it ends. The wait always ends: the entries ahead return their
+        // places as they run, and the thread closes the bound as it exits. Not on the submit thread, which would
+        // wait for itself. Every return below gives the place back by its destructor.
+        UnwaitedSlot place    = UnwaitedSlot::Take( m_UnwaitedBound, !t_OnSubmitThread );
+        uint64_t     reserved = 0;
         {
-            std::unique_lock<std::mutex> lock( m_Mutex );
-            // THE DEPTH BOUND (kMaxQueuedUnwaited): held here, before the reservation, until the thread took
-            // one. It always ends: the thread takes entries while it runs, and Stop drains the whole queue and
-            // sets m_Exited. Not on the submit thread, which would wait for itself.
-            if ( !t_OnSubmitThread && m_QueuedUnwaited >= kMaxQueuedUnwaited && !m_Exited )
-            {
-                DESERT_PROFILE_WAIT( "Vulkan: upload queue full" );
-                m_Handled.wait( lock, [this]() { return m_Exited || m_QueuedUnwaited < kMaxQueuedUnwaited; } );
-            }
+            const std::scoped_lock lock( m_Mutex );
             // Queued while the thread runs, stopping and after a failed frame included: it runs the whole queue
             // before it exits. Once it has exited the queue is empty and stays so: the caller submits inline,
             // after every entry handed over, with no wait.
@@ -643,11 +645,102 @@ namespace Desert::Graphic::API::Vulkan
                                            .Ordered  = nullptr,
                                            .Result   = nullptr,
                                            .Unwaited = std::move( submit ),
-                                           .Reserved = reserved } );
-            ++m_QueuedUnwaited;
+                                           .Reserved = reserved,
+                                           .Bound    = std::move( place ) } );
         }
         m_Wake.notify_one();
         return reserved;
+    }
+
+    VulkanFrameLoop::UnwaitedSlot VulkanFrameLoop::UnwaitedSlot::Take( UnwaitedBound& bound,
+                                                                       const bool     mayWait ) noexcept
+    {
+        std::unique_lock<std::mutex> lock( bound.Mutex );
+        if ( mayWait && !bound.Closed && bound.Held >= kMaxQueuedUnwaited )
+        {
+            DESERT_PROFILE_WAIT( "Vulkan: upload queue full" );
+            bound.Room.wait( lock, [&bound]() { return bound.Closed || bound.Held < kMaxQueuedUnwaited; } );
+        }
+        ++bound.Held;
+        return UnwaitedSlot( &bound );
+    }
+
+    VulkanFrameLoop::UnwaitedSlot::UnwaitedSlot( UnwaitedSlot&& other ) noexcept
+        : m_Bound( std::exchange( other.m_Bound, nullptr ) )
+    {
+    }
+
+    VulkanFrameLoop::UnwaitedSlot& VulkanFrameLoop::UnwaitedSlot::operator=( UnwaitedSlot&& other ) noexcept
+    {
+        if ( this != &other )
+        {
+            Return();
+            m_Bound = std::exchange( other.m_Bound, nullptr );
+        }
+        return *this;
+    }
+
+    VulkanFrameLoop::UnwaitedSlot::~UnwaitedSlot()
+    {
+        Return();
+    }
+
+    void VulkanFrameLoop::UnwaitedSlot::Return() noexcept
+    {
+        UnwaitedBound* const bound = std::exchange( m_Bound, nullptr );
+        if ( bound == nullptr )
+            return;
+        {
+            const std::scoped_lock lock( bound->Mutex );
+            --bound->Held;
+        }
+        bound->Room.notify_one();
+    }
+
+    std::optional<uint64_t> VulkanFrameLoop::QueueOrdered( std::function<void()>& work ) noexcept
+    {
+        uint64_t ticket = 0;
+        {
+            const std::scoped_lock lock( m_Mutex );
+            // Queued while the thread runs, stopping and after a failed frame included (it runs every entry
+            // before it exits). Once it has exited, everything handed to it ran: the caller runs the work.
+            if ( m_Exited )
+                return std::nullopt;
+            ticket = ++m_NextTicket;
+            m_Queue.push_back( QueuedWork{ .Ticket = ticket, .Slot = 0, .Release = std::move( work ) } );
+        }
+        m_Wake.notify_one();
+        return ticket;
+    }
+
+    void VulkanFrameLoop::WaitTicket( const uint64_t ticket ) noexcept
+    {
+        std::unique_lock<std::mutex> lock( m_Mutex );
+        // Never past the newest ticket handed over: a ticket of no entry here is not waited for.
+        const uint64_t target = std::min( ticket, m_NextTicket );
+        if ( m_HandledTicket >= target || m_Exited )
+            return;
+        DESERT_PROFILE_WAIT( "Vulkan: wait for an ordered entry" );
+        m_Handled.wait( lock, [this, target]() { return m_HandledTicket >= target || m_Exited; } );
+    }
+
+    std::optional<uint64_t> VulkanFrameLoop::EnqueueOrdered( std::function<void()> work ) noexcept
+    {
+        const ActiveLoopLease  lease;
+        VulkanFrameLoop* const loop = lease.Get();
+        if ( loop == nullptr )
+            return std::nullopt;
+        return loop->QueueOrdered( work );
+    }
+
+    bool VulkanFrameLoop::WaitOrdered( const uint64_t ticket ) noexcept
+    {
+        if ( t_OnSubmitThread )
+            return false;
+        const ActiveLoopLease lease;
+        if ( VulkanFrameLoop* const loop = lease.Get() )
+            loop->WaitTicket( ticket );
+        return true;
     }
 
     std::optional<uint64_t>

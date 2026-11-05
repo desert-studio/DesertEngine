@@ -174,21 +174,42 @@ TEST( QueueSubmitCensus, EveryOwnerTakesTheQueueLockBeforeItsCall )
 }
 
 // The ImGui Vulkan backend is third-party and issues its own queue calls for detached platform windows, so the
-// scan above cannot see them. What CAN be read is that the one place that drives them holds the lock first.
+// scan above cannot see them. What CAN be read (VK-SUBMIT-THREAD step 7): ImGui's default renderer loop is not
+// used (the layer draws the windows itself, as submit-thread entries), and every call into the backend goes
+// through DetachedWindows::Capture from a scope that took VulkanLogicalDevice::LockQueues() first.
 TEST( QueueSubmitCensus, DetachedImGuiWindowsRenderUnderTheQueueLock )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string src = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
          ReadAll( fs::path( root ) / "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" ) );
-    const std::size_t render = src.find( "RenderPlatformWindowsDefault(" );
-    const std::size_t update = src.find( "UpdatePlatformWindows(" );
-    ASSERT_NE( render, std::string::npos )
-         << "VulkanImGuiLayer no longer renders platform windows; update the census";
-    ASSERT_NE( update, std::string::npos );
-    const std::size_t lock      = src.rfind( "LockQueues()", update );
-    const std::size_t scopeOpen = src.rfind( '{', update );
+    ASSERT_NE( src.find( "UpdatePlatformWindows(" ), std::string::npos )
+         << "VulkanImGuiLayer no longer drives platform windows; update the census";
+    EXPECT_EQ( src.find( "RenderPlatformWindowsDefault(" ), std::string::npos )
+         << "ImGui's default loop calls the backend outside the queue lock and the submit thread";
+    std::size_t calls = 0;
+    for ( std::size_t at = src.find( "return Capture(" ); at != std::string::npos;
+          at             = src.find( "return Capture(", at + 1 ) )
+        ++calls;
+    // The window calls (create / resize / destroy, AfterOwnWork) and the frame (Draw).
+    EXPECT_EQ( calls, 2u ) << "the backend is called from a new place; census it";
+    // Step 8: only the frame (the backend's acquire, submit and present) touches the queue, so only its Capture
+    // needs the queue lock; the window calls wait the window's own fences in the fork, not the device idle.
+    const std::size_t render    = src.find( "BackendRender(" );
+    const std::size_t frame     = render == std::string::npos ? render : src.rfind( "return Capture(", render );
+    const std::size_t lock      = frame == std::string::npos ? frame : src.rfind( "LockQueues()", frame );
+    const std::size_t scopeOpen = frame == std::string::npos ? frame : src.rfind( '{', frame );
     EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
-         << "UpdatePlatformWindows / RenderPlatformWindowsDefault must run inside a scope that took "
+         << "the frame's backend call (Capture around BackendRender) must run in a scope that took "
             "VulkanLogicalDevice::LockQueues() first: the backend submits and presents on the shared queue.";
+    // The fork (gitlink ThirdParty/ImGui) is what makes the window calls queue-free and a failed frame stop.
+    const std::string backend = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "ThirdParty/ImGui/backends/imgui_impl_vulkan.cpp" ) );
+    EXPECT_NE( backend.find( "ImGui_ImplVulkanH_WaitWindowFrames(" ), std::string::npos )
+         << "the ImGui fork no longer waits a window's own fences (gitlink rolled back?)";
+    EXPECT_NE( backend.find( "PresentPending" ), std::string::npos )
+         << "the ImGui fork presents after a failed RenderWindow again (gitlink rolled back?)";
+    for ( const char* const call : { "BackendCreate(", "BackendDestroy(", "BackendResize(", "BackendRender(",
+                                     "BackendPresent(" } )
+        EXPECT_NE( src.find( call ), std::string::npos ) << call << " is no longer called; update the census";
 }

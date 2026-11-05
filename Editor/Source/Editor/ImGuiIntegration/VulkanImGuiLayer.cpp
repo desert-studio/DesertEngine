@@ -24,6 +24,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <format>
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
 #include <ImGui/backends/imgui_impl_glfw.h>
@@ -31,8 +32,13 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstring>
+#include <mutex>
+#include <optional>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -188,6 +194,332 @@ namespace Desert::Graphic::API::Vulkan
         }
     };
 
+    // THE DETACHED WINDOWS (VK-SUBMIT-THREAD steps 7-8, REVIEW-6 GAP-2 / GAP-3 / RISK-3, REVIEW-7; UE: Slate
+    // hands each viewport's element batch to the render thread by value, and a viewport resize or destroy
+    // flushes the queued rendering before its swapchain changes - FlushRenderingCommands, a flush of the whole
+    // queue, not of that viewport). A detached window's frame is a copy of its draw data that an ordered entry
+    // of the submit thread owns (VulkanFrameLoop::EnqueueOrdered): the backend records, submits and presents it
+    // there, after the frames and uploads handed over before it, so a texture it shows is never sampled before
+    // its queued copy. Drawing a frame does not wait. This thread waits where it touches a window: before it
+    // refills one of the window's copies, before ImGui changes the size of its OS window (SetPlatformSize), and
+    // before the backend creates, resizes or destroys it (the renderer callbacks below, put over the
+    // backend's). That wait is the submit thread's FIFO up to the window's newest entry (everything queued
+    // before it runs first), then the window's own frame fences (the fork's CreateOrResizeWindow /
+    // DestroyWindow), never the device idle. A panel dragged by its edge pays it every frame it changes size.
+    // A frame stops at its first failure (the fork's RenderWindow: no submit after a failed acquire, no
+    // present of an image not acquired), and every failure comes back as a value: Render logs its cause once
+    // and rebuilds the window here, after its own work, before its next frame; the submit thread never
+    // rebuilds. Every backend call reports through CheckBackendResult: as a value to the call that captured it,
+    // the cause logged once, and the device-lost latch noted.
+    struct VulkanImGui::DetachedWindows
+    {
+        // One frame of one window as the submit thread draws it: the copy, and a viewport standing in for the
+        // window whose DrawData is the copy. The backend reads only the viewport's renderer data, flags, size
+        // and draw data, and the real viewport's are rewritten by the next ImGui frame.
+        struct WindowFrame
+        {
+            InterfaceDrawBuffer Draw;
+            ImGuiViewport       Proxy;
+            uint64_t            Ticket = 0; // the entry that draws it (EnqueueOrdered); 0: none queued
+
+            WindowFrame()                                = default;
+            WindowFrame( const WindowFrame& )            = delete;
+            WindowFrame& operator=( const WindowFrame& ) = delete;
+            ~WindowFrame()
+            {
+                Proxy.RendererUserData = nullptr; // borrowed from the window: the backend frees it
+            }
+        };
+        struct WindowState
+        {
+            std::array<std::unique_ptr<WindowFrame>, kInterfaceDrawBuffers> Frames;
+            std::size_t                                                     Next       = 0;
+            uint64_t                                                        LastTicket = 0; // the newest entry
+            // The first failure an entry met (the submit thread writes it), taken by Render.
+            std::atomic<VkResult> Failed{ VK_SUCCESS };
+            // The window has a swapchain and frames: its last create or rebuild succeeded. Render draws only
+            // such a window (a failed create or rebuild leaves the backend's window without frames).
+            bool Usable = false;
+            // Rebuilt before its next frame: an entry failed, or the last rebuild found the surface out of date.
+            bool Stale = false;
+        };
+
+        static inline DetachedWindows* Active = nullptr; // the attached layer's (Install .. destruction)
+        // THE BACKEND'S STATE IS ONE THREAD'S AT A TIME: its recording (the main interface on the render task,
+        // a detached window on the submit thread) and its window calls (this thread) share buffers' alignment,
+        // pipelines and shader modules. Taken after the queue lock wherever both are held.
+        static inline std::mutex            RecordMutex;
+        static inline thread_local bool     t_Capturing = false;
+        static inline thread_local VkResult t_Captured  = VK_SUCCESS;
+        static inline std::mutex            LoggedMutex;
+        static inline std::vector<VkResult> Logged; // the causes already logged (ReportOnce)
+
+        VulkanLogicalDevice* Device = nullptr;
+        // The backend's renderer half of the platform interface, kept when Install puts the layer's over it.
+        void ( *BackendCreate )( ImGuiViewport* )         = nullptr;
+        void ( *BackendDestroy )( ImGuiViewport* )        = nullptr;
+        void ( *BackendResize )( ImGuiViewport*, ImVec2 ) = nullptr;
+        void ( *BackendRender )( ImGuiViewport*, void* )  = nullptr;
+        void ( *BackendPresent )( ImGuiViewport*, void* ) = nullptr;
+        // The platform backend's (GLFW) size call, kept by Install; static so it outlives the layer's object.
+        static inline void ( *PlatformSetSize )( ImGuiViewport*, ImVec2 ) = nullptr;
+        std::unordered_map<const ImGuiViewport*, std::unique_ptr<WindowState>> Windows; // this thread's
+
+        DetachedWindows()                                    = default;
+        DetachedWindows( const DetachedWindows& )            = delete;
+        DetachedWindows& operator=( const DetachedWindows& ) = delete;
+        ~DetachedWindows()
+        {
+            Active = nullptr;
+        }
+
+        // After ImGui_ImplVulkan_Init: keeps the backend's callbacks and puts the layer's over them.
+        void Install( VulkanLogicalDevice& device ) noexcept
+        {
+            Device                    = &device;
+            ImGuiPlatformIO& io       = ::ImGui::GetPlatformIO();
+            BackendCreate             = io.Renderer_CreateWindow;
+            BackendDestroy            = io.Renderer_DestroyWindow;
+            BackendResize             = io.Renderer_SetWindowSize;
+            BackendRender             = io.Renderer_RenderWindow;
+            BackendPresent            = io.Renderer_SwapBuffers;
+            io.Renderer_CreateWindow  = &DetachedWindows::Create;
+            io.Renderer_DestroyWindow = &DetachedWindows::Destroy;
+            io.Renderer_SetWindowSize = &DetachedWindows::Resize;
+            // ImGui changes the OS window's size (Platform_SetWindowSize) before the renderer's: the window's
+            // queued frames drain first (SetPlatformSize), so none of them meets a surface its swapchain no
+            // longer matches. Its OS window is destroyed after Renderer_DestroyWindow, which drains it already.
+            if ( io.Platform_SetWindowSize != &DetachedWindows::SetPlatformSize )
+                PlatformSetSize = io.Platform_SetWindowSize;
+            io.Platform_SetWindowSize = &DetachedWindows::SetPlatformSize;
+            // Rendered by Render below, never by ImGui::RenderPlatformWindowsDefault.
+            io.Renderer_RenderWindow = nullptr;
+            io.Renderer_SwapBuffers  = nullptr;
+            Active                   = this;
+        }
+
+        // ImGui_ImplVulkan_InitInfo::CheckVkResultFn, on whichever thread the backend runs. A failure goes to the
+        // call that captures it (Capture) as its value; outside one it is logged once per cause. A lost device is
+        // latched either way. VK_SUBOPTIMAL_KHR (an acquire or present that worked on an image the surface no
+        // longer matches) is a value too: the window is rebuilt. The other positive codes succeeded.
+        static void CheckBackendResult( const VkResult result )
+        {
+            if ( result == VK_SUCCESS || ( result > VK_SUCCESS && result != VK_SUBOPTIMAL_KHR ) )
+                return;
+            // A lost device is latched and explained there (Graphic::DeviceLost); the value still goes on.
+            const bool lost = NoteIfDeviceLost( result, "the ImGui Vulkan backend", __FILE__, __LINE__ );
+            if ( t_Capturing )
+            {
+                // The first failure is the value; an error still replaces a SUBOPTIMAL met before it.
+                if ( t_Captured == VK_SUCCESS || ( t_Captured > VK_SUCCESS && result < VK_SUCCESS ) )
+                    t_Captured = result;
+                return;
+            }
+            if ( !lost && result < VK_SUCCESS )
+                ReportOnce( result, "an ImGui backend call outside a window or the interface" );
+        }
+
+        // Logs @p result once per cause (its code) for the session, from any thread. An image out of date (the
+        // window is rebuilt) is a warning; anything else an error.
+        static void ReportOnce( const VkResult result, const char* const what ) noexcept
+        {
+            {
+                const std::scoped_lock lock( LoggedMutex );
+                if ( std::find( Logged.begin(), Logged.end(), result ) != Logged.end() )
+                    return;
+                Logged.push_back( result );
+            }
+            if ( result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR )
+                LOG_WARN( "[VulkanImGui] {}: {}, the window is rebuilt before its next frame (logged once)", what,
+                          VkResultToString( result ) );
+            else
+                LOG_ERROR( "[VulkanImGui] {} failed: {} (each cause is logged once)", what,
+                           VkResultToString( result ) );
+        }
+
+        // Runs backend calls on this thread, under the backend's lock; the first failure they reported.
+        template <typename Call>
+        static VkResult Capture( Call&& call ) noexcept
+        {
+            const std::scoped_lock record( RecordMutex );
+            t_Capturing = true;
+            t_Captured  = VK_SUCCESS;
+            call();
+            t_Capturing = false;
+            return std::exchange( t_Captured, VK_SUCCESS );
+        }
+
+        [[nodiscard]] WindowState* Find( const ImGuiViewport* const viewport ) const noexcept
+        {
+            const auto found = Windows.find( viewport );
+            if ( found == Windows.end() )
+                return nullptr;
+            return found->second.get();
+        }
+
+        // THE WINDOW'S QUEUED WORK, THEN THE BACKEND. Waits, with no lock held, for the submit thread's FIFO up to
+        // @p window's newest entry (VulkanFrameLoop::WaitOrdered: every entry queued before it runs first, the
+        // window's own frames among them), then runs @p call. The backend's create / resize / destroy then waits
+        // the window's own frame fences (the fork's ImGui_ImplVulkanH_WaitWindowFrames), not the device idle,
+        // and issues no queue call, so no queue lock is taken. Nothing of this window is queued meanwhile: only
+        // this thread queues it.
+        template <typename Call>
+        VkResult AfterOwnWork( const WindowState* const window, Call&& call ) noexcept
+        {
+            // False only on the submit thread, and the platform interface runs on this one.
+            if ( window != nullptr && !VulkanFrameLoop::WaitOrdered( window->LastTicket ) )
+                return VK_ERROR_UNKNOWN;
+            return Capture( std::forward<Call>( call ) );
+        }
+
+        // ImGui's Platform_SetWindowSize, put over the platform backend's (Install): the window's queued frames
+        // run before its OS window changes size, so none of them is drawn by a swapchain the surface no longer
+        // matches. UpdatePlatformWindows calls it before Renderer_SetWindowSize (Resize).
+        static void SetPlatformSize( ImGuiViewport* const viewport, const ImVec2 size )
+        {
+            if ( DetachedWindows* const self = Active; self != nullptr )
+                if ( const WindowState* const window = self->Find( viewport ); window != nullptr )
+                    (void)VulkanFrameLoop::WaitOrdered( window->LastTicket ); // false only on the submit thread
+            if ( PlatformSetSize != nullptr )
+                PlatformSetSize( viewport, size );
+        }
+
+        static void Create( ImGuiViewport* const viewport )
+        {
+            DetachedWindows* const self = Active;
+            if ( self == nullptr )
+                return;
+            std::unique_ptr<WindowState>& window = self->Windows[viewport];
+            window                               = std::make_unique<WindowState>();
+            const VkResult created =
+                 self->AfterOwnWork( nullptr, [self, viewport]() { self->BackendCreate( viewport ); } );
+            // A window the backend could not make (surface, WSI support, swapchain) is not drawn (Render).
+            window->Usable = created == VK_SUCCESS;
+            if ( created != VK_SUCCESS )
+                ReportOnce( created, "a detached window's creation" );
+        }
+
+        static void Destroy( ImGuiViewport* const viewport )
+        {
+            DetachedWindows* const self = Active;
+            if ( self == nullptr )
+                return;
+            const VkResult destroyed = self->AfterOwnWork( self->Find( viewport ), [self, viewport]()
+                                                           { self->BackendDestroy( viewport ); } );
+            // Every entry that drew it has run (AfterOwnWork), so its copies go with it.
+            self->Windows.erase( viewport );
+            if ( destroyed != VK_SUCCESS && Graphic::DeviceLost::AllowWork() )
+                ReportOnce( destroyed, "a detached window's destruction" );
+        }
+
+        // ImGui's Renderer_SetWindowSize, and Render's rebuild of a window an entry found out of date.
+        static void Resize( ImGuiViewport* const viewport, const ImVec2 size )
+        {
+            DetachedWindows* const self = Active;
+            if ( self == nullptr )
+                return;
+            WindowState* const window = self->Find( viewport );
+            const VkResult     resized =
+                 self->AfterOwnWork( window, [self, viewport, size]() { self->BackendResize( viewport, size ); } );
+            if ( window != nullptr )
+            {
+                // A failed rebuild leaves the backend's window without frames: not drawn until one succeeds. A
+                // surface still out of date (it has no drawable area yet) is tried again at the next frame.
+                window->Usable = resized == VK_SUCCESS;
+                window->Stale  = resized == VK_ERROR_OUT_OF_DATE_KHR;
+            }
+            if ( resized != VK_SUCCESS && resized != VK_ERROR_OUT_OF_DATE_KHR && Graphic::DeviceLost::AllowWork() )
+                ReportOnce( resized, "a detached window's swapchain rebuild" );
+        }
+
+        // ON THE SUBMIT THREAD (inline when no loop runs): the backend's acquire, record, submit and present of
+        // one copy. Its failure is the entry's value.
+        VkResult Draw( WindowFrame& frame ) noexcept
+        {
+            if ( !Graphic::DeviceLost::AllowWork() )
+                return VK_SUCCESS;
+            const auto queues = Device->LockQueues();
+            return Capture(
+                 [this, &frame]()
+                 {
+                     BackendRender( &frame.Proxy, nullptr );
+                     BackendPresent( &frame.Proxy, nullptr );
+                 } );
+        }
+
+        // THIS THREAD, after UpdatePlatformWindows: every detached window's frame to the submit thread.
+        void Render() noexcept
+        {
+            // A lost device draws nothing more, and no window is rebuilt on it.
+            if ( !Graphic::DeviceLost::AllowWork() )
+                return;
+            const ImVector<ImGuiViewport*>& viewports = ::ImGui::GetPlatformIO().Viewports;
+            for ( int i = 1; i < viewports.Size; ++i )
+            {
+                ImGuiViewport* const viewport = viewports[i];
+                WindowState* const   window   = Find( viewport );
+                if ( window == nullptr || viewport->DrawData == nullptr )
+                    continue;
+                // A minimised window has no drawable area: no frame, and no rebuild until it is restored (what
+                // its entries met stays for then).
+                if ( ( viewport->Flags & ImGuiViewportFlags_Minimized ) != 0 )
+                    continue;
+                // What the window's earlier entries met, as their value. Each stopped at its failure (nothing
+                // submitted after a failed acquire, nothing presented that was not acquired), and the window is
+                // rebuilt here, after its queued work, before its next frame: an image out of date, and any
+                // other failure, which may have left an acquired image or its semaphore behind.
+                const VkResult failed = window->Failed.exchange( VK_SUCCESS, std::memory_order_acq_rel );
+                if ( failed != VK_SUCCESS )
+                {
+                    ReportOnce( failed, "a detached window's frame (acquire, submit or present)" );
+                    window->Stale = true;
+                }
+                if ( window->Stale )
+                    Resize( viewport, viewport->Size );
+                if ( !window->Usable )
+                    continue;
+
+                std::unique_ptr<WindowFrame>& slot = window->Frames[window->Next];
+                window->Next                       = ( window->Next + 1 ) % window->Frames.size();
+                if ( !slot )
+                    slot = std::make_unique<WindowFrame>();
+                WindowFrame& frame = *slot;
+                // The copy is refilled once the entry that drew it ran (the FIFO up to that entry).
+                if ( frame.Ticket != 0 && !VulkanFrameLoop::WaitOrdered( frame.Ticket ) )
+                    continue;
+                frame.Draw.Fill( *viewport->DrawData );
+                frame.Proxy.ID                = viewport->ID;
+                frame.Proxy.Flags             = viewport->Flags;
+                frame.Proxy.Pos               = viewport->Pos;
+                frame.Proxy.Size              = viewport->Size;
+                frame.Proxy.DpiScale          = viewport->DpiScale;
+                frame.Proxy.RendererUserData  = viewport->RendererUserData;
+                frame.Proxy.DrawData          = &frame.Draw.Data;
+                frame.Draw.Data.OwnerViewport = &frame.Proxy;
+
+                WindowFrame* const          drawn = &frame;
+                const std::function<void()> draw  = [this, window, drawn]() noexcept
+                {
+                    DESERT_PROFILE_SCOPE( "Vulkan: detached window" );
+                    const VkResult result = Draw( *drawn );
+                    VkResult       none   = VK_SUCCESS;
+                    if ( result != VK_SUCCESS )
+                        (void)window->Failed.compare_exchange_strong( none, result, std::memory_order_acq_rel );
+                };
+                const std::optional<uint64_t> ticket = VulkanFrameLoop::EnqueueOrdered( draw );
+                if ( !ticket )
+                {
+                    // No submit thread: everything handed over ran, so drawing here is still in queue order.
+                    draw();
+                    frame.Ticket = 0;
+                    continue;
+                }
+                frame.Ticket       = *ticket;
+                window->LastTicket = *ticket;
+            }
+        }
+    };
+
     VulkanImGui::VulkanImGui()  = default;
     VulkanImGui::~VulkanImGui() = default;
 
@@ -302,6 +634,8 @@ namespace Desert::Graphic::API::Vulkan
         init_info.ImageCount     = swapchain->GetBackBufferCount();
         init_info.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
         init_info.Allocator      = nullptr;
+        // The backend's own results, as values to the call that runs it and logged once per cause (GAP-3).
+        init_info.CheckVkResultFn = &DetachedWindows::CheckBackendResult;
 
         // The pipeline is built against the render graph's canonical pass for the back buffer's format: the
         // interface is drawn inside a graph node (End), and render-pass compatibility is formats and samples only.
@@ -313,6 +647,8 @@ namespace Desert::Graphic::API::Vulkan
         m_ImguiRenderPass = imguiPass.GetValue();
 
         ImGui_ImplVulkan_Init( &init_info, m_ImguiRenderPass );
+        m_Detached = std::make_unique<DetachedWindows>();
+        m_Detached->Install( *SP_CAST( VulkanLogicalDevice, engineContext.GetDevice() ) );
 
         // Upload Fonts
         {
@@ -344,7 +680,13 @@ namespace Desert::Graphic::API::Vulkan
         // ImGui teardown below is destruction, which stays legal.
         if ( Graphic::DeviceLost::AllowWork() )
             EngineContext::GetInstance().GetDevice()->WaitIdle(); // under the queue lock (VK1)
+        // THE WINDOWS BEFORE THE BACKEND'S SHARED OBJECTS (REVIEW-7 R7-3): ImGui_ImplVulkan_Shutdown destroys the
+        // render buffers, pipeline and fonts every window draws with BEFORE it destroys the platform windows. So
+        // they are destroyed here first, each through the layer's Destroy after its queued frames ran (on a lost
+        // device too, where the wait above is skipped and a frame that started before the loss may still run).
+        ::ImGui::DestroyPlatformWindows();
         ImGui_ImplVulkan_Shutdown();
+        m_Detached.reset();
         ImGui_ImplGlfw_Shutdown();
         ::ImGui::DestroyContext();
 
@@ -496,46 +838,18 @@ namespace Desert::Graphic::API::Vulkan
                  } );
         }
 
-        // THE DETACHED WINDOWS JOIN FIRST. They are GLFW windows (main thread only) drawn by the same ImGui
-        // backend, which is not thread-safe, and today's order records the main interface before them. With only
-        // the main viewport there is nothing to draw and UpdatePlatformWindows touches no backend state: no join.
         // THE BOUNDARY OF THE FRAME'S GRAPH. The detached platform windows below are OS windows the ImGui backend
-        // owns, each with its own swapchain, render pass, command buffers, submit and present — they are not this
-        // frame's output and not the engine's back buffer, so they are not graph nodes.
+        // draws, each with its own swapchain, render pass, command buffers, submit and present: they are not this
+        // frame's output and not the engine's back buffer, so they are not graph nodes. UpdatePlatformWindows
+        // creates, resizes and destroys them here (GLFW: this thread only) through the layer's renderer
+        // callbacks, each after that window's own last entry and under the queue lock; their frames go to the
+        // submit thread as copies (DetachedWindows). Nothing here waits for the render task or the queue: the
+        // backend's state is one thread's at a time (DetachedWindows::RecordMutex).
         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
         {
-            const ImVector<ImGuiViewport*>& viewports = ::ImGui::GetPlatformIO().Viewports;
-            const bool                      joined    = viewports.Size > 1;
-            if ( joined )
-                ::Desert::Engine::RenderTask::Get().Join();
-            const auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-            {
-                // Creating, resizing and destroying a detached window is GLFW (this thread only) plus the
-                // backend's vkDeviceWaitIdle, which needs every queue: under the device's queue lock (VK1).
-                const auto queues = device->LockQueues();
-                ::ImGui::UpdatePlatformWindows();
-            }
-            // THE DETACHED WINDOWS SUBMIT IN QUEUE ORDER (VK-SUBMIT-THREAD step 5, REVIEW G3; UE: every queue
-            // submit goes through the RHI submission thread). The backend's vkQueueSubmit / vkQueuePresentKHR
-            // run as an ordered entry of the submit thread, after the frames and the uploads handed over so far,
-            // so a texture a detached window shows is never sampled before its queued copy. This thread blocks
-            // until they ran (the backend and the ImGui context are not thread-safe, the render task is joined)
-            // and holds no lock meanwhile: the submit thread needs the queue lock for the entries ahead. The
-            // backend's own Vulkan render callbacks are all that runs there (GLFW's are no-ops for Vulkan).
-            // Only with a detached window: the main viewport alone renders nothing here and pays no hand-off.
-            if ( viewports.Size > 1 )
-            {
-                if ( !joined )
-                    ::Desert::Engine::RenderTask::Get().Join();
-                const VkResult rendered = VulkanFrameLoop::SubmitOrdered(
-                     [&device]() -> VkResult
-                     {
-                         const auto queues = device->LockQueues();
-                         ::ImGui::RenderPlatformWindowsDefault();
-                         return VK_SUCCESS;
-                     } );
-                (void)rendered; // the backend reports its own results (check_vk_result)
-            }
+            ::ImGui::UpdatePlatformWindows();
+            if ( m_Detached )
+                m_Detached->Render();
         }
     }
 
@@ -565,6 +879,7 @@ namespace Desert::Graphic::API::Vulkan
         compositeDesc.Format      = kUICompositeFormat;
         const Graphic::RDG::TextureRef composite = graph.CreateTexture( compositeDesc, "EditorUIComposite" );
         ImDrawData* const              drawData  = &interfaceData;
+        VkResult                       recorded  = VK_SUCCESS; // what the backend reported while recording it
         // NeverParallel (RDG::PassFlags): the exec calls the ImGui Vulkan backend, third-party code that is not
         // thread-safe; with every graphics segment cut into chunks (RDG-PARALLEL-1) it would record on a worker.
         graph.AddPass(
@@ -576,7 +891,14 @@ namespace Desert::Graphic::API::Vulkan
                  const auto commandBuffer = VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
                      return Common::MakeError( commandBuffer.GetError() );
-                 ImGui_ImplVulkan_RenderDrawData( drawData, commandBuffer.GetValue() );
+                 // The backend's state is one thread's at a time (a detached window records on the submit thread,
+                 // its windows are made on the game thread): Capture holds its lock, and returns what the backend
+                 // reported as this pass's value and RecordInterface's.
+                 recorded = DetachedWindows::Capture( [drawData, cb = commandBuffer.GetValue()]()
+                                                      { ImGui_ImplVulkan_RenderDrawData( drawData, cb ); } );
+                 if ( recorded != VK_SUCCESS )
+                     return Common::MakeFormattedError<bool>( "the ImGui backend recorded the interface: {}",
+                                                              VkResultToString( recorded ) );
                  // The backend bound its own vertex / index buffers: the renderer's bind-skip key is stale.
                  Graphic::Renderer::InvalidateGeometryBinding();
                  return BOOLSUCCESS;
@@ -604,6 +926,10 @@ namespace Desert::Graphic::API::Vulkan
         // Its faults are logged by the graph backend, its own failures by ExecuteGraph; a FrameFault presents
         // black, and the detached windows draw either way.
         (void)::Desert::Graphic::Renderer::ExecuteGraph( graph );
+        // The backend's own failure is this call's value (REVIEW-7 R7-6), not a detached window's log line.
+        if ( recorded != VK_SUCCESS )
+            return Common::MakeFormattedError<bool>( "[VulkanImGui] the main interface's backend recording: {}",
+                                                     VkResultToString( recorded ) );
         return BOOLSUCCESS;
 
     }
