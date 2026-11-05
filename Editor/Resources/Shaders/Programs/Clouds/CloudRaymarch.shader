@@ -460,9 +460,14 @@ Shader "CloudRaymarch"
         // the environment bake marches. In the border band the two are blended by the same fade the ground
         // receiver uses, so the edge of the map is a gradient and not a ring in the sky; only the band's
         // pixels pay for both.
+        //
+        // @p lightCost is the march-cost census's (--cloud-visualize 4): x the light samples this call scheduled
+        // (the near march's, the full ray's, both in the border band), y 1 where the full ray ran.
         float CloudSelfShadowOpticalDepth(CloudLayer layer, CloudFieldParams params, vec3 samplePos, vec3 toSun,
-                                          float lightMarchKm, int lightSamples, float extinction)
+                                          float lightMarchKm, int lightSamples, float extinction,
+                                          out vec2 lightCost)
         {
+            lightCost      = vec2(0.0f, 0.0f);
             float coverage = 0.0f;
             float nearFar  = 0.0f;
             if (CloudSelfShadowMap.y > 0.5f)
@@ -488,6 +493,7 @@ Shader "CloudRaymarch"
                     int              local   = int(clamp(CloudSelfShadowLocalSamples, 1.0f, 16.0f));
                     nearFar = CloudLightOpticalDepth(layer, params, samplePos, toSun, localKm, local, extinction) +
                               CloudShadowFarOpticalDepth(texel, depthKm, localKm);
+                    lightCost.x = float(local);
                 }
             }
 
@@ -495,6 +501,7 @@ Shader "CloudRaymarch"
                 return nearFar;
 
             float full = CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
+            lightCost += vec2(float(lightSamples), 1.0f);
             return mix(full, nearFar, coverage);
         }
 
@@ -708,8 +715,15 @@ Shader "CloudRaymarch"
             //      (CloudProceduralLevelOf): level 0 red, 1 green, 2 blue, and inside a blend band the
             //      coarser level's colour mixed in by the blend weight, so the bands read as gradients; past
             //      level 2's window the far path (CloudSampleProceduralFar) grey, level 2's band blue into it.
-            int visualize = int(CloudVisualize.x + 0.5f);
-            if (visualize != 0)
+            //   4: THE MARCH'S COST, per ray, from counters the ordinary march below keeps (GPU-CLOUD-MARCH-2) —
+            //      R the view ray's field evaluations / 256 (search and fine samples; a column-probe jump is not
+            //      one), G the lit samples / 64, B the light samples they scheduled / 512, so 8 B / G is the
+            //      light samples per lit sample (the near march's count inside the shadow map, the full ray's
+            //      outside it, both in its border band). Rays that march nothing (geometry in front of the
+            //      layer, past the cutoff, no entry) keep the ordinary output.
+            const int kCloudVisualizeMarchCost = 4;
+            int       visualize                = int(CloudVisualize.x + 0.5f);
+            if (visualize != 0 && visualize != kCloudVisualizeMarchCost)
             {
                 vec3 shown = vec3(0.0f);
                 if (visualize == 3)
@@ -864,6 +878,11 @@ Shader "CloudRaymarch"
             // heights the probe must bound ends one stride short of the landing point.
             float emptyColumnSkipKm  = emptyColumnAdvance - coarseStepKm;
 
+            // The cost census (--cloud-visualize 4): integer adds beside the fetches they count.
+            int   censusFieldEvaluations = 0;
+            int   censusLitSamples       = 0;
+            float censusLightSamples     = 0.0f;
+
             for (int i = 0; i < iterationTotal; ++i)
             {
                 if (t >= segment.y)
@@ -899,6 +918,7 @@ Shader "CloudRaymarch"
                 vec3 fieldPos = vec3(samplePos.x, length(samplePos) - layer.BottomRadiusKm, samplePos.z);
 
                 CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
+                ++censusFieldEvaluations;
 
                 if (!fine)
                 {
@@ -961,8 +981,12 @@ Shader "CloudRaymarch"
                         // octave approximation: the expensive part is finding how much material lies
                         // between this sample and the sun, and each order then reuses that number with its
                         // own extinction scale.
+                        vec2  lightCost;
                         float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
-                                                                         lightMarchKm, lightSamples, extinction);
+                                                                         lightMarchKm, lightSamples, extinction,
+                                                                         lightCost);
+                        ++censusLitSamples;
+                        censusLightSamples += lightCost.x;
 
                         // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
                         //
@@ -1092,6 +1116,16 @@ Shader "CloudRaymarch"
                 luminance = CloudApplyAerialPerspective(
                      luminance, transmittance, aerial.rgb, aerial.a,
                      CloudAerialAmount(meanDistanceKm, CloudFadeParams.x, CloudFadeParams.y));
+            }
+
+            if (visualize == kCloudVisualizeMarchCost)
+            {
+                vec3  cost         = vec3(float(censusFieldEvaluations) / 256.0f, float(censusLitSamples) / 64.0f,
+                                          censusLightSamples / 512.0f);
+                float sunLuminance = dot(CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+                imageStore(CloudScatterTexture, coord, vec4(min(cost, vec3(1.0f)) * sunLuminance * 0.03f, 0.0f));
+                imageStore(CloudGuideTexture, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
+                return;
             }
 
             imageStore(CloudScatterTexture, coord, vec4(luminance, clamp(transmittance, 0.0f, 1.0f)));
