@@ -75,6 +75,10 @@ namespace Desert::Editor::Core
             // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh
             // (Standard, Smooth, Move; Geometry/DynamicMeshSculpt.hpp).
             Sculpt,
+            // UE's Collision palette (MeshToPhysicsTool): the fitted collider / the convex volume previews on the
+            // selected entity and is applied on Accept.
+            MeshToCollision, // UE's USetCollisionGeometryTool
+            MeshToVolume,    // UE's UMeshToVolumeTool
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid, and UE's
@@ -399,6 +403,10 @@ namespace Desert::Editor::Core
         Geometry::LatticeSettings DeformLattice;
         std::vector<glm::dvec3>   LatticePoints;
         std::vector<int32_t>      LatticeSelection;
+        // One-shot: the next lattice draw picks the control point under the viewport centre (a click there; with
+        // LatticeReqPickCentreAdd it adds, as a Shift-click does). The command palette's way to select points.
+        bool                      LatticeReqPickCentre    = false;
+        bool                      LatticeReqPickCentreAdd = false;
         glm::mat4                 LatticeGizmo{ 1.0f };
         // Attributes palette -> Normals (UE UEditNormalsProperties, Geometry/MeshAttributeOperations.hpp);
         // previewed by MeshProcessingTool like the Deform tools, its report in DeformStatus.

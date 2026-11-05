@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 8
+            "FOLT": 9
         },
         "Dependencies": []
     },
@@ -77,5 +77,10 @@
                 "Value": 1.0
             }
         ]
+    },
+    "Collision": {
+        "Enabled": false,
+        "Profile": "BlockAll",
+        "Shape": "Mesh"
     }
 }

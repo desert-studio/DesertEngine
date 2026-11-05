@@ -10,6 +10,7 @@
 #include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
@@ -91,6 +92,7 @@ namespace Desert::ECS
                         queue->Events.clear();
                     m_RefusedCharacters.clear();
                     m_Landscape.reset();
+                    m_Foliage.reset();
                     m_Destructibles.reset();
                     m_Destruction.reset();
                     m_Water.reset();
@@ -123,6 +125,7 @@ namespace Desert::ECS
                 m_World->Init( m_AppliedGravity, profiles.ExtractValue() );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
+                m_Foliage   = std::make_unique<FoliageCollision>( *m_World );
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
                 m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
@@ -142,6 +145,7 @@ namespace Desert::ECS
             // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
+            m_Foliage->Attach( registry );
             m_Destructibles->Attach( registry );
             m_Ragdolls->Attach( registry );
             m_Destructibles->Sync(
@@ -155,6 +159,8 @@ namespace Desert::ECS
                  } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
+            // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
+            m_Foliage->Sync( registry );
 
             // Create a Jolt body for any physics entity that doesn't have one yet (uses its authored pose).
             for ( auto entity : bodies )
@@ -596,6 +602,7 @@ namespace Desert::ECS
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
+        std::unique_ptr<FoliageCollision>   m_Foliage;
         // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
         std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
         // Same rule, one level down: the destructible entities' objects live in m_Destruction.

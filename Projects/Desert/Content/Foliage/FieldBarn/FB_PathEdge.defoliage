@@ -3,11 +3,15 @@
         "Kind": "FoliageType",
         "Guid": "29c0297bfae66c14e7be6532e7ce1963",
         "Versions": {
-            "FOLT": 8
+            "FOLT": 9
         },
         "Dependencies": ["d3bd81114a742dcc6b7a3037c7dd83d7", "f1310680ea846d17141c59441b901b55"]
     },
     "Kind": "Mesh",
+    "Mesh": {
+        "Guid": "d3bd81114a742dcc6b7a3037c7dd83d7",
+        "Path": "assets:Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_a.stmesh"
+    },
     "Prefab": {
         "Guid": "",
         "Path": ""
@@ -40,19 +44,15 @@
     ],
     "MinimumLayerWeight": 0.5,
     "CullDistance": {
-        "Min": 3000,
-        "Max": 4500
+        "Min": 3000.0,
+        "Max": 4500.0
     },
     "Wind": {
         "Strength": 35.0,
-        "Speed": 0.8,
+        "Speed": 0.800000011920929,
         "Height": 60.0
     },
     "IncludeInHLOD": true,
-    "Mesh": {
-        "Guid": "d3bd81114a742dcc6b7a3037c7dd83d7",
-        "Path": "assets:Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_a.stmesh"
-    },
     "Procedural": {
         "CollisionRadius": 22.0,
         "ShadeRadius": 30.0,
@@ -70,7 +70,7 @@
         "OverlapPriority": 0.0,
         "ProceduralScale": {
             "Min": 1.0,
-            "Max": 1.6
+            "Max": 1.600000023841858
         },
         "ScaleCurve": [
             {
@@ -82,5 +82,10 @@
                 "Value": 1.0
             }
         ]
+    },
+    "Collision": {
+        "Enabled": false,
+        "Profile": "BlockAll",
+        "Shape": "Mesh"
     }
 }

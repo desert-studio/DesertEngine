@@ -110,6 +110,10 @@ namespace Desert::Assets::Serialization
             return wind;
         if ( auto procedural = ValidateFoliageProcedural( data.Procedural ); !procedural )
             return procedural;
+        if ( data.Collision.Enabled && data.Collision.Profile.empty() )
+            return Common::MakeFormattedError<bool>(
+                 "Collision.Enabled is true and Collision.Profile names no profile (a name of the project's "
+                 "Config/CollisionProfiles.json, e.g. BlockAll)" );
         for ( size_t i = 0; i < data.LandscapeLayers.size(); ++i )
         {
             const auto& layer = data.LandscapeLayers[i];
@@ -144,12 +148,12 @@ namespace Desert::Assets::Serialization
                                                      "'{}' and draws no mesh of its own",
                                                      data.Mesh.Path, data.Prefab.Path );
         if ( data.CullDistance != FoliageFloatInterval{ 0.0f, 0.0f } || data.Wind.Strength != 0.0f ||
-             data.IncludeInHLOD )
+             data.IncludeInHLOD || data.Collision.Enabled )
             return Common::MakeFormattedError<bool>(
-                 "a Prefab type sets CullDistance [{}, {}], Wind.Strength {} or "
-                 "IncludeInHLOD {}: {}",
+                 "a Prefab type sets CullDistance [{}, {}], Wind.Strength {}, IncludeInHLOD {} or "
+                 "Collision.Enabled {}: {}",
                  data.CullDistance.Min, data.CullDistance.Max, data.Wind.Strength, data.IncludeInHLOD,
-                 kFoliagePrefabMeshOnlyReason );
+                 data.Collision.Enabled, kFoliagePrefabMeshOnlyReason );
         return BOOLSUCCESS;
     }
 

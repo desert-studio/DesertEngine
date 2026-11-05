@@ -1,0 +1,71 @@
+# FOLIAGE-COLLISION: foliage instances collide per foliage cell (ECS::FoliageCollision -> PhysicsWorld::CreateInstancedStaticBody,
+# one static compound body per field = per type per WP cell). GameplayProof.desce: the pawn spawns at PlayerStart (0, 92, 650)
+# and W walks it along -Z. Two types from Content/Foliage/Proof: FC_TreeBlocks (island_tree_01 x2.8, Collision on, BlockAll, Mesh)
+# and FC_BushPasses (shrub_02 x1.3, Collision off). Single tool + "Stroke at viewport centre" with the camera straight down
+# places one instance exactly under the centre. GameplayProof.lua labels the pawn's position over its head.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/GameplayProof.desce
+Дано run View "View mode: Lit"
+Дано run Foliage "Add type to the palette: FC_TreeBlocks"
+Дано run Foliage "Tool: Single"
+Дано --subject viewport set Camera.Position 0,1500,350
+Дано --subject viewport set Camera.Direction 0,-1,-0.01
+Дано run Foliage "Stroke at viewport centre"
+Дано run Foliage "Add type to the palette: FC_BushPasses"
+Дано --subject viewport set Camera.Position 600,1500,350
+Дано run Foliage "Stroke at viewport centre"
+Дано --subject viewport set Camera.Position 0,600,1300
+Дано --subject viewport set Camera.Direction 0,-0.4,-1
+Тогда-вид 0_layout a tree on the pawn's path at (0, 350) and a shrub at (600, 350); the white PlayerStart beyond them
+# [1_blocked] walk forward 3 s: the pawn stops at the trunk.
+Когда run Action "Play"
+Когда advance 0.5
+Когда input keydown - - w
+Когда advance 2.0
+Когда advance 1.0
+Когда input keyup - - w
+Когда advance 0.3
+Тогда-вид 1_blocked the pawn line reads z about 350 + trunk radius + capsule radius (well above 0), "on ground"; the pawn stands at the trunk, not past it
+# [2_bushes] strafe right to x 600 and walk forward through the shrub (Collision off).
+Когда input keydown - - d
+Когда advance 1.2
+Когда input keyup - - d
+Когда input keydown - - w
+Когда advance 2.0
+Когда input keyup - - w
+Когда advance 0.3
+Тогда-вид 2_bushes the pawn line reads z below 200 (past the shrub row at 350); the shrub behind the pawn
+Когда run Action "Stop"
+# [3_paint_undo] paint a second tree on the shrub's lane, Play: blocked at it; undo the stroke, Play: passes.
+Когда run Foliage "Palette: edit Foliage_FC_BushPasses"
+Когда run Foliage "Edited type: toggle checked (paint with it)"
+Когда run Foliage "Palette: edit Foliage_FC_TreeBlocks"
+Когда run Foliage "Edited type: toggle checked (paint with it)"
+Когда --subject viewport set Camera.Position 705,1500,250
+Когда --subject viewport set Camera.Direction 0,-1,-0.01
+Когда run Foliage "Stroke at viewport centre"
+# Play/Stop clears the editor undo history ("nothing left to undo" after Stop), so the undo is proven first:
+# paint -> Undo -> Play passes; then the same stroke again -> Play blocks.
+Когда run Action "Undo"
+Когда run Action "Play"
+Когда advance 0.5
+Когда input keydown - - d
+Когда advance 1.2
+Когда input keyup - - d
+Когда input keydown - - w
+Когда advance 2.0
+Когда input keyup - - w
+Когда advance 0.3
+Тогда-вид 3b_undo_passes the pawn line reads z below 200 at x about 705: the undone tree no longer blocks; editor.log errors 0
+Когда run Action "Stop"
+Когда run Foliage "Stroke at viewport centre"
+Когда run Action "Play"
+Когда advance 0.5
+Когда input keydown - - d
+Когда advance 1.2
+Когда input keyup - - d
+Когда input keydown - - w
+Когда advance 2.0
+Когда input keyup - - w
+Когда advance 0.3
+Тогда-вид 3a_painted_blocks the pawn line reads z above 250 at x about 705 (the strafe lane): the painted tree stops it
+Когда run Action "Stop"

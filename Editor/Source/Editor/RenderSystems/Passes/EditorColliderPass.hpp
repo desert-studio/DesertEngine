@@ -4,10 +4,25 @@
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
 #include <cstdint>
+#include <span>
 #include <vector>
+
+namespace Desert::ECS
+{
+    struct ColliderData;
+}
 
 namespace Desert::Editor::Render
 {
+    // One collider's wireframe in world space, the lines this pass draws for it: Box / Sphere / Capsule from
+    // @p collider at @p translation and rotation @p R (world units, no scale - what Jolt is fed); a Mesh /
+    // ConvexHull shape from @p hullPoints (body-local, scale already applied) and @p hullIndices (three per
+    // triangle). Modeling's Mesh To Collision / Mesh To Volume preview their result with the same lines.
+    void AppendColliderLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& out,
+                              const ECS::ColliderData& collider, const glm::vec3& translation, const glm::mat3& R,
+                              std::span<const glm::vec3> hullPoints, std::span<const uint32_t> hullIndices,
+                              const glm::vec4& colour );
+
     // TRUE-3D physics-collider wireframes (Box / Sphere / Capsule) drawn through the Editor Pass API:
     // a Debug-phase line pass into the scene HDR target, depth-tested against geometry — unlike the old
     // ImGui screen-space projection, colliders now occlude correctly behind walls. Shapes mirror exactly

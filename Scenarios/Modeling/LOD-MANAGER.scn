@@ -1,0 +1,21 @@
+# LOD-MANAGER: a dense Lat Long sphere's LOD chain in the LOD Manager - LOD0, LOD1, LOD2 previewed, each with fewer triangles
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,120,260
+Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
+Дано --subject modeling set CreateShape.Sphere.Radius 60
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 64
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 64
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,40,0
+Когда run Modeling "LOD Manager: open"
+Когда run Modeling "LOD Manager: preview LOD 0"
+Тогда 0_lod0 dense smooth sphere; the LOD Manager tab lists the levels with triangle counts, LOD0 the largest
+Когда run Modeling "LOD Manager: preview LOD 1"
+Тогда 1_lod1 the sphere visibly faceted; LOD1 radio selected, its triangle count below LOD0's
+Когда run Modeling "LOD Manager: preview LOD 2"
+Тогда 2_lod2 coarser again; LOD2 selected, fewer triangles than LOD1
+Когда run Modeling "LOD Manager: preview Auto"
+Когда run Modeling "LOD Manager: close"

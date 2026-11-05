@@ -1,0 +1,20 @@
+# UV: AutoUV, Unwrap and Layout on a Lat Long sphere preview a checker until Accept; each accepted result shows even, unstretched squares
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,260
+Дано --subject viewport set Camera.Direction 0,-0.3,-0.95
+Дано --subject modeling set CreateShape.Sphere.Radius 60
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,40,0
+Когда run Modeling "UV tool: AutoUV"
+Тогда-вид 0_autouv checker squares over the sphere, roughly even in size, no long stretched strips
+Когда run Modeling "Active tool: Accept"
+Когда run Modeling "UV tool: Unwrap"
+Тогда-вид 1_unwrap checker of the unwrapped islands, squares even in size across the visible surface
+Когда run Modeling "Active tool: Accept"
+Когда run Modeling "UV tool: Layout"
+Тогда 2_layout checker after the repack, squares even; tool bar UV Layout with Accept and Cancel
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 3_accepted no tool bar, the sphere drawn with its material again

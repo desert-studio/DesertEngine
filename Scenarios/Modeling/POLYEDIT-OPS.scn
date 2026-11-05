@@ -1,0 +1,44 @@
+# POLYEDIT-OPS: on a 100 cm Box (base pivot, 0..100 in Y) - Insert Edge Loop, Extrude, Inset, Bevel, each one undo step; four Undo give the original Box
+# Edge picks aim the viewport centre at a box edge (P15B); face picks look almost straight down at the top.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано --subject viewport set Camera.Position 220,260,320
+Дано --subject viewport set Camera.Direction -0.5,-0.45,-0.74
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Entity Box
+Дано run Modeling "Select Elements tool"
+Дано run Modeling "Mesh selection level: PolyEdit"
+Дано run Modeling "Mesh selection mode: Edge"
+Дано --subject viewport set Camera.Position 250,300,1
+Дано --subject viewport set Camera.Direction -0.707,-0.707,0
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh operation: Insert Edge Loop"
+Тогда-вид 1_loop a new edge loop rings the box across the selected top edge (+X side), splitting top and side faces
+Дано run Modeling "Mesh selection mode: PolyGroup"
+Дано --subject viewport set Camera.Position -60,400,-60
+Дано --subject viewport set Camera.Direction 0.15,-0.97,0.15
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда --subject modeling set Element.Distance 30
+Когда run Modeling "Mesh operation: Extrude"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда --subject modeling set Element.Distance 10
+Когда run Modeling "Mesh operation: Inset"
+Дано run Modeling "Mesh selection mode: Edge"
+Дано --subject viewport set Camera.Position 250,330,-25
+Дано --subject viewport set Camera.Direction -0.707,-0.707,0
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда --subject modeling set Element.Distance 8
+Когда run Modeling "Mesh operation: Bevel"
+Дано --subject viewport set Camera.Position 230,260,300
+Дано --subject viewport set Camera.Direction -0.5,-0.45,-0.74
+Тогда-вид 2_ops the -Z half of the top extruded 30 cm up, an inset ring on its top, the extrusion's +X top edge bevelled into a chamfer strip
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Когда run Action Undo
+Тогда-вид 3_undo4 the plain 100 cm box again as before: no loop, no extrusion, no inset, no bevel

@@ -691,12 +691,14 @@ namespace Desert::Editor::Tools
         const glm::dmat4    world( WorldOf( scene, m_Session->Entity ) );
         std::vector<ImVec2> screen( ms.LatticePoints.size() );
         std::vector<char>   visible( ms.LatticePoints.size(), 0 );
+        std::vector<float>  eyeDepth( ms.LatticePoints.size(), 0.0f );
         for ( size_t i = 0; i < ms.LatticePoints.size(); ++i )
         {
             const glm::vec4 clip =
                  viewProj * glm::vec4( glm::vec3( world * glm::dvec4( ms.LatticePoints[i], 1.0 ) ), 1.0f );
             if ( clip.w <= 0.0001f )
                 continue; // behind the camera
+            eyeDepth[i] = clip.w;
             screen[i]  = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
                                  viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
             visible[i] = 1;
@@ -742,6 +744,38 @@ namespace Desert::Editor::Tools
             gizmo.RenderFrame( "LatticeGizmo", ms.LatticeGizmo, camera, viewportPos, viewportSize,
                                GizmoController::kFrameTranslateRotateScale );
             gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing() || gizmo.ScaleHandleBusy();
+        }
+        // The palette's stand-in for a click at the viewport centre ("Lattice: pick control point at the viewport
+        // centre", as Select Elements has one): the visible point under the centre within the click's 9 px - of
+        // points stacked along the view ray, the one nearest the eye, the one a click there means.
+        if ( ms.LatticeReqPickCentre )
+        {
+            const bool add             = ms.LatticeReqPickCentreAdd;
+            ms.LatticeReqPickCentre    = false;
+            ms.LatticeReqPickCentreAdd = false;
+            const ImVec2 centre( viewportPos.x + viewportSize.x * 0.5f, viewportPos.y + viewportSize.y * 0.5f );
+            int32_t      hit = -1;
+            for ( size_t i = 0; i < screen.size(); ++i )
+            {
+                const float dx = screen[i].x - centre.x, dy = screen[i].y - centre.y;
+                if ( visible[i] && dx * dx + dy * dy <= 81.0f &&
+                     ( hit < 0 || eyeDepth[i] < eyeDepth[static_cast<size_t>( hit )] ) )
+                    hit = static_cast<int32_t>( i );
+            }
+            if ( hit < 0 )
+            {
+                LOG_WARN( "[Modeling] Lattice: no control point at the viewport centre" );
+            }
+            else
+            {
+                auto& sel = ms.LatticeSelection;
+                if ( !add )
+                    sel.clear();
+                if ( std::find( sel.begin(), sel.end(), hit ) == sel.end() )
+                    sel.push_back( hit );
+                PlaceLatticeGizmo( scene, ms );
+                LOG_INFO( "[Modeling] Lattice: control point {} picked, {} selected", hit, sel.size() );
+            }
         }
         const ImVec2 mouse = ::ImGui::GetMousePos();
         const bool   overImage = mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
