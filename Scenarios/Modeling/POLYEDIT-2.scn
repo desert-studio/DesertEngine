@@ -3,8 +3,8 @@
 # ExtrudeEdgeSelection / FlipSelection). A 100 cm Box 60 cm above the origin (clear of the ground), PolyEdit level. The front (+Z) and back (-Z)
 # faces are inset 25 cm first - bridging the cube's own faces would lay the tube on its outer walls - then the two
 # inner faces are bridged into a tunnel. The +X+Z vertical edge is collapsed. Extrude Edge works on OPEN edges (as
-# UE's), so the top face is deleted first and the -Z wall's top edge is picked from a fixed camera (aimed 5 cm below
-# that edge on the wall's outer face) and extruded 25 cm. The -X face is flipped.
+# UE's), so the top face is deleted first and the -Z wall's top edge is picked from a fixed camera (aimed straight at
+# that edge's midpoint) and extruded 25 cm. The -X face is flipped.
 # Ten undo steps bring the cube back: the six mesh edits (Inset, Bridge, Collapse, Delete, Extrude Edge, Flip) and
 # the four picks between them (UE's selection transactions). The four selection-mode switches are NOT undo steps
 # (UE: the mode is a tool setting; owner 11-05); the editor.log [History] lines name each step.
@@ -47,7 +47,7 @@
 Когда run Modeling "Mesh operation: Delete"
 Когда run Modeling "Mesh selection mode: Edge"
 Когда --subject viewport set Camera.Position 0,150,-140
-Когда --subject viewport set Camera.Direction 0,-0.447,0.894
+Когда --subject viewport set Camera.Direction 0,-0.406,0.914
 Когда run Modeling "Mesh selection: pick at the viewport centre"
 Когда run Modeling "Mesh operation: Extrude Edge"
 Когда --subject viewport set Camera.Position -220,170,-160
