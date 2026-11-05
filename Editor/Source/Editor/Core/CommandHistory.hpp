@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Serialize/EditStamps.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <cstdint>
@@ -244,11 +245,15 @@ namespace Desert::Editor
                 m_Undo.pop_back();
                 if ( cmd->Undo() )
                 {
+                    // Every step the history walks is named: a script's Undo that took back a selection
+                    // change rather than the edit it meant is read off the log, not guessed from a frame.
+                    LOG_INFO( "[History] undo '{0}' ({1} left)", cmd->GetLabel(), m_Undo.size() );
                     ApplyStamps( *cmd, true );
                     m_Redo.push_back( std::move( cmd ) );
                     ++m_Revision;
                     return true;
                 }
+                LOG_WARN( "[History] '{0}' could not be undone (its target is gone) - dropped", cmd->GetLabel() );
             }
             return false;
         }
@@ -261,6 +266,7 @@ namespace Desert::Editor
                 m_Redo.pop_back();
                 if ( cmd->Redo() )
                 {
+                    LOG_INFO( "[History] redo '{0}' ({1} left)", cmd->GetLabel(), m_Redo.size() );
                     ApplyStamps( *cmd, false );
                     m_Undo.push_back( std::move( cmd ) );
                     ++m_Revision;
