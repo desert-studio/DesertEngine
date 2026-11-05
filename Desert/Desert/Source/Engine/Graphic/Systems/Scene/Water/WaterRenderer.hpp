@@ -91,6 +91,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         // By reference, as GrassRenderer::Submit: @p zone is the recorded command's, held until ClearQueue.
+        void Submit( WaterZoneDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
         void Submit( const WaterZoneDraw& zone )
         {
             m_Queue.emplace_back( zone );

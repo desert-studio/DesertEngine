@@ -13,8 +13,9 @@ namespace Desert
     // that changes the vertex or index count (the sculpt resize).
     Common::BoolResultWithCodes<Desert::MeshError> DynamicMesh::Invalidate()
     {
-        // This IS the upload: the fence's (Mesh::EnsureGpuResources), or a direct call on a mesh no view draws
-        // yet (a fresh one: TextECSSystem, PrimitiveMeshFactory). Either way it settles the flag.
+        // This IS the upload, and the fence's (Mesh::EnsureGpuResources, SceneRenderer::PrepareMesh): a fresh mesh
+        // too (TextECSSystem's glyph quads, PrimitiveMeshFactory's shared shapes) waits for it. It settles the
+        // flag.
         m_GpuStale = false;
         if ( m_Vertices.empty() )
         {

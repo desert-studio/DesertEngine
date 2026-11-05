@@ -425,11 +425,14 @@ namespace Desert::Graphic
         // cleared only behind every view and capture face that replayed it (Scene::OnUpdate, "Scene: CmdBuffer
         // Clear") - and the grass renderer keeps the reference only until EndScene clears its queue.
         void SubmitLandscapeGrass( const System::GrassFieldDraw& draw );
+        // A temporary would dangle in the queue (the renderer keeps a reference until EndScene).
+        void SubmitLandscapeGrass( System::GrassFieldDraw&& ) = delete;
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
         // walked from the main camera and its tiles drawn by the water renderer (WATER-W6). By reference, as
         // SubmitLandscapeGrass: @p zone is the recorded command's, kept until EndScene.
         void SubmitWaterZone( const System::WaterZoneDraw& zone );
+        void SubmitWaterZone( System::WaterZoneDraw&& ) = delete; // a reference to a temporary would dangle
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for

@@ -25,7 +25,7 @@ namespace Desert::Geometry
         return std::make_shared<DynamicMesh>( shape->Vertices, shape->Indices, submeshes );
     }
 
-    // One shared, GPU-ready mesh per primitive type, created lazily on first use and kept alive until
+    // One shared mesh per primitive type, created lazily on first use and kept alive until
     // ReleaseShared(). Single-threaded engine, so no synchronization needed. At file scope rather than
     // inside GetShared() so that ReleaseShared() can reach it: as a function-local static it would only
     // ever have been destroyed at __cxa_finalize, which is after the device it holds buffers from.
@@ -89,15 +89,15 @@ namespace Desert::Geometry
         auto& mesh = s_SharedPrimitives[type];
         if ( !mesh )
         {
-            // Shared by every scene and view until ReleaseShared(), so the device's, not the view's that first
-            // drew one (RT-LEDGER-4: a view scope open here would report these buffers as its leak on close).
-            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::Device );
+            // CPU ONLY: the first caller may be a system's tick that runs past the previous update's views, so the
+            // pool upload is the fence's, like every mesh's. The constructor raised the pending flag, and the
+            // first draw's Prepare (SceneRenderer::PrepareMesh, Scene::OnUpdate's intake) uploads it once, with no
+            // view job in flight. The pages it lands in are the pool's (GeometryPool claims them for
+            // AssetService), so no view's ledger scope can take them (RT-LEDGER-4). A caller that only reads the
+            // CPU arrays (bounds, collision, the spline mesh, the thumbnail framing) never needed the upload.
             mesh = Create( type );
             if ( mesh )
-            {
-                mesh->Invalidate(); // build the GPU vertex/index buffers once
                 AttachDistanceField( type, *mesh );
-            }
         }
         return mesh.get();
     }

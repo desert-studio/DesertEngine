@@ -51,6 +51,12 @@ namespace Desert::ECS
                 return;
             }
 
+            // THE OLD GLYPH MESH IS RETIRED, NEVER FREED HERE (UE: a game-thread release of a render resource goes
+            // through the deferred-cleanup queue, BeginCleanup). This tick may run past the previous update's view
+            // job, which replays a DrawGenericMeshCommand naming that mesh by raw pointer: the last owner dropping
+            // it here freed it under the replay. Parked like SetStaticMesh's edited mesh (RetireRenderCache), it
+            // dies once no frame in flight names it (FrameManager::RetireAfterFrames: any thread, locked).
+            RetireRenderCache( text.RuntimeMesh );
             TextComponent laidOut = text;
             laidOut.Text          = drawn;
             text.RuntimeMesh      = BuildTextMesh( laidOut, baked );
@@ -237,9 +243,10 @@ namespace Desert::ECS
                                            static_cast<uint32_t>( inds.size() ) * 3, glm::mat4( 1.0f ),
                                            aabb } };
 
-            auto mesh = std::make_shared<DynamicMesh>( verts, inds, subs, /*generateLODs*/ false );
-            mesh->Invalidate();
-            return mesh;
+            // No upload here: this runs in the tick, which may overlap the previous update's views, and the pool
+            // upload belongs to the fence. The constructor raised the mesh's pending flag; the draw's Prepare
+            // (SceneRenderer::PrepareMesh, Scene::OnUpdate's intake) uploads it before any view replays it.
+            return std::make_shared<DynamicMesh>( verts, inds, subs, /*generateLODs*/ false );
         }
     };
 } // namespace Desert::ECS

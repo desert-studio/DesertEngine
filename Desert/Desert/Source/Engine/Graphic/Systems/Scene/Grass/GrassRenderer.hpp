@@ -163,6 +163,7 @@ namespace Desert::Graphic::System
         // BY REFERENCE (SceneRenderer::SubmitLandscapeGrass, REVIEW-FIX R6): @p draw is the recorded command's,
         // which outlives the bracket; the queue holds it until ClearQueue (EndScene). Nothing of it is copied
         // per capture face or per view.
+        void Submit( GrassFieldDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
         void Submit( const GrassFieldDraw& draw )
         {
             m_Queue.emplace_back( draw );
