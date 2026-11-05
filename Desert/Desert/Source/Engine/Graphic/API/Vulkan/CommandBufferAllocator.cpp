@@ -397,6 +397,12 @@ namespace Desert::Graphic::API::Vulkan
             // queue) must not wait forever; the buffer was never submitted, so the holder's release of it stays
             // legal. A host signal may not pass a pending one (VUID-VkSemaphoreSignalInfo-value-03259): the
             // value before it, the newest that can still be pending, is waited first. This failure path only.
+            // REACHED IS NOT DONE: recorded as refused BEFORE the signal, so a holder that sees the value reached
+            // and reads what the copy was to write (a readback) gets the refusal, never the bytes it never wrote.
+            {
+                const std::scoped_lock ordered( m_UploadSubmitMutex );
+                m_RefusedUploadValues.push_back( value );
+            }
             VkResult signalled = VK_SUCCESS;
             if ( value > 1 )
                 signalled = WaitUploadValue( value - 1 );
@@ -455,6 +461,11 @@ namespace Desert::Graphic::API::Vulkan
 
     uint64_t CommandBufferAllocator::UploadCompletedValue() const noexcept
     {
+        // NO TIMELINE, NO CALL: CollectFinished reads this every frame, also with nothing in flight, and the
+        // timeline is VK_NULL_HANDLE when vkCreateSemaphore refused (every graphics one-off is then refused by
+        // name, nothing is in flight) and after Destroy; an invalid handle passed to the driver is undefined.
+        if ( m_UploadTimeline == VK_NULL_HANDLE )
+            return 0;
         uint64_t completed = 0;
         if ( vkGetSemaphoreCounterValue( m_LogicalDevice, m_UploadTimeline, &completed ) != VK_SUCCESS )
             return 0;
@@ -478,6 +489,17 @@ namespace Desert::Graphic::API::Vulkan
         // submitted before it on the graphics queue; a refused one is host-signalled only after the value before
         // it). A submission still queued has a value above every one signalled so far.
         return UploadCompletedValue() >= submitted.Value;
+    }
+
+    bool CommandBufferAllocator::IsRefused( const Submitted& submitted ) const
+    {
+        const std::scoped_lock ordered( m_UploadSubmitMutex );
+        for ( const uint64_t refused : m_RefusedUploadValues )
+        {
+            if ( refused == submitted.Value )
+                return true;
+        }
+        return false;
     }
 
     void CommandBufferAllocator::RT_ReleaseSubmitted( const Submitted& submitted )

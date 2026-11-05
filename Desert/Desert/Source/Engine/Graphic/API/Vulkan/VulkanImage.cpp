@@ -923,6 +923,12 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !IsComplete() )
                     return Common::MakeError<std::vector<uint8_t>>(
                          "ReadBytes: the GPU copy has not completed yet; poll IsComplete() first" );
+                // Reached but refused (CommandBufferAllocator::IsRefused): the copy never ran, so the staging
+                // buffer holds no pixels of the image; the refusal is the answer, not its uninitialised bytes.
+                if ( CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
+                    return Common::MakeError<std::vector<uint8_t>>(
+                         "ReadBytes: the copy's submission was refused by the driver (see the log); nothing was "
+                         "copied" );
                 std::vector<uint8_t> raw( static_cast<std::size_t>( m_Bytes ) );
                 MappedMemory         mapped = Allocator()->MapMemory( m_Allocation );
                 const auto           read   = mapped.ReadInto( raw.data(), raw.size() );

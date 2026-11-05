@@ -76,6 +76,12 @@ namespace Desert::Graphic::API::Vulkan
         /// or executing. Never blocks.
         [[nodiscard]] bool IsComplete( const Submitted& submitted ) const;
 
+        /// True when the submission was queued and then refused by the driver (SubmitQueuedUpload): its value is
+        /// reached all the same (host-signalled, so no holder waits forever), but nothing it recorded ran, so a
+        /// reader of what it was to write (a readback's staging copy) gets an error, not those bytes. Never
+        /// blocks.
+        [[nodiscard]] bool IsRefused( const Submitted& submitted ) const;
+
         /// Waits for the value (normally already reached; a host wait before its submission is legal for a
         /// timeline), then frees the buffer. Never on the submit thread for a submission still queued behind
         /// the entry it runs: that wait would be on itself.
@@ -191,11 +197,15 @@ namespace Desert::Graphic::API::Vulkan
         /// Waits on the host until the upload timeline reaches @p value; the VkResult of the wait.
         VkResult WaitUploadValue( uint64_t value ) const noexcept;
 
-        /// Guards m_UploadReservedValue and every write of m_UploadSubmittedValue (see THE UPLOAD VALUES).
-        std::mutex              m_UploadSubmitMutex;
+        /// Guards m_UploadReservedValue, m_RefusedUploadValues and every write of m_UploadSubmittedValue (see THE
+        /// UPLOAD VALUES). Mutable: IsRefused reads under it.
+        mutable std::mutex      m_UploadSubmitMutex;
         std::condition_variable m_UploadPublished; // a value was published (SubmitUploadInline waits on it)
         /// The newest value handed out; equal to m_UploadSubmittedValue when no queued upload is pending.
         uint64_t m_UploadReservedValue = 0;
+        /// The values of queued submissions the driver refused, ascending (IsRefused). Recorded BEFORE the host
+        /// signal, so a holder that sees the value reached also sees it here. Only a failing run appends.
+        std::vector<uint64_t> m_RefusedUploadValues;
         /// The newest value whose signal is already submitted (or host-signalled); published only after that,
         /// so a reader never waits on a value nothing will signal. The ONE source of UploadSyncPoint::Value.
         std::atomic<uint64_t> m_UploadSubmittedValue{ 0 };
