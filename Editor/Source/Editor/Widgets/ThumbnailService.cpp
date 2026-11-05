@@ -467,7 +467,8 @@ namespace Desert::Editor
                  if ( !written || !hash )
                      return written;
                  return ThumbnailFreshness::Record( png, *hash );
-             } );
+             },
+             Common::JobPriority::Background ); // nobody waits on a thumbnail this frame (JobPriority)
     }
 
     void ThumbnailService::TickDiskAndDecode()

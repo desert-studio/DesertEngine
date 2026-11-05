@@ -1553,6 +1553,8 @@ namespace Desert::Graphic::RDG
             // UE: the parallel pass sets are launched as tasks before the render thread executes the serial
             // passes. One helper per worker at most; a chunk no helper claimed by the time the walk reaches it is
             // recorded by the calling thread (ChunkTasks::Await), so a refused Submit costs only parallelism.
+            // High (UE: the parallel command list sets are high-priority tasks): the frame waits on these
+            // chunks ("RDG: Wait for chunk"), so a free worker takes one before any Normal or Background job.
             chunkTasks = std::make_shared<ChunkTasks>( static_cast<uint32_t>( chunks.size() ) );
             chunkTasks->SetRecorder( &recordChunk );
             Common::JobSystem& jobs    = Common::JobSystem::Get();
@@ -1560,7 +1562,7 @@ namespace Desert::Graphic::RDG
             for ( size_t h = 0; h < helpers; ++h )
             {
                 std::shared_ptr<ChunkTasks> share = chunkTasks;
-                if ( !jobs.Submit( [share] { share->RunHelper(); } ) )
+                if ( !jobs.Submit( [share] { share->RunHelper(); }, Common::JobPriority::High ) )
                     break;
             }
         }

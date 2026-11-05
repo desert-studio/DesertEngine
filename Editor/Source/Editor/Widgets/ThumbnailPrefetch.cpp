@@ -191,7 +191,9 @@ namespace Desert::Editor
             std::string picture = item.Picture;
             m_InFlight.push_back(
                  { std::move( picture ),
-                   Common::JobSystem::Get().Async( [item = std::move( item )]() { return Run( item ); } ) } );
+                   // Background (JobPriority): a prefetched picture is polled, never waited on by a frame.
+                   Common::JobSystem::Get().Async( [item = std::move( item )]() { return Run( item ); },
+                                                   Common::JobPriority::Background ) } );
         }
     }
 

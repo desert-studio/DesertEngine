@@ -45,10 +45,14 @@ namespace Common
         (void)::Optick::IsActive();
 #endif
 
-        // cores - 1: leave the main thread its own core. At least one worker so Submit() always makes
-        // progress on single-core machines.
+        // cores - 2: the game thread and the render thread keep a core each (the render thread records the
+        // graph's serial passes and replays the chunks the workers recorded; a worker on its core only delays
+        // that). At least one worker so Submit() always makes progress on a one- or two-core machine.
         const unsigned hw      = std::thread::hardware_concurrency();
-        const size_t   workers = std::max( 1u, hw > 1 ? hw - 1 : 1u );
+        const size_t   workers = hw > 3 ? hw - 2 : 1u;
+        // Background jobs on cores - 3 at most (one worker fewer), never fewer than one: a one-worker pool
+        // runs its Background jobs too, between the others.
+        m_BackgroundCap = workers > 1 ? workers - 1 : 1u;
         m_Workers.reserve( workers );
         for ( size_t i = 0; i < workers; ++i )
             m_Workers.emplace_back( [this] { WorkerLoop(); } );
@@ -72,14 +76,31 @@ namespace Common
         for ( ;; )
         {
             QueuedJob queued;
+            bool      background = false;
             {
                 std::unique_lock<std::mutex> lk( m_Mutex );
-                m_CV.wait( lk, [this] { return m_Stop || !m_Queue.empty(); } );
-                if ( m_Stop && m_Queue.empty() )
-                    return;
-                queued = std::move( m_Queue.front() );
-                m_Queue.pop_front();
+                // A Background job past the cap is not taken, so the wait ends on a queue this worker may take
+                // from; at Stop every queue drains, the cap aside (nothing else is left to run then).
+                size_t from = kPriorityCount;
+                m_CV.wait( lk,
+                           [this, &from]
+                           {
+                               from = NextQueueLocked();
+                               return from != kPriorityCount || m_Stop;
+                           } );
+                if ( from == kPriorityCount )
+                {
+                    const auto backgroundQueue = static_cast<size_t>( JobPriority::Background );
+                    if ( m_Queues[backgroundQueue].empty() )
+                        return; // stopping, every queue drained
+                    from = backgroundQueue;
+                }
+                queued = std::move( m_Queues[from].front() );
+                m_Queues[from].pop_front();
                 ++m_Running;
+                background = from == static_cast<size_t>( JobPriority::Background );
+                if ( background )
+                    ++m_RunningBackground;
             }
             InlineJob& job = queued.Job;
             // THE SUBMITTER'S FRAME for the job's run (RecordingFrame): a worker is unbound between jobs.
@@ -108,20 +129,44 @@ namespace Common
             // the render task after a job.
             queued = QueuedJob{};
 
+            bool backgroundWaits = false;
             {
                 std::lock_guard<std::mutex> lk( m_Mutex );
                 --m_Running;
+                if ( background )
+                {
+                    --m_RunningBackground;
+                    backgroundWaits = !m_Queues[static_cast<size_t>( JobPriority::Background )].empty();
+                }
             }
+            // A Background slot came free: a worker parked on the cap may take the next one. This worker loops
+            // back and may take it itself; the wake covers a queue it leaves for a High job that came first.
+            if ( backgroundWaits )
+                m_CV.notify_one();
         }
     }
 
-    bool JobSystem::Submit( InlineJob job )
+    size_t JobSystem::NextQueueLocked() const
+    {
+        for ( size_t p = 0; p < kPriorityCount; ++p )
+        {
+            if ( m_Queues[p].empty() )
+                continue;
+            if ( p == static_cast<size_t>( JobPriority::Background ) && m_RunningBackground >= m_BackgroundCap )
+                return kPriorityCount;
+            return p;
+        }
+        return kPriorityCount;
+    }
+
+    bool JobSystem::Submit( InlineJob job, const JobPriority priority )
     {
         {
             std::lock_guard<std::mutex> lk( m_Mutex );
             if ( m_Stop )
                 return false; // shutting down: dropped, and the caller is told so
-            m_Queue.push_back( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
+            const size_t queue = std::min( static_cast<size_t>( priority ), kPriorityCount - 1u );
+            m_Queues[queue].push_back( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
         }
         m_CV.notify_one();
         return true;
@@ -130,7 +175,10 @@ namespace Common
     size_t JobSystem::PendingJobs() const
     {
         std::lock_guard<std::mutex> lk( m_Mutex );
-        return m_Queue.size() + m_Running;
+        size_t                      queued = 0;
+        for ( const std::deque<QueuedJob>& queue : m_Queues )
+            queued += queue.size();
+        return queued + m_Running;
     }
 
     namespace
@@ -181,7 +229,8 @@ namespace Common
     } // namespace
 
     void JobSystem::ParallelRanges( size_t count, size_t grain,
-                                    const std::function<void( size_t begin, size_t end )>& body )
+                                    const std::function<void( size_t begin, size_t end )>& body,
+                                    const JobPriority                                      priority )
     {
         if ( count == 0 )
             return;
@@ -230,7 +279,8 @@ namespace Common
                          const size_t begin = index * grain;
                          ( *bodyPtr )( begin, std::min( count, begin + grain ) );
                      }
-                 } );
+                 },
+                 priority );
         }
 
         // THE CALLER WORKS TOO, and it is what makes the loop independent of the pool: if every worker is
@@ -255,7 +305,8 @@ namespace Common
         share->WaitForHelpers();
     }
 
-    void JobSystem::ParallelFor( size_t count, const std::function<void( size_t )>& body )
+    void JobSystem::ParallelFor( size_t count, const std::function<void( size_t )>& body,
+                                 const JobPriority priority )
     {
         // About four ranges per participant. One range per participant is what the old implementation did
         // and it is only right when every index costs the same; four lets a participant that drew the
@@ -263,12 +314,14 @@ namespace Common
         const size_t participants = m_Workers.size() + 1;
         const size_t grain        = std::max<size_t>( 1, count / ( participants * 4 ) );
 
-        ParallelRanges( count, grain,
-                        [&body]( size_t begin, size_t end )
-                        {
-                            for ( size_t i = begin; i < end; ++i )
-                                body( i );
-                        } );
+        ParallelRanges(
+             count, grain,
+             [&body]( size_t begin, size_t end )
+             {
+                 for ( size_t i = begin; i < end; ++i )
+                     body( i );
+             },
+             priority );
     }
 
     void JobSystem::Shutdown()
