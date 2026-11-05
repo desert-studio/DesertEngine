@@ -1737,6 +1737,11 @@ namespace Desert::Graphic
         // resolved scene depth, AddFrameParticlesPostOpaque) are NOT among them: they are graphics-queue passes.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
         graph.SetParallelExecute( m_Quality.As<int>( Common::Scalability::Parameter::ParallelExecute ) != 0 );
+        // RenderPipeline.ParallelSetup (RENDER-PARALLEL-SETUP): the view's pure setup on Common::TaskGroup tasks;
+        // the Editor's --parallel-setup overrides it for the session (RenderConfig::ParallelSetupOverride).
+        const int  setupOverride = ::Desert::Graphic::RenderConfig::ParallelSetupOverride.load();
+        const int  setupQuality  = m_Quality.As<int>( Common::Scalability::Parameter::ParallelSetup );
+        const bool parallelSetup = ( setupOverride >= 0 ? setupOverride : setupQuality ) != 0;
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
@@ -2010,7 +2015,7 @@ namespace Desert::Graphic
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
             UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
                  ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
-                             RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion );
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion, parallelSetup );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the

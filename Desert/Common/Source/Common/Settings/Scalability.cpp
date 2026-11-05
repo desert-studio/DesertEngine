@@ -444,6 +444,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
                "workers into secondary command buffers, replayed in pass order)",
                1, Vis::Advanced },
+             { P::ParallelSetup, G::ViewDistance, "RenderPipeline.ParallelSetup", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> Common::TaskGroup (grass variety plans, deferred G-buffer and masked "
+               "draw lists computed on task workers, applied on the render thread in a fixed order)",
+               1, Vis::Advanced },
              { P::ShadowFoliageLodBias, G::Shadows, "Shadows.FoliageShadowLodBias", 0, 3, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
                "and thinning per cascade, MeshRenderer::BladeShadowSet)",

@@ -56,6 +56,10 @@ namespace Desert::Graphic
         // RDG-RECORD-COMPILE-CACHE: `--rdg-compile-cache <0|1>` (Editor CommandLine). Off, VulkanRdgBackend keeps
         // no compiled plans (GetCompileCache nullptr) and every graph is compiled every frame.
         static inline std::atomic<bool> RdgCompileCache{ true };
+
+        // RENDER-PARALLEL-SETUP: `--parallel-setup <0|1>` (Editor CommandLine) for this session, over the
+        // RenderPipeline.ParallelSetup quality value (SceneRenderer::OnUpdate). -1: no override.
+        static inline std::atomic<int> ParallelSetupOverride{ -1 };
     };
 
     // The sampler an engine Image2D / ImageCube carries as its own (VulkanImage CreateSampler, Global policy):

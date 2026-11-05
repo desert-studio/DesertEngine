@@ -185,8 +185,9 @@ namespace Desert::Graphic::System
         // every directional light @p meshes fitted cascades for this frame
         // (MeshRenderer::DirectionalCasterSweeps), the camera's own list by the camera's planes; AddFrame runs
         // after MeshRenderer::UpdateCascades.
+        // @p parallelSetup: RenderPipeline.ParallelSetup - the varieties' plans (PlanVariety) on TaskGroup tasks.
         void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing,
-                       const GrassOcclusion& occlusion );
+                       const GrassOcclusion& occlusion, bool parallelSetup );
 
         // GRASS-VIS phase 2 (UE two-phase occlusion): after this frame's furthest HZB of the phase-1 depth, the
         // instances last frame's HZB held back from the camera are re-tested against @p hzb (through the unjittered
@@ -473,9 +474,18 @@ namespace Desert::Graphic::System
             GpuInstanceBladeShadowLod ShadowLod{};
         };
 
+        // RENDER-PARALLEL-SETUP: a variety's frame in three steps. PrepareVariety - serial, in variety order: the
+        // VarietyGpu entry, the read-back counts, rebuilt buffers, the visibility rows - fills @p plan's inputs.
+        // PlanVariety - pure (const), on a TaskGroup task: the params and the tile build's inputs into the plan,
+        // and its own entry's shadow LOD and cascade rings. ApplyVariety - serial, in variety order: the params'
+        // upload, UpdateTiles (the pool budget spans varieties) and the frame's keys; false: not drawn this frame.
+        struct VarietyPlan; // GrassRenderer.cpp
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
                                                   const ViewFrame& frame, const ViewVolumes& volumes,
-                                                  const MeshRenderer& meshes, uint64_t fieldRevision );
+                                                  const MeshRenderer& meshes, uint64_t fieldRevision,
+                                                  VarietyPlan& plan );
+        void               PlanVariety( VarietyPlan& plan ) const;
+        [[nodiscard]] bool ApplyVariety( VarietyPlan& plan );
         // GRASS-TILE-1: @p gpu's tiles for this frame's eye - the pool (re)made when the placement or the pool's
         // room asks for it, tiles past the radius freed, missing / stale ones built nearest first, at most
         // kGrassTileBuildsPerFrame - and its tile table (VarietyGpu::TileEntries). @p placement / @p thin: the
