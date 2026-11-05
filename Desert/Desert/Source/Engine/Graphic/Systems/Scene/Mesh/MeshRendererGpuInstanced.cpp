@@ -181,6 +181,52 @@ namespace Desert::Graphic::System
                 return 0u;
             return address.GetValue();
         }
+
+        // GRASS-GPU-DRIVEN-DRAWS: the vertex paths a compacted bin draws (MeshRenderer::kDrawRowsPaths, the cells
+        // the cook lists in SurfaceDrawRowsVariant).
+        bool BinnablePath( const MeshVertexPath path )
+        {
+            return std::ranges::find( MeshRenderer::kDrawRowsPaths, path ) !=
+                   std::ranges::end( MeshRenderer::kDrawRowsPaths );
+        }
+
+        // THE GATHER RUNS OF ONE SECTION'S DRAW (GRASS-GPU-DRIVEN-DRAWS; GpuDrawCompactEntry), in the per-variety
+        // path's draw order (Renderer::RenderMeshIndirect, MeshDrawArgumentsOrder::Submesh): @p groups LOD levels
+        // from @p base (the device address of the first drawn level's record of submesh 0), @p submeshes records
+        // per level, the submeshes in @p hidden not drawn. Of one level, each run of adjacent drawn submeshes is
+        // one run at a record's stride (a blade strip's levels); of several, each drawn submesh is one run of its
+        // record of every level at a level's stride (a mesh's LOD groups). @p emit( records, count, stride )
+        // false stops the walk (a capacity), and so does this.
+        template <typename Emit>
+        bool ForEachRecordRun( const uint64_t base, const uint32_t groups, const uint32_t submeshes,
+                               const uint64_t hidden, Emit&& emit ) noexcept
+        {
+            const uint32_t count      = std::min( submeshes, 64u );
+            const uint64_t groupBytes = kGpuInstanceArgsRecordBytes * uint64_t{ submeshes };
+            const auto     shown      = [hidden]( const uint32_t s ) { return ( ( hidden >> s ) & 1u ) == 0u; };
+            uint32_t       s          = 0u;
+            while ( s < count )
+            {
+                if ( !shown( s ) )
+                {
+                    ++s;
+                    continue;
+                }
+                uint32_t runEnd = s + 1u;
+                while ( groups == 1u && runEnd < count && shown( runEnd ) )
+                    ++runEnd;
+                const uint64_t records = base + kGpuInstanceArgsRecordBytes * uint64_t{ s };
+                bool           kept    = false;
+                if ( groups == 1u )
+                    kept = emit( records, runEnd - s, static_cast<uint32_t>( kGpuInstanceArgsRecordBytes ) );
+                else
+                    kept = emit( records, groups, static_cast<uint32_t>( groupBytes ) );
+                if ( !kept )
+                    return false;
+                s = runEnd;
+            }
+            return true;
+        }
     } // namespace
 
     GpuDrawBinFrame* MeshRenderer::DrawBinsOf( const GpuInstancedRenderData& gpu, const MeshPass pass,
@@ -189,8 +235,13 @@ namespace Desert::Graphic::System
         // The passes a bin draws in are the cooked ones (kDrawRowsPasses; the cascades' is CascadeBinsOf's).
         const bool rowsPass = pass != MeshPass::ShadowDepth &&
                               std::ranges::find( kDrawRowsPasses, pass ) != std::ranges::end( kDrawRowsPasses );
-        if ( m_GrassPerVarietyDraws || gpu.Path != MeshVertexPath::GrassBlade || !rowsPass ||
+        if ( m_GrassPerVarietyDraws || !BinnablePath( gpu.Path ) || !rowsPass ||
              ( pass == MeshPass::Forward && m_ForwardVirtualLocal ) )
+            return nullptr;
+        // A mesh section's visibility raster reads its rows by address (GpuInstanceDrawRow::MeshVisibility): one
+        // without them (the prepass pair this frame) is drawn by its own draws.
+        if ( gpu.Path == MeshVertexPath::Instanced && pass == MeshPass::Visibility &&
+             AddressOf( gpu.MeshVisibility ) == 0u )
             return nullptr;
         const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
         if ( !capabilities.SupportsDrawIndirectCount || !capabilities.SupportsShaderDrawParameters )
@@ -208,7 +259,7 @@ namespace Desert::Graphic::System
 
     GpuDrawBinFrame* MeshRenderer::CascadeBinsOf( const GpuInstancedRenderData& gpu ) const
     {
-        if ( m_GrassPerVarietyDraws || gpu.Path != MeshVertexPath::GrassBlade )
+        if ( m_GrassPerVarietyDraws || !BinnablePath( gpu.Path ) )
             return nullptr;
         const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
         if ( !capabilities.SupportsDrawIndirectCount || !capabilities.SupportsShaderDrawParameters )
@@ -361,8 +412,8 @@ namespace Desert::Graphic::System
             if ( gpu.Path == MeshVertexPath::GrassBlade )
                 record.BladeBlock = record.Cell->Get<StorageBufferProperty>( kGrassBladeShapeBlock );
         }
-        // GRASS-VIS-MESH-1: the Instanced visibility cells read the section's rows.
-        if ( gpu.Path == MeshVertexPath::Instanced &&
+        // GRASS-VIS-MESH-1: the Instanced visibility cells read the section's rows (a bins' cell by address).
+        if ( !drawRows && gpu.Path == MeshVertexPath::Instanced &&
              ( pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve ) )
             record.MeshRowsBlock = record.Cell->Get<StorageBufferProperty>( kGrassMeshVisibilityBlock );
         // Find: a surface template with no parameters declares no Materials row block (LendMaterialTable).
@@ -602,10 +653,11 @@ namespace Desert::Graphic::System
             GpuDrawBinFrame* const sectionBins = draw.DrawRows ? DrawBinsOf( gpu, pass, postOcclusion ) : nullptr;
             int64_t                sectionRow  = -1;
             const GpuInstanceRefs& argsRefs    = postOcclusion ? *gpu.PostRefs : refs;
-            // The runs of @p by's levels [first, end) outside @p hidden, each one entry of the section's bin;
-            // false: the phase table is full this frame, or a buffer has no address.
-            const auto binBuckets = [&]( const GpuInstancedDrawRecord& by, const uint32_t first,
-                                         const uint32_t end, const uint64_t hidden ) -> bool
+            // The record runs of @p by's draw (ForEachRecordRun: @p groups levels from @p base, the submeshes in
+            // @p hidden not drawn), each one entry of the section's bin; false: the phase table is full this
+            // frame, or a buffer has no address.
+            const auto binBuckets = [&]( const GpuInstancedDrawRecord& by, const uint64_t base,
+                                         const uint32_t groups, const uint64_t hidden ) -> bool
             {
                 GpuDrawBinFrame& table = *sectionBins;
                 if ( sectionRow < 0 )
@@ -613,15 +665,17 @@ namespace Desert::Graphic::System
                     if ( table.Rows.size() >= table.EntryCapacity )
                         return false;
                     GpuInstanceDrawRow drawRow{};
-                    drawRow.Instances   = AddressOf( gpu.Instances );
-                    drawRow.Ids         = cameraList ? AddressOf( gpu.CameraIds ) : uint64_t{ 0 };
-                    drawRow.BladeShape  = AddressOf( gpu.BladeShape );
-                    drawRow.MaterialRow = row;
-                    const auto wind     = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset );
-                    drawRow.WindA       = wind.A;
-                    drawRow.WindB       = wind.B;
-                    const bool idsMissing = cameraList && drawRow.Ids == 0u;
-                    if ( drawRow.Instances == 0u || drawRow.BladeShape == 0u || idsMissing )
+                    drawRow.Instances       = AddressOf( gpu.Instances );
+                    drawRow.Ids             = cameraList ? AddressOf( gpu.CameraIds ) : uint64_t{ 0 };
+                    drawRow.BladeShape      = AddressOf( gpu.BladeShape );
+                    drawRow.MeshVisibility  = AddressOf( gpu.MeshVisibility ); // a mesh's visibility raster
+                    drawRow.MaterialRow     = row;
+                    const auto wind         = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset );
+                    drawRow.WindA           = wind.A;
+                    drawRow.WindB           = wind.B;
+                    const bool idsMissing   = cameraList && drawRow.Ids == 0u;
+                    const bool shapeMissing = gpu.Path == MeshVertexPath::GrassBlade && drawRow.BladeShape == 0u;
+                    if ( drawRow.Instances == 0u || shapeMissing || idsMissing )
                         return false;
                     sectionRow = static_cast<int64_t>( table.Rows.size() );
                     table.Rows.push_back( drawRow );
@@ -647,36 +701,27 @@ namespace Desert::Graphic::System
                     reads.push_back( refs.Ids );
                 const uint64_t rowAddress =
                      table.RowsAddress + static_cast<uint64_t>( sectionRow ) * sizeof( GpuInstanceDrawRow );
-                uint32_t level = first;
-                while ( level < end && level < 64u )
-                {
-                    if ( ( ( hidden >> level ) & 1u ) != 0u )
-                    {
-                        ++level;
-                        continue;
-                    }
-                    uint32_t runEnd = level + 1u;
-                    while ( runEnd < end && runEnd < 64u && ( ( hidden >> runEnd ) & 1u ) == 0u )
-                        ++runEnd;
-                    const uint32_t count = runEnd - level;
-                    if ( table.Entries.size() >= table.EntryCapacity ||
-                         table.Slots + listSlots + count > table.SlotCapacity )
-                        return false;
-                    GpuDrawCompactEntry entry{};
-                    entry.Records   = argsRefs.ArgsAddress + LevelArgsOffset( gpu, 0u ) +
-                                    kGpuInstanceArgsRecordBytes * static_cast<uint64_t>( level );
-                    entry.DrawRow   = rowAddress;
-                    entry.Count     = count;
-                    entry.Stride    = static_cast<uint32_t>( kGpuInstanceArgsRecordBytes );
-                    entry.Bin       = bin->Index;
-                    entry.FirstSlot = bin->Slots;
-                    bin->Slots += count;
-                    listSlots += count;
-                    bin->Entries.push_back( static_cast<uint32_t>( table.Entries.size() ) );
-                    table.Entries.push_back( entry );
-                    level = runEnd;
-                }
-                return true;
+                const auto submeshes = static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() );
+                return ForEachRecordRun(
+                     base, groups, submeshes, hidden,
+                     [&]( const uint64_t records, const uint32_t count, const uint32_t stride ) -> bool
+                     {
+                         if ( table.Entries.size() >= table.EntryCapacity ||
+                              table.Slots + listSlots + count > table.SlotCapacity )
+                             return false;
+                         GpuDrawCompactEntry entry{};
+                         entry.Records   = records;
+                         entry.DrawRow   = rowAddress;
+                         entry.Count     = count;
+                         entry.Stride    = stride;
+                         entry.Bin       = bin->Index;
+                         entry.FirstSlot = bin->Slots;
+                         bin->Slots += count;
+                         listSlots += count;
+                         bin->Entries.push_back( static_cast<uint32_t>( table.Entries.size() ) );
+                         table.Entries.push_back( entry );
+                         return true;
+                     } );
             };
 
             // The draws of buckets [first, end) through @p by: a mesh's ONE draw of the LOD levels the producer sorted
@@ -706,16 +751,29 @@ namespace Desert::Graphic::System
                 };
                 if ( first >= end )
                     return;
-                if ( gpu.Path == MeshVertexPath::GrassBlade )
+                const bool blade = gpu.Path == MeshVertexPath::GrassBlade;
+                if ( !by.DrawRows )
                 {
-                    const uint64_t hidden = BucketsHidden( gpu.HiddenSubmeshes, by.Buckets, first, end );
-                    if ( !by.DrawRows )
+                    if ( blade )
+                        add( BucketsHidden( gpu.HiddenSubmeshes, by.Buckets, first, end ), 0u, 1u );
+                    else
+                        add( gpu.HiddenSubmeshes, first, end - first );
+                    return;
+                }
+                {
+                    // The bins' cell draws only in a bin (it reads its section by the draw's row): a blade's strip
+                    // levels [first, end) of its one record set, a mesh's LOD levels [first, end) of each drawn
+                    // submesh (GRASS-GPU-DRIVEN-DRAWS).
+                    uint64_t hidden = gpu.HiddenSubmeshes;
+                    uint32_t groups = end - first;
+                    uint64_t base   = argsRefs.ArgsAddress + LevelArgsOffset( gpu, first );
+                    if ( blade )
                     {
-                        add( hidden, 0u, 1u );
-                        return;
+                        hidden = BucketsHidden( gpu.HiddenSubmeshes, by.Buckets, first, end );
+                        groups = 1u;
+                        base   = argsRefs.ArgsAddress + LevelArgsOffset( gpu, 0u );
                     }
-                    // The bins' cell draws only in a bin (it reads its section by the draw's row).
-                    if ( sectionBins != nullptr && binBuckets( by, first, end, hidden ) )
+                    if ( sectionBins != nullptr && binBuckets( by, base, groups, hidden ) )
                         return;
                     if ( sectionBins != nullptr )
                         sectionBins->Overflow = true;
@@ -729,7 +787,6 @@ namespace Desert::Graphic::System
                     }
                     return;
                 }
-                add( gpu.HiddenSubmeshes, first, end - first );
             };
             addBuckets( draw, 0u, prepassBuckets );
             if ( !prepassed || prepassBuckets >= draw.Buckets )
@@ -1001,20 +1058,22 @@ namespace Desert::Graphic::System
                 drawRow.BladeShape  = AddressOf( gpu.BladeShape );
                 drawRow.MaterialRow = *setup.MaterialRow;
                 drawRow.Caster      = glm::vec4( glm::vec3( setup.ThinOrigin ), inner );
-                if ( drawRow.Instances == 0u || drawRow.BladeShape == 0u || ( throughIds && drawRow.Ids == 0u ) )
+                const bool shapeMissing = gpu.Path == MeshVertexPath::GrassBlade && drawRow.BladeShape == 0u;
+                if ( drawRow.Instances == 0u || shapeMissing || ( throughIds && drawRow.Ids == 0u ) )
                     return false;
-                // The drawn strip levels (submesh b = record b of the cascade's set) and their runs.
+                // The drawn records of the cascade's set and their runs (ForEachRecordRun): a blade's strip levels
+                // (submesh b = record b), a mesh's LOD levels of each drawn submesh (GRASS-GPU-DRIVEN-DRAWS).
                 const uint64_t hidden    = gpu.HiddenSubmeshes;
-                const uint32_t submeshes = std::min( BucketsOf( gpu ), 64u );
-                const auto     shown     = [hidden]( const uint32_t b ) { return ( ( hidden >> b ) & 1u ) == 0u; };
+                const auto     submeshes = static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() );
+                const uint32_t groups    = LevelsOf( gpu );
                 uint32_t       drawn = 0u, runs = 0u;
-                for ( uint32_t b = 0u; b < submeshes; ++b )
-                    if ( shown( b ) )
-                    {
-                        ++drawn;
-                        if ( b == 0u || !shown( b - 1u ) )
-                            ++runs;
-                    }
+                ForEachRecordRun( 0u, groups, submeshes, hidden,
+                                  [&]( const uint64_t, const uint32_t count, const uint32_t ) -> bool
+                                  {
+                                      drawn += count;
+                                      ++runs;
+                                      return true;
+                                  } );
                 const uint32_t parts = ( drawsRecords ? 1u : 0u ) + ( drawsTwins ? 1u : 0u );
                 if ( parts == 0u || drawn == 0u )
                     return true; // nothing of it casts here, as its per-section draws would draw nothing
@@ -1072,30 +1131,23 @@ namespace Desert::Graphic::System
                     const uint64_t rowAddress =
                          table.RowsAddress + table.Rows.size() * sizeof( GpuInstanceDrawRow );
                     table.Rows.push_back( drawRow );
-                    uint32_t b = 0u;
-                    while ( b < submeshes )
-                    {
-                        if ( !shown( b ) )
-                        {
-                            ++b;
-                            continue;
-                        }
-                        uint32_t runEnd = b + 1u;
-                        while ( runEnd < submeshes && shown( runEnd ) )
-                            ++runEnd;
-                        GpuDrawCompactEntry entry{};
-                        entry.Records   = base + shift + kGpuInstanceArgsRecordBytes * static_cast<uint64_t>( b );
-                        entry.DrawRow   = rowAddress;
-                        entry.Count     = runEnd - b;
-                        entry.Stride    = static_cast<uint32_t>( kGpuInstanceArgsRecordBytes );
-                        entry.Bin       = bin->Index;
-                        entry.FirstSlot = bin->Slots;
-                        bin->Slots += entry.Count;
-                        listSlots += entry.Count;
-                        bin->Entries.push_back( static_cast<uint32_t>( table.Entries.size() ) );
-                        table.Entries.push_back( entry );
-                        b = runEnd;
-                    }
+                    ForEachRecordRun(
+                         base + shift, groups, submeshes, hidden,
+                         [&]( const uint64_t records, const uint32_t count, const uint32_t stride ) -> bool
+                         {
+                             GpuDrawCompactEntry entry{};
+                             entry.Records   = records;
+                             entry.DrawRow   = rowAddress;
+                             entry.Count     = count;
+                             entry.Stride    = stride;
+                             entry.Bin       = bin->Index;
+                             entry.FirstSlot = bin->Slots;
+                             bin->Slots += count;
+                             listSlots += count;
+                             bin->Entries.push_back( static_cast<uint32_t>( table.Entries.size() ) );
+                             table.Entries.push_back( entry );
+                             return true;
+                         } );
                 };
                 if ( drawsRecords )
                     addPartRow( 0u, setup.Wind );

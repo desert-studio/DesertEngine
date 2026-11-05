@@ -772,12 +772,13 @@ namespace Desert::Graphic::System
         // refuses it): nothing is listed.
         void AppendDrawRowsVariants( const Runtime::MaterialService& materials,
                                      const Runtime::ShaderService& shaders, const ::Common::AssetHandle& handle,
-                                     const bool ids, std::set<std::pair<std::string, uint64_t>>& listed,
+                                     const MeshVertexPath path, const bool ids,
+                                     std::set<std::pair<std::string, uint64_t>>& listed,
                                      std::vector<Core::CookedProgramVariant>& variants )
         {
             for ( const MeshPass pass : MeshRenderer::kDrawRowsPasses )
             {
-                const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::GrassBlade, pass );
+                const auto cell = materials.CellShaderNameOf( handle, path, pass );
                 if ( !cell )
                     continue;
                 const auto program = shaders.GetByName( cell.GetValue() );
@@ -874,7 +875,8 @@ namespace Desert::Graphic::System
                     AppendForwardShadowMaskVariants( *water, waterCell, listed, variants, /*virtualOnly*/ true );
             }
             // The compacted bins' blade cells over the full list (a section or cascade without a list of ids).
-            AppendDrawRowsVariants( materials, shaders, handle, /*ids*/ false, listed, variants );
+            AppendDrawRowsVariants( materials, shaders, handle, MeshVertexPath::GrassBlade, /*ids*/ false, listed,
+                                    variants );
         }
         // The cells a GPU-instanced id list is drawn through, for the materials an id list draws with only
         // (@p instanceIdHandles: the grass types' materials, LandscapeGrassTypeService::InstanceIdListMaterials).
@@ -914,7 +916,12 @@ namespace Desert::Graphic::System
                     }
                 }
             // The compacted bins' blade cells through the list's ids (the camera's list, a cascade's own list).
-            AppendDrawRowsVariants( materials, shaders, handle, /*ids*/ true, listed, variants );
+            // GRASS-GPU-DRIVEN-DRAWS: the mesh grass's bin cells too (kDrawRowsPaths), through the ids and over
+            // the full list (a cascade without a list of ids).
+            for ( const MeshVertexPath path : kDrawRowsPaths )
+                AppendDrawRowsVariants( materials, shaders, handle, path, /*ids*/ true, listed, variants );
+            AppendDrawRowsVariants( materials, shaders, handle, MeshVertexPath::Instanced, /*ids*/ false, listed,
+                                    variants );
         }
         // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
         // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.

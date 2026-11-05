@@ -2299,7 +2299,7 @@ namespace Desert::Graphic::System
         // it here, so the cooked hash is the acquired one (UE: a permutation declared once, the cook compiling
         // exactly what ShouldCompilePermutation admits).
         [[nodiscard]] static Core::ShaderVariant SurfaceInstanceIdsVariant( Core::ShaderVariant permutation = {} );
-        // RENDER-JOB-CPU-4: @p permutation with kSurfaceDrawRowsDefine (a compacted bin's grass blade cell).
+        // RENDER-JOB-CPU-4: @p permutation with kSurfaceDrawRowsDefine (a compacted bin's grass cell).
         [[nodiscard]] static Core::ShaderVariant SurfaceDrawRowsVariant( Core::ShaderVariant permutation = {} );
         // Debug.Grass "per-variety draws": every grass section drawn by its own indirect draws, not in the
         // compacted bins (the reference image the bins must match).
@@ -2324,6 +2324,12 @@ namespace Desert::Graphic::System
         // SurfaceDrawRowsVariant, so a package holds every cell a bin can ask for.
         static constexpr MeshPass kDrawRowsPasses[] = { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Depth,
                                                         MeshPass::Visibility, MeshPass::ShadowDepth };
+        // GRASS-GPU-DRIVEN-DRAWS: the vertex paths a bin draws - a blade strip and a mesh grass section (its LOD
+        // groups; Vertex_Instanced.glslh's DESERT_SURFACE_DRAW_ROWS cell). DrawBinsOf / CascadeBinsOf admit by it;
+        // MaterialProgramVariants cooks the blade cells for every material and the mesh cells for the id-list
+        // (grass) materials, each in the kDrawRowsPasses.
+        static constexpr MeshVertexPath kDrawRowsPaths[] = { MeshVertexPath::GrassBlade,
+                                                             MeshVertexPath::Instanced };
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
