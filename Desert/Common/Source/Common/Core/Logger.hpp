@@ -45,6 +45,7 @@ namespace Common::Logger
     // frame (a TURN frame waited 0.9 s inside a LOG_INFO in RDG BeginGraph while a build loaded the disk). An
     // error or critical line waits until it is written (what an abort follows is on disk); the queue holds at
     // most kWriterQueueBytes of lines, past that a caller waits for the writer (bounded, never dropped).
+    // @p target must report its failures as values (the log file's sink does): the writer catches nothing.
     std::shared_ptr<spdlog::sinks::sink> MakeAsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target );
 
     // Blocks until every line logged before the call is written and flushed by every writer of the default
@@ -82,8 +83,11 @@ namespace Common::Logger
 
         // One gated line: dropped below the threshold before anything is formatted; formatted into a stack
         // buffer otherwise and handed to the logger as a view, so no std::string is built per line.
+        // noexcept: a log call never throws to its caller (a destructor logs). The format is checked by the
+        // compiler, spdlog's logger hands a sink's failure to its error handler, and what is left is an
+        // allocation failure, which ends the process here, at its site.
         template <typename... Args>
-        void Write( spdlog::level::level_enum level, fmt::format_string<Args...> message, Args&&... args )
+        void Write( spdlog::level::level_enum level, fmt::format_string<Args...> message, Args&&... args ) noexcept
         {
             if ( static_cast<int>( level ) < LevelThreshold().load( std::memory_order_relaxed ) )
                 return;
@@ -138,10 +142,8 @@ namespace Common::Logger
     // string is still possible and still allowed — it just has to say so, by wrapping itself in
     // `fmt::runtime(...)`, which is exactly the visibility that was missing.
     //
-    // KNOWN AND DELIBERATELY NOT CHANGED HERE: every one of these calls `spdlog::set_level` to its OWN
-    // level before logging, so the global level is whatever the last message happened to be and filtering
-    // can never do anything. That is a separate defect with a visible consequence (fixing it starts
-    // suppressing output that is printed today), so it is named rather than smuggled into this change.
+    // The level is the gate's (SetLevel, Detail::Write): info outside Debug, so a LOG_DEBUG / LOG_TRACE line of a
+    // Release build is dropped unless the host was started with `--log-level debug` (or trace).
     template <typename... Args>
     void LogDebug( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
