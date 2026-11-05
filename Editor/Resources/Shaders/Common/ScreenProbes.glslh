@@ -193,6 +193,20 @@ float SPSHCosineBand( uint k )
     return k == 0u ? 1.0 : ( k < 4u ? 2.0 / 3.0 : 0.25 );
 }
 
+// ---- Short-range AO at half resolution (UE r.Lumen.ScreenProbeGather.ShortRangeAO.Downsample): texel t of
+// ScreenProbes.ShortRangeAO traces the G-buffer pixel 2t + this offset, one of its 2x2 quad cycling over four
+// frames, so the integrate's temporal filter sees every pixel's own rays every fourth frame. The texel holds
+// xy = the bent normal in the traced pixel's SPProbeFrame (z >= 0), z = AO, w = the pixel's distance to the
+// camera times SP_SHORT_RANGE_AO_DISTANCE_SCALE (0 = no surface): the integrate's depth-aware upsample weighs each
+// texel by it and turns the bent normal into its own pixel's frame, so the full-resolution normal detail stays.
+#define SP_SHORT_RANGE_AO_DISTANCE_SCALE 0.01 // centimetres to metres: fp16's range holds 655 km
+
+ivec2 SPShortRangeAOOffset( uint frame )
+{
+    const uint k = frame & 3u;
+    return ivec2( ( k == 1u || k == 2u ) ? 1 : 0, k >= 2u ? 1 : 0 );
+}
+
 #endif // SCREEN_PROBES_GLSLH
 
 #if defined( SCREEN_PROBES_DECLARED ) && !defined( SCREEN_PROBES_READ_GLSLH )

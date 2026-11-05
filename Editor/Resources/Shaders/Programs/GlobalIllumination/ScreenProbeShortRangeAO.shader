@@ -1,6 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"caf401dbfb1d48ae9af1b59df379273d","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCREEN PROBE GATHER — SHORT-RANGE AO (UE LumenScreenSpaceBentNormal.usf ScreenSpaceShortRangeAOCS, the pass
-// r.Lumen.ScreenProbeGather.ShortRangeAO adds in front of the integrate): one thread per G-buffer pixel.
+// r.Lumen.ScreenProbeGather.ShortRangeAO adds in front of the integrate): one thread per texel of a half-size
+// target (UE r.Lumen.ScreenProbeGather.ShortRangeAO.Downsample), each tracing one G-buffer pixel of its 2x2 quad,
+// the quad's pixel cycling over four frames (Common/ScreenProbes.glslh SPShortRangeAOOffset); the integrate
+// upsamples it by depth.
 //   rays      SR_AO_RAYS cosine-distributed directions around the pixel's normal, rotated per pixel and frame;
 //   trace     each one marched through the scene depth in SR_AO_STEPS linear steps, out to SR_AO_MAX_SCREEN_FRACTION
 //             of the screen (UE r.Lumen.ScreenProbeGather.ShortRangeAO.MaxScreenTraceFraction): the occluders
@@ -9,8 +12,9 @@
 //             the shaded point (UE's foreground sample rejection: a surface nearer the camera than the AO radius is
 //             IN FRONT of the ray, not around it — a cypress a metre before a wall is not a contact occluder of the
 //             wall, and counting it drew a speckled dark ring along every crown, BISTRO-FOLIAGE-HALO);
-//   output    xyz = the bent normal (the mean of the unoccluded directions, normalised; the normal when none is),
-//             w = the unoccluded share (cosine-weighted by the sampling).
+//   output    xy = the bent normal (the mean of the unoccluded directions, normalised; the normal when none is) in
+//             the traced pixel's SPProbeFrame, z = the unoccluded share (cosine-weighted by the sampling), w = the
+//             pixel's distance (SP_SHORT_RANGE_AO_DISTANCE_SCALE; 0 = sky) for the integrate's upsample.
 // The integrate reads it as UE's ScreenProbeIntegrateCS does with SHORT_RANGE_AO: the diffuse irradiance is the
 // probes' SH at the bent normal times the AO, and every rough-specular sample is weighted by its visibility in the
 // bent cone (UE CalculateSpecularOcclusion). This is what occludes thin leaf cards: the scalar SSAO samples a
@@ -70,14 +74,19 @@ Shader "ScreenProbeShortRangeAO"
 
         void main()
         {
-            const ivec2 pixel  = ivec2( gl_GlobalInvocationID.xy );
-            const vec2  extent = giFrame.screen.xy;
-            if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
+            // One thread per half-resolution texel, tracing the full-resolution pixel of its quad this frame
+            // selects (SPShortRangeAOOffset; the last row and column clamp to the G-buffer).
+            const ivec2 aoTexel  = ivec2( gl_GlobalInvocationID.xy );
+            const vec2  extent   = giFrame.screen.xy;
+            const ivec2 aoExtent = ( ivec2( extent ) + 1 ) / 2;
+            if ( any( greaterThanEqual( aoTexel, aoExtent ) ) )
                 return;
+            const ivec2 pixel = min( aoTexel * 2 + SPShortRangeAOOffset( screenProbeParams.atlas.y ),
+                                     ivec2( extent ) - 1 );
             const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( ShortRangeAoOutTexture, pixel, vec4( 0.0, 0.0, 1.0, 1.0 ) );
+                imageStore( ShortRangeAoOutTexture, aoTexel, vec4( 0.0, 0.0, 1.0, 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -148,7 +157,11 @@ Shader "ScreenProbeShortRangeAO"
             }
             const float ao   = unoccluded / float( SR_AO_RAYS );
             const vec3  bent = dot( unoccludedSum, unoccludedSum ) > 1e-6 ? normalize( unoccludedSum ) : n;
-            imageStore( ShortRangeAoOutTexture, pixel, vec4( bent, ao ) );
+            // In the pixel's own frame (orthonormal: the transpose inverts it); z >= 0, the mean of directions of
+            // the hemisphere around n.
+            const vec3  bentLocal = transpose( frame ) * bent;
+            imageStore( ShortRangeAoOutTexture, aoTexel,
+                        vec4( bentLocal.xy, ao, distance * SP_SHORT_RANGE_AO_DISTANCE_SCALE ) );
         }
     }
 }

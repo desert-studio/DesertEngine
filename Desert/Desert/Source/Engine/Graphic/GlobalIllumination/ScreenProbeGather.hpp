@@ -378,7 +378,9 @@ namespace Desert::Graphic::GlobalIllumination
             Disocclusion,
             SpatialFilter,
             Filter,
-            Integrate,
+            IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
+            IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
+            Integrate,              // the full permutation: the tiles that evaluate GGX samples
             Temporal,
             ProgramCount
         };
@@ -391,12 +393,14 @@ namespace Desert::Graphic::GlobalIllumination
             uint32_t    Downsample   = 0;
             uint32_t    TracedTexels = 0;
             std::string Program;   // the refused program; empty: the layout itself was refused
+            std::string_view Permutation; // its kScreenProbeProgramDefines entry (static storage)
             bool Service  = false; // AcquireVariant refused Program (the service's memory answers the report)
             bool Reported = false; // a refusal that is not the service's was reported
         };
         // Record the refusal of (@p downsample, @p tracedTexels) and return @p error as EnsureLayoutPrograms'.
         [[nodiscard]] Common::BoolResultStr RefuseLayout( uint32_t downsample, uint32_t tracedTexels,
-                                                          std::string program, bool service, std::string error );
+                                                          std::string program, std::string_view permutation,
+                                                          bool service, std::string error );
 
         std::array<std::shared_ptr<Shader>, ProgramCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, ProgramCount> m_Pipelines;
@@ -410,7 +414,7 @@ namespace Desert::Graphic::GlobalIllumination
 
         std::shared_ptr<Image2D>                m_Traced;   // SP_RES² texels per probe
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
-        std::shared_ptr<Image2D>                m_ShortRangeAO; // xyz = bent normal, w = AO, the G-buffer's extent
+        std::shared_ptr<Image2D>                m_ShortRangeAO; // half the G-buffer's extent
         glm::uvec2                              m_Extent{ 0u };
         uint32_t                                m_AtlasRows  = 0;
         uint32_t                                m_AtlasProbesRow    = 0;
