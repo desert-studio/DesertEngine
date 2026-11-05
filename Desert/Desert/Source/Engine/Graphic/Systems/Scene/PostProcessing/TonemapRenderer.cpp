@@ -108,6 +108,8 @@ namespace Desert::Graphic::System
              .Texture( TonemapShaderParameters::BlurredLogLuminance, inputs.BlurredLogLuminance,
                        RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Texture( TonemapShaderParameters::ExposureFusionTexture, inputs.ExposureFusion,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( TonemapShaderParameters::ColorGradingLUT, inputs.ColorGradingLUT,
                        RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
@@ -122,7 +124,7 @@ namespace Desert::Graphic::System
 
         MaterialTonemap::Params params{
              m_TonemapOperator,     m_Exposure,         bloomIntensity, m_ExposureKey,
-             m_AutoExposureEnabled, m_ChromaticBloom,   m_WhitePoint,   lightShaftIntensity,
+             m_AutoExposureEnabled, m_ChromaticBloom, lightShaftIntensity,
              m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint,    m_PreExposure };
         // Local exposure: identity values + enabled 0 when its nodes did not run (the inputs are then black).
         const LocalExposureFrame& le = m_LocalExposure;
@@ -137,10 +139,6 @@ namespace Desert::Graphic::System
         // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
         params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
 
-        // The display the frame reaches (the swapchain's last build): its output transform and headroom.
-        const DisplayOutputState& display = CurrentDisplayOutput();
-        params.DisplayOutput              = display.Output;
-        params.DisplayHeadroom            = display.Headroom;
 
         // HDR-OUTPUT p3: with the HDR rendition this frame (PrepareHdrRendition) the output carries the SDR
         // transform — headroom 1, SceneComposite's SDR arm, the very values the SDR output writes — and the
@@ -148,7 +146,6 @@ namespace Desert::Graphic::System
         if ( m_HdrRendition && m_MaterialTonemapHdr )
         {
             m_MaterialTonemapHdr->BindValues( params );
-            params.DisplayHeadroom = 1.0f;
         }
         // A display-referred buffer view: no effect is composited over the stored value (UE buffer visualization).
         if ( m_VisualizeBuffer )
@@ -160,6 +157,16 @@ namespace Desert::Graphic::System
             params.LocalExposureSlice.w = 0.0f;
         }
         m_MaterialTonemap->BindValues( params );
+    }
+
+    float TonemapRenderer::TargetHeadroom( const bool hdrRendition ) const
+    {
+        const DisplayOutputState& display = CurrentDisplayOutput();
+        const bool                hdr     = static_cast<int>( display.Output ) > 0;
+        const float displayHeadroom = hdr && display.Headroom > 1.0f ? display.Headroom : 1.0f;
+        if ( hdrRendition )
+            return displayHeadroom;
+        return m_HdrRendition ? 1.0f : displayHeadroom;
     }
 
     Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context, const bool hdrRendition )

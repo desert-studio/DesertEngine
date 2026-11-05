@@ -157,6 +157,17 @@ namespace Desert::Graphic::System
             m_MaxLuma    = maxLuma;
         }
 
+        // UE's exposure compensation (PostProcessSettings::AutoExposureBias + the compensation curve): AEAverage
+        // writes the adapted average over 2^(bias + curve(EV100)) into .g of the adapted image (and into the
+        // read-back), the luminance every exposure is computed from; .r stays the smoothing state.
+        void SetCompensation( float bias, int curveKeys, const glm::vec4& curveEV100, const glm::vec4& curveBias )
+        {
+            m_CompensationBias = bias;
+            m_CurveKeys        = curveKeys;
+            m_CurveEV100       = curveEV100;
+            m_CurveBias        = curveBias;
+        }
+
         // The 1x1 image holding the latest adapted luminance (sampled by tonemap); after Prepare, the one this
         // frame writes.
         const std::shared_ptr<Image2D>& GetAdaptedLuminanceImage() const
@@ -189,6 +200,10 @@ namespace Desert::Graphic::System
         LocalExposureParams m_LocalExposure;
         float               m_LocalExposureLogGrey     = -2.4739312f;
         float               m_LocalExposureKey         = 0.18f;
+        float               m_CompensationBias         = 0.0f;
+        int                 m_CurveKeys                = 0;
+        glm::vec4           m_CurveEV100{ 0.0f };
+        glm::vec4           m_CurveBias{ 0.0f };
         float               m_LastAverageLocalExposure = 1.0f;
         float m_MinLuma    = 0.02f;
         float m_MaxLuma    = 8.0f;

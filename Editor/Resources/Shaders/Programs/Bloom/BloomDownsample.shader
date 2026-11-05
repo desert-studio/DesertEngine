@@ -88,7 +88,7 @@ Shader "BloomDownsample"
             {
                 float exposure = Exposure;
                 if ( AutoExposure == 1 )
-                    exposure = ExposureKey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).r, 1e-4 );
+                    exposure = ExposureKey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 );
                 logExposure = log2( max( exposure, 1.0e-10 ) );
             }
 
@@ -137,7 +137,7 @@ Shader "BloomDownsample"
                 // physical scene (a 100 000 lux sun, ~10^4 cd/m^2 everywhere) was bloom from edge to edge.
                 float threshold = Threshold;
                 if ( AutoExposure == 1 )
-                    threshold *= max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).r, 1e-4 ) /
+                    threshold *= max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 ) /
                                  max( ExposureKey, 1e-4 );
                 float brightness   = max( color.r, max( color.g, color.b ) );
                 float contribution = max( brightness - threshold, 0.0 ) / max( brightness, 1e-4 );

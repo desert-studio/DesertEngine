@@ -14,15 +14,21 @@ namespace Desert::Core
     // The curve that maps HDR scene luminance onto the 0..1 the display can show. Both branches are
     // authored features, and which one a view is graded through is part of its grade.
     //
-    //  ACES     — the filmic curve Unreal ships as its default. It is OURS by default too (decision D-10,
-    //             Docs/Clouds/ANALYSIS_APPROACH.md §7): the reference frame the sky programme calibrates
-    //             against was captured through it. It takes no white point — the ODT carries its own.
+    //  Filmic   — UE's default tonemapper (FilmToneMap, PostProcessCombineLUTs.usf): the ACES-fitted film curve
+    //             with Slope / Toe / Shoulder / Black Clip / White Clip below. OURS by default since v74
+    //             (POST-LOOK-LAND): decision D-10 (ACES by default, Docs/Clouds/CALIBRATION.md) is revisited
+    //             there - the clouds are calibrated in scene radiance, before the tone curve.
+    //  ACES     — the ACES 1.x RRT + ODT fit (TonemapACES.glslh), and on an HDR output ACES's SSTS shoulder up to
+    //             the display's peak. It takes no white point — the ODT carries its own.
     //  Reinhard — extended Reinhard with an explicit WhitePoint (below). Scenes authored before
     //             2026-08-19 had their Exposure and WhitePoint chosen by eye on this curve.
+    // Every operator is applied by the baked colour-grading table (CombineLUTs.shader, UE's CombineLUTs), after
+    // the white balance and the colour grading below.
     enum class TonemapOperator : int
     {
         ACES     = 0,
         Reinhard = 1,
+        Filmic   = 2,
     };
 
     // UE ELocalExposureMethod (Scene.h:45). Bilateral — a bilateral grid of log luminance plus a blurred log
@@ -111,7 +117,83 @@ namespace Desert::Core
         bool DistanceFieldShadows = false;
 
         PROPERTY( DisplayName( "Tonemapper" ), Category( "Film" ) )
-        TonemapOperator Tonemapper = TonemapOperator::ACES;
+        TonemapOperator Tonemapper = TonemapOperator::Filmic;
+        // UE's film curve (FPostProcessSettings::FilmSlope..FilmWhiteClip, Scene.cpp defaults): Filmic only.
+        PROPERTY( DisplayName( "Slope" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmSlope = 0.88f;
+        PROPERTY( DisplayName( "Toe" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmToe = 0.55f;
+        PROPERTY( DisplayName( "Shoulder" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmShoulder = 0.26f;
+        PROPERTY( DisplayName( "Black Clip" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmBlackClip = 0.0f;
+        PROPERTY( DisplayName( "White Clip" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmWhiteClip = 0.04f;
+        PROPERTY( DisplayName( "Blue Correction" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float BlueCorrection = 0.6f;
+        PROPERTY( DisplayName( "Expand Gamut" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float ExpandGamut = 1.0f;
+        PROPERTY( DisplayName( "Tone Curve Amount" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float ToneCurveAmount = 1.0f;
+
+        // UE's White Balance (WhiteTemp / WhiteTint): the scene white chromatically adapted to D65 in the table.
+        PROPERTY( DisplayName( "Temp" ), Category( "White Balance" ), Range( 1500.0f, 15000.0f ) )
+        float WhiteTemp = 6500.0f;
+        PROPERTY( DisplayName( "Tint" ), Category( "White Balance" ), Range( -1.0f, 1.0f ) )
+        float WhiteTint = 0.0f;
+
+        // UE's Color Grading (FPostProcessSettings::ColorSaturation..ColorOffsetHighlights): rgb per channel,
+        // w the luminance term; identity = 1 (0 for Offset). Baked into the table with the tone curve.
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Global" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturation = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrast = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGamma = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGain = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffset = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Shadows" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturationShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrastShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGammaShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGainShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffsetShadows = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Shadows Max" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        float ColorCorrectionShadowsMax = 0.09f;
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Midtones" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturationMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrastMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGammaMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGainMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffsetMidtones = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Highlights" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturationHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrastHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGammaHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGainHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffsetHighlights = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Highlights Min" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        float ColorCorrectionHighlightsMin = 0.5f;
+        PROPERTY( DisplayName( "Highlights Max" ), Category( "Color Grading" ), Range( 1.0f, 10.0f ) )
+        float ColorCorrectionHighlightsMax = 1.0f;
         // UE's Manual metering mode, in EV100: the meter reading the exposure is fixed at when auto-exposure is
         // off. The scale is Graphic::ManualExposureScale (key / EV100ToLuminance) — the auto path's own law, so a
         // manual EV100 matches an auto-exposure adapted to the same EV100. Higher EV100 = darker picture: ~15 a
@@ -143,6 +225,22 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
                   Tooltip( "Brightest scene the eye adapts to (UE Max EV100); a 100 000 lux sun meters ~15." ) )
         float AutoExposureMaxEV100 = 20.0f;
+        // UE's Exposure Compensation (AutoExposureBias, EV): 2^bias multiplies the exposure, manual or auto. The
+        // default 0 keeps the exposure every scene before v74 was graded under.
+        PROPERTY( DisplayName( "Exposure Compensation" ), Category( "Exposure" ), Range( -15.0f, 15.0f ),
+                  Units( "EV" ) )
+        float AutoExposureBias = 0.0f;
+        // UE's Exposure Compensation Curve (AutoExposureBiasCurve: EV100 of the adapted average -> extra bias in
+        // EV), auto-exposure only. In UE a UCurveFloat asset; here up to four keys, piecewise linear between
+        // them and flat past the ends (Graphic::ExposureCompensationCurveBias). Key count 0 = no curve.
+        PROPERTY( DisplayName( "Compensation Curve Keys" ), Category( "Exposure" ), Range( 0, 4 ) )
+        int AutoExposureCurveKeyCount = 0;
+        PROPERTY( DisplayName( "Compensation Curve EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ),
+                  Tooltip( "The keys' EV100 (ascending), the first Compensation Curve Keys of x, y, z, w." ) )
+        glm::vec4 AutoExposureCurveEV100 = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Compensation Curve Bias" ), Category( "Exposure" ), Range( -15.0f, 15.0f ),
+                  Tooltip( "The bias (EV) at each key of Compensation Curve EV100." ) )
+        glm::vec4 AutoExposureCurveBias = glm::vec4( 0.0f );
 
         // LOCAL EXPOSURE — UE's Local Exposure, Bilateral method (Scene.h:2025-2115, defaults Scene.cpp:525-534).
         // The defaults are the IDENTITY: contrast 1 / 1 and detail 1 give every pixel exactly 1 whatever the rest,
@@ -263,4 +361,11 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Scale" ), Category( "Subsurface Scattering" ), Range( 0.0f, 10.0f ) )
         float SubsurfaceScale = 1.0f;
     };
+
+    // UE's white balance is the identity at D65 with no tint (PostProcessCombineLUTs.usf: the temperature
+    // white balance is off at 6500 / 0); the table then skips the adaptation.
+    inline bool IsIdentityWhiteBalance( float whiteTemp, float whiteTint )
+    {
+        return whiteTemp == 6500.0f && whiteTint == 0.0f;
+    }
 } // namespace Desert::Core
