@@ -1387,10 +1387,16 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
         vec4 s1  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 1, invCount );
         vec4 s2  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 2, invCount );
         vec4 s3  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 3, invCount );
-        bool in0 = inside && CloudLightSampleInShell( layer, s0 );
-        bool in1 = in0 && CloudLightSampleInShell( layer, s1 );
-        bool in2 = in1 && CloudLightSampleInShell( layer, s2 );
-        bool in3 = in2 && CloudLightSampleInShell( layer, s3 );
+        // Each test taken before the && rather than inside it, so no short-circuit branch stands between
+        // the four samples.
+        bool shell0 = CloudLightSampleInShell( layer, s0 );
+        bool shell1 = CloudLightSampleInShell( layer, s1 );
+        bool shell2 = CloudLightSampleInShell( layer, s2 );
+        bool shell3 = CloudLightSampleInShell( layer, s3 );
+        bool in0    = inside && shell0;
+        bool in1    = in0 && shell1;
+        bool in2    = in1 && shell2;
+        bool in3    = in2 && shell3;
         if ( !in0 )
             break; // the `break` the loop always had: nothing from here on is inside
 
