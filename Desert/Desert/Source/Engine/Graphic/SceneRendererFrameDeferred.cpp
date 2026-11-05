@@ -129,10 +129,9 @@ namespace Desert::Graphic
     void SceneRenderer::ImportViewShadowMaps( RDG::Builder& graph, FrameTextures& textures )
     {
         FrameTransients& view = textures.Transients;
-        if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
+        if ( const auto& it = m_Systems.Mesh )
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
+            auto* mesh = it.get();
             if ( mesh != nullptr )
             {
                 view.ShadowCascades = mesh->AcquireCascadeMaps( graph );
@@ -166,9 +165,8 @@ namespace Desert::Graphic
         if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
              brdf && brdf->GetImageHandle().IsValid() )
             view.BrdfLut = textures.Import( images->Share( brdf->GetImageHandle() ), "BRDF.LUT" );
-        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        if ( const auto& it = m_Systems.Skybox )
+            if ( const auto* sky = it.get();
                  sky != nullptr && sky->SkyPassSamplesLuts() )
             {
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
@@ -236,8 +234,7 @@ namespace Desert::Graphic
         const RDG::TextureRef          sourceRef =
              textures.Import( source, "GBuffer.Depth", DeferredFrameNodes::kGBufferDepthFinal );
         const RDG::TextureRef targetRef = textures.Depth( m_TargetFramebuffer, "SceneColor" );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* expand = UNIQUE_GET_AS( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] );
+        auto* expand = m_Systems.DepthExpand.get();
         DeferredFrameNodes::AddDepthToScene(
              graph, m_TargetFramebuffer->GetSpecification().Samples, sourceRef, targetRef,
              [source, target]( RDG::PassContext& ) -> Common::BoolResultStr
@@ -261,11 +258,10 @@ namespace Desert::Graphic
             return nullptr;
         if ( m_TargetFramebuffer->GetSpecification().Samples <= 1 )
             return m_TargetFramebuffer->GetDepthAttachmentImage();
-        const auto found = m_RenderSystems.find( "SceneDepthResolveSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.SceneDepthResolve;
+        if ( !found )
             return nullptr;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* resolve = UNIQUE_GET_AS( System::SceneDepthResolveRenderer, found->second );
+        auto* resolve = found.get();
         return resolve != nullptr && resolve->IsReady() ? resolve->GetFramebuffer()->GetDepthAttachmentImage()
                                                         : nullptr;
     }
@@ -280,8 +276,7 @@ namespace Desert::Graphic
         if ( samples <= 1 )
             return sceneDepth; // one sample: the consumers read the scene depth itself
         auto* resolve =
-             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
+             m_Systems.SceneDepthResolve.get();
         if ( resolve == nullptr || !resolve->IsReady() )
             return {};
         const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
@@ -300,11 +295,10 @@ namespace Desert::Graphic
         const std::vector<GraphColor>* colors = textures.GraphColorsOf( m_TargetFramebuffer.get() );
         if ( colors == nullptr )
             return;
-        const auto                         found   = m_RenderSystems.find( "GraphColorResolveSystem" );
+        const auto& found = m_Systems.GraphColorResolve;
         System::GraphColorResolveRenderer* resolve = nullptr;
-        if ( found != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            resolve = UNIQUE_GET_AS( System::GraphColorResolveRenderer, found->second );
+        if ( found )
+            resolve = found.get();
         AddGraphColorResolves(
              graph, *colors,
              [resolve]( RDG::PassBuilder& pass, const GraphColor& color )
@@ -341,8 +335,7 @@ namespace Desert::Graphic
 
         if ( !m_EnableSSAO || ScreenProbeAOReplacesSSAO() )
             return;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
+        auto* ssao = m_Systems.SSAO.get();
         if ( ssao == nullptr )
             return;
         if ( gbuffer.size() < 3 )
@@ -398,7 +391,7 @@ namespace Desert::Graphic
                                                              const ViewFrame& frame )
     {
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         if ( deferred == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] LightGrid: no DeferredLightingSystem, the view has no light grid" );
@@ -414,8 +407,7 @@ namespace Desert::Graphic
         // "Upload: Lights.GridParams", ordered before the nodes that read them.
         const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
              graph, GetPointLights(), GetSpotLights(),
-             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows(), grid );
+             m_Systems.Mesh->GetLocalShadowRows(), grid );
         textures.Transients.Lights = lights;
 
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
@@ -731,7 +723,7 @@ namespace Desert::Graphic
                                                 const ViewFrame& frame )
     {
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         ViewLightBuffers& lights = textures.Transients.Lights;
         if ( deferred == nullptr || !lights.Point.IsValid() )
         {
@@ -911,7 +903,7 @@ namespace Desert::Graphic
                                            .SubsurfaceSplit = subsurfaceDiffuse.IsValid() };
 
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         // The lights and the light grid were made by AddFrameLightGrid, before any lit node.
         const ViewLightBuffers& lights = refs.Transients.Lights;
         if ( !lights.GridCells.IsValid() )
@@ -968,31 +960,28 @@ namespace Desert::Graphic
         // The shadow views write a grey occlusion / a cascade-tinted colour: no scattered texel to split off.
         if ( m_DebugView.ShadowDebug != ShadowDebugMode::Off )
             return false;
-        const auto it = m_RenderSystems.find( "SubsurfaceSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.Subsurface;
+        if ( !it )
             return false;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* const subsurface = static_cast<const System::SubsurfaceRenderer*>( it->second.get() );
+        const auto* const subsurface = it.get();
         auto* const       profiles   = Runtime::ResourceRegistry::GetSubsurfaceProfileService();
         return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
     }
 
     bool SceneRenderer::GrassInstancesSettling() const
     {
-        const auto it = m_RenderSystems.find( "GrassSystem" );
-        if ( it == m_RenderSystems.end() || IsSceneCapture() )
+        const auto& it = m_Systems.Grass;
+        if ( !it || IsSceneCapture() )
             return false;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        return static_cast<const System::GrassRenderer*>( it->second.get() )->InstancesSettling();
+        return it->InstancesSettling();
     }
 
     bool SceneRenderer::SubsurfaceHistoryConverging() const
     {
         if ( !SubsurfaceRuns() )
             return false;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         const auto* const subsurface =
-             static_cast<const System::SubsurfaceRenderer*>( m_RenderSystems.at( "SubsurfaceSystem" ).get() );
+             m_Systems.Subsurface.get();
         return subsurface->HistoryConverging();
     }
 
@@ -1002,8 +991,7 @@ namespace Desert::Graphic
     {
         if ( gbuffer.size() < 2 )
             return;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const subsurface = UNIQUE_GET_AS( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] );
+        auto* const subsurface = m_Systems.Subsurface.get();
         const System::SubsurfaceInputs inputs{ .SubsurfaceDiffuse = subsurfaceDiffuse,
                                                .GBufferA          = gbuffer[0],
                                                .GBufferB          = gbuffer[1],
@@ -1054,9 +1042,9 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures,
                                                      const ViewFrame& frame )
     {
-        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        const auto& it = m_Systems.Mesh;
         auto* const meshRenderer =
-             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+             it.get();
         if ( meshRenderer == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] Global Distance Field: no MeshSystem" );
@@ -1122,9 +1110,8 @@ namespace Desert::Graphic
                 moved = moved || change.Kind == GpuDriven::PrimitiveChangeKind::Moved;
         // The landscape's tiles as heightfield objects (SHADE-GI-LANDSCAPE; UE: landscape components in the global
         // distance field and the mesh SDF trace): which tiles, their heights' images, revisions and frames.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         const auto* const terrainSystem =
-             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+             m_Systems.Terrain.get();
         std::span<const System::TerrainDrawData> landscapeTiles;
         if ( terrainSystem != nullptr )
             landscapeTiles = terrainSystem->GetQueue();
@@ -1275,9 +1262,9 @@ namespace Desert::Graphic
              m_RenderPath != Core::RenderPath::Deferred )
             return;
         const RDG::TextureRef velocity = textures.Transients.Velocity;
-        const auto            it       = m_RenderSystems.find( "VelocityViewSystem" );
+        const auto& it = m_Systems.VelocityView;
         auto* const           view =
-             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::VelocityViewRenderer, it->second ) : nullptr;
+             it.get();
         if ( view == nullptr || !target.IsValid() || !velocity.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Velocity not drawn: {}",
@@ -1312,7 +1299,7 @@ namespace Desert::Graphic
              m_RenderPath != Core::RenderPath::Deferred )
             return;
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         const ViewLightBuffers& lights = textures.Transients.Lights;
         if ( deferred == nullptr || !target.IsValid() || !lights.WorldGridCells.IsValid() || !m_GBuffer )
         {
@@ -1477,8 +1464,7 @@ namespace Desert::Graphic
     {
         if ( textures.Transients.ClosestHzb.IsValid() )
             return textures.Transients.ClosestHzb; // one hierarchy per graph: its first caller built it
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* hzb = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        auto* hzb = m_Systems.HZB.get();
         if ( hzb == nullptr )
             return {};
         const RDG::TextureRef source = depth.IsValid() ? depth : textures.Depth( m_GBuffer, "GBuffer" );
@@ -1496,9 +1482,8 @@ namespace Desert::Graphic
     SceneRenderer::FrameScreenTrace
     SceneRenderer::AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* history =
-             UNIQUE_GET_AS( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] );
+             m_Systems.SceneColorHistory.get();
         if ( history == nullptr || !history->Prepare() )
             return {};
         const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
@@ -1692,8 +1677,7 @@ namespace Desert::Graphic
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
                                                               const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const pathTracer = UNIQUE_GET_AS( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        auto* const pathTracer = m_Systems.PathTracer.get();
         if ( pathTracer == nullptr )
             return Common::MakeError( "the view has no path tracer (EnsurePathTracerResources)" );
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
@@ -2204,11 +2188,11 @@ namespace Desert::Graphic
         // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
         if ( prepared == nullptr && !meshRenderer->BuildFrontLayerDraws() )
             return {};
-        if ( m_RenderSystems.find( "FrontLayerReflectionsSystem" ) == m_RenderSystems.end() )
+        if ( !m_Systems.FrontLayerReflections )
         {
             Renderer::GetInstance().WaitDeviceIdle();
-            RegisterSystem<System::SSRRenderer>( "FrontLayerReflectionsSystem", this, m_TargetFramebuffer );
-            const auto& system = SP_CAST( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
+            RegisterSystem<System::SSRRenderer>( m_Systems.FrontLayerReflections, this, m_TargetFramebuffer );
+            const auto& system = m_Systems.FrontLayerReflections;
             system->TraceFrom( System::SSRRenderer::ReflectingSurface::TranslucentFrontLayer );
             if ( const Common::BoolResultStr initialized = system->Initialize(); !initialized )
             {
@@ -2219,8 +2203,7 @@ namespace Desert::Graphic
                 return {};
             }
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* reflections = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
+        auto* reflections = m_Systems.FrontLayerReflections.get();
 
         // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
         const std::optional<FrontLayerSurface> drawn =

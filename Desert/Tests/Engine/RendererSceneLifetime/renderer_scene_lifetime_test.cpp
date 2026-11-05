@@ -537,10 +537,15 @@ TEST( RendererSceneLifetime, TheLazyResourceLatchesAndTheSystemMapAgree )
 {
     const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
 
-    // Nothing anywhere in the renderer may empty the system map. Registering, replacing and forgetting one
-    // by name all remain legal; emptying it is what breaks the agreement with the latches.
-    EXPECT_EQ( source.find( "m_RenderSystems.clear()" ), std::string::npos )
-         << "something clears m_RenderSystems wholesale again. m_GIResourcesReady / m_SSRResourcesReady are "
+    // Nothing anywhere in the renderer may empty the typed system set (m_Systems) or its registration order.
+    // Registering and replacing one remain legal; emptying them is what breaks the agreement with the latches.
+    EXPECT_EQ( source.find( "m_Systems = " ), std::string::npos )
+         << "something resets m_Systems wholesale again. m_GIResourcesReady / m_SSRResourcesReady are "
+            "never cleared, so the GI and SSR systems would be reported as built and be absent from the "
+            "set — the passes then skip in silence at their null-guarded call sites.";
+    EXPECT_EQ( source.find( "m_RenderSystemOrder.clear()" ), std::string::npos )
+         << "something clears the render-system order wholesale again. m_GIResourcesReady / m_SSRResourcesReady "
+            "are "
             "never cleared, so the GI and SSR systems would be reported as built and be absent from the "
             "map — the passes then skip in silence at their null-guarded call sites.";
 

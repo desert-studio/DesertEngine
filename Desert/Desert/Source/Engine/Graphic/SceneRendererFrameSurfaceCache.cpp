@@ -160,9 +160,9 @@ namespace Desert::Graphic
         m_SurfaceCacheFrame.reset();
         if ( !SurfaceCacheRuns() )
             return;
-        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        const auto& it = m_Systems.Mesh;
         auto* const meshRenderer =
-             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+             it.get();
         if ( meshRenderer == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: no MeshSystem" );

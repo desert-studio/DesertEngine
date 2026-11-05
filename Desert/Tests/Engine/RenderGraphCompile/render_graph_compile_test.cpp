@@ -2607,10 +2607,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
               { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
                 "resolve->Resize(width,height);", "maskFb->Resize(width,height);",
                 "overdrawFb->Resize(width,height);", "->OnResize(width,height);" } );
-    declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
-                          "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
-                          "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
-                          "ResizeRenderTargets(split.GetValue().Render);" } );
+    declares( "Resize",
+              { "m_Systems.Tonemap->Resize(width,height);", "m_Systems.FXAA->Resize(width,height);",
+                "m_Systems.SMAA->Resize(width,height);", "ResizeRenderTargets(split.GetValue().Render);" } );
     {
         const std::string resize = squeeze( bodyOf( "Resize" ) );
         EXPECT_EQ( resize.find( "m_TargetFramebuffer->Resize(" ), std::string::npos )
