@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -35,19 +36,27 @@ namespace
     {
     public:
         FakeTarget()
-             : m_Storage( BufferDesc{ 4096 }, Access::None ), m_Instances( BufferDesc{ 4096 }, Access::None )
+             : m_Storage( BufferDesc{ 4096 }, Access::None ),
+               m_Rows{ ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
+                       ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
+                       ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
+                       ExternalBuffer( BufferDesc{ 4096 }, Access::None ) }
         {
         }
-        ExternalBuffer& GetInstances() override
+        Common::ResultStr<bool> EnsureRows( SceneRowBuffer, uint64_t ) override
         {
-            return m_Instances;
+            return Common::MakeSuccess( false );
         }
-        uint64_t GetInstanceMemoryBytes() const override
+        ExternalBuffer& GetRows( SceneRowBuffer buffer ) override
         {
-            return m_Instances.Desc.Bytes;
+            return m_Rows[static_cast<std::size_t>( buffer )];
         }
-        Common::BoolResultStr RecordInstanceScatter( const PassContext&, const BufferBinding&, const BufferBinding&,
-                                                     std::span<const InstanceRowRun> ) override
+        uint64_t GetRowMemoryBytes( SceneRowBuffer buffer ) const override
+        {
+            return m_Rows[static_cast<std::size_t>( buffer )].Desc.Bytes;
+        }
+        Common::BoolResultStr RecordRowScatter( const PassContext&, const BufferBinding&, const BufferBinding&,
+                                                std::span<const SceneRowRun>, uint32_t ) override
         {
             return BOOLSUCCESS;
         }
@@ -73,7 +82,7 @@ namespace
 
     private:
         ExternalBuffer m_Storage;
-        ExternalBuffer m_Instances;
+        std::array<ExternalBuffer, static_cast<std::size_t>( SceneRowBuffer::Count )> m_Rows;
     };
 
     class FakeGeometry final : public RayTracingGeometryResource

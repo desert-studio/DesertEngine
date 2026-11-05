@@ -5,11 +5,16 @@
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
+
 // THE VULKAN TLAS OF ONE VIEW (RayTracingSceneTarget). Owns the VkAccelerationStructureKHR and the buffer backing
 // it; both live across frames and are recreated only when this frame's instance count needs more storage than the
 // current one has (capacity grows to the next power of two, so a scene that adds one instance a frame does not
 // recreate every frame). Built with ALLOW_UPDATE: a frame whose rows only moved updates it in place (the update
-// keeps the last build's hierarchy and refits its bounds) instead of building it again. The storage is handed to each frame's graph as an external carrying its own state; the
+// keeps the last build's hierarchy and refits its bounds) instead of building it again. The storage is handed to
+// each frame's graph as an external carrying its own state; the
 // build itself is recorded by the graph pass (RayTracingSceneRenderer.hpp) into the pass's command buffer.
 namespace Desert::Graphic::API::Vulkan
 {
@@ -35,18 +40,21 @@ namespace Desert::Graphic::API::Vulkan
                                                          const RDG::BufferBinding& instances,
                                                          const RDG::BufferBinding& scratch,
                                                          uint32_t instanceCount, bool update ) override;
-        [[nodiscard]] RDG::ExternalBuffer& GetInstances() override
+        [[nodiscard]] Common::ResultStr<bool> EnsureRows( RayTracing::SceneRowBuffer buffer,
+                                                          uint64_t                   bytes ) override;
+        [[nodiscard]] RDG::ExternalBuffer&    GetRows( const RayTracing::SceneRowBuffer buffer ) override
         {
-            return m_InstanceExternal;
+            return m_Rows[RowIndex( buffer )].External;
         }
-        [[nodiscard]] uint64_t GetInstanceMemoryBytes() const override
+        [[nodiscard]] uint64_t GetRowMemoryBytes( const RayTracing::SceneRowBuffer buffer ) const override
         {
-            return m_InstanceLedger.GetBytes();
+            return m_Rows[RowIndex( buffer )].Ledger.GetBytes();
         }
-        [[nodiscard]] Common::BoolResultStr
-        RecordInstanceScatter( const RDG::PassContext& context, const RDG::BufferBinding& staging,
-                               const RDG::BufferBinding&                   instances,
-                               std::span<const RayTracing::InstanceRowRun> runs ) override;
+        [[nodiscard]] Common::BoolResultStr RecordRowScatter( const RDG::PassContext&                  context,
+                                                              const RDG::BufferBinding&                staging,
+                                                              const RDG::BufferBinding&                rows,
+                                                              std::span<const RayTracing::SceneRowRun> runs,
+                                                              uint32_t rowBytes ) override;
 
         // What a descriptor write binds (VkWriteDescriptorSetAccelerationStructureKHR). Null before the first
         // Prepare.
@@ -56,11 +64,26 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
+        // One persistent row buffer (RayTracingSceneTarget::EnsureRows), apart from the storage: a TLAS recreated
+        // for a larger scene keeps them.
+        struct RowBuffer
+        {
+            VkBuffer            Buffer = VK_NULL_HANDLE;
+            VmaAllocation       Memory = nullptr;
+            uint64_t            Bytes  = 0; // the capacity
+            RDG::ExternalBuffer External;
+            ResourceOwnership   Ledger; // reset by ReleaseRows
+        };
+        static constexpr std::size_t kRowBufferCount =
+             static_cast<std::size_t>( RayTracing::SceneRowBuffer::Count );
+        // An out-of-range kind names the last buffer: EnsureRows refuses it before any caller can reach here.
+        [[nodiscard]] static std::size_t RowIndex( const RayTracing::SceneRowBuffer buffer )
+        {
+            return std::min( static_cast<std::size_t>( buffer ), kRowBufferCount - 1u );
+        }
+
         void Release();
-        void ReleaseInstances();
-        // The persistent instance rows (GetInstances): made with room for at least @p rows rows; true when a new
-        // buffer was made (it holds nothing yet).
-        [[nodiscard]] Common::ResultStr<bool> EnsureInstances( uint32_t rows );
+        static void ReleaseRows( RowBuffer& rows );
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;
@@ -74,11 +97,6 @@ namespace Desert::Graphic::API::Vulkan
         PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
         RDG::ExternalBuffer                   m_External;
         ResourceOwnership                     m_Ledger; // the storage's row; reset by Release
-        // The persistent instance rows, apart from the storage: a TLAS recreated for a larger scene keeps them.
-        VkBuffer                              m_Instances        = VK_NULL_HANDLE;
-        VmaAllocation                         m_InstanceMemory   = nullptr;
-        uint32_t                              m_InstanceCapacity = 0; // rows
-        RDG::ExternalBuffer                   m_InstanceExternal;
-        ResourceOwnership                     m_InstanceLedger; // reset by ReleaseInstances
+        std::array<RowBuffer, kRowBufferCount> m_Rows;
     };
 } // namespace Desert::Graphic::API::Vulkan

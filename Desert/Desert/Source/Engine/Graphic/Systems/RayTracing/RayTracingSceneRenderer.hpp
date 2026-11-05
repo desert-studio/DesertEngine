@@ -25,10 +25,12 @@
 // THE VIEW'S TLAS (UE FRayTracingScene::Create + its build pass). Every frame whose resolved methods trace rays
 // (RayTracingSceneRequired) declares ONE graph pass, "RayTracingScene.TLAS", that builds the view's top-level
 // acceleration structure from this frame's instance list (RayTracingScene.hpp, BuildRayTracingInstances):
-//   * the instance rows are the view's PERSISTENT rows (RayTracingSceneTarget::GetInstances, a graph external,
-//     AccelStructBuildInput; UE FRayTracingScene's instance buffer): a frame writes only the CPU rows that changed
-//     since its last upload (RayTracingSceneRows::DirtyRows, one scatter copy), all of them after a relist or a new
-//     buffer, none on a still frame; the GPU-written rows follow them, rewritten by their pass each frame;
+//   * the instance rows are the view's PERSISTENT rows (RayTracingSceneTarget::GetRows, SceneRowBuffer::Instances,
+//     a graph external, AccelStructBuildInput; UE FRayTracingScene's instance buffer): a frame writes only the CPU
+//     rows that changed since the last upload that executed (SceneRowUploadState, one scatter copy), all of them
+//     after a relist, a new buffer or an upload that never ran, none on a still frame; the GPU-written rows follow
+//     them, rewritten by their pass each frame. RayTracingScene.PrimitiveInstances and the metadata
+//     (GeometryRecords / MaterialRecords) are persistent rows of the target the same way;
 //   * the scratch is a graph transient (AccelStructBuildWrite), sized by the API for this frame's count;
 //   * the TLAS storage is the view's PERSISTENT acceleration structure, registered as a graph external
 //     (AccelStructBuildWrite) — kept across frames, updated in place on a frame whose rows only moved and built
@@ -57,6 +59,9 @@ namespace Desert::Graphic::RayTracing
     inline constexpr std::string_view kTlasPassName               = "RayTracingScene.TLAS";
     inline constexpr std::string_view kTlasInstancesName          = "RayTracingScene.Instances";
     inline constexpr std::string_view kTlasInstanceScatterName    = "RayTracingScene.InstanceScatter";
+    inline constexpr std::string_view kPrimitiveInstanceScatterName = "RayTracingScene.PrimitiveInstanceScatter";
+    inline constexpr std::string_view kMetadataGeometryScatterName  = "RayTracingScene.GeometryRecordScatter";
+    inline constexpr std::string_view kMetadataMaterialScatterName  = "RayTracingScene.MaterialRecordScatter";
     inline constexpr std::string_view kTlasScratchName            = "RayTracingScene.Scratch";
     inline constexpr std::string_view kTlasStorageName            = "RayTracingScene.TLAS";
     inline constexpr std::string_view kPrimitiveInstancesName     = "RayTracingScene.PrimitiveInstances";
@@ -69,20 +74,19 @@ namespace Desert::Graphic::RayTracing
         RDG::BufferRef Tlas;
         RDG::BufferRef Instances;
         // RayTracingInstanceList::Ranges on the GPU: uint2 {FirstInstance, InstanceCount} per GPU-scene row,
-        // indexed by an instance's custom index. A reader declares it StorageRead; uploaded with the TLAS, and the
-        // upload is culled on a frame nobody reads it.
+        // indexed by an instance's custom index. A reader declares it StorageRead; the view's persistent rows
+        // (SceneRowBuffer::PrimitiveInstances), written only on a frame whose list was laid out anew.
         RDG::BufferRef PrimitiveInstances;
         uint32_t       InstanceCount = 0;
         // The CPU rows this frame copied into the persistent instance rows (0 on a still frame; every CPU row
-        // after a relist or a new buffer).
+        // after a relist, a new buffer or an upload that never ran).
         uint32_t UploadedInstanceRows = 0;
-        // The persistent instance rows' device bytes (their ledger row, RayTracingSceneTarget).
-        uint64_t InstanceBytes = 0;
-        // The graph-transient buffers' sizes as declared (the descs above were created with exactly these): the
-        // memory is placed in the device's transient heaps (ledger kind TransientHeap), so these are the frame's
-        // share of those rows, stated once here and read by RayTracingSceneStats.
+        // The persistent row buffers' device bytes (their ledger rows, RayTracingSceneTarget::GetRowMemoryBytes).
+        uint64_t InstanceBytes          = 0;
         uint64_t PrimitiveInstanceBytes = 0;
-        uint64_t ScratchBytes           = 0;
+        // The scratch is a graph transient: its size as declared (the desc was created with exactly this), the
+        // frame's share of the device's transient heaps (ledger kind TransientHeap), read by RayTracingSceneStats.
+        uint64_t ScratchBytes = 0;
         // WHAT THE FRAME TRACES, as a value a reader can compare across frames: an FNV-1a hash of the TLAS rows
         // (transforms, BLAS addresses, custom indices, SBT offsets, masks) and whether a BLAS was rebuilt in this
         // graph (DynamicGeometry: skinned/deformed geometry changes under an unchanged row). The path tracer
@@ -173,16 +177,29 @@ namespace Desert::Graphic::RayTracing
     // frame encodes nothing and a moving primitive re-encodes its own row. Hash: what the rows trace, comparable
     // across frames (RayTracingSceneFrame::InstanceHash) - FNV-1a over every row when encoded; a patch that
     // changes a row's bytes folds the row's index and new bytes in, so the hash moves exactly when a row did.
-    // THE UPLOAD STATE of the persistent device rows (UE FRDGScatterUploadBuffer): AllDirty after an encode (every
-    // row goes up), DirtyRows the rows a patch changed since the last upload; AddRayTracingScenePass clears both.
+    // THE UPLOAD STATE of one persistent row buffer (UE FRDGScatterUploadBuffer): AllDirty - every row goes up (an
+    // encode, a build, a new buffer); DirtyRows - the rows changed since the last upload (may repeat). Queued /
+    // Executed: the serial of the last upload declared, and of the last one whose copy was recorded (written by
+    // its pass's exec, read on a later frame, as RayTracingSceneTarget::Prepare reads what RecordBuild built):
+    // a frame finding them apart sends every row, so a graph that never ran its upload loses no row.
+    struct SceneRowUploadState
+    {
+        std::vector<uint32_t> DirtyRows;
+        bool                  AllDirty = true;
+        uint64_t              Queued   = 0;
+        uint64_t              Executed = 0;
+    };
+
+    // THE UPLOAD STATE of the persistent device rows: InstanceUpload - the TLAS rows (AllDirty after an encode,
+    // DirtyRows the rows a patch changed); PrimitiveUpload - RayTracingScene.PrimitiveInstances (an encode only).
     struct RayTracingSceneRows
     {
         std::vector<std::byte> Instances;                       // EncodeInstanceRows (at least one row)
         std::vector<std::byte> PrimitiveInstances;              // EncodePrimitiveInstanceRows
         uint32_t               Count = 0;                       // the CPU rows
         uint64_t               Hash  = 14695981039346656037ull; // FNV-1a 64 offset basis
-        std::vector<uint32_t>  DirtyRows;                       // patched since the last upload (may repeat)
-        bool                   AllDirty = true;
+        SceneRowUploadState    InstanceUpload;
+        SceneRowUploadState    PrimitiveUpload;
     };
     [[nodiscard]] inline RayTracingSceneRows EncodeRayTracingSceneRows( const RayTracingInstanceList& list )
     {
@@ -204,76 +221,145 @@ namespace Desert::Graphic::RayTracing
         if ( std::memcmp( row, encoded.data(), kInstanceRowBytes ) == 0 )
             return false;
         std::memcpy( row, encoded.data(), kInstanceRowBytes );
-        rows.DirtyRows.push_back( index );
+        rows.InstanceUpload.DirtyRows.push_back( index );
         rows.Hash = ( rows.Hash ^ index ) * 1099511628211ull;
         for ( const std::byte b : encoded )
             rows.Hash = ( rows.Hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
         return true;
     }
 
-    // THE INSTANCE ROW UPLOAD (UE FRDGScatterUploadBuffer): writes the CPU rows of @p sceneRows into the
-    // persistent rows @p instances - every one when @p full (a new buffer) or AllDirty (an encode), else only
-    // DirtyRows, packed into one staging buffer and copied run by run
-    // (RayTracingSceneTarget::RecordInstanceScatter); nothing on a still frame. Answers the rows written and
-    // leaves @p sceneRows clean.
-    [[nodiscard]] inline uint32_t AddInstanceRowUpload( RDG::Builder& graph, RayTracingSceneRows& sceneRows,
-                                                        RayTracingSceneTarget&   target,
-                                                        const RDG::BufferRef     instances,
-                                                        const bool full )
+    // THE ROW UPLOAD (UE FRDGScatterUploadBuffer): writes the rows of @p rows (@p rowBytes each) into the
+    // persistent
+    // @p target buffer @p buffer, registered in this graph as @p destination - every row when @p state is AllDirty
+    // or its last upload never ran, else only its DirtyRows - packed into one staging buffer and copied run by run
+    // (RayTracingSceneTarget::RecordRowScatter, pass and staging @p scatterName); nothing on a clean frame.
+    // Answers
+    // the rows declared and leaves @p state clean; its exec marks the upload executed.
+    [[nodiscard]] inline uint32_t AddSceneRowUpload( RDG::Builder& graph, const std::string_view scatterName,
+                                                     const std::span<const std::byte> rows,
+                                                     const uint32_t rowBytes, SceneRowUploadState& state,
+                                                     RayTracingSceneTarget& target,
+                                                     const RDG::BufferRef   destination )
     {
-        std::vector<uint32_t>& dirty   = sceneRows.DirtyRows;
+        const auto             rowCount = static_cast<uint32_t>( rows.size() / rowBytes );
+        const bool             every    = state.AllDirty || state.Executed != state.Queued;
+        std::vector<uint32_t>& dirty    = state.DirtyRows;
+        const auto             runs     = std::make_shared<std::vector<SceneRowRun>>();
+        std::vector<std::byte> packed;
         uint32_t               written = 0;
-        if ( full || sceneRows.AllDirty )
+        if ( every )
         {
-            written = sceneRows.Count;
-            if ( written > 0 )
-                graph.QueueBufferUpload( instances, std::span<const std::byte>( sceneRows.Instances )
-                                                         .first( static_cast<std::size_t>( written ) *
-                                                                 kInstanceRowBytes ) );
+            written = rowCount;
+            if ( rowCount > 0 )
+                runs->push_back( SceneRowRun{ .FirstRow = 0u, .RowCount = rowCount } );
         }
         else if ( !dirty.empty() )
         {
             std::sort( dirty.begin(), dirty.end() );
             dirty.erase( std::unique( dirty.begin(), dirty.end() ), dirty.end() );
-            const auto             runs = std::make_shared<std::vector<InstanceRowRun>>();
-            std::vector<std::byte> packed( dirty.size() * kInstanceRowBytes );
-            for ( std::size_t i = 0; i < dirty.size(); ++i )
+            packed.reserve( dirty.size() * rowBytes );
+            for ( const uint32_t row : dirty )
             {
-                const uint32_t row = dirty[i];
-                std::memcpy( packed.data() + i * kInstanceRowBytes,
-                             sceneRows.Instances.data() + static_cast<std::size_t>( row ) * kInstanceRowBytes,
-                             kInstanceRowBytes );
+                if ( row >= rowCount )
+                    continue; // a row past this frame's rows: no reader indexes it
+                const std::byte* const source = rows.data() + static_cast<std::size_t>( row ) * rowBytes;
+                packed.insert( packed.end(), source, source + rowBytes );
                 if ( !runs->empty() && runs->back().FirstRow + runs->back().RowCount == row )
                     ++runs->back().RowCount;
                 else
-                    runs->push_back( InstanceRowRun{ .FirstRow = row, .RowCount = 1u } );
+                    runs->push_back( SceneRowRun{ .FirstRow = row, .RowCount = 1u } );
+                ++written;
             }
-            const RDG::BufferRef staging =
-                 graph.CreateBuffer( RDG::BufferDesc{ packed.size() }, kTlasInstanceScatterName );
-            graph.QueueBufferUpload( staging, packed );
-            graph.AddPass(
-                 kTlasInstanceScatterName, RDG::PassFlags::Copy,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     pass.Read( staging, RDG::Access::CopySrc );
-                     pass.Write( instances, RDG::Access::CopyDst );
-                 },
-                 [&target, staging, instances, runs]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     const auto source = context.GetBuffer( staging, RDG::Access::CopySrc );
-                     if ( !source )
-                         return Common::MakeError( source.GetError() );
-                     const auto destination = context.GetBuffer( instances, RDG::Access::CopyDst );
-                     if ( !destination )
-                         return Common::MakeError( destination.GetError() );
-                     return target.RecordInstanceScatter( context, source.GetValue(), destination.GetValue(),
-                                                          *runs );
-                 } );
-            written = static_cast<uint32_t>( dirty.size() );
         }
         dirty.clear();
-        sceneRows.AllDirty = false;
+        state.AllDirty = false;
+        if ( runs->empty() )
+            return 0;
+        std::span<const std::byte> payload = packed;
+        if ( every )
+            payload = rows.first( static_cast<std::size_t>( rowCount ) * rowBytes );
+        const RDG::BufferRef staging = graph.CreateBuffer( RDG::BufferDesc{ payload.size() }, scatterName );
+        graph.QueueBufferUpload( staging, payload );
+        const uint64_t             serial    = ++state.Queued;
+        SceneRowUploadState* const committed = &state;
+        graph.AddPass(
+             scatterName, RDG::PassFlags::Copy,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( staging, RDG::Access::CopySrc );
+                 pass.Write( destination, RDG::Access::CopyDst );
+             },
+             [&target, staging, destination, runs, rowBytes, committed,
+              serial]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const auto source = context.GetBuffer( staging, RDG::Access::CopySrc );
+                 if ( !source )
+                     return Common::MakeError( source.GetError() );
+                 const auto rowsBinding = context.GetBuffer( destination, RDG::Access::CopyDst );
+                 if ( !rowsBinding )
+                     return Common::MakeError( rowsBinding.GetError() );
+                 Common::BoolResultStr recorded = target.RecordRowScatter( context, source.GetValue(),
+                                                                    rowsBinding.GetValue(), *runs, rowBytes );
+                 if ( recorded )
+                     committed->Executed = serial;
+                 return recorded;
+             } );
         return written;
+    }
+
+    // One persistent row buffer in this graph: @p buffer made to hold @p bytes (a new buffer makes @p state
+    // AllDirty before anything else can fail), registered as @p name, and @p rows' changed rows written
+    // (AddSceneRowUpload).
+    struct SceneRowsFrame
+    {
+        RDG::BufferRef Rows;
+        uint32_t       Uploaded = 0; // rows declared this frame
+    };
+    [[nodiscard]] inline Common::ResultStr<SceneRowsFrame>
+    AddSceneRows( RDG::Builder& graph, RayTracingSceneTarget& target, const SceneRowBuffer buffer,
+                  const std::string_view name, const std::string_view scatterName, const uint64_t bytes,
+                  const std::span<const std::byte> rows, const uint32_t rowBytes, SceneRowUploadState& state )
+    {
+        const Common::ResultStr<bool> made = target.EnsureRows( buffer, bytes );
+        if ( !made )
+            return Common::MakeFormattedError<SceneRowsFrame>( "{}: {}", name, made.GetError() );
+        if ( made.GetValue() )
+            state.AllDirty = true;
+        SceneRowsFrame frame;
+        frame.Rows     = graph.RegisterExternal( target.GetRows( buffer ), name );
+        frame.Uploaded = AddSceneRowUpload( graph, scatterName, rows, rowBytes, state, target, frame.Rows );
+        return Common::MakeSuccess( frame );
+    }
+
+    // THE METADATA'S PERSISTENT ROWS: @p metadata's geometry and material records in the target's GeometryRecords
+    // /
+    // MaterialRecords buffers, only the rows @p geometry / @p materials name changed (every row after a build, a
+    // new buffer or an upload that never ran). A buffer holds at least one row: a scene with no masked segment
+    // reads no material row. Answers this graph's refs.
+    [[nodiscard]] inline Common::ResultStr<RayTracingMetadataFrame>
+    AddRayTracingMetadataUpload( RDG::Builder& graph, const RayTracingMetadata& metadata,
+                                 SceneRowUploadState& geometry, SceneRowUploadState& materials,
+                                 RayTracingSceneTarget& target )
+    {
+        using Result                     = RayTracingMetadataFrame;
+        constexpr uint32_t kGeometryRow  = sizeof( RayTracingGeometryRecord );
+        constexpr uint32_t kMaterialRow  = sizeof( RayTracingMaterialRecord );
+        const std::span<const std::byte> geometryRows = std::as_bytes( std::span( metadata.Geometry ) );
+        const std::span<const std::byte> materialRows = std::as_bytes( std::span( metadata.Materials ) );
+        const uint64_t     geometryBytes = std::max<uint64_t>( geometryRows.size(), kGeometryRow );
+        const uint64_t     materialBytes = std::max<uint64_t>( materialRows.size(), kMaterialRow );
+        const Common::ResultStr<SceneRowsFrame> geometryFrame =
+             AddSceneRows( graph, target, SceneRowBuffer::GeometryRecords, kMetadataGeometryName,
+                           kMetadataGeometryScatterName, geometryBytes, geometryRows, kGeometryRow, geometry );
+        if ( !geometryFrame )
+            return Common::MakeError<Result>( geometryFrame.GetError() );
+        const Common::ResultStr<SceneRowsFrame> materialFrame =
+             AddSceneRows( graph, target, SceneRowBuffer::MaterialRecords, kMetadataMaterialsName,
+                           kMetadataMaterialScatterName, materialBytes, materialRows, kMaterialRow, materials );
+        if ( !materialFrame )
+            return Common::MakeError<Result>( materialFrame.GetError() );
+        return Common::MakeSuccess( Result{ .Geometry  = geometryFrame.GetValue().Rows,
+                                            .Materials = materialFrame.GetValue().Rows } );
     }
 
     // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
@@ -285,7 +371,8 @@ namespace Desert::Graphic::RayTracing
     // @p update: @p sceneRows hold the instances of the target's last build in the same order, only moved since:
     // the TLAS is updated in place when the target can take it (RayTracingSceneTarget::Prepare;
     // RayTracingSceneFrame::Updated), built otherwise. @p sceneRows' changed rows go up into the target's
-    // persistent rows (AddInstanceRowUpload); they are clean after the call.
+    // persistent rows, and its PrimitiveInstances when laid out anew (AddSceneRows); they are clean after the
+    // call.
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
     AddRayTracingScenePass( RDG::Builder& graph, bool required, RayTracingSceneRows& sceneRows,
                             RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {},
@@ -309,20 +396,35 @@ namespace Desert::Graphic::RayTracing
         frame.DynamicGeometry = blasBuiltInThisGraph;
         if ( gpuRowCount > 0 )
             frame.InstanceHash = ( frame.InstanceHash ^ gpuRows->GetKey() ) * 1099511628211ull;
-        frame.InstanceBytes = target.GetInstanceMemoryBytes();
-        frame.Instances     = graph.RegisterExternal( target.GetInstances(), kTlasInstancesName );
-        const bool recreated = sizes.GetValue().InstancesRecreated;
-        frame.UploadedInstanceRows = AddInstanceRowUpload( graph, sceneRows, target, frame.Instances, recreated );
-        // The GPU rows follow the CPU rows; the pass below writes every one of them.
+        // The persistent instance rows hold every row the build reads (at least one), the CPU rows' changed ones
+        // written here; the GPU rows follow them, the pass below writes every one of them.
+        const auto     cpuRowBytes = std::span<const std::byte>( sceneRows.Instances )
+                                      .first( static_cast<std::size_t>( cpuRows ) * kInstanceRowBytes );
+        const uint64_t instanceRowBytes =
+             static_cast<uint64_t>( std::max( frame.InstanceCount, 1u ) ) * kInstanceRowBytes;
+        const Common::ResultStr<SceneRowsFrame> instanceRows =
+             AddSceneRows( graph, target, SceneRowBuffer::Instances, kTlasInstancesName, kTlasInstanceScatterName,
+                           instanceRowBytes, cpuRowBytes, kInstanceRowBytes, sceneRows.InstanceUpload );
+        if ( !instanceRows )
+            return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kTlasPassName,
+                                                                     instanceRows.GetError() );
+        frame.Instances            = instanceRows.GetValue().Rows;
+        frame.UploadedInstanceRows = instanceRows.GetValue().Uploaded;
+        frame.InstanceBytes        = target.GetRowMemoryBytes( SceneRowBuffer::Instances );
         if ( gpuRowCount > 0 )
             if ( const Common::BoolResultStr written = gpuRows->AddPass( graph, frame.Instances, cpuRows );
                  !written )
                 return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kGpuInstancesPassName,
                                                                          written.GetError() );
-        frame.PrimitiveInstanceBytes = sceneRows.PrimitiveInstances.size();
-        frame.PrimitiveInstances =
-             graph.CreateBuffer( RDG::BufferDesc{ frame.PrimitiveInstanceBytes }, kPrimitiveInstancesName );
-        graph.QueueBufferUpload( frame.PrimitiveInstances, sceneRows.PrimitiveInstances );
+        const Common::ResultStr<SceneRowsFrame> primitiveRows = AddSceneRows(
+             graph, target, SceneRowBuffer::PrimitiveInstances, kPrimitiveInstancesName,
+             kPrimitiveInstanceScatterName, sceneRows.PrimitiveInstances.size(), sceneRows.PrimitiveInstances,
+             static_cast<uint32_t>( kPrimitiveInstancesRowBytes ), sceneRows.PrimitiveUpload );
+        if ( !primitiveRows )
+            return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kTlasPassName,
+                                                                     primitiveRows.GetError() );
+        frame.PrimitiveInstances     = primitiveRows.GetValue().Rows;
+        frame.PrimitiveInstanceBytes = target.GetRowMemoryBytes( SceneRowBuffer::PrimitiveInstances );
         frame.ScratchBytes = sizes.GetValue().ScratchBytes;
         const RDG::BufferRef scratch =
              graph.CreateBuffer( RDG::BufferDesc{ frame.ScratchBytes }, kTlasScratchName );
@@ -380,8 +482,8 @@ namespace Desert::Graphic::RayTracing
         uint64_t SkinCacheBlasBytes      = 0; // the scene's skin-cache BLASes
         uint64_t SkinCachePositionsBytes = 0; // the scene's skin-cache streams (positions, previous, tangents)
         uint64_t TlasBytes               = 0; // this view's TLAS storage
-        uint64_t TlasInstanceBytes       = 0; // this frame's instance rows (transient)
-        uint64_t PrimitiveInstanceBytes  = 0; // this frame's RayTracingScene.PrimitiveInstances rows (transient)
+        uint64_t TlasInstanceBytes       = 0; // this view's persistent instance rows (SceneRowBuffer::Instances)
+        uint64_t PrimitiveInstanceBytes  = 0; // this view's persistent RayTracingScene.PrimitiveInstances rows
         uint64_t TlasScratchBytes        = 0; // this frame's TLAS build scratch (transient)
         uint64_t DynamicScratchBytes     = 0; // this frame's RayTracingScene.DynamicGeometry scratch (transient)
         uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
@@ -446,7 +548,8 @@ namespace Desert::Graphic::RayTracing
                                                        float                               drawDistanceScale,
                                                        const RayTracingExternalPrimitives& external = {} );
 
-        // THE SCENE'S ROWS WITHOUT A TLAS: on a frame whose AddPasses built none, gathers this frame's primitives and
+        // THE SCENE'S ROWS WITHOUT A TLAS: on a frame whose AddPasses built none, gathers this frame's primitives
+        // and
         // segment records with no BLAS resolved (GatherRayTracingPrimitives with no variants) from the queues and
         // view AddPasses was given, so GetPrimitives / GetSegmentRecords answer for a reader of the scene's meshes
         // (the emissive light list under the software GI tracer, EmissiveLights.hpp). A frame with a TLAS keeps
@@ -511,7 +614,8 @@ namespace Desert::Graphic::RayTracing
         {
             return m_LayoutSerial;
         }
-        // This frame's TLAS traces a skinned primitive's skin-cache stream (RayTracingPrimitive::DeformedPositions):
+        // This frame's TLAS traces a skinned primitive's skin-cache stream
+        // (RayTracingPrimitive::DeformedPositions):
         // a reader holding that graph ref must take this frame's.
         [[nodiscard]] bool HasDeformedPositions() const
         {
@@ -553,7 +657,9 @@ namespace Desert::Graphic::RayTracing
         }
         [[nodiscard]] std::span<const RayTracingGeometryRecord> GetGeometryRecords() const
         {
-            return m_GeometryRecords;
+            if ( !m_Metadata )
+                return {};
+            return m_Metadata->Metadata.Geometry;
         }
 
     private:
@@ -576,10 +682,12 @@ namespace Desert::Graphic::RayTracing
         bool                     m_GatherIsScene = false;
         uint64_t                 m_SceneGathers  = 0;
         uint64_t                 m_SceneGatherMoves = 0;
-        // The kept scene gather's primitives by GPU-scene row (kinds with a CPU world), and this frame's moved ones.
+        // The kept scene gather's primitives by GPU-scene row (kinds with a CPU world), and this frame's moved
+        // ones.
         std::unordered_multimap<uint32_t, uint32_t> m_ScenePrimitivesOfRow;
         std::vector<uint32_t>                       m_SceneMoved;
-        // GatherScene: each Moved change of @p changes onto the kept primitives of its row (the GpuScene row's first
+        // GatherScene: each Moved change of @p changes onto the kept primitives of its row (the GpuScene row's
+        // first
         // instance, RayTracingPrimitive::GpuSceneRow); returns whether any primitive of the gather moved.
         bool MoveScenePrimitives( const GpuDriven::GpuScene& scene, std::span<const GpuDriven::PrimitiveChange> changes );
         // The changes since the kept gather's cursor when they keep it (only moves of meshed primitives, the same
@@ -598,7 +706,8 @@ namespace Desert::Graphic::RayTracing
 
         // The TLAS gather (AddPasses): m_Gather resolved BLASes (variants, skin cache, procedural) and carries the
         // external tail after m_GatherSceneCount primitives / m_GatherSceneRecords records; the scene's part is
-        // what the stream follows. m_DynamicPrimitives: its skinned and procedural primitives, refilled each frame.
+        // what the stream follows. m_DynamicPrimitives: its skinned and procedural primitives, refilled each
+        // frame.
         bool                  m_GatherHasBlas      = false;
         std::size_t           m_GatherSceneCount   = 0;
         std::size_t           m_GatherSceneRecords = 0;
@@ -629,6 +738,15 @@ namespace Desert::Graphic::RayTracing
         RayTracingSceneStats                        m_Stats;
         RayTracingInstanceList                      m_Instances;
         RayTracingSceneFrame                        m_Frame;
-        std::vector<RayTracingGeometryRecord>       m_GeometryRecords; // this frame's, as uploaded (capacity kept)
+        // The metadata's persistent rows' upload state (AddRayTracingMetadataUpload) and the patched primitives
+        // of this frame (CPU scratch, capacity kept).
+        SceneRowUploadState   m_GeometryUpload;
+        SceneRowUploadState   m_MaterialUpload;
+        std::vector<uint32_t> m_MetadataPatched;
+        // The distinct BLASes the list traces (RayTracingSceneStats::TracedBlasBytes), kept with the list and the
+        // GPU rows' key they were collected for.
+        std::vector<const RayTracingGeometryResource*> m_TracedGeometry;
+        bool                                           m_TracedGeometryValid = false;
+        uint64_t                                       m_TracedGpuRowsKey    = 0;
     };
 } // namespace Desert::Graphic::RayTracing
