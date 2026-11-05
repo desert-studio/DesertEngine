@@ -648,7 +648,7 @@ namespace Desert::Geometry
                 continue;
             }
             const Index2i    ev = mesh->GetEdgeV( e );
-            EdgeCollapseInfo info{};
+            DynamicMeshInfo::EdgeCollapseInfo info{};
             if ( mesh->CollapseEdge( ev.A, ev.B, 0.5, options, info ) == MeshResult::Ok )
                 ++collapsed;
             else if ( refused++ == 0 )
