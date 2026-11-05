@@ -225,8 +225,8 @@ namespace Desert::Editor
                                                                         Core::XformArgsFromModelingState() );
                                   } } );
         }
-        // Boolean and Trim (UE's Boolean / Trim tools) on the scene selection's two entities, at the panel's
-        // values.
+        // Boolean and Trim (UE's Boolean / Trim tools): opens the tool session on the scene selection's two
+        // entities (MeshProcessingTool previews at the panel's values; the tool bar's Accept writes the result).
         for ( const Core::BooleanTool tool : { Core::BooleanTool::Boolean, Core::BooleanTool::Trim } )
         {
             commands.push_back(
@@ -234,7 +234,11 @@ namespace Desert::Editor
                    {
                        if ( !scene )
                            return PaletteCommandOutcome( false, "no scene is open" );
-                       return Core::ApplyBooleanTool( *scene, tool, Core::BooleanArgsFromModelingState() );
+                       Core::ModelingState::Get().ActiveTool = tool == Core::BooleanTool::Trim
+                                                                    ? Core::ModelingState::Tool::Trim
+                                                                    : Core::ModelingState::Tool::Boolean;
+                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                       return PaletteCommandDone();
                    } } );
         }
         // THE REST OF THE MODELING PANEL (M30): every button, checkbox and closed choice ModelingPanel draws,

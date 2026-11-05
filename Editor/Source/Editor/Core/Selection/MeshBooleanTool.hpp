@@ -1,10 +1,12 @@
 #pragma once
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <cstdint>
 
@@ -16,15 +18,17 @@ namespace Desert::Core
 namespace Desert::Geometry
 {
     class DynamicMesh3;
+    struct DeformOutcome;
 }
 
 namespace Desert::Editor::Core
 {
     // UE's Boolean and Trim tools (UCSGMeshesTool, and the same tool in trim mode; MeshModelingTools
-    // CSGMeshesTool.h) on the TWO entities of the scene selection, A the first selected and B the second. Each
-    // runs MeshBoolean (Engine/Geometry/MeshBooleanOperation.hpp) on copies, the other entity's mesh baked into
-    // the operated one's space, and writes the result as one undo step. In UE each is a tool with a live
-    // preview and an Accept; here each is an operation that runs on one click.
+    // CSGMeshesTool.h) on the TWO entities of the scene selection, A the first selected and B the second. As in UE
+    // each is a TOOL SESSION (MeshProcessingTool, ModelingState::Tool::Boolean / Trim): RunBooleanTool computes
+    // the result in the background on copies, A draws it as the preview while B is hidden, a change of the
+    // operation recomputes it; Accept writes it with CommitBooleanTool as ONE undo step; Cancel leaves both
+    // entities as they were.
 
     enum class BooleanTool : uint8_t
     {
@@ -86,19 +90,9 @@ namespace Desert::Editor::Core
         BooleanInputs  Inputs    = BooleanInputs::Delete;
     };
 
-    [[nodiscard]] BooleanToolArgs BooleanArgsFromModelingState();
-
-    // Refused, with the scene untouched: a selection of other than two entities; an entity without an editable
-    // mesh or a transform, or with children (the result replaces the mesh, the children would be left out of
-    // it); a cutter transform that flattens the mesh; and every refusal of RunMeshBoolean, named with its
-    // numbers (an open mesh in a Boolean, an open cutter, a seam left open, an empty result, a cutter that
-    // does not cross the trimmed mesh). The result is selected.
-    [[nodiscard]] Common::BoolResultStr ApplyBooleanTool( ::Desert::Core::Scene& scene, BooleanTool tool,
-                                                          const BooleanToolArgs& args );
     // UE UBaseCreateFromSelectedTool's two inputs, for an operator that runs on them in the background
-    // (VoxBoolean, MeshProcessingTool): A and B of the scene selection with the same refusals as ApplyBooleanTool,
-    // A's tool target mesh and B's baked into A's object space (material IDs are not carried: the voxel result has
-    // none).
+    // (Boolean, Trim, VoxBoolean, VoxBlend: MeshProcessingTool): A and B of the scene selection,
+    // A's tool target mesh and B's baked into A's object space.
     struct SelectedMeshPair
     {
         Common::UUID                                  A, B;
@@ -106,7 +100,29 @@ namespace Desert::Editor::Core
         std::shared_ptr<const Geometry::DynamicMesh3> MeshA, MeshBInA;
         // What each component holds now (ToolTargetMesh::Committed): the "before" a hidden input keeps.
         std::shared_ptr<const Geometry::DynamicMesh3> CommittedA, CommittedB;
+        // With @p remapMaterials: A's material slots, then B's not already among them; MeshBInA's material IDs
+        // index this table (a Boolean keeps B's triangles, so the result's slots are the table).
+        std::vector<Common::AssetHandle> MaterialSlots;
     };
-    [[nodiscard]] Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene,
-                                                                              const char*            toolName );
+    // Refused, with the scene untouched: a selection of other than two entities; an entity without an editable
+    // mesh or a transform, or with children (the result replaces the mesh, the children would be left out of it).
+    [[nodiscard]] Common::ResultStr<SelectedMeshPair>
+    SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene, const char* toolName, bool remapMaterials );
+
+    // The operator of the Boolean / Trim session, on copies (a JobSystem worker runs it): MeshBoolean
+    // (Engine/Geometry/MeshBooleanOperation.hpp) in A's object space, the operated input (B for Difference
+    // B - A and Trim B) as the target and the other as the cutter. Refused with every refusal of RunMeshBoolean,
+    // named with its numbers (an open mesh in a Boolean, an open cutter, a seam left open, an empty result, a
+    // cutter that does not cross the trimmed mesh).
+    [[nodiscard]] Common::ResultStr<Geometry::DeformOutcome>
+    RunBooleanTool( BooleanTool tool, const BooleanToolArgs& args, const SelectedMeshPair& inputs );
+    // The session's Accept: @p resultInA (RunBooleanTool's mesh, in A's object space) is written to the operated
+    // input (Write To Input; carried into B's space when B is operated) or to a copy of it (New Object), the
+    // inputs not written into are deleted / hidden / kept - all ONE undo step. Refused with a cutter transform
+    // that flattens the mesh or an input that left the scene. The result is selected; returns the entities the
+    // result is on.
+    [[nodiscard]] Common::ResultStr<std::vector<Common::UUID>>
+    CommitBooleanTool( ::Desert::Core::Scene& scene, BooleanTool tool, const BooleanToolArgs& args,
+                       const SelectedMeshPair&                              inputs,
+                       const std::shared_ptr<const Geometry::DynamicMesh3>& resultInA );
 } // namespace Desert::Editor::Core
