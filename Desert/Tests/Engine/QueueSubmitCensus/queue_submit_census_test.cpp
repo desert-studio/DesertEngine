@@ -190,17 +190,25 @@ TEST( QueueSubmitCensus, DetachedImGuiWindowsRenderUnderTheQueueLock )
     std::size_t calls = 0;
     for ( std::size_t at = src.find( "return Capture(" ); at != std::string::npos;
           at             = src.find( "return Capture(", at + 1 ) )
-    {
         ++calls;
-        const std::size_t lock      = src.rfind( "LockQueues()", at );
-        const std::size_t scopeOpen = src.rfind( '{', at );
-        EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
-             << "a backend call (Capture) at offset " << at
-             << " must run in a scope that took VulkanLogicalDevice::LockQueues() first: the backend submits, "
-                "presents and waits the device idle on the shared queue.";
-    }
     // The window calls (create / resize / destroy, AfterOwnWork) and the frame (Draw).
     EXPECT_EQ( calls, 2u ) << "the backend is called from a new place; census it";
+    // Step 8: only the frame (the backend's acquire, submit and present) touches the queue, so only its Capture
+    // needs the queue lock; the window calls wait the window's own fences in the fork, not the device idle.
+    const std::size_t render    = src.find( "BackendRender(" );
+    const std::size_t frame     = render == std::string::npos ? render : src.rfind( "return Capture(", render );
+    const std::size_t lock      = frame == std::string::npos ? frame : src.rfind( "LockQueues()", frame );
+    const std::size_t scopeOpen = frame == std::string::npos ? frame : src.rfind( '{', frame );
+    EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
+         << "the frame's backend call (Capture around BackendRender) must run in a scope that took "
+            "VulkanLogicalDevice::LockQueues() first: the backend submits and presents on the shared queue.";
+    // The fork (gitlink ThirdParty/ImGui) is what makes the window calls queue-free and a failed frame stop.
+    const std::string backend = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "ThirdParty/ImGui/backends/imgui_impl_vulkan.cpp" ) );
+    EXPECT_NE( backend.find( "ImGui_ImplVulkanH_WaitWindowFrames(" ), std::string::npos )
+         << "the ImGui fork no longer waits a window's own fences (gitlink rolled back?)";
+    EXPECT_NE( backend.find( "PresentPending" ), std::string::npos )
+         << "the ImGui fork presents after a failed RenderWindow again (gitlink rolled back?)";
     for ( const char* const call : { "BackendCreate(", "BackendDestroy(", "BackendResize(", "BackendRender(",
                                      "BackendPresent(" } )
         EXPECT_NE( src.find( call ), std::string::npos ) << call << " is no longer called; update the census";
