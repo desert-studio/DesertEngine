@@ -24,8 +24,8 @@
 //             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel).
 //   Update    entries whose probe belongs to another world cell (the clipmap scrolled) or that went unread for
 //             kProbeUnusedFramesBeforeFree frames free their slot.
-//   Allocate  used empty entries take a slot; every used probe is ranked (new, lights changed, then age of its
-//             last trace) into the priority histogram.
+//   Allocate  used empty entries take a slot; every used probe is ranked (new of the coverage, new of the
+//             fallback, lights changed, then age of its last trace) into the priority histogram.
 //   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list.
 //   Trace     each listed probe traces its octahedral texels through the GI ray contract (Common/GITracing.glslh:
 //             the pipeline's tracer, the hit lit in place, the sky on a miss) into the radiance atlas, blended
@@ -85,6 +85,11 @@ namespace Desert::Graphic::GlobalIllumination
         // The directional lights of the frame (the same values GIFrame carries): a significant change from the
         // lighting the probes were last fully traced under makes this frame a full update (AddUpdatePasses).
         DirectionalLighting Lighting;
+        // The screen probes read this frame's cache with the coarser fallback (Common/RadianceCache.glslh
+        // RadianceCacheRadianceAt): Mark also stamps the clipmap past each pixel's coarse end, the level that
+        // answers while the coverage clipmap's cells are untraced. False for a cache only the irradiance readers
+        // read (the probe volume gather): nobody reads that level there, so its cells would only take the budget.
+        bool MarkRadianceFallback = false;
     };
 
     // What a reader of this frame's cache binds (Common/RadianceCache.glslh, the read section).
@@ -99,6 +104,50 @@ namespace Desert::Graphic::GlobalIllumination
         // a screen probe ray that leaves the cache's minimum trace distance without a hit
         // (RadianceCacheRadianceAt).
         RDG::TextureRef Radiance; // "RadianceCacheRadianceAtlasTexture"
+    };
+
+    // PROBE-TRACE-COST-3: one frame's radiance cache update in counts - RC_COUNT_* of Common/RadianceCacheState.glslh,
+    // in this order, written by RadianceCacheSelect.shader once Mark, Update and Allocate are done. Where a camera
+    // turn's probes go: the entries the readers stamped and how many of them hold a probe never traced, against what
+    // the budget traced; the slots taken, refused (the atlas full) and freed, by why.
+    struct RadianceCacheUpdateCounts
+    {
+        static constexpr uint32_t kWords = 12u + 2u * RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
+        uint32_t Stamped       = 0; // entries a reader stamped this frame (RadianceCacheMark)
+        uint32_t NeverTraced   = 0; // ... by a coverage reader, never traced (RC_PRIORITY_NEW_COVERAGE)
+        uint32_t Traced        = 0; // probes traced this frame: min(Stamped, Budget)
+        uint32_t Budget        = 0; // the Select pass's budget (ProbesPerFrame, MaxProbes on a full update)
+        uint32_t Allocated     = 0; // empty stamped entries that took a slot
+        uint32_t Failed        = 0; // ... that found none (the atlas is full)
+        uint32_t FreedStale    = 0; // the clipmap scrolled past the probe's cell
+        uint32_t FreedUnused   = 0; // unread for more than kProbeUnusedFramesBeforeFree frames
+        uint32_t FreedPressure = 0; // unread for more than the pressure's keep only (RADIANCE_CACHE_PRESSURE_KEEP_FRAMES)
+        uint32_t Pressed       = 0; // 1: the last frame refused a slot, so the pressure's keep applied
+        uint32_t Live          = 0; // slots held after Allocate
+        uint32_t MaxProbes     = 0; // the atlas's slots
+        std::array<uint32_t, RadianceCache::kMaxClipmaps> NeverTracedByClipmap{}; // NeverTraced per clipmap
+        // Never-traced probes only the fallback stamped (the clipmap past a pixel's coarse end), per clipmap; they
+        // are traced from what the coverage's new probes leave of the budget (RC_PRIORITY_NEW_FALLBACK).
+        std::array<uint32_t, RadianceCache::kMaxClipmaps> FallbackByClipmap{};
+        bool                                              Valid = false; // a frame's words have come back
+    };
+    static_assert( RadianceCacheUpdateCounts::kWords == 24 ); // RC_COUNT_WORDS with RADIANCE_CACHE_MAX_CLIPMAPS 6
+
+    // RadianceCache.UpdateCounts read back through a frame-in-flight slot (ScreenProbeMissCounts' pattern): when the
+    // slot comes round again its fence has passed. Last() is the newest frame read, slots-in-flight late.
+    class RadianceCacheUpdateCountsReadback
+    {
+    public:
+        // Reads the slot of @p frameIndex, then hands it this frame's @p counts (extracted for the host).
+        void AddFrame( RDG::Builder& graph, uint64_t frameIndex, RDG::BufferRef counts );
+        [[nodiscard]] const RadianceCacheUpdateCounts& Last() const
+        {
+            return m_Last;
+        }
+
+    private:
+        std::vector<RDG::ExternalBuffer> m_Slots;
+        RadianceCacheUpdateCounts        m_Last;
     };
 
     class WorldRadianceCache
@@ -130,6 +179,11 @@ namespace Desert::Graphic::GlobalIllumination
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                          const RadianceCache::RadianceCacheInputs& shape,
                          const RadianceCacheUpdateInputs&          inputs );
+        // The newest update read back in counts (RadianceCacheUpdateCounts), frames in flight late.
+        [[nodiscard]] const RadianceCacheUpdateCounts& LastUpdateCounts() const
+        {
+            return m_UpdateCounts.Last();
+        }
 
     private:
         enum Pass : uint32_t
@@ -170,5 +224,7 @@ namespace Desert::Graphic::GlobalIllumination
         // The directional lighting of the last full update (empty until the first update after a reset).
         std::optional<DirectionalLighting> m_LitBy;
         uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
+        uint32_t m_FullUpdatesInWindow                     = 0; // since the last "[RadianceCache] traced" line
+        RadianceCacheUpdateCountsReadback  m_UpdateCounts;
     };
 } // namespace Desert::Graphic::GlobalIllumination

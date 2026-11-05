@@ -1,11 +1,14 @@
 // DesertAsset {"Kind":"Shader","Guid":"a0fa2ae2b4ca49f2940bb34be1953134","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 5/6 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per selected
-// probe. The probe is first moved out of geometry by the tracer (GIMoveOutOfGeometry; not in UE: a world-grid
-// probe inside a wall would see only the wall's back faces; DDGI relocates its probes the same way), then each of
-// its octahedral texels traces one jittered ray through the GI ray contract (Common/GITracing.glslh: the
-// permutation's tracer, the hit lit in place, the sky on a miss) and blends it into the radiance atlas with the
-// probe's history. The program is compiled per tracer (GlobalIllumination::TracerVariant); it names none.
-// .a keeps the hit distance for the visibility moments.
+// THE RADIANCE CACHE UPDATE, 5/6 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per TRACE
+// TILE of a selected probe - 64 of its octahedral texels, one ray per thread (UE's probe trace tiles; workgroup
+// (x = the probe's place in the schedule, y = the tile), WorldRadianceCache's Trace dispatch). One workgroup per
+// probe looping over its res^2 texels left 100 groups of serial rays on the whole GPU (GPU-TURN-4: 0.62 ms on the
+// TURN for 100 probes). The probe is first moved out of geometry by the tracer (GIMoveOutOfGeometry; not in UE: a
+// world-grid probe inside a wall would see only the wall's back faces; DDGI relocates its probes the same way) -
+// by every tile of it, the same deterministic position, written to the probe by each - then each texel traces one
+// jittered ray by the GI ray contract (Common/GITracing.glslh: the permutation's tracer, the hit lit in place,
+// the sky on a miss) and blends it into the radiance atlas with the probe's history. The program is compiled per
+// tracer (GlobalIllumination::TracerVariant); it names none. .a keeps the hit distance for the visibility moments.
 Shader "RadianceCacheTrace"
 {
     Compute
@@ -94,7 +97,8 @@ Shader "RadianceCacheTrace"
             if ( gl_LocalInvocationIndex == 0u )
             {
                 // Out of geometry: up to a quarter cell of free space around the probe, at most 0.45 cell from the
-                // cell centre (the probe stays the cell's).
+                // cell centre (the probe stays the cell's). Each tile of the probe moves it to the same point: the
+                // field / scene it reads is this frame's for all of them, and it reads no probe offset.
                 const vec3 p = GIMoveOutOfGeometry( centre, 0.25 * cell, 0.45 * cell );
                 s_Position   = p;
                 radianceCacheProbes[probe].offset = vec4( p - centre, 0.0 );
@@ -109,7 +113,10 @@ Shader "RadianceCacheTrace"
             const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? DirtyHistory : HistoryWeight );
             // The cone of one texel: its solid angle 4 pi / res^2 as a cone's half angle.
             const float cone    = sqrt( 4.0 / float( res * res ) );
-            for ( uint texel = gl_LocalInvocationIndex; texel < res * res; texel += 64u )
+            // This thread's texel: the tile's 64 in row order (the last tile of a res whose square is no multiple
+            // of 64 is partly empty). No barrier follows, so the threads past the probe's texels simply end.
+            const uint  texel   = gl_WorkGroupID.y * 64u + gl_LocalInvocationIndex;
+            if ( texel < res * res )
             {
                 const ivec2 t = ivec2( texel % res, texel / res );
                 const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( res ) * 2.0 - 1.0;

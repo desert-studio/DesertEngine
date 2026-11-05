@@ -64,9 +64,11 @@ namespace Desert::Graphic::RDG
         // list joins the stream). The record phase's chunks as tasks: JobSystem helpers claim them in chunk order
         // and record them, while the calling thread walks the graph in pass order and records the serial passes.
         // At a chunk's position the calling thread takes the chunk itself when no helper has claimed it yet (the
-        // pool may be busy with the game thread's work), else waits for the helper that has it. It never waits
-        // for a chunk nobody claimed, so a busy or empty pool only makes the walk serial, as before.
-        // Held by shared_ptr: a helper the pool runs after the record phase returned finds the share closed.
+        // pool may be busy with the game thread's work); while a helper still records it, the calling thread
+        // records the next unclaimed chunks itself, and waits for the helper only once none is left
+        // (FPS7-CPU-STILL-1). It never waits for a chunk nobody claimed, so a busy or empty pool only makes the
+        // walk serial, as before. Held by shared_ptr: a helper the pool runs after the record phase returned finds
+        // the share closed.
         class ChunkTasks
         {
         public:
@@ -106,7 +108,17 @@ namespace Desert::Graphic::RDG
             // The calling thread at chunk @p chunk's position in the walk: returns once the chunk is recorded.
             // Chunks are claimed in index order and the walk reaches them in that order, so a chunk not claimed
             // yet is the next one; the calling thread records it itself instead of waiting for a helper.
-            void Await( uint32_t chunk )
+            // FPS7-CPU-STILL-1 (UE: a thread waiting for a task runs queued tasks - UE::Tasks::Wait /
+            // FTaskGraphInterface::WaitUntilTasksComplete on a named thread - it does not sleep while work is
+            // queued): a chunk a helper still records is waited for only once no chunk is left unclaimed. Until
+            // then the calling thread records the next unclaimed chunk itself, as a helper would (the recorder is
+            // the helpers'; a chunk is its own command buffer, replayed in pass order by the walk whoever recorded
+            // it), so a pool the game thread's jobs keep busy costs the walk the helpers' missing share of the
+            // chunks, never an idle wait beside them ("RDG: Wait for chunk" was 1.1-1.3 ms a frame on the still
+            // camera of FPS-FIELD-BARN-TURN while chunks waited for a free worker). @p recordAhead false: the walk
+            // discards every chunk from here on (a late fault) and re-records their passes itself, so recording
+            // one ahead is only lost time on the calling thread.
+            void Await( uint32_t chunk, bool recordAhead )
             {
                 std::unique_lock<std::mutex> lock( m_Lock );
                 while ( m_Next <= chunk )
@@ -120,6 +132,19 @@ namespace Desert::Graphic::RDG
                     }
                     lock.lock();
                     m_Recorded[mine] = 1;
+                    --m_Running;
+                }
+                while ( recordAhead && m_Recorded[chunk] == 0 && !m_Closed && m_Next < m_Count )
+                {
+                    const uint32_t ahead = m_Next++;
+                    ++m_Running;
+                    lock.unlock();
+                    {
+                        DESERT_PROFILE_SCOPE( "RDG: Record chunk ahead (render thread)" );
+                        ( *m_Recorder )( ahead );
+                    }
+                    lock.lock();
+                    m_Recorded[ahead] = 1;
                     --m_Running;
                 }
                 if ( m_Recorded[chunk] == 0 )
@@ -1388,6 +1413,9 @@ namespace Desert::Graphic::RDG
         // a failure faults only the passes that declared it.
         DESERT_PROFILE_PHASE( phases, "RDG: Prepare recording" );
         {
+            // RENDER-CPU-COST-2: the phase's two parts read apart (it was one self row, 0.58-0.70 ms on the turn).
+            DESERT_PROFILE_PHASES( prepareRows );
+            DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: prerequisites" );
             // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
             constexpr int8_t         kNotPrepared = -1;
             std::vector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
@@ -1412,7 +1440,9 @@ namespace Desert::Graphic::RDG
             // records (Vulkan: the render pass, framebuffer and attachment views of every pass that opens one)
             // exists before the first pass records. A failure here is not reported: the pass's BeginRenderPass
             // resolves it again and fails at the same point it always did.
+            DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: render passes" );
             backend.PrepareRecording( result.Passes );
+            DESERT_PROFILE_PHASE_END( prepareRows );
         }
 
         DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );
@@ -1595,7 +1625,9 @@ namespace Desert::Graphic::RDG
                                                 segmentBegun.GetError() ),
                                    {} );
             }
-            if ( prologue )
+            // Empty when the only external a fork from the graph start opens is a held read group already in its
+            // read state (RDGCompile TrackUse): RecordEpilogueBarriers is never called empty.
+            if ( prologue && !result.PrologueBarriers.empty() )
                 backend.RecordEpilogueBarriers( result.PrologueBarriers );
             for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition; )
             {
@@ -1603,7 +1635,7 @@ namespace Desert::Graphic::RDG
                 // The chunk is recorded (by a helper, or here when none claimed it) before it is replayed or
                 // discarded: either reads what its recording wrote.
                 if ( chunk >= 0 )
-                    chunkTasks->Await( static_cast<uint32_t>( chunk ) );
+                    chunkTasks->Await( static_cast<uint32_t>( chunk ), !discardChunks );
                 if ( chunk >= 0 && !discardChunks )
                 {
                     RecordChunk&          replayed = chunks[static_cast<uint32_t>( chunk )];

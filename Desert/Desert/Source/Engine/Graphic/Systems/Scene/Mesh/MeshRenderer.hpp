@@ -120,6 +120,17 @@ namespace Desert::Graphic::System
             // record of every group (Renderer::RenderMeshIndirect @p groups), so a section's LOD chain is one draw
             // of the list and one bind, not a draw per level. 1 without IndirectArgs.
             uint32_t IndirectLevels = 1;
+            // RENDER-JOB-CPU-3, A COMPACTED BIN (GpuInstances.hpp GpuDrawBinRefs; UE: one indirect draw per merged
+            // mesh draw command): valid -> the draw is ONE Renderer::RenderMeshIndirectCount of IndirectArgs'
+            // commands from IndirectArgsOffset (stride kGpuDrawBinCommandBytes, at most IndirectMaxDraws, the
+            // drawn count the GPU wrote at IndirectCountOffset of this buffer). The mesh's geometry is bound once
+            // (every command carries its record's firstIndex / indexCount); IndirectLevels is 1 and
+            // IndirectInstances / IndirectIds are invalid - each draw reads its own buffers by address from its
+            // draw row (Push DrawRows), and the node declares them from AddressedReads.
+            RDG::BufferRef                  IndirectCount{};
+            uint64_t                        IndirectCountOffset = 0;
+            uint32_t                        IndirectMaxDraws    = 0;
+            std::span<const RDG::BufferRef> AddressedReads{}; // owned by the list builder, valid until it rebuilds
             // RENDER-THREADS M2 - what differs per draw travels WITH the draw (UE FMeshDrawCommand: immutable,
             // per-draw data by value), never through the shared material. Push: the draw's push values (transform,
             // primitive / material row, flags, wind, bone offset, skin cache), written by Record over a COPY of
@@ -547,6 +558,12 @@ namespace Desert::Graphic::System
             // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
             // do not move (grass: only the wind moves them), the previous world is the world.
             uint32_t PrevInstanceOffset = 0;
+            // RENDER-JOB-CPU-4, THE PRODUCER'S COMPACTED BINS (GpuInstances.hpp GpuDrawBinFrame) per phase (0: the
+            // camera's first phase, 1: post-occlusion, 2: the cascades' casters - GRASS-SHADOW-BINS-1). A blade
+            // section whose phase table is Open draws in it (MeshRenderer::DrawBinsOf / CascadeBinsOf: one
+            // RenderMeshIndirectCount per bin, its rows written by MeshRenderer) unless Debug.Grass "per-variety
+            // draws" is on. Null: the section draws per variety.
+            std::array<GpuDrawBinFrame*, kGpuDrawBinPhases> DrawBins{};
             // A world box every instance lies in, cm, when the producer has one (a particle emitter's fixed
             // Bounds through the entity's transform, VFXBoundsAt): the section is drawn only into the views and the cascades
             // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
@@ -1502,7 +1519,9 @@ namespace Desert::Graphic::System
         void SubmitMesh( const MeshRenderData& data );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
-        void SubmitGpuInstanced( const GpuInstancedRenderData& data );
+        // RENDER-CPU-COST-2: the row is handed over by move (the queue owns it from here), so its buffer handles
+        // are not copied; one entry point, so the rule of what the queue accepts is written once.
+        void SubmitGpuInstanced( GpuInstancedRenderData&& data );
         // A producer that submits its GPU-instanced casters after UpdateCascades (the particles' Mesh rows, from
         // the render graph) says so before it: the cascade plan then keeps the movable layer for them.
         void ExpectGpuInstancedCasters( const bool expected ) { m_GpuInstancedCastersExpected = expected; }
@@ -2183,6 +2202,12 @@ namespace Desert::Graphic::System
         // it here, so the cooked hash is the acquired one (UE: a permutation declared once, the cook compiling
         // exactly what ShouldCompilePermutation admits).
         [[nodiscard]] static Core::ShaderVariant SurfaceInstanceIdsVariant( Core::ShaderVariant permutation = {} );
+        // RENDER-JOB-CPU-4: @p permutation with kSurfaceDrawRowsDefine (a compacted bin's grass blade cell).
+        [[nodiscard]] static Core::ShaderVariant SurfaceDrawRowsVariant( Core::ShaderVariant permutation = {} );
+        // Debug.Grass "per-variety draws": every grass section drawn by its own indirect draws, not in the
+        // compacted bins (the reference image the bins must match).
+        void SetGrassPerVarietyDraws( const bool perVariety ) { m_GrassPerVarietyDraws = perVariety; }
+        [[nodiscard]] bool GrassPerVarietyDraws() const { return m_GrassPerVarietyDraws; }
         // THE CELLS an id list is drawn through (UE ShouldCompilePermutation for the instance-id permutation):
         // the GPU-instanced paths, under every pass a camera list draws in (the geometry pass of either render
         // path: Forward, GBuffer, the Depth prepass; the grass visibility raster and its resolve) and the
@@ -2195,6 +2220,13 @@ namespace Desert::Graphic::System
         static constexpr MeshPass       kInstanceIdsPasses[] = {
              MeshPass::Forward,    MeshPass::GBuffer,           MeshPass::Depth,
              MeshPass::Visibility, MeshPass::VisibilityResolve, MeshPass::ShadowDepth };
+        // THE PASSES a compacted bin draws a blade section in (UE: the mesh passes a material's shader map is
+        // cooked for): the camera passes DrawBinsOf admits (not the resolve, which reads no draw row; Forward only
+        // outside the virtual shadow map, ForwardVirtualCell) and the cascades' ShadowDepth (CascadeBinsOf).
+        // DrawBinsOf admits by this list and MaterialProgramVariants cooks the GrassBlade cell of each pass in
+        // SurfaceDrawRowsVariant, so a package holds every cell a bin can ask for.
+        static constexpr MeshPass kDrawRowsPasses[] = { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Depth,
+                                                        MeshPass::Visibility, MeshPass::ShadowDepth };
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
@@ -2206,7 +2238,9 @@ namespace Desert::Graphic::System
         // SurfaceInstanceIdsVariant (alone, over the G-buffer's equal-depth and over the forward virtual shadow
         // map's permutation): the id-list draws, cooked only for the materials an id list draws with
         // (Runtime::LandscapeGrassTypeService::InstanceIdListMaterials - UE's ShouldCompilePermutation over the
-        // material's usage), not for every `.demat`.
+        // material's usage), not for every `.demat`. And the compacted bins' cells: each material's (GrassBlade x
+        // kDrawRowsPasses) cell in SurfaceDrawRowsVariant (alone and over the G-buffer's equal-depth permutation),
+        // an id-list material's also over SurfaceInstanceIdsVariant - InstanceDrawPermutation's compositions.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
         MaterialProgramVariants( const Runtime::MaterialService& materials, const Runtime::ShaderService& shaders,
                                  std::span<const ::Common::AssetHandle> handles,
@@ -3109,6 +3143,7 @@ namespace Desert::Graphic::System
             GraphicsPipeline*                     EqualCarrier     = nullptr;
             bool                                  ForwardVirtual   = false;
             ::Common::Scalability::EarlyZPassMode EarlyZ           = ::Common::Scalability::EarlyZPassMode::All;
+            bool DrawRows = false; // DrawBinsOf: the cells are the bins' (SurfaceDrawRowsVariant)
             // Resolved under the revision above.
             const DataDrivenMaterial* Parent            = nullptr;
             DataDrivenMaterial*       Cell              = nullptr; // null: refused (said once)
@@ -3131,6 +3166,20 @@ namespace Desert::Graphic::System
             uint32_t Buckets        = 0;
             uint32_t PrepassBuckets = 0;
         };
+        // RENDER-JOB-CPU-4: the phase table @p gpu's draws in @p pass enter (GpuInstancedRenderData::DrawBins), or
+        // null: Debug.Grass "per-variety draws" (m_GrassPerVarietyDraws), a device without drawIndirectCount or
+        // shaderDrawParameters, a mesh section (one mesh per variety: no gain until a shared geometry pool), the
+        // resolve (one triangle per section), a forward view under virtual local shadows (ForwardVirtualCell's
+        // permutation), or a producer without the table or the records' address.
+        [[nodiscard]] GpuDrawBinFrame* DrawBinsOf( const GpuInstancedRenderData& gpu, MeshPass pass,
+                                                   bool postOcclusion ) const;
+        // GRASS-SHADOW-BINS-1: the cascades' table @p gpu's casters enter (GpuInstancedRenderData::DrawBins[2],
+        // BuildGpuInstancedShadowDraws: one RenderMeshIndirectCount per (cascade x layer x bin)), or null on
+        // DrawBinsOf's terms (per-variety draws, the device, a mesh section, no Open table).
+        [[nodiscard]] GpuDrawBinFrame* CascadeBinsOf( const GpuInstancedRenderData& gpu ) const;
+        // The count line's last words per (cascade x layer) list (BuildGpuInstancedShadowDraws): said on change.
+        std::unordered_map<uint32_t, uint64_t>               m_GrassCasterBinsSaid;
+        bool m_GrassPerVarietyDraws = false;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
         // The record of @p gpu in @p pass through @p carrier (BuildGpuInstancedDraws' arguments; @p prepassed: the

@@ -2,9 +2,11 @@
 // THE RADIANCE CACHE UPDATE, 3/6 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
 // SelectMaxPriorityBucket, LumenRadianceCacheUpdate.usf): one thread per indirection entry a pixel read this frame.
 // An empty one takes a slot from the free list (none left: it stays empty, and its pixels read the probes around
-// it). Every read probe is ranked into a priority bucket — never traced, then LIGHTS CHANGED (the hash of the
-// lights its world light grid cell lists, and of the sun, differs from the one it was traced with; not in UE),
-// then by the age of its last trace — and counted in the histogram the selection cuts at the budget.
+// it). Every read probe is ranked into a priority bucket (RC_PRIORITY_*, Common/RadianceCacheState.glslh) — never
+// traced and stamped by a coverage reader, then never traced and stamped only by the fallback (each finest clipmap
+// first), then LIGHTS CHANGED (the hash of the lights its world light grid cell lists, and of the sun, differs from
+// the one it was traced with; not in UE), then by the age of its last trace — and counted in the histogram the
+// selection cuts at the budget.
 Shader "RadianceCacheAllocate"
 {
     Compute
@@ -79,6 +81,37 @@ Shader "RadianceCacheAllocate"
             return hash;
         }
 
+        // Pops a free slot for a reader's empty entry, or RADIANCE_CACHE_INVALID_PROBE when the list is empty. A
+        // popped slot whose recorded cell's entry still holds it is a doubled copy (Update now frees only the
+        // slots an entry owns, so none is pushed any more; the copies already on the list are spent here, and a
+        // count past MaxProbes is spent the same way): it is skipped and not restored, so the list heals.
+        #define RC_ALLOCATE_POP_ATTEMPTS 4u
+        uint PopFreeSlot()
+        {
+            for ( uint attempt = 0u; attempt < RC_ALLOCATE_POP_ATTEMPTS; ++attempt )
+            {
+                const int top = atomicAdd( radianceCacheFreeList[0], -1 );
+                if ( top <= 0 )
+                {
+                    atomicAdd( radianceCacheFreeList[0], 1 );
+                    return RADIANCE_CACHE_INVALID_PROBE;
+                }
+                if ( top > int( MaxProbes ) )
+                    continue; // the failed-allocation words or past the buffer: not a slot
+                const uint candidate = uint( radianceCacheFreeList[top] );
+                if ( candidate >= MaxProbes )
+                    continue;
+                const ivec4 cell = radianceCacheProbes[candidate].cell;
+                if ( uint( cell.w ) >= radianceCache.shape.x )
+                    return candidate;
+                const uint ownerEntry = RadianceCacheIndirectionIndex( radianceCache, cell.xyz, uint( cell.w ) );
+                const uint holder     = radianceCacheIndirection[ownerEntry];
+                if ( ( holder & ~RADIANCE_CACHE_PROBE_UNTRACED ) != candidate )
+                    return candidate;
+            }
+            return RADIANCE_CACHE_INVALID_PROBE;
+        }
+
         void main()
         {
             const uvec3 id    = gl_GlobalInvocationID;
@@ -87,7 +120,9 @@ Shader "RadianceCacheAllocate"
             if ( id.x >= width || id.y >= grid || id.z >= grid || Reset != 0u )
                 return;
             const uint entry = id.x + width * ( id.y + grid * id.z );
-            if ( radianceCacheLastUsed[entry] != FrameIndex )
+            // Which readers stamped it this frame (RadianceCacheMark): a coverage reader, or only the fallback.
+            const bool covered = radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] == FrameIndex;
+            if ( !covered && radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] != FrameIndex )
                 return;
             const uint  clipmap = id.x / grid;
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
@@ -95,15 +130,15 @@ Shader "RadianceCacheAllocate"
             uint value = radianceCacheIndirection[entry];
             if ( value == RADIANCE_CACHE_INVALID_PROBE )
             {
-                const int top = atomicAdd( radianceCacheFreeList[0], -1 );
-                if ( top <= 0 )
+                const uint probe = PopFreeSlot();
+                if ( probe == RADIANCE_CACHE_INVALID_PROBE )
                 {
-                    atomicAdd( radianceCacheFreeList[0], 1 );
                     // The atlas is full: the next frame's Update frees the probes nobody reads now.
                     atomicAdd( radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )], 1 );
+                    atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_FAILED], 1u );
                     return;
                 }
-                const uint probe = uint( radianceCacheFreeList[top] );
+                atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_ALLOCATED], 1u );
                 radianceCacheProbes[probe].cell     = ivec4( world, int( clipmap ) );
                 radianceCacheProbes[probe].frames   = uvec4( 0u );
                 radianceCacheProbes[probe].offset   = vec4( 0.0 );
@@ -116,7 +151,7 @@ Shader "RadianceCacheAllocate"
             const uint  hash   = LightHash( RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) );
             uint        bucket;
             if ( frames.y == 0u )
-                bucket = RC_PRIORITY_NEW;
+                bucket = RadianceCacheNewProbeBucket( covered, clipmap ); // the coverage's first, then the fallback's
             else if ( hash != frames.z )
                 bucket = RC_PRIORITY_LIGHTS_CHANGED;
             else

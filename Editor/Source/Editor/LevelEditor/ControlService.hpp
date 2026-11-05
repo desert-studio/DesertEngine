@@ -95,6 +95,19 @@ namespace Desert::Editor
         // A window shot (`shot.window`) is in flight: every frame until it is taken renders the SDR rendition of
         // an HDR output (Graphic::SetSdrCaptureRendition, HDR-OUTPUT p3), so the captured frame is one of them.
         [[nodiscard]] bool WindowShotPending() const;
+        // THE FRAME A PRESENTED NOTIFICATION JUDGES (OVERLAP-ON-3): the serial of the update that BUILT it and the
+        // quiescence sampled while it was built, taken by value when the frame ends (EditorLayer::
+        // CaptureFramePresented). A frame presented on the render task is announced after the NEXT update has
+        // served the channel and sampled its own census, so neither is read at the announcement.
+        struct BuiltFrame
+        {
+            uint64_t                  Serial = 0;
+            Control::EditorQuiescence Quiescence;
+        };
+        [[nodiscard]] BuiltFrame CaptureBuiltFrame() const
+        {
+            return BuiltFrame{ m_FrameIndex, m_FrameQuiescence };
+        }
         // The frame is out: judge it, take a `shot.*`, release the reply. Returns the exit status of a `quit`
         // whose reply has gone out — the layer closes the application with it.
         // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on
@@ -103,10 +116,13 @@ namespace Desert::Editor
         // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
         // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
         // (SceneWorkspace::GrassInstancesSettling).
-        [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled,
-                                                               bool subsurfaceHistoryConverging,
-                                                               bool materialPipelinesCompiling,
-                                                               bool grassInstancesSettling );
+        // @p built: the presented frame (CaptureBuiltFrame at its end). The gate judges its serial and the
+        // quiescence sampled while it was built, never the serial or the census of the frame being built now.
+        [[nodiscard]] std::optional<int32_t> OnFramePresented( const BuiltFrame& built,
+                                                               bool              displacementUnsettled,
+                                                               bool              subsurfaceHistoryConverging,
+                                                               bool              materialPipelinesCompiling,
+                                                               bool              grassInstancesSettling );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
@@ -172,6 +188,9 @@ namespace Desert::Editor
         float m_CameraSpinDegreesPerFrame = 0.0f;
         // Camera.Glide: centimetres per frame the editor camera walks along its heading on the ground plane.
         float m_CameraGlideCmPerFrame = 0.0f;
+        // Camera.Tilt: degrees per frame the editor camera pitches about its right axis (> 0 up), clamped at
+        // +-kViewportCameraMaxPitch.
+        float m_CameraTiltDegreesPerFrame = 0.0f;
         std::optional<Control::Response> m_ControlPendingReply;
 
         struct PendingNnCheck
@@ -208,6 +227,8 @@ namespace Desert::Editor
         // Frames presented since the layer attached. The gate's clock — deliberately the channel's own count
         // and not the renderer's frame-in-flight index, which wraps at three and could not order anything.
         uint64_t m_FrameIndex = 0;
+        // ServiceChannel has begun a frame: the next one advances m_FrameIndex.
+        bool m_FrameBuildBegun = false;
 
         // A `quit` the channel asked for. Honoured after its reply has actually gone out, so the last
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown

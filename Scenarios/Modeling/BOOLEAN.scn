@@ -1,4 +1,6 @@
 # BOOLEAN: Boolean is a tool session as UE UCSGMeshesTool - the result of a 100 cm Box and a radius-50 Sphere previews on the Box (the Sphere hidden), a change of operation recomputes it, Cancel leaves both inputs, Accept writes it as one undo step
+# The Box is red (CB_Red), the Sphere green (CB_Green): the preview and the result carry both inputs' materials (UE
+# UCSGMeshesTool's combined material set, B's material IDs shifted past A's slots).
 # The Sphere sits over the Box's +X top edge (Translation 40,60,40): Difference leaves a spherical bite, Union a bulge.
 Дано run Panel "Open Modeling"
 Дано run View "View mode: Lit"
@@ -10,10 +12,12 @@
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 0,0,0
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
 Дано --subject modeling set CreateShape.Sphere.Radius 50
 Дано run Modeling "Create shape tool: Sphere"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 40,60,40
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Green.demat
 Дано run Modeling "Active tool: Accept"
 Дано --subject viewport set Camera.Position 150,190,180
 Дано run Entity Box
@@ -21,11 +25,11 @@
 Дано run Modeling "Boolean operation: Difference A - B"
 Дано run Modeling "Boolean write to: Input"
 Дано run Modeling "Boolean inputs: Delete Inputs"
-Тогда-вид 0_inputs the Box with the Sphere sunk into its near top corner
+Тогда-вид 0_inputs the red Box with the green Sphere sunk into its near top corner
 Когда run Modeling "Boolean tool: Boolean"
-Тогда 1_preview_diff the Box shows a smooth spherical bite where the Sphere was; the Sphere itself is hidden; the tool bar at the viewport bottom reads Boolean with Accept and Cancel; Outliner still lists both Box and Sphere
+Тогда 1_preview_diff the red Box shows a smooth spherical bite (its inner wall green, from the Sphere) where the Sphere was; the Sphere itself is hidden; the tool bar at the viewport bottom reads Boolean with Accept and Cancel; Outliner still lists both Box and Sphere
 Когда run Modeling "Boolean operation: Union"
-Тогда 2_preview_union the Box and the Sphere fused into one surface (the sphere's dome bulging out of the Box); the tool bar still reads Boolean
+Тогда 2_preview_union the Box and the Sphere fused into one surface (the sphere's dome bulging out of the Box) - the Box part red, the dome green; the tool bar still reads Boolean
 Когда run Modeling "Active tool: Cancel"
 Тогда 3_cancel the whole Box and the Sphere in its corner, as before the tool; no tool bar; Outliner lists Box and Sphere only
 Когда run Entity Box
@@ -33,6 +37,6 @@
 Когда run Modeling "Boolean operation: Difference A - B"
 Когда run Modeling "Boolean tool: Boolean"
 Когда run Modeling "Active tool: Accept"
-Тогда 4_accept the Box with a spherical bite, the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
+Тогда 4_accept the red Box with a spherical bite whose inner wall stays green (Details: Material Slots CB_Red, CB_Green), the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
 Когда run Action Undo
 Тогда 5_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both

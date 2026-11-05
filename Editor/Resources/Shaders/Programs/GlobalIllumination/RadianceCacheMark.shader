@@ -31,7 +31,9 @@ Shader "RadianceCacheMark"
             vec4  MarkPointsData[];    // xyz = world cm
         };
 
-        void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
+        // @p kind: RC_STAMP_COVERAGE for a clipmap the read interpolates itself, RC_STAMP_FALLBACK for the level a
+        // screen probe's radiance read falls back to (RadianceCacheAllocate ranks the two apart).
+        void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap, uint kind )
         {
             // The read's own point (RadianceCacheReadPoint): the irradiance reads and the screen probes' radiance
             // read interpolate exactly these eight cells for this pixel.
@@ -43,8 +45,8 @@ Shader "RadianceCacheMark"
             {
                 const ivec3 local = clamp( base + ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u ), ivec3( 0 ),
                                            ivec3( grid - 1 ) );
-                radianceCacheLastUsed[RadianceCacheIndirectionIndex( radianceCache, corner + local, clipmap )] =
-                     FrameIndex;
+                const uint entry = RadianceCacheIndirectionIndex( radianceCache, corner + local, clipmap );
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, kind )] = FrameIndex;
             }
         }
 
@@ -59,17 +61,23 @@ Shader "RadianceCacheMark"
             for ( int i = 0; i < 6; ++i )
             {
                 if ( fine < radianceCache.shape.x )
-                    MarkClipmap( p, axes[i], axes[i], fine );
+                    MarkClipmap( p, axes[i], axes[i], fine, RC_STAMP_COVERAGE );
                 if ( coarse != fine && coarse < radianceCache.shape.x )
-                    MarkClipmap( p, axes[i], axes[i], coarse );
+                    MarkClipmap( p, axes[i], axes[i], coarse, RC_STAMP_COVERAGE );
             }
         }
 
         void main()
         {
             if ( gl_GlobalInvocationID.x == 0u && gl_GlobalInvocationID.y == 0u )
+            {
+                // This frame's schedule header - the histogram, the counts and the update's counters - cleared by
+                // the update's first pass, so Update counts its frees into it and Allocate its slots.
+                for ( uint i = 0u; i < RC_SCHEDULE_LIST; ++i )
+                    radianceCacheSchedule[i] = 0u;
                 for ( uint i = 0u; i < MarkPointHeader.x; ++i )
                     MarkPoint( MarkPointsData[i].xyz );
+            }
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
             if ( pixel.x >= Width || pixel.y >= Height )
                 return;
@@ -81,13 +89,21 @@ Shader "RadianceCacheMark"
                                                           giFrame.invViewProjection );
             const vec3  N     = normalize( normal );
             const vec3  V     = normalize( giFrame.camera.xyz - p );
-            // The two ends of the dither: the finest clipmap any pixel here may read and the coarsest.
+            // The two ends of the dither: the finest clipmap any pixel here may read and the coarsest - the COVERAGE,
+            // the clipmaps a read here interpolates itself (RadianceCacheCoverageAt).
             const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
             const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
             if ( fine < radianceCache.shape.x )
-                MarkClipmap( p, N, V, fine );
+                MarkClipmap( p, N, V, fine, RC_STAMP_COVERAGE );
             if ( coarse != fine && coarse < radianceCache.shape.x )
-                MarkClipmap( p, N, V, coarse );
+                MarkClipmap( p, N, V, coarse, RC_STAMP_COVERAGE );
+            // THE FALLBACK: the clipmap past the coarse end, where a screen probe's radiance read looks while its own
+            // clipmap's eight cells hold no traced probe (RadianceCacheRadianceAt). Stamped apart from the coverage
+            // (RC_STAMP_FALLBACK): its new probes take what the coverage's new probes leave of the budget
+            // (RC_PRIORITY_NEW_FALLBACK), so they never hold back the cells the reads interpolate themselves.
+            // Only when the screen probes read the cache (MarkFallback): the irradiance readers never read it.
+            if ( MarkFallback != 0u && coarse + 1u < radianceCache.shape.x )
+                MarkClipmap( p, N, V, coarse + 1u, RC_STAMP_FALLBACK );
         }
     }
 }

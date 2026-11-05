@@ -48,8 +48,9 @@ function(_desert_engine_module_library name)
     desert_add_library(${target} SOURCES ${_common} ${_vendored_${name}})
     desert_enable_unity(${target})
 
-    # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes).
-    target_precompile_headers(${target} PRIVATE "${_source}/pch.hpp")
+    # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes); every module library
+    # compiles with the same flags, so one PCH serves them all (desert_shared_pch).
+    desert_shared_pch(${target} Engine "${_source}/pch.hpp")
     # Objective-C++ sources build without it: the PCH is C++, not Objective-C++.
     set(_no_pch "")
     foreach(src IN LISTS _mac)

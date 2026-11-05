@@ -1,9 +1,9 @@
 #pragma once
 
 // THE DEFORMATION FIELD AROUND A VIEW (DEFORM-FIELD; Notion Вики DEFORM-ARCH «Выбранная архитектура»). The render
-// half of surface deformation: a two-level toroidal clipmap of what the world's contacts (::Desert::World::DeformationWorld)
-// did to the ground near the camera - RoTR/HZD's player-centred deformation map, filled the way UE bins decals
-// into a virtual texture's pages.
+// half of surface deformation: a two-level toroidal clipmap of what the world's contacts
+// (::Desert::World::DeformationWorld) did to the ground near the camera - RoTR/HZD's player-centred deformation
+// map, filled the way UE bins decals into a virtual texture's pages.
 //
 //   Level 0: 2048^2 texels of 2 cm (41 m across). Level 1: 1024^2 of 8 cm (82 m across).
 //   Height (RGBA16F): sink cm (<= 0, min), rim cm (>= 0, saturating add), compaction (max), flatten (max).
@@ -13,7 +13,9 @@
 // level, so a still camera never shifts the field and a moving one moves it by whole cells: a texel holds world
 // cell c at c mod N, and a move clears only the texels whose cell left the window (one dispatch per level).
 //
-// THE CONTACTS are read from the world's log by sequence (this renderer's own m_Applied), so two views of one
+// THE CONTACTS are copied out of the world's log by sequence at BeginScene (CaptureContacts, the game thread, this
+// renderer's own m_Captured), and the render task applies that copy, never the log: the tick of the next frame
+// submits while this frame's views record (UE: a scene proxy's data handed over by value). Two views of one
 // world each keep their own field. The new contacts are cut into BATCHES - runs that name the same stamp asset -
 // and each batch is binned on the CPU into 64^2-texel tiles per level; ONE dispatch per batch per level, one
 // thread per texel looping its tile's contacts in submission order (no atomics; the Windows lead's choice (b)). A
@@ -43,10 +45,12 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Desert::World
 {
     class DeformationWorld;
+    struct DeformContact;
 }
 
 namespace Desert::ShaderResources
@@ -119,13 +123,18 @@ namespace Desert::Graphic::Deformation
         DeformationFieldRenderer( const DeformationFieldRenderer& )            = delete;
         DeformationFieldRenderer& operator=( const DeformationFieldRenderer& ) = delete;
 
-        // Moves the windows to @p viewPosition and applies @p world's contacts this renderer has not applied yet.
+        // GAME THREAD, at BeginScene (no render job in flight): copies the contacts of @p world this field has not
+        // taken yet. They wait here until an AddUpdatePasses applies them; a world that restarted its log (another
+        // scene behind this view) drops what the field holds.
+        void CaptureContacts( const ::Desert::World::DeformationWorld& world );
+
+        // RENDER TASK. Moves the windows to @p viewPosition and applies the contacts CaptureContacts took.
         // Nothing (no pass, no image, an empty optional) while the world has never deformed and @p wanted is
         // false;
         // @p wanted (a reader this frame, e.g. the debug view) brings the field up empty.
         [[nodiscard]] Common::ResultStr<std::optional<DeformationFieldFrame>>
-        AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const ::Desert::World::DeformationWorld& world,
-                         const glm::vec3& viewPosition, bool wanted );
+        AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& viewPosition,
+                         bool wanted );
 
         // "Debug: Deformation Field" over @p target: the field at each pixel's surface (@p depth, the scene
         // depth), drawn only where @p shadingWord (the G-buffer's) marks the landscape.
@@ -163,7 +172,13 @@ namespace Desert::Graphic::Deformation
         std::shared_ptr<ShaderResources::StorageBuffer> m_TileBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_TileStampBuffer;
 
-        uint64_t m_Applied = 0; // the next contact sequence this field has not applied
+        // THE HAND-OFF. Written by CaptureContacts on the game thread while no job runs, read and emptied by
+        // AddUpdatePasses on the render task: the next sequence not captured, the contacts captured and not
+        // applied (submission order), how many of them the log had dropped, and whether the log restarted since.
+        uint64_t                                    m_Captured = 0;
+        std::vector<::Desert::World::DeformContact> m_Pending;
+        uint64_t                                    m_PendingMissed  = 0;
+        bool                                        m_PendingRestart = false;
 
         std::shared_ptr<Shader>                                               m_ViewShader;
         ShaderBindingLayoutCache                                              m_ViewLayout;

@@ -163,6 +163,9 @@ namespace Desert::Editor::Tools
             // VisibilityComponent before that (nullopt = it had none), put back by Restore.
             std::shared_ptr<const Core::MergeInputs>                  Merge;
             std::vector<std::pair<Common::UUID, std::optional<bool>>> MergeHidden;
+            // Boolean / Trim: A's material slots before the session drew its preview with the pair's table (both
+            // inputs' materials, UE UCSGMeshesTool); Restore puts them back.
+            std::optional<std::vector<Common::AssetHandle>> SlotsBefore;
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
             // input and the settings; the last preview stays on screen until it lands. A settings change while it
             // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
@@ -175,6 +178,8 @@ namespace Desert::Editor::Tools
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // Starts the operator in the background with the panel's settings (they become the "computed with" ones).
         void Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms, Session& session );
+        // Boolean / Trim: A draws the preview with the pair's material table, so B's triangles keep B's materials.
+        void ShowPairMaterials( ::Desert::Core::Scene& scene );
         // The background operator finished: its mesh becomes the preview, or its refusal the status.
         void ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms, Session& session );
         // VoxBoolean: hides input B for the session (Restore shows it again).

@@ -20,6 +20,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <format>
@@ -51,6 +52,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, TraceRayTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
         DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrTraceListArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrTraceListUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -98,15 +101,17 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFCulledUB );
     };
 
-    // Screen-space reflections (SSR2): one compute dispatch that classifies and traces; the screen-space
-    // denoiser (ScreenSpaceDenoiser, the reflections signal) turns the trace into the reflection the deferred
-    // lighting composes (DeferredLighting.shader SsrTexture).
-    //  1) CLASSIFY + TRACE (SSR.shader, compute, one workgroup per kTileSize x kTileSize screen tile): the tile
-    //     is marked in the tile mask when any pixel passes the trace's G-buffer gate (sky / too rough -
-    //     Common/SSRGate.glslh), and the same workgroup then traces at the resolution Reflections.DownsampleFactor
-    //     names (UE r.Lumen.Reflections.DownsampleFactor): 1 = every pixel; 2 = HALF resolution, from the pixel of
-    //     each 2x2 block that rotates every frame so the temporal accumulation sees all four:
-    //     Reflections.RaysPerPixel GGX-VNDF rays per texel, each walked over the closest-depth HZB
+    // Screen-space reflections (SSR2): one compute program dispatched twice, classify then trace (TraceStage; UE
+    // Lumen reflections' tile classification into a compacted list of trace texels, traced indirectly); the
+    // screen-space denoiser (ScreenSpaceDenoiser, the reflections signal) turns the trace into the reflection the
+    // deferred lighting composes (DeferredLighting.shader SsrTexture).
+    //  1) CLASSIFY + TRACE (SSR.shader, compute; the classify is one workgroup per kTileSize x kTileSize screen
+    //     tile): the tile is marked in the tile mask when any pixel passes the trace's G-buffer gate (sky / too
+    //     rough - Common/SSRGate.glslh) and its traced texels are listed (TraceList); the trace then runs one
+    //     thread per listed texel (an indirect dispatch the classify sized) at the resolution
+    //     Reflections.DownsampleFactor names (UE r.Lumen.Reflections.DownsampleFactor): 1 = every pixel; 2 = HALF
+    //     resolution, from the pixel of each 2x2 block that rotates every frame so the temporal accumulation sees
+    //     all four: Reflections.RaysPerPixel GGX-VNDF rays per texel, each walked over the closest-depth HZB
     //     (HZBRenderer, Common/HZBTrace.glslh), combined with the ratio estimator (rgb = radiance of the hits,
     //     a = the share of the lobe they answered) and written with the texel's representative hit point + pdf
     //     for the reconstruction. A hit's radiance is LAST frame's lit scene where the hit pixel's VELOCITY says
@@ -359,6 +364,39 @@ namespace Desert::Graphic::System
             uint32_t DownsampleFactor = 2;
         };
 
+        // The two dispatches of the compute program (SSR.shader, TracePush::Params3.w), as UE Lumen reflections
+        // classify tiles into a compacted list of trace texels and trace that list by an indirect dispatch:
+        // Classify = one workgroup per tile, the tile mask + the list (TraceList); Trace = one thread per listed
+        // texel. The hit-lit permutation classifies only (its ray generation traces every texel) and keeps no
+        // list.
+        enum class TraceStage : uint8_t
+        {
+            Classify,
+            Trace,
+        };
+
+        // THE TRACED TEXELS' LIST of one frame (Common/SSRTrace.glslh SsrTraceListArgsUB / SsrTraceListUB), graph
+        // buffers: Args = the trace's indirect dispatch (x = workgroups, y = z = 1) + w = the texels listed, reset
+        // by the graph's upload; Texels = one packed trace texel each, sized for every texel of the trace.
+        struct TraceList
+        {
+            RDG::BufferRef Args;
+            RDG::BufferRef Texels;
+        };
+        static constexpr std::array<uint32_t, 4> kTraceListArgsReset{ 0u, 1u, 1u, 0u };
+
+        // GRAPH BUILD: this frame's list for @p targets, its arguments reset by the graph's upload pass.
+        static TraceList CreateTraceList( RDG::Builder& graph, const TraceTargets& targets )
+        {
+            const uint64_t  texels = static_cast<uint64_t>( targets.Trace.Size.Width ) * targets.Trace.Size.Height;
+            const TraceList list{
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kTraceListArgsReset ) }, "SSR.TraceListArgs" ),
+                 graph.CreateBuffer( RDG::BufferDesc{ std::max<uint64_t>( texels, 1u ) * sizeof( uint32_t ) },
+                                     "SSR.TraceList" ) };
+            graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            return list;
+        }
+
         // The trace resolutions the shaders know (SSR.shader's source pixel, SSDReconstructReflections' block
         // rotation): every pixel, or one pixel of each 2x2 block. Scalability Reflections.DownsampleFactor's range.
         [[nodiscard]] static constexpr bool IsSupportedDownsampleFactor( const uint32_t factor )
@@ -408,7 +446,8 @@ namespace Desert::Graphic::System
             glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
                                  // z = mesh SDF trace distance, w = mesh SDF end distance from the camera
             glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor),
-                                 // y = 1 / PrevPreExposure (the scene history's scale), zw unused
+                                 // y = 1 / PrevPreExposure (the scene history's scale), z = the traced gate
+                                 // (TraceSettings::RoughSpecularFromGI), w = the TraceStage (1 = Trace)
         };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
@@ -442,10 +481,16 @@ namespace Desert::Graphic::System
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
         // @p traced: the traced permutation's reads (EnsureTracedProgram first), or null for the screen alone.
         // @p frontLayer: the TranslucentFrontLayer surface's G-buffer (null for an Opaque renderer).
+        // @p stage / @p list: which dispatch of the program the node runs and this frame's TraceList
+        // (CreateTraceList)
+        // - the classify writes it, the trace reads it and takes its indirect arguments from it. Null for the
+        // hit-lit permutation's classify, which keeps no list.
         void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
                                    RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
                                    RDG::TextureRef sceneHistory, RDG::TextureRef hzb, RDG::BufferRef uniforms,
-                                   const TracedReads* traced = nullptr, const FrontLayerInputs* frontLayer = nullptr ) const
+                                   const TraceStage stage, const TraceList* list,
+                                   const TracedReads*      traced     = nullptr,
+                                   const FrontLayerInputs* frontLayer = nullptr ) const
         {
             const bool tracedProgram = traced != nullptr && m_TracedPipeline;
             if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram ) )
@@ -472,6 +517,17 @@ namespace Desert::Graphic::System
                  .Storage( SSRTraceShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageWrite )
                  .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+            if ( list != nullptr )
+            {
+                // A storage read and the indirect-argument read of one buffer in one pass are one use
+                // (RDGCompile.cpp: a buffer has no layout).
+                const RDG::Access listAccess =
+                     stage == TraceStage::Classify ? RDG::Access::StorageWrite : RDG::Access::StorageRead;
+                block.Storage( SSRTraceShaderParameters::SsrTraceListArgsUB, list->Args, listAccess )
+                     .Storage( SSRTraceShaderParameters::SsrTraceListUB, list->Texels, listAccess );
+                if ( stage == TraceStage::Trace )
+                    pass.Read( list->Args, RDG::Access::IndirectArgs );
+            }
             if ( tracedProgram )
                 DeclareTracedReads( block, *traced );
             DeclareFrontLayerReads( block, frontLayer );
@@ -542,23 +598,43 @@ namespace Desert::Graphic::System
             // lobe from the trace.
             bool RoughSpecularFromGI = false;
         };
-        [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
-                                                         const glm::vec4& cameraPos, const TraceSettings& settings,
-                                                         const bool     sceneHistoryReadable,
-                                                         const uint32_t seed ) const
+        // The classify (TraceStage::Classify): one workgroup per tile - the tile mask, and the list the trace
+        // takes.
+        [[nodiscard]] Common::BoolResultStr
+        RecordClassify( const RDG::PassContext& context, const glm::vec4& cameraPos, const TraceSettings& settings,
+                        const bool sceneHistoryReadable, const uint32_t seed ) const
         {
             // Each pass is timed on its own because EnableSSR's default is a budget decision
             // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
-            DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
-            const TracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed );
+            DESERT_PROFILE_PASS( "SSR: Classify" );
             ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
-
+            const TracePush push =
+                 MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Classify );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
             return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, TileGrid( Width() ),
                                                             TileGrid( Height() ), 1 );
+        }
+
+        // The trace (TraceStage::Trace): one thread per texel the classify listed, the workgroup count from
+        // @p listArgs (TraceList::Args, the node's IndirectArgs read).
+        [[nodiscard]] Common::BoolResultStr RecordTraceList( const RDG::PassContext& context,
+                                                             const glm::vec4&        cameraPos,
+                                                             const TraceSettings&    settings,
+                                                             const bool sceneHistoryReadable, const uint32_t seed,
+                                                             const RDG::BufferRef listArgs ) const
+        {
+            DESERT_PROFILE_PASS( "SSR: Trace" );
+            ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
+            if ( pipeline == nullptr )
+                return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
+            const TracePush push =
+                 MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Trace );
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            return Renderer::DispatchComputeIndirect( bindings, *pipeline, listArgs, 0u );
         }
 
         // EXEC of the hit-lit node: the same push constants as the classify's, one ray generation per trace texel,
@@ -572,7 +648,8 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "SSR: Hit-lit trace" );
             if ( !m_HitLightingPipeline )
                 return Common::MakeError( "SSR: the hit-lit pipeline was not made this frame" );
-            const TracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed );
+            const TracePush push =
+                 MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Trace );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
             return Renderer::TraceRays( bindings, *m_HitLightingPipeline, hits,
@@ -606,17 +683,19 @@ namespace Desert::Graphic::System
     private:
         // The push constants of both trace entry points (SSR.shader's compute and its "HitLighting" ray generation).
         static TracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
-                                        const bool sceneHistoryReadable, const uint32_t seed )
+                                        const bool sceneHistoryReadable, const uint32_t seed,
+                                        const TraceStage stage )
         {
             const float screenLeg   = sceneHistoryReadable ? 1.0f : 0.0f;
             const float roughFromGI = settings.Traced && settings.RoughSpecularFromGI ? 1.0f : 0.0f;
+            const float traceStage  = stage == TraceStage::Trace ? 1.0f : 0.0f;
             return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                               glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
                               glm::vec4( settings.MaxDistance, screenLeg, 0.0f, 0.0f ),
                               glm::vec4( static_cast<float>( settings.DownsampleFactor ),
-                                         settings.InvPrevPreExposure, roughFromGI, 0.0f ) };
+                                         settings.InvPrevPreExposure, roughFromGI, traceStage ) };
         }
 
         // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a

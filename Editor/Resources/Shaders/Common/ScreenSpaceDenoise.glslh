@@ -27,15 +27,16 @@ bool SSDSignalIsSpecular(int signal)
 }
 
 // Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
-// screen trace's gate (sky / too rough - Common/SSRGate.glslh SSRPixelCanReflect). It is WIDER than the traced
-// reflections' gate under the traced GI (SSRGate.glslh TracedReflectionsPixelTraces, SsrParams3.z): a texel between
-// the two drew no ray (pdf 0, skipped by the reconstruction, 0 in a tile classified empty), and the composite
-// weighs its pixel's reflection by TracedReflectionsAlpha = 0 - work for a result nobody reads, never a wrong one.
-// Diffuse indirect and shadow visibility: every surface pixel.
-bool SSDPixelHasSignal(int signal, vec4 gbufferNormal)
+// trace's own gate, the one statement the classify and the trace ask (Common/SSRGate.glslh
+// TracedReflectionsPixelTraces; @p roughFromGI = the trace's SsrParams3.z, ScreenSpaceDenoiser::SignalGate): under
+// the traced GI a pixel past MaxRoughnessToTrace drew no ray and the composite weighs its reflection by
+// TracedReflectionsAlpha = 0, so no pass reconstructs, accumulates or filters it (UE: the reflection denoiser runs
+// on the traced texels only); otherwise the screen trace's gate (sky / too rough - SSRPixelCanReflect).
+// Diffuse indirect and shadow visibility: every surface pixel (@p roughFromGI is the reflections' alone).
+bool SSDPixelHasSignal(int signal, vec4 gbufferNormal, bool roughFromGI)
 {
 	if (signal == kSSDSignalReflections)
-		return SSRPixelCanReflect(gbufferNormal);
+		return TracedReflectionsPixelTraces(gbufferNormal, roughFromGI);
 	return dot(gbufferNormal.rgb, gbufferNormal.rgb) > 0.001;
 }
 

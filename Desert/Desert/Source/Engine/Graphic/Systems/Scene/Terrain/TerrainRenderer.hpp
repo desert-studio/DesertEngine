@@ -465,9 +465,14 @@ namespace Desert::Graphic::System
             bool                     HasWeightmap = false;
             std::shared_ptr<Image2D> LayerHeights;
             uint32_t                 Vertices = 0;
+            // The row's corner nodes (LandscapeDicePoolCornerCount) and the first of them in the frame's corner
+            // buffer (AddDicePoolPass).
+            uint32_t Corners     = 0;
+            uint32_t FirstCorner = 0;
         };
         std::vector<DicePoolJob>         m_DicePoolJobs;
         uint32_t                         m_DicePoolVertices = 0;
+        uint32_t                         m_DicePoolCorners  = 0;
         // Puts @p row's pooled vertices (@p pooled > 0, LandscapeDicePoolVertexCount) at the pool's end: sets its
         // DicePool.x and adds its job with tile @p t's maps and @p layers' height array.
         void PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t, const TerrainLayerInputs& layers,

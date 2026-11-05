@@ -1,7 +1,12 @@
 #include "MaterialInstance.hpp"
 #include "Material.hpp"
 
+#include <Engine/Core/RenderTask.hpp>
+
+#include <algorithm>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <variant>
@@ -9,10 +14,97 @@
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // THE INSTANCES WRITTEN WHILE A RENDER JOB WAS IN FLIGHT (MaterialInstance, THE RENDER COPY). A write from
+        // the tick no longer waits for the job that reads the render copy (it used to join it: the fence of
+        // OVERLAP-ON-2): the instance is listed here and published at the next hand-off. The writer may be the
+        // game thread or a worker of the tick, the destructor any thread, so the list is under a mutex; `Any`
+        // lets the hand-off and the destructor skip the lock when nothing is pending.
+        struct PendingRenderWrites
+        {
+            std::mutex                     Mutex;
+            std::vector<MaterialInstance*> Instances;
+            std::atomic<bool>              Any{ false };
+        };
+
+        // Never destroyed: an instance may outlive static destruction (a shared_ptr held by another static).
+        PendingRenderWrites& PendingWrites()
+        {
+            static auto* const pending = new PendingRenderWrites();
+            return *pending;
+        }
+    } // namespace
+
     MaterialInstance::MaterialInstance( Material* parentMaterial, const std::string& name )
          : m_ParentMaterial( parentMaterial ), m_Name( name )
     {
         DESERT_VERIFY( parentMaterial, "Parent material cannot be null" );
+    }
+
+    MaterialInstance::~MaterialInstance()
+    {
+        // `Any` is false unless some instance is pending; when THIS one is, the thread dropping its last owner
+        // sees the store that listed it (the owners' release/acquire), so a false here means not listed.
+        PendingRenderWrites& pending = PendingWrites();
+        if ( !pending.Any.load( std::memory_order_acquire ) )
+            return;
+        const std::lock_guard<std::mutex> lock( pending.Mutex );
+        if ( !m_bRenderPending )
+            return;
+        const auto at = std::find( pending.Instances.begin(), pending.Instances.end(), this );
+        if ( at != pending.Instances.end() )
+            pending.Instances.erase( at );
+        m_bRenderPending = false;
+    }
+
+    void MaterialInstance::ParametersWritten()
+    {
+        // No job in flight: nothing reads the render copy concurrently (serial mode, the replay after a view's
+        // Join, a preview, a bake), publish now - the order every caller had before the render task. The render
+        // task's own write is sequential with its own reads. A worker of the render job would be deferred one
+        // hand-off (none writes a parameter: the writers are the tick, the interface and the asset services).
+        const ::Desert::Engine::RenderTask& task = ::Desert::Engine::RenderTask::Get();
+        if ( !task.InFlight() || ::Desert::Engine::RenderTask::OnRenderThread() )
+        {
+            Publish();
+            return;
+        }
+        PendingRenderWrites&              pending = PendingWrites();
+        const std::lock_guard<std::mutex> lock( pending.Mutex );
+        if ( m_bRenderPending )
+            return;
+        m_bRenderPending = true;
+        pending.Instances.push_back( this );
+        pending.Any.store( true, std::memory_order_release );
+    }
+
+    void MaterialInstance::Publish()
+    {
+        m_RenderProperties.CopyFrom( m_Properties );
+        m_bNeedsApply = true;
+        // A child binds from its own copy, but re-applies after its parent's write (today's propagation).
+        for ( auto& child : m_ChildInstances )
+            child->m_bNeedsApply = true;
+    }
+
+    void MaterialInstance::PublishPending()
+    {
+        PendingRenderWrites& pending = PendingWrites();
+        if ( !pending.Any.load( std::memory_order_acquire ) )
+            return;
+        // A view recorded inside a job (InFlight on the render task): the game thread may be writing the game
+        // copies right now, so the next hand-off on the game thread publishes them.
+        if ( ::Desert::Engine::RenderTask::Get().InFlight() )
+            return;
+        const std::lock_guard<std::mutex> lock( pending.Mutex );
+        for ( MaterialInstance* instance : pending.Instances )
+        {
+            instance->m_bRenderPending = false;
+            instance->Publish();
+        }
+        pending.Instances.clear();
+        pending.Any.store( false, std::memory_order_release );
     }
 
     float MaterialInstance::GetFloat( const std::string& name, float defaultValue ) const
@@ -86,57 +178,49 @@ namespace Desert::Graphic
     void MaterialInstance::SetFloat( const std::string& name, float value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Float );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetInt( const std::string& name, int value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Int );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetBool( const std::string& name, bool value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Bool );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetVec2( const std::string& name, const glm::vec2& value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Vec2 );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetVec3( const std::string& name, const glm::vec3& value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Vec3 );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetVec4( const std::string& name, const glm::vec4& value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Vec4 );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetMat4( const std::string& name, const glm::mat4& value )
     {
         m_Properties.SetProperty( name, value, MaterialPropertyType::Mat4 );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void MaterialInstance::SetTexture( const std::string& name, void* texture )
     {
         m_Properties.SetProperty( name, texture, MaterialPropertyType::Texture );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     void
@@ -161,8 +245,7 @@ namespace Desert::Graphic
     void MaterialInstance::SetParameters( const MaterialPropertySet& properties )
     {
         m_Properties.CopyFrom( properties );
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     MaterialInstancePtr MaterialInstance::CreateChildInstance( const std::string& name )
@@ -170,6 +253,8 @@ namespace Desert::Graphic
         auto child              = std::make_shared<MaterialInstance>( m_ParentMaterial, name );
         child->m_ParentInstance = shared_from_this();
         child->m_Properties.CopyFrom( m_Properties );
+        // A fresh instance: no job holds it yet, so its render copy is written here, not published later.
+        child->m_RenderProperties.CopyFrom( m_Properties );
         m_ChildInstances.push_back( child );
         return child;
     }
@@ -203,8 +288,7 @@ namespace Desert::Graphic
     {
         if ( !m_Properties.RemoveProperty( name ) )
             return;
-        m_bNeedsApply = true;
-        PropagateToChildren();
+        ParametersWritten();
     }
 
     bool MaterialInstance::SetParamFromVec4( const std::string& name, const glm::vec4& value )
@@ -299,13 +383,6 @@ namespace Desert::Graphic
         return float( 0.0f );
     }
 
-    void MaterialInstance::PropagateToChildren()
-    {
-        for ( auto& child : m_ChildInstances )
-        {
-            child->MarkNeedsApply();
-        }
-    }
     bool MaterialInstance::IsTwoSided() const
     {
         // Up the instance chain to the first override; the root instance answers from its material.

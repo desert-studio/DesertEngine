@@ -382,6 +382,36 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, Chunks );
         };
 
+        // RENDER-JOB-CPU-4: Programs/Grass/GrassDrawCompact.shader's slots and push block (std430).
+        struct GrassDrawCompactShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, CompactTable );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CompactCommands );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CompactDrawRows );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CompactCounts );
+        };
+        struct GrassDrawCompactPush
+        {
+            glm::uvec4 Compact{ 0u }; // x entries, y the longest entry's Count, z bins, w 0 clear / 1 gather
+        };
+        static_assert( sizeof( GrassDrawCompactPush ) == 16 );
+        // The bins' table holds every blade level of the frame's varieties this many times over: the lists of a
+        // phase (the deferred early-Z pair and its G-buffer halves, the visibility raster, the forward pair) x the
+        // sections of a variety. A frame that passes it doubles the table (GpuDrawBinFrame::Overflow).
+        inline constexpr uint32_t kDrawBinSlotsPerLevel = 32u;
+        inline constexpr uint32_t kDrawBinMinSlots      = 1024u;
+        inline constexpr uint32_t kDrawBinMaxEntries    = 65535u; // the gather's dispatch y, a row per entry
+
+        uint64_t BufferAddress( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
+        {
+            if ( buffer == nullptr )
+                return 0u;
+            const Common::ResultStr<uint64_t> address = buffer->GetDeviceAddress();
+            if ( !address )
+                return 0u;
+            return address.GetValue();
+        }
+
         // GrassGenerate's push block, std430 (Programs/Grass/GrassGenerate.shader PushConstants).
         struct GrassGeneratePush
         {
@@ -522,7 +552,8 @@ namespace Desert::Graphic::System
                                       "address, and the device has no bufferDeviceAddress" );
         auto* shaders = Runtime::ResourceRegistry::GetShaderService();
         for ( const auto& [name, into] :
-              { std::pair{ "GrassGenerate", &m_Generate }, std::pair{ "GrassCull", &m_Cull } } )
+              { std::pair{ "GrassGenerate", &m_Generate }, std::pair{ "GrassCull", &m_Cull },
+                std::pair{ "GrassDrawCompact", &m_DrawCompact } } )
         {
             const auto shader = shaders->GetByName( name );
             if ( !shader )
@@ -1266,7 +1297,11 @@ namespace Desert::Graphic::System
         // alone - the grid and its jitter, the layer and its seed, the density range and the scales, a blade's
         // clump, scatter, patchiness and lean, the patches - and the field (its revision); the share its tiles
         // keep reads the thinning's distances. The view's planes, position and cascades are the tile cull's.
+        // RENDER-JOB-CPU-2: its 40 words (nine vec4, the layer, the seed, the field's revision) in one allocation,
+        // not the ten regrowths of 40 push_backs, per variety per frame.
+        constexpr std::size_t kPlacementWords = 9u * 4u + 4u;
         std::vector<uint32_t> placement;
+        placement.reserve( kPlacementWords );
         for ( const glm::vec4& words :
               { params.Range, params.ScaleX, glm::vec4( glm::vec3( params.ScaleY ), 0.0f ),
                 glm::vec4( glm::vec3( params.ScaleZ ), 0.0f ),
@@ -1866,13 +1901,13 @@ namespace Desert::Graphic::System
                                                      std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
                                                      std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
                                                      std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
-                                                     std::pair{ &gpu->TileTable, &gpu->TileTableImport },
                                                      std::pair{ &gpu->TilePool, &gpu->TilePoolImport },
-                                                     std::pair{ &gpu->TileWords, &gpu->TileWordsImport },
-                                                     std::pair{ &gpu->FullIds, &gpu->FullIdsImport },
-                                                     std::pair{ &gpu->TileFeedback, &gpu->TileFeedbackImport } } )
+                                                     std::pair{ &gpu->FullIds, &gpu->FullIdsImport } } )
                     if ( imported )
                         imported = Renderer::ImportBuffer( *buffer, *into );
+                // RENDER-JOB-CPU-2: the tile table, the pool's words and the tile feedback are read and written by
+                // the tile passes alone (bindGenerate), which run only for a variety that frees or builds tiles
+                // this frame - they are imported there (below), not on a frame that only turns the camera.
                 // GRASS-VRAM-BUDGET-1: the pool's segments, which the passes read and write by address.
                 gpu->TileSegmentImports.resize( gpu->TileSegments.size() );
                 for ( std::size_t s = 0; s < gpu->TileSegments.size() && imported; ++s )
@@ -1884,6 +1919,7 @@ namespace Desert::Graphic::System
                 }
                 gpu->Refs.Instances = graph.RegisterExternal( gpu->InstancesImport, "GrassInstances" );
                 gpu->Refs.Args      = graph.RegisterExternal( gpu->ArgsImport, "GrassArgs" );
+                gpu->Refs.ArgsAddress = BufferAddress( gpu->Args ); // a compacted bin's gather reads them
                 gpu->ParamsRef      = graph.RegisterExternal( gpu->ParamsImport, "GrassParams" );
                 gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
                 // GRASS-VIEW-LAW-1: the full list reads Instances' rows through FullIds too (RT, list-less cascades).
@@ -1892,24 +1928,28 @@ namespace Desert::Graphic::System
                 gpu->CameraRefs.Instances  = gpu->Refs.Instances;
                 gpu->CameraRefs.Ids        = graph.RegisterExternal( gpu->CameraIdsImport, "GrassCameraIds" );
                 gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
+                gpu->CameraRefs.ArgsAddress = BufferAddress( gpu->CameraArgs );
                 gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
                 gpu->ChunksRef            = graph.RegisterExternal( gpu->ChunksImport, "GrassChunks" );
                 gpu->LawScalesRef         = graph.RegisterExternal( gpu->LawScalesImport, "GrassLawScales" );
                 gpu->PostRefs.Instances    = gpu->Refs.Instances;
                 gpu->PostRefs.Ids          = gpu->CameraRefs.Ids;
                 gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
+                gpu->PostRefs.ArgsAddress = BufferAddress( gpu->PostArgs );
                 gpu->CascadeRefs.Instances = gpu->Refs.Instances;
                 gpu->CascadeRefs.Ids       = graph.RegisterExternal( gpu->CascadeIdsImport, "GrassCascadeIds" );
                 gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
+                gpu->CascadeRefs.ArgsAddress = BufferAddress( gpu->CascadeArgs ); // the cascades' bins gather them
                 gpu->FieldRef              = fieldGpu.Ref;
                 gpu->FieldBuffer           = fieldGpu.Buffer;
                 gpu->TilePoolRef           = graph.RegisterExternal( gpu->TilePoolImport, "GrassTileSegments" );
                 gpu->TileSegmentRefs.clear();
                 for ( RDG::ExternalBuffer& segment : gpu->TileSegmentImports )
                     gpu->TileSegmentRefs.push_back( graph.RegisterExternal( segment, "GrassTilePool" ) );
-                gpu->TileWordsRef          = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
-                gpu->TileTableRef          = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
-                gpu->TileFeedbackRef = graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
+                // Last frame's handles name another graph's resources: invalid until the tile passes import them.
+                gpu->TileWordsRef    = {};
+                gpu->TileTableRef    = {};
+                gpu->TileFeedbackRef = {};
                 DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
                 m_Frame.push_back( gpu );
                 if ( gpu->Drawn )
@@ -1945,9 +1985,32 @@ namespace Desert::Graphic::System
                         gpu->TilePoolMade = false;
                         tiles             = false;
                     }
-                    else if ( gpu->PoolFresh )
+                    else
                     {
-                        gpu->TilePoolMade = true;
+                        // The tile passes' own buffers, imported after the table's write (the copy it wrote).
+                        Common::BoolResultStr tileImported =
+                             Renderer::ImportBuffer( gpu->TileTable, gpu->TileTableImport );
+                        if ( tileImported )
+                            tileImported = Renderer::ImportBuffer( gpu->TileWords, gpu->TileWordsImport );
+                        if ( tileImported )
+                            tileImported = Renderer::ImportBuffer( gpu->TileFeedback, gpu->TileFeedbackImport );
+                        if ( !tileImported )
+                        {
+                            // As an unwritten table: no tile pass this frame, a new pool next frame.
+                            LOG_ERROR( "[Grass] the variety's tile buffers are not in the frame graph: {}",
+                                       tileImported.GetError() );
+                            gpu->TilePoolMade = false;
+                            tiles             = false;
+                        }
+                        else
+                        {
+                            gpu->TileWordsRef = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
+                            gpu->TileTableRef = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
+                            gpu->TileFeedbackRef =
+                                 graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
+                            if ( gpu->PoolFresh )
+                                gpu->TilePoolMade = true;
+                        }
                     }
                 }
                 if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
@@ -1964,7 +2027,11 @@ namespace Desert::Graphic::System
                                           ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
                 DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
-                std::vector<MeshRenderer::GpuInstancedRenderData> sections;
+                // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no allocation
+                // once grown) and handed to the mesh renderer by move, so no buffer handle is copied twice.
+                thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
+                std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
+                sections.clear();
                 sections.reserve( variety.Sections.size() );
                 // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
                 // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are 0,
@@ -2008,6 +2075,8 @@ namespace Desert::Graphic::System
                            // The grass stands still but for the wind: a cached cascade keeps its rest pose.
                            .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
                                 .Generation = gpu->Generation, .Reach = gpu->Reach } } );
+                    // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
+                    sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
                 }
                 // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                 // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
@@ -2028,8 +2097,9 @@ namespace Desert::Graphic::System
                              "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
                              blas.GetError() );
                 }
-                for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
-                    meshes.SubmitGpuInstanced( section );
+                for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                    meshes.SubmitGpuInstanced( std::move( section ) );
+                sections.clear();
             }
         }
         // GRASS-TILE-1: the varieties that built tiles (a turning camera builds none; it only re-culls).
@@ -2247,6 +2317,14 @@ namespace Desert::Graphic::System
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return DispatchOneGroup( context, *m_Cull, &finalize, sizeof( finalize ) ); } );
+            // RENDER-JOB-CPU-4: the first phase's compacted bins, gathered from the records just finalized.
+            if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCameraPhase ); !gathered )
+                LOG_ERROR( "[Grass] the grass draws per variety this frame: {}", gathered.GetError() );
+            // GRASS-SHADOW-BINS-1: the cascades' casters, gathered from the cascade lists the same finalize wrote
+            // (and the full list a list-less cascade draws).
+            if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCascadesPhase );
+                 !gathered )
+                LOG_ERROR( "[Grass] the grass casts per variety this frame: {}", gathered.GetError() );
         }
 
         // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
@@ -2431,6 +2509,153 @@ namespace Desert::Graphic::System
              },
              [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return DispatchOneGroup( context, *m_Cull, &finalize, sizeof( finalize ) ); } );
+        if ( const Common::BoolResultStr gathered = AddDrawGather( graph, 1u ); !gathered )
+            LOG_ERROR( "[Grass] the post-occlusion grass draws per variety this frame: {}", gathered.GetError() );
         return true;
+    }
+
+    Common::BoolResultStr GrassRenderer::AddDrawGather( RDG::Builder& graph, const uint32_t phase )
+    {
+        GpuDrawBinFrame& table   = m_DrawBins[phase];
+        DrawBinBuffers&  buffers = m_DrawBinBuffers[phase];
+        table.Open               = false;
+        if ( phase == 0u )
+            m_DrawBins[1].Open = false; // a frame without the post-occlusion gather draws its phase per variety
+        if ( m_DrawCompact == nullptr || m_FrameCull.empty() )
+            return BOOLSUCCESS;
+        uint32_t levels = 0u;
+        for ( const VarietyGpu* gpu : m_FrameCull )
+            levels += std::max<uint32_t>( gpu->Buckets, 1u );
+        uint32_t need = std::max( kDrawBinMinSlots, levels * kDrawBinSlotsPerLevel );
+        if ( table.Overflow )
+            need = std::max( need, table.SlotCapacity * 2u );
+        table.Overflow = false;
+        if ( need > table.SlotCapacity || buffers.Commands == nullptr )
+        {
+            using Buffer     = ShaderResources::StorageBuffer;
+            const auto bytes = [need]( const uint64_t each ) { return static_cast<uint32_t>( need * each ); };
+            const uint32_t commandBytes = bytes( kGpuDrawBinCommandBytes );
+            buffers.Commands = Buffer::CreateDeviceLocal( "GrassDrawBinCmds", commandBytes, 1 );
+            buffers.Slots    = Buffer::CreateDeviceLocal( "GrassDrawBinSlots", bytes( kGpuDrawBinRowBytes ), 2 );
+            buffers.Counts   = Buffer::CreateDeviceLocal( "GrassDrawBinCount", bytes( kGpuDrawBinCountBytes ), 3 );
+            buffers.Entries  = Buffer::Create( "GrassDrawBinEntries", bytes( sizeof( GpuDrawCompactEntry ) ), 0 );
+            buffers.Rows     = Buffer::Create( "GrassDrawBinRows", bytes( sizeof( GpuInstanceDrawRow ) ), 0 );
+            if ( !buffers.Commands || !buffers.Slots || !buffers.Counts || !buffers.Entries || !buffers.Rows )
+            {
+                buffers            = DrawBinBuffers{};
+                table.SlotCapacity = 0u;
+                return Common::MakeError( std::string( "GrassRenderer: the bins' buffers were not made" ) );
+            }
+            table.SlotCapacity  = need;
+            table.EntryCapacity = std::min( need, kDrawBinMaxEntries );
+            table.BinCapacity   = need;
+        }
+        for ( const auto& [buffer, into] : { std::pair{ &buffers.Commands, &buffers.CommandsImport },
+                                             std::pair{ &buffers.Slots, &buffers.SlotsImport },
+                                             std::pair{ &buffers.Counts, &buffers.CountsImport },
+                                             std::pair{ &buffers.Entries, &buffers.EntriesImport } } )
+            if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( *buffer, *into ); !imported )
+                return imported;
+        table.Refs.Commands = graph.RegisterExternal( buffers.CommandsImport, "GrassDrawBinCommands" );
+        table.Refs.DrawRows = graph.RegisterExternal( buffers.SlotsImport, "GrassDrawBinSlots" );
+        table.Refs.Counts   = graph.RegisterExternal( buffers.CountsImport, "GrassDrawBinCounts" );
+        buffers.EntriesRef  = graph.RegisterExternal( buffers.EntriesImport, "GrassDrawBinEntries" );
+        table.SlotsAddress  = BufferAddress( buffers.Slots );
+        table.RowsAddress   = BufferAddress( buffers.Rows ); // this frame's copy, which the clear's run uploads
+        if ( table.SlotsAddress == 0u || table.RowsAddress == 0u )
+            return Common::MakeError( std::string( "GrassRenderer: the bins' buffers have no address" ) );
+        table.Entries.clear();
+        table.Rows.clear();
+        table.Slots = 0u;
+        table.Bins  = 0u;
+        table.BinReads.clear();
+        table.BinReads.reserve( table.BinCapacity );
+        table.Open = true;
+
+        // The two runs (Compact.w): the clear of every bin's count, then the gather, its own pass so the graph
+        // puts the barrier between the writes of the counts. The clear's run also uploads the entries and the
+        // rows: by then every draw setup of the frame has filled the table (RDG::Builder::AddPass runs a setup at once).
+        const auto declare = [this, phase]( RDG::PassBuilder& pass )
+        {
+            const GpuDrawBinFrame& bins = m_DrawBins[phase];
+            const RDG::Access      out  = RDG::Access::StorageWrite;
+            pass.Bindings( m_DrawCompactLayout.Get( m_DrawCompact->GetSpecification().Shader ),
+                           Renderer::GetPipelineRouteFill( *m_DrawCompact ) )
+                 .Storage( GrassDrawCompactShaderParameters::CompactTable, m_DrawBinBuffers[phase].EntriesRef,
+                           RDG::Access::StorageRead )
+                 .Storage( GrassDrawCompactShaderParameters::CompactCommands, bins.Refs.Commands, out )
+                 .Storage( GrassDrawCompactShaderParameters::CompactDrawRows, bins.Refs.DrawRows, out )
+                 .Storage( GrassDrawCompactShaderParameters::CompactCounts, bins.Refs.Counts, out )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassDrawCompactPush ) ) );
+            // The records the entries copy, by address: every list of the phase the varieties' culls wrote.
+            for ( const VarietyGpu* gpu : m_FrameCull )
+            {
+                if ( phase == kGpuDrawBinCameraPhase )
+                {
+                    pass.Read( gpu->CameraRefs.Args, RDG::Access::StorageRead );
+                    pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
+                }
+                else if ( phase == kGpuDrawBinCascadesPhase )
+                {
+                    // A cascade's own list (its records and their rest twins) or the full list it draws without
+                    // one.
+                    pass.Read( gpu->CascadeRefs.Args, RDG::Access::StorageRead );
+                    pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
+                }
+                else
+                    pass.Read( gpu->PostRefs.Args, RDG::Access::StorageRead );
+            }
+        };
+        std::string clearName  = "Grass: Draw Gather Clear";
+        std::string gatherName = "Grass: Draw Gather";
+        if ( phase == kGpuDrawBinPostPhase )
+        {
+            clearName += " Post-Occlusion";
+            gatherName += " Post-Occlusion";
+        }
+        else if ( phase == kGpuDrawBinCascadesPhase )
+        {
+            clearName += " Cascades";
+            gatherName += " Cascades";
+        }
+        graph.AddPass( clearName, RDG::PassFlags::Compute, declare,
+                       [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
+                       {
+                           GpuDrawBinFrame& bins    = m_DrawBins[phase];
+                           DrawBinBuffers&  storage = m_DrawBinBuffers[phase];
+                           bins.Open                = false; // every draw setup of the frame is done
+                           if ( bins.Entries.empty() )
+                               return BOOLSUCCESS;
+                           const size_t entryBytes = bins.Entries.size() * sizeof( GpuDrawCompactEntry );
+                           const size_t rowBytes   = bins.Rows.size() * sizeof( GpuInstanceDrawRow );
+                           if ( const auto wrote = storage.Entries->SetData( bins.Entries.data(), entryBytes );
+                                !wrote.IsSuccess() )
+                               return wrote;
+                           if ( const auto wrote = storage.Rows->SetData( bins.Rows.data(), rowBytes );
+                                !wrote.IsSuccess() )
+                               return wrote;
+                           const GrassDrawCompactPush clear{ glm::uvec4( 0u, 0u, bins.Bins, 0u ) };
+                           RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
+                           bindings.PushConstants( &clear, sizeof( clear ) );
+                           const uint32_t groups = ( bins.Bins + 63u ) / 64u;
+                           return Renderer::DispatchCompute( bindings, *m_DrawCompact, groups, 1, 1 );
+                       } );
+        graph.AddPass( gatherName, RDG::PassFlags::Compute, declare,
+                       [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
+                       {
+                           const GpuDrawBinFrame& bins = m_DrawBins[phase];
+                           if ( bins.Entries.empty() )
+                               return BOOLSUCCESS;
+                           uint32_t longest = 0u;
+                           for ( const GpuDrawCompactEntry& entry : bins.Entries )
+                               longest = std::max( longest, entry.Count );
+                           const uint32_t             entries = static_cast<uint32_t>( bins.Entries.size() );
+                           const GrassDrawCompactPush gather{ glm::uvec4( entries, longest, bins.Bins, 1u ) };
+                           RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
+                           bindings.PushConstants( &gather, sizeof( gather ) );
+                           const uint32_t groups = ( longest + 63u ) / 64u;
+                           return Renderer::DispatchCompute( bindings, *m_DrawCompact, groups, entries, 1 );
+                       } );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::System

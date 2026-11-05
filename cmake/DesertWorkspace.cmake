@@ -386,6 +386,21 @@ function(_desert_target_flags target warnings speed debug_opt)
     endif()
 endfunction()
 
+# A shared precompiled header (UE's shared PCHs): every target of <group> compiles with the same flags, include
+# directories and definitions, so <header> is precompiled once. The first member declared is the donor: it holds the
+# PCH in <donor>-Pch and every other member reuses it (desert_finalize_targets). A target whose flags differ must not
+# join: MSVC refuses an inconsistent option (C2855) and clang a macro that differs from the PCH's.
+function(desert_shared_pch target group header)
+    get_property(_hdr GLOBAL PROPERTY DESERT_PCH_GROUP_${group}_HEADER)
+    if(_hdr AND NOT _hdr STREQUAL header)
+        message(FATAL_ERROR "${target}: PCH group '${group}' precompiles ${_hdr}, not ${header}")
+    endif()
+    set_property(GLOBAL PROPERTY DESERT_PCH_GROUP_${group}_HEADER "${header}")
+    set_property(GLOBAL APPEND PROPERTY DESERT_PCH_GROUP_${group} ${target})
+    set_property(TARGET ${target} PROPERTY DESERT_PCH_GROUP ${group})
+    target_precompile_headers(${target} PRIVATE "${header}")
+endfunction()
+
 # Moves <sources> (absolute paths) of <owner> into the OBJECT library <owner>-<suffix>: compiled with the owner's
 # include directories (in declaration order), definitions, options and usage requirements (the same link
 # libraries), and archived/linked into the owner through $<TARGET_OBJECTS>, so the owner's binary holds the same
@@ -575,10 +590,41 @@ function(desert_finalize_targets)
                 list(APPEND _no_unity ${_pch_src})
             endif()
         endif()
-        if(_pch AND (_vendored OR _debug_opt))
+        # A shared PCH group (desert_shared_pch): the donor (the group's first member) always holds the PCH in
+        # <donor>-Pch; every other member drops its own pchsource and reuses that holder, its split parts too.
+        set(_shared_donor OFF)
+        get_target_property(_group ${target} DESERT_PCH_GROUP)
+        if(_pch AND _group)
+            get_property(_members GLOBAL PROPERTY DESERT_PCH_GROUP_${_group})
+            list(GET _members 0 _donor)
+            if(target STREQUAL _donor)
+                set(_shared_donor ON)
+            else()
+                if(_pch_src)
+                    list(REMOVE_ITEM _ours ${_pch_src})
+                    list(REMOVE_ITEM _no_unity ${_pch_src})
+                    set(_keep "")
+                    foreach(src IN LISTS _sources)
+                        if(NOT src MATCHES "^\\$<")
+                            cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${_srcdir}" OUTPUT_VARIABLE src)
+                            if(src IN_LIST _pch_src)
+                                continue()
+                            endif()
+                        endif()
+                        list(APPEND _keep "${src}")
+                    endforeach()
+                    set_property(TARGET ${target} PROPERTY SOURCES ${_keep})
+                endif()
+                set(_holder "${_donor}-Pch")
+                set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS)
+                set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS_REUSE_FROM ${_holder})
+                set(_pch "")
+            endif()
+        endif()
+        if(_pch AND (_vendored OR _debug_opt OR _shared_donor))
             list(LENGTH _pch_src _n)
             if(NOT _n EQUAL 1)
-                message(FATAL_ERROR "${target}: splits sources off but has ${_n} PCH sources named like its "
+                message(FATAL_ERROR "${target}: moves its PCH to a holder but has ${_n} PCH sources named like its "
                                     "precompiled header (${_pch}); the pchsource must be one of its sources")
             endif()
             list(REMOVE_ITEM _ours ${_pch_src})

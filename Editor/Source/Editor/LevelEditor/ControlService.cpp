@@ -37,6 +37,7 @@
 #include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
@@ -315,12 +316,22 @@ namespace Desert::Editor
 
     void ControlService::ServiceChannel()
     {
+        // THE CHANNEL'S CLOCK ADVANCES WHEN AN UPDATE BEGINS TO BUILD A FRAME, NOT WHEN ONE IS PRESENTED
+        // (FRAME-SLOT-1): m_FrameIndex is the serial of the frame this update builds, read by every arm below
+        // and carried by that frame's presented notification (EditorLayer::CaptureFramePresented). In today's loop
+        // each update presents its own frame before the next begins, so the serials are the ones the old
+        // present-side increment gave; a present that lags its update can no longer release a reply armed
+        // after its frame was built (the lagged view FPS-FIELD-BARN-PITCH p7_stop checks).
+        if ( m_FrameBuildBegun )
+            ++m_FrameIndex;
+        m_FrameBuildBegun = true;
         if ( !m_ControlSocket.IsListening() )
             return;
 
         // Camera.Spin / Camera.Glide: the turn and the walk advance once per frame, before any request of this
         // frame is read, so a `profile-dump` taken while they run measures a camera that moved every frame.
-        if ( m_CameraSpinDegreesPerFrame != 0.0f || m_CameraGlideCmPerFrame != 0.0f )
+        if ( m_CameraSpinDegreesPerFrame != 0.0f || m_CameraGlideCmPerFrame != 0.0f ||
+             m_CameraTiltDegreesPerFrame != 0.0f )
         {
             if ( ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera() )
             {
@@ -328,7 +339,18 @@ namespace Desert::Editor
                 const float     c       = std::cos( angle );
                 const float     s       = std::sin( angle );
                 const glm::vec3 forward = camera->GetDirection();
-                const glm::vec3 turned( c * forward.x + s * forward.z, forward.y, -s * forward.x + c * forward.z );
+                glm::vec3       turned( c * forward.x + s * forward.z, forward.y, -s * forward.x + c * forward.z );
+                const glm::vec2 turnedHeading( turned.x, turned.z );
+                if ( m_CameraTiltDegreesPerFrame != 0.0f && glm::length( turnedHeading ) > 1e-4f )
+                {
+                    // Pitch is measured from the ground plane, so the heading is kept and only the elevation moves.
+                    const float     limit = glm::radians( kViewportCameraMaxPitch );
+                    const float     pitch = std::asin( glm::clamp( glm::normalize( turned ).y, -1.0f, 1.0f ) );
+                    const float     next  = glm::clamp( pitch + glm::radians( m_CameraTiltDegreesPerFrame ), -limit,
+                                                        limit );
+                    const glm::vec2 flat  = glm::normalize( turnedHeading ) * std::cos( next );
+                    turned                = glm::vec3( flat.x, std::sin( next ), flat.y );
+                }
                 glm::vec3       position = camera->GetPosition();
                 const glm::vec2 heading( forward.x, forward.z );
                 if ( glm::length( heading ) > 1e-4f )
@@ -577,7 +599,10 @@ namespace Desert::Editor
         // the presented id in OnFramePresented): the frame with id *m_FramesUntil - 1 is the last one waited for,
         // so it is sampled as not pending and the gate releases the reply on it (or later, if other work is).
         if ( m_FramesUntil && m_FrameIndex + 1 >= *m_FramesUntil )
+        {
             m_FramesUntil.reset();
+            ::Common::Profiling::Profiler::Get().EndCapture(); // a dump after the wait reads exactly its frames
+        }
         quiescence.Set( Control::PendingWork::FrameCount, m_FramesUntil.has_value() );
         // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
         // captures are filled for the first time, or while textures are still landing, is not the scene - the
@@ -598,32 +623,42 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
+    std::optional<int32_t> ControlService::OnFramePresented( const BuiltFrame& built,
+                                                             const bool        displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
                                                              const bool materialPipelinesCompiling,
                                                              const bool grassInstancesSettling )
     {
-        ++m_FrameIndex;
+        // The clock is not advanced here: ServiceChannel advances it when the next update begins its frame.
+        // THE FRAME IS JUDGED BY ITS OWN CENSUS (@p built, OVERLAP-ON-3) plus the four entries the frame itself
+        // decides, below. The channel's live census takes those four as well, as it always has (`state`,
+        // RecordWindowCaptureIfDue): in the serial loop the two are one value.
+        Control::EditorQuiescence judged         = built.Quiescence;
+        const auto                noteAfterFrame = [&]( const Control::PendingWork work, const bool pending )
+        {
+            judged.Set( work, pending );
+            m_FrameQuiescence.Set( work, pending );
+        };
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
         // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
         // landed, all while it is drawn. Sampled at OnUpdate it would describe the PREVIOUS frame - and the frame
         // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
         // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
-        m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
+        noteAfterFrame( Control::PendingWork::Displacement, displacementUnsettled );
         // The same kind of after-the-frame fact: the frame's renderer decides whether the scatter it just built
         // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
         // texels).
-        m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
+        noteAfterFrame( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
         // Also decided by the frame itself (GRASS-SETTLE): a draw whose pipeline was still on a worker was drawn
         // with the default surface, so the frame is not the scene. UE's automated screenshot calls
         // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
         // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
-        m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        noteAfterFrame( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
         // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
         // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
         // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
         // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
-        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
+        noteAfterFrame( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -652,11 +687,11 @@ namespace Desert::Editor
         // clears the subject, so asking afterwards would always answer "nothing".
         const Control::GateSubject holding = m_ControlGate.Holding();
 
-        // The frame just presented is judged by the quiescence sampled while it was being BUILT. The gate
-        // uses m_FrameIndex - 1 because the counter was advanced above: the frame that has just gone out
-        // is the one that was being made when ServiceControlChannel armed the gate.
+        // The frame just presented is judged by the quiescence sampled while it was being BUILT, under the
+        // serial of the update that built it (@p built, taken by value when the frame ended), never
+        // the serial being built now: a present that lags must not answer a command served after its frame.
         const Control::GateVerdict verdict = m_ControlGate.ObserveFramePresented(
-             m_FrameIndex - 1, m_FrameQuiescence, Control::FrameGate::Clock::now() );
+             built.Serial, judged, Control::FrameGate::Clock::now() );
 
         if ( verdict == Control::GateVerdict::Waiting || verdict == Control::GateVerdict::Idle )
             return std::nullopt;
@@ -673,7 +708,7 @@ namespace Desert::Editor
             {
                 m_ControlSocket.SendResponseLine( Control::FormatResponse( Control::Response::Failure(
                      m_ControlInFlight->Id,
-                     Control::DescribeReadinessTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited(),
+                     Control::DescribeReadinessTimeout( judged, m_ControlGate.FramesWaited(),
                                                         m_ControlGate.Waited() ) ) ) );
                 m_ControlInFlight.reset();
             }
@@ -697,7 +732,7 @@ namespace Desert::Editor
         if ( verdict == Control::GateVerdict::TimedOut )
         {
             reply = Control::Response::Failure( m_ControlInFlight->Id,
-                                                Control::DescribeSettleTimeout( m_FrameQuiescence,
+                                                Control::DescribeSettleTimeout( judged,
                                                                                 m_ControlGate.FramesWaited(),
                                                                                 m_ControlGate.Waited() ) );
         }
@@ -1025,7 +1060,8 @@ namespace Desert::Editor
                                                       debugView.ValidateGpuCulling,
                                                       debugView.ForceVirtualGeometryCutRefusal,
                                                       debugView.ForceVirtualGeometryPostCutRefusal,
-                                                      m_CameraSpinDegreesPerFrame, m_CameraGlideCmPerFrame ) ) );
+                                                      m_CameraSpinDegreesPerFrame, m_CameraGlideCmPerFrame,
+                                                      m_CameraTiltDegreesPerFrame ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1275,6 +1311,9 @@ namespace Desert::Editor
                 // The scenario's frame wait (UE FWaitForFrames): the frame being built now is the first of the
                 // asked count; nothing is sent to the editor, unlike the zero-length `drag` it replaces.
                 m_FramesUntil = m_FrameIndex + static_cast<uint64_t>( request.Value[0] );
+                // CLOUD-MARCH-COST-4: the wait is also the profiler's frame-exact capture, so a profile-dump
+                // after it averages these frames (a whole 360-frame turn), not the last 0.5 s bucket.
+                ::Common::Profiling::Profiler::Get().BeginCapture();
                 return Control::Response::Success( request.Id );
             }
 
@@ -1555,6 +1594,13 @@ namespace Desert::Editor
             if ( camera == nullptr )
                 return Control::Response::Failure( request.Id, NoEditorCameraReason() );
             m_CameraSpinDegreesPerFrame = request.Value[0];
+            return Control::Response::Success( request.Id );
+        }
+        if ( which.GetValue() == ViewportCameraWrite::Tilt )
+        {
+            if ( camera == nullptr )
+                return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+            m_CameraTiltDegreesPerFrame = request.Value[0];
             return Control::Response::Success( request.Id );
         }
 

@@ -63,15 +63,31 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::BeginFrame()
     {
+        if ( const Common::BoolResultStr waited = WaitFrameSlot(); !waited )
+            return waited;
+        return BeginFrameRecording();
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::WaitFrameSlot()
+    {
         // THE STRUCTURAL GATE FOR EVERY vkCmd* IN THIS FILE. Nothing below records a command without
-        // m_CurrentCommandBuffer, and this is the only function that ever sets it — so leaving it null
+        // RecordingSlot().CommandBuffer, and this is the only function that ever sets it — so leaving it null
         // here turns all forty-odd recording entry points into no-ops without a guard in each of them.
         // Application::Run reads this result and ends the run, which is the intended exit.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeError( "the device is lost; no frame can be recorded. See the [DeviceLost] "
                                       "line above for the cause." );
+        }
+        // The frame state is one FrameSlotState per slot (RecordingSlot); a swapchain of more images than slots
+        // is refused by name before any slot index past the array is formed.
+        if ( const uint32_t inFlight = Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
+             inFlight > k_MaxFrameSlots )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "{} frames in flight; the renderer keeps frame state (FrameSlotState) for at most {}", inFlight,
+                 k_MaxFrameSlots );
         }
 
         // WAIT FOR GPU: THE FRAME'S CPU WAIT ON THE DEVICE, AND ITS FIRST STATEMENT (GPU-COST-11; UE: the RHI waits
@@ -87,10 +103,33 @@ namespace Desert::Graphic::API::Vulkan
             const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
             if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
             {
-                m_CurrentCommandBuffer = nullptr;
+                RecordingSlot().CommandBuffer = nullptr;
                 return Common::MakeFormattedError<bool>( "this frame's slot (frame N-k): {}", waited.GetError() );
             }
         }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::BeginFrameRecording()
+    {
+        // THE RENDER TASK'S HALF (OVERLAP-ON-1). Application::Run enqueues it behind the previous frame's submit,
+        // present, so the render graph's single-slot frame objects and the GPU profiler below are begun in frame
+        // order on the thread that records them, while the game thread ticks this frame. The loss gate again: the
+        // half runs later than the game thread's wait.
+        if ( !Graphic::DeviceLost::AllowWork() )
+        {
+            RecordingSlot().CommandBuffer = nullptr;
+            return Common::MakeError( "the device is lost; no frame can be recorded. See the [DeviceLost] "
+                                      "line above for the cause." );
+        }
+        // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync, UE FFrameEndSync), moved here from the top of
+        // Renderer::BeginFrame (FRAME-SLOT-1). The frame's own state - its submission list, its recording command
+        // buffer, its back-buffer entry - is its slot's (FrameSlotState) and a job records into the slot it was
+        // enqueued for, so the slot's GPU wait above does not need the previous frame's job finished. Everything
+        // below does: the deletion drain, the draw counters and the geometry pool, the virtual-geometry table,
+        // the render graph's frame objects (frame loop queue objects, transient heaps, pass descriptors, backend)
+        // and the GPU profiler, which bind ONE slot at a time.
+        ::Desert::Engine::RenderTask::Get().FrameEndSync();
         // The per-frame drain, under the fence just waited (VulkanAllocator::IsRetired), and the one-off command
         // buffers that have finished.
         {
@@ -144,7 +183,7 @@ namespace Desert::Graphic::API::Vulkan
         // only an output of PresentFinalImage's submission (Desert/Tests/Engine/EngineHost runs this same frame
         // with none). vkBeginCommandBuffer cannot report VK_ERROR_DEVICE_LOST (only out-of-memory), so its
         // failure is the refusal below and nothing more.
-        m_FrameSubmissions.clear();
+        RecordingSlot().Submissions.clear();
         const Common::BoolResultStr rdg = [this]
         {
             DESERT_PROFILE_SCOPE( "Vulkan: begin RDG frame" );
@@ -152,7 +191,7 @@ namespace Desert::Graphic::API::Vulkan
         }();
         if ( !rdg )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
         }
         const Common::ResultStr<VkCommandBuffer> frame = [this]
@@ -162,10 +201,10 @@ namespace Desert::Graphic::API::Vulkan
         }();
         if ( !frame )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeFormattedError<bool>( "the frame's command buffer: {}", frame.GetError() );
         }
-        m_CurrentCommandBuffer = frame.GetValue();
+        RecordingSlot().CommandBuffer = frame.GetValue();
         ForgetBoundState(); // a freshly begun buffer holds no binding
 
         // Resolve the previous results and reset this frame's queries. Must be here: vkCmdResetQueryPool
@@ -188,7 +227,7 @@ namespace Desert::Graphic::API::Vulkan
         // order: a loss discovered mid-frame, between BeginFrame and here.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return Common::MakeError( "the device is lost; the frame is abandoned rather than closed." );
         }
 
@@ -198,11 +237,12 @@ namespace Desert::Graphic::API::Vulkan
             m_GpuProfiler.EndFrame();
 #endif
 
-            VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
+            VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( RecordingSlot().CommandBuffer ) );
             // The frame's graphics tail: the last submission, which signals RenderComplete and the fence.
-            m_FrameSubmissions.push_back(
-                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().Submissions.push_back(
+                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { RecordingSlot().CommandBuffer }, {}, {},
+                   {} } );
+            RecordingSlot().CommandBuffer = nullptr;
         }
         return BOOLSUCCESS;
     }
@@ -236,14 +276,15 @@ namespace Desert::Graphic::API::Vulkan
         if ( output != nullptr && output->HasAcquiredImage() )
         {
             frameOutput                         = output->GetFrameOutput();
-            frameOutput->FirstEntryAfterAcquire = m_BackBufferFirstEntry;
+            frameOutput->FirstEntryAfterAcquire = RecordingSlot().BackBufferFirstEntry;
         }
         {
             DESERT_PROFILE_SCOPE( "Vulkan: frame submit" );
-            const Common::BoolResultStr submitted =
-                 m_FrameLoop->Submit( slot, m_FrameSubmissions, frameOutput ? &*frameOutput : nullptr );
-            m_FrameSubmissions.clear();
-            m_BackBufferFirstEntry = 0;
+            const VulkanFrameOutput* const presentTo = frameOutput ? &*frameOutput : nullptr;
+            const Common::BoolResultStr    submitted =
+                 m_FrameLoop->Submit( slot, RecordingSlot().Submissions, presentTo );
+            RecordingSlot().Submissions.clear();
+            RecordingSlot().BackBufferFirstEntry = 0;
             if ( !submitted )
                 return Common::MakeError( submitted.GetError() );
         }
@@ -267,10 +308,14 @@ namespace Desert::Graphic::API::Vulkan
         // here and the next frame's recording. The wait is the first thing the next frame does
         // (VulkanRendererAPI::BeginFrame, row "Wait for GPU"), on the fence of frame N-k, and the deletion drain
         // that needs it follows it there.
-        Engine::FrameManager::GetInstance().NextFrame();
+        // The counter itself moves on the game thread (Renderer::PresentFinalImage inline; Application::Run when
+        // the present is the render task's job, OVERLAP-ON-1). The bindless frees are judged against the count
+        // after this frame, as before; this thread counts the frame's own (FrameManager::ScopedRecordingFrame).
         if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
-            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
-                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
+        {
+            const uint64_t afterThisFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() + 1;
+            bindless->EndFrame( afterThisFrame, Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
+        }
         return BOOLSUCCESS;
     }
 
@@ -286,9 +331,22 @@ namespace Desert::Graphic::API::Vulkan
         }
         // A game-thread record while the views record on the render task joins them first (RenderTask).
         ::Desert::Engine::RenderTask::RecordGuard( "a graphics API recording entry point" );
-        if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
-            m_CurrentCommandBuffer = nullptr;
-        return m_CurrentCommandBuffer != nullptr;
+        if ( RecordingSlot().CommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+            RecordingSlot().CommandBuffer = nullptr;
+        return RecordingSlot().CommandBuffer != nullptr;
+    }
+
+    VulkanRendererAPI::FrameSlotState& VulkanRendererAPI::RecordingSlot()
+    {
+        // The slot of the frame THIS thread records (FrameManager::GetCurrentFrameIndex: a job's own slot on the
+        // render task, the game thread's slot elsewhere). BeginFrame refuses more frames in flight than
+        // k_MaxFrameSlots, and the slot index moves only after a frame has begun (NextFrame).
+        return m_FrameSlots[Engine::FrameManager::GetInstance().GetCurrentFrameIndex()];
+    }
+
+    const VulkanRendererAPI::FrameSlotState& VulkanRendererAPI::RecordingSlot() const
+    {
+        return m_FrameSlots[Engine::FrameManager::GetInstance().GetCurrentFrameIndex()];
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
@@ -1275,7 +1333,7 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes(
          const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
          const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> drawPush,
-         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshDraw& draw )
+         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshRunDraw& draw )
     {
         const std::string_view pass = bindings.GetContext().GetPassName();
         // The push block is the per-submesh transform the material carries (written below for each submesh).
@@ -1336,14 +1394,23 @@ namespace Desert::Graphic::API::Vulkan
                 std::memcpy( push.data(), drawPush.data(), std::min<size_t>( push.size(), drawPush.size() ) );
         }
 
-        // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
+        // The hidden-submesh mask and the push block of each run (SubmeshRun); @p draw records the run.
+        // RENDER-JOB-CPU-1: the submeshes after a drawn one join its run while they are drawn too and carry the
+        // same submesh transform - the same push bytes (an equal product of equal factors), which the command
+        // buffer still holds after the run's earlier draws, as nothing records between them.
         uint32_t drawn = 0;
-        for ( size_t si = 0; si < submeshes.size(); ++si )
+        for ( size_t si = 0; si < submeshes.size(); )
         {
             if ( hiddenSubmeshMask.Hides( si ) )
+            {
+                ++si;
                 continue;
-            const auto&     submesh        = submeshes[si];
-            const glm::mat4 finalTransform = transform * submesh.Transform;
+            }
+            size_t end = si + 1;
+            while ( end < submeshes.size() && !hiddenSubmeshMask.Hides( end ) &&
+                    submeshes[end].Transform == submeshes[si].Transform )
+                ++end;
+            const glm::mat4 finalTransform = transform * submeshes[si].Transform;
             if ( pushConstant.has_value() && pushConstant->size > 0 )
             {
                 std::memcpy( push.data(), &finalTransform, sizeof( glm::mat4 ) );
@@ -1351,8 +1418,14 @@ namespace Desert::Graphic::API::Vulkan
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
-            if ( auto recorded = draw( drawn++, si, submesh, indexCount ); !recorded )
+            const SubmeshRun run{ .FirstDrawn = drawn,
+                                  .First      = si,
+                                  .Count      = static_cast<uint32_t>( end - si ),
+                                  .IndexCount = indexCount };
+            if ( auto recorded = draw( run ); !recorded )
                 return recorded;
+            drawn += run.Count;
+            si = end;
         }
         return Common::MakeSuccess( true );
     }
@@ -1367,23 +1440,29 @@ namespace Desert::Graphic::API::Vulkan
         const std::string_view pass = bindings.GetContext().GetPassName();
         if ( instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        const auto& submeshes = mesh.GetSubmeshes();
+        // A run's submeshes are one CPU draw each (each its own index range), after the run's one push.
         return WalkMeshSubmeshes(
              bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
-             [&]( uint32_t, const size_t si, const Submesh& submesh,
-                  const uint32_t indexCount ) -> Common::BoolResultStr
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
              {
-                 if ( indexCount == 0u )
+                 const uint32_t indexCount = run.IndexCount;
+                 for ( size_t si = run.First; si < run.First + run.Count; ++si )
                  {
-                     DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
-                     return Common::MakeSuccess( true );
+                     const Submesh& submesh = submeshes[si];
+                     if ( indexCount == 0u )
+                     {
+                         DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                         continue;
+                     }
+                     const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
+                     if ( range.First + range.Count > indexCount )
+                         return Common::MakeFormattedError(
+                              "{}: submesh {} reads indices [{}, {}) of a {}-index mesh", pass, si, range.First,
+                              range.First + range.Count, indexCount );
+                     DrawIndexedCounted( range.Count, instanceCount, range.First,
+                                         static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
                  }
-                 const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
-                 if ( range.First + range.Count > indexCount )
-                     return Common::MakeFormattedError(
-                          "{}: submesh {} reads indices [{}, {}) of a {}-index mesh", pass, si, range.First,
-                          range.First + range.Count, indexCount );
-                 DrawIndexedCounted( range.Count, instanceCount, range.First,
-                                     static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
                  return Common::MakeSuccess( true );
              } );
     }
@@ -1416,15 +1495,13 @@ namespace Desert::Graphic::API::Vulkan
         // RENDER-CPU-COST-1: a submesh's record of every group is one multi-draw at a stride of one group (the
         // mesh's submesh count of records), split where the device's per-call limit says - as the binned groups
         // are issued (RenderMeshIndirectGroup; one record per call without multiDrawIndirect).
-        uint32_t perCall = 1u;
-        if ( groups > 1u )
-        {
-            const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
-            perCall                  = GpuDriven::SelectIndirectSubmission(
-                           { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
-                                              .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } )
-                           .MaxDrawsPerCall;
-        }
+        // RENDER-JOB-CPU-1: of one group, a run's records (SubmeshRun) are adjacent and drawn in the run's order:
+        // one multi-draw at a record's stride, split the same way.
+        const auto&    capabilities = EngineContext::GetInstance().GetCapabilities();
+        const uint32_t perCall      = GpuDriven::SelectIndirectSubmission(
+                                     { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
+                                       .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } )
+                                     .MaxDrawsPerCall;
         const uint64_t groupBytes = uint64_t{ mesh.GetSubmeshes().size() } * kMeshDrawArgumentsBytes;
         if ( groups > 1u && groupBytes > uint64_t{ UINT32_MAX } )
             return Common::MakeFormattedError( "{}: an indirect record group of {} bytes cannot be a draw stride",
@@ -1433,37 +1510,126 @@ namespace Desert::Graphic::API::Vulkan
         // The VSM caster draw instances through its remap (firstInstance = RemapBase), never a binned id stream.
         return WalkMeshSubmeshes(
              bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
-             [&]( const uint32_t drawn, const size_t si, const Submesh&,
-                  const uint32_t indexCount ) -> Common::BoolResultStr
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
              {
                  const uint64_t record =
-                      order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
+                      order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ run.FirstDrawn } : uint64_t{ run.First };
                  const uint64_t at   = offset + ( record * kMeshDrawArgumentsBytes );
-                 const uint64_t last = at + ( uint64_t{ groups - 1u } * groupBytes );
+                 const uint64_t last = at + ( uint64_t{ run.Count - 1u } * kMeshDrawArgumentsBytes ) +
+                                       ( uint64_t{ groups - 1u } * groupBytes );
                  if ( last + kMeshDrawArgumentsBytes > bytes )
                      return Common::MakeFormattedError(
-                          "{}: indirect arguments of drawn submesh {} at byte {} ({} groups) past the end of '{}' "
-                          "({} bytes)",
-                          context.GetPassName(), drawn, at, groups, declared.GetValue().Name, bytes );
-                 for ( uint32_t first = 0; first < groups; first += perCall )
+                          "{}: indirect arguments of drawn submeshes [{}, {}) at byte {} ({} groups) past the "
+                          "end of '{}' ({} bytes)",
+                          context.GetPassName(), run.FirstDrawn, run.FirstDrawn + run.Count, at, groups,
+                          declared.GetValue().Name, bytes );
+                 // One record: its own size (a group of one submesh is the record). Several: a run's records are
+                 // a record apart, a submesh's groups a group's bytes - each at least a record and a multiple of
+                 // four (kMeshDrawArgumentsBytes is 20).
+                 uint32_t oneRecord = static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) );
+                 if ( run.IndexCount == 0u )
+                     oneRecord = static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) );
+                 const auto issue = [&]( const uint64_t from, const uint32_t count, const uint64_t apart )
                  {
-                     const uint32_t count = std::min( groups - first, perCall );
-                     const uint64_t from  = at + ( uint64_t{ first } * groupBytes );
                      // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh
                      // pass: one per call recorded.
                      DrawCounter::RecordCpuIndirect();
-                     // One record: its own size (a group of one submesh is the record). Several: a group's
-                     // bytes apart, at least a record and a multiple of four (kMeshDrawArgumentsBytes is 20).
-                     uint32_t recordStride = static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) );
-                     if ( indexCount == 0u )
-                         recordStride = static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) );
+                     uint32_t recordStride = oneRecord;
                      if ( count > 1u )
-                         recordStride = static_cast<uint32_t>( groupBytes );
-                     if ( indexCount == 0u )
+                         recordStride = static_cast<uint32_t>( apart );
+                     if ( run.IndexCount == 0u )
                          vkCmdDrawIndirect( RecordingTarget(), vkArgs, from, count, recordStride );
                      else
                          vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs, from, count, recordStride );
+                 };
+                 if ( groups == 1u )
+                 {
+                     for ( uint32_t first = 0; first < run.Count; first += perCall )
+                     {
+                         const uint32_t count = std::min( run.Count - first, perCall );
+                         const uint64_t from  = at + ( uint64_t{ first } * kMeshDrawArgumentsBytes );
+                         issue( from, count, kMeshDrawArgumentsBytes );
+                     }
+                     return Common::MakeSuccess( true );
                  }
+                 // Several groups: each submesh of the run its groups' multi-draw, in the order drawn before.
+                 for ( uint32_t k = 0; k < run.Count; ++k )
+                 {
+                     const uint64_t submeshAt = at + ( uint64_t{ k } * kMeshDrawArgumentsBytes );
+                     for ( uint32_t first = 0; first < groups; first += perCall )
+                     {
+                         const uint32_t count = std::min( groups - first, perCall );
+                         issue( submeshAt + ( uint64_t{ first } * groupBytes ), count, groupBytes );
+                     }
+                 }
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectCount(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+         const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> push,
+         const RDG::BufferRef args, const uint64_t offset, const RDG::BufferRef count, const uint64_t countOffset,
+         const uint32_t maxDraws, const SubmeshMask hiddenSubmeshMask )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context      = bindings.GetContext();
+        const std::string_view  pass         = context.GetPassName();
+        const auto&             capabilities = EngineContext::GetInstance().GetCapabilities();
+        if ( !capabilities.SupportsDrawIndirectCount )
+            return Common::MakeFormattedError(
+                 "{}: a compacted bin's draw needs drawIndirectCount, which this device lacks", pass );
+        if ( maxDraws == 0u )
+            return Common::MakeSuccess( true );
+        if ( offset % 4u != 0u || countOffset % 4u != 0u )
+            return Common::MakeFormattedError(
+                 "{}: a compacted bin at byte {}, its count at byte {}: both must be multiples of four", pass,
+                 offset, countOffset );
+        if ( maxDraws > capabilities.MaxDrawIndirectCount )
+            return Common::MakeFormattedError( "{}: a compacted bin of {} draws passes maxDrawIndirectCount ({})",
+                                               pass, maxDraws, capabilities.MaxDrawIndirectCount );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, declared.GetError() );
+        const auto commands = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !commands )
+            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, commands.GetError() );
+        // The stride is a record (kGpuDrawBinCommandBytes = kMeshDrawArgumentsBytes = 20): at least a
+        // VkDrawIndexedIndirectCommand and a multiple of four, as vkCmdDrawIndexedIndirectCount asks.
+        const uint64_t end = offset + ( uint64_t{ maxDraws } * kMeshDrawArgumentsBytes );
+        if ( end > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: {} compacted commands at byte {} pass the end of '{}' ({} bytes)", pass, maxDraws, offset,
+                 declared.GetValue().Name, declared.GetValue().Desc->Bytes );
+        const auto countDeclared = context.GetBuffer( count, RDG::Access::IndirectArgs );
+        if ( !countDeclared )
+            return Common::MakeFormattedError( "{}: compacted count: {}", pass, countDeclared.GetError() );
+        const auto counts = VulkanRdgBackend::BufferOf( countDeclared.GetValue() );
+        if ( !counts )
+            return Common::MakeFormattedError( "{}: compacted count: {}", pass, counts.GetError() );
+        if ( countOffset + sizeof( uint32_t ) > countDeclared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: the compacted count at byte {} passes the end of '{}' ({} bytes)", pass, countOffset,
+                 countDeclared.GetValue().Name, countDeclared.GetValue().Desc->Bytes );
+        const VkBuffer vkArgs  = commands.GetValue()->GetBuffer();
+        const VkBuffer vkCount = counts.GetValue()->GetBuffer();
+        const auto     stride  = static_cast<uint32_t>( kMeshDrawArgumentsBytes );
+        // The walk binds the pass state, the mesh's buffers and the push block of its first drawn run; the bin's
+        // commands name every record's own indices, so that run's call is the bin's only one.
+        bool issued = false;
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
+             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
+             {
+                 if ( issued )
+                     return Common::MakeSuccess( true );
+                 if ( run.IndexCount == 0u )
+                     return Common::MakeFormattedError( "{}: a compacted bin's mesh is not indexed", pass );
+                 issued = true;
+                 // One CPU call of the mesh pass; its draws are the GPU's (RenderMeshIndirect likewise).
+                 DrawCounter::RecordCpuIndirect();
+                 vkCmdDrawIndexedIndirectCount( RecordingTarget(), vkArgs, offset, vkCount, countOffset, maxDraws,
+                                                stride );
                  return Common::MakeSuccess( true );
              } );
     }
@@ -1924,11 +2090,11 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( !m_RdgBackend )
             return fail( "the render graph frame objects were not begun (BeginFrame)" );
-        // The second writer of m_CurrentCommandBuffer after BeginFrame: it ends the frame's command buffer and
+        // The second writer of the recording target after BeginFrame: it ends the frame's command buffer and
         // re-arms a fresh one after the graph, so it asks the device-lost gate like BeginFrame does.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return fail( "the device is lost; the graph is not recorded" );
         }
         // The sink the profiler holds now: GPU timing can be switched on and off between frames.
@@ -1939,49 +2105,51 @@ namespace Desert::Graphic::API::Vulkan
 #endif
         // RDG-CONTRACTS B(3): the graph records into its own segment command buffers, so the frame command
         // buffer is split here: what was recorded before the graph is submitted before the graph.
-        const VkResult ended = vkEndCommandBuffer( m_CurrentCommandBuffer );
+        const VkResult ended = vkEndCommandBuffer( RecordingSlot().CommandBuffer );
         if ( ended != VK_SUCCESS )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             (void)NoteIfDeviceLost( ended, "vkEndCommandBuffer", __FILE__, __LINE__ );
             return fail(
                  std::format( "vkEndCommandBuffer before a graph failed: {}", VkResultToString( ended ) ) );
         }
-        m_FrameSubmissions.push_back(
-             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { m_CurrentCommandBuffer }, {}, {}, {} } );
+        RecordingSlot().Submissions.push_back(
+             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, { RecordingSlot().CommandBuffer }, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
-        m_CurrentCommandBuffer                    = nullptr;
+        RecordingSlot().CommandBuffer                    = nullptr;
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         // A graph that failed inside an async segment never reached its EndPipeSegment: what records after the
         // graph is on the graphics queue whatever the graph left behind.
         if ( m_RdgDevice.Profiler != nullptr )
             m_RdgDevice.Profiler->SetQueue( ::Common::Profiling::GpuQueue::Graphics );
-        m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
-                                   std::make_move_iterator( segments.end() ) );
+        std::vector<VulkanRdgSubmission>& submissions = RecordingSlot().Submissions;
+        submissions.insert( submissions.end(), std::make_move_iterator( segments.begin() ),
+                            std::make_move_iterator( segments.end() ) );
 
         // Recording continues after the graph in a fresh graphics command buffer of this frame slot. A loss
         // noted while the graph recorded (a segment's vkEndCommandBuffer) must not re-arm the frame.
         if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return fail( "the device was lost while the graph recorded" );
         }
         const Common::ResultStr<VkCommandBuffer> next =
              m_FrameLoop->GetQueueObjects().BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !next )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return fail( next.GetError() );
         }
-        m_CurrentCommandBuffer = next.GetValue();
+        RecordingSlot().CommandBuffer = next.GetValue();
         ForgetBoundState(); // a freshly begun buffer holds no binding
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
         {
             DESERT_PROFILE_PASS( "RDG: FrameFault clear" ); // recorded outside every pass of the graph
-            if ( const auto cleared = ClearFrameFaultExternals( m_CurrentCommandBuffer, graph, *frame ); !cleared )
+            if ( const auto cleared = ClearFrameFaultExternals( RecordingSlot().CommandBuffer, graph, *frame );
+                 !cleared )
                 return fail( std::format( "graph '{}': {}", graph.GetName(), cleared.GetError() ) );
         }
         return executed;
@@ -1993,10 +2161,10 @@ namespace Desert::Graphic::API::Vulkan
         // ExecuteGraph; a loss noted mid-graph still disarms here rather than arming the next segment.
         if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
         {
-            m_CurrentCommandBuffer = nullptr;
+            RecordingSlot().CommandBuffer = nullptr;
             return;
         }
-        m_CurrentCommandBuffer = commandBuffer;
+        RecordingSlot().CommandBuffer = commandBuffer;
         // A segment's buffer may be one begun again since it last recorded (same handle, empty state).
         ForgetBoundState();
     }
@@ -2095,7 +2263,7 @@ namespace Desert::Graphic::API::Vulkan
         // THE LATE ACQUIRE (PRESENT-COST; UE resolves the viewport's back buffer at the final pass the same way).
         // The frame's last pass imports the back buffer, so by now the layers' update and every scene graph of
         // the frame are recorded, and the CPU waits on the display (FIFO, a full present queue) only after it has
-        // built the frame instead of before. Everything recorded so far is in m_FrameSubmissions or in the open
+        // built the frame instead of before. Everything recorded so far is in the slot's Submissions or in the open
         // frame command buffer, which is pushed at exactly the current size: no entry below that index can touch
         // the image, so the acquire semaphore is waited by the first graphics entry from there on
         // (VulkanFrameOutput::FirstEntryAfterAcquire), not by the frame's first.
@@ -2107,7 +2275,7 @@ namespace Desert::Graphic::API::Vulkan
                      "ImportBackBuffer: no swapchain image for this frame (the acquire was out of date and the "
                      "swapchain is rebuilt at the next frame boundary, or it failed; see the line above). The "
                      "frame is submitted without being presented." );
-            m_BackBufferFirstEntry = m_FrameSubmissions.size();
+            RecordingSlot().BackBufferFirstEntry = RecordingSlot().Submissions.size();
         }
         return swapChain->ImportBackBuffer( into );
     }
@@ -2175,9 +2343,10 @@ namespace Desert::Graphic::API::Vulkan
                                      RDG::ExternalBuffer&                                   into )
     {
         using ShaderResources::API::Vulkan::VulkanStorageBuffer;
-        const std::shared_ptr<VulkanStorageBuffer> vulkanBuffer =
-             std::dynamic_pointer_cast<VulkanStorageBuffer>( buffer );
-        if ( !vulkanBuffer )
+        // RENDER-CPU-COST-2: a raw cast, no reference count touched; the owning handle is made only when the
+        // import below is built anew.
+        auto* const vulkanBuffer = dynamic_cast<VulkanStorageBuffer*>( buffer.get() );
+        if ( vulkanBuffer == nullptr )
             return Common::MakeError( "ImportBuffer: not a Vulkan storage buffer" );
         ShaderResources::API::Vulkan::ViewCopyBinding binding;
         const Common::BoolResultStr                   bound =
@@ -2196,10 +2365,22 @@ namespace Desert::Graphic::API::Vulkan
             record.Physical = VulkanRdgBuffer::Wrap( binding.Info.buffer, binding.Info.range );
             record.State    = RDG::GetAccessState( RDG::Access::None );
         }
-        into.Desc.Bytes                               = binding.Info.range;
-        into.Physical                                 = record.Physical;
-        into.State                                    = record.State;
-        const std::weak_ptr<VulkanStorageBuffer> weak = vulkanBuffer;
+        // RENDER-CPU-COST-2 (UE: a pooled buffer is wrapped for the graph once; RegisterExternalBuffer of it each
+        // frame only reads the state it carries). @p into already imports this very copy - the record's handle is
+        // made anew for every other copy and for every other buffer, so an equal handle names this one - and its
+        // hand-back already writes into this copy's record: only the state the last graph left changes.
+        if ( into.Physical != nullptr && into.Physical == record.Physical && into.RecordFinalState )
+        {
+            into.Desc.Bytes = binding.Info.range;
+            into.State      = record.State;
+            return Common::MakeSuccess( true );
+        }
+        into.Desc.Bytes = binding.Info.range;
+        into.Physical   = record.Physical;
+        into.State      = record.State;
+        // Aliasing the caller's owner: the hand-back must not keep the buffer alive past its owner.
+        const std::weak_ptr<VulkanStorageBuffer> weak =
+             std::shared_ptr<VulkanStorageBuffer>( buffer, vulkanBuffer );
         const uint64_t                           copy = binding.CopyId;
         into.RecordFinalState = [weak, copy]( const RDG::AccessState& state ) -> Common::BoolResultStr
         {

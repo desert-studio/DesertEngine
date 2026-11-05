@@ -3,6 +3,7 @@
 // adapted as described in WorldRadianceCache.hpp.
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <algorithm>
@@ -46,6 +48,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheIrradianceOutTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheDepthOutTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheUpdateCountsUB );
     };
 } // namespace
 
@@ -71,13 +74,23 @@ namespace Desert::Graphic::GlobalIllumination
             float    History      = RadianceCache::kHistoryWeight;
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
             uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
+            uint32_t MarkFallback  = 0; // 1: Mark also stamps the clipmap past each pixel's coarse end
         };
-        static_assert( sizeof( RadianceCachePush ) == 36 );
+        static_assert( sizeof( RadianceCachePush ) == 40 );
 
-        // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
+        // The update's event counters in the schedule header (RC_STAT_WORDS, Common/RadianceCacheState.glslh).
+        constexpr uint32_t kScheduleCounters = 6;
+        // A Trace workgroup's texels: one TRACE TILE of a probe, one ray per thread (RadianceCacheTrace's
+        // LocalSize 8x8; UE TraceFromProbes over probe trace tiles), so the budget's probes fill the GPU instead
+        // of leaving one group per probe to walk its res^2 rays in series.
+        constexpr uint32_t kTraceTileTexels = 64;
+        // The "[RadianceCache] traced X of budget Y, full update Z" line: once per this many updates of a view.
+        constexpr uint32_t kCountsLogFrames = 60;
+        // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the update's event
+        // counters, the trace list.
         constexpr uint32_t ScheduleEntries( const uint32_t traced )
         {
-            return RadianceCache::kPriorityBuckets + 2u + traced;
+            return RadianceCache::kPriorityBuckets + 2u + kScheduleCounters + traced;
         }
 
         std::shared_ptr<Image2D> CreateAtlas( const std::string_view tag, const uint32_t side,
@@ -157,7 +170,9 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t maxProbes = RadianceCache::MaxProbes( shape );
         m_Indirection =
              ShaderResources::StorageBuffer::Create( "RadianceCache.Indirection", entries * 4u, 1, true );
-        m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed", entries * 4u, 2, true );
+        // Two stamps per entry, the coverage's and the fallback's (RadianceCacheStampIndex of
+        // Common/RadianceCacheState.glslh).
+        m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed", entries * 8u, 2, true );
         m_Probes   = ShaderResources::StorageBuffer::Create(
              "RadianceCache.Probes",
              maxProbes * static_cast<uint32_t>( sizeof( RadianceCache::RadianceCacheProbePayload ) ), 3, true );
@@ -252,6 +267,9 @@ namespace Desert::Graphic::GlobalIllumination
         graph.QueueBufferUpload( markPointsBuffer, std::as_bytes( std::span( markPoints ) ) );
         const RDG::BufferRef schedule =
              graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( traced ) * 4ull }, "RadianceCache.Schedule" );
+        // This frame's update in counts (RadianceCacheSelect.shader writes every word), read back for the profile.
+        const RDG::BufferRef updateCounts = graph.CreateBuffer(
+             RDG::BufferDesc{ RadianceCacheUpdateCounts::kWords * 4ull }, "RadianceCache.UpdateCounts" );
 
         RadianceCachePush push;
         push.FrameIndex = ++m_FrameIndex;
@@ -264,19 +282,24 @@ namespace Desert::Graphic::GlobalIllumination
         if ( fullUpdate )
             m_LightingFrame = push.FrameIndex;
         push.LightingFrame = m_LightingFrame;
+        push.MarkFallback  = inputs.MarkRadianceFallback ? 1u : 0u;
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
         const uint32_t   clipCount = shape.Clipmaps;
         const glm::uvec3 entryGroups( DivideRoundUp( grid * clipCount, 4u ), DivideRoundUp( grid, 4u ),
                                       DivideRoundUp( grid, 4u ) );
+        // Trace: x the probe's place in the schedule (past its traced count a group ends), y its trace tile.
+        const uint32_t traceTiles =
+             DivideRoundUp( shape.ProbeResolution * shape.ProbeResolution, kTraceTileTexels );
         const glm::uvec3 groups[PassCount] = {
-             glm::uvec3( DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ),
-                         DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ), 1u ),
+             // At least one group: Mark's first thread clears the schedule header Update and Allocate count into.
+             glm::uvec3( std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) ),
+                         std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) ), 1u ),
              entryGroups,
              entryGroups,
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
-             glm::uvec3( traced, 1u, 1u ),
+             glm::uvec3( traced, traceTiles, 1u ),
              glm::uvec3( traced, 1u, 1u ) };
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
@@ -309,6 +332,9 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheFreeListUB, freeList, kRW )
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheScheduleUB, schedule, kRW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RadianceCachePush ) ) );
+                     if ( pass == Select )
+                         block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheUpdateCountsUB, updateCounts,
+                                        kRW );
                      if ( pass == Mark || pass == Allocate || pass == Trace )
                          block.Storage( WorldRadianceCacheShaderParameters::GIFrameUB, frame, kR );
                      if ( pass == Mark )
@@ -369,11 +395,70 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
+        m_UpdateCounts.AddFrame( graph, push.FrameIndex, updateCounts );
+        // GPU-TURN-4: does the budget hold on a camera turn - the newest read-back frame's traced / budget, and
+        // how many of the last kCountsLogFrames updates were full updates (each traces every used probe).
+        if ( fullUpdate )
+            ++m_FullUpdatesInWindow;
+        if ( push.FrameIndex % kCountsLogFrames == 0u )
+        {
+            const RadianceCacheUpdateCounts& counts   = m_UpdateCounts.Last();
+            const char* const                readBack = counts.Valid ? "" : ", none read back yet";
+            LOG_INFO(
+                 "[RadianceCache] traced {} of budget {}, full update {} (full updates of the last {} updates; "
+                 "traced / budget of the newest frame read back{})",
+                 counts.Traced, counts.Budget, m_FullUpdatesInWindow, kCountsLogFrames, readBack );
+            m_FullUpdatesInWindow = 0;
+        }
+
         return Common::MakeSuccess( RadianceCacheFrame{ .Params      = params,
                                                         .Indirection = indirection,
                                                         .Probes      = probes,
                                                         .Irradiance  = irradiance,
                                                         .Depth       = depth,
                                                         .Radiance    = radiance } );
+    }
+
+    void RadianceCacheUpdateCountsReadback::AddFrame( RDG::Builder& graph, const uint64_t frameIndex,
+                                                      const RDG::BufferRef counts )
+    {
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_Slots.size() != slots )
+        {
+            m_Slots.clear();
+            m_Slots.resize( slots );
+        }
+        RDG::ExternalBuffer& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
+        // The words this slot was handed slots-in-flight frames ago: its fence has passed.
+        if ( slot.Physical )
+        {
+            const std::span<const std::byte> bytes = slot.Physical->ReadForHost();
+            std::array<uint32_t, RadianceCacheUpdateCounts::kWords> words{};
+            if ( bytes.size() >= sizeof( words ) )
+            {
+                std::memcpy( words.data(), bytes.data(), sizeof( words ) );
+                // RC_COUNT_* of Common/RadianceCacheState.glslh, in order.
+                m_Last.Stamped       = words[0];
+                m_Last.NeverTraced   = words[1];
+                m_Last.Traced        = words[2];
+                m_Last.Budget        = words[3];
+                m_Last.Allocated     = words[4];
+                m_Last.Failed        = words[5];
+                m_Last.FreedStale    = words[6];
+                m_Last.FreedUnused   = words[7];
+                m_Last.FreedPressure = words[8];
+                m_Last.Pressed       = words[9];
+                m_Last.Live          = words[10];
+                m_Last.MaxProbes     = words[11];
+                for ( uint32_t clipmap = 0; clipmap < RadianceCache::kMaxClipmaps; ++clipmap )
+                {
+                    m_Last.NeverTracedByClipmap[clipmap] = words[12u + clipmap];
+                    m_Last.FallbackByClipmap[clipmap]    = words[12u + RadianceCache::kMaxClipmaps + clipmap];
+                }
+                m_Last.Valid = true;
+            }
+        }
+        slot = RDG::ExternalBuffer{};
+        graph.Extract( counts, slot, RDG::Access::HostRead );
     }
 } // namespace Desert::Graphic::GlobalIllumination

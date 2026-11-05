@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Singleton.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <atomic>
@@ -49,7 +50,9 @@ namespace Desert::Engine
         }
 
         /**
-         * @brief Advances to the next frame. Render thread only.
+         * @brief Advances the GAME THREAD's frame, slot and count: once the game thread has handed frame N to the
+         * render task (Application::Run step 6) or presented it inline (Renderer::PresentFinalImage off the render
+         * task). A job of frame N keeps N's slot and count (ScopedRecordingFrame).
          */
         void NextFrame()
         {
@@ -95,22 +98,86 @@ namespace Desert::Engine
             }
         }
 
+        /// THE GAME / RENDER FRAME PAIR (UE GFrameNumber / GFrameNumberRenderThread, OVERLAP-ON-7).
+        /// GAME: GetGameFrameIndex / GetGameFrameCount, what NextFrame moves on the game thread.
+        /// RENDER: GetCurrentFrameIndex / GetAbsoluteFrameCount, the frame the CALLING WORK records for. A job of
+        /// frame N gets N's slot and number from its enqueue (RenderTask::QueuedJob), bound at its start on the
+        /// render task (ScopedRecordingFrame) and carried to every JobSystem job it submits (RecordingFrame: the
+        /// render graph's record helpers, a ParallelFor's helpers), so the job, its workers, its deletions and
+        /// its retire stamps all read N while the game thread counts N+1. Unbound work (the game thread, a job a
+        /// game-side thread submitted, the render task between jobs) reads the game frame: serial mode and inline
+        /// recording see one number, exactly as before. In UE the render number is one global the render thread
+        /// sets; here the same code (VulkanAllocator, the uniform rings, MaterialExecutor) also runs inline on the
+        /// game thread and on game-side workers, and a global would hand those an OLDER number (a deletion
+        /// tagged before a queued job that still names the object), so the number travels with the work instead.
+        ///
+        /// THE SLOT OF THE FRAME THIS THREAD RECORDS (UE: per-frame resources are indexed by the frame being
+        /// recorded, not by one global current frame). On the render task while it runs a job, and on a worker
+        /// running a job the job submitted: the slot the job was enqueued for, so a job keeps reading and writing
+        /// its own slot after the game thread has submitted its frame and moved on (NextFrame). Elsewhere, and on
+        /// the render task between jobs: the game thread's slot (GetGameFrameIndex).
         [[nodiscard]] uint32_t GetCurrentFrameIndex() const
+        {
+            const Common::RecordingFrame& recording = Common::RecordingFrame::OfThisThread();
+            if ( recording.Bound() )
+                return recording.Slot;
+            return m_CurrentFrameIndex.load();
+        }
+        /// The game thread's slot, whatever the calling thread records: the slot NextFrame moves and the next
+        /// RenderTask::Enqueue stamps on its job.
+        [[nodiscard]] uint32_t GetGameFrameIndex() const
         {
             return m_CurrentFrameIndex.load();
         }
+
+        /// Binds @p slot as the calling thread's recording frame for the scope (RenderTask::ThreadMain, around
+        /// one job); JobSystem::Submit carries it to the jobs submitted inside. Scopes nest: the previous binding
+        /// comes back at the end.
+        class ScopedRecordingFrame
+        {
+        public:
+            ScopedRecordingFrame( uint32_t slot, uint64_t frame )
+                 : m_Previous( Common::RecordingFrame::OfThisThread() )
+            {
+                Common::RecordingFrame::OfThisThread() = Common::RecordingFrame{ slot, frame };
+            }
+            ~ScopedRecordingFrame()
+            {
+                Common::RecordingFrame::OfThisThread() = m_Previous;
+            }
+            ScopedRecordingFrame( const ScopedRecordingFrame& )            = delete;
+            ScopedRecordingFrame& operator=( const ScopedRecordingFrame& ) = delete;
+
+        private:
+            Common::RecordingFrame m_Previous;
+        };
         [[nodiscard]] uint32_t GetMaxFramesInFlight() const
         {
             return m_MaxFramesInFlight.load();
         }
         /// The frame being recorded, counted from the first swapchain; never wraps (unlike the ring slot), so a
         /// deletion tagged with it is retired by one rule whatever thread queued it (VulkanAllocator::IsRetired).
+        /// THE RENDER FRAME NUMBER. Like GetCurrentFrameIndex it answers the calling work's RECORDING frame:
+        /// inside a job and on the workers running what it submitted, the frame the job was enqueued in (the game
+        /// thread may count the next one already, OVERLAP-ON-1), so the job's deletions, retire checks, bindless
+        /// frees and "prepared this frame" stamps (MaterialExecutor) keep its own frame's number.
         [[nodiscard]] uint64_t GetAbsoluteFrameCount() const
+        {
+            const Common::RecordingFrame& recording = Common::RecordingFrame::OfThisThread();
+            if ( recording.Bound() )
+                return recording.Frame;
+            return m_AbsoluteFrameCount.load();
+        }
+        /// The game thread's frame count whatever the calling thread records: what NextFrame moves and the next
+        /// RenderTask::Enqueue stamps on its job.
+        [[nodiscard]] uint64_t GetGameFrameCount() const
         {
             return m_AbsoluteFrameCount.load();
         }
 
     private:
+        // The calling thread's recording frame is Common::RecordingFrame::OfThisThread() (ScopedRecordingFrame
+        // binds it; JobSystem carries it to the workers of the job that bound it). Unbound: the game thread's.
         std::atomic<uint32_t> m_CurrentFrameIndex{ 0 };
         std::atomic<uint32_t> m_MaxFramesInFlight{ 2 };
         std::atomic<uint64_t> m_AbsoluteFrameCount{ 0 };

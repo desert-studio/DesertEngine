@@ -1,5 +1,7 @@
 #include <Engine/Core/RenderTask.hpp>
 
+#include <Engine/Core/FrameManager.hpp>
+
 #include <Common/Core/EngineThread.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -81,10 +83,28 @@ namespace Desert::Engine
                 return;
             QueuedJob job = std::move( m_Jobs.front() );
             m_Jobs.pop_front();
-            m_Running = true;
+            m_Running      = true;
+            m_RunningFrame = job.Frame;
+            m_RunningOwner = job.Owner;
             lock.unlock();
+            // THE JOB'S FRAME (FrameEndSync, from this side). The game thread may count the next frame already
+            // (OVERLAP-ON-1: it hands frame N over and ticks N+1); what tears a frame is a job of frame N that
+            // starts after N's submission (the queue is in order, and N's submit/present is N's last job), so its
+            // command buffers miss that submit. Named once per job name; only this thread reads or writes the set.
+            if ( m_SubmittedEnd.load( std::memory_order_acquire ) > job.Frame )
+            {
+                static std::unordered_set<std::string> torn;
+                if ( torn.emplace( job.Name ).second )
+                    LOG_ERROR( "[RenderTask] '{}' was enqueued in frame {} and started after that frame was "
+                               "submitted: its command buffers missed the submit. A frame's submit/present is "
+                               "its last job (Application::Run step 6).",
+                               job.Name, job.Frame );
+            }
             {
                 DESERT_PROFILE_SCOPE( "Render task" );
+                // The job records into ITS frame's slot and count, not the game thread's (FrameManager answers
+                // job.Slot and job.Frame on this thread for the scope).
+                const FrameManager::ScopedRecordingFrame recording( job.Slot, job.Frame );
                 Report( job.Name, job.Body() );
             }
             // The job's captures go here, on this thread and before the drain is signalled: a job holds no owner
@@ -94,10 +114,9 @@ namespace Desert::Engine
             lock.lock();
             m_Running = false;
             if ( m_Jobs.empty() )
-            {
                 m_InFlight.store( false, std::memory_order_release );
-                m_Drained.notify_all();
-            }
+            // Every job: SyncPreviousFrame waits for one frame's jobs, not for the drain.
+            m_Drained.notify_all();
         }
     }
 
@@ -114,7 +133,10 @@ namespace Desert::Engine
         {
             const std::lock_guard<std::mutex> lock( m_Mutex );
             m_InFlight.store( true, std::memory_order_release );
-            m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ) } );
+            const FrameManager& frames = FrameManager::GetInstance();
+            m_LastEnqueuedFrame        = frames.GetGameFrameCount();
+            m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ), m_LastEnqueuedFrame,
+                                         frames.GetGameFrameIndex(), m_EnqueueOwner } );
         }
         m_Wake.notify_one();
     }
@@ -150,10 +172,10 @@ namespace Desert::Engine
             WaitDrained();
             if ( m_AfterJoin.empty() )
                 break;
-            std::vector<Command> commands;
+            std::vector<Deferred> commands;
             commands.swap( m_AfterJoin );
-            for ( Command& command : commands )
-                command();
+            for ( Deferred& command : commands )
+                command.Body();
         }
         m_Joining = false;
     }
@@ -164,14 +186,107 @@ namespace Desert::Engine
             Join();
     }
 
+    void RenderTask::FrameEndSync()
+    {
+        if ( !InFlight() || !OnGameThread() )
+            return;
+        // Game thread only past this line, so the flag needs no lock.
+        static bool warned = false;
+        if ( !warned )
+        {
+            warned = true;
+            LOG_WARN( "[RenderTask] a frame began while the previous frame's render work was still recording: "
+                      "joined it first (FrameEndSync). The frame's submissions and command buffer are per slot, "
+                      "but the render graph's frame objects and the GPU profiler still bind one slot at a time." );
+        }
+        Join();
+    }
+
     void RenderTask::AfterJoin( Command command )
     {
         if ( !InFlight() )
         {
-            command();
-            return;
+            // THE ORDER OF THE DEFERRED COMMANDS IS THE ORDER THEY WERE ASKED FOR. The views can drain before
+            // anyone joins them (InFlight clears on the render thread), and a command asked for then used to run
+            // at once, ahead of the ones deferred earlier in the same frame that still wait for the next Join.
+            // Those run first; inside a Join the outer loop runs this one after them.
+            if ( !m_AfterJoin.empty() && !m_Joining )
+                Join();
+            if ( m_AfterJoin.empty() )
+            {
+                command();
+                return;
+            }
         }
-        m_AfterJoin.push_back( std::move( command ) );
+        m_AfterJoin.push_back( Deferred{ std::move( command ), m_LastEnqueuedFrame } );
+    }
+
+    const void* RenderTask::FrameOwner() noexcept
+    {
+        static const char tag = 0;
+        return &tag;
+    }
+
+    bool RenderTask::FramesBeforeDone( const uint64_t frame ) const
+    {
+        if ( m_Running && m_RunningFrame < frame )
+            return false;
+        // The queue is in frame order: Enqueue stamps the game thread's count, which only grows.
+        return m_Jobs.empty() || m_Jobs.front().Frame >= frame;
+    }
+
+    void RenderTask::RunDueCommands( const uint64_t currentFrame )
+    {
+        // In order, and only those deferred behind a frame that has finished: a command queued behind this
+        // frame's own work waits for it (the next Join or the next SyncPreviousFrame).
+        while ( !m_AfterJoin.empty() && ( m_AfterJoin.front().Frame < currentFrame || !InFlight() ) )
+        {
+            Deferred command = std::move( m_AfterJoin.front() );
+            m_AfterJoin.erase( m_AfterJoin.begin() );
+            command.Body();
+        }
+    }
+
+    void RenderTask::SyncPreviousFrame()
+    {
+        if ( OnRenderThread() || !OnGameThread() || m_Joining )
+            return;
+        const uint64_t current = FrameManager::GetInstance().GetGameFrameCount();
+        if ( InFlight() )
+        {
+            DESERT_PROFILE_WAIT( "Render task: FrameEndSync (frame N-1)" );
+            std::unique_lock<std::mutex> lock( m_Mutex );
+            m_Drained.wait( lock, [this, current]() { return FramesBeforeDone( current ); } );
+        }
+        m_Joining = true;
+        RunDueCommands( current );
+        m_Joining = false;
+    }
+
+    void RenderTask::JoinUnlessOwnedBy( const void* owner )
+    {
+        if ( !InFlight() || !OnGameThread() )
+            return;
+        const auto foreign = [owner]( const void* jobOwner )
+        { return jobOwner != owner && jobOwner != FrameOwner(); };
+        bool mustJoin = false;
+        {
+            const std::lock_guard<std::mutex> lock( m_Mutex );
+            mustJoin = m_Running && foreign( m_RunningOwner );
+            for ( const QueuedJob& queued : m_Jobs )
+                mustJoin = mustJoin || foreign( queued.Owner );
+        }
+        if ( mustJoin )
+            Join();
+    }
+
+    void RenderTask::NoteFrameSubmitted( const uint64_t frame ) noexcept
+    {
+        uint64_t end = m_SubmittedEnd.load( std::memory_order_relaxed );
+        while ( end < frame + 1 &&
+                !m_SubmittedEnd.compare_exchange_weak( end, frame + 1, std::memory_order_acq_rel ) )
+        {
+        }
     }
 
     void RenderTask::RecordGuard( const std::string_view site )

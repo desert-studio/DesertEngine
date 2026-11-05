@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -58,6 +60,23 @@ namespace Common
          */
         virtual void OnFramePresented()
         {
+        }
+
+        /**
+         * What OnFramePresented needs of THIS frame, captured on the game thread at its end (Application::Run,
+         * OVERLAP-ON-1); the notification runs once the frame is out, which may be after the next update began.
+         * The default captures nothing and calls OnFramePresented then; a layer whose notification reads
+         * per-update state (the serial that built the frame, a shot record) captures it by value here.
+         * @p handedOver: the frame goes to the render task. The capture then runs BEFORE the frame's submit and
+         * present are enqueued (OVERLAP-ON-5), so a job the layer enqueues here under RenderTask::FrameOwner runs
+         * in this frame's own order, after its views and before "Frame: Submit/Present": what a frame reports
+         * about itself is read there, not at the notification. Otherwise (serial mode, the overlap off) the
+         * capture runs after the inline present, right before the notification (the serial order).
+         * An empty function: nothing to announce.
+         */
+        virtual std::function<void()> CaptureFramePresented( [[maybe_unused]] bool handedOver )
+        {
+            return [this] { OnFramePresented(); };
         }
 
         inline const std::string& GetName()

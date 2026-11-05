@@ -34,6 +34,7 @@ Shader "MotionBlurGather"
             float Pad0;
             float Pad1;
             float Pad2;
+            mat4  ClipToPrevClip; // ViewFrame::ClipToPrevClip (unjittered); Flatten's sky branch
         };
 
         const float kSoftDepth = 50.0; // relative depth difference over which front / back fades

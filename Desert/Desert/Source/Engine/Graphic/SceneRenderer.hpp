@@ -466,6 +466,13 @@ namespace Desert::Graphic
             return m_ScreenProbeGather ? &m_ScreenProbeGather->LastMissReasons() : nullptr;
         }
 #endif
+        /// PROBE-TRACE-COST-3: the radiance cache update's counts (GlobalIllumination::RadianceCacheUpdateCounts,
+        /// read back slots-in-flight late): stamped, never traced, traced, slots taken / refused / freed by why.
+        /// nullptr while the view has no radiance cache.
+        [[nodiscard]] const GlobalIllumination::RadianceCacheUpdateCounts* GetRadianceCacheUpdateCounts() const
+        {
+            return m_RadianceCache ? &m_RadianceCache->LastUpdateCounts() : nullptr;
+        }
         /// VIRT-GEOM (DesertCtl `state views.virtualGeometry`): the VG instances this frame's draw bins made cut
         /// candidates of, and the clusters the main view's cluster cut drew (read back slots-in-flight late,
         /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn. Overflow: what the cut could not do
@@ -1887,9 +1894,10 @@ namespace Desert::Graphic
         // The scene's mesh distance fields (brick atlas, records, streaming), the same bracket: what this view's
         // global distance field composites from (AddFrameGlobalDistanceField).
         DistanceField::DistanceFieldSceneData* m_FrameDistanceFields = nullptr;
-        // The scene's deformation contacts (World::DeformationWorld), the same bracket: what AddFrameDeformationField
-        // applies to this view's field.
-        const ::Desert::World::DeformationWorld* m_FrameDeformation = nullptr;
+        // The scene's deformation contacts were captured into this view's field (CaptureContacts at BeginScene),
+        // the same bracket: AddFrameDeformationField applies that copy. The job never reads the world's log, which
+        // the tick of the next frame appends to while this one records.
+        bool m_FrameDeformationCaptured = false;
         // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the first
         // view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent (m_SharedSurfaceCache).
         SurfaceCache::SurfaceCacheRenderer* m_FrameSurfaceCache = nullptr;

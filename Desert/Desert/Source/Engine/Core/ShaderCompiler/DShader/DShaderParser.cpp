@@ -1188,8 +1188,11 @@ namespace Desert::Core::Preprocess
                     << "{\n    MaterialParams MaterialRows[];\n};\n";
                 // The row index: the push block's, unless the stage named its own first (a binned cell,
                 // kSurfaceMaterialRowMacro).
-                out << "#ifndef " << kSurfaceMaterialRowMacro << "\n#define " << kSurfaceMaterialRowMacro
-                    << " m_PushConstants.MaterialIndex\n#endif\n";
+                // A compacted bin's draw (kSurfaceDrawRowsDefine, a runtime permutation): the row its vertex
+                // stage read from the draw's row (Mesh/Surface/SurfaceTypes.glslh g_SurfaceMaterialRow).
+                out << "#ifndef " << kSurfaceMaterialRowMacro << "\n#ifdef " << kSurfaceDrawRowsDefine
+                    << "\n#define " << kSurfaceMaterialRowMacro << " g_SurfaceMaterialRow\n#else\n#define "
+                    << kSurfaceMaterialRowMacro << " m_PushConstants.MaterialIndex\n#endif\n#endif\n";
                 out << "#define Material MaterialRows[" << kSurfaceMaterialRowMacro << "]\n";
             }
 

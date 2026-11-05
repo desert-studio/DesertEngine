@@ -244,7 +244,8 @@ Shader "ScreenProbeTrace"
                     result = vec4( cache.rgb, SP_TRACE_DISTANCE );
                 else if ( texel.coverage.valid )
                 {
-                    // No traced probe answers yet: the cache-miss leg traces the rest of this ray.
+                    // No traced probe answers, in the coverage's clipmap or a coarser one (RadianceCacheRadianceAt's
+                    // fallback): the cache-miss leg traces the rest of this ray.
                     screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
                     return;
                 }

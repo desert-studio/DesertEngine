@@ -1,0 +1,43 @@
+# FPS-FIELD-BARN-SUN: the owner 11-03 'солнце мерцает и если чуть поднять камеру то вся трава будет черная'.
+# Flicker is frame to frame, so the shots come in close runs: the low sun (to-sun -0.709,0.309,-0.633, 18 deg up)
+# under a slow spin (0.02 deg/frame: shot capture spans ~125 frames, so 0.2 swept the sun out of view by s3), two frames apart; then the barn view raised in 1-degree steps for the black grass.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction -0.709,0.25,-0.633
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Тогда-вид s0_still the sun still
+Когда --subject viewport set Camera.Spin 0.02
+Когда frames 2
+Тогда-вид s1_spin the sun under a slow spin, frame run 1
+Когда frames 2
+Тогда-вид s2_spin the sun under a slow spin, frame run 2
+Когда frames 2
+Тогда-вид s3_spin the sun under a slow spin, frame run 3
+Когда frames 2
+Тогда-вид s4_spin the sun under a slow spin, frame run 4
+Когда frames 2
+Тогда-вид s5_spin the sun under a slow spin, frame run 5
+Когда frames 2
+Тогда-вид s6_spin the sun under a slow spin, frame run 6
+Когда --subject viewport set Camera.Spin 0
+Когда frames 60
+Тогда-вид s7_settled the sun settled
+Когда --subject viewport set Camera.Direction 0.15,0.03,-1
+Когда frames 120
+Тогда-вид g0_still the barn view still
+Когда --subject viewport set Camera.Tilt 0.05
+Когда frames 20
+Тогда-вид g1_up raised 1 deg while pitching (black grass?)
+Когда frames 20
+Тогда-вид g2_up raised 2 deg while pitching (black grass?)
+Когда frames 20
+Тогда-вид g3_up raised 3 deg while pitching (black grass?)
+Когда frames 20
+Тогда-вид g4_up raised 4 deg while pitching (black grass?)
+Когда frames 20
+Тогда-вид g5_up raised 5 deg while pitching (black grass?)
+Когда --subject viewport set Camera.Tilt 0
+Когда frames 120
+Тогда-вид g6_settled raised 5 deg, settled

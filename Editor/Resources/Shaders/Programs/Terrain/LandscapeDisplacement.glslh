@@ -404,9 +404,37 @@ struct LandscapeDisplacedVertex
 };
 
 #ifndef LANDSCAPE_DICE_POOL_READ
-LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride, int iquads );
+// A grid node of the diced cells (TERRAIN-COST-2; UE Nanite displaces each vertex once and its triangles index it): its
+// LandscapeEvaluateVertex point, continuous LOD, morphed gradient and tile sample. LandscapeDicePool.shader evaluates
+// every node of the fade's square once a frame (its first dispatch, TerrainBatch.hpp LandscapeDicePoolCornerCount) and
+// each sub-vertex reads the three of its cell's triangle - where each sub-vertex evaluated them itself, a cell's four
+// corners (dice + 1)^2 x 3 times.
+struct LandscapeDicedCorner
+{
+    vec3  WorldPos;
+    float Lod;
+    vec2  Gradient;
+    vec2  Local;
+};
+
+LandscapeDicedCorner LandscapeDicedCornerAt( int x, int z )
+{
+    LandscapeMorphedVertex m = LandscapeEvaluateVertex( x, z );
+    LandscapeDicedCorner   c;
+    c.WorldPos = m.WorldPos;
+    c.Lod      = m.Lod;
+    c.Gradient = LandscapeVertexGradient( m );
+    c.Local    = m.Local;
+    return c;
+}
+
+// Corner (@p cellX, @p cellZ) of the tile's diced cells as the includer holds it (LandscapeDicePool.shader: the first
+// dispatch's node).
+LandscapeDicedCorner LandscapeDicedCornerOf( int cellX, int cellZ );
+
+LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d );
 #endif
-LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cells, int stride, int iquads );
+LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cells );
 
 // THE GRID, INDEXED (TerrainBatch.hpp kLandscapeGridFirstInstance, TERRAIN-GPU-2; UE FLandscapeSharedBuffers): a draw
 // whose first instance is this one is an indexed draw of the tile grid's shared index buffer - its vertex is grid
@@ -443,7 +471,7 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex, int gridRow )
     {
         LandscapeDrawVertex d = LandscapeDecodeDrawVertex( vertex, cells );
         if ( d.Diced )
-            return LandscapeDicedEvaluate( d, cells, stride, iquads );
+            return LandscapeDicedEvaluate( d, cells );
         gx = d.CellX + d.SubX;
         gz = d.CellZ + d.SubZ;
     }
@@ -462,7 +490,7 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex, int gridRow )
 }
 
 // A diced cell's sub-vertex @p d (LandscapeDisplacedEvaluate's procedural decode).
-LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cells, int stride, int iquads )
+LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cells )
 {
     // Edge vertices snap to the neighbour's coarser dice (the stitch); corners stay corners.
     if ( d.Dice > 1 )
@@ -488,19 +516,14 @@ LandscapeDisplacedVertex LandscapeDicedEvaluate( LandscapeDrawVertex d, int cell
     pooled.Local    = vec2( pa.w, pb.w );
     return pooled;
 #else
-    return LandscapeDicedPoint( d, stride, iquads );
+    return LandscapeDicedPoint( d );
 #endif
 }
 
 #ifndef LANDSCAPE_DICE_POOL_READ
 // Sub-vertex (@p d.SubX, @p d.SubZ) of diced cell (@p d.CellX, @p d.CellZ), displaced: the pool's evaluation.
-LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride, int iquads )
+LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d )
 {
-    int x0 = LandscapeCellCorner( d.CellX, stride, iquads );
-    int z0 = LandscapeCellCorner( d.CellZ, stride, iquads );
-    int x1 = LandscapeCellCorner( d.CellX + 1, stride, iquads );
-    int z1 = LandscapeCellCorner( d.CellZ + 1, stride, iquads );
-
     // The cell's triangle the sub-vertex is on — (00, 10, 11) where SubX >= SubZ, (00, 01, 11) otherwise, the
     // cell's diagonal being (00)-(11) — and its barycentric weights; a corner of the cell is exactly its corner.
     bool  lower = d.SubX >= d.SubZ;
@@ -509,15 +532,15 @@ LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride,
     float wa    = lower ? 1.0 - fx : 1.0 - fz;
     float wb    = lower ? fx - fz : fz - fx;
     float wc    = lower ? fz : fx;
-    LandscapeMorphedVertex a = LandscapeEvaluateVertex( x0, z0 );
-    LandscapeMorphedVertex b = lower ? LandscapeEvaluateVertex( x1, z0 ) : LandscapeEvaluateVertex( x0, z1 );
-    LandscapeMorphedVertex c = LandscapeEvaluateVertex( x1, z1 );
+    LandscapeDicedCorner a = LandscapeDicedCornerOf( d.CellX, d.CellZ );
+    LandscapeDicedCorner b = lower ? LandscapeDicedCornerOf( d.CellX + 1, d.CellZ ) : LandscapeDicedCornerOf( d.CellX, d.CellZ + 1 );
+    LandscapeDicedCorner c = LandscapeDicedCornerOf( d.CellX + 1, d.CellZ + 1 );
     // One sum, a then b then c: a point on a cell edge has an exact zero weight on the third corner, so both cells
     // of the edge round the same two products the same way.
     LandscapeDisplacedVertex v;
     v.WorldPos = a.WorldPos * wa + b.WorldPos * wb + c.WorldPos * wc;
     v.Local    = a.Local * wa + b.Local * wb + c.Local * wc;
-    vec2 g     = LandscapeVertexGradient( a ) * wa + LandscapeVertexGradient( b ) * wb + LandscapeVertexGradient( c ) * wc;
+    vec2 g     = a.Gradient * wa + b.Gradient * wb + c.Gradient * wc;
     v.Normal   = normalize( vec3( -g.x, 1.0, -g.y ) ); // the surface y = h(x, z)
 
     float magnitude = CurrentTerrain.Displacement.x;

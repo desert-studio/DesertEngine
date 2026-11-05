@@ -38,7 +38,8 @@ Shader "SSDHistoryConvolution"
 
         PushConstant PushConstants
         {
-        	vec4 Params; // y = signal (kSSDSignal*), xzw unused
+        	vec4 Params; // x = 1 under the traced reflections' gate (ScreenSpaceDenoiser::SignalGate), y = signal
+        	             // (kSSDSignal*), zw unused
         };
 
         LocalSize(8, 8, 1);
@@ -53,7 +54,7 @@ Shader "SSDHistoryConvolution"
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
         	const int signal = int(Params.y + 0.5);
-        	if (!SSDPixelHasSignal(signal, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0)))
+        	if (!SSDPixelHasSignal(signal, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0), Params.x >= 0.5))
         	{
         		imageStore(DenoisedSignalTexture, pixel, vec4(0.0));
         		return;

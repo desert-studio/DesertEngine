@@ -137,7 +137,11 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t> WaitSyncs;
         std::vector<uint32_t> SignalSyncs;
         // Recorded after the exec lambda (and after EndRenderPass), before any signal: the OwnershipRelease
-        // half of every QueueOwnershipTransfer whose ReleasePosition is this pass. Never contains a Transition.
+        // half of every QueueOwnershipTransfer whose ReleasePosition is this pass, and on Graphics the opening
+        // Transition of a HELD read group (RDGCompile FindAsyncRuns: a read state both pipes share, entered on
+        // Graphics after its last use there, before the fork that orders the async readers), and on AsyncCompute
+        // that of a group HELD ON ASYNC (entered after its async writer, before the join its graphics readers
+        // wait for). A pass with any epilogue barrier keeps no render pass open.
         std::vector<Barrier> EpilogueBarriers;
     };
 
@@ -157,7 +161,8 @@ namespace Desert::Graphic::RDG
         // Amendment B: the SignalPosition of a fork no pass signals. The async run consumes externals no earlier
         // pass of the graph touched (it may sit at position 0): the graphics pipe opens with a prologue
         // PipeSegment (FirstPosition == LastPosition == kForkAtGraphStart, no passes) that records
-        // CompileResult::PrologueBarriers (the OwnershipRelease of those externals) and signals this fork.
+        // CompileResult::PrologueBarriers (the OwnershipRelease of those externals, or the opening Transition of a
+        // held read group over one) and signals this fork.
         static constexpr uint32_t kForkAtGraphStart = ~0u - 1u;
 
         Pipe     SignalPipe     = Pipe::Graphics;
@@ -169,6 +174,12 @@ namespace Desert::Graphic::RDG
         // stages of every first access on WaitPipe that depends on the signalling side.
         PipelineStageFlags WaitStages = PipelineStage_None;
         bool               IsFork     = true; // Graphics -> AsyncCompute; false: AsyncCompute -> Graphics
+        // Why it is there. A join: the resource and the async pass of the signalling piece whose graphics consumer
+        // WaitPosition is ("'Velocity' of 'ScreenProbes: Disocclusion'"), or the next piece it joins with; empty
+        // for a join at the graph end. A fork: the resource and the async pass of the run whose graphics producer
+        // SignalPosition is (RDGCompile CutRunsAtConsumers, CreateAsyncSyncs). The backend's async-segments log
+        // prints it.
+        std::string Cause;
     };
 
     // RDG-CONTRACTS B(2). A resource used on both pipes with contents that must survive the move (a release on
@@ -321,7 +332,9 @@ namespace Desert::Graphic::RDG
         bool                        PassCulling = true; // false: Builder::SetPassCulling(false) kept every pass
         std::vector<DependencyEdge> Edges;              // between executed passes
         std::vector<Barrier>        FinalBarriers;      // after the last pass: extraction / final accesses
-        // Amendment B: the releases the graphics prologue segment records (fork at kForkAtGraphStart).
+        // Amendment B: what the graphics prologue segment records (fork at kForkAtGraphStart): the releases of the
+        // externals the fork hands over, and the opening Transition of a held read group over an untouched
+        // external. May be empty (a held group already in its read state); the prologue then records no barrier.
         std::vector<Barrier>            PrologueBarriers;
         std::vector<ResourceLifetime>   Lifetimes;
         std::vector<DerivedUsage>       Usages;

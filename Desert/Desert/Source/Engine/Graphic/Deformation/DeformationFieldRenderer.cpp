@@ -13,7 +13,10 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <cstddef>
+#include <iterator>
 #include <map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Graphic::Deformation
@@ -191,19 +194,47 @@ namespace Desert::Graphic::Deformation
         pipeline.SetStorageBuffer( kTileStampBinding, m_TileStampBuffer.get() );
     }
 
+    void DeformationFieldRenderer::CaptureContacts( const ::Desert::World::DeformationWorld& world )
+    {
+        const uint64_t next = world.NextSequence();
+        // Another world behind this view (a scene was opened): its log restarts; what the field holds is not its.
+        if ( next < m_Captured )
+        {
+            m_Captured = 0;
+            m_Pending.clear();
+            m_PendingMissed  = 0;
+            m_PendingRestart = true;
+        }
+        if ( next == m_Captured )
+            return;
+        uint64_t                                    missed   = 0;
+        std::vector<::Desert::World::DeformContact> contacts = world.Since( m_Captured, missed );
+        m_Captured                                           = next;
+        m_PendingMissed += missed;
+        m_Pending.insert( m_Pending.end(), std::make_move_iterator( contacts.begin() ),
+                          std::make_move_iterator( contacts.end() ) );
+        // Views that did not apply for a while (no AddUpdatePasses) hold no more than the log itself keeps.
+        constexpr std::size_t kKept = ::Desert::World::DeformationWorld::kMaxRetained;
+        if ( m_Pending.size() > kKept )
+        {
+            const std::size_t dropped = m_Pending.size() - kKept;
+            m_Pending.erase( m_Pending.begin(), m_Pending.begin() + static_cast<std::ptrdiff_t>( dropped ) );
+            m_PendingMissed += dropped;
+        }
+    }
+
     Common::ResultStr<std::optional<DeformationFieldFrame>>
     DeformationFieldRenderer::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
-                                               const ::Desert::World::DeformationWorld& world, const glm::vec3& viewPosition,
-                                               const bool wanted )
+                                               const glm::vec3& viewPosition, const bool wanted )
     {
-        // Another world behind this view (a scene was opened): its log restarts; what the field holds is not its.
-        if ( world.NextSequence() < m_Applied )
+        // The log restarted (CaptureContacts): the windows hold another world's field.
+        if ( m_PendingRestart )
         {
-            m_Applied = 0;
+            m_PendingRestart = false;
             for ( auto& window : m_Window )
                 window.reset();
         }
-        const bool pending = world.NextSequence() > m_Applied;
+        const bool pending = !m_Pending.empty();
         if ( !m_ClearPipeline )
         {
             if ( !pending && !wanted )
@@ -263,9 +294,11 @@ namespace Desert::Graphic::Deformation
             return Common::MakeSuccess( std::optional<DeformationFieldFrame>{ frame } );
 
         // THE NEW CONTACTS, in submission order, cut into batches that name the same stamp.
-        uint64_t                                missed   = 0;
-        const std::vector<::Desert::World::DeformContact> contacts = world.Since( m_Applied, missed );
-        m_Applied                                        = world.NextSequence();
+        const std::vector<::Desert::World::DeformContact> contacts = std::move( m_Pending );
+        m_Pending
+             .clear(); // a moved-from vector is valid but unspecified: the next capture appends to an empty one
+        const uint64_t missed = m_PendingMissed;
+        m_PendingMissed       = 0;
         if ( missed > 0 )
             LOG_ERROR( "[Deformation] this view's field fell {} contacts behind the world's log (it keeps {}); "
                        "those contacts are not in the field",

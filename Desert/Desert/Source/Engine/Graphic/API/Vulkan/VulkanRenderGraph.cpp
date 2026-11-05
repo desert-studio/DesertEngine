@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <atomic>
 
@@ -1577,6 +1578,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_Queues == nullptr )
             return Common::MakeFormattedError( "graph '{}': the Vulkan backend has no queues (BeginFrame)",
                                                graph.Name );
+        // BEGINGRAPH-STALL-1: the steps of BeginGraph, one CPU row each under the builder's "RDG: BeginGraph", so
+        // a stall inside it names its step (UE: RDG's per-phase CPU events).
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Release + framebuffers" );
         Release();
         // A framebuffer whose images the pool has destroyed is dead: drop it before a new view could reuse
         // the handle it remembers. Called between submissions the caller has waited for (pool contract).
@@ -1615,33 +1620,81 @@ namespace Desert::Graphic::API::Vulkan
         m_Result = graph.Result;
         if ( crossesQueues )
         {
-            std::string line;
+            DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Async segments" );
+            // The set is its STRUCTURE (positions), never the pass names: a name carries this frame's counts
+            // ("SurfaceCache: Direct Lighting (196 pages)"), so a line keyed by names changed nearly every frame
+            // and BeginGraph built and wrote a log line per frame on the render thread (BEGINGRAPH-STALL-1).
+            std::vector<uint32_t> structure;
             for ( const RDG::PipeSegment& segment : graph.Result->Segments )
             {
                 if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
                     continue;
-                line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
-                        graph.Result->Passes[segment.LastPosition].Name + ": " +
-                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes";
-                // The graphics pass that waits for this segment (its join, RDGCompile CutRunsAtConsumers).
+                structure.push_back( segment.FirstPosition );
+                structure.push_back( segment.LastPosition );
                 for ( const RDG::CrossPipeSync& sync : graph.Result->Syncs )
                 {
-                    if ( sync.IsFork || sync.SignalPosition != segment.LastPosition )
-                        continue;
-                    if ( sync.WaitPosition == RDG::CrossPipeSync::kJoinAtGraphEnd )
-                        line += ", joined at the graph end";
-                    else
-                        line += ", joined before '" + graph.Result->Passes[sync.WaitPosition].Name + "'";
+                    if ( !sync.IsFork && sync.SignalPosition == segment.LastPosition )
+                        structure.push_back( sync.WaitPosition );
                 }
-                line += "]";
+                for ( const uint32_t s : segment.WaitSyncs )
+                {
+                    if ( graph.Result->Syncs[s].IsFork )
+                        structure.push_back( graph.Result->Syncs[s].SignalPosition );
+                }
             }
-            std::string& logged = m_AsyncSegmentsLogged[std::string( graph.Name )];
-            if ( line != logged )
+            auto logged = m_AsyncSegmentsLogged.find( graph.Name );
+            if ( logged == m_AsyncSegmentsLogged.end() )
+                logged = m_AsyncSegmentsLogged.emplace( std::string( graph.Name ), std::vector<uint32_t>{} ).first;
+            if ( logged->second != structure )
             {
+                std::string line;
+                for ( const RDG::PipeSegment& segment : graph.Result->Segments )
+                {
+                    if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
+                        continue;
+                    line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
+                            graph.Result->Passes[segment.LastPosition].Name + ": " +
+                            std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes";
+                    // The graphics pass it waits for (its fork, RDGCompile CutRunsAtConsumers / CreateAsyncSyncs) and
+                    // why; a segment without one follows the one before it on the compute queue.
+                    bool forked = false;
+                    for ( const uint32_t s : segment.WaitSyncs )
+                    {
+                        const RDG::CrossPipeSync& forkSync = graph.Result->Syncs[s];
+                        if ( !forkSync.IsFork )
+                            continue;
+                        forked = true;
+                        if ( forkSync.SignalPosition == RDG::CrossPipeSync::kForkAtGraphStart )
+                            line += ", forked at the graph start";
+                        else
+                            line += ", forked after '" + graph.Result->Passes[forkSync.SignalPosition].Name + "'";
+                        if ( !forkSync.Cause.empty() )
+                            line += " by " + forkSync.Cause;
+                    }
+                    if ( !forked )
+                        line += ", no fork of its own (after the segment before it on the queue)";
+                    // The graphics pass that waits for this segment (its join, RDGCompile CutRunsAtConsumers).
+                    for ( const RDG::CrossPipeSync& sync : graph.Result->Syncs )
+                    {
+                        if ( sync.IsFork || sync.SignalPosition != segment.LastPosition )
+                            continue;
+                        if ( sync.WaitPosition == RDG::CrossPipeSync::kJoinAtGraphEnd )
+                            line += ", joined at the graph end";
+                        else
+                        {
+                            line += ", joined before '" + graph.Result->Passes[sync.WaitPosition].Name + "'";
+                            // What made it wait (RDGCompile CutRunsAtConsumers): the resource and the async pass.
+                            if ( !sync.Cause.empty() )
+                                line += " by " + sync.Cause;
+                        }
+                    }
+                    line += "]";
+                }
                 LOG_INFO( "[RDG] graph '{}' async compute segments:{}", graph.Name, line );
-                logged = std::move( line );
+                logged->second = std::move( structure );
             }
         }
+        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Segments" );
         // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
         const Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
@@ -1664,6 +1717,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Every used, non-extracted transient is PLACED at its planned heap offset, in plan order. Two that share
         // bytes are two resources over the same memory; the AliasAcquire barrier alone orders them.
+        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Transient heaps" );
         const RDG::AliasingPlan& plan = graph.Result->Aliasing;
         // A graph only on the graphics queue holds the slot's shared heaps in turn with the slot's other graphs
         // (BISTRO-MEM-2 p5); one with an async-compute segment keeps its own (a compute submission is ordered
@@ -1680,6 +1734,7 @@ namespace Desert::Graphic::API::Vulkan
         m_GraphName                = graph.Name; // before the barrier: its GPU row is named after the graph
         if ( first.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( first.GetValue() );
+        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Place transients" );
         for ( const RDG::Allocation& allocation : plan.Allocations )
         {
             if ( allocation.Resource >= graph.Resources.size() )
@@ -1709,6 +1764,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Externals are bound; an extracted transient gets a dedicated resource from the pool (it outlives the
         // graph, so it may not live in a heap the next frame reuses).
+        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Externals + extracted" );
         for ( const RDG::ResourceView& view : graph.Resources )
         {
             if ( !view.Used )
@@ -2229,8 +2285,10 @@ namespace Desert::Graphic::API::Vulkan
             if ( pipe != 0 )
                 queue = Common::Profiling::GpuQueue::AsyncCompute;
             chunk.Record.GpuRoot = {};
+#if DESERT_DEV_INSTRUMENTS // the GPU profiler is a dev instrument: Shipping declares no VulkanGpuProfiler
             if ( m_Device.ChunkOrder != nullptr )
                 chunk.Record.GpuRoot = m_Device.ChunkOrder->ChunkRoot( queue );
+#endif
         }
         for ( size_t pipe = 0; pipe < perPipe.size(); ++pipe )
         {
@@ -2311,8 +2369,10 @@ namespace Desert::Graphic::API::Vulkan
         }
         chunk.CommandBuffer = VK_NULL_HANDLE; // the segment's submission holds it now
         SetRecording( continuation.GetValue() );
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Device.ChunkOrder != nullptr )
             m_Device.ChunkOrder->StampChunkOrder( chunk.Record.GpuScopesMade );
+#endif
         // The frame recorder's bind cache does not describe the continuation (a freshly begun buffer).
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
@@ -2327,8 +2387,10 @@ namespace Desert::Graphic::API::Vulkan
         // never written. RDG-PARALLEL-5: its passes are recorded again inline, each with a scope of its own, so
         // the chunk's scopes are retracted: [GpuOrder] holds every pass once, no duplicate row read untimed.
         Chunk& chunk = *m_Chunks[index];
+#if DESERT_DEV_INSTRUMENTS
         if ( m_Device.ChunkOrder != nullptr )
             m_Device.ChunkOrder->RetractChunkScopes( chunk.Record.GpuScopesMade );
+#endif
         chunk.Record.GpuScopesMade.clear();
         chunk.CommandBuffer = VK_NULL_HANDLE; // ended, never submitted: reset with the slot's arena
     }
@@ -2532,8 +2594,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // Releases only: RecordBarriers names the families from BarrierType, ends the barrier at
-        // BOTTOM_OF_PIPE and leaves dstAccess empty (the acquire on the other queue makes it visible).
+        // Releases (RecordBarriers ends each at BOTTOM_OF_PIPE with dstAccess empty: the acquire on the other queue
+        // makes it visible) and, on Graphics, the opening Transition of a held read group (a full barrier).
         RecordBarriers( barriers );
     }
 

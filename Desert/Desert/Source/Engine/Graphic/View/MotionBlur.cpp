@@ -166,14 +166,15 @@ namespace Desert::Graphic
     {
         const RDG::Extent3D tiles = MotionBlurTileExtent( frame.Split.Render );
         MotionBlurParams    params;
-        params.RenderSize    = glm::vec2( static_cast<float>( frame.Split.Render.Width ),
-                                          static_cast<float>( frame.Split.Render.Height ) );
-        params.OutputSize    = glm::vec2( static_cast<float>( frame.Split.Output.Width ),
-                                          static_cast<float>( frame.Split.Output.Height ) );
-        params.TileCount     = glm::vec2( static_cast<float>( tiles.Width ), static_cast<float>( tiles.Height ) );
-        params.VelocityScale = MotionBlurVelocityScale( settings, frame.DeltaSeconds );
-        params.MaxPixels     = MotionBlurMaxPixels( settings, frame.Split.Output );
-        params.Samples       = settings.Samples;
+        params.RenderSize     = glm::vec2( static_cast<float>( frame.Split.Render.Width ),
+                                           static_cast<float>( frame.Split.Render.Height ) );
+        params.OutputSize     = glm::vec2( static_cast<float>( frame.Split.Output.Width ),
+                                           static_cast<float>( frame.Split.Output.Height ) );
+        params.TileCount      = glm::vec2( static_cast<float>( tiles.Width ), static_cast<float>( tiles.Height ) );
+        params.VelocityScale  = MotionBlurVelocityScale( settings, frame.DeltaSeconds );
+        params.MaxPixels      = MotionBlurMaxPixels( settings, frame.Split.Output );
+        params.Samples        = settings.Samples;
+        params.ClipToPrevClip = frame.ClipToPrevClip();
         return params;
     }
 

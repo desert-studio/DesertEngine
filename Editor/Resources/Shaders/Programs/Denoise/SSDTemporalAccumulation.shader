@@ -59,6 +59,8 @@ Shader "SSDTemporalAccumulation"
         	// x = 1 when AccumulatedSignalTexture holds the view's previous frame, y = signal (kSSDSignal*),
         	// z = the most frames a history may hold, w = the fewest a reflection targets
         	vec4 Params;
+        	// x = 1 under the traced reflections' gate (ScreenSpaceDenoiser::SignalGate; reflections only), yzw unused
+        	vec4 Params2;
         };
 
         LocalSize(8, 8, 1);
@@ -86,7 +88,7 @@ Shader "SSDTemporalAccumulation"
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
         	const int signal = int(Params.y + 0.5);
-        	if (!SSDPixelHasSignal(signal, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0)))
+        	if (!SSDPixelHasSignal(signal, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0), Params2.x >= 0.5))
         	{
         		imageStore(NewHistoryTexture, pixel, vec4(0.0));
         		imageStore(NewHistoryCountTexture, pixel, vec4(0.0));

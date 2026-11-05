@@ -27,6 +27,9 @@ namespace Desert::Graphic
         virtual uint32_t GetWidth() const                            = 0;
         virtual uint32_t GetHeight() const                           = 0;
         virtual void     RequestRebuild( uint32_t width, uint32_t height ) = 0;
+        // A rebuild is requested and not applied yet: the frame loop joins the render task before the frame
+        // boundary that applies it (Application::Run step 2), and only then (OVERLAP-ON-3).
+        [[nodiscard]] virtual bool RebuildPending() const = 0;
 
         virtual void Release() = 0;
 

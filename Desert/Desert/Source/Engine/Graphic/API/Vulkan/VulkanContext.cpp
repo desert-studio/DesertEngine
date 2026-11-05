@@ -11,6 +11,7 @@
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/RenderTask.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -306,7 +307,14 @@ namespace Desert::Graphic::API::Vulkan
         // anything of the frame is recorded; the image itself is acquired late, when the frame's last pass
         // imports the back buffer (VulkanRendererAPI::ImportBackBuffer, PRESENT-COST), so the CPU builds the frame
         // before it can wait on the display.
-        SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput()->ApplyFrameBoundaryRebuild();
+        // ONLY WITH NOTHING ON THE RENDER TASK (OVERLAP-ON-3): the rebuild waits the device idle and releases the
+        // images, the composite framebuffer and the capture staging that a frame handed to the render task may
+        // still present or read. Application::Run joins before this boundary when SwapChain::RebuildPending. A
+        // request raised after that check by the frame still in flight (an OUT_OF_DATE acquire or present) stays
+        // pending for the next boundary, whose check joins first; the frame between is not presented, the answer
+        // an OUT_OF_DATE acquire always had.
+        if ( !::Desert::Engine::RenderTask::Get().InFlight() )
+            SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput()->ApplyFrameBoundaryRebuild();
 
         // Asked AFTER the rebuild too. A device that died during the PREVIOUS frame's submit is discovered
         // here — the submit itself returned VK_SUCCESS and the failure arrived asynchronously — and saying

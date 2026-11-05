@@ -28,6 +28,11 @@ namespace Desert::Core
     class EditorCamera;
 }
 
+namespace Desert::Graphic::System
+{
+    class DisplacementCache;
+}
+
 namespace Desert::Editor
 {
     class PanelRegistry;
@@ -102,15 +107,38 @@ namespace Desert::Editor
         // before any pass of the frame opens (Vulkan has no nested render pass).
         void TickRenderTextures( const Common::Timestep& ts );
         void RebuildRenderRegistry();
-        // Any view's subsurface scatter still averaging its history (SceneRenderer::SubsurfaceHistoryConverging):
-        // the control gate's PendingWork::SubsurfaceHistory, asked after the frame like Displacement.
-        [[nodiscard]] bool SubsurfaceHistoryConverging() const;
-        // Any view's last frame drew a material's default-surface stand-in while its own pipeline compiled
-        // (SceneRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
-        [[nodiscard]] bool MaterialPipelinesCompiling() const;
-        // Any view's last frame drew grass whose instance buffers may be truncated (SceneRenderer::
-        // GrassInstancesSettling, a camera cut): the control gate's PendingWork::GrassInstances.
-        [[nodiscard]] bool GrassInstancesSettling() const;
+        // THE FRAME'S OWN CENSUS: the four after-the-frame entries of the control gate (ControlService::
+        // OnFramePresented). The views decide them while they record, on the render task, so they are read in the
+        // frame's own order (EditorLayer's job "Editor: frame census", OVERLAP-ON-5), never at the announcement
+        // while the next frame's views may be writing them.
+        struct FrameCensus
+        {
+            // The active world's displaced primitives still on their base mesh (DisplacementStats::Unsettled).
+            bool DisplacementUnsettled = false;
+            // Any view's subsurface scatter still averaging its history (SceneRenderer::
+            // SubsurfaceHistoryConverging): PendingWork::SubsurfaceHistory.
+            bool SubsurfaceHistoryConverging = false;
+            // Any view drew a material's default-surface stand-in while its own pipeline compiled
+            // (SceneRenderer::GetStandInDraws): PendingWork::MaterialPipelines.
+            bool MaterialPipelinesCompiling = false;
+            // Any view drew grass whose instance buffers may be truncated (SceneRenderer::GrassInstancesSettling,
+            // a camera cut): PendingWork::GrassInstances.
+            bool GrassInstancesSettling = false;
+        };
+        // What the census reads, handed over BY VALUE when the frame is captured, on the game thread: the
+        // renderers of the primary scene, of every document and of every extra angle (in that order), and the
+        // active world's displacement cache. The workspace's containers are never walked off this thread. Raw
+        // pointers: a renderer or a world is destroyed only behind the render task's fence (~SceneRenderer joins;
+        // RenderTask's FENCE), so a job enqueued in this frame has finished before either goes.
+        struct FrameCensusSources
+        {
+            std::vector<const Graphic::SceneRenderer*> Renderers;
+            const Graphic::System::DisplacementCache*  Displacement = nullptr;
+        };
+        [[nodiscard]] FrameCensusSources CaptureFrameCensusSources() const;
+        // ANY THREAD that orders after the views it reads: the render task in the frame's order, or the game
+        // thread when nothing is in flight (serial mode, the overlap off).
+        [[nodiscard]] static FrameCensus ReadFrameCensus( const FrameCensusSources& sources );
 
         // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
         // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:

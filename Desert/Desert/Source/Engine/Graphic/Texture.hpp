@@ -154,18 +154,29 @@ namespace Desert::Graphic
         static Common::ResultStr<std::shared_ptr<Texture2D>>
         CreateFromCooked( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() );
 
-        /// THE STREAMED MIP CHANGE (TEX-STREAMING; UE FTexture2DUpdate + RHIUpdateTextureReference): @p cooked --
-        /// this texture's own asset read from another first level (ReadCookedMips) -- is uploaded to a new device
-        /// image, which the texture's EXISTING Image2D takes (Image2D::TakeDeviceImageFrom). The texture, its
-        /// image handle and the Image2D pointer every material slot and override holds all stay; the old levels
-        /// are released past the frames in flight. Refused, and the resident levels kept, when the upload fails.
-        Common::BoolResultStr ReplaceLevels( CookedTexture2D       cooked,
-                                             const TextureBackend& backend = TextureBackend::Device() );
+        /// THE STREAMED MIP CHANGE (TEX-STREAMING; UE FTexture2DUpdate + RHIUpdateTextureReference), in two steps
+        /// because a recording view may read the live image (OVERLAP-ON-7). StageLevels: @p cooked -- this
+        /// texture's own asset read from another first level (ReadCookedMips) -- is uploaded to a NEW device
+        /// image nothing reads yet; any thread that may upload, any time. AdoptStagedLevels: the texture's
+        /// EXISTING Image2D takes it (Image2D::TakeDeviceImageFrom: its views, its layout, its bindless row), so
+        /// it runs only where no view records (TextureService queues it behind the render work in flight,
+        /// RenderTask::AfterJoin). The texture, its image handle and the Image2D pointer every material slot and
+        /// override holds all stay; the old levels are released past the frames in flight. Refused, and the
+        /// resident levels kept, when the upload or the swap fails.
+        struct StagedLevels
+        {
+            std::shared_ptr<Image2D> Image;
+            uint32_t                 Width = 0, Height = 0;
+        };
+        Common::ResultStr<StagedLevels>
+        StageLevels( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() ) const;
+        Common::BoolResultStr           AdoptStagedLevels( const StagedLevels& staged );
 
         /// THE STREAMED MIP DROP (TEX-STREAMING; UE FTexture2DStreamOut): the texture gives up its
         /// @p droppedLevels top levels by a GPU copy of the ones it keeps (Image2D::StreamOutLevels) -- nothing is
-        /// read from disk; only a RAISE reads the asset (ReplaceLevels). The texture and its Image2D stay, as in
-        /// ReplaceLevels. Refused, and the resident levels kept, when the image cannot stream out.
+        /// read from disk; only a RAISE reads the asset (StageLevels). The texture and its Image2D stay, as in
+        /// AdoptStagedLevels, and like it this moves the live image: only where no view records. Refused, and the
+        /// resident levels kept, when the image cannot stream out.
         Common::BoolResultStr StreamOutLevels( uint32_t droppedLevels );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
