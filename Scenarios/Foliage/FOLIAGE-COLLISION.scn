@@ -11,8 +11,6 @@
 Дано --subject viewport set Camera.Direction 0,-1,-0.01
 Дано run Foliage "Stroke at viewport centre"
 Дано run Foliage "Add type to the palette: FC_BushPasses"
-Дано run Foliage "Palette: edit FC_TreeBlocks"
-Дано run Foliage "Edited type: toggle checked (paint with it)"
 Дано --subject viewport set Camera.Position 600,1500,350
 Дано run Foliage "Stroke at viewport centre"
 Дано --subject viewport set Camera.Position 0,600,1300
@@ -22,7 +20,8 @@
 Когда run Action "Play"
 Когда advance 0.5
 Когда input keydown - - w
-Когда advance 3.0
+Когда advance 2.0
+Когда advance 1.0
 Когда input keyup - - w
 Когда advance 0.3
 Тогда-вид 1_blocked the pawn line reads z about 350 + trunk radius + capsule radius (well above 0), "on ground"; the pawn stands at the trunk, not past it
@@ -37,12 +36,27 @@
 Тогда-вид 2_bushes the pawn line reads z below 200 (past the shrub row at 350); the shrub behind the pawn
 Когда run Action "Stop"
 # [3_paint_undo] paint a second tree on the shrub's lane, Play: blocked at it; undo the stroke, Play: passes.
-Когда run Foliage "Palette: edit FC_BushPasses"
+Когда run Foliage "Palette: edit Foliage_FC_BushPasses"
 Когда run Foliage "Edited type: toggle checked (paint with it)"
-Когда run Foliage "Palette: edit FC_TreeBlocks"
+Когда run Foliage "Palette: edit Foliage_FC_TreeBlocks"
 Когда run Foliage "Edited type: toggle checked (paint with it)"
-Когда --subject viewport set Camera.Position 600,1500,250
+Когда --subject viewport set Camera.Position 705,1500,250
 Когда --subject viewport set Camera.Direction 0,-1,-0.01
+Когда run Foliage "Stroke at viewport centre"
+# Play/Stop clears the editor undo history ("nothing left to undo" after Stop), so the undo is proven first:
+# paint -> Undo -> Play passes; then the same stroke again -> Play blocks.
+Когда run Action "Undo"
+Когда run Action "Play"
+Когда advance 0.5
+Когда input keydown - - d
+Когда advance 1.2
+Когда input keyup - - d
+Когда input keydown - - w
+Когда advance 2.0
+Когда input keyup - - w
+Когда advance 0.3
+Тогда-вид 3b_undo_passes the pawn line reads z below 200 at x about 705: the undone tree no longer blocks; editor.log errors 0
+Когда run Action "Stop"
 Когда run Foliage "Stroke at viewport centre"
 Когда run Action "Play"
 Когда advance 0.5
@@ -53,17 +67,5 @@
 Когда advance 2.0
 Когда input keyup - - w
 Когда advance 0.3
-Тогда-вид 3a_painted_blocks the pawn line reads z above 250 at x about 600: the painted tree stops it
-Когда run Action "Stop"
-Когда run Edit "Undo"
-Когда run Action "Play"
-Когда advance 0.5
-Когда input keydown - - d
-Когда advance 1.2
-Когда input keyup - - d
-Когда input keydown - - w
-Когда advance 2.0
-Когда input keyup - - w
-Когда advance 0.3
-Тогда-вид 3b_undo_passes the pawn line reads z below 200 at x about 600: the undone tree no longer blocks; editor.log errors 0
+Тогда-вид 3a_painted_blocks the pawn line reads z above 250 at x about 705 (the strafe lane): the painted tree stops it
 Когда run Action "Stop"
