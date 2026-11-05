@@ -919,6 +919,24 @@ namespace Desert::Graphic::System
                                                                 const Desert::Mesh*       mesh,
                                                                 GpuDriven::PrimitiveIndex primitive,
                                                                 uint64_t hidden, std::vector<uint64_t>& words );
+        // THE SAME WALK WITHOUT ITS ONE WRITE (a chunk of the static walk on a setup task, BuildStaticDraws; UE
+        // FParallelMeshDrawCommandPass: the chunks compute, only the interning stays serial). Nullopt: the record
+        // is not walked. Else Low is the mask's first word and @p words[1, 1 + HighWords) the words past submesh
+        // 63 that CpuWalkHidden interns (InternWalkWords); HighWords 0: the mask is Low alone. Writes only @p
+        // words.
+        struct UninternedWalk
+        {
+            uint64_t    Low       = 0;
+            std::size_t HighWords = 0;
+        };
+        [[nodiscard]] std::optional<UninternedWalk> CpuWalkUninterned( const ClusterWalkView&    view,
+                                                                       const Desert::Mesh*       mesh,
+                                                                       GpuDriven::PrimitiveIndex primitive,
+                                                                       uint64_t                  hidden,
+                                                                       std::vector<uint64_t>&    words ) const;
+        // The mask of first word @p low and words past submesh 63 @p high, interned in m_ClusterWalkWords: a
+        // serial walk's write (nullopt in a setup task, MissInSetupTask).
+        [[nodiscard]] std::optional<SubmeshMask> InternWalkWords( uint64_t low, std::span<const uint64_t> high );
         // THE CLUSTER-CUT CANDIDATES OF THIS FRAME (SceneRenderer::AddFrameDrawBins, after InstanceCull's main
         // phase took them with candidates appended): per primitive, the submeshes whose DAG rows InstanceCull
         // appends for EVERY cut view (MakeVirtualGeometryCandidates' spans, one bit per submesh, no 64 cap). Such
@@ -3419,20 +3437,27 @@ namespace Desert::Graphic::System
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
         // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
         // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
-        // do not). The key is the field's immutable transforms snapshot (MeshECSSystem replaces it on a revision
-        // change, never edits it; held, so its address is not reused while the entry lives) and its mesh; every
-        // other input CollectIsmInstances reads is stored by value and compared: the mesh's local box and LOD
-        // screen sizes (an edited mesh keeps its address), the view frustum's six planes, the field's cull
-        // distance, the wind's bounds pad (the only part of the wind the cull reads) and the LOD view. Equal
+        // do not). The key is every input CollectIsmInstances reads that is the field's own: its immutable
+        // transforms snapshot (MeshECSSystem replaces it on a revision change, never edits it; held, so its
+        // address is not reused while the entry lives), its mesh, its cull distance and the wind's bounds pad (the
+        // only part of the wind the cull reads). So two ISMs share an entry only when their culls are the same
+        // cull (the sections of one field), and a call's culls write disjoint entries (RENDER-PARALLEL-SETUP: on
+        // setup tasks). The inputs a call gives are stored by value and compared: the mesh's local box and LOD
+        // screen sizes (an edited mesh keeps its address), the view frustum's six planes and the LOD view. Equal
         // inputs give the same instances and levels bit for bit, so a hit draws byte for byte what a rebuild
         // draws. Shared by every pass that walks the main view in the frame (the masked depth prepass, both
         // G-buffer halves, the forward base pass) and by the next frames while nothing moved. An entry no pass
         // asked for during a frame is dropped by ClearQueues (the field left the scene or changed snapshot).
         struct IsmViewCullKey
         {
-            const std::vector<glm::mat4>* Transforms                                = nullptr;
-            const Desert::Mesh*           Mesh                                      = nullptr;
-            bool                          operator==( const IsmViewCullKey& ) const = default;
+            const std::vector<glm::mat4>* Transforms = nullptr;
+            const Desert::Mesh*           Mesh       = nullptr;
+            // InstanceCullDistance Min / Max and WindBoundsPad by bit pattern (std::bit_cast): a NaN is one key
+            // too.
+            uint32_t CullMinBits                               = 0;
+            uint32_t CullMaxBits                               = 0;
+            uint32_t PadBits                                   = 0;
+            bool     operator==( const IsmViewCullKey& ) const = default;
         };
         struct IsmViewCullKeyHash
         {
@@ -3443,21 +3468,32 @@ namespace Desert::Graphic::System
             std::shared_ptr<const std::vector<glm::mat4>> Snapshot; // the key's transforms, held
             Common::Math::AABB                            LocalBounds{};
             std::array<glm::vec4, 6>                      Planes{}; // (normal, distance) per Core::FrustumPlane
-            InstanceCullDistance                          Cull{};
-            float                                         BoundsPad = 0.0f;
             Geometry::LODView                             View{};
             std::vector<float>                            LodScreenSizes;
             std::vector<glm::mat4>                        Visible;
             std::vector<uint32_t>                         Levels;
             uint64_t                                      Generation = 0; // the last frame a pass asked for it
+            uint64_t                                      Call       = 0; // the last call that looked it up
         };
         std::unordered_map<IsmViewCullKey, IsmViewCull, IsmViewCullKeyHash> m_IsmViewCulls;
         uint64_t                                                            m_IsmViewCullGeneration = 0;
-        // ISM @p ism's instances the main view @p frustum / @p view keeps, and the level of each
-        // (CollectIsmInstances with the view as both the cull and the LOD view), from m_IsmViewCulls when every
-        // input is the cached entry's, else collected into it.
-        const IsmViewCull& CachedIsmViewCull( const InstancedMeshRenderData& ism, const Core::Frustum& frustum,
-                                              const Geometry::LODView& view );
+        uint64_t m_IsmViewCullCall = 0; // one per Full / Resolve call's ISM loop (BuildStaticDraws)
+        // ISM @p ism's entry for the main view @p frustum / @p view, stamped for this frame and call - serial, it
+        // may insert. Stale false: every input is the entry's, and its Visible / Levels are the cull
+        // (CollectIsmInstances with the view as both the cull and the LOD view), or this call already looked it up
+        // (a second section of the field: its inputs are the first's). Stale true: the new inputs are stored, and
+        // CollectIsmViewCull fills the entry before it is read - a setup task may, it writes that entry alone - so
+        // each entry is filled at most once per call.
+        struct IsmViewCullLookup
+        {
+            IsmViewCull* Entry = nullptr;
+            bool         Stale = false;
+        };
+        [[nodiscard]] IsmViewCullLookup LookUpIsmViewCull( const InstancedMeshRenderData& ism,
+                                                           const Core::Frustum&           frustum,
+                                                           const Geometry::LODView&       view );
+        static void CollectIsmViewCull( IsmViewCull& entry, const InstancedMeshRenderData& ism,
+                                        const Core::Frustum& frustum );
         uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
@@ -3503,8 +3539,52 @@ namespace Desert::Graphic::System
             std::vector<StaticGroup>                                     Groups;
             std::vector<StaticGroupPlan>                                 GroupPlans;
             bool                                                         Planned = false; // Resolve completed
+            // ONE CHUNK OF THE STATIC WALK (BuildStaticDraws: one setup task each, WalkStaticChunk), reused by
+            // index so its vectors keep their capacity: its groups in first-seen order (GroupCount of Groups in
+            // use), the records whose walk mask is not their own HiddenSubmeshes (Masks: the words past submesh 63
+            // still to intern, HighWords of them from WordsAt in Words) and its CpuWalkUninterned words.
+            struct WalkedMask
+            {
+                const StaticMeshRenderData* Data      = nullptr;
+                uint64_t                    Low       = 0;
+                uint32_t                    WordsAt   = 0;
+                uint32_t                    HighWords = 0;
+            };
+            struct StaticWalkChunk
+            {
+                std::vector<StaticGroup> Groups;
+                std::size_t              GroupCount = 0;
+                std::vector<WalkedMask>  Masks;
+                std::vector<uint64_t>    Words;
+                std::vector<uint64_t>    WalkWords;
+            };
+            std::vector<StaticWalkChunk> WalkChunks;
+            // A Full / Resolve call's ISMs past their serial checks, in queue order (IsmQueued: the set and the
+            // cull entry each packs from), and the stale entries their culls fill on setup tasks (IsmStale: each
+            // once).
+            struct QueuedIsm
+            {
+                const InstancedMeshRenderData* Ism = nullptr;
+                SubmeshMask                    Hidden{};
+                DataDrivenMaterial*            Mat      = nullptr;
+                InstancedBatchSet*             Set      = nullptr;
+                const IsmViewCull*             Cull     = nullptr;
+                bool                           StandsIn = false;
+            };
+            struct StaleIsmCull
+            {
+                IsmViewCull*                   Entry = nullptr;
+                const InstancedMeshRenderData* Ism   = nullptr;
+            };
+            std::vector<QueuedIsm>    IsmQueued;
+            std::vector<StaleIsmCull> IsmStale;
         };
         std::array<DrawBuildScratch, 2> m_DrawBuildScratch;
+        // Records [first, last) of m_StaticQueue walked in the main view @p view / @p frustum into @p chunk
+        // (BuildStaticDraws' static walk): CpuWalkUninterned, the frustum test, the section's surface. A setup
+        // task may run it: it reads the queue and the walk's inputs and writes @p chunk alone.
+        void WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum, std::size_t first,
+                              std::size_t last, DrawBuildScratch::StaticWalkChunk& chunk ) const;
         // The G-buffer halves' own lists (DeclareGBufferDraws: Equal, Rest statics, Rest skinned), appended to
         // m_GBufferDraws in the old order once the tasks joined. Members so the vectors keep their capacity.
         std::array<MeshRendererDetail::MeshDrawList, 3> m_GBufferHalfDraws;

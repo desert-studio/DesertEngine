@@ -535,23 +535,48 @@ namespace Desert::Graphic::System
                                                             const GpuDriven::PrimitiveIndex primitive,
                                                             const uint64_t hidden, std::vector<uint64_t>& words )
     {
+        const std::optional<UninternedWalk> walk = CpuWalkUninterned( view, mesh, primitive, hidden, words );
+        if ( !walk )
+            return std::nullopt;
+        if ( walk->HighWords == 0u )
+            return SubmeshMask{ walk->Low };
+        return InternWalkWords( walk->Low, std::span<const uint64_t>( words ).subspan( 1u, walk->HighWords ) );
+    }
+
+    std::optional<SubmeshMask> MeshRenderer::InternWalkWords( const uint64_t                  low,
+                                                              const std::span<const uint64_t> high )
+    {
+        // Interned in the frame's set (a node never moves once inserted, so the span outlives this call): a serial
+        // walk's write. A setup task interns nothing (DrawBuildPhase, the static walk's merge); one that does is a
+        // bug.
+        if ( MissInSetupTask( "an interned walk mask" ) )
+            return std::nullopt;
+        const auto interned = m_ClusterWalkWords.emplace( high.begin(), high.end() ).first;
+        return SubmeshMask{ low, std::span<const uint64_t>( *interned ) };
+    }
+
+    std::optional<MeshRenderer::UninternedWalk>
+    MeshRenderer::CpuWalkUninterned( const ClusterWalkView& view, const Desert::Mesh* mesh,
+                                     const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden,
+                                     std::vector<uint64_t>& words ) const
+    {
         const std::size_t submeshes = mesh != nullptr ? mesh->GetSubmeshes().size() : 0u;
         words.clear();
         if ( view.VirtualShadow )
         {
             // A VSM level issues no bins: without its raster the walk draws the record whole.
             if ( view.RasterCarriers == nullptr || !m_DrawCommandCache )
-                return SubmeshMask{ hidden };
+                return UninternedWalk{ .Low = hidden };
             // The main view's rule: hidden is only what the raster DRAWS - a group whose carrier was refused
             // (AddVirtualShadowRasterPasses) is walked. The same rule the page cache's signature keys on.
             VsmRasteredSubmeshes( mesh, primitive, hidden, m_VsmCarriedTwins, words );
             if ( words.empty() )
-                return SubmeshMask{ hidden }; // not a VG primitive
+                return UninternedWalk{ .Low = hidden }; // not a VG primitive
         }
         else
         {
             if ( !view.BinsIssued || !m_DrawCommandCache )
-                return SubmeshMask{ hidden };
+                return UninternedWalk{ .Low = hidden };
             // Only a cut view's cull took its VG instances out of its bins (ClusterWalkView::ClusterCut).
             const auto candidate =
                  view.ClusterCut ? m_FrameClusterCandidates.find( primitive ) : m_FrameClusterCandidates.end();
@@ -560,7 +585,7 @@ namespace Desert::Graphic::System
                 // Not a VG primitive, or a view that takes no cut: its instances are in the view's bins.
                 if ( m_DrawCommandCache->SubmeshesBinned( view.Pass, primitive, hidden ) )
                     return std::nullopt;
-                return SubmeshMask{ hidden };
+                return UninternedWalk{ .Low = hidden };
             }
             // A VG primitive of a cut view: in no bin of it. Hidden from the walk is only what the raster draws.
             words.assign( ( submeshes + 63u ) / 64u, uint64_t{ 0 } );
@@ -584,26 +609,16 @@ namespace Desert::Graphic::System
         }
         if ( words.empty() )
             words.push_back( 0u );
-        const SubmeshMask low{ hidden | words.front() };
+        const uint64_t low = hidden | words.front();
         // The words past submesh 63, without trailing zero words: equal sets intern to one element.
         std::size_t end = words.size();
         while ( end > 1u && words[end - 1u] == 0u )
             --end;
-        SubmeshMask walk = low;
-        if ( end > 1u )
-        {
-            const auto first    = words.begin() + 1;
-            const auto last     = words.begin() + static_cast<std::ptrdiff_t>( end );
-            // Interned in the frame's set (a node never moves once inserted, so the span outlives this call): a
-            // serial walk's write. A setup task walks nothing (DrawBuildPhase); one that does is a bug.
-            if ( MissInSetupTask( "an interned walk mask" ) )
-                return std::nullopt;
-            const auto interned = m_ClusterWalkWords.emplace( first, last ).first;
-            walk                = SubmeshMask{ low.Low, std::span<const uint64_t>( *interned ) };
-        }
+        // Hides reads the words, not their address: the uninterned view answers as the interned mask does.
+        const SubmeshMask walk{ low, std::span<const uint64_t>( words ).subspan( 1u, end - 1u ) };
         for ( std::size_t submesh = 0; submesh < submeshes; ++submesh )
             if ( !walk.Hides( submesh ) )
-                return walk;
+                return UninternedWalk{ .Low = low, .HighWords = end - 1u };
         return std::nullopt; // every submesh it shows is drawn as clusters
     }
 

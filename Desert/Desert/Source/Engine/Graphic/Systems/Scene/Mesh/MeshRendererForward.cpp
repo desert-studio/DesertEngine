@@ -9,7 +9,10 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
+#include <bit>
 #include <format>
 #include <iterator>
 #include <unordered_map>
@@ -1496,13 +1499,19 @@ namespace Desert::Graphic::System
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     std::size_t MeshRenderer::IsmViewCullKeyHash::operator()( const IsmViewCullKey& key ) const noexcept
     {
-        const std::size_t h = std::hash<const void*>{}( key.Transforms );
-        return h ^ ( std::hash<const void*>{}( key.Mesh ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u ) );
+        std::size_t h       = std::hash<const void*>{}( key.Transforms );
+        const auto  combine = [&h]( const std::size_t v )
+        { h ^= v + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u ); };
+        combine( std::hash<const void*>{}( key.Mesh ) );
+        combine( std::hash<uint32_t>{}( key.CullMinBits ) );
+        combine( std::hash<uint32_t>{}( key.CullMaxBits ) );
+        combine( std::hash<uint32_t>{}( key.PadBits ) );
+        return h;
     }
 
-    const MeshRenderer::IsmViewCull& MeshRenderer::CachedIsmViewCull( const InstancedMeshRenderData& ism,
-                                                                      const Core::Frustum&           frustum,
-                                                                      const Geometry::LODView&       view )
+    MeshRenderer::IsmViewCullLookup MeshRenderer::LookUpIsmViewCull( const InstancedMeshRenderData& ism,
+                                                                     const Core::Frustum&           frustum,
+                                                                     const Geometry::LODView&       view )
     {
         const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
         std::array<glm::vec4, 6> planes{};
@@ -1511,28 +1520,92 @@ namespace Desert::Graphic::System
             const Core::Frustum::Plane& plane = frustum.GetPlane( static_cast<Core::FrustumPlane>( p ) );
             planes[p]                         = glm::vec4( plane.Normal, plane.Distance );
         }
-        const float               pad      = WindBoundsPad( ism.Wind );
+        const IsmViewCullKey      key{ .Transforms  = ism.Transforms.get(),
+                                       .Mesh        = ism.Mesh,
+                                       .CullMinBits = std::bit_cast<uint32_t>( ism.CullDistance.Min ),
+                                       .CullMaxBits = std::bit_cast<uint32_t>( ism.CullDistance.Max ),
+                                       .PadBits     = std::bit_cast<uint32_t>( WindBoundsPad( ism.Wind ) ) };
         const std::vector<float>& lodSizes = ism.Mesh->GetLODScreenSizes();
-        IsmViewCull&              entry    = m_IsmViewCulls[IsmViewCullKey{ ism.Transforms.get(), ism.Mesh }];
+        IsmViewCull&              entry    = m_IsmViewCulls[key];
         entry.Generation                   = m_IsmViewCullGeneration;
+        // A second ISM of the key in this call (the field's other sections): the same inputs, one cull.
+        if ( entry.Call == m_IsmViewCullCall )
+            return { .Entry = &entry, .Stale = false };
+        entry.Call = m_IsmViewCullCall;
         const bool same = entry.Snapshot == ism.Transforms && entry.LocalBounds.Min == localBounds.Min &&
                           entry.LocalBounds.Max == localBounds.Max && entry.Planes == planes &&
-                          entry.Cull.Min == ism.CullDistance.Min && entry.Cull.Max == ism.CullDistance.Max &&
-                          entry.BoundsPad == pad && entry.View.Origin == view.Origin &&
-                          entry.View.Projection == view.Projection && entry.LodScreenSizes == lodSizes;
+                          entry.View.Origin == view.Origin && entry.View.Projection == view.Projection &&
+                          entry.LodScreenSizes == lodSizes;
         if ( same )
-            return entry;
-        DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
+            return { .Entry = &entry, .Stale = false };
         entry.Snapshot       = ism.Transforms;
         entry.LocalBounds    = localBounds;
         entry.Planes         = planes;
-        entry.Cull           = ism.CullDistance;
-        entry.BoundsPad      = pad;
         entry.View           = view;
         entry.LodScreenSizes = lodSizes;
-        CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, view, view,
-                             lodSizes, entry.Visible, entry.Levels );
-        return entry;
+        return { .Entry = &entry, .Stale = true };
+    }
+
+    void MeshRenderer::CollectIsmViewCull( IsmViewCull& entry, const InstancedMeshRenderData& ism,
+                                           const Core::Frustum& frustum )
+    {
+        DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
+        CollectIsmInstances( *ism.Transforms, entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
+                             entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels );
+    }
+
+    void MeshRenderer::WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum,
+                                        const std::size_t first, const std::size_t last,
+                                        DrawBuildScratch::StaticWalkChunk& chunk ) const
+    {
+        chunk.GroupCount = 0;
+        chunk.Masks.clear();
+        chunk.Words.clear();
+        // The chunk's own groupFor: its groups reused by index, so their vectors keep their capacity.
+        const auto groupOf = [&chunk]( DataDrivenMaterial* mat ) -> std::vector<const StaticMeshRenderData*>&
+        {
+            for ( std::size_t g = 0; g < chunk.GroupCount; ++g )
+                if ( chunk.Groups[g].first == mat )
+                    return chunk.Groups[g].second;
+            if ( chunk.GroupCount == chunk.Groups.size() )
+                chunk.Groups.emplace_back();
+            DrawBuildScratch::StaticGroup& made = chunk.Groups[chunk.GroupCount++];
+            made.first                          = mat;
+            made.second.clear();
+            return made.second;
+        };
+        for ( std::size_t i = first; i < last; ++i )
+        {
+            const StaticMeshRenderData& data = m_StaticQueue[i];
+            if ( data.Mesh == nullptr || !data.MaterialSlots )
+                continue;
+
+            // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
+            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
+            // work.
+            const std::optional<UninternedWalk> walk =
+                 CpuWalkUninterned( view, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes, chunk.WalkWords );
+            if ( !walk )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                continue;
+            // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).
+            if ( walk->HighWords != 0u || walk->Low != data.HiddenSubmeshes )
+            {
+                chunk.Masks.push_back( { .Data      = &data,
+                                         .Low       = walk->Low,
+                                         .WordsAt   = static_cast<uint32_t>( chunk.Words.size() ),
+                                         .HighWords = static_cast<uint32_t>( walk->HighWords ) } );
+                const auto high = chunk.WalkWords.begin() + 1;
+                chunk.Words.insert( chunk.Words.end(), high,
+                                    high + static_cast<std::ptrdiff_t>( walk->HighWords ) );
+            }
+
+            // The entry's section slot drives its batch (one entry per section material, made at submit by
+            // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
+            if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
+                groupOf( slot.Surface ).push_back( &data );
+        }
     }
 
     uint32_t MeshRenderer::BuildStaticDraws( MeshDrawList& list, const DrawBuildMode& mode,
@@ -1640,30 +1713,65 @@ namespace Desert::Graphic::System
         else if ( !recordCall )
         {
             DESERT_PROFILE_SCOPE( "Mesh: Static walk" );
-            for ( const auto& data : m_StaticQueue )
+            // ON THE WORKERS (RENDER-PARALLEL-SETUP; UE FParallelMeshDrawCommandPass / ComputeViewVisibility: the
+            // walk is a ParallelFor over contiguous chunks, each into its own list, merged in primitive order).
+            // About WorkerCount() + 1 chunks of the queue - the joining thread walks one too - none below
+            // kStaticWalkChunkMin records; each is one setup task writing only its own
+            // DrawBuildScratch::WalkChunks entry (WalkStaticChunk). The merge is serial and in queue order: per
+            // chunk, its masks interned in queue order (the walk's one write, InternWalkWords), then its groups in
+            // first-seen order appended through groupFor. A material's first record lies in the first chunk that
+            // holds it, at its first place there, so the groups come out in the serial walk's first-seen order,
+            // and each group's records in queue order: the same groups, records and masks as one walk of the whole
+            // queue. ParallelSetup 0 walks the chunks inline, in queue order.
+            constexpr std::size_t kStaticWalkChunkMin = 128; // records: below it a task costs more than it walks
+            const std::size_t     queued              = m_StaticQueue.size();
+            const std::size_t     participants        = ::Common::JobSystem::Get().WorkerCount() + 1;
+            const std::size_t chunks = std::clamp<std::size_t>( queued / kStaticWalkChunkMin, 1u, participants );
+            if ( scratch.WalkChunks.size() < chunks )
+                scratch.WalkChunks.resize( chunks );
             {
-                if ( data.Mesh == nullptr || !data.MaterialSlots )
-                    continue;
-
-                // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it
-                // and the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no
-                // culling work.
-                const std::optional<SubmeshMask> walk =
-                     CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes,
-                                    scratch.WalkWords );
-                if ( !walk )
-                    continue;
-                if ( !IsVisibleInView( frustum, data.Transform,
-                                       Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
-                    continue;
-                if ( !( *walk == SubmeshMask{ data.HiddenSubmeshes } ) )
-                    walked.emplace( &data, *walk );
-
-                // The entry's section slot drives its batch (one entry per section material, made at submit by
-                // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked
-                // out).
-                if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
-                    groupFor( slot.Surface ).push_back( &data );
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                for ( std::size_t c = 0; c < chunks; ++c )
+                {
+                    const std::size_t                  first = queued * c / chunks;
+                    const std::size_t                  last  = queued * ( c + 1 ) / chunks;
+                    DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
+                    tasks.Launch( "Mesh: Static walk chunk",
+                                  [this, &mainWalk, &frustum, &chunk, first, last]() noexcept
+                                  { WalkStaticChunk( mainWalk, frustum, first, last, chunk ); } );
+                }
+                tasks.Join();
+            }
+            // A mask that cannot be interned (a walk inside a setup task, MissInSetupTask) drops its record, as
+            // the serial walk's CpuWalkHidden did: none in a Full or a Resolve call.
+            std::vector<const StaticMeshRenderData*> unwalked;
+            for ( std::size_t c = 0; c < chunks; ++c )
+            {
+                const DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
+                for ( const DrawBuildScratch::WalkedMask& masked : chunk.Masks )
+                {
+                    std::optional<SubmeshMask> mask = SubmeshMask{ masked.Low };
+                    if ( masked.HighWords != 0u )
+                        mask = InternWalkWords( masked.Low, std::span<const uint64_t>( chunk.Words )
+                                                                 .subspan( masked.WordsAt, masked.HighWords ) );
+                    if ( !mask )
+                        unwalked.push_back( masked.Data );
+                    else if ( !( *mask == SubmeshMask{ masked.Data->HiddenSubmeshes } ) )
+                        walked.emplace( masked.Data, *mask );
+                }
+                for ( std::size_t g = 0; g < chunk.GroupCount; ++g )
+                {
+                    const auto& [mat, objects] = chunk.Groups[g];
+                    if ( unwalked.empty() )
+                    {
+                        auto& into = groupFor( mat );
+                        into.insert( into.end(), objects.begin(), objects.end() );
+                        continue;
+                    }
+                    for ( const StaticMeshRenderData* obj : objects )
+                        if ( std::find( unwalked.begin(), unwalked.end(), obj ) == unwalked.end() )
+                            groupFor( mat ).push_back( obj );
+                }
             }
             if ( resolveCall )
                 scratch.WalkGroups = groups; // before this half's split: the other half's Resolve call takes it
@@ -2318,6 +2426,17 @@ namespace Desert::Graphic::System
             // The deferred halves count into one total (DeclareGBufferDraws sums the Resolve calls'; the prepass
             // does not count).
             DESERT_PROFILE_SCOPE( "Mesh: ISM draws" );
+            // THREE STEPS (RENDER-PARALLEL-SETUP; UE FParallelMeshDrawCommandPass: what a task needs is resolved
+            // before the tasks, and each task writes only its own slot). Serial, in queue order: each ISM's
+            // checks, its set (setFor / setForGroup) and its cull entry (LookUpIsmViewCull). On setup tasks: the
+            // stale entries' culls, each entry written by one task (its key is every input of the field's own, and
+            // a call looks an entry up once). Serial, in queue order: the packing from each ISM's entry. The sets
+            // are made in the order the one loop made them and every ISM packs the same cull, so the sets,
+            // instances and draws are the same; ParallelSetup 0 runs the culls inline, in queue order.
+            const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+            ++m_IsmViewCullCall;
+            scratch.IsmQueued.clear();
+            scratch.IsmStale.clear();
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
@@ -2372,13 +2491,60 @@ namespace Desert::Graphic::System
                 // The LOD question is per instance for the same reason the visibility question is: the
                 // batch is one entity but forty thousand placements, and the near ones and the far ones
                 // of a single ISM are not the same object to a renderer.
-                // Walked once per change of its inputs, not once per pass per frame (CachedIsmViewCull).
-                // Serial (a Full or a Resolve call): an entry may be shared by two ISMs, so each ISM's copy below
-                // follows its own cull.
-                const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
-                const IsmViewCull&            culled  = CachedIsmViewCull( ism, frustum, mainView );
-                const std::vector<glm::mat4>& visible = culled.Visible;
-                const std::vector<uint32_t>&  levels  = culled.Levels;
+                // Walked once per change of its inputs, not once per pass per frame (LookUpIsmViewCull).
+                const IsmViewCullLookup cull = LookUpIsmViewCull( ism, frustum, mainView );
+                if ( cull.Stale )
+                    scratch.IsmStale.push_back( { .Entry = cull.Entry, .Ism = &ism } );
+                scratch.IsmQueued.push_back( { .Ism      = &ism,
+                                               .Hidden   = ismHidden,
+                                               .Mat      = mat,
+                                               .Set      = ismSet,
+                                               .Cull     = cull.Entry,
+                                               .StandsIn = ismStandsIn } );
+            }
+
+            // The stale culls in about WorkerCount() + 1 contiguous slices of about equal instance counts (a field
+            // costs its instances), each one setup task; the joining thread runs one too.
+            if ( !scratch.IsmStale.empty() )
+            {
+                DESERT_PROFILE_SCOPE( "Mesh: ISM view culls" );
+                const std::vector<DrawBuildScratch::StaleIsmCull>& stale = scratch.IsmStale;
+                std::size_t                                        total = 0;
+                for ( const DrawBuildScratch::StaleIsmCull& item : stale )
+                    total += item.Ism->Transforms->size();
+                const std::size_t participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+                const std::size_t slices       = std::min( stale.size(), participants );
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                std::size_t         first   = 0;
+                std::size_t         reached = 0; // the instances of stale[0, first)
+                for ( std::size_t s = 0; s < slices && first < stale.size(); ++s )
+                {
+                    // Slice s ends where the instances reach total * (s + 1) / slices; the last one at the end.
+                    const bool        lastSlice = s + 1 == slices;
+                    const std::size_t target    = total * ( s + 1 ) / slices;
+                    std::size_t       last      = first + 1;
+                    reached += stale[first].Ism->Transforms->size();
+                    while ( last < stale.size() && ( lastSlice || reached < target ) )
+                        reached += stale[last++].Ism->Transforms->size();
+                    tasks.Launch( "Mesh: ISM view cull",
+                                  [&stale, &frustum, first, last]() noexcept
+                                  {
+                                      for ( std::size_t i = first; i < last; ++i )
+                                          CollectIsmViewCull( *stale[i].Entry, *stale[i].Ism, frustum );
+                                  } );
+                    first = last;
+                }
+                tasks.Join();
+            }
+
+            for ( const DrawBuildScratch::QueuedIsm& queued : scratch.IsmQueued )
+            {
+                const InstancedMeshRenderData& ism         = *queued.Ism;
+                DataDrivenMaterial* const      mat         = queued.Mat;
+                InstancedBatchSet* const       ismSet      = queued.Set;
+                const bool                     ismStandsIn = queued.StandsIn;
+                const std::vector<glm::mat4>&  visible     = queued.Cull->Visible;
+                const std::vector<uint32_t>&   levels      = queued.Cull->Levels;
                 if ( mode.Half != DeferredPrepassHalf::Depth )
                     ismInstances += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
@@ -2402,7 +2568,7 @@ namespace Desert::Graphic::System
                     d.Mesh          = ism.Mesh;
                     d.FirstInstance = static_cast<uint32_t>( ismTransforms.size() );
                     d.MaterialIndex = *materialIndex;
-                    d.HiddenSubmeshMask = ismHidden;
+                    d.HiddenSubmeshMask = queued.Hidden;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                     d.Wind           = PackViewInstanceWind( ism.Wind );
