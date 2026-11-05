@@ -2,7 +2,11 @@
 
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 
+#include <Common/Settings/CapabilityCatalog.hpp>
+
+#include <cstdint>
 #include <memory>
+#include <string>
 
 namespace vkb
 {
@@ -23,12 +27,33 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps                           Caps;
     };
 
+    // A lower device the engine plays on this one (UE DeviceProfiles + Preview Rendering Level): the probe
+    // withholds what the named device lacks before DeviceCaps and the catalog are built, so every reader sees
+    // that device's facts. It does not imitate its speed. Source: the --device-profile CLI flag (Editor and
+    // Runtime), never machine.json. Name empty = no profile.
+    struct DeviceProfile
+    {
+        std::string Name;                              ///< "gtx1060", "gtx1650", "gtx1660", "rtx2060"; "" = none
+        bool        HideRayTracing      = false;       ///< no AS / RQ / pipeline rows (GTX without the RT driver)
+        bool        HideRayQuery        = false;       ///< AS + pipeline kept, VK_KHR_ray_query withheld
+        Common::Scalability::RayTracingAcceleration RayTracingAccel =
+             Common::Scalability::RayTracingAcceleration::Hardware; ///< Emulated on GTX 10/16
+        bool     HideVendorUpscalers = false; ///< no DLSS / DLSS-RR / frame generation (no tensor cores)
+        bool     HideCooperativeMatrix = false;
+        bool     HideShaderFloat16     = false;
+        bool     HideInt64Atomics      = false;
+        uint64_t VideoMemoryMiB        = 0;   ///< device-local heap cap (VMA pHeapSizeLimit); 0 = the device's
+        float    PerfIndexCap          = 0.0f; ///< recommender's GPU index ceiling; 0 = measured
+    };
+
     // What this machine withholds from the engine on top of what the driver offers (machine.json; the host reads
     // Common::Settings::MachineSettings and passes it here, so this file stays free of the settings store).
     struct DeviceRestrictions
     {
         // HideRayTracing: the device is probed as one without ray tracing (DeviceCaps HideRayTracing).
         bool HideRayTracing = false;
+        // The --device-profile the host passes (DeviceProfile above); applied after HideRayTracing.
+        DeviceProfile Profile;
     };
 
     // The instance must be created as VulkanContext creates it: apiVersion kMaximumApiVersion (a device's

@@ -113,6 +113,18 @@ namespace Common::Scalability
         RayTracingPipeline, // VK_KHR_ray_tracing_pipeline (raygen/hit/miss + SBT); NEVER on MoltenVK
     };
 
+    // How the device executes the rays RayTracingModes lists (UE GRHISupportsRayTracing is true only on hardware
+    // RT). Reader: VulkanCapabilityCatalog (only Hardware lists a RayTracingMode for render methods), the log.
+    // Emulated: the driver exposes the RT extensions over shader cores (GeForce GTX 10/16): the modes exist,
+    // no traced render method is offered, and the reason is logged. Set by a measured ray-throughput probe or
+    // by a device profile (DeviceCapsProbe.hpp DeviceProfile). Mac: None, or Hardware on Apple7+ ray query.
+    enum class RayTracingAcceleration : int
+    {
+        None = 0,
+        Emulated,
+        Hardware,
+    };
+
     // The swapchain's output encoding. Reader: the swapchain (format + colour space) and the tonemapper's
     // output transform. SDR is always present; the HDR entries exist only when the SURFACE lists the pair.
     enum class DisplayOutput : int
@@ -324,6 +336,10 @@ namespace Common::Scalability
         // Mac: None, plus RayQuery where MoltenVK exposes VK_KHR_ray_query (Apple7+ GPU, MoltenVK >= 1.2.x);
         // RayTracingPipeline never.
         std::vector<RayTracingMode> RayTracingModes;
+
+        // Reader: VulkanCapabilityCatalog (RayTracingModes is {None} for render methods unless Hardware), the
+        // catalog log line (rtaccel=). See RayTracingAcceleration.
+        RayTracingAcceleration RayTracingAccel = RayTracingAcceleration::None;
 
         // Reader: Graphic::ResolveRenderMethods (NeedsRenderArea: the virtual shadow map's attachment-less
         // raster). The largest square render area the device rasterizes: min of maxFramebufferWidth / Height and
