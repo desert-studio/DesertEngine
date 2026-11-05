@@ -1,0 +1,37 @@
+# MERGE-SPLIT-SESSION: Merge and Split are tool sessions as UE UCombineMeshesTool / USplitMeshesTool - the merged mesh previews on the first selected (the others hidden), Cancel leaves the inputs, Accept writes one entity; Split previews its part count and Accept makes the parts entities; each Accept is one undo step
+# A 100 cm Box at the origin and a radius-50 Sphere apart from it at X 150 (two connected components once merged).
+# The Modeling tab covers the Outliner: entities are counted by the status bar (the Sandbox scene has 27, so 29 with Box and Sphere).
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 75,260,420
+Дано --subject viewport set Camera.Direction 0,-0.5,-0.87
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано --subject modeling set CreateShape.Sphere.Radius 50
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 150,50,0
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run Modeling "Split by polygroups: off"
+Тогда-вид 0_inputs the Box at the origin and the Sphere beside it on +X
+Когда run Modeling "XForm: Merge"
+Тогда 1_merge_preview the Box and the Sphere drawn as one mesh on the Box (one selection outline around both); the tool bar at the viewport bottom reads Merge with Accept and Cancel; status bar 29 entities
+Когда run Modeling "Active tool: Cancel"
+Тогда 2_merge_cancel the Box and the Sphere as before; no tool bar; status bar 29 entities
+Когда run Entity Box
+Когда run Entity "Add to selection Sphere"
+Когда run Modeling "XForm: Merge"
+Когда run Modeling "Active tool: Accept"
+Тогда 3_merge_accept the Box and the Sphere shapes as one entity (Box) selected; no tool bar; status bar 28 entities
+Когда run Modeling "XForm: Split"
+Когда run Modeling "Active tool: Accept"
+Тогда 4_split_accept the same two shapes as two entities (Box and Box Part 1), both selected; no tool bar; status bar 29 entities
+Когда run Action Undo
+Когда run Action Undo
+Тогда 5_undo the Box and the Sphere as at the start; status bar 29 entities
