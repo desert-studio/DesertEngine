@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace vkb
 {
@@ -27,24 +28,22 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps                           Caps;
     };
 
-    // A lower device the engine plays on this one (UE DeviceProfiles + Preview Rendering Level): the probe
-    // withholds what the named device lacks before DeviceCaps and the catalog are built, so every reader sees
-    // that device's facts. It does not imitate its speed. Source: the --device-profile CLI flag (Editor and
-    // Runtime), never machine.json. Name empty = no profile.
-    struct DeviceProfile
-    {
-        std::string Name;                              ///< "gtx1060", "gtx1650", "gtx1660", "rtx2060"; "" = none
-        bool        HideRayTracing      = false;       ///< no AS / RQ / pipeline rows (GTX without the RT driver)
-        bool        HideRayQuery        = false;       ///< AS + pipeline kept, VK_KHR_ray_query withheld
-        Common::Scalability::RayTracingAcceleration RayTracingAccel =
-             Common::Scalability::RayTracingAcceleration::Hardware; ///< Emulated on GTX 10/16
-        bool     HideVendorUpscalers = false; ///< no DLSS / DLSS-RR / frame generation (no tensor cores)
-        bool     HideCooperativeMatrix = false;
-        bool     HideShaderFloat16     = false;
-        bool     HideInt64Atomics      = false;
-        uint64_t VideoMemoryMiB        = 0;   ///< device-local heap cap (VMA pHeapSizeLimit); 0 = the device's
-        float    PerfIndexCap          = 0.0f; ///< recommender's GPU index ceiling; 0 = measured
-    };
+    // struct DeviceProfile lives in DeviceCaps.hpp (unchanged), so DeviceCaps can carry the applied one to every
+    // reader past the probe (the catalog builder, VMA, the memory readout) without a second copy of its fields.
+
+    // THE PROFILE TABLE, ONE SOURCE (DeviceCapsProbe.cpp): the profile named @p name, or an error that names
+    // every profile the table knows. "" is not a name (no profile is the default DeviceProfile{}).
+    [[nodiscard]] Common::ResultStr<DeviceProfile> FindDeviceProfile( std::string_view name );
+
+    // The host's choice (Editor and Runtime --device-profile), made before the device exists; read once by
+    // VulkanLogicalDevice::Create into DeviceRestrictions::Profile. Unknown name: the FindDeviceProfile error and
+    // nothing changes. Never called = no profile (DeviceProfile{}), today's behaviour.
+    [[nodiscard]] Common::BoolResultStr RequestDeviceProfile( std::string_view name );
+    [[nodiscard]] const DeviceProfile&  RequestedDeviceProfile();
+
+    // A device-local heap of @p heapBytes as the profiled device has it: min(heap, VideoMemoryMiB); unchanged when
+    // the profile caps nothing. The one rule for VMA's pHeapSizeLimit, QueryMemory, VideoMemory and the catalog.
+    [[nodiscard]] uint64_t ProfiledDeviceLocalBytes( const DeviceProfile& profile, uint64_t heapBytes );
 
     // What this machine withholds from the engine on top of what the driver offers (machine.json; the host reads
     // Common::Settings::MachineSettings and passes it here, so this file stays free of the settings store).
@@ -52,7 +51,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         // HideRayTracing: the device is probed as one without ray tracing (DeviceCaps HideRayTracing).
         bool HideRayTracing = false;
-        // The --device-profile the host passes (DeviceProfile above); applied after HideRayTracing.
+        // The --device-profile the host passes (DeviceProfile, DeviceCaps.hpp); applied after HideRayTracing.
         DeviceProfile Profile;
     };
 

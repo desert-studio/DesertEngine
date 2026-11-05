@@ -48,6 +48,37 @@ namespace Desert::Graphic::API::Vulkan
         // A kill -9, a crash or a lost device never reaches Destroy, and the pipelines built in that run
         // were then rebuilt from scratch on the next start. So the cache is written while the app runs,
         // as soon as the driver has built new pipelines, and at most this often while it keeps building.
+
+        // " profile=<name>" for the caps and catalog lines under --device-profile; "" without one, so those lines
+        // are unchanged when no profile is asked for.
+        std::string ProfileTag( const DeviceCaps& caps )
+        {
+            if ( caps.Profile.Name.empty() )
+                return {};
+            return std::format( " profile={}", caps.Profile.Name );
+        }
+
+        // The catalog probe as the profiled device answers it (DeviceCaps::Profile). No tensor cores: the vendor
+        // runtime's DLSS / DLSS-RR answer is withheld (not "refused": the card never had them), so the one
+        // builder lists no DLSS and Scalability walks a saved DLSS down by its own rule. The device-local size is
+        // the profile's memory. Without a profile it is ProbeCatalog's answer unchanged.
+        CatalogProbe ProbeProfiledCatalog( VkPhysicalDevice physical, VkSurfaceKHR surface, const DeviceCaps& caps )
+        {
+            CatalogProbe probe = ProbeCatalog( physical, surface, caps );
+            if ( caps.Profile.HideVendorUpscalers )
+            {
+                probe.DlssAvailable                  = false;
+                probe.DlssRayReconstructionAvailable = false;
+                probe.DlssRefused                    = false;
+                probe.DlssRayReconstructionRefused   = false;
+            }
+            probe.DeviceLocalBytes = ProfiledDeviceLocalBytes( caps.Profile, probe.DeviceLocalBytes );
+            // The builder's RayTracingAccel override (VulkanCapabilityCatalog): the profile's answer first, then
+            // the measured probe. Only under a profile; without one the field keeps its "not set" default.
+            if ( !caps.Profile.Name.empty() )
+                probe.ProfileRayTracingAccel = caps.Profile.RayTracingAccel;
+            return probe;
+        }
     } // namespace
 
     VulkanPhysicalDevice::VulkanPhysicalDevice( ProbedDevice probed )
@@ -148,8 +179,9 @@ namespace Desert::Graphic::API::Vulkan
                 const VkPhysicalDeviceMemoryProperties& memProps = m_Bootstrap->memory_properties;
                 for ( uint32_t i = 0; i < memProps.memoryHeapCount; ++i )
                     if ( memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT )
-                        m_Capabilities.VideoMemory =
-                             std::max<uint64_t>( m_Capabilities.VideoMemory, memProps.memoryHeaps[i].size );
+                        m_Capabilities.VideoMemory = std::max<uint64_t>(
+                             m_Capabilities.VideoMemory,
+                             ProfiledDeviceLocalBytes( m_DeviceCaps.Profile, memProps.memoryHeaps[i].size ) );
             }
 
             const char* typeName = m_Capabilities.Type == Engine::DeviceType::Discrete     ? "discrete"
@@ -185,8 +217,9 @@ namespace Desert::Graphic::API::Vulkan
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
             m_RuntimeOffers = AskRuntimeOffers();
             m_Capabilities.Catalog =
-                 BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
-            LOG_INFO( "[Vulkan] {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+                 BuildCapabilityCatalog( ProbeProfiledCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
+            LOG_INFO( "[Vulkan] {}{}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ),
+                      ProfileTag( m_DeviceCaps ) );
 
             m_QueueFamilyProperties = m_Bootstrap->get_queue_families();
             m_DepthFormat           = FindDepthFormat();
@@ -199,8 +232,10 @@ namespace Desert::Graphic::API::Vulkan
         m_SurfaceProbed        = true;
         m_ProbedSurface        = surface;
         m_RuntimeOffers        = AskRuntimeOffers();
-        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
-        LOG_INFO( "[Vulkan] with the surface: {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        m_Capabilities.Catalog =
+             BuildCapabilityCatalog( ProbeProfiledCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
+        LOG_INFO( "[Vulkan] with the surface: {}{}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ),
+                  ProfileTag( m_DeviceCaps ) );
         Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
     }
 
@@ -226,9 +261,10 @@ namespace Desert::Graphic::API::Vulkan
         // Rebuilt whole from the probe, as at the surface, so the one builder's rules (DLSS NVIDIA-only, RR
         // beside DLSS) hold; the surface is the one the catalog was completed with (none on a windowless host).
         m_RuntimeOffers        = now;
-        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, m_ProbedSurface, m_DeviceCaps ) );
-        LOG_WARN( "[Vulkan] a vendor runtime changed what it offers: {}",
-                  Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        m_Capabilities.Catalog =
+             BuildCapabilityCatalog( ProbeProfiledCatalog( m_PhysicalDevice, m_ProbedSurface, m_DeviceCaps ) );
+        LOG_WARN( "[Vulkan] a vendor runtime changed what it offers: {}{}",
+                  Common::Scalability::FormatCatalog( m_Capabilities.Catalog ), ProfileTag( m_DeviceCaps ) );
         Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
     }
 
@@ -279,8 +315,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,
         // before the probe, so the device is created as the restricted card would create it.
+        // --device-profile (RequestDeviceProfile, set by the host before this): the lower device this one plays.
         const DeviceRestrictions restrictions{ .HideRayTracing =
-                                                    Common::Settings::MachineSettings::Get().HideRayTracing };
+                                                    Common::Settings::MachineSettings::Get().HideRayTracing,
+                                               .Profile = RequestedDeviceProfile() };
         auto                     probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
         if ( !probed )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
@@ -290,7 +328,12 @@ namespace Desert::Graphic::API::Vulkan
                       Common::Settings::MachineSettings::File().string() );
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
-        LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
+        if ( !restrictions.Profile.Name.empty() )
+            LOG_WARN( "[Vulkan] device profile {} (--device-profile): the probe withholds what that card lacks, "
+                      "device-local heaps capped at {} MiB; its speed is not imitated",
+                      restrictions.Profile.Name, restrictions.Profile.VideoMemoryMiB );
+        LOG_INFO( "[Vulkan] {}{}", FormatCapsTable( probed.GetValue().Caps ),
+                  ProfileTag( probed.GetValue().Caps ) );
         LOG_INFO( "[Vulkan] {}", FormatDescriptorLimits( probed.GetValue().Caps ) );
         // The NN layer's line (NeuralComputeCaps.hpp): the kernel path chosen and every field it was chosen from.
         LOG_INFO( "[Vulkan] {}", Engine::FormatNeuralComputeCaps( probed.GetValue().Caps.Neural ) );
@@ -385,6 +428,14 @@ namespace Desert::Graphic::API::Vulkan
             {
                 row.Budget = budget.heapBudget[heap];
                 row.Usage  = budget.heapUsage[heap];
+            }
+            // --device-profile: a device-local heap is the profiled card's (VMA allocates within the same cap,
+            // VulkanAllocator::Init), so every budget reader weighs against that card's memory.
+            const DeviceProfile& profile = m_PhysicalDevice->GetDeviceCaps().Profile;
+            if ( row.DeviceLocal && profile.VideoMemoryMiB != 0 )
+            {
+                row.Size   = ProfiledDeviceLocalBytes( profile, row.Size );
+                row.Budget = std::min<uint64_t>( row.Budget, row.Size );
             }
             report.Heaps.push_back( row );
         }

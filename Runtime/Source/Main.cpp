@@ -47,6 +47,7 @@
 #include "PackagedContent.hpp"
 #include "RuntimeCrashTest.hpp"
 #include <Engine/Graphic/PipelineCacheFile.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include "MovieRender.hpp"
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
@@ -189,6 +190,13 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+        else if ( std::strcmp( argv[i], "--device-profile" ) == 0 )
+        {
+            // The lower device this run plays (the DeviceCapsProbe.cpp table), set before the device exists; an
+            // unknown name is fatal with the list, as a malformed --player-start is below.
+            if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( argv[++i] ); !set )
+                FailStartup( set.GetError(), 2 );
+        }
 #if DESERT_DEV_INSTRUMENTS
         else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
             crashTestArg = argv[++i];

@@ -1,4 +1,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <vk-bootstrap/VkBootstrap.h>
+
+#include <array>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
 
 #include <Common/Core/DestructorGuard.hpp>
@@ -149,6 +153,24 @@ namespace Desert::Graphic::API::Vulkan
         // only when told. Only where the device enabled bufferDeviceAddress — the flag is invalid otherwise.
         if ( m_DeviceCaps.Has( Capability::BufferDeviceAddress ) )
             allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+        // --device-profile (DeviceCaps::Profile, VideoMemoryMiB): every device-local heap capped at the profiled
+        // card's memory, so VMA refuses an allocation past it (VK_ERROR_OUT_OF_DEVICE_MEMORY) and reports the
+        // capped size. With VK_EXT_memory_budget enabled VMA reads the driver's budget and clamps it to the same
+        // cap (vmaGetHeapBudgets: the census). Without a profile neither is set: the allocator is as before.
+        std::array<VkDeviceSize, VK_MAX_MEMORY_HEAPS> heapLimits{};
+        if ( m_DeviceCaps.Profile.VideoMemoryMiB != 0 )
+        {
+            const VkPhysicalDeviceMemoryProperties& memory =
+                 device->GetPhysicalDevice()->GetBootstrapDevice().memory_properties;
+            heapLimits.fill( VK_WHOLE_SIZE );
+            for ( uint32_t heap = 0; heap < memory.memoryHeapCount; ++heap )
+                if ( ( memory.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ) != 0 )
+                    heapLimits[heap] =
+                         ProfiledDeviceLocalBytes( m_DeviceCaps.Profile, memory.memoryHeaps[heap].size );
+            allocatorInfo.pHeapSizeLimit = heapLimits.data();
+            if ( m_DeviceCaps.Has( Capability::MemoryBudget ) )
+                allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+        }
 
         VK_CHECK_RESULT( vmaCreateAllocator( &allocatorInfo, &s_VmaAllocator ) );
 
