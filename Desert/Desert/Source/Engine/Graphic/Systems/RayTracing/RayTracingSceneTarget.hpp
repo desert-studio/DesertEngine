@@ -69,6 +69,10 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] virtual RDG::ExternalBuffer& GetRows( SceneRowBuffer buffer ) = 0;
         // Device bytes of @p buffer: its ledger row (StorageBuffer); 0 before its first EnsureRows.
         [[nodiscard]] virtual uint64_t GetRowMemoryBytes( SceneRowBuffer buffer ) const = 0;
+        // Graphs that ENDED holding @p buffer (its external's RecordFinalState, called after EndGraph: an
+        // abandoned graph never counts); monotonic for the target's life, kept across a recreated buffer. An
+        // upload is done once this moved past its value when the upload was declared (SceneRowUploadState).
+        [[nodiscard]] virtual uint64_t GetRowGraphsEnded( SceneRowBuffer buffer ) const = 0;
         // Records the copy of @p runs of @p rowBytes rows, packed one after another from the start of @p staging,
         // into their rows of @p rows, inside the scatter pass's exec (@p staging CopySrc, @p rows CopyDst).
         [[nodiscard]] virtual Common::BoolResultStr RecordRowScatter( const RDG::PassContext&      context,

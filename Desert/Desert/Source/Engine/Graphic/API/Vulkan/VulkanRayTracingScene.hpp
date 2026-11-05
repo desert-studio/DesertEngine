@@ -50,6 +50,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Rows[RowIndex( buffer )].Ledger.GetBytes();
         }
+        [[nodiscard]] uint64_t GetRowGraphsEnded( const RayTracing::SceneRowBuffer buffer ) const override
+        {
+            return m_Rows[RowIndex( buffer )].GraphsEnded;
+        }
         [[nodiscard]] Common::BoolResultStr RecordRowScatter( const RDG::PassContext&                  context,
                                                               const RDG::BufferBinding&                staging,
                                                               const RDG::BufferBinding&                rows,
@@ -72,7 +76,8 @@ namespace Desert::Graphic::API::Vulkan
             VmaAllocation       Memory = nullptr;
             uint64_t            Bytes  = 0; // the capacity
             RDG::ExternalBuffer External;
-            ResourceOwnership   Ledger; // reset by ReleaseRows
+            ResourceOwnership   Ledger;          // reset by ReleaseRows
+            uint64_t            GraphsEnded = 0; // GetRowGraphsEnded; ReleaseRows keeps it
         };
         static constexpr std::size_t kRowBufferCount =
              static_cast<std::size_t>( RayTracing::SceneRowBuffer::Count );

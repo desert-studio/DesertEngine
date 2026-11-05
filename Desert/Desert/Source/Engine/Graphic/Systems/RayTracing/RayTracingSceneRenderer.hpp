@@ -178,16 +178,20 @@ namespace Desert::Graphic::RayTracing
     // across frames (RayTracingSceneFrame::InstanceHash) - FNV-1a over every row when encoded; a patch that
     // changes a row's bytes folds the row's index and new bytes in, so the hash moves exactly when a row did.
     // THE UPLOAD STATE of one persistent row buffer (UE FRDGScatterUploadBuffer): AllDirty - every row goes up (an
-    // encode, a build, a new buffer); DirtyRows - the rows changed since the last upload (may repeat). Queued /
-    // Executed: the serial of the last upload declared, and of the last one whose copy was recorded (written by
-    // its pass's exec, read on a later frame, as RayTracingSceneTarget::Prepare reads what RecordBuild built):
-    // a frame finding them apart sends every row, so a graph that never ran its upload loses no row.
+    // encode, a build, a new buffer); DirtyRows - the rows changed since the last upload (may repeat). An upload
+    // is DONE only when its copy was recorded AND the graph holding it ended (its commands go to the GPU):
+    // Queued - the serial of the last upload declared; Recorded - of the last one whose copy its scatter's exec
+    // recorded (the scatter is NeverParallel, so a chunk a worker recorded and the graph then discarded never
+    // sets it); EndedAtQueue - RayTracingSceneTarget::GetRowGraphsEnded when Queued was declared (an abandoned
+    // graph never moves it). A frame finding the last upload not done sends every row, so a graph that never ran,
+    // faulted or abandoned its upload loses no row.
     struct SceneRowUploadState
     {
         std::vector<uint32_t> DirtyRows;
-        bool                  AllDirty = true;
-        uint64_t              Queued   = 0;
-        uint64_t              Executed = 0;
+        bool                  AllDirty     = true;
+        uint64_t              Queued       = 0;
+        uint64_t              Recorded     = 0;
+        uint64_t              EndedAtQueue = 0;
     };
 
     // THE UPLOAD STATE of the persistent device rows: InstanceUpload - the TLAS rows (AllDirty after an encode,
@@ -229,20 +233,22 @@ namespace Desert::Graphic::RayTracing
     }
 
     // THE ROW UPLOAD (UE FRDGScatterUploadBuffer): writes the rows of @p rows (@p rowBytes each) into the
-    // persistent
-    // @p target buffer @p buffer, registered in this graph as @p destination - every row when @p state is AllDirty
-    // or its last upload never ran, else only its DirtyRows - packed into one staging buffer and copied run by run
-    // (RayTracingSceneTarget::RecordRowScatter, pass and staging @p scatterName); nothing on a clean frame.
-    // Answers
-    // the rows declared and leaves @p state clean; its exec marks the upload executed.
+    // persistent @p target buffer @p buffer, registered in this graph as @p destination - every row when @p state
+    // is AllDirty or its last upload is not done (SceneRowUploadState), else only its DirtyRows - packed into one
+    // staging buffer and copied run by run (RayTracingSceneTarget::RecordRowScatter, pass and staging
+    // @p scatterName); nothing on a clean frame. Answers the rows declared and leaves @p state clean; its exec
+    // marks the upload recorded.
     [[nodiscard]] inline uint32_t AddSceneRowUpload( RDG::Builder& graph, const std::string_view scatterName,
                                                      const std::span<const std::byte> rows,
                                                      const uint32_t rowBytes, SceneRowUploadState& state,
-                                                     RayTracingSceneTarget& target,
-                                                     const RDG::BufferRef   destination )
+                                                     RayTracingSceneTarget& target, const SceneRowBuffer buffer,
+                                                     const RDG::BufferRef destination )
     {
-        const auto             rowCount = static_cast<uint32_t>( rows.size() / rowBytes );
-        const bool             every    = state.AllDirty || state.Executed != state.Queued;
+        const auto rowCount = static_cast<uint32_t>( rows.size() / rowBytes );
+        // Done: its copy was recorded and a graph holding the rows ended since it was declared.
+        const bool lastDone = state.Recorded == state.Queued &&
+                              ( state.Queued == 0 || target.GetRowGraphsEnded( buffer ) > state.EndedAtQueue );
+        const bool             every    = state.AllDirty || !lastDone;
         std::vector<uint32_t>& dirty    = state.DirtyRows;
         const auto             runs     = std::make_shared<std::vector<SceneRowRun>>();
         std::vector<std::byte> packed;
@@ -280,10 +286,14 @@ namespace Desert::Graphic::RayTracing
             payload = rows.first( static_cast<std::size_t>( rowCount ) * rowBytes );
         const RDG::BufferRef staging = graph.CreateBuffer( RDG::BufferDesc{ payload.size() }, scatterName );
         graph.QueueBufferUpload( staging, payload );
-        const uint64_t             serial    = ++state.Queued;
+        const uint64_t serial                = ++state.Queued;
+        state.EndedAtQueue                   = target.GetRowGraphsEnded( buffer );
         SceneRowUploadState* const committed = &state;
+        // NeverParallel (RDG PassFlags::NeverParallel: an exec writing renderer state): recorded by the graph's
+        // walk in pass order, so Recorded is set only by a copy that reaches the submission - a worker's chunk is
+        // recorded before the graph knows it discards it, and the staging upload's fault culls this pass after.
         graph.AddPass(
-             scatterName, RDG::PassFlags::Copy,
+             scatterName, RDG::PassFlags::Copy | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( staging, RDG::Access::CopySrc );
@@ -301,7 +311,7 @@ namespace Desert::Graphic::RayTracing
                  Common::BoolResultStr recorded = target.RecordRowScatter( context, source.GetValue(),
                                                                     rowsBinding.GetValue(), *runs, rowBytes );
                  if ( recorded )
-                     committed->Executed = serial;
+                     committed->Recorded = serial;
                  return recorded;
              } );
         return written;
@@ -327,15 +337,15 @@ namespace Desert::Graphic::RayTracing
             state.AllDirty = true;
         SceneRowsFrame frame;
         frame.Rows     = graph.RegisterExternal( target.GetRows( buffer ), name );
-        frame.Uploaded = AddSceneRowUpload( graph, scatterName, rows, rowBytes, state, target, frame.Rows );
+        frame.Uploaded =
+             AddSceneRowUpload( graph, scatterName, rows, rowBytes, state, target, buffer, frame.Rows );
         return Common::MakeSuccess( frame );
     }
 
-    // THE METADATA'S PERSISTENT ROWS: @p metadata's geometry and material records in the target's GeometryRecords
-    // /
-    // MaterialRecords buffers, only the rows @p geometry / @p materials name changed (every row after a build, a
-    // new buffer or an upload that never ran). A buffer holds at least one row: a scene with no masked segment
-    // reads no material row. Answers this graph's refs.
+    // THE METADATA'S PERSISTENT ROWS: @p metadata's geometry and material records in the target's
+    // GeometryRecords / MaterialRecords buffers, only the rows @p geometry / @p materials name changed (every row
+    // after a build, a new buffer or an upload that is not done). A buffer holds at least one row: a scene with no
+    // masked segment reads no material row. Answers this graph's refs.
     [[nodiscard]] inline Common::ResultStr<RayTracingMetadataFrame>
     AddRayTracingMetadataUpload( RDG::Builder& graph, const RayTracingMetadata& metadata,
                                  SceneRowUploadState& geometry, SceneRowUploadState& materials,

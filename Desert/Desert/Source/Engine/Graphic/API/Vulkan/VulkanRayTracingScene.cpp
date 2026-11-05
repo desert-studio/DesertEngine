@@ -174,6 +174,7 @@ namespace Desert::Graphic::API::Vulkan
         rows.External.RecordFinalState = [this, index]( const RDG::AccessState& state ) -> Common::BoolResultStr
         {
             m_Rows[index].External.State = state;
+            ++m_Rows[index].GraphsEnded; // after EndGraph: this graph's commands are submitted
             return BOOLSUCCESS;
         };
         return Common::MakeSuccess( true );

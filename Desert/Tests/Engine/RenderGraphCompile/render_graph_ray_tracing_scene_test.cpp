@@ -42,6 +42,17 @@ namespace
                        ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
                        ExternalBuffer( BufferDesc{ 4096 }, Access::None ) }
         {
+            // As the Vulkan target: a graph that ended holding a row buffer counts (GetRowGraphsEnded).
+            for ( std::size_t i = 0; i < m_Rows.size(); ++i )
+                m_Rows[i].RecordFinalState = [this, i]( const AccessState& ) -> Common::BoolResultStr
+                {
+                    ++m_Ended[i];
+                    return BOOLSUCCESS;
+                };
+        }
+        uint64_t GetRowGraphsEnded( SceneRowBuffer buffer ) const override
+        {
+            return m_Ended[static_cast<std::size_t>( buffer )];
         }
         Common::ResultStr<bool> EnsureRows( SceneRowBuffer, uint64_t ) override
         {
@@ -83,6 +94,7 @@ namespace
     private:
         ExternalBuffer m_Storage;
         std::array<ExternalBuffer, static_cast<std::size_t>( SceneRowBuffer::Count )> m_Rows;
+        std::array<uint64_t, static_cast<std::size_t>( SceneRowBuffer::Count )>       m_Ended{};
     };
 
     class FakeGeometry final : public RayTracingGeometryResource
