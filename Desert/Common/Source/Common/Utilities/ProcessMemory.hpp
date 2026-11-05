@@ -90,4 +90,27 @@ namespace Common::Utils
     /// Walks the whole address space: tens of milliseconds, for a census, never per frame.
     [[nodiscard]] FootprintBreakdown ReadFootprintBreakdown();
 
+    /**
+     * @brief WHICH HEAP SERVES `new` AND `malloc` IN THIS PROCESS (DESERT_MIMALLOC, ThirdParty/Mimalloc.cmake).
+     *
+     * Asked of the running process, not of the build: an executable linked with desert_link_mimalloc has
+     * mimalloc.dll loaded before main, and mimalloc-redirect.dll has patched the C runtime's malloc/free so every
+     * module allocates from mimalloc. Whether that happened is mimalloc's own answer (`mi_is_redirected`); whether
+     * mimalloc.dll is the executable's FIRST import -- what the redirect needs to see every allocation -- is read
+     * off the loaded image's import directory. Elsewhere (Debug, macOS, Linux) the C runtime heap.
+     */
+    struct ProcessAllocator
+    {
+        bool     Mimalloc    = false; ///< mimalloc.dll is loaded in this process
+        uint32_t Version     = 0;     ///< mi_version(): major * 10000 + minor * 100 + patch
+        bool     Redirected  = false; ///< mi_is_redirected(): the C runtime's malloc/free reach mimalloc
+        int32_t  ImportIndex = -1;    ///< mimalloc.dll's place among the executable's imports (0 = first), -1 none
+
+        /// "mimalloc 2.5.2 redirect on, import #0 of the executable", or "mimalloc off: the C runtime heap".
+        [[nodiscard]] std::string Describe() const;
+    };
+
+    /// Two module lookups and a walk of the executable's import directory: once at startup, never per frame.
+    [[nodiscard]] ProcessAllocator ReadProcessAllocator() noexcept;
+
 } // namespace Common::Utils

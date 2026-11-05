@@ -18,6 +18,7 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Utilities/ProcessMemory.hpp>
 
 #include <Engine/Core/Glfw.hpp>
 
@@ -31,6 +32,8 @@ namespace Desert::Engine
 {
     Application::Application( const ApplicationInfo& appInfo ) : m_ApplicationInfo( appInfo )
     {
+        // Which heap the process allocates from (DESERT_MIMALLOC): the A/B of the allocator reads this line.
+        LOG_INFO( "[Memory] {}", Common::Utils::ReadProcessAllocator().Describe() );
         WindowSpecification windowSpec;
         windowSpec.Title     = appInfo.Title;
         windowSpec.VSync     = appInfo.Display.VSync;

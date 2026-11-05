@@ -42,11 +42,11 @@ function(_desert_runner_settings target)
     desert_external_includes(${target}
         "${DESERT_ROOT}/ThirdParty/GLFW/include/" "${DESERT_ROOT}/ThirdParty/" "${DESERT_ROOT}/ThirdParty/luau"
         ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
-    target_compile_definitions(${target} PRIVATE USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0
+    target_compile_definitions(${target} PRIVATE
         $<$<CONFIG:Debug>:DESERT_CONFIG_DEBUG> $<$<CONFIG:Release>:DESERT_CONFIG_RELEASE>)
     desert_link_engine(${target})
     target_link_libraries(${target} PRIVATE
-        GLFW Optick MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro Compressonator)
+        GLFW ${DESERT_OPTICK} MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro Compressonator)
     if(DESERT_IS_MACOS)
         target_link_libraries(${target} PRIVATE
             Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
@@ -69,7 +69,7 @@ endfunction()
 function(_desert_runner_Common target)
     desert_engine_includes(${target})
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Editor/Source" "${DESERT_ROOT}/Runtime/Source")
-    target_link_libraries(${target} PRIVATE Common ReflectCpp Optick)
+    target_link_libraries(${target} PRIVATE Common ReflectCpp ${DESERT_OPTICK})
     set(_subsystems "${DESERT_ROOT}/Desert/Tests/Common/Subsystems")
     _desert_tests_header_tool(${target} Subsystems
         --check "${_subsystems}/Owner"
@@ -85,7 +85,7 @@ endfunction()
 function(_desert_runner_Runtime target)
     target_sources(${target} PRIVATE "${DESERT_ROOT}/Runtime/Source/PackagedContent.cpp")
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Common/Source" "${DESERT_ROOT}/Runtime/Source")
-    target_link_libraries(${target} PRIVATE Common Optick)
+    target_link_libraries(${target} PRIVATE Common ${DESERT_OPTICK})
 endfunction()
 
 function(_desert_runner_Tools target)

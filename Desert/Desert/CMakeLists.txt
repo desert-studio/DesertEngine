@@ -47,6 +47,8 @@ function(_desert_engine_module_library name)
 
     desert_add_library(${target} SOURCES ${_common} ${_vendored_${name}})
     desert_enable_unity(${target})
+    # Runtime code: whole-program optimised under DESERT_LTCG (every module library, one shared PCH).
+    desert_ltcg(${target})
 
     # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes); every module library
     # compiles with the same flags, so one PCH serves them all (desert_shared_pch).
@@ -107,9 +109,8 @@ function(_desert_engine_module_library name)
     endforeach()
     target_link_libraries(${target} PRIVATE
         Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon
-        Optick MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
+        ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
 
-    target_compile_definitions(${target} PRIVATE ${DESERT_COMMON_DEFINES})
     desert_config_platform_defines(${target})
     if(DESERT_IS_WINDOWS)
         target_sources(${target} PRIVATE ${_windows})

@@ -7,6 +7,5 @@ desert_add_executable(CloudLayoutBaker FOLDER Tools SOURCES ${_sources}
 target_include_directories(CloudLayoutBaker PRIVATE "${DESERT_ROOT}/Tools/Shared")
 desert_engine_includes(CloudLayoutBaker)
 desert_external_includes(CloudLayoutBaker "${DESERT_ROOT}/ThirdParty/stb/include" ${DESERT_COMMON_INCLUDE_DIRS})
-target_compile_definitions(CloudLayoutBaker PRIVATE ${DESERT_COMMON_DEFINES})
-target_link_libraries(CloudLayoutBaker PRIVATE Common Optick ReflectCpp)
+target_link_libraries(CloudLayoutBaker PRIVATE Common ${DESERT_OPTICK} ReflectCpp)
 desert_platform_defines(CloudLayoutBaker)

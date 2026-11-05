@@ -20,7 +20,6 @@ function(_desert_editor_compile_settings target)
     desert_editorspecific_includes(${target})
     desert_external_includes(${target}
         "${DESERT_VULKAN_INCLUDE}" "${DESERT_VULKAN_INCLUDE}/shaderc" "${DESERT_ROOT}/ThirdParty/SPIRV-Cross")
-    target_compile_definitions(${target} PRIVATE USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0)
     if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
         target_compile_definitions(${target} PRIVATE DESERT_WITH_DLIB)
         desert_external_includes(${target} "${DESERT_ROOT}/ThirdParty/dlib/")
@@ -83,9 +82,10 @@ set_target_properties(Editor PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${DESERT_ROOT}/Editor"
     VS_DEBUGGER_COMMAND_ARGUMENTS "--project ../Projects/Desert/Desert.deproj")
 _desert_editor_compile_settings(Editor)
+desert_link_mimalloc(Editor)
 desert_link_editor_libs(Editor WHOLE_ARCHIVE)
 target_link_libraries(Editor PRIVATE
-    GLFW Optick MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore Dav1d Opus)
+    GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore Dav1d Opus)
 desert_link_engine(Editor)
 if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
     target_link_libraries(Editor PRIVATE Dlib)

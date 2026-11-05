@@ -11,6 +11,5 @@ desert_engine_includes(LatticePeak)
 target_include_directories(LatticePeak PRIVATE "${DESERT_ROOT}/Editor/Resources/Shaders")
 desert_external_includes(LatticePeak "${DESERT_ROOT}/ThirdParty/stb/include"
     ${DESERT_COMMON_INCLUDE_DIRS})
-target_compile_definitions(LatticePeak PRIVATE ${DESERT_COMMON_DEFINES})
-target_link_libraries(LatticePeak PRIVATE Common Optick ReflectCpp)
+target_link_libraries(LatticePeak PRIVATE Common ${DESERT_OPTICK} ReflectCpp)
 desert_platform_defines(LatticePeak)

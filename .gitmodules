@@ -55,3 +55,6 @@
 [submodule "ThirdParty/embree"]
 	path = ThirdParty/embree
 	url = https://github.com/RenderKit/embree.git
+[submodule "ThirdParty/mimalloc"]
+	path = ThirdParty/mimalloc
+	url = https://github.com/microsoft/mimalloc

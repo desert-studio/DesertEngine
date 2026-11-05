@@ -244,4 +244,63 @@ namespace Common::Utils
         return out;
     }
 
+#if defined( _WIN32 )
+    namespace
+    {
+        // The place of @p dll in the import directory of the loaded image @p image (0 = first), -1 when absent.
+        int32_t ImportIndexOf( const HMODULE image, const char* const dll ) noexcept
+        {
+            const auto* base = reinterpret_cast<const uint8_t*>( image );
+            const auto* dos  = reinterpret_cast<const IMAGE_DOS_HEADER*>( base );
+            if ( base == nullptr || dos->e_magic != IMAGE_DOS_SIGNATURE )
+                return -1;
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>( base + dos->e_lfanew );
+            const IMAGE_DATA_DIRECTORY& imports = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+            if ( imports.VirtualAddress == 0 )
+                return -1;
+            const auto* entry = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>( base + imports.VirtualAddress );
+            for ( int32_t index = 0; entry[index].Name != 0; ++index )
+            {
+                if ( ::lstrcmpiA( reinterpret_cast<const char*>( base + entry[index].Name ), dll ) == 0 )
+                    return index;
+            }
+            return -1;
+        }
+    } // namespace
+#endif
+
+    std::string ProcessAllocator::Describe() const
+    {
+        if ( !Mimalloc )
+            return "mimalloc off: the C runtime heap serves new/malloc";
+        const char* redirect = "off (only mi_* calls reach mimalloc)";
+        if ( Redirected )
+            redirect = "on";
+        std::string where = "not an import of the executable";
+        if ( ImportIndex >= 0 )
+            where = std::format( "import #{} of the executable", ImportIndex );
+        return std::format( "mimalloc {}.{}.{} redirect {}, {}",
+                            Version / 10000, Version / 100 % 100, Version % 100,
+                            redirect, where );
+    }
+
+    ProcessAllocator ReadProcessAllocator() noexcept
+    {
+        ProcessAllocator out;
+#if defined( _WIN32 )
+        const HMODULE mimalloc = ::GetModuleHandleW( L"mimalloc.dll" );
+        if ( mimalloc == nullptr )
+            return out;
+        out.Mimalloc = true;
+        using VersionFn    = int( __cdecl* )();
+        using RedirectedFn = bool( __cdecl* )();
+        if ( const FARPROC version = ::GetProcAddress( mimalloc, "mi_version" ); version != nullptr )
+            out.Version = static_cast<uint32_t>( reinterpret_cast<VersionFn>( version )() );
+        if ( const FARPROC redirected = ::GetProcAddress( mimalloc, "mi_is_redirected" ); redirected != nullptr )
+            out.Redirected = reinterpret_cast<RedirectedFn>( redirected )();
+        out.ImportIndex = ImportIndexOf( ::GetModuleHandleW( nullptr ), "mimalloc.dll" );
+#endif
+        return out;
+    }
+
 } // namespace Common::Utils
