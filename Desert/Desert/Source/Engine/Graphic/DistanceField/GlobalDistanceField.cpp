@@ -403,10 +403,10 @@ namespace Desert::Graphic::DistanceField
             for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
                 again.Clipmaps[level] =
                      import( m_Clipmaps[level], std::format( "GlobalDistanceField.Clipmap{}", level ) );
-            again.ObjectGrid            = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
-            again.Levels                = m_FrameUpdate->Levels;
-            again.MeshFields.NumObjects = m_FrameUpdate->NumObjects;
-            again.MeshFields.BrickAtlas = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+            again.ObjectGrid                = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
+            again.Levels                    = m_FrameUpdate->Levels;
+            again.MeshFields.NumMeshObjects = m_FrameUpdate->NumMeshObjects;
+            again.MeshFields.BrickAtlas     = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
             return Common::MakeSuccess( again );
         }
         if ( objects.Bounds.size() != objects.Objects.size() )
@@ -497,6 +497,7 @@ namespace Desert::Graphic::DistanceField
                 ++tracked.Count;
                 placement.PlacedBounds.push_back( objects.Bounds[p.Object] );
             }
+            placement.MeshObjects = static_cast<uint32_t>( placed.size() );
             // The landscape tiles after the objects (no field to stream: always placed). A tile whose heights,
             // revision or frame changed is another key: its old and new boxes are dirty, as a moved object's.
             for ( const GlobalDistanceFieldHeightfield& tile : objects.Heightfields )
@@ -586,7 +587,8 @@ namespace Desert::Graphic::DistanceField
         const std::vector<glm::vec4>&          objectData   = m_Placement->ObjectData;
 
         FrameField frame;
-        frame.MeshFields.NumObjects = static_cast<uint32_t>( placedBounds.size() );
+        // The near field culls the mesh objects only; every placed record, the tiles too, composites the clipmaps.
+        frame.MeshFields.NumMeshObjects = m_Placement->MeshObjects;
 
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).
         std::vector<glm::ivec4>                                                 updateBricks;
@@ -656,11 +658,11 @@ namespace Desert::Graphic::DistanceField
         const RDG::TextureRef atlas = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
         frame.MeshFields.BrickAtlas = atlas;
         // The frame is updated from here on, also when it has no bricks to rewrite: the object buffer holds it.
-        m_FrameUpdate = FrameUpdate{ .Frame      = engineFrame,
-                                     .Camera     = camera,
-                                     .Objects    = inputs,
-                                     .Levels     = frame.Levels,
-                                     .NumObjects = frame.MeshFields.NumObjects };
+        m_FrameUpdate = FrameUpdate{ .Frame          = engineFrame,
+                                     .Camera         = camera,
+                                     .Objects        = inputs,
+                                     .Levels         = frame.Levels,
+                                     .NumMeshObjects = frame.MeshFields.NumMeshObjects };
         if ( updateBricks.empty() )
             return Common::MakeSuccess( frame );
 
@@ -801,14 +803,16 @@ namespace Desert::Graphic::DistanceField
                  "near-field grid: {} cells and {} list entries do not fit 32-bit indices", total,
                  m_NearFieldListRoom );
         m_NearFieldStamp = m_NearFieldStamp == std::numeric_limits<uint32_t>::max() ? 1u : m_NearFieldStamp + 1u;
-        cull.Counts =
-             glm::uvec4( fields.NumObjects, static_cast<uint32_t>( m_NearFieldListRoom ), m_NearFieldStamp, 0u );
+        // The cull's objects: the meshes, which lead the records - the landscape tiles after them are the global
+        // field's only (MeshDistanceFieldReads::NumMeshObjects), never a near-field candidate or list entry.
+        cull.Counts = glm::uvec4( fields.NumMeshObjects, static_cast<uint32_t>( m_NearFieldListRoom ),
+                                  m_NearFieldStamp, 0u );
 
         const RDG::BufferRef params =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( cull ) }, "DistanceField.NearField.CullParams" );
         graph.QueueBufferUpload( params, std::as_bytes( std::span( &cull, 1 ) ) );
         // The candidates' count starts at 0 (the cull appends through it).
-        const std::vector<uint32_t> culledInitial( 1u + std::max( fields.NumObjects, 1u ), 0u );
+        const std::vector<uint32_t> culledInitial( 1u + std::max( fields.NumMeshObjects, 1u ), 0u );
         const RDG::BufferRef        culled = graph.CreateBuffer( RDG::BufferDesc{ culledInitial.size() * 4ull },
                                                                  "DistanceField.NearField.Culled" );
         graph.QueueBufferUpload( culled, std::as_bytes( std::span( culledInitial ) ) );
@@ -828,9 +832,9 @@ namespace Desert::Graphic::DistanceField
         const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         {
             ComputePipeline* const pipeline = m_CullObjectsPipeline.get();
-            const uint32_t         groups   = std::max( ( fields.NumObjects + 63u ) / 64u, 1u );
+            const uint32_t         groups   = std::max( ( fields.NumMeshObjects + 63u ) / 64u, 1u );
             graph.AddPass(
-                 std::format( "DistanceField: Near-field cull ({} objects)", fields.NumObjects ), kAsyncPass,
+                 std::format( "DistanceField: Near-field cull ({} objects)", fields.NumMeshObjects ), kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullObjectsLayout.Get( m_CullObjectsShader ),

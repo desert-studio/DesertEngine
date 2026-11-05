@@ -31,7 +31,10 @@ namespace Desert::Graphic::DistanceField
         RDG::BufferRef  Indirection; // every resident mip's indirection, atlas brick slots
         RDG::BufferRef  Objects;     // DF_OBJECT_STRIDE vec4 per object
         RDG::TextureRef BrickAtlas;
-        uint32_t        NumObjects = 0; // objects in Objects
+        // The MESH objects, which lead Objects: the near field's (AddNearFieldCullPasses culls these only). The
+        // landscape tiles placed after them (DF_OBJECT_FLAG_HEIGHTFIELD) are surfaces of the global field alone
+        // (UE r.AOGlobalDistanceFieldRepresentHeightfields): the per-object near-field trace is for meshes.
+        uint32_t NumMeshObjects = 0;
         // The near field's froxel grid (AddNearFieldCullPasses): per cell MeshSDFGridHeaderStride uints (its
         // list's first index, its length), then the compacted lists; and its placement.
         RDG::BufferRef       NearFieldGrid;

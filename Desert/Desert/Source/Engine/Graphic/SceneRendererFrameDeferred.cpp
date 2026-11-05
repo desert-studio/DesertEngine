@@ -1120,8 +1120,9 @@ namespace Desert::Graphic
         if ( changes )
             for ( const GpuDriven::PrimitiveChange& change : *changes )
                 moved = moved || change.Kind == GpuDriven::PrimitiveChangeKind::Moved;
-        // The landscape's tiles as heightfield objects (SHADE-GI-LANDSCAPE; UE: landscape components in the global
-        // distance field and the mesh SDF trace): which tiles, their heights' images, revisions and frames.
+        // The landscape's tiles as heightfield objects of the global distance field only (SHADE-GI-LANDSCAPE; UE
+        // r.AOGlobalDistanceFieldRepresentHeightfields - the near field's per-object trace is for meshes): which
+        // tiles, their heights' images, revisions and frames.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         const auto* const terrainSystem =
              UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );

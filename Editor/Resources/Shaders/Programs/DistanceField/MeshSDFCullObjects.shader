@@ -4,6 +4,9 @@
 // DF_MESH_SDF_GRID_MAX_DISTANCE, and whose field has a resident mip, appended to one list - the candidates of
 // MeshSDFCullGrid.shader. One thread per object, appending through the list's count (uploaded as 0); the order the
 // threads append in is irrelevant (the grid keeps each cell's closest by distance, then index).
+// MESH OBJECTS ONLY: CullParams.counts.x is the mesh objects (MeshDistanceFieldReads::NumMeshObjects), which lead
+// the object records; the landscape tiles after them (DF_OBJECT_FLAG_HEIGHTFIELD) are surfaces of the global field
+// alone (UE r.AOGlobalDistanceFieldRepresentHeightfields) - no thread reads them, so no near-field list holds one.
 Shader "MeshSDFCullObjects"
 {
     Compute
@@ -37,10 +40,7 @@ Shader "MeshSDFCullObjects"
                 return;
             const uint base  = o * uint(DF_OBJECT_STRIDE);
             const uint asset = floatBitsToUint(DistanceFieldObjects[base + 4u].x);
-            // A landscape tile (DF_OBJECT_FLAG_HEIGHTFIELD) has no asset: row 4 holds its heights' bindless slot.
-            const uint flags       = floatBitsToUint(DistanceFieldObjects[base + uint(DF_OBJECT_ROW_FLAGS)].x);
-            const bool heightfield = (flags & uint(DF_OBJECT_FLAG_HEIGHTFIELD)) != 0u;
-            if (!heightfield && floatBitsToUint(DistanceFieldAssetData[asset * uint(DF_ASSET_STRIDE)].x) == 0u)
+            if (floatBitsToUint(DistanceFieldAssetData[asset * uint(DF_ASSET_STRIDE)].x) == 0u)
                 return; // no resident mip: the trace has nothing to march
             const vec3 lo     = DistanceFieldObjects[base + uint(DF_OBJECT_ROW_BOUNDS_MIN)].xyz;
             const vec3 hi     = DistanceFieldObjects[base + uint(DF_OBJECT_ROW_BOUNDS_MAX)].xyz;
