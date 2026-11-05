@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
@@ -398,6 +399,12 @@ namespace Desert::Graphic
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
+                // The grade table the tonemap samples (UE CombineLUTs), baked each frame from the view's grade.
+                RegisterSystem<System::CombineLUTsRenderer>( "CombineLUTsSystem", this, m_TargetFramebuffer );
+                const auto& combineLUTs =
+                     SP_CAST( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] );
+                if ( const auto lut = combineLUTs->Initialize(); !lut )
+                    LOG_ERROR( "[SceneRenderer] the colour-grading table did not initialise: {}", lut.GetError() );
                 return "Tonemap";
             }
             case 6:
@@ -1418,7 +1425,9 @@ namespace Desert::Graphic
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
-        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
+        // UE's Exposure Compensation applies to the manual exposure too (2^AutoExposureBias).
+        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey ) *
+                                     std::exp2( post.AutoExposureBias );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
         // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
         // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
@@ -1457,14 +1466,21 @@ namespace Desert::Graphic
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
+        // The compensation moves it too: the bias and the curve's lowest key (AutoExposureRules.hpp).
+        const float lowestCompensation =
+             post.AutoExposureBias +
+             LowestExposureCompensationCurveBias( post.AutoExposureCurveKeyCount, &post.AutoExposureCurveBias.x );
+        const float lowestAutoExposure =
+             LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey ) *
+             std::exp2( lowestCompensation );
+        const float lowestExposure = post.AutoExposure ? lowestAutoExposure : manualExposure;
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetSkyLuminanceCeiling( SkyLuminanceCeiling(
-                  post.AutoExposure ? LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey )
-                                    : manualExposure ) );
+             ->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetTonemapOperator( post.Tonemapper );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetWhitePoint( post.WhitePoint );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] ) )
+            combine->SetGrade( post );
 
         // The systems map is keyed by the name each system was registered under, so the downcast is to the type
         // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
@@ -1573,6 +1589,9 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
                           EV100ToLuminance( post.AutoExposureMaxEV100 ) );
+        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
+             ->SetCompensation( post.AutoExposureBias, post.AutoExposureCurveKeyCount, post.AutoExposureCurveEV100,
+                                post.AutoExposureCurveBias );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
         // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).

@@ -25,12 +25,14 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, LumBilateralGrid );
         DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
         DESERT_SHADER_PARAMETER( Texture, ExposureFusionTexture );
+        DESERT_SHADER_PARAMETER( Texture, ColorGradingLUT );
         static constexpr std::array kAll{
              RDG::Erase( GeometryTexture ),         RDG::Erase( LinearRepeatSampler ),
              RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ),
              RDG::Erase( LinearClampSampler ),      RDG::Erase( LightShaftTexture ),
              RDG::Erase( LensFlareTexture ),        RDG::Erase( LumBilateralGrid ),
-             RDG::Erase( BlurredLogLuminance ),     RDG::Erase( ExposureFusionTexture ) };
+             RDG::Erase( BlurredLogLuminance ),     RDG::Erase( ExposureFusionTexture ),
+             RDG::Erase( ColorGradingLUT ) };
     };
 
     class TonemapRenderer final : public RenderSystem
@@ -71,6 +73,10 @@ namespace Desert::Graphic::System
         // This frame writes the HDR rendition: a capture is pending on an HDR output with headroom above white.
         // Creates the target the first time it answers yes (the graph imports it right after).
         [[nodiscard]] bool PrepareHdrRendition();
+        // The headroom the grade table of a target is baked at (CombineLUTsRenderer::GradeFor): the HDR
+        // rendition's is the display's; the output's is the display's on an HDR output (1 on SDR), and 1 on a
+        // frame that also writes the rendition (the output then carries the SDR transform).
+        [[nodiscard]] float TargetHeadroom( bool hdrRendition ) const;
 
         // The graph resources one tonemap exec binds by shader name. Bloom is FrameTextures::Transients.Bloom,
         // or the graph's FrameTextures::System.Black when the bloom chain did not run this frame; then
@@ -93,6 +99,7 @@ namespace Desert::Graphic::System
             RDG::TextureRef BlurredLogLuminance;
             // Fusion: FrameTransients::ExposureFusion when the fusion ran, else System.Black (not read then).
             RDG::TextureRef ExposureFusion;
+            RDG::TextureRef ColorGradingLUT; // the baked grade (CombineLUTsRenderer) for this pass's target
         };
 
         // This frame's local exposure as SceneRenderer::AddFrameLocalExposure built it.
@@ -154,20 +161,13 @@ namespace Desert::Graphic::System
             return m_TonemapOperator;
         }
 
-        // The scene's tonemapping curve. ACES is the default and the one the sky programme measures
-        // against a UE frame; Reinhard is what every scene authored before 2026-08-19 was graded on.
+        // The scene's tonemapping curve (Filmic by default, UE's). The grade table bakes it (CombineLUTsRenderer);
+        // the composite reads it only to invert Reinhard for the exposure fusion.
         void SetTonemapOperator( Core::TonemapOperator op )
         {
             m_TonemapOperator = op;
         }
 
-        // The luminance that maps to pure white — REINHARD only. At 1 that operator is the identity and
-        // every HDR value above 1 clips flat; see the note in SceneComposite.shader. The ACES branch
-        // never reads it, which is why the editor hides the slider in that mode.
-        void SetWhitePoint( float whitePoint )
-        {
-            m_WhitePoint = whitePoint;
-        }
 
         // The bloom strength (0 disables bloom). The bloom image itself is a graph transient (GraphInputs).
         void SetBloomIntensity( float intensity )
@@ -233,7 +233,6 @@ namespace Desert::Graphic::System
         Core::TonemapOperator m_TonemapOperator = Core::TonemapOperator::ACES;
         float                 m_Exposure        = 1.0f;
         float                 m_PreExposure     = 1.0f;
-        float                 m_WhitePoint      = 8.0f;
 
         float                  m_BloomIntensity = 0.0f;
         float                  m_ChromaticBloom = 0.0f;

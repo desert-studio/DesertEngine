@@ -1,4 +1,5 @@
 #include "SceneMigration.hpp"
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -1446,6 +1447,61 @@ namespace Desert::Migration
                                DropKey( settings, "GIIntensity" );
                                ++report.Dropped;
                                changed = true;
+                           }
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    FilmicDefaultReport MigrateFilmicDefaultV73ToV74( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr int       kACES   = static_cast<int>( Core::TonemapOperator::ACES );
+        constexpr int       kFilmic = static_cast<int>( Core::TonemapOperator::Filmic );
+        FilmicDefaultReport report;
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool changed = false;
+                           if ( const auto op = settings.get( "Tonemapper" ); op.has_value() )
+                           {
+                               const auto number = op.value().to_int();
+                               if ( number.has_value() && number.value() == kACES )
+                               {
+                                   DropKey( settings, "Tonemapper" );
+                                   settings["Tonemapper"] = rfl::Generic( kFilmic );
+                                   ++report.Restated;
+                                   changed = true;
+                               }
                            }
                            if ( !changed )
                                return false;
@@ -4640,6 +4696,18 @@ namespace Desert::Migration
                 if ( !report.ComposedGI.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.ComposedGI.Refused );
+                    return;
+                }
+            }
+
+            // Filmic by default (POST-LOOK-LAND): the same PostProcessVolume keys, after the v73 step.
+            if ( statedSceneVersion < kSceneVersionFilmicDefault )
+            {
+                report.FilmicDefaultRaised = true;
+                report.FilmicDefault       = MigrateFilmicDefaultV73ToV74( entities );
+                if ( !report.FilmicDefault.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.FilmicDefault.Refused );
                     return;
                 }
             }

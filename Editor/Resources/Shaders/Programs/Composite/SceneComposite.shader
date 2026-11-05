@@ -28,6 +28,11 @@ Shader "SceneComposite"
         // when the fusion did not run (then LocalExposureMethod is 0 and it is not read).
         Uniform(10) texture2D ExposureFusionTexture;
         #define ExposureFusionTexture sampler2D(ExposureFusionTexture, LinearClampSampler)
+        // THE GRADE OF THE VIEW (UE CombineLUTs): white balance, colour grading, tone curve and output device
+        // baked into a 32^3 table this frame for THIS target's output (CombineLUTs.shader: SDR, or extended sRGB at the
+        // HDR headroom), indexed by UE's log encoding of the exposed colour.
+        Uniform(11) texture3D ColorGradingLUT;
+        #define ColorGradingLUT sampler3D(ColorGradingLUT, LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
@@ -37,8 +42,7 @@ Shader "SceneComposite"
             float ExposureKey;          // middle-grey target for auto-exposure
             float AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
             float ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
-            float WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
-            float TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, < 1.5 extended Reinhard, 2 = buffer visualization
+            float TonemapOperator;      // Core::TonemapOperator (0 ACES, 1 Reinhard, 2 Filmic); 3 = buffer visualization
             float InversePreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
             vec4  LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
@@ -47,13 +51,9 @@ Shader "SceneComposite"
             vec4  LocalExposureUV;         // grid UV scale xy, blurred UV scale xy
             vec4  LocalExposureSlice;      // log2 middle grey (exposed), slice log min, 1 / EV per slice, mode
             float LocalExposureMethod;     // 1: Fusion (ExposureFusionTexture), 0: Bilateral (grid + blur)
-            // HDR-OUTPUT (Graphic::CurrentDisplayOutput): 0 SDR, 2 scRGB (Common::Scalability::DisplayOutput's
-            // numbering), and the output transform's ceiling in paper-white units (1 on SDR).
-            float DisplayOutput;
-            float DisplayHeadroom;
         };
 
-        #include <Common/TonemapACES.glslh>
+        #include <Common/FilmToneMap.glslh>
         #include <Common/LocalExposure.glslh>
 
         // THE DISPLAY TRANSFER: the sRGB OETF (IEC 61966-2-1), the curve the display decodes with.
@@ -69,38 +69,12 @@ Shader "SceneComposite"
             return min(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055);
         }
 
-        // The same OETF without the clamp above 1 (Apple's extended sRGB, IEC 61966-2-1 continued past white):
-        // the encoding the HDR output carries until DisplayEncodeScRGB linearises it.
-        vec3 LinearToSrgbExtended(vec3 linearColor)
-        {
-            const vec3 c = max(linearColor, vec3(0.0));
-            return mix(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055,
-                       step(vec3(0.0031308), c));
-        }
-
-        // Extended Reinhard, on luminance, preserving the colour's ratio to it.
-        // see: "Photographic Tone Reproduction for Digital Images", eq. 4
-        //
-        // pureWhite is a UNIFORM and not a constant, and that is the whole point of it:
-        //     L' = L * (1 + L / W^2) / (1 + L)
-        // at W = 1 reduces ALGEBRAICALLY to L' = L. The operator was once hard-coded to W = 1, so this
-        // pass tonemapped nothing — every luminance above 1 walked through untouched and was clipped by
-        // the 8-bit store, which is what flattened bright content into paper silhouettes: a highlight lit
-        // to 2.0 and one lit to 6.0 both wrote 255 and lost every gradient between them.
-        vec3 TonemapReinhard(vec3 color, float whitePoint)
-        {
-            float pureWhite       = max(whitePoint, 1.0);
-            float luminance       = dot(color, vec3(0.2126, 0.7152, 0.0722));
-            float mappedLuminance = (luminance * (1.0 + luminance / (pureWhite * pureWhite))) / (1.0 + luminance);
-            return (mappedLuminance / (luminance + 0.0001)) * color;
-        }
-
         void main()
         {
             // THE BUFFER VISUALIZATION (operator 2, MaterialTonemap::Params::VisualizeBuffer; UE VMI_VisualizeBuffer):
             // the composite wrote a stored value or a heat colour pre-exposed, so undoing the pre-exposure leaves it
             // as authored - no eye adaptation, exposure, effects or curve, which turned it black in a lit scene.
-            if (TonemapOperator > 1.5)
+            if (TonemapOperator > 2.5)
             {
                 vec3 stored = clamp(texture(GeometryTexture, v_TexCoord).rgb * InversePreExposure, 0.0, 1.0);
                 oColor      = vec4(LinearToSrgb(stored), 1.0);
@@ -111,7 +85,8 @@ Shader "SceneComposite"
             float exposure = Exposure;
             if (AutoExposureEnabled > 0.5)
             {
-                float adaptedLum = texture(AverageLuminanceTexture, vec2(0.5)).r;
+                // .g: the adapted average over 2^compensation (AEAverage.shader) - UE's exposure compensation.
+                float adaptedLum = texture(AverageLuminanceTexture, vec2(0.5)).g;
                 exposure = ExposureKey / max(adaptedLum, 1e-4);
             }
 
@@ -161,7 +136,7 @@ Shader "SceneComposite"
                 // fusion curve, over this pixel's own exposed luminance.
                 float fused = textureLod(ExposureFusionTexture, v_TexCoord, 0.0).r;
                 float lum   = LocalExposureLuminance(scene) * InversePreExposure * exposure;
-                localExposure = LocalExposureFusionExposure(lum, fused, TonemapOperator >= 0.5);
+                localExposure = LocalExposureFusionExposure(lum, fused, abs(TonemapOperator - 1.0) < 0.5);
             }
             else if (leMode > 0.5 && leMode < 2.5)
             {
@@ -178,25 +153,13 @@ Shader "SceneComposite"
             // Scene, bloom, shafts and flare are all made from the pre-exposed scene colour: one division undoes it.
             vec3 color = (scene * localExposure + bloom + shafts + flare) * (exposure * InversePreExposure);
 
-        	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
-        	// the display transfer function and belongs to neither of them.
-            //
-            // THE HDR OUTPUT TRANSFORM (HDR-OUTPUT p4; UE r.HDR.Display.OutputDevice + ACES 1.3 output transforms):
-            // the SAME operator at the display's peak (TonemapACESOutput, Common/TonemapACES.glslh) — SDR is its
-            // headroom-1 case, so an SDR frame is unchanged and an HDR frame's shadows and mid-tones are the SDR
-            // frame's; above mid grey highlights follow ACES's SSTS shoulder up to the headroom instead of
-            // clipping to paper white. The Reinhard operator takes the same SSTS ratio on its brightest channel
-            // (hue kept). The HDR value is written EXTENDED-sRGB encoded (sign-free, unclamped): the UI composites
-            // over it in the encoded space it always did, and DisplayEncodeScRGB linearises the lot.
-            float headroom = (DisplayOutput > 0.5) ? max(DisplayHeadroom, 1.0) : 1.0;
-        	vec3 mappedColor;
-            if (TonemapOperator < 0.5)
-                mappedColor = TonemapACESOutput(color, headroom);
-            else
-                mappedColor = TonemapReinhard(color, WhitePoint)
-                            * AcesPeakRatio(max(max(color.r, color.g), color.b), headroom);
-
-        	vec3 mapped = headroom > 1.0 ? LinearToSrgbExtended(mappedColor) : LinearToSrgb(mappedColor);
+            // THE GRADE (UE CombineLUTs, PostProcessTonemap.usf ColorLookupTable): white balance, colour grading,
+            // the operator and the output transform are the baked table's, bound for this target's output (the SDR
+            // output, the HDR output at its headroom, or the HDR rendition of a capture).
+            const float lutSize = float(textureSize(ColorGradingLUT, 0).x);
+            vec3 lutUVW = FilmLinToLog(color + FilmLogToLin(vec3(0.0))) * ((lutSize - 1.0) / lutSize)
+                        + 0.5 / lutSize;
+            vec3 mapped = textureLod(ColorGradingLUT, lutUVW, 0.0).rgb;
 
             // The Local Exposure view mode (UE VisualizeLocalExposure, "Local Exposure"): the picture's own grey
             // tinted green where local exposure lifts it, red where it pulls it down, saturating at +-2 EV.

@@ -45,11 +45,32 @@ Shader "AEAverage"
             vec4  LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
             float LocalExposureLogMiddleGrey;
             float ExposureKey;
-            float Pad0;
-            float Pad1;
+            float CompensationBias; // UE AutoExposureBias (EV)
+            float CompensationKeys; // the Exposure Compensation Curve's key count (0 = no curve)
+            vec4  CurveEV100;       // its keys' EV100, ascending
+            vec4  CurveBias;        // its bias (EV) at each key
         };
 
         #include <Common/LocalExposure.glslh>
+
+        // UE's Exposure Compensation Curve at @p ev100, piecewise linear over the keys, flat past the ends - the
+        // GPU twin of Graphic::ExposureCompensationCurveBias (AutoExposureRules.hpp).
+        float ExposureCompensationCurve( float ev100 )
+        {
+            int count = int( CompensationKeys + 0.5 );
+            if ( count <= 0 )
+                return 0.0;
+            count = min( count, 4 );
+            if ( ev100 <= CurveEV100[0] )
+                return CurveBias[0];
+            for ( int i = 1; i < count; ++i )
+                if ( ev100 < CurveEV100[i] )
+                {
+                    float t = ( ev100 - CurveEV100[i - 1] ) / max( CurveEV100[i] - CurveEV100[i - 1], 1e-6 );
+                    return mix( CurveBias[i - 1], CurveBias[i], t );
+                }
+            return CurveBias[count - 1];
+        }
 
         void main()
         {
@@ -96,15 +117,21 @@ Shader "AEAverage"
                 prev = avgLum;
 
             float adapted = mix( prev, avgLum, 1.0 - exp( -DeltaTime * AdaptationSpeed ) );
-            imageStore( OutLuminanceTexture, ivec2( 0 ), vec4( adapted, 0.0, 0.0, 1.0 ) );
-            ReadbackData = vec4( adapted, 1.0, measured, float( total ) );
+            // UE's exposure compensation (AutoExposureBias + the curve at the adapted average's EV100; EV100 =
+            // log2(L) + 3, Graphic::LuminanceToEV100): the exposure is computed from adapted / 2^compensation,
+            // kept in .g and in the read-back; .r stays the smoothing state, so a bias change does not ramp.
+            float compensation =
+                CompensationBias + ExposureCompensationCurve( log2( max( adapted, 1e-10 ) ) + 3.0 );
+            float exposed      = adapted * exp2( -compensation );
+            imageStore( OutLuminanceTexture, ivec2( 0 ), vec4( adapted, exposed, 0.0, 1.0 ) );
+            ReadbackData = vec4( exposed, 1.0, measured, float( total ) );
 
             // UE's AverageLocalExposure: every bucket treated as its own base layer (detail 0), exposed by this
             // frame's adapted exposure, averaged by sample count.
             float averageLocalExposure = 1.0;
             if ( LocalExposureContrast.w > 0.5 && total > 0u )
             {
-                const float logExposure = log2( ExposureKey / max( adapted, 1e-4 ) );
+                const float logExposure = log2( ExposureKey / max( exposed, 1e-4 ) );
                 float sum = 0.0;
                 for ( int i = 0; i < 256; ++i )
                 {

@@ -444,7 +444,13 @@ namespace Desert::Migration
     //       the record and every prefab override.
     inline constexpr int kSceneVersionComposedGI = 73;
 
-    static_assert( kSceneVersionComposedGI == kSceneVersion,
+    //  74 - FILMIC BY DEFAULT (POST-LOOK-LAND, UE parity). The tonemapper a volume states when it states the
+    //       former default ACES (0) is Filmic (2), UE's default; Reinhard stays. The grade fields added with it
+    //       (film curve, white balance, colour grading, exposure compensation) are additive, identity by
+    //       default (MigrateFilmicDefaultV73ToV74). Scenes and prefabs alike, the record and every override.
+    inline constexpr int kSceneVersionFilmicDefault = 74;
+
+    static_assert( kSceneVersionFilmicDefault == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -869,6 +875,17 @@ namespace Desert::Migration
     // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod ScreenSpace (2) as Off (0) and drops
     // its GIIntensity, in the record and in every prefab override (kSceneVersionComposedGI). PURE.
     ComposedGIReport MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateFilmicDefaultV73ToV74 did to one file.
+    struct FilmicDefaultReport
+    {
+        std::size_t              Restated = 0; // Tonemapper ACES re-stated as Filmic
+        std::vector<std::string> Refused;      // a Settings block that is not an object
+    };
+
+    // Re-states every PostProcessVolume.Settings Tonemapper ACES (0) as Filmic (2), in the record and in every
+    // prefab override (kSceneVersionFilmicDefault). PURE.
+    FilmicDefaultReport MigrateFilmicDefaultV73ToV74( std::vector<Assets::EntityData>& entities );
 
     // What MigrateLightRotationV0ToV1 did to one file.
     struct SunRotationReport
@@ -1301,6 +1318,8 @@ namespace Desert::Migration
         TracedRequestReport TracedRequest;
         bool                ComposedGIRaised = false; // below kSceneVersionComposedGI
         ComposedGIReport    ComposedGI;
+        bool                FilmicDefaultRaised = false; // below kSceneVersionFilmicDefault
+        FilmicDefaultReport FilmicDefault;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1319,7 +1338,8 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised;
+                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
+                   FilmicDefaultRaised;
         }
     };
 

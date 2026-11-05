@@ -11,12 +11,14 @@
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 
 #include <mutex>
+#include <span>
 #include <Common/Core/Units.hpp>
 
 #include <Common/Core/Profiler.hpp>
@@ -570,8 +572,32 @@ namespace Desert::Graphic
             return;
         }
         // HDR-OUTPUT p3: decided before FillMaterial, which gives the output the SDR transform when it is on.
-        const bool            hdrRendition = tonemap->PrepareHdrRendition();
-        const RDG::TextureRef output       = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
+        const bool hdrRendition = tonemap->PrepareHdrRendition();
+        // THE GRADE TABLE (UE CombineLUTs) of every target this frame writes, baked at that output's headroom.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] );
+        if ( combine == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] no colour-grading table system; the tonemap pass is not recorded" );
+            return;
+        }
+        const auto bakeLUT = [&]( const float headroom, const char* lutName, const char* gradeName )
+        {
+            const RDG::TextureRef lut = graph.CreateTexture( System::CombineLUTsRenderer::GetLUTDesc(), lutName );
+            const RDG::BufferRef  grade =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( Graphic::FilmGradeParams ) }, gradeName );
+            const Graphic::FilmGradeParams params = combine->GradeFor( headroom );
+            graph.QueueBufferUpload( grade, std::as_bytes( std::span( &params, 1 ) ) );
+            graph.AddPass(
+                 std::format( "PostFX: CombineLUTs ({})", lutName ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass ) { combine->DeclareBindings( pass, lut, grade ); },
+                 [combine]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return combine->Record( context ); } );
+            return lut;
+        };
+        const float outputHeadroom  = tonemap->TargetHeadroom( false );
+        graphInputs.ColorGradingLUT = bakeLUT( outputHeadroom, "ColorGrading.LUT", "ColorGrading.Grade" );
+        const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
         graph.AddPass(
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -589,12 +615,15 @@ namespace Desert::Graphic
         // inputs and values, with the HDR transform, into the second target the capture measures its peak on.
         // Nothing in this graph reads it (NeverCull: a readback root); the capture reads it back after the
         // present.
+        System::TonemapRenderer::GraphInputs hdrInputs = graphInputs;
+        const float                          hdrHeadroom = tonemap->TargetHeadroom( true );
+        hdrInputs.ColorGradingLUT = bakeLUT( hdrHeadroom, "ColorGrading.LUT.Hdr", "ColorGrading.Grade.Hdr" );
         const RDG::TextureRef hdr = textures.Import( tonemap->GetHdrRenditionImage(), "Tonemap.HdrRendition" );
         graph.AddPass(
              "PostFX: Tonemap (HDR rendition)", RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
              [&]( RDG::PassBuilder& pass )
              {
-                 tonemap->DeclareBindings( pass, graphInputs, true );
+                 tonemap->DeclareBindings( pass, hdrInputs, true );
                  pass.ColorTarget( 0, hdr, RDG::LoadOp::DontCare() );
              },
              [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr

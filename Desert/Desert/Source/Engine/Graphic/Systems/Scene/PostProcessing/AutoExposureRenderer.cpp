@@ -68,9 +68,12 @@ namespace Desert::Graphic::System
             glm::vec4 LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
             float     LocalExposureLogMiddleGrey;
             float     ExposureKey;
-            float     Pad0;
-            float     Pad1;
+            float     CompensationBias; // PostProcessSettings::AutoExposureBias (EV)
+            float     CompensationKeys; // the compensation curve's key count (0 = no curve)
+            glm::vec4 CurveEV100;       // its keys' EV100
+            glm::vec4 CurveBias;        // its bias (EV) at each key
         };
+        static_assert( sizeof( AveragePush ) <= 128, "Vulkan guarantees 128 bytes of push constants" );
 
         inline uint32_t GroupCount( uint32_t dim )
         {
@@ -231,7 +234,8 @@ namespace Desert::Graphic::System
                                          IsLocalExposureIdentity( le ) ? 0.0f : 1.0f ),
                               glm::vec4( le.HighlightThreshold, le.ShadowThreshold, le.HighlightThresholdStrength,
                                          le.ShadowThresholdStrength ),
-                              m_LocalExposureLogGrey, m_LocalExposureKey, 0.0f, 0.0f };
+                              m_LocalExposureLogGrey, m_LocalExposureKey, m_CompensationBias,
+                              static_cast<float>( m_CurveKeys ), m_CurveEV100, m_CurveBias };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &ap, sizeof( ap ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );

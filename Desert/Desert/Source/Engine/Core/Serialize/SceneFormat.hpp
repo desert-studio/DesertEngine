@@ -127,7 +127,11 @@ namespace Desert::Core
     // versioned by kWorldPartitionVersion under Assets::kWorldPartitionSchemaTag, and Tools/SceneMigrator runs
     // that subsystem's steps by the number the file states under that tag. The World Partition steps already taken
     // (v50, v66, v68, v70) stay where they were written - a file below v70 still climbs them by this number.
-    inline constexpr int kSceneVersion = 73;
+    // v74 (POST-LOOK-LAND): UE's grade - Filmic is the default tonemapper (ACES stays an operator); a volume
+    // that stated ACES (the former default) states Filmic (Tools/SceneMigrator, MigrateFilmicDefaultV73ToV74).
+    // The white balance, colour grading, film curve and exposure compensation fields are additive (declared
+    // defaults are the identity).
+    inline constexpr int kSceneVersion = 74;
 
     // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
     // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,

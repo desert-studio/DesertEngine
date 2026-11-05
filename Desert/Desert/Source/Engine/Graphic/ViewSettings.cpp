@@ -57,6 +57,10 @@ namespace Desert::Graphic
         target.ContactShadows           = volume.ContactShadows;
         target.DistanceFieldShadows     = volume.DistanceFieldShadows;
         target.Tonemapper          = volume.Tonemapper;
+        // The compensation curve is one asset in UE (taken whole); its keys are taken whole here too.
+        target.AutoExposureCurveKeyCount = volume.AutoExposureCurveKeyCount;
+        target.AutoExposureCurveEV100    = volume.AutoExposureCurveEV100;
+        target.AutoExposureCurveBias     = volume.AutoExposureCurveBias;
         target.AutoExposure        = volume.AutoExposure;
         target.LocalExposureMethod = volume.LocalExposureMethod;
         target.EnableBloom         = volume.EnableBloom;
@@ -69,6 +73,46 @@ namespace Desert::Graphic
         target.SubsurfaceScale   = Lerp( target.SubsurfaceScale, volume.SubsurfaceScale, weight );
         target.ManualExposureEV100 = Lerp( target.ManualExposureEV100, volume.ManualExposureEV100, weight );
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
+        // The grade (UE: every film, white balance and colour grading value blends by the volume's weight).
+        target.FilmSlope       = Lerp( target.FilmSlope, volume.FilmSlope, weight );
+        target.FilmToe         = Lerp( target.FilmToe, volume.FilmToe, weight );
+        target.FilmShoulder    = Lerp( target.FilmShoulder, volume.FilmShoulder, weight );
+        target.FilmBlackClip   = Lerp( target.FilmBlackClip, volume.FilmBlackClip, weight );
+        target.FilmWhiteClip   = Lerp( target.FilmWhiteClip, volume.FilmWhiteClip, weight );
+        target.BlueCorrection  = Lerp( target.BlueCorrection, volume.BlueCorrection, weight );
+        target.ExpandGamut     = Lerp( target.ExpandGamut, volume.ExpandGamut, weight );
+        target.ToneCurveAmount = Lerp( target.ToneCurveAmount, volume.ToneCurveAmount, weight );
+        target.WhiteTemp       = Lerp( target.WhiteTemp, volume.WhiteTemp, weight );
+        target.WhiteTint       = Lerp( target.WhiteTint, volume.WhiteTint, weight );
+        const auto blend4 = [weight]( glm::vec4& to, const glm::vec4& from )
+        { to = glm::mix( to, from, weight ); };
+        blend4( target.ColorSaturation, volume.ColorSaturation );
+        blend4( target.ColorContrast, volume.ColorContrast );
+        blend4( target.ColorGamma, volume.ColorGamma );
+        blend4( target.ColorGain, volume.ColorGain );
+        blend4( target.ColorOffset, volume.ColorOffset );
+        blend4( target.ColorSaturationShadows, volume.ColorSaturationShadows );
+        blend4( target.ColorContrastShadows, volume.ColorContrastShadows );
+        blend4( target.ColorGammaShadows, volume.ColorGammaShadows );
+        blend4( target.ColorGainShadows, volume.ColorGainShadows );
+        blend4( target.ColorOffsetShadows, volume.ColorOffsetShadows );
+        blend4( target.ColorSaturationMidtones, volume.ColorSaturationMidtones );
+        blend4( target.ColorContrastMidtones, volume.ColorContrastMidtones );
+        blend4( target.ColorGammaMidtones, volume.ColorGammaMidtones );
+        blend4( target.ColorGainMidtones, volume.ColorGainMidtones );
+        blend4( target.ColorOffsetMidtones, volume.ColorOffsetMidtones );
+        blend4( target.ColorSaturationHighlights, volume.ColorSaturationHighlights );
+        blend4( target.ColorContrastHighlights, volume.ColorContrastHighlights );
+        blend4( target.ColorGammaHighlights, volume.ColorGammaHighlights );
+        blend4( target.ColorGainHighlights, volume.ColorGainHighlights );
+        blend4( target.ColorOffsetHighlights, volume.ColorOffsetHighlights );
+        target.ColorCorrectionShadowsMax =
+             Lerp( target.ColorCorrectionShadowsMax, volume.ColorCorrectionShadowsMax, weight );
+        target.ColorCorrectionHighlightsMin =
+             Lerp( target.ColorCorrectionHighlightsMin, volume.ColorCorrectionHighlightsMin, weight );
+        target.ColorCorrectionHighlightsMax =
+             Lerp( target.ColorCorrectionHighlightsMax, volume.ColorCorrectionHighlightsMax, weight );
+        target.AutoExposureBias = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
         target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
         target.AutoExposureSpeed = Lerp( target.AutoExposureSpeed, volume.AutoExposureSpeed, weight );
         // EV100 blends linearly (UE), i.e. the luminance clamps blend geometrically.

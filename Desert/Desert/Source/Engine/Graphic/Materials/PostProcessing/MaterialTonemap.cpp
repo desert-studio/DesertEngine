@@ -13,9 +13,8 @@ namespace Desert::Graphic
         SetExposureKey( params.ExposureKey );
         SetAutoExposureEnabled( params.AutoExposure ? 1.0f : 0.0f );
         SetChromaticBloom( params.ChromaticBloom );
-        SetWhitePoint( params.WhitePoint );
-        // 2 = the buffer visualization (SceneComposite.shader): not a Core::TonemapOperator a scene can author.
-        SetTonemapOperator( params.VisualizeBuffer ? 2.0f
+        // 3 = the buffer visualization (SceneComposite.shader): not a Core::TonemapOperator a scene can author.
+        SetTonemapOperator( params.VisualizeBuffer ? 3.0f
                                                    : static_cast<float>( static_cast<int>( params.Operator ) ) );
         SetLightShaftTintIntensity( glm::vec4( params.LightShaftTint, params.LightShaftIntensity ) );
         SetLensFlareTintIntensity( glm::vec4( params.LensFlareTint, params.LensFlareIntensity ) );
@@ -25,8 +24,6 @@ namespace Desert::Graphic
         SetLocalExposureUV( params.LocalExposureUV );
         SetLocalExposureSlice( params.LocalExposureSlice );
         SetLocalExposureMethod( params.LocalExposureMethod );
-        SetDisplayOutput( static_cast<float>( static_cast<int>( params.DisplayOutput ) ) );
-        SetDisplayHeadroom( params.DisplayHeadroom );
         // Uploaded where the draw reads them (MaterialExecutor::Apply: dirty MPROPERTYs into their fields, then
         // every field-filled buffer whose active copy is behind -- each frame-in-flight copy catches up on its
         // own).

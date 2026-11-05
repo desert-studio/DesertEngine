@@ -22,7 +22,6 @@ namespace Desert::Graphic
             float                 ExposureKey;
             bool                  AutoExposure;
             float                 ChromaticBloom; // lens dispersion strength on the bloom halo (0 = off)
-            float                 WhitePoint; // REINHARD only: luminance that maps to pure white (1 = identity)
             float     LightShaftIntensity; // Bloom Scale x screen fade of the sun light's shafts (0 = off)
             glm::vec3 LightShaftTint;      // the sun light's Bloom Tint
             float     LensFlareIntensity;  // Lens Flare Intensity x screen fade (0 = off)
@@ -34,9 +33,6 @@ namespace Desert::Graphic
             glm::vec4 LocalExposureUV{ 1.0f };                          // grid UV scale xy, blur UV scale xy
             glm::vec4 LocalExposureSlice{ 0.0f };                       // log middle grey, slice log min, 1/EV, mode
             float     LocalExposureMethod = 0.0f; // 1: Fusion (ExposureFusionTexture), 0: Bilateral
-            // HDR-OUTPUT: Graphic::CurrentDisplayOutput() — the output transform's target.
-            Common::Scalability::DisplayOutput DisplayOutput   = Common::Scalability::DisplayOutput::SDR_sRGB;
-            float                              DisplayHeadroom = 1.0f;
             // A display-referred buffer view (Graphic::IsDisplayReferredView): the scene colour, un-pre-exposed,
             // is the picture - SceneComposite's operator 2 skips exposure, the effects and the curve.
             bool VisualizeBuffer = false;
@@ -52,8 +48,7 @@ namespace Desert::Graphic
         MPROPERTY( float, ExposureKey,         "ExposureKey",         0.18f )
         MPROPERTY( float, AutoExposureEnabled, "AutoExposureEnabled", 0.0f )
         MPROPERTY( float, ChromaticBloom,      "ChromaticBloom",      0.0f )
-        MPROPERTY( float, WhitePoint, "WhitePoint", 8.0f )
-        // 0 = ACES, 1 = extended Reinhard — Core::TonemapOperator's own numbering, converted in Bind().
+        // Core::TonemapOperator's numbering (0 ACES, 1 Reinhard, 2 Filmic), 3 = the buffer visualization.
         MPROPERTY( float, TonemapOperator, "TonemapOperator", 0.0f )
         MPROPERTY( float, InvPreExposure, "InversePreExposure", 1.0f )
         // rgb = tint, a = intensity: one vec4 slot, and the two cannot disagree about being on.
@@ -68,7 +63,5 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, LocalExposureUV, "LocalExposureUV", ( glm::vec4( 1.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureSlice, "LocalExposureSlice", ( glm::vec4( 0.0f ) ) )
         MPROPERTY( float, LocalExposureMethod, "LocalExposureMethod", 0.0f )
-        MPROPERTY( float, DisplayOutput, "DisplayOutput", 0.0f )
-        MPROPERTY( float, DisplayHeadroom, "DisplayHeadroom", 1.0f )
     };
 } // namespace Desert::Graphic
