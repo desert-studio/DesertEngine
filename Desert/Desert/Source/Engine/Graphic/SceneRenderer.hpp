@@ -1400,9 +1400,24 @@ namespace Desert::Graphic
         // position of this call. Nothing when the pass has no target (the system did not initialize).
         void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
                               const OverlayTargets& overlay = {} );
-        // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles,
-        // then the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
-        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
+        // One LOAD node for @p pass on the DISPLAY-REFERRED final image @p display (UE: the editor primitives
+        // composited after the tonemapper and FXAA), with @p depth - the output-extent scene depth, never written
+        // - when valid. @p extent is the render area the pass lays out at. The pass's own TargetFramebuffer is
+        // not drawn into (its pipelines are built against ViewTargetLayouts::DisplayOverlayLayout or the display
+        // framebuffer). Nothing when the pass has no executor.
+        void AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
+                                      RDG::TextureRef display, RDG::TextureRef depth, glm::uvec2 extent );
+#if DESERT_DEV_INSTRUMENTS
+        // DebugDrawRenderer's lines, points and strings over the final image @p display (after the tonemapper and
+        // the AA pass, before the game UI): their colours are the colours on screen. Their depth is @p overlay's
+        // (the output extent) or, without a temporal resolve, the single-sample scene depth when it has the
+        // display's extent; otherwise the depth-tested items are refused with one log line.
+        void AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef display,
+                                const OverlayTargets& overlay );
+#endif // DESERT_DEV_INSTRUMENTS
+       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles,
+       // then the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
+       // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
         void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
@@ -1882,6 +1897,8 @@ namespace Desert::Graphic
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
         // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
         std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+        // The depth-tested debug items had no depth of the final image's extent (logged once, AddFrameDebugDraw).
+        bool m_DebugDrawDepthRefused = false;
         // The vg_clusters view's shader and pipeline. Made on first use.
         std::unique_ptr<VirtualGeometry::ClusterView> m_VirtualGeometryClusterView;
         // WatchPrimitive's request: the entity and the absolute frame it was asked in.

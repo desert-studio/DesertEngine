@@ -8,9 +8,11 @@
  *
  * Every Scene owns one DebugDrawWorld (UE: the world's ULineBatchComponents). A shape is turned into world
  * line segments at the call (DrawDebugBox pushes twelve lines, as UE's does), so the renderer sees one list of
- * segments and one list of strings. The view's MeshRenderer draws the segments in its DebugLinesPass and the
- * view's renderer draws the strings over the picture at the projected point (UE DrawDebugString), so the
- * editor viewport and Play show the same thing.
+ * segments, one of points (screen squares, UE DrawDebugPoint) and one of strings. The view's DebugDrawRenderer
+ * draws them over the TONEMAPPED final image (UE's editor primitives composite): a colour given here is the
+ * colour on screen, not scene light the exposure and the tonemapper reshape. Segments and points are tested
+ * against the scene's depth; strings land at the projected point (UE DrawDebugString). The editor viewport and
+ * Play draw them by the same code.
  *
  * ── LIFETIME ─────────────────────────────────────────────────────────────────────────────────────
  *
@@ -71,6 +73,19 @@ namespace Desert::Core
         DebugDrawDepth Depth;
     };
 
+    /// UE DrawDebugPoint: a square @p SizePixels wide on screen at whatever distance, facing the view, tested
+    /// against the scene's depth at its centre's depth (World) or over everything (Foreground).
+    struct DebugDrawPoint
+    {
+        glm::vec3      Position;
+        glm::vec4      Color;
+        float          SizePixels;
+        float          RemainingSeconds; // only read when !OneFrame && !Persistent
+        bool           OneFrame;
+        bool           Persistent;
+        DebugDrawDepth Depth;
+    };
+
     struct DebugDrawString
     {
         glm::vec3   Position;
@@ -124,6 +139,7 @@ namespace Desert::Core
     {
     public:
         void AddLine( const glm::vec3& start, const glm::vec3& end, const DebugDrawStyle& style );
+        void AddPoint( const glm::vec3& position, float sizePixels, const DebugDrawStyle& style );
         void AddString( const glm::vec3& position, std::string text, float scale, const DebugDrawStyle& style );
         void AddScreenPanel( const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
                              const DebugDrawPanelStyle& style );
@@ -132,7 +148,7 @@ namespace Desert::Core
         /// frame; @p deltaSeconds ages the timed ones and drops those whose time ran out.
         void Tick( float deltaSeconds, bool advancesFrame );
 
-        /// UE FlushPersistentDebugLines: every persistent and timed line goes; one-frame lines stay.
+        /// UE FlushPersistentDebugLines: every persistent and timed line and point goes; one-frame ones stay.
         void FlushPersistentLines();
         /// UE FlushDebugStrings: every string goes, the screen panels with them.
         void FlushStrings();
@@ -140,6 +156,10 @@ namespace Desert::Core
         [[nodiscard]] const std::vector<DebugDrawLine>& GetLines() const
         {
             return m_Lines;
+        }
+        [[nodiscard]] const std::vector<DebugDrawPoint>& GetPoints() const
+        {
+            return m_Points;
         }
         [[nodiscard]] const std::vector<DebugDrawString>& GetStrings() const
         {
@@ -151,11 +171,12 @@ namespace Desert::Core
         }
         [[nodiscard]] bool IsEmpty() const
         {
-            return m_Lines.empty() && m_Strings.empty() && m_Panels.empty();
+            return m_Lines.empty() && m_Points.empty() && m_Strings.empty() && m_Panels.empty();
         }
 
     private:
         std::vector<DebugDrawLine>        m_Lines;
+        std::vector<DebugDrawPoint>       m_Points;
         std::vector<DebugDrawString>      m_Strings;
         std::vector<DebugDrawScreenPanel> m_Panels;
     };
@@ -166,8 +187,8 @@ namespace Desert::Core
     {
 #if DESERT_DEV_INSTRUMENTS
         void Line( Scene& scene, const glm::vec3& start, const glm::vec3& end, const DebugDrawStyle& style = {} );
-        /// A three-axis cross @p size cm across (UE draws a screen-facing square; a cross reads in depth too).
-        void Point( Scene& scene, const glm::vec3& position, float size, const DebugDrawStyle& style = {} );
+        /// A screen-facing square @p sizePixels wide at any distance (UE DrawDebugPoint's Size, in pixels).
+        void Point( Scene& scene, const glm::vec3& position, float sizePixels, const DebugDrawStyle& style = {} );
         void Box( Scene& scene, const glm::vec3& center, const glm::vec3& extent,
                   const glm::quat&      rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ),
                   const DebugDrawStyle& style    = {} );

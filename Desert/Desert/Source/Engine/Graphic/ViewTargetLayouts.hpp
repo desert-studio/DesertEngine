@@ -27,6 +27,17 @@ namespace Desert::Graphic
     // The scene target's depth ALONE: the forward view's depth prepass (UE DepthPass, SceneRenderer::
     // AddFrameForwardDepthPrepass) draws into it before the base pass, which then tests CloserOrEqual and writes
     // none.
+    // THE DISPLAY OVERLAY (UE: the editor primitives composited over the tonemapped image, depth-tested against
+    // the scene): the final image (every AA mode's output has the tonemap's format) with the OUTPUT-extent scene
+    // depth, read-only. DebugDrawRenderer's lines and points draw here.
+    inline RenderTargetLayout DisplayOverlayLayout()
+    {
+        static_assert( ViewTargetFormats::kFXAA == ViewTargetFormats::kTonemap &&
+                            ViewTargetFormats::kSMAABlend == ViewTargetFormats::kTonemap,
+                       "the display overlay's pipelines are built against one final-image format" );
+        return RenderTargetLayout{ { ViewTargetFormats::kTonemap }, ViewTargetFormats::kSceneDepth, 1 };
+    }
+
     inline RenderTargetLayout SceneDepthLayout()
     {
         return RenderTargetLayout{ {}, ViewTargetFormats::kSceneDepth, 1 };

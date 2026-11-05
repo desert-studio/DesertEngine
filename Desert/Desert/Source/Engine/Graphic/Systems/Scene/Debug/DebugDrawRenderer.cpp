@@ -111,11 +111,46 @@ namespace Desert::Graphic
             for ( const glm::vec4& p : { a0, a1, b1, a0, b1, b0 } )
                 out.push_back( { p, line.Color } );
         }
+
+        // A point as two triangles covering a square of point.SizePixels on a @p extent render area, at the depth
+        // of its centre (UE DrawDebugPoint: a screen-space square, its size independent of the distance). The
+        // corners are offset in clip space and taken back to the world through @p inverseViewProjection, so the
+        // line shader's ViewProjection puts them on those exact pixels for any projection.
+        void AppendPoint( std::vector<MaterialDebugLine::LineVertex>& out, const Core::DebugDrawPoint& point,
+                          const glm::mat4& viewProjection, const glm::mat4& inverseViewProjection,
+                          const glm::uvec2 extent )
+        {
+            if ( point.SizePixels <= 0.0f || extent.x == 0 || extent.y == 0 )
+                return;
+            const glm::vec4 clip = viewProjection * glm::vec4( point.Position, 1.0f );
+            if ( clip.w <= 0.0f )
+                return; // behind the eye
+            // Half the size in NDC (two NDC units span the render area), scaled by w so the divide lands there.
+            const glm::vec2 half( point.SizePixels / static_cast<float>( extent.x ) * clip.w,
+                                  point.SizePixels / static_cast<float>( extent.y ) * clip.w );
+            const auto      corner = [&]( const float sx, const float sy )
+            {
+                const glm::vec4 world = inverseViewProjection *
+                                        glm::vec4( clip.x + sx * half.x, clip.y + sy * half.y, clip.z, clip.w );
+                return glm::vec4( glm::vec3( world ) / world.w, 1.0f );
+            };
+            const glm::vec4 a = corner( -1.0f, -1.0f );
+            const glm::vec4 b = corner( 1.0f, -1.0f );
+            const glm::vec4 c = corner( 1.0f, 1.0f );
+            const glm::vec4 d = corner( -1.0f, 1.0f );
+            for ( const glm::vec4& p : { a, b, c, a, c, d } )
+                out.push_back( { p, point.Color } );
+        }
+
+        size_t BatchOf( const Core::DebugDrawPoint& point )
+        {
+            return static_cast<size_t>( point.Depth ) * 2u + 1u; // triangles
+        }
     } // namespace
 
     bool DebugDrawRenderer::HasLines() const
     {
-        return m_World != nullptr && !m_World->GetLines().empty();
+        return m_World != nullptr && ( !m_World->GetLines().empty() || !m_World->GetPoints().empty() );
     }
 
     bool DebugDrawRenderer::HasStrings() const
@@ -147,7 +182,7 @@ namespace Desert::Graphic
             spec.DebugName =
                  std::format( "DebugDraw{}{}", foreground ? "Foreground" : "World", thick ? "Quads" : "Lines" );
             spec.Shader       = shader;
-            spec.TargetLayout = SceneTargetLayout();
+            spec.TargetLayout = DisplayOverlayLayout();
             spec.Topology     = thick ? PrimitiveTopology::Triangles : PrimitiveTopology::Lines;
             spec.LineWidth    = 1.0f;
             // World: tested against the scene, never written (an overlay, as the bounding boxes). Foreground:
@@ -173,7 +208,7 @@ namespace Desert::Graphic
 
     SystemRasterPass DebugDrawRenderer::LinesPass()
     {
-        const std::shared_ptr<Framebuffer>& target = m_Owner.GetTargetFramebuffer();
+        const std::shared_ptr<Framebuffer> target = m_Owner.GetDisplayFramebuffer();
         if ( !target || !HasLines() || !EnsureLinePipelines() )
             return {};
         return SystemRasterPass{
@@ -213,6 +248,13 @@ namespace Desert::Graphic
                          out.push_back( { glm::vec4( line.Start, 1.0f ), line.Color } );
                          out.push_back( { glm::vec4( line.End, 1.0f ), line.Color } );
                      }
+                 }
+                 if ( !m_World->GetPoints().empty() )
+                 {
+                     const glm::mat4 inverseViewProjection = glm::inverse( view->ViewProjection );
+                     for ( const Core::DebugDrawPoint& point : m_World->GetPoints() )
+                         AppendPoint( batches[BatchOf( point )], point, view->ViewProjection,
+                                      inverseViewProjection, declared.TargetExtent() );
                  }
                  for ( size_t batch = 0; batch < kBatchCount; ++batch )
                  {
@@ -304,7 +346,8 @@ namespace Desert::Graphic
 
     SystemRasterPass DebugDrawRenderer::StringsPass()
     {
-        const std::shared_ptr<Framebuffer>& target = m_Owner.GetTargetFramebuffer();
+        // The final image's framebuffer: the text pipeline is built against its one colour (no depth).
+        const std::shared_ptr<Framebuffer> target = m_Owner.GetDisplayFramebuffer();
         if ( !target || !HasStrings() )
             return {};
         if ( const auto ready = EnsureText( target ); !ready )
@@ -322,10 +365,8 @@ namespace Desert::Graphic
              .Declare =
                   [this, target]( RenderPassDeclaration& declared, const FrameGraphRefs& )
              {
-                 // Laid out at the node's render area (RenderPassDeclaration::TargetExtent), not at `target`'s:
-                 // after the temporal resolve the strings draw into the OUTPUT-extent overlay set, and the scene
-                 // target is the smaller render extent - laid out there, a label past it was cut (UE's debug
-                 // canvas draws at the view's output size).
+                 // Laid out at the node's render area (RenderPassDeclaration::TargetExtent): the final image's,
+                 // the view's output size (UE's debug canvas).
                  const glm::uvec2 extent = declared.TargetExtent();
                  if ( const auto recorded =
                            RecordStrings( static_cast<float>( extent.x ), static_cast<float>( extent.y ) );
