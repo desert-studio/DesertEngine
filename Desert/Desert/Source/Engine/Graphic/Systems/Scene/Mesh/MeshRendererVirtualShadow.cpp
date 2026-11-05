@@ -528,8 +528,14 @@ namespace Desert::Graphic::System
                                                             const GpuDriven::PrimitiveIndex primitive,
                                                             const uint64_t                  hidden )
     {
-        const std::size_t      submeshes = mesh != nullptr ? mesh->GetSubmeshes().size() : 0u;
-        std::vector<uint64_t>& words     = m_ClusterWalkScratch;
+        return CpuWalkHidden( view, mesh, primitive, hidden, m_ClusterWalkScratch );
+    }
+
+    std::optional<SubmeshMask> MeshRenderer::CpuWalkHidden( const ClusterWalkView& view, const Desert::Mesh* mesh,
+                                                            const GpuDriven::PrimitiveIndex primitive,
+                                                            const uint64_t hidden, std::vector<uint64_t>& words )
+    {
+        const std::size_t submeshes = mesh != nullptr ? mesh->GetSubmeshes().size() : 0u;
         words.clear();
         if ( view.VirtualShadow )
         {
@@ -588,6 +594,9 @@ namespace Desert::Graphic::System
         {
             const auto first    = words.begin() + 1;
             const auto last     = words.begin() + static_cast<std::ptrdiff_t>( end );
+            // The frame's interned masks are shared by concurrent builds (a node never moves once inserted, so
+            // the span outlives the lock).
+            const auto lock     = SetupCacheLock();
             const auto interned = m_ClusterWalkWords.emplace( first, last ).first;
             walk                = SubmeshMask{ low.Low, std::span<const uint64_t>( *interned ) };
         }

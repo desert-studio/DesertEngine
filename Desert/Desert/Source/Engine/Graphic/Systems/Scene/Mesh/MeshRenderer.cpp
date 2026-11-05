@@ -582,6 +582,43 @@ namespace Desert::Graphic::System
             m_Commands.push_back( std::move( command ) );
         }
 
+        void MeshDrawList::Append( MeshDrawList& other )
+        {
+            // Add's outcome for a command depends on this list's blocks and error only, so taking @p other's
+            // blocks in their first-use order (each found here or appended, the commands' block indices remapped),
+            // its triangles and its first error is the list sequential Adds would have built.
+            if ( other.m_Binned || other.m_IndirectArguments.IsValid() )
+                Fail( "mesh draw list append: the appended list carries bins or indirect records" );
+            if ( !m_Error )
+            {
+                std::vector<uint32_t> remap( other.m_Blocks.size() );
+                for ( std::size_t b = 0; b < other.m_Blocks.size(); ++b )
+                {
+                    const Block&  block = other.m_Blocks[b];
+                    const Shader* with  = block.Pipeline->GetSpecification().Shader.get();
+                    const auto    known =
+                         std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                                       [&]( const Block& mine ) {
+                                           return mine.Material == block.Material &&
+                                                  mine.Pipeline->GetSpecification().Shader.get() == with;
+                                       } );
+                    remap[b] = static_cast<uint32_t>( known - m_Blocks.begin() );
+                    if ( known == m_Blocks.end() )
+                        m_Blocks.push_back( Block{ block.Material, block.Pipeline } );
+                }
+                m_Commands.reserve( m_Commands.size() + other.m_Commands.size() );
+                for ( std::size_t c = 0; c < other.m_Commands.size(); ++c )
+                {
+                    m_BlockOf.push_back( remap[other.m_BlockOf[c]] );
+                    m_Commands.push_back( std::move( other.m_Commands[c] ) );
+                }
+                m_Triangles += other.m_Triangles;
+                if ( other.m_Error )
+                    Fail( std::move( *other.m_Error ) );
+            }
+            other.Clear();
+        }
+
         void MeshDrawList::Fail( std::string error )
         {
             if ( !m_Error )
@@ -890,8 +927,9 @@ namespace Desert::Graphic::System
             const SceneViewInputs view = SceneViewInputsOf( refs );
             // Shadows.Method VirtualMaps: every forward cell reads the view's virtual shadow map, not the atlas.
             m_ForwardVirtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
-            BuildStaticDraws( m_ForwardDraws );
-            BuildSkinnedDraws( m_ForwardDraws );
+            const DrawBuildMode forward{ .Pass = MeshPass::Forward, .Half = DeferredPrepassHalf::None };
+            m_IsmInstancesDrawn = BuildStaticDraws( m_ForwardDraws, forward, m_DrawBuildScratch[0] );
+            BuildSkinnedDraws( m_ForwardDraws, forward, m_DrawBuildScratch[0] );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
             AttachBinned( m_ForwardDraws, GpuDriven::MeshPass::Forward, kBinnedMainView );
             m_ForwardDraws.Declare( declared, view );
@@ -1044,6 +1082,7 @@ namespace Desert::Graphic::System
         if ( const auto found = m_FrameMaterialRows.find( key );
              found != m_FrameMaterialRows.end() && found->second.Sync == m_MaterialRowSync )
             return found->second.Index;
+        const auto lock = SetupCacheLock(); // m_MissingMaterialRowReported: concurrent builds
         if ( m_MissingMaterialRowReported.insert( material ).second )
             LOG_ERROR( "[MeshRenderer] '{}' has no row in the scene material table this frame (SyncGpuScene registers "
                        "every queued draw's row before the upload); its draws are not recorded.",
@@ -1054,6 +1093,7 @@ namespace Desert::Graphic::System
     bool MeshRenderer::LendMaterialTable( DataDrivenMaterial& material ) const
     {
         // Find: a surface template with no parameters declares no Materials row block.
+        const auto lock = SetupCacheLock(); // the material's block: concurrent builds
         auto* const block = material.Find<StorageBufferProperty>( kMaterialRowBlock );
         if ( block == nullptr )
             return true;

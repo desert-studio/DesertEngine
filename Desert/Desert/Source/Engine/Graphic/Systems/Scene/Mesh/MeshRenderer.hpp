@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <array>
 #include <map>
+#include <mutex>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -234,6 +235,10 @@ namespace Desert::Graphic::System
             void SetBinned( BinnedIssue issue );
             // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
             void               Add( MeshDrawCommand command );
+            // Moves @p other's commands to the end of this list, as if each had been Added here in its order (the
+            // blocks of first use, the triangles, the first error): a concurrent build's own list joining the
+            // pass's. @p other holds plain commands only (no SetBinned / SetIndirect) and is left cleared.
+            void               Append( MeshDrawList& other );
             void               Fail( std::string error );
             [[nodiscard]] bool IsEmpty() const
             {
@@ -908,6 +913,12 @@ namespace Desert::Graphic::System
                                                                 const Desert::Mesh*       mesh,
                                                                 GpuDriven::PrimitiveIndex primitive,
                                                                 uint64_t                  hidden );
+        // The same walk into the caller's @p words (a concurrent build's DrawBuildScratch::WalkWords), not the
+        // renderer's m_ClusterWalkScratch: reads only this frame's candidates and the draw-command cache.
+        [[nodiscard]] std::optional<SubmeshMask> CpuWalkHidden( const ClusterWalkView&    view,
+                                                                const Desert::Mesh*       mesh,
+                                                                GpuDriven::PrimitiveIndex primitive,
+                                                                uint64_t hidden, std::vector<uint64_t>& words );
         // THE CLUSTER-CUT CANDIDATES OF THIS FRAME (SceneRenderer::AddFrameDrawBins, after InstanceCull's main
         // phase took them with candidates appended): per primitive, the submeshes whose DAG rows InstanceCull
         // appends for EVERY cut view (MakeVirtualGeometryCandidates' spans, one bit per submesh, no 64 cap). Such
@@ -1851,8 +1862,27 @@ namespace Desert::Graphic::System
         // Build the draws of one lit mesh node into @p list (the node's setup; MeshDrawList says why). The
         // per-group material state (Materials[] / bones / instance SSBOs, the shared scene state) is written
         // here, at final size, before any draw is recorded; a refused build is the list's error.
-        void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
-        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
+        // The call's mode (DrawBuildMode) and its own reused vectors (DrawBuildScratch) are parameters, not
+        // renderer state: the G-buffer's two early-Z halves build on two setup tasks at once
+        // (DeclareGBufferDraws). The renderer caches they fill on a miss (cell pipelines, two-sided twins,
+        // stand-ins, material service siblings, the pipeline tracker, the ISM view culls) are taken under
+        // SetupCacheLock. Returns the ISM instances drawn (GetIsmInstancesDrawn; a Depth half counts none).
+        struct DrawBuildMode;
+        struct DrawBuildScratch;
+        [[nodiscard]] uint32_t BuildStaticDraws( MeshRendererDetail::MeshDrawList& list, const DrawBuildMode& mode,
+                                                 DrawBuildScratch& scratch );
+        void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list, const DrawBuildMode& mode,
+                                DrawBuildScratch& scratch );
+        // The Rest half's GPU-generated sections (the landscape grass, BuildGpuInstancedDraws), which a None-half
+        // BuildStaticDraws builds as its tail: DeclareGBufferDraws builds them serially after the halves joined,
+        // appended where the Rest half's tail was. BuildGpuInstancedDraws stays off the tasks (not audited).
+        void BuildRestGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list );
+        // The renderer caches the builders fill on a miss, shared by concurrent builds (recursive: a locked cache
+        // fill asks another locked cache). Every task-reachable fill and read of them holds it.
+        [[nodiscard]] std::unique_lock<std::recursive_mutex> SetupCacheLock() const
+        {
+            return std::unique_lock<std::recursive_mutex>( m_SetupCacheMutex );
+        }
         // The static and instanced state of one geometry pass (Forward, GBuffer, Depth): the per-object pass state,
         // the stand-in that records a waiting material's objects and its pipeline, the instanced pass state and
         // the renderer's instanced spare. Forward under the Wireframe view: the wireframe twins; under VirtualMaps:
@@ -1886,9 +1916,19 @@ namespace Desert::Graphic::System
             Equal,
             Rest,
         };
-        // Whether the half being built takes the group of @p source (its surface) keyed @p key.
+        // ONE CALL OF BuildStaticDraws / BuildSkinnedDraws (UE: the pass-setup context
+        // FParallelMeshDrawCommandPass hands each pass by value): the pass it builds for - Forward
+        // (MeshGeometryPass), GBuffer ("Deferred: GBuffer") or Depth ("Forward: Depth Prepass", "Deferred: Masked
+        // Depth Prepass") - and the early-Z half.
+        struct DrawBuildMode
+        {
+            MeshPass            Pass = MeshPass::Forward;
+            DeferredPrepassHalf Half = DeferredPrepassHalf::None;
+        };
+        // Whether @p half takes the group of @p source (its surface) keyed @p key.
         struct PrepassCellKey;
-        [[nodiscard]] bool DeferredHalfTakes( const DataDrivenMaterial* source, const PrepassCellKey& key ) const;
+        [[nodiscard]] bool DeferredHalfTakes( DeferredPrepassHalf half, const DataDrivenMaterial* source,
+                                              const PrepassCellKey& key ) const;
         // Whether this frame's EarlyZPass puts @p surface in the deferred prepass: Masked = IsMaskedSurface, All =
         // every non-translucent surface, Off = none.
         [[nodiscard]] bool EarlyZAdmits( const DataDrivenMaterial* surface ) const;
@@ -2361,9 +2401,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>            m_SkinnedGBufferEqualPipeline;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferEqualMaterial;
         MaterialInstancePtr                          m_InstancedGBufferEqualInstance;
-        // This frame's EarlyZPass (SetEarlyZPass) and the half being built (DeferredPrepassHalf).
-        ::Common::Scalability::EarlyZPassMode m_EarlyZPass   = ::Common::Scalability::EarlyZPassMode::All;
-        DeferredPrepassHalf m_DeferredHalf = DeferredPrepassHalf::None;
+        // This frame's EarlyZPass (SetEarlyZPass); the half being built is the builders' DrawBuildMode.
+        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::All;
         // GRASS-VIS's two pass states (carriers: CellPipeline swaps in the section's cell): the visibility raster
         // (the masked prepass's depth state with depth writes off) and the resolve (the G-buffer's instanced state,
         // CullMode None - a full-screen triangle). Null: no grass visibility path, the sections keep the G-buffer.
@@ -2377,9 +2416,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>             m_SkinnedGBufferShader;
         std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
         std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
-        // The pass BuildStaticDraws / BuildSkinnedDraws build for: Forward (MeshGeometryPass), GBuffer ("Deferred:
-        // GBuffer") or Depth ("Forward: Depth Prepass"); set by the Declare that calls them, Forward otherwise.
-        MeshPass m_GeometryPass = MeshPass::Forward;
+        // SetupCacheLock's mutex.
+        mutable std::recursive_mutex m_SetupCacheMutex;
         // THE FORWARD DEPTH PREPASS's cells (SetupDepthPrepass): the default surface's (path x Depth) programs as
         // pass states, the instanced spare (material + instance), the unowned spares - the G-buffer pass's set,
         // for the view's depth. Null = refused (said by SetupDepthPrepass).
@@ -2435,7 +2473,7 @@ namespace Desert::Graphic::System
         // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
         // or Depth on the forward path, with the prepass's cells): static/instanced/grass/skinned not under the
         // Wireframe view (@p wireframeReplaced: the path has a wireframe twin writing its own depth).
-        [[nodiscard]] bool PairsWithPrepass( bool wireframeReplaced ) const;
+        [[nodiscard]] bool PairsWithPrepass( MeshPass pass, bool wireframeReplaced ) const;
         // This frame's prepass decision for @p key, when the prepass ran this frame and decided it.
         [[nodiscard]] std::optional<MaterialPipelineTracker::CellDraw> PrepassCellDraw( const PrepassCellKey& key ) const;
         [[nodiscard]] bool PrepassCurrent() const;
@@ -3393,7 +3431,9 @@ namespace Desert::Graphic::System
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
         // outer vector would destroy them and hand the steady state an allocation per material per frame.
-        // `m_ScratchInstSetCount` is how many of them this frame is using.
+        // `InstSetCount` is how many of them this call is using. One scratch per concurrent BuildStaticDraws /
+        // BuildSkinnedDraws call (m_DrawBuildScratch: [0] the serial builds and the Equal half, [1] the Rest
+        // half).
         //
         // INDIRECT, AND THAT IS THE POINT AND NOT AN OVERSIGHT. The accumulation hands out a POINTER to
         // one set and then keeps filling it while later groups may ask for sets of their own; held by
@@ -3403,9 +3443,18 @@ namespace Desert::Graphic::System
         // is exactly the kind of "safe for now" that the next edit in DrawStaticMeshes turns into a
         // corrupted draw list. A unique_ptr costs one indirection per access and makes the address
         // stable by construction.
-        std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
-        std::size_t                                     m_ScratchInstSetCount = 0;
-        std::vector<ObjDraw>        m_ScratchSingles;
+        struct DrawBuildScratch
+        {
+            std::vector<std::unique_ptr<InstancedBatchSet>> InstSets;
+            std::size_t                                     InstSetCount = 0;
+            std::vector<ObjDraw>                            Singles;
+            std::vector<uint32_t>                           LodLevels;
+            std::vector<uint64_t>                           WalkWords; // CpuWalkHidden's
+        };
+        std::array<DrawBuildScratch, 2> m_DrawBuildScratch;
+        // The G-buffer halves' own lists (DeclareGBufferDraws: Equal, Rest statics, Rest skinned), appended to
+        // m_GBufferDraws in the old order once the tasks joined. Members so the vectors keep their capacity.
+        std::array<MeshRendererDetail::MeshDrawList, 3> m_GBufferHalfDraws;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         // A per-object caster: its entry and the submeshes it hides (the entry's, plus a VSM level's clustered
         // ones).

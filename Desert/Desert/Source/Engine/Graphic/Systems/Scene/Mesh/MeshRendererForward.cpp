@@ -1193,6 +1193,7 @@ namespace Desert::Graphic::System
         {
             return pipeline;
         }
+        const auto lock = SetupCacheLock(); // m_TwoSidedPipelines and the pipeline cache: concurrent builds
         if ( const auto it = m_TwoSidedPipelines.find( pipeline ); it != m_TwoSidedPipelines.end() )
         {
             return it->second.get();
@@ -1532,8 +1533,10 @@ namespace Desert::Graphic::System
         return entry;
     }
 
-    void MeshRenderer::BuildStaticDraws( MeshDrawList& list )
+    uint32_t MeshRenderer::BuildStaticDraws( MeshDrawList& list, const DrawBuildMode& mode,
+                                             DrawBuildScratch& scratch )
     {
+        uint32_t ismInstances = 0; // the ISM instances drawn (returned; a Depth half counts none)
         // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
         // function are drawn INSIDE it, so `if ( m_StaticQueue.empty() ) return;` meant an Instanced
         // Static Mesh was drawn only in a scene that also held at least one ordinary static mesh —
@@ -1551,14 +1554,14 @@ namespace Desert::Graphic::System
         // empty it. The shadow pass has its own loop and never had this guard, which is why the draw
         // counter still reported thousands of instances while the colour frame held none.
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
-            return;
+            return 0;
         // The Wireframe view's static and instanced twins write their own depth: not prepassed.
-        if ( m_GeometryPass == MeshPass::Depth && WireframeView() )
-            return;
+        if ( mode.Pass == MeshPass::Depth && WireframeView() )
+            return 0;
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
-            return;
+            return 0;
 
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
         // the resolved IBL cubes + BRDF LUT). Applied per material GROUP below, not per object: only the
@@ -1598,9 +1601,9 @@ namespace Desert::Graphic::System
         // test against the depth it wrote. The deferred early-Z pass walks the G-buffer's CPU records alone: a
         // record the G-buffer bins hold is drawn by its bin, with its own depth.
         const ClusterWalkView mainWalk =
-             m_GeometryPass == MeshPass::Depth && m_DeferredHalf != DeferredPrepassHalf::Depth
+             mode.Pass == MeshPass::Depth && mode.Half != DeferredPrepassHalf::Depth
                   ? UnbinnedWalkView( GpuDriven::MeshPass::DepthPrepass )
-                  : BinnedWalkView( m_GeometryPass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
+                  : BinnedWalkView( mode.Pass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
                                                                         : GpuDriven::MeshPass::GBuffer,
                                     kBinnedMainView );
         std::unordered_map<const StaticMeshRenderData*, SubmeshMask> walked;
@@ -1621,7 +1624,8 @@ namespace Desert::Graphic::System
                 // and the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no
                 // culling work.
                 const std::optional<SubmeshMask> walk =
-                     CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
+                     CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes,
+                                    scratch.WalkWords );
                 if ( !walk )
                     continue;
                 if ( !IsVisibleInView( frustum, data.Transform,
@@ -1661,25 +1665,26 @@ namespace Desert::Graphic::System
         // both have their instanced cells.
         // The deferred early-Z pairing (DeferredPrepassHalf): the prepass's companion is the G-buffer's DepthEqual
         // cells, the Equal half's is the prepass's; the Rest half pairs with nothing.
-        const StaticPassCells cells = StaticCellsOf( m_GeometryPass, m_DeferredHalf == DeferredPrepassHalf::Equal );
+        const StaticPassCells cells = StaticCellsOf( mode.Pass, mode.Half == DeferredPrepassHalf::Equal );
         std::optional<StaticPassCells> companion;
-        if ( m_DeferredHalf == DeferredPrepassHalf::Depth )
+        if ( mode.Half == DeferredPrepassHalf::Depth )
             companion = StaticCellsOf( MeshPass::GBuffer, /*depthEqual*/ true );
-        else if ( m_DeferredHalf == DeferredPrepassHalf::Equal )
+        else if ( mode.Half == DeferredPrepassHalf::Equal )
             companion = StaticCellsOf( MeshPass::Depth );
-        else if ( m_DeferredHalf == DeferredPrepassHalf::None && PairsWithPrepass( /*wireframeReplaced*/ true ) )
-            companion = StaticCellsOf( m_GeometryPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth );
+        else if ( mode.Half == DeferredPrepassHalf::None && PairsWithPrepass( mode.Pass, /*wireframe*/ true ) )
+            companion = StaticCellsOf( mode.Pass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth );
         GraphicsPipeline* const   instancedPipeline = cells.InstancedState;
         DataDrivenMaterial* const instancedMaterial = cells.InstancedSpare;
         MaterialInstance* const   instancedInstance = cells.InstancedInstance;
         const bool     instancingOn  = cells.InstancingOn && ( !companion || companion->InstancingOn );
-        const MeshPass instancedPass = m_GeometryPass;
+        const MeshPass instancedPass = mode.Pass;
         auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
         // A `.demat`'s (Instanced x pass) and per-object (Static x pass) cells: the Forward ones through their
         // virtual-shadow permutation (ForwardVirtualCell), the others the service's sibling.
         // After the deferred early-Z pass (c.DepthEqual): the G-buffer's DepthEqualCell.
         const auto instancedCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
         {
+            const auto lock = SetupCacheLock(); // the material service's siblings
             if ( c.DepthEqual )
                 return DepthEqualCell( mat, MeshVertexPath::Instanced );
             return ForwardVirtualCell( materialService->GetVariant( mat, MeshVertexPath::Instanced, c.Pass ), mat,
@@ -1687,6 +1692,7 @@ namespace Desert::Graphic::System
         };
         const auto perObjectCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
         {
+            const auto lock = SetupCacheLock(); // the material service's siblings
             if ( c.DepthEqual )
                 return DepthEqualCell( mat, MeshVertexPath::Static );
             return c.Pass == MeshPass::Forward
@@ -1701,16 +1707,16 @@ namespace Desert::Graphic::System
         //
         // Reused by index so the inner vectors keep their capacity; clearing the outer vector would
         // destroy them and put an allocation per material back into the steady state.
-        auto& instSets        = m_ScratchInstSets;
-        m_ScratchInstSetCount = 0;
+        auto& instSets       = scratch.InstSets;
+        scratch.InstSetCount = 0;
         const auto setFor     = [&]( DataDrivenMaterial* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
         {
-            for ( std::size_t i = 0; i < m_ScratchInstSetCount; ++i )
+            for ( std::size_t i = 0; i < scratch.InstSetCount; ++i )
                 if ( instSets[i]->Mat == recorder )
                     return *instSets[i];
-            if ( m_ScratchInstSetCount == instSets.size() )
+            if ( scratch.InstSetCount == instSets.size() )
                 instSets.push_back( std::make_unique<InstancedBatchSet>() );
-            InstancedBatchSet& set = *instSets[m_ScratchInstSetCount++];
+            InstancedBatchSet& set = *instSets[scratch.InstSetCount++];
             set.Mat                = recorder;
             set.Inst               = inst;
             set.Transforms.clear();
@@ -1726,6 +1732,7 @@ namespace Desert::Graphic::System
         {
             if ( !instancingOn || group == nullptr )
                 return nullptr;
+            const auto lock = SetupCacheLock(); // Owns, the siblings, the variant instances, the warned set
 
             auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
             const bool          hasAsset  = materials != nullptr && materials->Owns( group );
@@ -1806,6 +1813,7 @@ namespace Desert::Graphic::System
         {
             if ( mat == nullptr )
                 return CellDraw::Own;
+            const auto lock = SetupCacheLock(); // Owns, the siblings
             if ( materialService == nullptr || !materialService->Owns( mat ) )
             {
                 // Renderer-owned: the pass's own program, an engine pipeline - except its forward VSM twin, built
@@ -1843,12 +1851,12 @@ namespace Desert::Graphic::System
             if ( !companion )
                 return cellDrawIn( cells, mat, twoSided, perObject );
             const PrepassCellKey key{ mat, MeshVertexPath::Static, twoSided, perObject };
-            if ( m_GeometryPass == MeshPass::Forward || m_DeferredHalf == DeferredPrepassHalf::Equal )
+            if ( mode.Pass == MeshPass::Forward || mode.Half == DeferredPrepassHalf::Equal )
                 if ( const auto decided = PrepassCellDraw( key ) )
                     return *decided;
             const CellDraw draw =
                  worse( cellDrawIn( cells, mat, twoSided, perObject ), cellDrawIn( *companion, mat, twoSided, perObject ) );
-            if ( m_GeometryPass == MeshPass::Depth )
+            if ( mode.Pass == MeshPass::Depth )
                 m_PrepassCellDraws[key] = draw;
             return draw;
         };
@@ -1869,7 +1877,8 @@ namespace Desert::Graphic::System
                     continue;
                 const bool twoSided = groupTwoSided( mat, objects );
                 // The deferred early-Z half this group belongs to (DeferredHalfTakes): out of the other halves.
-                if ( !DeferredHalfTakes( mat, PrepassCellKey{ mat, MeshVertexPath::Static, twoSided, true } ) )
+                if ( !DeferredHalfTakes( mode.Half, mat,
+                                         PrepassCellKey{ mat, MeshVertexPath::Static, twoSided, true } ) )
                 {
                     objects.clear();
                     continue;
@@ -1882,7 +1891,7 @@ namespace Desert::Graphic::System
             }
             // The deferred early-Z pass draws no stand-in: a group whose cells are still in the driver keeps its
             // own clip and depth in the G-buffer's Rest half (its record is not Own).
-            if ( !standingIn.empty() && standIn != nullptr && m_DeferredHalf != DeferredPrepassHalf::Depth )
+            if ( !standingIn.empty() && standIn != nullptr && mode.Half != DeferredPrepassHalf::Depth )
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
         }
         const DataDrivenMaterial* const standInKey = standIn != nullptr ? standIn->Material.get() : nullptr;
@@ -1938,7 +1947,7 @@ namespace Desert::Graphic::System
                 bucketFor( obj->Mesh, hiddenOf( obj ) ).push_back( od );
             }
 
-            auto& singles = m_ScratchSingles;
+            auto& singles = scratch.Singles;
             singles.clear();
             for ( auto& [meshKey, bucket] : byMesh )
             {
@@ -1970,7 +1979,7 @@ namespace Desert::Graphic::System
                     // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
                     // its batch stays one draw instead of splitting into four identical ones.
                     const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
-                    auto&          levels   = m_ScratchLodLevels;
+                    auto&          levels   = scratch.LodLevels;
                     levels.clear();
                     levels.reserve( batchable.size() );
                     for ( const auto& od : batchable )
@@ -2037,13 +2046,14 @@ namespace Desert::Graphic::System
             // The forward pass under Shadows.Method VirtualMaps: the same `.demat`'s DESERT_LOCAL_SHADOW_VSM
             // permutation (ForwardVirtualCell), which reads the view's virtual shadow map in place of the atlas.
             // The G-buffer and depth passes record through the slot's twin of their own pass.
-            const bool          viewTwin = m_GeometryPass != MeshPass::Forward;
+            const bool          viewTwin = mode.Pass != MeshPass::Forward;
             DataDrivenMaterial* drawMat =
                  viewTwin ? mat : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
             if ( drawMat == nullptr )
                 continue; // MaterialService named the material and the permutation it refused
             if ( viewTwin )
             {
+                const auto lock = SetupCacheLock(); // Owns, the siblings, the warned sets
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
                 if ( mat == standInKey )
                 {
@@ -2053,7 +2063,7 @@ namespace Desert::Graphic::System
                 else if ( materials->Owns( mat ) )
                 {
                     drawMat = cells.DepthEqual ? DepthEqualCell( mat, MeshVertexPath::Static )
-                                               : materials->GetVariant( mat, MeshVertexPath::Static, m_GeometryPass );
+                                               : materials->GetVariant( mat, MeshVertexPath::Static, mode.Pass );
                 }
                 else
                 {
@@ -2076,7 +2086,7 @@ namespace Desert::Graphic::System
                         }
                     }
                     unownedServed = mat;
-                    drawMat       = m_GeometryPass == MeshPass::GBuffer ? m_GBufferUnownedMaterial.get()
+                    drawMat       = mode.Pass == MeshPass::GBuffer ? m_GBufferUnownedMaterial.get()
                                                                         : m_DepthUnownedMaterial.get();
                 }
 
@@ -2114,6 +2124,7 @@ namespace Desert::Graphic::System
             // camera, and the fourteen blocks it no longer has cost it nothing.
             {
                 DESERT_PROFILE_SCOPE( "Mesh: SharedSceneSetup (1x/group)" );
+                const auto lock = SetupCacheLock(); // the drawn material's writes (an unowned spare is shared)
                 frameState.ApplyTo( static_cast<Material*>( drawMat ) );
             }
 
@@ -2164,6 +2175,7 @@ namespace Desert::Graphic::System
         // pass it happened in and how many entities it cost, rather than substituted with nothing.
         if ( !instancingOn && !m_InstancedQueue.empty() )
         {
+            const auto lock = SetupCacheLock(); // the warned flag
             static bool s_WarnedNoInstancedCell = false;
             if ( !s_WarnedNoInstancedCell )
             {
@@ -2172,7 +2184,7 @@ namespace Desert::Graphic::System
                            "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
                            "). An ISM is one entity holding N transforms and has no per-object path to "
                            "fall back to, so nothing of it reaches the frame.",
-                           m_InstancedQueue.size(), MeshPassName( m_GeometryPass ),
+                           m_InstancedQueue.size(), MeshPassName( mode.Pass ),
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
                            instancedInstance ? "ok" : "MISSING" );
             }
@@ -2182,8 +2194,6 @@ namespace Desert::Graphic::System
         {
             // The deferred halves count into one total (DeclareGBufferDraws zeroes it; the prepass does not count).
             DESERT_PROFILE_SCOPE( "Mesh: ISM draws" );
-            if ( m_DeferredHalf == DeferredPrepassHalf::None )
-                m_IsmInstancesDrawn = 0;
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
@@ -2195,7 +2205,8 @@ namespace Desert::Graphic::System
                      field < m_FieldPrimitives.size() )
                 {
                     const std::optional<SubmeshMask> walk =
-                         CpuWalkHidden( mainWalk, ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes );
+                         CpuWalkHidden( mainWalk, ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes,
+                                        scratch.WalkWords );
                     if ( !walk )
                         continue;
                     ismHidden = *walk;
@@ -2210,14 +2221,14 @@ namespace Desert::Graphic::System
                 // bark map should be. setForGroup names the refusal when the cell does not exist.
                 // A cell still in the driver (RDG-PSO): the ISM is recorded by the instanced spare — the default
                 // surface — with its defaults row, until the cell is Ready.
-                if ( !DeferredHalfTakes( mat, PrepassCellKey{ mat, MeshVertexPath::Static, ism.Material->IsTwoSided(),
-                                                              false } ) )
+                const PrepassCellKey ismKey{ mat, MeshVertexPath::Static, ism.Material->IsTwoSided(), false };
+                if ( !DeferredHalfTakes( mode.Half, mat, ismKey ) )
                     continue;
                 const CellDraw ismDraw = cellDrawOf( mat, ism.Material->IsTwoSided(), /*perObject*/ false );
                 if ( ismDraw == CellDraw::Nothing )
                     continue;
                 const bool ismStandsIn = ismDraw == CellDraw::DefaultSurface;
-                if ( ismStandsIn && m_DeferredHalf == DeferredPrepassHalf::Depth )
+                if ( ismStandsIn && mode.Half == DeferredPrepassHalf::Depth )
                     continue; // no stand-in in the early-Z pass: the Rest half draws it with its own depth
                 InstancedBatchSet* ismSet =
                      ismStandsIn ? &setFor( instancedMaterial, instancedInstance ) : setForGroup( mat );
@@ -2238,12 +2249,14 @@ namespace Desert::Graphic::System
                 // batch is one entity but forty thousand placements, and the near ones and the far ones
                 // of a single ISM are not the same object to a renderer.
                 // Walked once per change of its inputs, not once per pass per frame (CachedIsmViewCull).
+                // The ISM view culls (an entry may be shared by two ISMs) through the copy of its instances.
+                const auto ismLock = SetupCacheLock();
                 const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
                 const IsmViewCull&            culled  = CachedIsmViewCull( ism, frustum, mainView );
                 const std::vector<glm::mat4>& visible = culled.Visible;
                 const std::vector<uint32_t>&  levels  = culled.Levels;
-                if ( m_DeferredHalf != DeferredPrepassHalf::Depth )
-                    m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
+                if ( mode.Half != DeferredPrepassHalf::Depth )
+                    ismInstances += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
 
@@ -2279,7 +2292,7 @@ namespace Desert::Graphic::System
         // ---- Instanced path: upload the packed SSBOs ONCE (at final size) before recording any instanced
         // draw, so the descriptor points at the final VkBuffer (a later grow reallocates it). Scene data is
         // uploaded a single time for the whole frame; each batch is then one instanced draw call. ----
-        if ( m_ScratchInstSetCount != 0 )
+        if ( scratch.InstSetCount != 0 )
         {
             DESERT_PROFILE_SCOPE( "Mesh: Instanced Batches" );
 
@@ -2287,11 +2300,12 @@ namespace Desert::Graphic::System
             // per-draw transform is unused; it is named rather than repeated as a literal.
             const glm::mat4 unusedModelTransform( 1.0F );
 
-            for ( std::size_t si = 0; si < m_ScratchInstSetCount; ++si )
+            for ( std::size_t si = 0; si < scratch.InstSetCount; ++si )
             {
                 InstancedBatchSet& set = *instSets[si];
                 if ( set.Draws.empty() )
                     continue;
+                const auto lock = SetupCacheLock(); // the recorder's writes
 
                 // UPLOAD AT FINAL SIZE BEFORE THE FIRST DRAW OF THIS SET IS RECORDED — growing a storage
                 // buffer reallocates the VkBuffer under a draw already recorded against the old one. It
@@ -2338,12 +2352,27 @@ namespace Desert::Graphic::System
         // early-Z pairing BuildGpuInstancedDraws pairs them itself (DeclareMaskedDepthDraws, m_MaskedPrepassed):
         // once, in the Rest half's plain G-buffer state.
         if ( instancingOn &&
-             ( m_DeferredHalf == DeferredPrepassHalf::None || m_DeferredHalf == DeferredPrepassHalf::Rest ) )
+             mode.Half == DeferredPrepassHalf::None ) // the Rest half: BuildRestGpuInstancedDraws
         {
             DESERT_PROFILE_SCOPE( "Mesh: GPU-instanced draws" );
             BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState,
                                     companion ? &*companion : nullptr, false );
         }
+        return ismInstances;
+    }
+
+    void MeshRenderer::BuildRestGpuInstancedDraws( MeshDrawList& list )
+    {
+        // BuildStaticDraws's gates for its tail (a queue to walk, a camera); the Rest half pairs with nothing,
+        // so its instancing is its own cells'.
+        if ( ( m_StaticQueue.empty() && m_InstancedQueue.empty() ) || m_SceneRenderer->GetMainCamera() == nullptr )
+            return;
+        const StaticPassCells cells = StaticCellsOf( MeshPass::GBuffer, /*depthEqual*/ false );
+        if ( !cells.InstancingOn )
+            return;
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        DESERT_PROFILE_SCOPE( "Mesh: GPU-instanced draws" );
+        BuildGpuInstancedDraws( list, cells.InstancedState, MeshPass::GBuffer, frameState, nullptr, false );
     }
 
     MeshRenderer::StaticPassCells MeshRenderer::StaticCellsOf( const MeshPass pass, const bool depthEqual )
@@ -2411,7 +2440,8 @@ namespace Desert::Graphic::System
         return cells;
     }
 
-    void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )
+    void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list, const DrawBuildMode& mode,
+                                          DrawBuildScratch& scratch )
     {
         if ( m_SkinnedQueue.empty() )
             return;
@@ -2437,8 +2467,8 @@ namespace Desert::Graphic::System
             return pass == MeshPass::Depth ? m_SkinnedDepthPipeline.get()
                                            : WireframePipelineOr( m_SkinnedPipeline.get() );
         };
-        const MeshPass cellPass  = m_GeometryPass;
-        const bool     equalHalf = m_DeferredHalf == DeferredPrepassHalf::Equal;
+        const MeshPass cellPass  = mode.Pass;
+        const bool     equalHalf = mode.Half == DeferredPrepassHalf::Equal;
         // The Wireframe view's skinned twin writes its own depth, as the static and instanced ones: not prepassed.
         if ( cellPass == MeshPass::Depth && WireframeView() )
             return;
@@ -2449,14 +2479,14 @@ namespace Desert::Graphic::System
         // Wireframe view: the twin is not prepassed). The deferred early-Z pairing: the prepass's companion is the
         // G-buffer's equal state, the Equal half's the prepass; the Rest half pairs with nothing.
         std::optional<MeshPass> companionPass;
-        if ( m_DeferredHalf == DeferredPrepassHalf::Depth )
+        if ( mode.Half == DeferredPrepassHalf::Depth )
             companionPass = MeshPass::GBuffer;
         else if ( equalHalf )
             companionPass = MeshPass::Depth;
-        else if ( m_DeferredHalf == DeferredPrepassHalf::None && PairsWithPrepass( /*wireframeReplaced*/ true ) )
+        else if ( mode.Half == DeferredPrepassHalf::None && PairsWithPrepass( mode.Pass, /*wireframe*/ true ) )
             companionPass = cellPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth;
         // The companion's G-buffer is the equal one (only the deferred prepass pairs with the G-buffer).
-        const bool companionEqual = m_DeferredHalf == DeferredPrepassHalf::Depth;
+        const bool companionEqual = mode.Half == DeferredPrepassHalf::Depth;
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -2493,6 +2523,7 @@ namespace Desert::Graphic::System
         const auto  materialIn = [&]( const MeshPass pass, DataDrivenMaterial* mat,
                                      const bool equal ) -> DataDrivenMaterial*
         {
+            const auto lock = SetupCacheLock(); // Owns, the siblings
             if ( pass == MeshPass::Forward )
                 return ForwardVirtualCell( mat, mat, MeshVertexPath::Skinned, MeshPass::Forward );
             if ( materials->Owns( mat ) )
@@ -2509,12 +2540,13 @@ namespace Desert::Graphic::System
             for ( const auto& section : data.Sections )
                 if ( section.Material != nullptr && section.Instance != nullptr &&
                      CpuWalkHidden(
-                          cellPass == MeshPass::Depth && m_DeferredHalf != DeferredPrepassHalf::Depth
+                          cellPass == MeshPass::Depth && mode.Half != DeferredPrepassHalf::Depth
                                ? UnbinnedWalkView( GpuDriven::MeshPass::DepthPrepass )
                                : BinnedWalkView( cellPass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
                                                                                : GpuDriven::MeshPass::GBuffer,
                                                  kBinnedMainView ),
-                          /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive, section.HiddenSubmeshes ) )
+                          /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive, section.HiddenSubmeshes,
+                          scratch.WalkWords ) )
                     if ( DataDrivenMaterial* const mat = passMaterial( section.Material ) )
                         groupFor( mat ).push_back( { &data, &section } );
         }
@@ -2553,7 +2585,7 @@ namespace Desert::Graphic::System
                 DataDrivenMaterial* const source = objects.front().Section->Material;
                 const PrepassCellKey      key{ source, MeshVertexPath::Skinned, twoSided, true };
                 // The deferred early-Z half this group belongs to (DeferredHalfTakes): out of the other halves.
-                if ( !DeferredHalfTakes( source, key ) )
+                if ( !DeferredHalfTakes( mode.Half, source, key ) )
                 {
                     objects.clear();
                     continue;
@@ -2590,7 +2622,7 @@ namespace Desert::Graphic::System
                     objects.clear(); // Nothing: before the reveal, said once by ChooseCellDraw
             }
             // No stand-in in the deferred early-Z pass (as the static path): the Rest half draws it with its own depth.
-            if ( !standingIn.empty() && standIn != nullptr && m_DeferredHalf != DeferredPrepassHalf::Depth )
+            if ( !standingIn.empty() && standIn != nullptr && mode.Half != DeferredPrepassHalf::Depth )
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
         }
 
@@ -2615,7 +2647,10 @@ namespace Desert::Graphic::System
             // G-buffer pass `mat` is the (Skinned x GBuffer) sibling, not the instance's parent, and a recorder
             // that never had ObjectMotions/ObjectBones lent fails the pass's setup validation ("filled by
             // neither the pass nor the material"), which faults the whole G-buffer node - no mesh is drawn.
-            frameState.ApplyTo( static_cast<Material*>( mat ) );
+            {
+                const auto lock = SetupCacheLock(); // the group material's writes (an unowned spare is shared)
+                frameState.ApplyTo( static_cast<Material*>( mat ) );
+            }
 
             for ( const SectionRef& obj : objects )
             {
