@@ -142,9 +142,80 @@ namespace Desert::Graphic
     class LocalShadowCache;
     namespace System
     {
+        class AutoExposureRenderer;
+        class BackdropBlurRenderer;
+        class BloomRenderer;
+        class CopyRenderer;
+        class DeferredLightingRenderer;
+        class DepthExpandRenderer;
+        class FXAARenderer;
+        class GraphColorResolveRenderer;
+        class GrassRenderer;
+        class HeightFogRenderer;
+        class HZBRenderer;
+        class JumpFloodOutlineRenderer;
+        class LensFlareRenderer;
+        class LightShaftRenderer;
         class LocalExposureRenderer;
+        class MeshRenderer;
+        class ParticleRenderer;
+        class PathTracer;
+        class SceneColorHistoryRenderer;
+        class SceneDepthResolveRenderer;
+        class SkyboxRenderer;
+        class SMAARenderer;
+        class SSAORenderer;
+        class SSRRenderer;
+        class SubsurfaceRenderer;
+        class TerrainRenderer;
         class TonemapRenderer;
+        class VelocityViewRenderer;
+        class VolumetricCloudRenderer;
+        class VolumetricFogRenderer;
+        class WaterRenderer;
     } // namespace System
+
+    /**
+     * The view's render systems, ONE TYPED MEMBER PER PASS (UE: FSceneRenderer's passes are members, not a
+     * name lookup). A null member is a pass this view did not register (a scene capture, a feature that is off);
+     * every reader tests it. SceneRenderer::RegisterSystem fills a member and keeps its registration order.
+     */
+    struct SceneRenderSystems
+    {
+        std::shared_ptr<System::SkyboxRenderer>            Skybox;
+        std::shared_ptr<System::MeshRenderer>              Mesh;
+        std::shared_ptr<System::JumpFloodOutlineRenderer>  JumpFlood;
+        std::shared_ptr<System::TerrainRenderer>           Terrain;
+        std::shared_ptr<System::GrassRenderer>             Grass;
+        std::shared_ptr<System::WaterRenderer>             Water;
+        std::shared_ptr<System::TonemapRenderer>           Tonemap;
+        std::shared_ptr<System::BackdropBlurRenderer>      BackdropBlur;
+        std::shared_ptr<System::BloomRenderer>             Bloom;
+        std::shared_ptr<System::LightShaftRenderer>        LightShaft;
+        std::shared_ptr<System::LensFlareRenderer>         LensFlare;
+        std::shared_ptr<System::SSAORenderer>              SSAO;
+        std::shared_ptr<System::DepthExpandRenderer>       DepthExpand;
+        std::shared_ptr<System::SceneDepthResolveRenderer> SceneDepthResolve;
+        std::shared_ptr<System::GraphColorResolveRenderer> GraphColorResolve;
+        std::shared_ptr<System::CopyRenderer>              SceneColorCopy;
+        std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
+        std::shared_ptr<System::HeightFogRenderer>         HeightFog;
+        std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
+        std::shared_ptr<System::VolumetricCloudRenderer>   VolumetricCloud;
+        std::shared_ptr<System::ParticleRenderer>          Particle;
+        std::shared_ptr<System::DeferredLightingRenderer>  DeferredLighting;
+        std::shared_ptr<System::SubsurfaceRenderer>        Subsurface;
+        std::shared_ptr<System::AutoExposureRenderer>      AutoExposure;
+        std::shared_ptr<System::LocalExposureRenderer>     LocalExposure;
+        std::shared_ptr<System::FXAARenderer>              FXAA;
+        std::shared_ptr<System::SMAARenderer>              SMAA;
+        std::shared_ptr<System::SSRRenderer>               SSR;
+        std::shared_ptr<System::PathTracer>                PathTracer;
+        std::shared_ptr<System::HZBRenderer>               HZB;
+        std::shared_ptr<System::SceneColorHistoryRenderer> SceneColorHistory;
+        // Lumen-style front-layer reflections: an SSR instance of its own, registered on first use.
+        std::shared_ptr<System::SSRRenderer> FrontLayerReflections;
+    };
 
     /**
      * What one view holds and what the scene it draws shares, READ FROM THE RESOURCE LEDGER (RT-LEDGER-3): the
@@ -890,9 +961,6 @@ namespace Desert::Graphic
         }
 
         std::shared_ptr<Texture>     GetTexture( const std::string& name );
-
-        void RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system );
-        void UnregisterRenderSystem( const std::string& name );
 
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
@@ -2342,24 +2410,25 @@ namespace Desert::Graphic
         // SunRadiance.w, so the path tracer and the GI hit lighting leave its rays unoccluded as the raster does.
         bool m_SunCastsShadows = true;
         bool                                                            m_SSRResourcesFailed = false;
-        std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
+        SceneRenderSystems                                              m_Systems;
 
-        // The names above, in the order they were first registered. RebindScene and ResetTemporalHistory walk
-        // THIS, not the map: the map hands its systems out in hash-bucket order and holds the null entries its
-        // operator[] inserts. The draw order is not this order: it is the order of the AddFrame* calls.
-        std::vector<std::string>                                        m_RenderSystemOrder;
-        PipelineCache                                                   m_PipelineCache;
+        // The members of m_Systems that are registered, in the order they were first registered (non-owning;
+        // never a null). RebindScene and ResetTemporalHistory walk THIS. The draw order is not this order: it
+        // is the order of the AddFrame* calls.
+        std::vector<IRenderSystem*> m_RenderSystemOrder;
+        PipelineCache               m_PipelineCache;
 
-        // Registers a system under `name`, or replaces the system already registered under it while
-        // keeping its original position in the registration order.
-        void TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system );
-        void ForgetRenderSystem( const std::string& name );
+        // Puts @p system in the registration order: in the place of @p replaced when that one is registered
+        // (a re-registered pass keeps its position), at the back otherwise.
+        void TrackRenderSystem( const IRenderSystem* replaced, IRenderSystem* system ) noexcept;
 
     private:
         template <typename System, typename... Args>
-        void RegisterSystem( const std::string& system, Args&&... args )
+        void RegisterSystem( std::shared_ptr<System>& slot, Args&&... args )
         {
-            TrackRenderSystem( system, std::make_shared<System>( std::forward<Args>( args )... ) );
+            std::shared_ptr<System> created = std::make_shared<System>( std::forward<Args>( args )... );
+            TrackRenderSystem( slot.get(), created.get() );
+            slot = std::move( created );
         }
     };
 } // namespace Desert::Graphic

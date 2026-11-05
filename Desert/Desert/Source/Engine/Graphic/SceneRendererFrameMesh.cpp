@@ -129,8 +129,7 @@ namespace Desert::Graphic
         // The sun's cascades (MeshRenderer::ShadowCascadePasses): the static layers that went stale, each clearing
         // its cache (to 1: standard Z); each rebuilt map copied from its cache; the movable casters LOADING the
         // map over the copy. A cascade with none of the three keeps last frame's map.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* mesh = m_Systems.Mesh.get() )
         {
             // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs
             // read the screen mask, and the cascades are drawn only for the blended programs that sample them.
@@ -223,15 +222,12 @@ namespace Desert::Graphic
         // reached the scene target (AddFrameSkyBehindScene), so no texel geometry covers is shaded by it.
         const bool                    forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
         std::vector<SystemRasterPass> passes;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        if ( auto* sky = m_Systems.Skybox.get();
              sky != nullptr && forward )
             passes.push_back( sky->SkyPass() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* mesh = m_Systems.Mesh.get() )
             passes.push_back( mesh->GeometryPass() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
+        if ( auto* terrain = m_Systems.Terrain.get() )
             passes.push_back( terrain->GeometryPass() );
         AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
     }
@@ -243,16 +239,14 @@ namespace Desert::Graphic
         // meshes' depth/normal prepass included) - at CloserOrEqual against depth 0, writing none. The composite
         // discards the texels without geometry and the forward meshes are drawn at their own depth, so the sky
         // and they never shade the same texel.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
+        if ( auto* sky = m_Systems.Skybox.get() )
             AddSystemRaster( graph, textures, sky->SkyBehindScenePass() );
     }
 
     void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
     {
         // The outlined meshes' mask, cleared every frame so the Jump Flood outline has a fresh input.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* mesh = m_Systems.Mesh.get() )
         {
             const SystemRasterPass silhouette = mesh->SilhouettePass();
             AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &silhouette, 1 ), true );
@@ -267,12 +261,10 @@ namespace Desert::Graphic
         // First the far field, the cloud composite: everything after it is nearer the camera and paints over it.
         // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
         // grid). All on the scene target: the graph merges them into one render pass.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         AddSystemRaster( graph, textures,
-                         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
+                         m_Systems.VolumetricCloud
                               ->CompositePass() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        if ( auto* particles = m_Systems.Particle.get();
              particles != nullptr && !m_ViewProfile.SceneCapture )
             AddSystemRaster( graph, textures, particles->DrawPass() );
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
@@ -446,8 +438,8 @@ namespace Desert::Graphic
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-        auto* const meshes  = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        auto* const meshes  = m_Systems.Mesh.get();
+        auto* const terrain = m_Systems.Terrain.get();
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         // The meshes' node CLEARS (it is the first writer of the frame's scene depth); without a mesh renderer the
         // terrain's node does.
@@ -498,8 +490,7 @@ namespace Desert::Graphic
         // ground under the grass and the meshes is rejected before its layers are fetched - with its own depth
         // write, its pixel shader's hole discard left early-Z to the driver and every covered texel was shaded.
         // The meshes' G-buffer below tests the ground's depth too.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        auto* const terrain = m_Systems.Terrain.get();
         if ( terrain != nullptr && terrain->PrepassesGBuffer() )
             AddRaster(
                  graph, "Deferred: Terrain Depth Prepass", depthOnly, {}, RDG::LoadOp::Load(), {},
@@ -632,8 +623,7 @@ namespace Desert::Graphic
         // drawn into the same G-buffer: the visibility buffer's sections by a second raster and resolve, the rest
         // by their cells. None built this frame (GRASS-VIS-6): the candidates are drawn untested - phase 1 kept
         // them out on last frame's depth alone, so dropping them would lose grass on the frame's own say-so.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+        auto* grass = m_Systems.Grass.get();
         if ( grass == nullptr || meshRenderer == nullptr || m_ViewProfile.SceneCapture )
             return;
         const std::optional<glm::uvec2> hzbSize = m_FrameFurthestHzb.IsValid()
@@ -685,7 +675,7 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        auto* terrain = m_Systems.Terrain.get();
         AddRaster(
              graph, "TerrainGBuffer", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
@@ -775,8 +765,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+        auto* water = m_Systems.Water.get();
         if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
@@ -790,8 +779,7 @@ namespace Desert::Graphic
         // Mesh/Surface/SceneFog.glslh, bound by name through BindSceneViewInputs).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshRenderer = m_Systems.Mesh.get();
         if ( meshRenderer == nullptr )
             return;
         const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
@@ -811,8 +799,7 @@ namespace Desert::Graphic
 #if DESERT_DEV_INSTRUMENTS
     void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshRenderer = m_Systems.Mesh.get();
         if ( meshRenderer == nullptr || !meshRenderer->EnsureOverdrawPass() )
             return;
         const auto accum =

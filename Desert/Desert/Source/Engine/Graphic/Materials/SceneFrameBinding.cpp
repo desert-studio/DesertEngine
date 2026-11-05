@@ -15,6 +15,8 @@ namespace Desert::Graphic
         using Core::Formats::Reads;
         using Core::Formats::SceneRead;
         const SceneRead groups = Groups( material->GetMaterialLayout() );
+        // DL-6: the blocks below resolved once when the material was built (MaterialExecutor::SceneBlocks).
+        const auto& blocks = material->GetSceneBlocks();
 
         if ( Reads( groups, SceneRead::Camera ) && View != nullptr )
             SceneCameraBind( material, *View );
@@ -57,14 +59,15 @@ namespace Desert::Graphic
         // A view-pass vertex stage with no rows would read an unbound buffer: the producer always fills them.
         if ( Reads( groups, SceneRead::GpuScenePrimitives ) )
         {
-            auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
+            auto*      rows  = material->GetResolved( blocks.GpuScenePrimitives,
+                                                  SceneResources::kGpuScenePrimitives );
             const bool bound = rows != nullptr && GpuScenePrimitives != nullptr;
             DESERT_VERIFY( bound, "a view-pass material reads GpuScenePrimitives but the frame carries none" );
             rows->LendViewBuffer( GpuScenePrimitives );
         }
         if ( Reads( groups, SceneRead::ObjectBones ) )
         {
-            auto*      palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBones );
+            auto*      palettes = material->GetResolved( blocks.ObjectBones, SceneResources::kObjectBones );
             const bool bound    = palettes != nullptr && ObjectBones != nullptr;
             DESERT_VERIFY( bound, "a skinned view-pass material reads ObjectBones but the frame carries none" );
             palettes->LendViewBuffer( ObjectBones );
@@ -73,7 +76,7 @@ namespace Desert::Graphic
         // writes one each frame, an empty collection included.
         if ( Reads( groups, SceneRead::WorldParameters ) )
         {
-            auto*      table = material->Get<StorageBufferProperty>( SceneResources::kWorldParameters );
+            auto*      table = material->GetResolved( blocks.WorldParameters, SceneResources::kWorldParameters );
             const bool bound = table != nullptr && WorldParameters != nullptr;
             DESERT_VERIFY( bound, "a material reads WorldParameters but the frame carries none" );
             table->LendViewBuffer( WorldParameters );
@@ -84,7 +87,7 @@ namespace Desert::Graphic
         {
             // Find: the RainOcclusion group is entered by RainOcclusionMapTexture as well, so a reader of the map
             // alone has no block.
-            if ( auto* ub = material->Find<UniformBufferProperty>( SceneResources::kRainOcclusionBlock ) )
+            if ( auto* ub = blocks.RainOcclusion )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &RainOcclusion ), sizeof( RainOcclusion ) );
         }
     }

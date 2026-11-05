@@ -1998,7 +1998,7 @@ namespace Desert::Graphic::System
             const CellDraw draw =
                  worse( cellDrawIn( cells, mat, twoSided, perObject ), cellDrawIn( *companion, mat, twoSided, perObject ) );
             if ( mode.Pass == MeshPass::Depth )
-                m_PrepassCellDraws[key] = draw;
+                RecordPrepassCellDraw( key, draw );
             return draw;
         };
         const auto groupTwoSided = []( DataDrivenMaterial*                             mat,
@@ -3009,7 +3009,7 @@ namespace Desert::Graphic::System
                         else if ( other == CellDraw::DefaultSurface )
                             draw = CellDraw::DefaultSurface;
                         if ( cellPass == MeshPass::Depth )
-                            m_PrepassCellDraws[key] = draw;
+                            RecordPrepassCellDraw( key, draw );
                     }
                 }
                 if ( draw == CellDraw::DefaultSurface )

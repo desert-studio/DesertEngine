@@ -756,8 +756,10 @@ namespace Desert::Graphic::System
     {
         if ( !PrepassCurrent() )
             return std::nullopt;
-        const auto found = m_PrepassCellDraws.find( key );
-        return found != m_PrepassCellDraws.end() ? std::optional( found->second ) : std::nullopt;
+        const auto found = std::ranges::lower_bound( m_PrepassCellDraws, key, {}, &PrepassCellEntry::first );
+        if ( found == m_PrepassCellDraws.end() || !( found->first == key ) )
+            return std::nullopt;
+        return found->second;
     }
 
     bool MeshRenderer::PairsWithPrepass( const MeshPass pass, const bool wireframeReplaced ) const

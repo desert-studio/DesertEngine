@@ -187,10 +187,8 @@ namespace Desert::Graphic
 
     std::optional<glm::uvec2> SceneRenderer::FrameHzbSize( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        const auto* meshes = m_Systems.Mesh.get();
+        const auto* hzbRenderer = m_Systems.HZB.get();
         if ( meshes == nullptr || meshes->MainViewPass() != GpuDriven::MeshPass::GBuffer || !m_GBuffer ||
              hzbRenderer == nullptr || !hzbRenderer->CanBuild() )
             return std::nullopt;
@@ -230,8 +228,7 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), message );
             m_DrawBinsLastError = std::move( message );
         };
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto*                      meshes   = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto*                      meshes   = m_Systems.Mesh.get();
         const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
         const Core::Camera*        camera   = GetMainCamera();
         if ( meshes == nullptr || gpuScene == nullptr || camera == nullptr ||
@@ -447,8 +444,7 @@ namespace Desert::Graphic
 
         // This frame's furthest HZB of the phase-1 depth: phase 2's occlusion input, the depth prepass view's,
         // and next frame's phase 1.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto*      hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        auto*      hzbRenderer = m_Systems.HZB.get();
         const bool gbufferView =
              bins.Views.front().View.Pass == static_cast<uint32_t>( GpuDriven::MeshPass::GBuffer );
         const RDG::TextureRef depth     = textures.Depth( m_GBuffer, "GBuffer" );
@@ -542,10 +538,8 @@ namespace Desert::Graphic
             m_GpuCullLastError = std::move( message );
         };
 
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* hzbRenderer                   = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        auto* meshes = m_Systems.Mesh.get();
+        auto* hzbRenderer                   = m_Systems.HZB.get();
         const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
         const Core::Camera*        camera   = GetMainCamera();
         if ( meshes == nullptr || hzbRenderer == nullptr || gpuScene == nullptr || camera == nullptr )
@@ -770,8 +764,7 @@ namespace Desert::Graphic
     {
         m_FrameVirtualGeometry.reset();
         m_VirtualGeometryInstances = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshes = m_Systems.Mesh.get();
         if ( !m_FrameDrawBins || !m_FrameDrawBins->VgCandidates.Rows.IsValid() || meshes == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
         {
@@ -906,8 +899,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshes = m_Systems.Mesh.get();
         if ( !m_FrameVirtualGeometry || !m_FrameVirtualGeometry->OccludedCandidates.IsValid() ||
              !m_FrameDrawBins || !m_VirtualGeometry || !m_ClusterCutCounts || meshes == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
@@ -949,8 +941,7 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameVirtualGeometryShadowPages( RDG::Builder&                        graph,
                                                             const System::VirtualShadowMapFrame& pages )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto*               meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto*               meshes = m_Systems.Mesh.get();
         const Core::Camera* camera = GetMainCamera();
         // The VG candidates exist only when the draw bins appended some this frame (a VG mesh in the queue) and
         // AddFrameVirtualGeometry began this frame's counts.
@@ -1110,11 +1101,11 @@ namespace Desert::Graphic
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
     {
-        const auto                  meshSystem = m_RenderSystems.find( "MeshSystem" );
+        const auto& meshSystem = m_Systems.Mesh;
         const System::MeshRenderer* meshes =
-             meshSystem == m_RenderSystems.end()
+             !meshSystem
                   ? nullptr
-                  : static_cast<const System::MeshRenderer*>( meshSystem->second.get() );
+                  : meshSystem.get();
         const uint32_t refused  = meshes != nullptr ? meshes->VsmRefusedGroups() : 0u;
         const uint32_t fallback = meshes != nullptr ? meshes->VsmFallbackSubmeshes() : 0u;
         if ( !m_ClusterCutCounts )

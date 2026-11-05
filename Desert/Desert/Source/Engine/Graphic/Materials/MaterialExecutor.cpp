@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
@@ -150,6 +151,29 @@ namespace Desert::Graphic
                  std::make_shared<Texture2DProperty>( nullptr, param.DefaultTexture ) );
             m_Texture2DPropertiesLookup[param.Name] = m_Texture2DPropertiesStorage.size() - 1;
         }
+        ResolveSceneBlocks();
+    }
+
+    void MaterialExecutor::ResolveSceneBlocks() noexcept
+    {
+        // The names are the writers' own parameters (SceneLightingBinding, SceneFrameBinding, CloudShadowBinding),
+        // looked up once here instead of once per material per frame.
+        namespace SR = SceneResources;
+        namespace SP = ShaderProtocols;
+        m_SceneBlocks = SceneBlocks{
+             .Camera             = FindUniformBufferProperty( SP::Camera::Parameter.Name ),
+             .Time               = FindUniformBufferProperty( SR::kTimeBlock.Name ),
+             .PointLights        = FindStorageBufferProperty( SP::PointLight::Parameter.Name ),
+             .SpotLights         = FindStorageBufferProperty( SP::SpotLight::Parameter.Name ),
+             .DirectionLights    = FindUniformBufferProperty( SP::DirectionLight::Parameter.Name ),
+             .LightsMetadata     = FindUniformBufferProperty( SP::LightsMetadata::Parameter.Name ),
+             .Shadow             = FindUniformBufferProperty( SR::kShadowBlock.Name ),
+             .SkyLook            = FindUniformBufferProperty( kSkyLookBlock.Name ),
+             .CloudShadow        = FindUniformBufferProperty( SR::kCloudShadowBlock.Name ),
+             .RainOcclusion      = FindUniformBufferProperty( SR::kRainOcclusionBlock.Name ),
+             .GpuScenePrimitives = FindStorageBufferProperty( SR::kGpuScenePrimitives.Name ),
+             .ObjectBones        = FindStorageBufferProperty( SR::kObjectBones.Name ),
+             .WorldParameters    = FindStorageBufferProperty( SR::kWorldParameters.Name ) };
     }
 
     void MaterialExecutor::RouteFillInputs( std::vector<uint8_t>& inputs ) const

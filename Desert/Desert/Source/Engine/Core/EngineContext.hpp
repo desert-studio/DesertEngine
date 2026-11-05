@@ -23,6 +23,7 @@ namespace Desert
             m_Window          = window;
             m_Device          = device;
             m_RendererContext = rendererContext;
+            CaptureCapabilities( device );
 
             // Initialize FrameManager with default value, can be overridden by renderer
             Engine::FrameManager::CreateInstance().Initialize( 2 );
@@ -31,6 +32,7 @@ namespace Desert
         void SetDevice( const std::shared_ptr<Engine::Device>& device )
         {
             m_Device = device;
+            CaptureCapabilities( device );
         }
 
         /**
@@ -64,11 +66,12 @@ namespace Desert
         /**
          * @brief Utility for accessing device capabilities directly.
          */
+        /// A plain read of the value copied when the device was set (UE: GRHI* globals): no weak_ptr lock per
+        /// draw, and no reference into a device that teardown may already have destroyed.
         [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const
         {
-            auto device = GetDevice();
-            DESERT_VERIFY( device != nullptr );
-            return device->GetCapabilities();
+            DESERT_VERIFY( m_HasCapabilities );
+            return m_Capabilities;
         }
 
         /**
@@ -85,6 +88,17 @@ namespace Desert
         std::weak_ptr<Window>                   m_Window;
         std::weak_ptr<Engine::Device>           m_Device;
         std::weak_ptr<Graphic::RendererContext> m_RendererContext;
+        // The device's capabilities, copied once per device (Initialize / SetDevice): fixed at device creation.
+        Engine::DeviceCapabilities m_Capabilities;
+        bool                       m_HasCapabilities = false;
+
+        void CaptureCapabilities( const std::shared_ptr<Engine::Device>& device )
+        {
+            if ( device == nullptr )
+                return;
+            m_Capabilities    = device->GetCapabilities();
+            m_HasCapabilities = true;
+        }
 
     private:
         friend class Desert::Engine::Application;

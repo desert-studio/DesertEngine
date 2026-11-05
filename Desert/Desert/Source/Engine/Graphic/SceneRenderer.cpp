@@ -170,13 +170,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] the scene target was not recreated at {}x: {}", samples, set.GetError() );
             return;
         }
-        if ( const auto expand = m_RenderSystems.find( "DepthExpandSystem" ); expand != m_RenderSystems.end() )
-            if ( const auto init = SP_CAST( System::DepthExpandRenderer, expand->second )->Initialize(); !init )
+        if ( const auto& expand = m_Systems.DepthExpand )
+            if ( const auto init = expand->Initialize(); !init )
                 LOG_ERROR( "[SceneRenderer] DepthExpand unavailable at {}x: {}", samples, init.GetError() );
-        if ( const auto resolve = m_RenderSystems.find( "SceneDepthResolveSystem" );
-             resolve != m_RenderSystems.end() )
-            if ( const auto init = SP_CAST( System::SceneDepthResolveRenderer, resolve->second )->Initialize();
-                 !init )
+        if ( const auto& resolve = m_Systems.SceneDepthResolve )
+            if ( const auto init = resolve->Initialize(); !init )
                 LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable at {}x: {}", samples, init.GetError() );
         LOG_INFO( "[SceneRenderer] scene samples {}x -> {}x (anti-aliasing method)", before, samples );
     }
@@ -235,7 +233,7 @@ namespace Desert::Graphic
         const ResourceAttributionScope owned = OpenViewLedgerScope();
 
         // ONE STAGE PER CALL, in the order the systems depend on each other: the post chain is wired to
-        // framebuffers the earlier stages made, so a later stage reads its predecessors from m_RenderSystems.
+        // framebuffers the earlier stages made, so a later stage reads its predecessors from m_Systems.
         switch ( stage )
         {
             case 0:
@@ -300,9 +298,9 @@ namespace Desert::Graphic
 
                 // Scene systems render into the shared target framebuffer; post-process systems form an
                 // explicit chain (Mesh silhouette mask -> Jump Flood outline -> Tonemap).
-                RegisterSystem<System::SkyboxRenderer>( "SkyboxSystem", this, m_TargetFramebuffer );
-                RegisterSystem<System::MeshRenderer>( "MeshSystem", this, m_TargetFramebuffer );
-                RegisterSystem<System::JumpFloodOutlineRenderer>( "JumpFloodSystem", this, m_TargetFramebuffer );
+                RegisterSystem<System::SkyboxRenderer>( m_Systems.Skybox, this, m_TargetFramebuffer );
+                RegisterSystem<System::MeshRenderer>( m_Systems.Mesh, this, m_TargetFramebuffer );
+                RegisterSystem<System::JumpFloodOutlineRenderer>( m_Systems.JumpFlood, this, m_TargetFramebuffer );
                 return "Targets";
             }
             case 1:
@@ -314,23 +312,23 @@ namespace Desert::Graphic
                 // crash. The engine already has the rule for this one rung lower — VulkanRendererAPI::
                 // BindGraphicsPipeline skips every draw through a pipeline that was not built — so a system
                 // that could not initialise means its passes draw nothing, not that the editor vanishes.
-                if ( !SP_CAST( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->Initialize() )
+                if ( !m_Systems.Skybox->Initialize() )
                     LOG_ERROR( "[SceneRenderer] the skybox system did not initialise; the sky will not draw." );
                 return "Skybox";
             }
             case 2:
             {
-                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                const auto& meshSystem = m_Systems.Mesh;
                 if ( !meshSystem->Initialize() )
                     LOG_ERROR( "[SceneRenderer] the mesh system did not initialise; meshes will not draw." );
                 return "Mesh";
             }
             case 3:
             {
-                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                const auto& meshSystem = m_Systems.Mesh;
                 // GPU terrain (tessellated patch grid; opaque geometry, depth-tested with the meshes).
-                RegisterSystem<System::TerrainRenderer>( "TerrainSystem", this, m_TargetFramebuffer );
-                const auto& terrainSystem = SP_CAST( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+                RegisterSystem<System::TerrainRenderer>( m_Systems.Terrain, this, m_TargetFramebuffer );
+                const auto& terrainSystem = m_Systems.Terrain;
                 if ( const auto init = terrainSystem->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the terrain system did not initialise; terrain will not draw: {}",
@@ -351,10 +349,8 @@ namespace Desert::Graphic
 
                 // The landscape grass (GRASS-GPU): generated per view before the cascades, drawn by the mesh
                 // renderer's instanced cells (GrassRenderer::AddFrame).
-                RegisterSystem<System::GrassRenderer>( "GrassSystem", this, m_TargetFramebuffer );
-                if ( const auto init =
-                          SP_CAST( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Initialize();
-                     !init )
+                RegisterSystem<System::GrassRenderer>( m_Systems.Grass, this, m_TargetFramebuffer );
+                if ( const auto init = m_Systems.Grass->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the grass system did not initialise; landscape grass will not "
                                "grow: {}",
@@ -368,10 +364,8 @@ namespace Desert::Graphic
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
-                RegisterSystem<System::WaterRenderer>( "WaterSystem", this, m_TargetFramebuffer );
-                if ( const auto init =
-                          SP_CAST( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Initialize();
-                     !init )
+                RegisterSystem<System::WaterRenderer>( m_Systems.Water, this, m_TargetFramebuffer );
+                if ( const auto init = m_Systems.Water->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
                                init.GetError() );
@@ -380,9 +374,8 @@ namespace Desert::Graphic
             }
             case 4:
             {
-                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-                const auto& jumpFloodSystem =
-                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+                const auto& meshSystem      = m_Systems.Mesh;
+                const auto& jumpFloodSystem = m_Systems.JumpFlood;
                 if ( !jumpFloodSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] the outline system did not initialise; selection outlines are off." );
@@ -395,8 +388,8 @@ namespace Desert::Graphic
             {
                 // The tonemap reads the frame's post input, or the outline's transient output when something is
                 // outlined (AddFrameJumpFlood); its own image is sized from the scene target here.
-                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, m_TargetFramebuffer );
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                RegisterSystem<System::TonemapRenderer>( m_Systems.Tonemap, this, m_TargetFramebuffer );
+                const auto& tonemapSystem = m_Systems.Tonemap;
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
@@ -413,10 +406,8 @@ namespace Desert::Graphic
                 // Backdrop blur: a blurred snapshot of the scene colour the UI canvas samples for "glass" panels.
                 // Runs before the UI extension point (whose passes write into this same target, so it cannot
                 // sample it directly).
-                RegisterSystem<System::BackdropBlurRenderer>( "BackdropBlurSystem", this, m_TargetFramebuffer );
-                if ( const auto& backdropSystem =
-                          SP_CAST( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
-                     !backdropSystem->Initialize() )
+                RegisterSystem<System::BackdropBlurRenderer>( m_Systems.BackdropBlur, this, m_TargetFramebuffer );
+                if ( const auto& backdropSystem = m_Systems.BackdropBlur; !backdropSystem->Initialize() )
                 {
                     LOG_WARN( "Backdrop blur unavailable — UI glass panels will draw as flat tint" );
                 }
@@ -425,8 +416,8 @@ namespace Desert::Graphic
             case 7:
             {
                 // Bloom reads the HDR scene color and produces a compute mip-chain glow that tonemap adds in.
-                RegisterSystem<System::BloomRenderer>( "BloomSystem", this, m_TargetFramebuffer );
-                const auto& bloomSystem = SP_CAST( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
+                RegisterSystem<System::BloomRenderer>( m_Systems.Bloom, this, m_TargetFramebuffer );
+                const auto& bloomSystem = m_Systems.Bloom;
                 if ( !bloomSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] the bloom system did not initialise; the scene renders without glow." );
@@ -437,9 +428,8 @@ namespace Desert::Graphic
                 // Light shafts: the atmosphere sun's screen-space streaks, masked and radially blurred from the
                 // HDR scene colour; tonemap adds them in the way it adds bloom. Non-fatal: a sky without streaks
                 // must never take a scene down.
-                RegisterSystem<System::LightShaftRenderer>( "LightShaftSystem", this, m_TargetFramebuffer );
-                const auto& lightShaftSystem =
-                     SP_CAST( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
+                RegisterSystem<System::LightShaftRenderer>( m_Systems.LightShaft, this, m_TargetFramebuffer );
+                const auto& lightShaftSystem = m_Systems.LightShaft;
                 if ( !lightShaftSystem->Initialize() )
                     LOG_WARN( "[SceneRenderer] Light shaft system unavailable." );
                 return "LightShaft";
@@ -448,9 +438,8 @@ namespace Desert::Graphic
             {
                 // Lens flare: the camera's own response to the sun disc — ghosts, halo and streak gathered from
                 // the same HDR scene colour, added in by the tonemap the way bloom is. Non-fatal, like the shafts.
-                RegisterSystem<System::LensFlareRenderer>( "LensFlareSystem", this, m_TargetFramebuffer );
-                const auto& lensFlareSystem =
-                     SP_CAST( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
+                RegisterSystem<System::LensFlareRenderer>( m_Systems.LensFlare, this, m_TargetFramebuffer );
+                const auto& lensFlareSystem = m_Systems.LensFlare;
                 if ( const auto flareInit = lensFlareSystem->Initialize(); !flareInit )
                     LOG_WARN( "[SceneRenderer] Lens flare system unavailable: {}", flareInit.GetError() );
                 return "LensFlare";
@@ -459,8 +448,8 @@ namespace Desert::Graphic
             {
                 // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient
                 // (AddFrameSSAO); the deferred Composite reads it. Deferred only. Non-fatal.
-                RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer );
-                if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
+                RegisterSystem<System::SSAORenderer>( m_Systems.SSAO, this, m_TargetFramebuffer );
+                if ( !m_Systems.SSAO->Initialize() )
                     LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
                 return "SSAO";
             }
@@ -468,11 +457,8 @@ namespace Desert::Graphic
             {
                 // The G-buffer depth into a multisampled scene depth (Deferred: DepthExpand); nothing is built at
                 // MSAA 1.
-                RegisterSystem<System::DepthExpandRenderer>( "DepthExpandSystem", this, m_TargetFramebuffer );
-                if ( const auto expandInit =
-                          SP_CAST( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] )
-                               ->Initialize();
-                     !expandInit )
+                RegisterSystem<System::DepthExpandRenderer>( m_Systems.DepthExpand, this, m_TargetFramebuffer );
+                if ( const auto expandInit = m_Systems.DepthExpand->Initialize(); !expandInit )
                     LOG_ERROR( "[SceneRenderer] DepthExpand unavailable (deferred depth at MSAA): {}",
                                expandInit.GetError() );
                 return "DepthExpand";
@@ -481,12 +467,9 @@ namespace Desert::Graphic
             {
                 // The multisampled scene depth into the 1x depth compute passes sample (Scene: DepthResolve); MSAA
                 // > 1 only.
-                RegisterSystem<System::SceneDepthResolveRenderer>( "SceneDepthResolveSystem", this,
+                RegisterSystem<System::SceneDepthResolveRenderer>( m_Systems.SceneDepthResolve, this,
                                                                    m_TargetFramebuffer );
-                if ( const auto resolveInit =
-                          SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] )
-                               ->Initialize();
-                     !resolveInit )
+                if ( const auto resolveInit = m_Systems.SceneDepthResolve->Initialize(); !resolveInit )
                     LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
                                resolveInit.GetError() );
                 return "SceneDepthResolve";
@@ -495,12 +478,9 @@ namespace Desert::Graphic
             {
                 // The sample-0 shader resolve of the scene target's SampleZero graph colours (the view's velocity
                 // at MSAA).
-                RegisterSystem<System::GraphColorResolveRenderer>( "GraphColorResolveSystem", this,
+                RegisterSystem<System::GraphColorResolveRenderer>( m_Systems.GraphColorResolve, this,
                                                                    m_TargetFramebuffer );
-                if ( const auto colorResolveInit =
-                          SP_CAST( System::GraphColorResolveRenderer, m_RenderSystems["GraphColorResolveSystem"] )
-                               ->Initialize();
-                     !colorResolveInit )
+                if ( const auto colorResolveInit = m_Systems.GraphColorResolve->Initialize(); !colorResolveInit )
                     LOG_ERROR(
                          "[SceneRenderer] GraphColorResolve unavailable (velocity at MSAA reads zero motion): {}",
                          colorResolveInit.GetError() );
@@ -508,25 +488,19 @@ namespace Desert::Graphic
             }
             case 14:
             {
-                RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_TargetFramebuffer );
-                if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
+                RegisterSystem<System::CopyRenderer>( m_Systems.SceneColorCopy, this, m_TargetFramebuffer );
+                if ( !m_Systems.SceneColorCopy->Initialize() )
                     LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
 
-                RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
-                if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
-                               ->Initialize();
-                     !velocityViewInit )
+                RegisterSystem<System::VelocityViewRenderer>( m_Systems.VelocityView, this, m_TargetFramebuffer );
+                if ( const auto velocityViewInit = m_Systems.VelocityView->Initialize(); !velocityViewInit )
                     LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
                 return "SceneColorCopy";
             }
             case 15:
             {
-                RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
-                if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
-                               ->Initialize();
-                     !velocityViewInit )
+                RegisterSystem<System::VelocityViewRenderer>( m_Systems.VelocityView, this, m_TargetFramebuffer );
+                if ( const auto velocityViewInit = m_Systems.VelocityView->Initialize(); !velocityViewInit )
                     LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
                 return "VelocityView";
             }
@@ -536,17 +510,13 @@ namespace Desert::Graphic
                 // compute evaluation of the opaque depth and its apply, once the opaque scene is complete and
                 // before every translucent draw, which fogs itself from the parameter block this system publishes.
                 // Non-fatal: neither must ever take a scene down.
-                RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer );
-                if ( const auto fogInit =
-                          SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
-                     !fogInit )
+                RegisterSystem<System::HeightFogRenderer>( m_Systems.HeightFog, this, m_TargetFramebuffer );
+                if ( const auto fogInit = m_Systems.HeightFog->Initialize(); !fogInit )
                     LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
                 // The volumetric fog (froxel grid) the height fog composes; non-fatal like it.
-                RegisterSystem<System::VolumetricFogRenderer>( "VolumetricFogSystem", this, m_TargetFramebuffer );
-                if ( const auto volumeInit =
-                          SP_CAST( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
-                               ->Initialize();
-                     !volumeInit )
+                RegisterSystem<System::VolumetricFogRenderer>( m_Systems.VolumetricFog, this,
+                                                               m_TargetFramebuffer );
+                if ( const auto volumeInit = m_Systems.VolumetricFog->Initialize(); !volumeInit )
                     LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
                 return "HeightFog";
             }
@@ -556,20 +526,17 @@ namespace Desert::Graphic
                 // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the translucency, above
                 // the fog and below the particles by the order of AddFrameTranslucency's calls. Non-fatal: a
                 // missing sky must never take a scene down.
-                RegisterSystem<System::VolumetricCloudRenderer>( "VolumetricCloudSystem", this,
+                RegisterSystem<System::VolumetricCloudRenderer>( m_Systems.VolumetricCloud, this,
                                                                  m_TargetFramebuffer );
-                if ( const auto cloudInit =
-                          SP_CAST( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-                               ->Initialize();
-                     !cloudInit )
+                if ( const auto cloudInit = m_Systems.VolumetricCloud->Initialize(); !cloudInit )
                     LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
                 return "VolumetricCloud";
             }
             case 18:
             {
                 // GPU particles: compute-simulated sprites drawn by AddFrameTranslucency. Non-fatal.
-                RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer );
-                if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
+                RegisterSystem<System::ParticleRenderer>( m_Systems.Particle, this, m_TargetFramebuffer );
+                if ( !m_Systems.Particle->Initialize() )
                     LOG_WARN( "[SceneRenderer] Particle system unavailable." );
                 return "Particle";
             }
@@ -577,59 +544,56 @@ namespace Desert::Graphic
             {
                 // Deferred lighting (fullscreen G-buffer shade + debug view). Runs in the manual chain, only when
                 // RenderPath == Deferred. Non-fatal if it fails to init (deferred path is simply unavailable).
-                RegisterSystem<System::DeferredLightingRenderer>( "DeferredLightingSystem", this,
+                RegisterSystem<System::DeferredLightingRenderer>( m_Systems.DeferredLighting, this,
                                                                   m_TargetFramebuffer );
                 // A program only some Shadows methods need failing refuses those methods by name
                 // (DeferredLightingRenderer::Refusals, read by every ResolveRenderMethods), not the whole path.
-                const auto& deferred =
-                     SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] );
+                const auto& deferred = m_Systems.DeferredLighting;
                 if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
                 RefuseShadowPrograms( deferred->Refusals() );
                 // The screen-space subsurface scatter (SSS-PROFILE): without it the profile materials shade unsplit.
-                RegisterSystem<System::SubsurfaceRenderer>( "SubsurfaceSystem", this, m_TargetFramebuffer );
-                if ( const auto subsurfaceInit =
-                          SP_CAST( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] )->Initialize();
-                     !subsurfaceInit )
+                RegisterSystem<System::SubsurfaceRenderer>( m_Systems.Subsurface, this, m_TargetFramebuffer );
+                if ( const auto subsurfaceInit = m_Systems.Subsurface->Initialize(); !subsurfaceInit )
                     LOG_ERROR( "[SceneRenderer] Subsurface scattering unavailable: {}", subsurfaceInit.GetError() );
                 return "DeferredLighting";
             }
             case 20:
             {
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                const auto& tonemapSystem = m_Systems.Tonemap;
                 // Auto-exposure measures the HDR scene luminance into a 1x1 buffer that tonemap reads.
-                RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer );
-                const auto& autoExposureSystem =
-                     SP_CAST( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
+                RegisterSystem<System::AutoExposureRenderer>( m_Systems.AutoExposure, this, m_TargetFramebuffer );
+                const auto& autoExposureSystem = m_Systems.AutoExposure;
                 if ( !autoExposureSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
                 // Local exposure (UE Bilateral): grid + blurred log luminance the tonemap and the bloom read.
-                RegisterSystem<System::LocalExposureRenderer>( "LocalExposureSystem", this, m_TargetFramebuffer );
-                if ( const auto le =
-                          SP_CAST( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] )->Initialize();
-                     !le )
+                RegisterSystem<System::LocalExposureRenderer>( m_Systems.LocalExposure, this,
+                                                               m_TargetFramebuffer );
+                if ( const auto le = m_Systems.LocalExposure->Initialize(); !le )
                     LOG_ERROR( "[SceneRenderer] local exposure did not initialise: {}", le.GetError() );
                 return "AutoExposure";
             }
             case 21:
             {
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                const auto& tonemapSystem = m_Systems.Tonemap;
                 // FXAA consumes the tonemapped image (LDR). It only runs when the machine's post AA is FXAA
                 // (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
-                RegisterSystem<System::FXAARenderer>( "FXAASystem", this, tonemapSystem->GetSystemFramebuffer() );
-                if ( !SP_CAST( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Initialize() )
+                RegisterSystem<System::FXAARenderer>( m_Systems.FXAA, this,
+                                                      tonemapSystem->GetSystemFramebuffer() );
+                if ( !m_Systems.FXAA->Initialize() )
                     LOG_ERROR( "[SceneRenderer] FXAA did not initialise; the image is drawn without post AA." );
                 return "FXAA";
             }
             case 22:
             {
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                const auto& tonemapSystem = m_Systems.Tonemap;
                 // SMAA consumes the same tonemapped image. Runs only when the machine's post AA is SMAA.
-                RegisterSystem<System::SMAARenderer>( "SMAASystem", this, tonemapSystem->GetSystemFramebuffer() );
-                if ( !SP_CAST( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Initialize() )
+                RegisterSystem<System::SMAARenderer>( m_Systems.SMAA, this,
+                                                      tonemapSystem->GetSystemFramebuffer() );
+                if ( !m_Systems.SMAA->Initialize() )
                     LOG_ERROR( "[SceneRenderer] SMAA did not initialise; the image is drawn without post AA." );
 
                 return "SMAA";
@@ -655,13 +619,10 @@ namespace Desert::Graphic
         // temporal history and a per-entity GPU cache, and IRenderSystem::OnSceneReplaced says why those two
         // are the only kinds that can exist here.
         //
-        // Walked over m_RenderSystemOrder rather than the map: the map's operator[] accesses elsewhere in this
-        // file insert null entries, and the order vector never holds one.
-        for ( const auto& name : m_RenderSystemOrder )
-        {
-            if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
-                it->second->OnSceneReplaced();
-        }
+        // Walked in registration order (m_RenderSystemOrder), which holds every registered system and never a
+        // null.
+        for ( IRenderSystem* const system : m_RenderSystemOrder )
+            system->OnSceneReplaced();
     }
 
     namespace
@@ -712,12 +673,9 @@ namespace Desert::Graphic
              [this]
              {
                  CheckWriteBetweenRecordings( "SceneRenderer::ResetTemporalHistory" );
-                 // Over m_RenderSystemOrder for the reason RebindScene gives: the map can hold null entries.
-                 for ( const auto& name : m_RenderSystemOrder )
-                 {
-                     if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
-                         it->second->OnTemporalHistoryReset();
-                 }
+                 // In registration order, as RebindScene walks them.
+                 for ( IRenderSystem* const system : m_RenderSystemOrder )
+                     system->OnTemporalHistoryReset();
                  // The view's own history (previous matrices, history textures, motion records) resets with the
                  // next frame: an explicit camera cut (ViewInputs::CameraCut), consumed by the BeginFrame that
                  // succeeds.
@@ -741,8 +699,8 @@ namespace Desert::Graphic
         m_IrradianceFieldGather.reset();
         m_GlobalDistanceFieldView.reset();
         m_OwnGlobalDistanceField.reset();
-        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
-            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->ReleaseWorldCaches();
+        if ( const auto& it = m_Systems.Terrain )
+            it->ReleaseWorldCaches();
         ResetTemporalHistory();
         LOG_INFO( "[SceneRenderer] {}: the old world's view resources released (surface cache, radiance cache, "
                   "probe gathers, global distance field, terrain materials).",
@@ -1048,7 +1006,7 @@ namespace Desert::Graphic
         if ( const auto uploaded = UploadWorldParameters( scene ); !uploaded )
             return uploaded;
 
-        const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        const auto& skyboxSystem = m_Systems.Skybox.get();
 
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
@@ -1149,8 +1107,7 @@ namespace Desert::Graphic
         // the forward depth prepass their base pass tests against, never a forward draw on a deferred frame.
         if ( m_RenderPath == Core::RenderPath::Deferred )
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            const auto* mesh = m_Systems.Mesh.get();
             if ( mesh != nullptr && !mesh->DrawsGBuffer() )
             {
                 m_RenderPath = Core::RenderPath::Forward;
@@ -1282,15 +1239,13 @@ namespace Desert::Graphic
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
-        if ( const auto mesh = m_RenderSystems.find( "MeshSystem" ); mesh != m_RenderSystems.end() )
+        if ( const auto& mesh = m_Systems.Mesh )
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            UNIQUE_GET_AS( System::MeshRenderer, mesh->second )
-                 ->SetRainOcclusionQuality( RainOcclusionQuality{
-                      .MapSize = quality.As<uint32_t>( Parameter::ShadowRainOcclusionMapSize ),
-                      .Extent  = static_cast<float>( quality.As<int>( Parameter::ShadowRainOcclusionExtent ) ),
-                      .RefreshFraction = 0.01f * static_cast<float>( quality.As<int>(
-                                                      Parameter::ShadowRainOcclusionRefreshPercent ) ) } );
+            mesh->SetRainOcclusionQuality( RainOcclusionQuality{
+                 .MapSize         = quality.As<uint32_t>( Parameter::ShadowRainOcclusionMapSize ),
+                 .Extent          = static_cast<float>( quality.As<int>( Parameter::ShadowRainOcclusionExtent ) ),
+                 .RefreshFraction = 0.01f * static_cast<float>( quality.As<int>(
+                                                 Parameter::ShadowRainOcclusionRefreshPercent ) ) } );
         }
         {
             // One Foliage quality for the blades and the ground's far cover that takes over where they thin
@@ -1302,9 +1257,8 @@ namespace Desert::Graphic
                                                    Parameter::FoliageGrassCullDistanceScalePercent ) ),
                  .LodScreenPixels =
                       static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ) };
-            if ( const auto grass = m_RenderSystems.find( "GrassSystem" ); grass != m_RenderSystems.end() )
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                UNIQUE_GET_AS( System::GrassRenderer, grass->second )->SetQuality( grassQuality );
+            if ( const auto& grass = m_Systems.Grass )
+                grass->SetQuality( grassQuality );
             // The ground's far cover reads the lens through the view's frame (ViewFrame::GrassLens, OnUpdate).
             m_GrassQuality = grassQuality;
         }
@@ -1357,13 +1311,11 @@ namespace Desert::Graphic
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
         // The volumetric fog's ceiling and grid (Scalability Effects.VolumetricFog*), handed to its system each
         // BeginScene like the knobs above.
-        if ( const auto it = m_RenderSystems.find( "VolumetricFogSystem" ); it != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            UNIQUE_GET_AS( System::VolumetricFogRenderer, it->second )
-                 ->SetQuality( VolumetricFogQuality{
-                      .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
-                      .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
-                      .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
+        if ( const auto& it = m_Systems.VolumetricFog )
+            it->SetQuality(
+                 VolumetricFogQuality{ .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
+                                       .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
+                                       .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
@@ -1402,7 +1354,7 @@ namespace Desert::Graphic
                 report.HasFrustum = true;
                 scene.GetVFXWorld().SubmitView( report );
             }
-            UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+            m_Systems.Particle->PrepareFrame( scene );
             // VFX-LIGHT (UE Niagara Light Renderer): the scene's particle lights join this view's local lights -
             // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
             for ( const ShaderProtocols::PointLightPayload& light :
@@ -1413,19 +1365,20 @@ namespace Desert::Graphic
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetParallaxQuality( m_ParallaxQuality );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
-             ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
+        m_Systems.Mesh->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
+        m_Systems.Mesh->SetParallaxQuality( m_ParallaxQuality );
+        m_Systems.AutoExposure->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
+<<<<<<< land-cpu4
         // UE's Exposure Compensation applies to the manual exposure too (2^AutoExposureBias).
         const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey ) *
                                      std::exp2( post.AutoExposureBias );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
+=======
+        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
+        m_Systems.Tonemap->SetParams( manualExposure );
+>>>>>>> origin/task/CPU-LEAD-SMALL
         // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
         // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
         // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
@@ -1435,9 +1388,7 @@ namespace Desert::Graphic
         {
             if ( !post.AutoExposure )
                 m_LastExposure = manualExposure;
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            else if ( auto* ae =
-                           UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            else if ( auto* ae = m_Systems.AutoExposure.get() )
             {
                 const float lum = ae->ReadBackAdaptedLuminance();
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
@@ -1454,15 +1405,14 @@ namespace Desert::Graphic
             const LocalExposureParams localExposure = ResolveLocalExposure( post );
             const float               logMiddleGrey = LocalExposureLogMiddleGrey(
                  post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+            if ( auto* le = m_Systems.LocalExposure.get() )
                 le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( auto* ae = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            if ( auto* ae = m_Systems.AutoExposure.get() )
                 ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
+<<<<<<< land-cpu4
         // The compensation moves it too: the bias and the curve's lowest key (AutoExposureRules.hpp).
         const float lowestCompensation =
              post.AutoExposureBias +
@@ -1478,33 +1428,29 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] ) )
             combine->SetGrade( post );
+=======
+        m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling(
+             post.AutoExposure ? LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey )
+                               : manualExposure ) );
+        m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
+        m_Systems.Tonemap->SetWhitePoint( post.WhitePoint );
+>>>>>>> origin/task/CPU-LEAD-SMALL
 
-        // The systems map is keyed by the name each system was registered under, so the downcast is to the type
-        // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop && !m_DebugView.WireframeMode );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetWireframe( m_DebugView.WireframeMode );
+        m_Systems.Skybox->SetBackdropVisible( m_DebugView.ShowSkyBackdrop && !m_DebugView.WireframeMode );
+        m_Systems.Mesh->SetWireframe( m_DebugView.WireframeMode );
         // The ground in the wireframe view too (UE draws every primitive kind through its wireframe pass).
-        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->SetWireframe( m_DebugView.WireframeMode );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetShadowWindDistance( static_cast<float>( quality.As<int>( Parameter::ShadowWindAnimationDistance ) ) );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetFoliageShadowLodBias( quality.As<int>( Parameter::ShadowFoliageLodBias ) );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetShadows( shadows, static_cast<int>( m_DebugView.ShadowDebug ) );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
-                             m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetCardPlacementView( m_DebugView.ShowCardPlacement );
+        if ( const auto& it = m_Systems.Terrain )
+            it->SetWireframe( m_DebugView.WireframeMode );
+        m_Systems.Mesh->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
+        m_Systems.Mesh->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
+        m_Systems.Mesh->SetShadowWindDistance(
+             static_cast<float>( quality.As<int>( Parameter::ShadowWindAnimationDistance ) ) );
+        m_Systems.Mesh->SetFoliageShadowLodBias( quality.As<int>( Parameter::ShadowFoliageLodBias ) );
+        m_Systems.Mesh->SetShadows( shadows, static_cast<int>( m_DebugView.ShadowDebug ) );
+        m_Systems.Mesh->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes,
+                                      m_DebugView.BoundingBoxColor, m_DebugView.BoundingBoxLineWidth,
+                                      m_DebugView.LightingDebug );
+        m_Systems.Mesh->SetCardPlacementView( m_DebugView.ShowCardPlacement );
 
         // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
         // per change by QualityBoot's QualityState listener, not by every view each frame.
@@ -1532,16 +1478,12 @@ namespace Desert::Graphic
         const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( manualExposure, 1e-30f );
 
         m_BloomEnabled = post.EnableBloom;
-        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetThreshold( post.BloomThreshold / exposureNormalisation );
+        m_Systems.Bloom->SetThreshold( post.BloomThreshold / exposureNormalisation );
         // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
-        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetMaxMips(
-                  static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
+        m_Systems.Bloom->SetMaxMips(
+             static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
+        m_Systems.Tonemap->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
+        m_Systems.Tonemap->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
 
         // Lens flare: the authored "Lens Flare" group, copied whole. Intensity and Tint are held out of
         // the pass's own params because the pass never applies them — the tonemap does, so that a flare
@@ -1583,6 +1525,7 @@ namespace Desert::Graphic
              .Rings =
                   DofRingsForQuality( m_Quality.As<int>( Common::Scalability::Parameter::DepthOfFieldQuality ) ) };
 
+<<<<<<< land-cpu4
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
                           EV100ToLuminance( post.AutoExposureMaxEV100 ) );
@@ -1591,11 +1534,14 @@ namespace Desert::Graphic
                                 post.AutoExposureCurveBias );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+=======
+        m_Systems.AutoExposure->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
+                                           EV100ToLuminance( post.AutoExposureMaxEV100 ) );
+        m_Systems.Tonemap->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+>>>>>>> origin/task/CPU-LEAD-SMALL
         // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
-        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        m_Systems.Tonemap->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
+        m_Systems.Bloom->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 
         return BOOLSUCCESS;
     }
@@ -1620,8 +1566,7 @@ namespace Desert::Graphic
         if ( !budget )
             return;
         m_ViewProfile.Shadows = *budget;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RebudgetShadows( *budget ) )
+        if ( !m_Systems.Mesh->RebudgetShadows( *budget ) )
             LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; nothing "
                        "casts a shadow in this view.",
                        m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
@@ -1642,7 +1587,7 @@ namespace Desert::Graphic
         const ActiveViewScope viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
-        const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        const auto& skyboxSystem           = m_Systems.Skybox.get();
         m_DirectionLights        = sceneRenderInfo.DirLights;
         m_SunVolumetricScatteringIntensity = sceneRenderInfo.SunVolumetricScatteringIntensity;
         m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
@@ -1702,17 +1647,16 @@ namespace Desert::Graphic
         // levels' keys and draws below read them (MeshRenderer::GatherShadowCasters).
         {
             DESERT_PROFILE_PASS( "Shadow: GatherCasters" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GatherShadowCasters();
+            m_Systems.Mesh->GatherShadowCasters();
         }
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
         // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
-            auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            auto* meshes = m_Systems.Mesh.get();
             // The particles' Mesh rows submit their casters from the render graph, after this plan (VFX-09).
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+            const auto* particles = m_Systems.Particle.get();
             meshes->ExpectGpuInstancedCasters( !m_ViewProfile.SceneCapture && particles != nullptr &&
                                                particles->HasMeshRows() );
             meshes->UpdateCascades();
@@ -1721,14 +1665,14 @@ namespace Desert::Graphic
         // reads the matrix).
         {
             DESERT_PROFILE_PASS( "Weather: UpdateRainOcclusion" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateRainOcclusion();
+            m_Systems.Mesh->UpdateRainOcclusion();
         }
 
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
         // small graph, ending with the morphed vertices in vertex-input state for every pass of the view graph.
         {
             DESERT_PROFILE_PASS( "Mesh: UpdateMorphTargets" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateMorphTargets();
+            m_Systems.Mesh->UpdateMorphTargets();
         }
 
         // THE FRAME IS A GRAPH. Every GPU pass of this view from here on is one graph node (Raster, Compute or
@@ -1880,20 +1824,15 @@ namespace Desert::Graphic
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] ) )
+        if ( auto* tonemap = m_Systems.Tonemap.get() )
             tonemap->SetPreExposure( frame.PreExposure );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+        if ( auto* autoExp = m_Systems.AutoExposure.get() )
             autoExp->SetPreExposure( frame.PreExposure );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+        if ( auto* le = m_Systems.LocalExposure.get() )
             le->SetPreExposure( frame.PreExposure );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
+        if ( auto* bloom = m_Systems.Bloom.get() )
             bloom->SetPreExposure( frame.PreExposure );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* shafts = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] ) )
+        if ( auto* shafts = m_Systems.LightShaft.get() )
             shafts->SetPreExposure( frame.PreExposure );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
@@ -1917,8 +1856,7 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Water + terrain frame" );
         {
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->PrepareFrame();
+            m_Systems.Water->PrepareFrame();
         }
 
         // The terrain's frame data, once, before any of its three passes records (the cascades in
@@ -1928,12 +1866,11 @@ namespace Desert::Graphic
         // terrain read it there and a scene with landscape tiles faulted on a null ViewFrame).
         {
             DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
             // The shadowed point/spot lights' draws and the scene's lit-material state follow UpdateLocalShadows
             // below (PrepareLocalShadowViews, ApplySceneFrame): the lights' views do not exist yet here.
-            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame( frame );
+            m_Systems.Terrain->PrepareFrame( frame );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
@@ -1966,8 +1903,7 @@ namespace Desert::Graphic
         // shadows.
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            auto* terrain = m_Systems.Terrain.get();
             if ( const Common::BoolResultStr pooled = terrain->AddDicePoolPass( graph, textures ); !pooled )
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), pooled.GetError() );
         }
@@ -2039,9 +1975,9 @@ namespace Desert::Graphic
                 }
             }
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
-                             RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion, parallelSetup );
+            m_Systems.Grass->AddFrame( graph, frame, *m_Systems.Mesh.get(),
+                                       RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
+                                       parallelSetup );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
@@ -2058,8 +1994,7 @@ namespace Desert::Graphic
                          *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
                 }
             }
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            auto* terrain = m_Systems.Terrain.get();
             if ( const Common::BoolResultStr culled =
                       terrain->AddDiceCullPass( graph, textures, frame, occlusion );
                  !culled )
@@ -2069,10 +2004,8 @@ namespace Desert::Graphic
         // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
         // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            auto* const       meshes  = m_Systems.Mesh.get();
+            const auto* const terrain = m_Systems.Terrain.get();
             // Every landscape tile is a GPU-scene primitive too (its TLAS custom index): world-space vertices, so
             // an identity World.
             DESERT_PROFILE_PHASE( setupPhases, "Setup: Skin cache + displacement" );
@@ -2156,8 +2089,7 @@ namespace Desert::Graphic
             // The plan, by stage (GPU-COST-13): one row per stage, inside "Grass, TLAS, shadow plan".
             DESERT_PROFILE_PHASES( planPhases );
             DESERT_PROFILE_PHASE( planPhases, "Plan: View inputs" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            auto* const     meshes     = m_Systems.Mesh.get();
             const auto*     camera     = GetMainCamera();
             const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
             const float     lensScale  = camera != nullptr
@@ -2171,8 +2103,7 @@ namespace Desert::Graphic
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
             DESERT_PROFILE_PHASE( planPhases, "Plan: Landscape RT tiles" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            const auto* const                                   terrain   = m_Systems.Terrain.get();
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
             const std::span<const System::TerrainFrameMaterial> materials = terrain->GetFrameMaterials();
@@ -2227,8 +2158,7 @@ namespace Desert::Graphic
             }
             if ( !m_ViewProfile.SceneCapture )
             {
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                const auto* const grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+                const auto* const                                                 grass = m_Systems.Grass.get();
                 const std::span<const RayTracing::RayTracingDynamicGeometryBuild> bladeBuilds =
                      grass->GetBladeRayTracing().GetBuilds();
                 const std::span<const RDG::BufferRef> bladeResident = grass->GetBladeRayTracing().GetResident();
@@ -2317,8 +2247,7 @@ namespace Desert::Graphic
             // (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
-                System::MeshRenderer* const localShadowMeshes =
-                     UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                System::MeshRenderer* const localShadowMeshes = m_Systems.Mesh.get();
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
@@ -2330,12 +2259,12 @@ namespace Desert::Graphic
                 // light's key failed - TERRAIN-LOCAL-SHADOW-LOG.
                 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 // And each sun cascade's, diced to its own texels (UpdateCascades fitted them above).
-                std::vector<float> cascadeWorldPerTexel( SceneResources::kMaxCascadeViews );
+                // DL-7: a fixed array on the stack (was a heap vector per frame).
+                std::array<float, SceneResources::kMaxCascadeViews> cascadeWorldPerTexel{};
                 for ( uint32_t v = 0; v < SceneResources::kMaxCascadeViews; ++v )
                     cascadeWorldPerTexel[v] = localShadowMeshes->GetCascadeWorldPerTexel( v );
-                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(),
-                                                cascadeWorldPerTexel );
+                m_Systems.Terrain->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(),
+                                                            cascadeWorldPerTexel );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 // The sun cascades' cache plan, from THIS frame's casters: the grass sections were submitted above
                 // (GrassRenderer::AddFrame) and the terrain's cascade rows just now, so its key
@@ -2348,8 +2277,7 @@ namespace Desert::Graphic
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
                 // lit-material state goes onto its forward program here (the meshes' forward snapshot).
                 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                     ->ApplySceneFrame( localShadowMeshes->CaptureFrameState( &frame ) );
+                m_Systems.Terrain->ApplySceneFrame( localShadowMeshes->CaptureFrameState( &frame ) );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
                 // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history
@@ -2421,8 +2349,7 @@ namespace Desert::Graphic
         m_TracedFrameShared = {};
         // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
         // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ResetVirtualShadowGeometry();
+        m_Systems.Mesh->ResetVirtualShadowGeometry();
         AddFrameDrawBins( graph, textures, frame );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Virtual geometry" );
         AddFrameVirtualGeometry( graph, frame );
@@ -2491,7 +2418,7 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Opaque path setup" );
         if ( m_RenderPath == Core::RenderPath::Deferred && m_GBuffer )
         {
-            auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            auto*                              meshRenderer = m_Systems.Mesh.get();
             const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
 
             // GRASS-VIS: the visibility buffer is allocated and cleared BEFORE the G-buffer's setup decides which
@@ -2499,9 +2426,7 @@ namespace Desert::Graphic
             VirtualGeometry::VisibilityBufferFrame grassVisibility;
             // The grass's raster-stream rows past what a visibility word addresses alias ids: the path is refused
             // this frame, by name when the overflow starts, and the blades draw through the G-buffer.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const bool rowsOverflow = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                                           ->VisibilityRowsOverflow();
+            const bool rowsOverflow = m_Systems.Grass->VisibilityRowsOverflow();
             if ( m_GrassVisibilityBuffer && rowsOverflow && !m_GrassVisibilityRowsOverflow )
                 LOG_ERROR( "[SceneRenderer] {}: the grass draws through the G-buffer: its instances need more "
                            "visibility-buffer rows than a visibility word addresses (32 - kVisTriangleBits bits)",
@@ -2532,9 +2457,7 @@ namespace Desert::Graphic
             // The ground joins the same early-Z pass ("Deferred: Terrain Depth Prepass", AddFrameGBuffer), which
             // exists only beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer"
             // writes its own depth.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( auto* ground = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
-                 ground != nullptr )
+            if ( auto* ground = m_Systems.Terrain.get(); ground != nullptr )
             {
                 Common::Scalability::EarlyZPassMode terrainEarlyZ = Common::Scalability::EarlyZPassMode::Off;
                 if ( meshRenderer != nullptr )
@@ -2547,9 +2470,7 @@ namespace Desert::Graphic
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
             // face view draws no particles (AddFrameParticlesSimulate above).
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
-                 particles != nullptr && !m_ViewProfile.SceneCapture )
+            if ( auto* particles = m_Systems.Particle.get(); particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
             if ( grassVisibility.IsValid() )
                 AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
@@ -2630,7 +2551,6 @@ namespace Desert::Graphic
                 // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
                 // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history,
                 // which this frame's scene copy below refills.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 // ScreenSpace, SoftwareTraced and HardwareTraced run the same pass (the traced two its traced
                 // permutation over their tracer, AddFrameSSR).
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Screen trace + traced GI" );
@@ -2640,7 +2560,7 @@ namespace Desert::Graphic
                        reflections == Common::Scalability::ReflectionMethod::SoftwareTraced ||
                        reflections == Common::Scalability::ReflectionMethod::HardwareTraced ) &&
                                EnsureSSRResources()
-                                           ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                                           ? m_Systems.SSR.get()
                                            : nullptr;
                 const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
                 const FrameScreenTrace screenTrace =
@@ -2672,8 +2592,7 @@ namespace Desert::Graphic
                 // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
                 // depth), no glass section and no water surface (it writes its own depth).
                 {
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                    const auto* waterSurface = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+                    const auto* waterSurface = m_Systems.Water.get();
                     const bool  depthFinal =
                          m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
                          ( meshRenderer == nullptr || ( meshRenderer->GetGenericQueue().empty() &&
@@ -2753,25 +2672,21 @@ namespace Desert::Graphic
                 AddFrameOpaqueFog( graph, textures, frame, OpaqueFogFroxels::AddedEarlier );
 
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Scene copy, water + glass" );
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+                auto* copy = m_Systems.SceneColorCopy.get();
                 // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces
                 // read): one copy serves this frame's refraction and next frame's SSR and screen probes.
                 std::function<void()> stampHistory;
                 if ( screenTrace.SceneHistory.IsValid() )
                 {
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact
                     // type
-                    auto* history = UNIQUE_GET_AS( System::SceneColorHistoryRenderer,
-                                                   m_RenderSystems["SceneColorHistorySystem"] );
+                    auto* history = m_Systems.SceneColorHistory.get();
                     stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
                 }
                 // THE COPY ONLY FOR A CONSUMER (UE: the scene colour copy only for a view with a refractive
                 // primitive): next frame's screen traces (the history above), this frame's water, or a translucent
                 // section in the view (the glass refraction). None of them: no copy, and the water and glass
                 // nodes, which have nothing to draw, add none.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                const auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+                const auto* water = m_Systems.Water.get();
                 const bool  copyConsumed =
                      screenTrace.SceneHistory.IsValid() || ( water != nullptr && water->HasDraws() ) ||
                      ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
@@ -2793,8 +2708,8 @@ namespace Desert::Graphic
             // as Deferred - the scene copy it refracts, then the glass node. No screen trace runs on this path:
             // the copy is no scene history, and there is no front layer (the glass reads "the sky alone").
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+            auto* meshRenderer = m_Systems.Mesh.get();
+            auto* copy         = m_Systems.SceneColorCopy.get();
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
             AddFrameOpaqueFog( graph, textures, frame, OpaqueFogFroxels::AddHere );
@@ -2927,8 +2842,7 @@ namespace Desert::Graphic
 #if DESERT_DEV_INSTRUMENTS
             // The engine's debug lines (bounding boxes), the first overlay. The scene's gameplay debug drawing
             // is not here: it draws over the final image (AddFrameDebugDraw, below).
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            if ( auto* mesh = m_Systems.Mesh.get() )
                 AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
 #endif // DESERT_DEV_INSTRUMENTS
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
@@ -3053,9 +2967,9 @@ namespace Desert::Graphic
         // THE FRAME'S STATISTICS ARE PUBLISHED HERE, where the frame that counted them ends: the interface reads
         // them (the status bar, the cascade viewer) while the next frame may be recording on the render task, so
         // it reads the last finished frame's value, never the mesh renderer's state mid-frame.
-        if ( const auto mesh = m_RenderSystems.find( "MeshSystem" ); mesh != m_RenderSystems.end() && mesh->second )
+        if ( const auto& mesh = m_Systems.Mesh )
         {
-            const auto* meshRenderer = static_cast<const System::MeshRenderer*>( mesh->second.get() );
+            const auto* meshRenderer = mesh.get();
             m_PublishedViewTriangles.store( meshRenderer->GetViewTrianglesDrawn(), std::memory_order_relaxed );
             // The cascade caches: assigned in place (no allocation once sized), a shared_ptr copy per cascade.
             const uint32_t         cascades = meshRenderer->GetCascadeCount();
@@ -3086,20 +3000,15 @@ namespace Desert::Graphic
                               : SunShadowIsRayTraced()    ? SunShadowReadout::RayTraced
                               : m_FrameCascades           ? SunShadowReadout::Cascaded
                                                           : SunShadowReadout::None;
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                readout.Draws = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                                     ->DescribePrimitive( readout.Entity );
+                readout.Draws      = m_Systems.Mesh->DescribePrimitive( readout.Entity );
                 m_PrimitiveReadout = std::move( readout );
             }
         }
 #endif
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
-        UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->ClearQueue();
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->ClearQueue();
+        m_Systems.Mesh->ClearQueues();
+        m_Systems.Terrain->ClearQueue();
+        m_Systems.Grass->ClearQueue();
+        m_Systems.Water->ClearQueue();
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
@@ -3112,7 +3021,7 @@ namespace Desert::Graphic
 #endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ForgetGpuScene();
+        m_Systems.Mesh->ForgetGpuScene();
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
@@ -3193,52 +3102,40 @@ namespace Desert::Graphic
         // lights' ShadowView is -1 and the froxels light through every wall. The water is in no opaque depth the
         // screen masks were traced against either: its program reads the maps wherever it draws
         // (WaterRenderer::FrameSamples, after PrepareFrame).
-        template <typename Systems>
-        bool ShadowMapReadersOutsideMeshes( const Systems& systems, const std::string_view mapName )
+        bool ShadowMapReadersOutsideMeshes( const SceneRenderSystems& systems, const std::string_view mapName )
         {
-            const auto fog = systems.find( "VolumetricFogSystem" );
-            if ( fog != systems.end() && fog->second &&
-                 static_cast<const System::VolumetricFogRenderer*>( fog->second.get() )->IsActive() )
+            if ( systems.VolumetricFog && systems.VolumetricFog->IsActive() )
                 return true;
-            const auto water = systems.find( "WaterSystem" );
-            if ( water != systems.end() && water->second &&
-                 static_cast<const System::WaterRenderer*>( water->second.get() )->FrameSamples( mapName ) )
+            if ( systems.Water && systems.Water->FrameSamples( mapName ) )
                 return true;
-            const auto terrain = systems.find( "TerrainSystem" );
-            if ( terrain != systems.end() && terrain->second &&
-                 static_cast<const System::TerrainRenderer*>( terrain->second.get() )->ForwardReadsTexture( mapName ) )
+            if ( systems.Terrain && systems.Terrain->ForwardReadsTexture( mapName ) )
                 return true;
-            const auto particles = systems.find( "ParticleSystem" );
-            return particles != systems.end() && particles->second &&
-                   static_cast<const System::ParticleRenderer*>( particles->second.get() )
-                        ->ViewEmittersSample( mapName );
+            return systems.Particle && systems.Particle->ViewEmittersSample( mapName );
         }
     } // namespace
 
     std::span<const System::ParticleViewEmitterCull> SceneRenderer::ParticleViewEmitterCulls() const
     {
-        const auto particles = m_RenderSystems.find( "ParticleSystem" );
-        if ( particles == m_RenderSystems.end() || !particles->second )
+        const auto& particles = m_Systems.Particle;
+        if ( !particles )
             return {};
-        return static_cast<const System::ParticleRenderer*>( particles->second.get() )->ViewEmitterCulls();
+        return particles->ViewEmitterCulls();
     }
 
     bool SceneRenderer::LocalShadowMapsRead() const
     {
-        const auto meshes = m_RenderSystems.find( "MeshSystem" );
-        if ( meshes != m_RenderSystems.end() && meshes->second &&
-             static_cast<const System::MeshRenderer*>( meshes->second.get() )->LocalShadowMapReadersQueued() )
+        const auto& meshes = m_Systems.Mesh;
+        if ( meshes && meshes->LocalShadowMapReadersQueued() )
             return true;
-        return ShadowMapReadersOutsideMeshes( m_RenderSystems, kSceneViewLocalShadowAtlasName );
+        return ShadowMapReadersOutsideMeshes( m_Systems, kSceneViewLocalShadowAtlasName );
     }
 
     bool SceneRenderer::SunCascadesRead() const
     {
-        const auto meshes = m_RenderSystems.find( "MeshSystem" );
-        if ( meshes != m_RenderSystems.end() && meshes->second &&
-             static_cast<const System::MeshRenderer*>( meshes->second.get() )->SunCascadeReadersQueued() )
+        const auto& meshes = m_Systems.Mesh;
+        if ( meshes && meshes->SunCascadeReadersQueued() )
             return true;
-        return ShadowMapReadersOutsideMeshes( m_RenderSystems, kSceneViewShadowCascadesName );
+        return ShadowMapReadersOutsideMeshes( m_Systems, kSceneViewShadowCascadesName );
     }
 
     void SceneRenderer::AssignLocalShadowMaskSlots( const Core::Frustum& view )
@@ -3551,8 +3448,7 @@ namespace Desert::Graphic
         // cached pages stay).
         if ( !hasSun && !LocalLightsReadVirtualPages() )
             return {};
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* const meshes = m_Systems.Mesh.get();
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
         const System::MeshRenderer::VirtualShadowInvalidation invalidation =
              meshes->CollectVirtualShadowInvalidation();
@@ -3817,8 +3713,8 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer );
-        const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
+        RegisterSystem<System::SSRRenderer>( m_Systems.SSR, this, m_TargetFramebuffer );
+        const auto& ssrSys = m_Systems.SSR;
         if ( const Common::BoolResultStr initialized = ssrSys->Initialize(); !initialized )
         {
             RefuseProgramMethods( kScreenTraceReflectionMethods, "SSR", initialized.GetError() );
@@ -3910,11 +3806,10 @@ namespace Desert::Graphic
         m_RetriedProgramRefusals.Shadows            = std::exchange( m_ProgramRefusals.Shadows, {} );
         // The deferred composite's refused permutations are acquired and built again now (they are not made
         // lazily on use): the ones still refused are refused again, said only when the reason changed.
-        const auto deferredSystem = m_RenderSystems.find( "DeferredLightingSystem" );
+        const auto& deferredSystem = m_Systems.DeferredLighting;
         if ( auto* const deferred =
-                  deferredSystem == m_RenderSystems.end()
-                       ? nullptr
-                       : dynamic_cast<System::DeferredLightingRenderer*>( deferredSystem->second.get() ) )
+                  !deferredSystem ? nullptr
+                                  : dynamic_cast<System::DeferredLightingRenderer*>( deferredSystem.get() ) )
         {
             deferred->RetryRefusedPrograms();
             RefuseShadowPrograms( deferred->Refusals() );
@@ -3934,8 +3829,8 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        RegisterSystem<System::PathTracer>( "PathTracerSystem", this, m_TargetFramebuffer );
-        const auto& pathTracer = SP_CAST( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        RegisterSystem<System::PathTracer>( m_Systems.PathTracer, this, m_TargetFramebuffer );
+        const auto& pathTracer = m_Systems.PathTracer;
         // A refusal holds PathTraced off both axes from the next BeginScene (this frame LowerPathTracingForFrame
         // renders HardwareTraced) until the shader service recompiles a program
         // (RetryRefusedProgramsAfterRecompile).
@@ -3962,10 +3857,8 @@ namespace Desert::Graphic
         Renderer::GetInstance().WaitDeviceIdle();
         // The hierarchy every screen trace walks (HZBRenderer) and the scene colour history every trace returns at
         // a hit (SceneColorHistoryRenderer): the view's, built with the first trace that needs them.
-        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
-        if ( const Common::BoolResultStr initialized =
-                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
-             !initialized )
+        RegisterSystem<System::HZBRenderer>( m_Systems.HZB, this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized = m_Systems.HZB->Initialize(); !initialized )
         {
             // The screen probes run without their screen leg (black HZB, AddFrameTracedGI); the reflections that
             // trace the screen cannot.
@@ -3973,11 +3866,9 @@ namespace Desert::Graphic
             m_ScreenTraceResourcesFailed = true;
             return false;
         }
-        RegisterSystem<System::SceneColorHistoryRenderer>( "SceneColorHistorySystem", this, m_TargetFramebuffer );
-        if ( const Common::BoolResultStr initialized =
-                  SP_CAST( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] )
-                       ->Initialize();
-             !initialized )
+        RegisterSystem<System::SceneColorHistoryRenderer>( m_Systems.SceneColorHistory, this,
+                                                           m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized = m_Systems.SceneColorHistory->Initialize(); !initialized )
         {
             RefuseProgramMethods( kScreenTraceReflectionMethods, "SceneColorHistory", initialized.GetError() );
             m_ScreenTraceResourcesFailed = true;
@@ -4033,9 +3924,9 @@ namespace Desert::Graphic
         renderer.WaitDeviceIdle();
         renderer.ResizeWindowEvent( width, height );
         // THE OUTPUT SET (ViewTargetSet::Output): the post-process chain after the temporal resolve.
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
+        m_Systems.Tonemap->Resize( width, height );
+        m_Systems.FXAA->Resize( width, height );
+        m_Systems.SMAA->Resize( width, height );
         // THE RENDER SET at the last accepted frame's scale; the next frame's own split corrects it if the
         // scale changed (OnUpdate -> ResizeRenderTargets( frame.Split.Render )).
         if ( const auto split = MakeResolutionSplit( m_ViewExtent, m_LastRenderScalePercent ) )
@@ -4056,18 +3947,15 @@ namespace Desert::Graphic
         m_TargetFramebuffer->Resize( width, height );
         if ( m_GBuffer )
             m_GBuffer->Resize( width, height );
-        if ( auto resolve =
-                  SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] ) )
+        if ( auto resolve = m_Systems.SceneDepthResolve )
             resolve->Resize( width, height );
 
         // The silhouette mask and the overdraw target are drawn with the scene's meshes: the scene's extent.
-        if ( const auto& maskFb = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                                       ->GetSilhouetteMaskFramebuffer() )
+        if ( const auto& maskFb = m_Systems.Mesh->GetSilhouetteMaskFramebuffer() )
             maskFb->Resize( width, height );
 
 #if DESERT_DEV_INSTRUMENTS
-        if ( const auto& overdrawFb =
-                  UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetOverdrawFramebuffer() )
+        if ( const auto& overdrawFb = m_Systems.Mesh->GetOverdrawFramebuffer() )
             overdrawFb->Resize( width, height );
 #endif
 
@@ -4195,24 +4083,23 @@ namespace Desert::Graphic
                 parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
             NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), parents );
         }
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitMesh( { .Entity                   = extra.Entity,
-                             .MotionPart               = extra.MotionPart,
-                             .Mesh                     = drawnMesh,
-                             .Transform                = transform,
-                             .MaterialSlots            = materialSlots,
-                             .SectionSlot              = extra.SectionSlot,
-                             .BoneMatrices             = extra.BoneMatrices,
-                             .MorphWeights             = extra.MorphWeights,
-                             .MorphRevision            = extra.MorphRevision,
-                             .Outlined                 = extra.Outlined,
-                             .HiddenSubmeshes          = extra.HiddenSubmeshes,
-                             .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),
-                             .LODBias                  = extra.LODBias,
-                             .CastShadows              = extra.CastShadows,
-                             .ReceiveShadows           = extra.ReceiveShadows,
-                             .CastContactShadow        = extra.CastContactShadow,
-                             .TranslucencySortPriority = extra.TranslucencySortPriority } );
+        m_Systems.Mesh->SubmitMesh( { .Entity                   = extra.Entity,
+                                      .MotionPart               = extra.MotionPart,
+                                      .Mesh                     = drawnMesh,
+                                      .Transform                = transform,
+                                      .MaterialSlots            = materialSlots,
+                                      .SectionSlot              = extra.SectionSlot,
+                                      .BoneMatrices             = extra.BoneMatrices,
+                                      .MorphWeights             = extra.MorphWeights,
+                                      .MorphRevision            = extra.MorphRevision,
+                                      .Outlined                 = extra.Outlined,
+                                      .HiddenSubmeshes          = extra.HiddenSubmeshes,
+                                      .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),
+                                      .LODBias                  = extra.LODBias,
+                                      .CastShadows              = extra.CastShadows,
+                                      .ReceiveShadows           = extra.ReceiveShadows,
+                                      .CastContactShadow        = extra.CastContactShadow,
+                                      .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
@@ -4238,21 +4125,18 @@ namespace Desert::Graphic
             for ( const auto& [slot, asset] : overrides->Textures )
                 TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
-        UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-             ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
+        m_Systems.Terrain->Submit(
+             { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
     void SceneRenderer::SubmitLandscapeGrass( const System::GrassFieldDraw& draw )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Submit( draw );
+        m_Systems.Grass->Submit( draw );
     }
 
     void SceneRenderer::SubmitWaterZone( const System::WaterZoneDraw& zone )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Submit( zone );
+        m_Systems.Water->Submit( zone );
     }
 
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
@@ -4268,18 +4152,17 @@ namespace Desert::Graphic
                   NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), {}, &overrides );
              directTexture != nullptr )
             TextureStreamingDemand::Get().NoteAsset( directTexture->GetOwningAsset(), pixels );
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Entity               = entity,
-                                    .Mesh                 = mesh,
-                                    .Transform            = transform,
-                                    .ShaderName           = shaderName,
-                                    .Overrides            = overrides,
-                                    .Outlined             = outlined,
-                                    .CastShadows          = castShadows,
-                                    .VisibleInRayTracing  = visibleInRayTracing,
-                                    .DirectTexture        = directTexture,
-                                    .DirectTextureSampler = directTextureSampler,
-                                    .RayHit               = rayHit } );
+        m_Systems.Mesh->SubmitGenericMesh( { .Entity               = entity,
+                                             .Mesh                 = mesh,
+                                             .Transform            = transform,
+                                             .ShaderName           = shaderName,
+                                             .Overrides            = overrides,
+                                             .Outlined             = outlined,
+                                             .CastShadows          = castShadows,
+                                             .VisibleInRayTracing  = visibleInRayTracing,
+                                             .DirectTexture        = directTexture,
+                                             .DirectTextureSampler = directTextureSampler,
+                                             .RayHit               = rayHit } );
     }
 
     void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
@@ -4292,33 +4175,33 @@ namespace Desert::Graphic
             const Material* const drawn[] = { material };
             NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), drawn );
         }
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Entity      = entity,
-                                    .MotionPart  = motionPart,
-                                    .Mesh        = mesh,
-                                    .Transform   = transform,
-                                    .Outlined    = outlined,
-                                    .CastShadows = castShadows,
-                                    // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
-                                    .VisibleInRayTracing = true,
-                                    .SlotMaterial        = material,
-                                    .VisibleSubmeshMask  = visibleSubmeshMask } );
+        m_Systems.Mesh->SubmitGenericMesh(
+             { .Entity      = entity,
+               .MotionPart  = motionPart,
+               .Mesh        = mesh,
+               .Transform   = transform,
+               .Outlined    = outlined,
+               .CastShadows = castShadows,
+               // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
+               .VisibleInRayTracing = true,
+               .SlotMaterial        = material,
+               .VisibleSubmeshMask  = visibleSubmeshMask } );
     }
 
     uint32_t SceneRenderer::GetIsmInstancesDrawn() const
     {
-        const auto found = m_RenderSystems.find( "MeshSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.Mesh;
+        if ( !found )
             return 0;
-        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
+        return found->GetIsmInstancesDrawn();
     }
 
     const Engine::Neural::NrcStats* SceneRenderer::GetRadianceCacheStats() const
     {
-        const auto found = m_RenderSystems.find( "PathTracerSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.PathTracer;
+        if ( !found )
             return nullptr;
-        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStats();
+        return found->GetRadianceCacheStats();
     }
 
     System::PathTracer::RadianceCacheStatus SceneRenderer::GetRadianceCacheStatus() const
@@ -4329,8 +4212,8 @@ namespace Desert::Graphic
         // named no reason (state nrc after "Quality: PathTracing.RadianceCache Nrc" on a HardwareTraced view).
         using Method = Common::Scalability::PathTracingRadianceCacheMethod;
         System::PathTracer::RadianceCacheStatus status;
-        if ( const auto found = m_RenderSystems.find( "PathTracerSystem" ); found != m_RenderSystems.end() )
-            status = static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
+        if ( const auto& found = m_Systems.PathTracer )
+            status = found->GetRadianceCacheStatus();
         status.Requested = m_PathTracingSettings.RadianceCache;
         if ( status.Requested != Method::Off && !PathTraced( m_RenderMethods ) )
         {
@@ -4344,18 +4227,18 @@ namespace Desert::Graphic
 
     const GpuDriven::DrawCommandCache* SceneRenderer::GetDrawCommandCache() const
     {
-        const auto found = m_RenderSystems.find( "MeshSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.Mesh;
+        if ( !found )
             return nullptr;
-        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetDrawCommandCache();
+        return found->GetDrawCommandCache();
     }
 
     uint32_t SceneRenderer::GetStandInDraws() const
     {
-        const auto found = m_RenderSystems.find( "MeshSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.Mesh;
+        if ( !found )
             return 0;
-        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetStandInDraws();
+        return found->GetStandInDraws();
     }
 
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
@@ -4365,10 +4248,10 @@ namespace Desert::Graphic
 
     System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const
     {
-        const auto found = m_RenderSystems.find( "MeshSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.Mesh;
+        if ( !found )
             return {};
-        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetForwardPrepassStats();
+        return found->GetForwardPrepassStats();
     }
 
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
@@ -4393,17 +4276,16 @@ namespace Desert::Graphic
         // component's own `RuntimeMesh` member is a `shared_ptr<DynamicMesh>`. The queue never used it
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
-        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Entity            = entity,
-                                      .Mesh              = mesh,
-                                      .Material          = material,
-                                      .DisplacedMaterial = displacedMaterial,
-                                      .HiddenSubmeshes   = hiddenSubmeshes,
-                                      .Transforms        = transforms,
-                                      .CastShadows       = castShadows,
-                                      .CastContactShadow = castContactShadow,
-                                      .CullDistance      = cullDistance,
-                                      .Wind              = wind } );
+        m_Systems.Mesh->SubmitInstancedMesh( { .Entity            = entity,
+                                               .Mesh              = mesh,
+                                               .Material          = material,
+                                               .DisplacedMaterial = displacedMaterial,
+                                               .HiddenSubmeshes   = hiddenSubmeshes,
+                                               .Transforms        = transforms,
+                                               .CastShadows       = castShadows,
+                                               .CastContactShadow = castContactShadow,
+                                               .CullDistance      = cullDistance,
+                                               .Wind              = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )
@@ -4413,8 +4295,7 @@ namespace Desert::Graphic
              [this, color, width, smoothness, enabled]
              {
                  CheckWriteBetweenRecordings( "SceneRenderer::SetOutlineSettings" );
-                 const auto& jumpFloodSystem =
-                      UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+                 const auto& jumpFloodSystem = m_Systems.JumpFlood.get();
                  jumpFloodSystem->SetEnabled( enabled );
                  jumpFloodSystem->SetOutlineColor( color );
                  jumpFloodSystem->SetOutlineWidth( width );
@@ -4444,8 +4325,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look )
     {
-        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->PrepareMaterial( material, look );
+        m_Systems.Skybox->PrepareMaterial( material, look );
     }
 
     void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
@@ -4453,81 +4333,75 @@ namespace Desert::Graphic
                                           const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
-        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
+        m_Systems.Skybox->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
     }
 
     const AtmosphereEnv& SceneRenderer::GetAtmosphere() const
     {
-        return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems.at( "SkyboxSystem" ) )->GetAtmosphere();
+        return m_Systems.Skybox->GetAtmosphere();
     }
 
     CloudEnvironmentBake SceneRenderer::BuildCloudEnvironmentBake()
     {
-        return UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->BuildEnvironmentBake();
+        return m_Systems.VolumetricCloud->BuildEnvironmentBake();
     }
 
     bool SceneRenderer::DrawsVolumetricClouds() const
     {
-        const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        return it != m_RenderSystems.end() &&
-               UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second )->IsPresent();
+        const auto& it = m_Systems.VolumetricCloud;
+        return it && it->IsPresent();
     }
 
     bool SceneRenderer::IsCloudVolumeBaking() const
     {
         // `find` rather than `operator[]`, exactly as GetCloudShadowInput does it: this is a const observer
         // and must not insert an empty system into the map on the way to answering "is there one".
-        const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.VolumetricCloud;
+        if ( !it )
             return false;
 
-        const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
+        const auto* clouds = it.get();
         return clouds && clouds->IsModellingVolumeBaking();
     }
 
     SkyLightState SceneRenderer::GetSkyLightState() const
     {
-        const auto it = m_RenderSystems.find( "SkyboxSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.Skybox;
+        if ( !it )
             return SkyLightState::NoSky;
 
-        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        const auto* sky = it.get();
         return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
     }
 
     bool SceneRenderer::SkyLightRecapturesFor( const glm::vec3& sunDir ) const
     {
-        const auto it = m_RenderSystems.find( "SkyboxSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.Skybox;
+        if ( !it )
             return false;
 
-        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        const auto* sky = it.get();
         return sky && sky->SkyLightRecapturesFor( sunDir );
     }
 
     float SceneRenderer::CloudVolumeBakeProgress() const
     {
-        const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.VolumetricCloud;
+        if ( !it )
             return 0.0f;
 
-        const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
+        const auto* clouds = it.get();
         return clouds ? clouds->ModellingBakeProgress() : 0.0f;
     }
 
     std::optional<Environment> SceneRenderer::GetEnvironment()
     {
-        return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->GetEnvironment();
+        return m_Systems.Skybox->GetEnvironment();
     }
 
     void SceneRenderer::BorrowEnvironment( std::optional<Environment> environment )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->BorrowEnvironment( std::move( environment ) );
+        m_Systems.Skybox->BorrowEnvironment( std::move( environment ) );
     }
 
     void SceneRenderer::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
@@ -4799,11 +4673,10 @@ namespace Desert::Graphic
 
     std::shared_ptr<Image2D> SceneRenderer::GetHdrRenditionImage() const
     {
-        const auto it = m_RenderSystems.find( "TonemapSystem" );
-        if ( it == m_RenderSystems.end() || !it->second )
+        const auto& it = m_Systems.Tonemap;
+        if ( !it )
             return nullptr;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        return static_cast<const System::TonemapRenderer*>( it->second.get() )->GetHdrRenditionImage();
+        return it->GetHdrRenditionImage();
     }
 
     void SceneRenderer::LogHdrRenditionPeak() const
@@ -4845,19 +4718,18 @@ namespace Desert::Graphic
     std::shared_ptr<Desert::Graphic::Framebuffer> SceneRenderer::GetDisplayFramebuffer() const
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
-        const char* finalSystem = "TonemapSystem";
+        System::RenderSystem* finalSystem = m_Systems.Tonemap.get();
         if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
         {
-            finalSystem = "FXAASystem";
+            finalSystem = m_Systems.FXAA.get();
         }
         else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
         {
-            finalSystem = "SMAASystem";
+            finalSystem = m_Systems.SMAA.get();
         }
-        const auto found = m_RenderSystems.find( finalSystem );
-        if ( found == m_RenderSystems.end() || !found->second )
+        if ( finalSystem == nullptr )
             return nullptr;
-        return std::static_pointer_cast<System::RenderSystem>( found->second )->GetSystemFramebuffer();
+        return finalSystem->GetSystemFramebuffer();
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
@@ -4880,51 +4752,33 @@ namespace Desert::Graphic
         m_SpotLightShadows.push_back( shadow );
     }
 
-    void SceneRenderer::TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )
+    void SceneRenderer::TrackRenderSystem( const IRenderSystem* replaced, IRenderSystem* system ) noexcept
     {
-        // Replacing a system keeps the slot it already holds in the registration order: an editor tool
-        // that re-registers its pass every time a setting changes must not walk to the back of the queue
-        // and start drawing over neighbours it used to draw under.
-        if ( m_RenderSystems.find( name ) == m_RenderSystems.end() )
-            m_RenderSystemOrder.push_back( name );
-
-        m_RenderSystems[name] = std::move( system );
-    }
-
-    void SceneRenderer::ForgetRenderSystem( const std::string& name )
-    {
-        m_RenderSystems.erase( name );
-        m_RenderSystemOrder.erase( std::remove( m_RenderSystemOrder.begin(), m_RenderSystemOrder.end(), name ),
-                                   m_RenderSystemOrder.end() );
-    }
-
-    void SceneRenderer::RegisterRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )
-    {
-        TrackRenderSystem( name, std::move( system ) );
-    }
-
-    void SceneRenderer::UnregisterRenderSystem( const std::string& name )
-    {
-        ForgetRenderSystem( name );
+        // Replacing a system keeps the place its predecessor held in the registration order: a pass re-registered
+        // when a setting changes must not walk to the back of the queue and start drawing over neighbours it
+        // used to draw under.
+        const auto held = std::find( m_RenderSystemOrder.begin(), m_RenderSystemOrder.end(), replaced );
+        if ( replaced != nullptr && held != m_RenderSystemOrder.end() )
+        {
+            *held = system;
+            return;
+        }
+        m_RenderSystemOrder.push_back( system );
     }
 
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
     {
-        UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )
-             ->SetFogSettings( present, data, fogHeightY );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
-             ->SetFogSettings( present, data, fogHeightY );
+        m_Systems.HeightFog->SetFogSettings( present, data, fogHeightY );
+        m_Systems.VolumetricFog->SetFogSettings( present, data, fogHeightY );
     }
 
     void SceneRenderer::SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
                                              const glm::vec3& windOffset, const glm::vec3& windDirection,
                                              const std::vector<HeroCloudInstance>& heroClouds )
     {
-        UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection,
-                                 m_CloudQuality,
-                                 heroClouds ); // a profile without clouds never allocates their targets
+        m_Systems.VolumetricCloud->SetCloudSettings(
+             present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection, m_CloudQuality,
+             heroClouds ); // a profile without clouds never allocates their targets
     }
 
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
@@ -4954,11 +4808,11 @@ namespace Desert::Graphic
 
         // `find` rather than `operator[]`: this is a const observer and must not insert an empty system
         // into the map on the way to answering "is there one".
-        const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.VolumetricCloud;
+        if ( !it )
             return cloudShadow;
 
-        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
+        auto* clouds = it.get();
         if ( !clouds || !clouds->HasShadowMap() )
             return cloudShadow;
 

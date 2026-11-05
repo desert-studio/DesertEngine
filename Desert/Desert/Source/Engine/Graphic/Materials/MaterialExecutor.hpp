@@ -94,6 +94,32 @@ namespace Desert::Graphic
         [[nodiscard]] Texture2DProperty*     FindTexture2DProperty( std::string_view name ) const;
         [[nodiscard]] TextureCubeProperty*   FindTextureCubeProperty( std::string_view name ) const;
 
+        // DL-6 (UE: FShaderParameter is bound once per shader, a draw reads the bound index): the scene frame's
+        // blocks, which SceneFrameBinding::ApplyTo writes into every drawn material every frame, resolved ONCE
+        // where the properties are built (InitializeProperties). The property set is fixed from then on and a
+        // rebuilt material is a new executor, so no pointer here can outlive its property. Null = the shader
+        // declares no such block (the writers say a miss of a block the template must have, as Get did).
+        struct SceneBlocks
+        {
+            UniformBufferProperty* Camera             = nullptr;
+            UniformBufferProperty* Time               = nullptr;
+            StorageBufferProperty* PointLights        = nullptr;
+            StorageBufferProperty* SpotLights         = nullptr;
+            UniformBufferProperty* DirectionLights    = nullptr;
+            UniformBufferProperty* LightsMetadata     = nullptr;
+            UniformBufferProperty* Shadow             = nullptr;
+            UniformBufferProperty* SkyLook            = nullptr;
+            UniformBufferProperty* CloudShadow        = nullptr;
+            UniformBufferProperty* RainOcclusion      = nullptr;
+            StorageBufferProperty* GpuScenePrimitives = nullptr;
+            StorageBufferProperty* ObjectBones        = nullptr;
+            StorageBufferProperty* WorldParameters    = nullptr;
+        };
+        [[nodiscard]] const SceneBlocks& GetSceneBlocks() const noexcept
+        {
+            return m_SceneBlocks;
+        }
+
         // The dense property arrays, in the order the lookups index them: a walk over every block of the material
         // (the prepare, the field flush) reads these and never goes back through a name.
         [[nodiscard]] const std::vector<std::shared_ptr<UniformBufferProperty>>& GetUniformBufferStorage() const
@@ -215,5 +241,10 @@ namespace Desert::Graphic
         PropertyLookup<StorageBufferProperty> m_StorageBufferPropertiesLookup;
         PropertyLookup<Texture2DProperty>     m_Texture2DPropertiesLookup;
         PropertyLookup<TextureCubeProperty>   m_TextureCubePropertiesLookup;
+
+    private:
+        // GetSceneBlocks: filled by ResolveSceneBlocks at the end of InitializeProperties.
+        SceneBlocks m_SceneBlocks;
+        void        ResolveSceneBlocks() noexcept;
     };
 } // namespace Desert::Graphic
