@@ -374,7 +374,11 @@ namespace Desert::Graphic::RDG
     {
         CheckNotInSetupTask( m_Name, "QueueBufferUpload" );
         const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
-        const std::string     name   = record != nullptr ? record->Name : fmt::format( "#{}", buffer.Index );
+        std::string           name;
+        if ( record != nullptr )
+            name.assign( record->Name.data(), record->Name.size() );
+        else
+            name = fmt::format( "#{}", buffer.Index );
         std::string           error;
         if ( record == nullptr )
             error = fmt::format( "graph '{}': upload into invalid buffer handle {}", m_Name, buffer.Index );

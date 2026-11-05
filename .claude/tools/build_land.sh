@@ -5,6 +5,7 @@
 [ $# -ge 2 ] || { echo "usage: build_land.sh <land tree> <log> [scn]"; exit 2; }
 rm -f "$2.rc"
 export CCACHE_RECACHE=1
+export DESERT_NINJA_ARGS="-k 0"   # one build shows every compile error of the batch, not the first one
 bash C:/aftmp/build_low_run.sh "$@"
 rc=$?
 echo "$rc" > "$2.rc"

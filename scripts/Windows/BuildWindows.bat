@@ -155,7 +155,11 @@ echo --- Building ^(%BUILD_PRESET%^)
 echo     Tip: close Editor.exe first — a running one makes the link fail with LNK1168.
 set "TARGET_ARG="
 if defined TARGETS set "TARGET_ARG=--target%TARGETS%"
-cmake --build --preset %BUILD_PRESET% %TARGET_ARG%
+REM DESERT_NINJA_ARGS (e.g. "-k 0" from .claude/tools/build_land.sh) goes to ninja as-is, so one build reports
+REM every compile error of a batch instead of stopping at the first failed file.
+set "NATIVE_ARG="
+if defined DESERT_NINJA_ARGS set "NATIVE_ARG=-- %DESERT_NINJA_ARGS%"
+cmake --build --preset %BUILD_PRESET% %TARGET_ARG% %NATIVE_ARG%
 if errorlevel 1 (
     echo [ERROR] build failed ^(%CONFIG%^). 1>&2
     exit /b 1
