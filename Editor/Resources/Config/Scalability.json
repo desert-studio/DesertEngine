@@ -308,7 +308,8 @@
             },
             "High": {
                 "Reflections.MaxSteps": 48,
-                "Reflections.RaysPerPixel": 2
+                "Reflections.RaysPerPixel": 2,
+                "Reflections.Method": "SoftwareTraced"
             },
             "Epic": {},
             "Cinematic": {

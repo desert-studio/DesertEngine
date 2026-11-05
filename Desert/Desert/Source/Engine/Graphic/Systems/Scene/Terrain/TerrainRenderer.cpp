@@ -1851,7 +1851,10 @@ namespace Desert::Graphic::System
         for ( std::size_t i = 0; i < m_DiceCullJobs.size(); ++i )
         {
             const DiceCullJob& job = m_DiceCullJobs[i];
+            // The block's push range is declared with its bindings (RDGPassBindings validates it against the
+            // shader's PushConstants block: 48 bytes) - the Record below pushes exactly this many.
             node.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DiceCullPipeline ) )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( DiceCullPush ) ) )
                  .Storage( DiceCullShaderParameters::LandscapeDiceCullRows, rows, RDG::Access::StorageRead )
                  .Storage( DiceCullShaderParameters::LandscapeDicePoolCorners, m_DicePoolCornerNodes,
                            RDG::Access::StorageRead )
