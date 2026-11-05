@@ -3,6 +3,7 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
+#include "Tools/MeshToPhysicsTool.hpp"
 #include "RenderMethodsOverlay.hpp"
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -2228,6 +2229,7 @@ namespace Desert::Editor
                         m_UVTool.ApplyProjectionGizmo( *m_Scene, *volume );
                 }
                 m_MeshProcessingTool.Update( *m_Scene );
+                Tools::MeshToPhysicsTool::Update( *m_Scene );
                 m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
                 m_PaintGroupsTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                           m_ViewportData.IsHovered );

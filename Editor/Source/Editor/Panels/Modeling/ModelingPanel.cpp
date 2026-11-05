@@ -20,6 +20,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/MeshToPhysicsTool.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/SculptTool.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -1678,8 +1679,13 @@ namespace Desert::Editor
         for ( size_t i = 0; i < kCollisionShapes.size(); ++i )
             names[i] = kCollisionShapes[i].Name;
         ImGui::SetNextItemWidth( -1.0f );
-        ImGui::Combo( "##CollisionShape", &m_CollisionShape, names.data(), static_cast<int>( names.size() ) );
-        if ( ImGui::Button( "Mesh To Collision", ImVec2( -1.0f, 0.0f ) ) )
+        // The type is the open tool's setting (UE: a property of the tool): changing it while Mesh To Collision is
+        // open re-fits the preview.
+        const bool shapeChanged =
+             ImGui::Combo( "##CollisionShape", &m_CollisionShape, names.data(), static_cast<int>( names.size() ) );
+        const bool collisionOpen =
+             Tools::MeshToPhysicsTool::OpenTool() == Core::ModelingState::Tool::MeshToCollision;
+        if ( ImGui::Button( "Mesh To Collision", ImVec2( -1.0f, 0.0f ) ) || ( shapeChanged && collisionOpen ) )
         {
             const auto done =
                  MeshToCollision( m_Scene, kCollisionShapes.at( static_cast<size_t>( m_CollisionShape ) ) );
@@ -1693,8 +1699,10 @@ namespace Desert::Editor
         for ( size_t i = 0; i < kVolumeTypes.size(); ++i )
             volumeNames[i] = kVolumeTypes[i].Name;
         ImGui::SetNextItemWidth( -1.0f );
-        ImGui::Combo( "##VolumeType", &m_VolumeType, volumeNames.data(), static_cast<int>( volumeNames.size() ) );
-        if ( ImGui::Button( "Mesh To Volume", ImVec2( -1.0f, 0.0f ) ) )
+        const bool typeChanged = ImGui::Combo( "##VolumeType", &m_VolumeType, volumeNames.data(),
+                                               static_cast<int>( volumeNames.size() ) );
+        const bool volumeOpen  = Tools::MeshToPhysicsTool::OpenTool() == Core::ModelingState::Tool::MeshToVolume;
+        if ( ImGui::Button( "Mesh To Volume", ImVec2( -1.0f, 0.0f ) ) || ( typeChanged && volumeOpen ) )
         {
             const auto done = MeshToVolume( m_Scene, kVolumeTypes.at( static_cast<size_t>( m_VolumeType ) ) );
             if ( !done.IsSuccess() )
@@ -1705,96 +1713,17 @@ namespace Desert::Editor
     Common::ResultStr<bool> ModelingPanel::MeshToVolume( const std::shared_ptr<Desert::Core::Scene>& scene,
                                                          const VolumeTypeEntry&                      type )
     {
-        const auto& ids = Core::SelectionManager::GetSelection();
-        if ( !scene || ids.size() != 1 )
-            return Common::MakeFormattedError<bool>( "select one entity with a static mesh ({} selected)",
-                                                     ids.size() );
-        const Common::UUID id  = ids.front();
-        const auto         ref = scene->FindEntityByID( id );
-        if ( !ref )
-            return Common::MakeFormattedError<bool>( "entity {} is not in the scene",
-                                                     static_cast<uint64_t>( id ) );
-        const ECS::Entity entity = ref->get();
-        if ( entity.HasComponent<ECS::VolumeComponent>() )
-            return Common::MakeFormattedError<bool>( "entity {} is already a volume", static_cast<uint64_t>( id ) );
-
-        // The mesh's points at the entity's WORLD scale, body-local: the volume takes the source's world pose
-        // (it is created at the scene root, the source may be a child) and carries the scale in its points, as
-        // UE's tool bakes the actor's scale into the new brush.
-        const auto world    = ECS::Rules::DecomposeTransform( entity.GetWorldTransform() );
-        auto       gathered = ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(),
-                                                                         world.Scale );
-        if ( !gathered.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
-                                                     gathered.GetError() );
-        if ( !gathered.GetValue().has_value() )
-            return Common::MakeFormattedError<bool>( "entity {}: its mesh is still loading",
-                                                     static_cast<uint64_t>( id ) );
-        // UE's AVolume brush is the CONVEX HULL of the mesh (UMeshToVolumeTool, ConvexHull), not its triangles:
-        // the outline drawn is the region Jolt simulates.
-        auto hull = Physics::BuildConvexHull( gathered.GetValue()->Points );
-        if ( !hull.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ), hull.GetError() );
-        Physics::ConvexHullGeometry shape = std::move( hull.GetValue() );
-
-        const std::string name = std::string( type.Name ) + "Volume";
-        const auto replaced    = Commands::ReplaceWithNewEntity(
-             id, name,
-             [&]( ECS::Entity& volume )
-             {
-                 volume.SetLocalTransform( ECS::LocalTransform{ world.Translation, world.Rotation, glm::vec3( 1.0f ) } );
-
-                 ECS::VolumeComponent component;
-                 component.Data.Type        = type.Type;
-                 ECS::SetVolumeCorners( component.Data, shape.Points );
-                 component.Data.HullIndices = std::move( shape.Indices );
-                 volume.AddComponent<ECS::VolumeComponent>( std::move( component ) );
-
-                 ECS::RigidBodyComponent body;
-                 body.Data.Type             = Physics::BodyType::Static;
-                 body.Data.CollisionProfile = ECS::VolumeCollisionProfile( type.Type );
-                 volume.AddComponent<ECS::RigidBodyComponent>( std::move( body ) );
-
-                 ECS::ColliderComponent collider;
-                 collider.Data.Shape = Physics::ShapeType::ConvexHull;
-                 volume.AddComponent<ECS::ColliderComponent>( std::move( collider ) );
-             } );
-        if ( !replaced.IsSuccess() )
-            return Common::MakeError<bool>( replaced.GetError() );
-        LOG_INFO( "[Modeling] Mesh To Volume on entity {}: {} volume {}", static_cast<uint64_t>( id ), type.Name,
-                  static_cast<uint64_t>( replaced.GetValue() ) );
-        return Common::MakeSuccess( true );
+        if ( !scene )
+            return Common::MakeError<bool>( "no scene is open" );
+        return Tools::MeshToPhysicsTool::BeginVolume( *scene, type.Name, type.Type );
     }
 
     Common::ResultStr<bool> ModelingPanel::MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,
                                                             const CollisionShapeEntry&                  shape )
     {
-        const auto& ids = Core::SelectionManager::GetSelection();
-        if ( !scene || ids.size() != 1 )
-            return Common::MakeFormattedError<bool>( "select one entity with a static mesh ({} selected)",
-                                                     ids.size() );
-        const Common::UUID id  = ids.front();
-        const auto         ref = scene->FindEntityByID( id );
-        if ( !ref )
-            return Common::MakeFormattedError<bool>( "entity {} is not in the scene",
-                                                     static_cast<uint64_t>( id ) );
-        const ECS::Entity entity = ref->get();
-
-        const auto fit = Core::FitEntityCollider( entity, shape.Shape );
-        if ( !fit.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
-                                                     fit.GetError() );
-        const ECS::ColliderData collider = fit.GetValue();
-        Commands::MutateEntityUndoable( id,
-                                        [&]
-                                        {
-                                            auto live = scene->FindEntityByID( id );
-                                            if ( live )
-                                                live->get().AddComponent<ECS::ColliderComponent>(
-                                                     ECS::ColliderComponent{ collider } );
-                                        } );
-        LOG_INFO( "[Modeling] Mesh To Collision on entity {}: {}", static_cast<uint64_t>( id ), shape.Name );
-        return Common::MakeSuccess( true );
+        if ( !scene )
+            return Common::MakeError<bool>( "no scene is open" );
+        return Tools::MeshToPhysicsTool::BeginCollision( *scene, shape.Name, shape.Shape );
     }
 
     void ModelingPanel::DrawCubeGrid()

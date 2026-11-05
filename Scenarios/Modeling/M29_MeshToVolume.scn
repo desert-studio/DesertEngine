@@ -1,4 +1,4 @@
-# M29 Mesh To Volume: a Sphere becomes a Trigger volume (outline, Volume component); Undo restores the Sphere; a falling 20 cm Box passes through the volume in Play and the log names its entry and exit
+# M29 Mesh To Volume (a tool since MOD-SCN: preview, then Accept): a Sphere becomes a Trigger volume (outline, Volume component); Undo restores the Sphere; a falling 20 cm Box passes through the volume in Play and the log names its entry and exit
 # Play and Stop clear the undo history (PlaySession), so Undo is checked BEFORE Simulate and Redo brings the volume back.
 # Simulate (UE Simulate In Editor): the world ticks with no pawn, so the frame is the editor camera with the volume outline.
 Дано run View "View mode: Lit"
@@ -14,6 +14,7 @@
 Дано run Entity Sphere
 Дано --subject selection set Translation 0,100,0
 Когда run Modeling "Mesh To Volume Trigger"
+Когда run Modeling "Active tool: Accept"
 Тогда 1_volume на месте сферы контур выпуклого объёма без заливки; в Outliner сущность TriggerVolume; в Details компонент Volume (Volume Type Trigger)
 Когда run Action Undo
 Тогда 3_undo объёма нет, Sphere снова меш на своём месте, в Outliner Sphere

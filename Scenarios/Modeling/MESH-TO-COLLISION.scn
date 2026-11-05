@@ -1,0 +1,28 @@
+# MESH-TO-COLLISION: Mesh To Collision and Mesh To Volume are tools (UE USetCollisionGeometryTool / UMeshToVolumeTool) - a preview, then Accept or Cancel
+# The preview is orange lines (ToolPreview); Cancel leaves the entity with no Collider; Accept adds it (Details shows the Collider section).
+# Mesh To Volume: the hull previews, Accept replaces the Box with TriggerVolume (green outline, Volume component).
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 220,260,320
+Дано --subject viewport set Camera.Direction -0.5,-0.45,-0.74
+Дано --subject modeling set CreateShape.Sphere.Radius 50
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Когда run Modeling "Mesh To Collision Capsule"
+Тогда 0_preview orange capsule lines around the sphere (the preview), the tool bar at the viewport bottom reads Mesh To Collision with Accept and Cancel; Details has no Collider section
+Когда run Modeling "Active tool: Cancel"
+Тогда 1_cancel no orange lines, no tool bar; Details of the Sphere still has no Collider section
+Когда run Modeling "Mesh To Collision Sphere"
+Когда run Modeling "Active tool: Accept"
+Тогда 2_accept no preview lines, no tool bar; Details of the Sphere now has a Collider section (Shape Sphere, Radius about 50)
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 160,0,0
+Когда run Modeling "Mesh To Volume Trigger"
+Тогда 3_volume_preview orange box-hull lines on the Box (the preview), the Box is still a mesh; tool bar Mesh To Volume
+Когда run Modeling "Active tool: Accept"
+Тогда 4_volume the Box is replaced by TriggerVolume - its green outline only, Outliner lists TriggerVolume, Details shows the Volume component

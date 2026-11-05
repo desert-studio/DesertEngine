@@ -1,0 +1,36 @@
+# WARP-LATTICE: Warp Bend 90 degrees curls a tall subdivided Box; Lattice moves the front centre control point and bulges a second Box
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject modeling set CreateShape.Box.Width 40
+Дано --subject modeling set CreateShape.Box.Depth 40
+Дано --subject modeling set CreateShape.Box.Height 160
+Дано --subject modeling set CreateShape.Box.WidthSubdivisions 4
+Дано --subject modeling set CreateShape.Box.DepthSubdivisions 4
+Дано --subject modeling set CreateShape.Box.HeightSubdivisions 16
+Дано --subject viewport set Camera.Position 100,120,420
+Дано --subject viewport set Camera.Direction 0,-0.1,-1
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Когда run Modeling "Deform tool: Warp"
+Когда run Modeling "Warp operation: Bend"
+Когда --subject modeling set Warp.BendDegrees 90
+Тогда-вид 0_bend the tall box is bent into a quarter arc
+Когда run Modeling "Active tool: Accept"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 200,0,0
+Дано --subject viewport set Camera.Position 200,80,300
+Дано --subject viewport set Camera.Direction 0,0,-1
+Когда run Modeling "Deform tool: Lattice"
+Когда --subject modeling set Lattice.XAxisResolution 3
+Когда --subject modeling set Lattice.YAxisResolution 3
+Когда --subject modeling set Lattice.ZAxisResolution 3
+Когда run Modeling "Lattice: pick control point at the viewport centre"
+Тогда-вид 1_picked the lattice cage over the second box, its front centre point yellow (selected) with the gizmo on it
+Когда --subject modeling set Lattice.GizmoZ 100
+Когда --subject viewport set Camera.Position 380,140,260
+Когда --subject viewport set Camera.Direction -0.6,-0.2,-0.77
+Тогда-вид 2_bulge from the side: the second box's front face bulges out toward +Z in the middle
+Когда run Modeling "Active tool: Accept"
+Тогда 3_accepted both deformed boxes stay deformed, no tool bar
