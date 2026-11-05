@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/IndexBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -118,6 +119,26 @@ namespace Desert::Graphic::System
         // per triangle corner in every view; every terrain draw of the frame binds the pool. With no diced tile
         // the pool is one zero vertex, still bound (the vertex stage declares it).
         [[nodiscard]] Common::BoolResultStr AddDicePoolPass( RDG::Builder& graph, FrameTextures& textures );
+
+        // Last frame's furthest HZB of the main view for the dice cull (SceneRenderer::FramePrevHzb): invalid =
+        // the frustum alone (no history, a camera cut, the forward path, a scene capture).
+        struct DiceOcclusion
+        {
+            RDG::TextureRef Hzb{};
+            RDG::TextureRef Neutral{};                  // bound when Hzb is invalid (System.Black)
+            glm::mat4       PrevViewProjection{ 1.0f }; // what Hzb was built through, unjittered
+            glm::uvec3      Extent{ 0u };               // Hzb's mip-0 size and mip count
+        };
+        // TERRAIN-DICE-CULL (UE Nanite cluster culling: frustum + last frame's HZB into a compact list), after
+        // AddDicePoolPass and before the camera's terrain rasters are declared: "Landscape: Dice Cull"
+        // (LandscapeDiceCull.shader) keeps the cells of every diced camera row's rings that the camera's
+        // (jittered) frustum and, while the eye has not moved since the HZB's frame, @p occlusion's HZB do not
+        // reject, into one indirect draw per ring level that the camera's rasters (TerrainGBuffer, the depth
+        // prepass, the forward pass) draw instead of the rings' procedural decode. The casters keep the decode.
+        // Also reads back the census of the frame the slot held ("[Terrain] triangles in view").
+        [[nodiscard]] Common::BoolResultStr AddDiceCullPass( RDG::Builder& graph, FrameTextures& textures,
+                                                             const ViewFrame&     frame,
+                                                             const DiceOcclusion& occlusion );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
@@ -334,7 +355,18 @@ namespace Desert::Graphic::System
             // What RecordDraws draws instead (TERRAIN-GPU-2): the dice rings procedurally, the other cells through
             // the grid's shared index buffer (m_GridIndices[Split.Cells]).
             LandscapeDrawSplit Split;
+            // TERRAIN-DICE-CULL: a camera draw's first indirect record of m_DiceCullArgs (kLandscapeDiceLevels of
+            // them, one a ring level) when its rings are culled (QueueDiceCull); kNoDiceCull = the decode.
+            uint32_t DiceCull = ~0u;
         };
+        static constexpr uint32_t kNoDiceCull = ~0u;
+        // TERRAIN-DICE-CULL: @p view (a camera draw of diced row @p row, whose corner nodes start at @p
+        // firstCorner in the pool) gets its cull job: the row's list range (DicePool.z) and its records.
+        void QueueDiceCull( FrameDraw& view, TerrainInstance& row, uint32_t firstCorner );
+        // The camera rasters' indirect records, when this frame's cull ran (else none: the procedural rings).
+        [[nodiscard]] RDG::BufferRef CameraDiceCullArgs() const;
+        // Reads the census slot @p frameIndex comes back to and logs "[Terrain] triangles in view" when it moved.
+        void ReportDiceCullCensus( uint64_t frameIndex );
         // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile, the grid's
         // index buffer made first if this is the first draw at that grid (EnsureGridIndices).
         void SplitDraw( FrameDraw& draw, uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row );
@@ -371,12 +403,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::vector<const MaterialExecutor*>
         GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
 
-        [[nodiscard]] Common::BoolResultStr
-        RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
-                     std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                     const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
-                     const std::optional<glm::vec2>&             shadowSlope = std::nullopt,
-                     const std::optional<VirtualShadowIndirect>& indirect    = std::nullopt );
+        [[nodiscard]] Common::BoolResultStr RecordDraws(
+             const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
+             std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
+             const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope = std::nullopt,
+             const std::optional<VirtualShadowIndirect>& indirect = std::nullopt, RDG::BufferRef diceCull = {} );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         // The forward program's DESERT_LOCAL_SHADOW_VSM permutation, built on the first frame whose local shadows
@@ -512,7 +543,38 @@ namespace Desert::Graphic::System
         // only in PrepareFrame / PrepareLocalShadowViews, read by RecordDraws.
         std::unordered_map<uint32_t, std::shared_ptr<IndexBuffer>> m_GridIndices;
         RDG::BufferRef                   m_DicePool;
+        RDG::BufferRef                   m_DicePoolCornerNodes; // this frame's corner nodes (AddDicePoolPass)
         std::shared_ptr<ComputePipeline> m_DicePoolPipeline;
         ShaderBindingLayoutCache         m_DicePoolLayout;
+
+        // THE DICE CULL (AddDiceCullPass): per culled camera draw its row (DicePool.z = its first list entry),
+        // the fade square's cells it tests and its corner nodes; m_DiceCullCells = the list's length (each job
+        // kLandscapeDiceLevels x Cells), m_DiceCells / m_DiceCullArgs this frame's list and records (the list
+        // bound by every terrain draw), m_DiceCulled = the cull ran (the camera's rasters draw the records).
+        struct DiceCullJob
+        {
+            TerrainInstance Row;
+            uint32_t        Cells       = 0;
+            uint32_t        FirstCorner = 0;
+            float           Reach       = 0.0f;
+        };
+        std::vector<DiceCullJob>         m_DiceCullJobs;
+        uint32_t                         m_DiceCullCells = 0;
+        RDG::BufferRef                   m_DiceCells;
+        RDG::BufferRef                   m_DiceCullArgs;
+        bool                             m_DiceCulled = false;
+        std::shared_ptr<ComputePipeline> m_DiceCullPipeline;
+        ShaderBindingLayoutCache         m_DiceCullLayout;
+        // The census: per frame in flight the records read back and what the CPU knew of that frame.
+        struct DiceCullCensus
+        {
+            RDG::ExternalBuffer Args;
+            uint32_t            Jobs          = 0;
+            uint64_t            Tested        = 0; // cells tested (every culled row's fade square)
+            uint64_t            GridTriangles = 0; // the camera's undiced grid cells' (not culled here)
+        };
+        std::vector<DiceCullCensus> m_DiceCullCensus;
+        uint64_t                    m_DiceCullGridTriangles = 0;
+        uint64_t                    m_LoggedCulledTriangles = 0;
     };
 } // namespace Desert::Graphic::System

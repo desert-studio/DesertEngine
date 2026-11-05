@@ -2013,6 +2013,27 @@ namespace Desert::Graphic
                              RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
+        // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
+        // grass registered it just above: FramePrevHzb hands the same ref), before any node drawing the terrain.
+        {
+            System::TerrainRenderer::DiceOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
+            if ( m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture )
+            {
+                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
+                {
+                    occlusion.Hzb                = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
+                    occlusion.PrevViewProjection = frame.PrevViewProjection;
+                    occlusion.Extent             = glm::uvec3(
+                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
+                }
+            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            if ( const Common::BoolResultStr culled =
+                      terrain->AddDiceCullPass( graph, textures, frame, occlusion );
+                 !culled )
+                LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), culled.GetError() );
+        }
 
         // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
         // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
