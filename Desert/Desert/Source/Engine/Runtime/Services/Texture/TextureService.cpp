@@ -214,8 +214,15 @@ namespace Desert::Runtime
         else
             ClaimTextureImage( entry.Built, handle );
 
-        m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
-                          { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+        // At the hand-off (MAT-CELL-LOAD): the render job builds cells on its workers (OVERLAP-ON-7), adding
+        // waiters (RebuildWhenReady) and asking them (AwaitsTextures) under the material service's lock; the
+        // settle and the invalidations it raises wait for that work, as the texture's own swap does.
+        Engine::RenderTask::Get().AfterJoin(
+             [this, handle]()
+             {
+                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+             } );
     }
 
     void TextureService::BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const
@@ -242,8 +249,13 @@ namespace Desert::Runtime
                  LOG_ERROR( "[TextureService] '{}' could not be read: {}. Materials naming it sample the "
                             "slot's schema default; it is not retried.",
                             it->second.Source->GetMetadata().Filepath.string(), error );
-                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
-                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+                 // At the hand-off, as a landed texture settles (MAT-CELL-LOAD).
+                 Engine::RenderTask::Get().AfterJoin(
+                      [this, handle]()
+                      {
+                          m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                                            { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+                      } );
              },
              [this, handle]
              {
