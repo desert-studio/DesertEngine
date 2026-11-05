@@ -3,21 +3,32 @@
         "Kind": "FoliageType",
         "Guid": "16813970bb6f4a48808fb02df97393b4",
         "Versions": {
-            "FOLT": 9
+            "FOLT": 10
         },
-        "Dependencies": [
-            "6fc7758ca71aaf424936be96d961d61e"
-        ]
+        "Dependencies": ["6fc7758ca71aaf424936be96d961d61e"]
     },
     "Kind": "Mesh",
+    "Mesh": {
+        "Guid": "6fc7758ca71aaf424936be96d961d61e",
+        "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh"
+    },
     "Prefab": {
         "Guid": "",
         "Path": ""
     },
     "Density": 100.0,
+    "Scaling": "Uniform",
     "ScaleX": {
-        "Min": 2.8,
-        "Max": 2.8
+        "Min": 2.799999952316284,
+        "Max": 2.799999952316284
+    },
+    "ScaleY": {
+        "Min": 2.799999952316284,
+        "Max": 2.799999952316284
+    },
+    "ScaleZ": {
+        "Min": 2.799999952316284,
+        "Max": 2.799999952316284
     },
     "ZOffset": {
         "Min": -2.0,
@@ -42,14 +53,10 @@
     },
     "Wind": {
         "Strength": 0.0,
-        "Speed": 0.4,
+        "Speed": 0.4000000059604645,
         "Height": 600.0
     },
     "IncludeInHLOD": true,
-    "Mesh": {
-        "Guid": "6fc7758ca71aaf424936be96d961d61e",
-        "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh"
-    },
     "Procedural": {
         "CollisionRadius": 150.0,
         "ShadeRadius": 150.0,
@@ -66,8 +73,8 @@
         "MaxAge": 10.0,
         "OverlapPriority": 2.0,
         "ProceduralScale": {
-            "Min": 2.4,
-            "Max": 3.2
+            "Min": 2.4000000953674316,
+            "Max": 3.200000047683716
         },
         "ScaleCurve": [
             {

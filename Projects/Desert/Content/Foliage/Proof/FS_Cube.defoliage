@@ -5,9 +5,7 @@
         "Versions": {
             "FOLT": 10
         },
-        "Dependencies": [
-            "5f0161b9e6ed62cc63dd359f0301c8e8"
-        ]
+        "Dependencies": ["5f0161b9e6ed62cc63dd359f0301c8e8"]
     },
     "Kind": "Mesh",
     "Prefab": {
