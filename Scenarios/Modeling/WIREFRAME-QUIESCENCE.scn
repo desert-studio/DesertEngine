@@ -1,0 +1,12 @@
+# WIREFRAME-QUIESCENCE: the editor settles in the Wireframe view as it does in Lit - a Box from Shapes, Wireframe, then Lit
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,120,260
+Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,40,0
+Когда run View "View mode: Wireframe"
+Тогда 1_wireframe the box's wireframe edges are visible; the step answered in under 60 s (no 'pipeline is still compiling' hang)
+Когда run View "View mode: Lit"
+Тогда 2_lit the box shaded in Lit
