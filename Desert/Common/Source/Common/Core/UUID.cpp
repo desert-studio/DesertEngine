@@ -21,16 +21,4 @@ namespace Common
         return UUID( value ? value : 1ull );
     }
 
-    UUID::UUID( const std::string& uuidStr )
-    {
-        try
-        {
-            m_UUID = std::stoull( uuidStr );
-        }
-        catch ( const std::exception& )
-        {
-            throw std::invalid_argument( "Invalid UUID string: " + uuidStr );
-        }
-    }
-
 } // namespace Common

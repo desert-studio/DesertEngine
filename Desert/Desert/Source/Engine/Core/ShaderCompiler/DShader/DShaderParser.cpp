@@ -1,6 +1,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Common/Core/NumberText.hpp>
 #include <Engine/Assets/Serialization/WorldParameters.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
@@ -163,15 +164,14 @@ namespace Desert::Core::Preprocess
             while ( !c.AtEnd() && ( std::isdigit( static_cast<unsigned char>( c.Peek() ) ) || c.Peek() == '.' ||
                                     c.Peek() == '-' || c.Peek() == '+' ) )
                 tok.push_back( c.Advance() );
-            try
-            {
-                out = std::stof( tok );
-            }
-            catch ( ... )
+            // std::stof's reading, as a value (Common::FloatFromText): a leading number is taken, as before.
+            const std::optional<float> number = Common::FloatFromText( tok );
+            if ( !number )
             {
                 err = { c.Line, "expected a number, got '" + tok + "'" };
                 return false;
             }
+            out = *number;
             return true;
         }
 

@@ -123,26 +123,21 @@ namespace Common::Json
         }
     } // namespace Detail
 
-    ResultStr<std::vector<std::pair<std::string, std::string>>> ObjectMembers( std::string_view json )
+    // No catch: rfl is used through its Result API only (Json::Read's comment); both .value() calls are
+    // behind their own check.
+    ResultStr<std::vector<std::pair<std::string, std::string>>> ObjectMembers( std::string_view json ) noexcept
     {
-        using Members = std::vector<std::pair<std::string, std::string>>;
-        try
-        {
-            const auto parsed = rfl::json::read<rfl::Generic>( json );
-            if ( !parsed )
-                return MakeError<Members>( Detail::DescribeReadError( parsed.error().what() ) );
-            const auto object = parsed.value().to_object();
-            if ( !object )
-                return MakeError<Members>( "document: the top level is not a JSON object" );
+        using Members     = std::vector<std::pair<std::string, std::string>>;
+        const auto parsed = rfl::json::read<rfl::Generic>( json );
+        if ( !parsed )
+            return MakeError<Members>( Detail::DescribeReadError( parsed.error().what() ) );
+        const auto object = parsed.value().to_object();
+        if ( !object )
+            return MakeError<Members>( "document: the top level is not a JSON object" );
 
-            Members members;
-            for ( const auto& [name, value] : object.value() )
-                members.emplace_back( name, rfl::json::write( value ) );
-            return MakeSuccess( std::move( members ) );
-        }
-        catch ( const std::exception& e )
-        {
-            return MakeError<Members>( Detail::DescribeReadError( e.what() ) );
-        }
+        Members members;
+        for ( const auto& [name, value] : object.value() )
+            members.emplace_back( name, rfl::json::write( value ) );
+        return MakeSuccess( std::move( members ) );
     }
 } // namespace Common::Json

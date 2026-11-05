@@ -30,7 +30,8 @@ namespace Common
         }
 
         explicit UUID( uint64_t uuid );
-        explicit UUID( const std::string& uuidStr );
+        // No constructor from text: it could only answer a text that is not a number by throwing. A UUID read
+        // from text is a std::from_chars into uint64_t at the reader, which refuses by value.
 
         // DEFAULTED, not hand-written. The copy constructor used to be a user-provided
         // `UUID( const UUID& other ) : m_UUID( other.m_UUID ) {}` in the .cpp, which does precisely what

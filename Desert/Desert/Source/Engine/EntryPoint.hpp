@@ -65,24 +65,11 @@ inline void DesertTerminateBacktrace()
     std::fprintf( stderr, "\n=== DESERT TERMINATE ===\n" );
 #endif
 
-    // The exception itself is worth printing on EVERY platform even where the stack is not available:
-    // `what()` is what says `vector` rather than merely `std::length_error`, and that one word is what
-    // pointed at a torn container rather than at a bad argument.
-    if ( auto ptr = std::current_exception() )
-    {
-        try
-        {
-            std::rethrow_exception( ptr );
-        }
-        catch ( const std::exception& e )
-        {
-            std::fprintf( stderr, "uncaught %s: %s\n", typeid( e ).name(), e.what() );
-        }
-        catch ( ... )
-        {
-            std::fprintf( stderr, "uncaught non-std exception\n" );
-        }
-    }
+    // No rethrow-and-catch to read what(): engine code does not catch, and a job or a noexcept frame
+    // that a std or ThirdParty throw reaches lands here with the throwing frames still live, so the stack
+    // below is what names it.
+    if ( std::current_exception() )
+        std::fprintf( stderr, "an exception reached a noexcept frame (engine code does not throw)\n" );
     std::fflush( stderr );
 
 #ifndef _WIN32
