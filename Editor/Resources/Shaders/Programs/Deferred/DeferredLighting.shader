@@ -179,7 +179,7 @@ Shader "DeferredLighting"
         // view's tint index (0..3), else kDeferredDirectUntinted.
         Out(0) vec4 oDirect;
         // A scattered texel's direct specular (the composite's subsurface split); a 1x1 nothing reads otherwise.
-        layout(set = 1, binding = 9, rgba32f) writeonly uniform image2D DeferredDirectSpecularTexture;
+        layout(set = 1, binding = 9, rgba32f) writeonly uniform image2D DeferredDirectSpecularImage;
         // The shading models' ambient bodies need the split-sum arithmetic only, never the sky's cubes.
         #define AMBIENT_IBL_NO_SAMPLERS
         #include <Mesh/AmbientIBL.glslh>
@@ -625,7 +625,7 @@ Shader "DeferredLighting"
         	// The composite's inputs: the direct sum, the cascade the Shadow Cascades view tints, and a scattered
         	// texel's specular half, which its subsurface split takes off (diffuse = result - specular).
         	if (scatters)
-        		imageStore(DeferredDirectSpecularTexture, ivec2(gl_FragCoord.xy), vec4(specular, 0.0));
+        		imageStore(DeferredDirectSpecularImage, ivec2(gl_FragCoord.xy), vec4(specular, 0.0));
         	const bool tinted = shadowView == 2 && cascade >= 0;
         	oDirect = vec4(result, tinted ? float(min(cascade, 3)) : kDeferredDirectUntinted);
         }

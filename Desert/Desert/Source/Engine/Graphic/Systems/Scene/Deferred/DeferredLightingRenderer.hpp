@@ -128,9 +128,9 @@ namespace Desert::Graphic::System
         {
             Core::ShaderVariant variant;
             variant.Defines.emplace_back( kDirectDefine );
-            // Every permutation but MegaLights under StochasticVisibility::Screen reads the sun's screen mask;
-            // that one keeps the sun's cascades (the screen source draws no sun mask).
-            if ( program != kMegaLightsCascadeProgram )
+            // Every permutation but the cascades' own and MegaLights under StochasticVisibility::Screen reads
+            // the sun's screen mask; those two keep the sun's cascades (the screen source draws no sun mask).
+            if ( program != kCascadeProgram && program != kMegaLightsCascadeProgram )
                 variant.Defines.emplace_back( kSunShadowScreenMaskDefine );
             if ( program == kMegaLightsProgram || program == kMegaLightsCascadeProgram )
                 variant.Defines.emplace_back( kMegaLightsDefine );
