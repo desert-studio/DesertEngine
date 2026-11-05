@@ -439,15 +439,19 @@ namespace Desert::Graphic::RDG
         struct ExecClosure
         {
             void* Callable = nullptr;
-            Common::BoolResultStr ( *Invoke )( void*, PassContext& ) = nullptr;
+            Common::BoolResultStr ( *Invoke )( void*, PassContext& ) noexcept = nullptr;
 
-            Common::BoolResultStr operator()( PassContext& context ) const
+            // A pass body is noexcept (a throw in it is a bug and ends the process at the throw); a record whose
+            // exec was never placed answers an error value instead of calling through null.
+            Common::BoolResultStr operator()( PassContext& context ) const noexcept
             {
+                if ( Invoke == nullptr )
+                    return Common::MakeError( "the pass has no exec (its frame arena could not grow)" );
                 return Invoke( Callable, context );
             }
         };
         template <class Callable>
-        static Common::BoolResultStr InvokeExec( void* callable, PassContext& context )
+        static Common::BoolResultStr InvokeExec( void* callable, PassContext& context ) noexcept
         {
             return ( *static_cast<Callable*>( callable ) )( context );
         }

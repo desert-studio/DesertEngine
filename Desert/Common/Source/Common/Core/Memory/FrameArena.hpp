@@ -29,11 +29,14 @@ namespace Common::Memory
     public:
         static constexpr size_t kDefaultBlockBytes = 16u * 1024u;
         static constexpr size_t kMaxGrowBytes      = 4u * 1024u * 1024u; // the doubling stops here
+        // A request (size or alignment) above this is refused with nullptr: the block arithmetic below
+        // (at + bytes, bytes + alignment, header + bytes) cannot wrap under it.
+        static constexpr size_t kMaxRequestBytes = ~size_t{ 0 } / 4u;
 
         struct Stats
         {
             size_t   UsedBytes     = 0; // allocated since the last Reset, alignment padding included
-            size_t   PeakBytes     = 0; // the most one Reset-to-Reset span used since construction
+            size_t   PeakBytes     = 0; // the most in use at once since construction (Rewind and Reset note it)
             size_t   ReservedBytes = 0; // the bytes of every block held
             uint32_t Blocks        = 0;
         };
@@ -78,9 +81,12 @@ namespace Common::Memory
         FrameArena( const FrameArena& )            = delete;
         FrameArena& operator=( const FrameArena& ) = delete;
 
-        // @p alignment is a power of two. Never nullptr unless the system refuses a new block.
+        // @p alignment is a power of two. Never nullptr unless the system refuses a new block or the request is
+        // above kMaxRequestBytes.
         [[nodiscard]] void* Allocate( size_t bytes, size_t alignment ) noexcept
         {
+            if ( bytes > kMaxRequestBytes || alignment > kMaxRequestBytes )
+                return nullptr;
             if ( bytes == 0 )
                 bytes = 1;
             for ( Block* block = m_Current; block != nullptr; block = block->Next )
@@ -148,6 +154,9 @@ namespace Common::Memory
         // Runs the destructors registered after @p mark (newest first) and returns the arena to it.
         void Rewind( const Mark& mark ) noexcept
         {
+            // A ScopedMark's scratch counts towards the peak too, before the rewind gives it back.
+            if ( m_UsedBytes > m_PeakBytes )
+                m_PeakBytes = m_UsedBytes;
             RunDestructors( mark.Destructors );
             Block* const from = mark.At != nullptr ? mark.At->Next : m_First;
             for ( Block* block = from; block != nullptr; block = block->Next )
@@ -166,9 +175,7 @@ namespace Common::Memory
         // several blocks is replaced by one block of their total size (kept as it is if the system refuses it).
         void Reset() noexcept
         {
-            if ( m_UsedBytes > m_PeakBytes )
-                m_PeakBytes = m_UsedBytes;
-            Rewind( Mark{} );
+            Rewind( Mark{} ); // notes the peak first
             if ( m_First == nullptr || m_First->Next == nullptr )
                 return;
             size_t total = 0;
@@ -304,19 +311,21 @@ namespace Common::Memory
         {
         }
 
-        [[nodiscard]] T* allocate( size_t count )
+        // No exception path: the heap branch asks the nothrow operator new, and either branch's refusal (out of
+        // memory - a container cannot take a null allocation) ends the process here, never as a bad_alloc.
+        [[nodiscard]] T* allocate( size_t count ) noexcept
         {
             const size_t bytes = count * sizeof( T );
+            void*        memory = nullptr;
             if ( m_Arena == nullptr )
             {
                 if constexpr ( alignof( T ) > __STDCPP_DEFAULT_NEW_ALIGNMENT__ )
-                    return static_cast<T*>( ::operator new( bytes, std::align_val_t{ alignof( T ) } ) );
+                    memory = ::operator new( bytes, std::align_val_t{ alignof( T ) }, std::nothrow );
                 else
-                    return static_cast<T*>( ::operator new( bytes ) );
+                    memory = ::operator new( bytes, std::nothrow );
             }
-            void* const memory = m_Arena->Allocate( bytes, alignof( T ) );
-            // A container cannot take a null allocation: the system refused a block, which is out of memory -
-            // the point where the global heap would end the process too.
+            else
+                memory = m_Arena->Allocate( bytes, alignof( T ) );
             if ( memory == nullptr )
                 std::abort();
             return static_cast<T*>( memory );
