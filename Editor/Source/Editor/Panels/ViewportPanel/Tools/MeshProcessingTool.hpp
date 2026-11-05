@@ -24,6 +24,11 @@ namespace Desert::Core
     class Scene;
 } // namespace Desert::Core
 
+namespace Desert::Editor::Core
+{
+    struct MergeInputs;
+} // namespace Desert::Editor::Core
+
 namespace Desert::Editor::Tools
 {
     class GizmoController;
@@ -153,6 +158,11 @@ namespace Desert::Editor::Tools
             // VisibilityComponent before that (nullopt = it had none, so Restore removes the one added).
             bool                OtherHidden = false;
             std::optional<bool> OtherVisibility;
+            // Merge (UE UCombineMeshesTool): the inputs gathered at Begin (Entity is the first, the receiver,
+            // and draws the merged preview); the others are hidden for the session, each with its
+            // VisibilityComponent before that (nullopt = it had none), put back by Restore.
+            std::shared_ptr<const Core::MergeInputs>                    Merge;
+            std::vector<std::pair<Common::UUID, std::optional<bool>>>  MergeHidden;
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
             // input and the settings; the last preview stays on screen until it lands. A settings change while it
             // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
@@ -179,9 +189,10 @@ namespace Desert::Editor::Tools
         // written as Core::CommitBooleanTool says (into the operated input or a new entity, the inputs deleted /
         // hidden / kept) - one undo step.
         [[nodiscard]] bool AcceptBoolean( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
-        // Pattern's Accept (UE UPatternTool::OnShutdown): the source is restored and the previewed layout is
-        // written by Core::ApplyXformOperation (merged into the source or as new entities) - one undo step.
-        [[nodiscard]] bool AcceptPattern( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // Pattern's, Merge's and Split's Accept (UE UPatternTool / UCombineMeshesTool / USplitMeshesTool
+        // OnShutdown): the inputs are restored and what the preview showed is written by Core::ApplyXformOperation
+        // at the settings it was computed with - one undo step.
+        [[nodiscard]] bool AcceptXform( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
         [[nodiscard]] bool SelectionStillMatches() const;
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
@@ -202,6 +213,7 @@ namespace Desert::Editor::Tools
         Geometry::VoxBlendSettings   m_VoxBlend;
         Core::BooleanToolArgs        m_Boolean;
         Geometry::PatternSettings    m_Pattern;
+        Geometry::SplitMethod        m_Split = Geometry::SplitMethod::ConnectedComponents;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::HoleFillSettings m_HoleFill;

@@ -1,10 +1,15 @@
 #pragma once
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 
 #include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace Desert::Core
 {
@@ -37,6 +42,30 @@ namespace Desert::Editor::Core
     };
 
     [[nodiscard]] XformArgs XformArgsFromModelingState();
+
+    // Merge's inputs (UE UCombineMeshesTool's targets), gathered on the main thread from the scene selection: the
+    // first selected entity receives the result, every selected mesh is carried into its object space and its
+    // material IDs remapped into one slot table (the receiver's slots first). One source for the Merge tool
+    // session's preview (computed off the main thread from this snapshot) and for ApplyXformOperation's Merge.
+    struct MergeInputs
+    {
+        struct Part
+        {
+            std::shared_ptr<const Geometry::DynamicMesh3> Mesh;   // the entity's tool-target mesh
+            glm::mat4                                     ToInto; // its object space -> the receiver's
+            std::vector<int>                              MaterialRemap;
+        };
+        std::vector<Common::UUID>        Entities; // the selection, in order; [0] receives the result
+        std::string                      IntoName;
+        std::vector<Part>                Parts;    // one per entity, same order
+        std::vector<Common::AssetHandle> MaterialSlots;
+    };
+
+    // Refused as ApplyXformOperation's Merge is: fewer than two entities, one without an editable mesh or a
+    // transform, or one with children.
+    [[nodiscard]] Common::ResultStr<MergeInputs> GatherMergeInputs( ::Desert::Core::Scene& scene );
+    // The merged mesh in the receiver's object space; reads only @p inputs (safe on a worker thread).
+    [[nodiscard]] Common::ResultStr<Geometry::MergeOutcome> MergeGathered( const MergeInputs& inputs );
 
     // Refused, with the scene untouched, when nothing is selected, a selected entity has no editable mesh or no
     // transform, Edit Pivot / Bake / Merge meet an entity with children (their world transforms would move

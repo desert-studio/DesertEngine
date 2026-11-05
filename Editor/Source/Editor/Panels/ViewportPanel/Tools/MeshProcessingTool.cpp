@@ -82,9 +82,45 @@ namespace Desert::Editor::Tools
                     return "Trim";
                 case MS::Tool::Pattern:
                     return "Pattern";
+                case MS::Tool::Merge:
+                    return "Merge";
+                case MS::Tool::Split:
+                    return "Split";
                 default:
                     return "?";
             }
+        }
+
+        // The Split session's operator (UE USplitMeshesTool): the parts @p method cuts @p input into, counted; the
+        // preview is the input itself (the parts sit where they are) and the status names how many entities Accept
+        // makes. The same cut Core::ApplyXformOperation writes on Accept (Geometry::SplitMesh).
+        Common::ResultStr<Geometry::DeformOutcome> SplitPreview( const Geometry::DynamicMesh3& input,
+                                                                 Geometry::SplitMethod         method )
+        {
+            auto parts = Geometry::SplitMesh( input, method );
+            if ( !parts.IsSuccess() )
+                return Common::MakeError<Geometry::DeformOutcome>( parts.GetError() );
+            const size_t            count = parts.GetValue().size();
+            Geometry::DeformOutcome out;
+            out.Mesh   = input;
+            out.Report = count < 2 ? std::format( "Split by {}: one part - nothing to split", Geometry::ToString( method ) )
+                                   : std::format( "Split by {}: {} parts - Accept keeps part 0 and makes {} new entities",
+                                                  Geometry::ToString( method ), count, count - 1 );
+            return Common::MakeSuccess( std::move( out ) );
+        }
+
+        // The Merge session's operator (UE UCombineMeshesTool's preview): every input in the receiver's object
+        // space, its materials in one table.
+        Common::ResultStr<Geometry::DeformOutcome> MergePreview( const Core::MergeInputs& inputs )
+        {
+            auto merged = Core::MergeGathered( inputs );
+            if ( !merged.IsSuccess() )
+                return Common::MakeError<Geometry::DeformOutcome>( merged.GetError() );
+            Geometry::DeformOutcome out;
+            out.Mesh   = std::move( merged.ExtractValue().Mesh );
+            out.Report = std::format( "Merge: {} meshes into '{}' ({} triangles)", inputs.Parts.size(),
+                                      inputs.IntoName, out.Mesh.TriangleCount() );
+            return Common::MakeSuccess( std::move( out ) );
         }
 
         glm::mat4 WorldOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
@@ -174,7 +210,7 @@ namespace Desert::Editor::Tools
                tool == MS::Tool::Jacket || tool == MS::Tool::Project || tool == MS::Tool::WeldEdges ||
                tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph ||
                tool == MS::Tool::VoxBlend || tool == MS::Tool::Boolean || tool == MS::Tool::Trim ||
-               tool == MS::Tool::Pattern;
+               tool == MS::Tool::Pattern || tool == MS::Tool::Merge || tool == MS::Tool::Split;
     }
 
     bool MeshProcessingTool::SelectionStillMatches() const
@@ -186,8 +222,12 @@ namespace Desert::Editor::Tools
             return selection.size() == 2 && selection[0] == m_Session->Entity && selection[1] == m_Session->Other;
         }
         // Pattern previews on one source: a second selected entity ends the session (Accept writes the selection).
-        if ( m_Session->Tool == MS::Tool::Pattern && Core::SelectionManager::GetSelection().size() != 1 )
+        if ( ( m_Session->Tool == MS::Tool::Pattern || m_Session->Tool == MS::Tool::Split ) &&
+             Core::SelectionManager::GetSelection().size() != 1 )
             return false;
+        // Merge: the inputs are still exactly the selection, in its order.
+        if ( m_Session->Tool == MS::Tool::Merge )
+            return m_Session->Merge && Core::SelectionManager::GetSelection() == m_Session->Merge->Entities;
         // Project: the source is still the first of the two selected and the target the second.
         const auto selected = SessionEntity( m_Session->Tool );
         if ( m_Session->Tool == MS::Tool::Project &&
@@ -283,9 +323,10 @@ namespace Desert::Editor::Tools
                                 m_Session->Tool == MS::Tool::VoxBlend );
             const bool boolean =
                  m_Session && ( m_Session->Tool == MS::Tool::Boolean || m_Session->Tool == MS::Tool::Trim );
-            const bool pattern = m_Session && m_Session->Tool == MS::Tool::Pattern;
+            const bool xform   = m_Session && ( m_Session->Tool == MS::Tool::Pattern ||
+                                                  m_Session->Tool == MS::Tool::Merge || m_Session->Tool == MS::Tool::Split );
             if ( !( boolean         ? AcceptBoolean( scene, ms )
-                    : pattern       ? AcceptPattern( scene, ms )
+                    : xform         ? AcceptXform( scene, ms )
                     : createsEntity ? AcceptCreateFromSelected( scene, ms )
                                     : Accept( scene, ms ) ) )
                 return; // refused: the tool stays open with its preview, and says why
@@ -324,10 +365,54 @@ namespace Desert::Editor::Tools
             Recompute( scene, ms, *m_Session );
             return;
         }
-        // UE UPatternTool lays out every selected mesh; ours previews one source (the session's single input).
-        if ( ms.ActiveTool == MS::Tool::Pattern && Core::SelectionManager::GetSelection().size() != 1 )
+        if ( ms.ActiveTool == MS::Tool::Merge )
         {
-            ms.DeformStatus = "Pattern: select one entity with a static mesh.";
+            // UE UCombineMeshesTool::Setup: every selected mesh is an input; the first receives the result and
+            // draws the merged preview, the others are hidden while the tool is open.
+            auto gathered = Core::GatherMergeInputs( scene );
+            if ( !gathered.IsSuccess() )
+            {
+                ms.DeformStatus = gathered.GetError();
+                return;
+            }
+            auto inputs = std::make_shared<const Core::MergeInputs>( gathered.ExtractValue() );
+            ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, inputs->Entities.front() );
+            if ( component == nullptr )
+            {
+                ms.DeformStatus = "Merge: the first selected entity has no static mesh.";
+                return;
+            }
+            auto target = GetToolTargetMesh( *component );
+            if ( !target.IsSuccess() )
+            {
+                ms.DeformStatus = target.GetError();
+                return;
+            }
+            m_Session = Session{ ms.ActiveTool, inputs->Entities.front(), target.GetValue().Mesh,
+                                 target.GetValue().Committed, nullptr };
+            m_Session->Merge = inputs;
+            for ( size_t i = 1; i < inputs->Entities.size(); ++i )
+            {
+                const auto ref = scene.FindEntityByID( inputs->Entities[i] );
+                if ( !ref )
+                    continue;
+                ECS::Entity         e = ref->get();
+                std::optional<bool> before;
+                if ( e.HasComponent<ECS::VisibilityComponent>() )
+                    before = e.GetComponent<ECS::VisibilityComponent>().IsVisible();
+                e.SetVisible( false );
+                m_Session->MergeHidden.emplace_back( inputs->Entities[i], before );
+            }
+            Recompute( scene, ms, *m_Session );
+            return;
+        }
+        // UE UPatternTool / USplitMeshesTool take every selected mesh; ours preview one source (the session's
+        // single input).
+        if ( ( ms.ActiveTool == MS::Tool::Pattern || ms.ActiveTool == MS::Tool::Split ) &&
+             Core::SelectionManager::GetSelection().size() != 1 )
+        {
+            ms.DeformStatus = std::format( "{}: select one entity with a static mesh.",
+                                           ProcessingToolName( ms.ActiveTool ) );
             return;
         }
         const auto selected = SessionEntity( ms.ActiveTool );
@@ -437,6 +522,7 @@ namespace Desert::Editor::Tools
         m_VoxBlend      = ms.VoxBlend;
         m_Boolean          = ms.Boolean;
         m_Pattern          = ms.XformPattern;
+        m_Split            = ms.XformSplit;
         m_Normals       = ms.AttribNormals;
         m_Tangents      = ms.AttribTangents;
         m_HoleFill         = ms.MeshHoleFill;
@@ -466,7 +552,7 @@ namespace Desert::Editor::Tools
         session.Pending        = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = session.Tool, input = session.Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
-              voxBlend = m_VoxBlend, boolean = m_Boolean, pattern = m_Pattern,
+              voxBlend = m_VoxBlend, boolean = m_Boolean, pattern = m_Pattern, split = m_Split, merge = session.Merge,
               booleanInputs = session.BooleanInputs, other = session.OtherInput, normals = m_Normals,
               tangents = m_Tangents, holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket,
               remesh = m_Remesh, simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges,
@@ -498,6 +584,10 @@ namespace Desert::Editor::Tools
                          return Core::RunBooleanTool( Core::BooleanTool::Trim, boolean, booleanInputs );
                      case MS::Tool::Pattern:
                          return PatternPreview( *input, pattern, cancel.get() );
+                     case MS::Tool::Merge:
+                         return MergePreview( *merge );
+                     case MS::Tool::Split:
+                         return SplitPreview( *input, split );
                      case MS::Tool::HoleFill:
                          return Geometry::HoleFill( *input, holes, holeFill );
                      case MS::Tool::Jacket:
@@ -566,6 +656,21 @@ namespace Desert::Editor::Tools
 
     void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene, Session& session )
     {
+        for ( const auto& [id, before] : session.MergeHidden )
+        {
+            const auto ref = scene.FindEntityByID( id );
+            if ( !ref )
+                continue;
+            ECS::Entity e = ref->get();
+            if ( !before )
+            {
+                if ( e.HasComponent<ECS::VisibilityComponent>() )
+                    e.RemoveComponent<ECS::VisibilityComponent>();
+            }
+            else if ( e.HasComponent<ECS::VisibilityComponent>() )
+                e.SetVisible( *before );
+        }
+        session.MergeHidden.clear();
         if ( session.OtherHidden )
         {
             session.OtherHidden = false;
@@ -721,32 +826,48 @@ namespace Desert::Editor::Tools
         return true;
     }
 
-    bool MeshProcessingTool::AcceptPattern( ::Desert::Core::Scene& scene, MS& ms )
+    bool MeshProcessingTool::AcceptXform( ::Desert::Core::Scene& scene, MS& ms )
     {
-        const auto refuse = [&]( const std::string& why )
+        const char* tool   = m_Session ? ProcessingToolName( m_Session->Tool ) : "XForm";
+        const auto  refuse = [&]( const std::string& why )
         {
-            LOG_ERROR( "[Modeling] Pattern Accept refused: {0}", why );
-            ToastManager::Push( std::format( "Pattern Accept refused: {}", why ), ToastLevel::Error, 10.0f );
+            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", tool, why );
+            ToastManager::Push( std::format( "{} Accept refused: {}", tool, why ), ToastLevel::Error, 10.0f );
             return false;
         };
         if ( !m_Session || !m_Session->Preview )
-            return refuse( ms.DeformStatus.empty() ? std::string( "select one entity with a static mesh" )
+            return refuse( ms.DeformStatus.empty() ? std::string( "select an entity with a static mesh" )
                                                    : ms.DeformStatus );
-        // The source goes back to what it held, so the undo step records the scene as it was; then the layout the
-        // preview showed (m_Pattern) is written as Core::ApplyXformOperation does - merged into the source, or the
-        // copies as new entities - one undo step.
+        const Core::XformOperation op = m_Session->Tool == MS::Tool::Merge   ? Core::XformOperation::Merge
+                                        : m_Session->Tool == MS::Tool::Split ? Core::XformOperation::Split
+                                                                             : Core::XformOperation::Pattern;
+        // The inputs go back to what they held (and the hidden ones are shown), so the undo step records the
+        // scene as it was; then what the preview showed (m_Pattern / m_Split; Merge has no settings) is written
+        // as Core::ApplyXformOperation does - one undo step.
         Restore( scene, *m_Session );
         Core::XformArgs args = Core::XformArgsFromModelingState();
         args.Pattern         = m_Pattern;
-        const auto done      = Core::ApplyXformOperation( scene, Core::XformOperation::Pattern, args );
+        args.Split           = m_Split;
+        const auto done      = Core::ApplyXformOperation( scene, op, args );
         if ( !done.IsSuccess() )
         {
-            // Refused: the preview stays on screen and the tool open.
+            // Refused: the preview stays on screen (the other inputs hidden again) and the tool open.
             if ( const auto ref = scene.FindEntityByID( m_Session->Entity ); ref )
                 (void)ECS::SetEditableMesh( scene.GetRegistry(), ref->get().GetHandle(), m_Session->Preview );
+            if ( m_Session->Merge )
+                for ( size_t i = 1; i < m_Session->Merge->Entities.size(); ++i )
+                    if ( const auto ref = scene.FindEntityByID( m_Session->Merge->Entities[i] ); ref )
+                    {
+                        ECS::Entity         e = ref->get();
+                        std::optional<bool> before;
+                        if ( e.HasComponent<ECS::VisibilityComponent>() )
+                            before = e.GetComponent<ECS::VisibilityComponent>().IsVisible();
+                        e.SetVisible( false );
+                        m_Session->MergeHidden.emplace_back( m_Session->Merge->Entities[i], before );
+                    }
             return refuse( done.GetError() );
         }
-        LOG_INFO( "[Modeling] Pattern accepted: {0}", ms.DeformStatus );
+        LOG_INFO( "[Modeling] {0} accepted: {1}", tool, ms.DeformStatus );
         m_Session.reset();
         return true;
     }
@@ -1071,6 +1192,8 @@ namespace Desert::Editor::Tools
             // The layout; Separate entities only matters to Accept.
             case MS::Tool::Pattern:
                 return !( ms.XformPattern == m_Pattern );
+            case MS::Tool::Split:
+                return ms.XformSplit != m_Split;
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

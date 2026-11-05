@@ -2829,6 +2829,8 @@ namespace Desert::Editor
             case T::Boolean:
             case T::Trim:
             case T::Pattern:
+            case T::Merge:
+            case T::Split:
             case T::PaintGroups:                // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }

@@ -69,6 +69,11 @@ namespace Desert::Editor::Tools
             // UE's Pattern previews the copies on the source until Accept writes them (MeshProcessingTool).
             case T::Pattern:
                 return { ICON_MDI_DOTS_GRID, "Pattern", true };
+            // UE's Combine Meshes / Split Meshes preview until Accept writes them (MeshProcessingTool).
+            case T::Merge:
+                return { ICON_MDI_VECTOR_UNION, "Merge", true };
+            case T::Split:
+                return { ICON_MDI_CONTENT_CUT, "Split", true };
             // UE's Voxel Morphology previews until Accept, which creates the result entity (MeshProcessingTool).
             case T::VoxMorph:
                 return { ICON_MDI_CUBE_SEND, "VoxMorph", true };

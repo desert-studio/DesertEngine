@@ -375,16 +375,14 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Pick a shape above to place it." );
     }
 
-    // UE's Create palette: of its tools we have Boolean, Merge (UE's Combine Meshes) and Pattern. Boolean and
-    // Pattern are tool sessions as in UE (MeshProcessingTool: a live preview until the tool bar's Accept /
-    // Cancel); Merge still runs on one click.
+    // UE's Create palette: of its tools we have Boolean, Merge (UE's Combine Meshes) and Pattern. All three are
+    // tool sessions as in UE (MeshProcessingTool: a live preview until the tool bar's Accept / Cancel).
     void ModelingPanel::DrawCreatePalette()
     {
         auto&       ms       = Core::ModelingState::Get();
         const float half     = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
         const char* axes[]   = { "X", "Y", "Z" };
         using XO             = Core::XformOperation;
-        const auto transform = [this]( XO op ) { Transform( op ); };
         if ( Utils::ImGuiUtilities::SectionHeader( "Boolean" ) )
         {
             static constexpr std::array<const char*, 4> kOps = { "Difference A - B", "Difference B - A",
@@ -404,8 +402,15 @@ namespace Desert::Editor
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Merge" ) )
         {
+            // Opens the tool session (UE UCombineMeshesTool): the selected meshes preview merged on the first
+            // selected, the others hidden, until the tool bar's Accept writes it (one undo step) or Cancel.
             if ( ImGui::Button( Core::ToString( XO::Merge ), ImVec2( -1.0f, 0.0f ) ) )
-                transform( XO::Merge );
+            {
+                ms.ActiveTool = Core::ModelingState::Tool::Merge;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( ms.ActiveTool == Core::ModelingState::Tool::Merge )
+                ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
         }
         if ( !Utils::ImGuiUtilities::SectionHeader( "Pattern" ) )
             return;
@@ -696,12 +701,19 @@ namespace Desert::Editor
         ImGui::Checkbox( "Location##Bake", &ms.XformBake.Translation );
         if ( ImGui::Button( Core::ToString( XO::BakeTransform ), ImVec2( -1.0f, 0.0f ) ) )
             transform( XO::BakeTransform );
-        if ( ImGui::Button( Core::ToString( XO::Split ), ImVec2( -1.0f, 0.0f ) ) )
-            transform( XO::Split );
+        // Opens the tool session (UE USplitMeshesTool): the part count for the method below shows until the tool
+        // bar's Accept makes the parts entities (one undo step) or Cancel.
         bool byGroups = ms.XformSplit == Geometry::SplitMethod::PolyGroups;
         if ( ImGui::Checkbox( "Split by polygroups", &byGroups ) )
             ms.XformSplit =
                  byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
+        if ( ImGui::Button( Core::ToString( XO::Split ), ImVec2( -1.0f, 0.0f ) ) )
+        {
+            ms.ActiveTool = Core::ModelingState::Tool::Split;
+            Core::ViewportMode::Set( Core::EditorMode::Modeling );
+        }
+        if ( ms.ActiveTool == Core::ModelingState::Tool::Split )
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
     }
 
     // UE's Deform palette: Smooth and Offset (UE's USmoothMeshTool / UOffsetMeshTool, Iterative type). Each is a
