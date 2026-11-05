@@ -84,6 +84,11 @@ namespace Desert::ECS
             // since an in-place rewrite keeps the address. The view's ray-tracing BLAS rebuilds on a change.
             uint64_t HeightRevision = 0u;
             uint64_t WeightRevision = 0u;
+            // THE TILE'S LAYER ALLOCATION (UE: a component holds only the weightmap layers painted on it), the
+            // complement: bit i when weightmap channel i (tile weight layer i, or none) is zero at every sample
+            // of the tile. Taken with WeightRevision; the surface skips such a channel whole
+            // (Graphic::System::LandscapeWeightDraw::EmptyLayers).
+            uint32_t EmptyLayers = 0u;
         };
 
         // Creates, rewrites in place, or drops the tile's weightmap copy to match its weight layers.
