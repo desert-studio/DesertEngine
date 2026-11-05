@@ -96,8 +96,9 @@ namespace Desert::Runtime
 
     bool TextureService::Discover( const Assets::AssetHandle& handle ) const
     {
-        // ONE DISCOVERY AT A TIME, AND NOT UNDER THE TABLE LOCK: the registry row is checked on disk and the shell
-        // is created in the AssetManager, which has no lock of its own, while the table's readers keep answering.
+        // ONE TEXTURE DISCOVERY AT A TIME, AND NOT UNDER THE TABLE LOCK: the registry row is checked on disk and
+        // the shell is created in the AssetManager while the table's readers keep answering. The AssetManager has
+        // no lock of its own and this one serializes only texture discovery (other services reach it: R19).
         const std::lock_guard discovering( m_DiscoverLock );
         {
             const std::shared_lock table( m_TableLock );
@@ -580,17 +581,29 @@ namespace Desert::Runtime
         ++m_StreamingFrame;
         const TextureStreamingSettings& settings = m_StreamingSettings;
         const auto                      demand   = Graphic::TextureStreamingDemand::Get().TakeFrame();
-        // A MOVE DECIDED UNDER THE LOCK, ISSUED AFTER IT: a stream-out moves the live image at the hand-off, and
-        // AfterJoin may run it at once or Join (which waits for workers that may wait for this lock).
-        struct Step
+        // THE POOL (r.Streaming.PoolSize), read before the table lock: the scalability state is not the table's.
+        const uint64_t budget = static_cast<uint64_t>( Common::Scalability::QualityState::Resolved().As<uint32_t>(
+                                     Common::Scalability::Parameter::TextureStreamingPoolMiB ) ) *
+                                1024ull * 1024ull;
+        // DECIDED SHARED, COMMITTED EXCLUSIVE ONLY WHERE A ROW MOVES (CPU-ONE-SYNC step 12; UE
+        // FRenderAssetStreamingManager: residency and wanted mips are read without blocking readers, the pending
+        // changes are listed, one short commit applies them). A render worker's Require hit, Get and AwaitedBy
+        // run beside the scan, and a frame with nothing to move takes no exclusive lock. A stream-out moves the
+        // live image at the hand-off, after both sections: AfterJoin may run it at once or Join (which waits for
+        // workers that may wait for this lock).
+        struct Change
         {
-            std::shared_ptr<Graphic::Texture2D> StreamOut; // null for a raise, whose read starts under the lock
-            std::string                         Name;
-            uint32_t                            From = 0, To = 0;
+            Assets::AssetHandle                   Handle;
+            std::shared_ptr<Graphic::Texture2D>   Built;  // the image the scan decided on; the commit re-checks it
+            std::shared_ptr<Assets::TextureAsset> Source; // re-checked too; names the log line after the lock
+            uint32_t                              From = 0, To = 0;
+            bool                                  Down      = false;
+            bool                                  Committed = false;
         };
-        std::vector<Step> steps;
-        // THE TABLE, EXCLUSIVE, until the moves are decided: a raise starts its cook (Cooking, the admission).
-        std::unique_lock table( m_TableLock );
+        std::vector<Change> changes;
+        // THE SCAN, SHARED. The demand fields are the frame loop's own (this pass alone reads and writes them, no
+        // worker touches them), so writing them under the shared lock races no reader.
+        std::shared_lock scan( m_TableLock );
         for ( const auto& [asset, pixels] : demand )
         {
             if ( const auto it = m_Entries.find( asset ); it != m_Entries.end() )
@@ -605,14 +618,14 @@ namespace Desert::Runtime
         struct Want
         {
             Assets::AssetHandle Handle;
-            Entry*              Row   = nullptr;
+            const Entry*        Row   = nullptr;
             uint32_t            First = 0;
             uint32_t            Tail  = 0;
         };
         std::vector<Want> wants;
         uint64_t          resident = 0, full = 0, wanted = 0;
         uint32_t          streaming = 0;
-        for ( auto& [handle, entry] : m_Entries )
+        for ( const auto& [handle, entry] : m_Entries )
         {
             if ( !entry.Built || !entry.Source || entry.LevelBytes.empty() )
                 continue;
@@ -638,11 +651,8 @@ namespace Desert::Runtime
             wants.push_back( { handle, &entry, first, tail } );
         }
 
-        // THE POOL (r.Streaming.PoolSize): over budget, the least asked-for textures give up a level first, one
-        // level per texture per pass, until the wanted set fits (UE drops the lowest-priority mips first).
-        const uint64_t budget = static_cast<uint64_t>( Common::Scalability::QualityState::Resolved().As<uint32_t>(
-                                     Common::Scalability::Parameter::TextureStreamingPoolMiB ) ) *
-                                1024ull * 1024ull;
+        // THE POOL FIT: over budget, the least asked-for textures give up a level first, one level per texture
+        // per pass, until the wanted set fits (UE drops the lowest-priority mips first).
         const bool overBudget = wanted > budget;
         if ( overBudget )
         {
@@ -664,54 +674,74 @@ namespace Desert::Runtime
             }
         }
 
-        // START THE MOVES, nearest first: a texture short of its wanted level reads it now; one holding more than
-        // it wants gives it back when it is two levels over (one level of hysteresis keeps a texture at the edge
-        // of two sizes from being read every frame) or when the pool is over budget.
+        // LIST THE MOVES, nearest first: a texture short of its wanted level reads it; one holding more than it
+        // wants gives it back when it is two levels over (one level of hysteresis keeps a texture at the edge of
+        // two sizes from being read every frame) or when the pool is over budget. Nothing is moved here.
         std::sort( wants.begin(), wants.end(),
                    []( const Want& a, const Want& b ) { return a.Row->AskedPixels > b.Row->AskedPixels; } );
-        for ( Want& want : wants )
+        for ( const Want& want : wants )
         {
-            Entry& entry = *want.Row;
+            const Entry& entry = *want.Row;
             if ( entry.Cooking || want.First == entry.ResidentFirstMip )
                 continue;
             const bool up = want.First < entry.ResidentFirstMip;
             const bool down =
                  want.First >= entry.ResidentFirstMip + 2 || ( overBudget && want.First > entry.ResidentFirstMip );
-            if ( !up && !down )
+            if ( up || down )
+                changes.push_back(
+                     Change{ want.Handle, entry.Built, entry.Source, entry.ResidentFirstMip, want.First, down } );
+        }
+        const std::size_t textures = wants.size();
+        wants.clear(); // its rows are the table's: not read past the shared lock
+        scan.unlock();
+
+        // THE COMMIT, EXCLUSIVE, only when a row moves. Each row is re-checked: one cleared, given another image
+        // or shell, cooking or moved since the scan is left for the next frame's pass to decide again. Lock
+        // order unchanged: a raise's BeginCook reaches only the admission and the job queue (a leaf).
+        if ( !changes.empty() )
+        {
+            const std::unique_lock commit( m_TableLock );
+            for ( Change& change : changes )
+            {
+                const auto it = m_Entries.find( change.Handle );
+                if ( it == m_Entries.end() )
+                    continue;
+                Entry& entry = it->second;
+                if ( entry.Cooking || entry.Built != change.Built || entry.Source != change.Source ||
+                     entry.ResidentFirstMip != change.From )
+                    continue;
+                change.Committed = true;
+                if ( change.Down )
+                {
+                    entry.ResidentFirstMip = entry.RequestedFirstMip = change.To;
+                    resident -=
+                         BytesFrom( entry.LevelBytes, change.From ) - BytesFrom( entry.LevelBytes, change.To );
+                    continue;
+                }
+                entry.RequestedFirstMip = change.To;
+                BeginCook( change.Handle, entry );
+                ++streaming;
+            }
+        }
+
+        for ( const Change& change : changes )
+        {
+            if ( !change.Committed )
                 continue;
-            std::string name = entry.Source->GetMetadata().Filepath.filename().string();
-            if ( down )
+            const std::string name = change.Source->GetMetadata().Filepath.filename().string();
+            if ( change.Down )
             {
                 // A DROP READS NOTHING (UE FTexture2DStreamOut): the kept levels are copied on the GPU into a
                 // smaller image the same Image2D takes; the .detex is read only to raise a texture again.
                 // It moves the live image (a layout transition and the swap), so it runs at the hand-off like
                 // a raise's swap (OVERLAP-ON-7): at once when nothing is in flight, else after the next Join.
-                const uint32_t from = entry.ResidentFirstMip;
-                steps.push_back( Step{ entry.Built, std::move( name ), from, want.First } );
-                entry.ResidentFirstMip = entry.RequestedFirstMip = want.First;
-                resident -= BytesFrom( entry.LevelBytes, from ) - BytesFrom( entry.LevelBytes, want.First );
-                continue;
-            }
-            steps.push_back( Step{ nullptr, std::move( name ), entry.ResidentFirstMip, want.First } );
-            entry.RequestedFirstMip = want.First;
-            BeginCook( want.Handle, entry );
-            ++streaming;
-        }
-        const std::size_t textures = wants.size();
-        wants.clear(); // its rows are the table's: not read past the lock
-        table.unlock();
-
-        for ( const Step& step : steps )
-        {
-            if ( step.StreamOut )
-            {
-                StreamOutAtHandOff( step.StreamOut, step.To - step.From );
-                LOG_INFO( "[TextureStreaming] '{}' streamed out mip {} -> {} by a GPU copy (no read)", step.Name,
-                          step.From, step.To );
+                StreamOutAtHandOff( change.Built, change.To - change.From );
+                LOG_INFO( "[TextureStreaming] '{}' streamed out mip {} -> {} by a GPU copy (no read)", name,
+                          change.From, change.To );
             }
             else
-                LOG_INFO( "[TextureStreaming] '{}' reads mip {} -> {} from its asset", step.Name, step.From,
-                          step.To );
+                LOG_INFO( "[TextureStreaming] '{}' reads mip {} -> {} from its asset", name, change.From,
+                          change.To );
         }
 
         auto& pool = Graphic::TextureStreamingDemand::Get().Pool();

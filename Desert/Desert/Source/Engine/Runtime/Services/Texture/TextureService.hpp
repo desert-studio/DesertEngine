@@ -73,8 +73,9 @@ namespace Desert::Runtime
      * Pending, drawing the slot default, until its upload runs.
      *
      * THE TABLE HAS ITS OWN READER-WRITER LOCK (CPU-ONE-SYNC R15; UE FRWLock per table). Render workers ask it
-     * while the frame loop settles it: `Require`'s hit, `Get`, `AwaitedBy` and the counters take it SHARED; a
-     * miss (re-checked), `RebuildWhenReady`, a read's completion, an upload's commit, streaming and `Clear` take
+     * while the frame loop settles it: `Require`'s hit, `Get`, `AwaitedBy`, the counters and the streaming scan
+     * take it SHARED; a miss (re-checked), `RebuildWhenReady`, a read's completion, an upload's commit, the
+     * streaming commit of the rows that move (re-checked; none on a frame with nothing to move) and `Clear` take
      * it EXCLUSIVE. One order: the material service's lock, then `m_DiscoverLock`, then `m_TableLock`, then
      * only leaf locks (the loader's, the job queue's, the log's). Nothing runs under the table lock that reads a
      * file, creates or frees a GPU image, asks the AssetManager, or reaches RenderTask (an AfterJoin may run at
@@ -137,7 +138,11 @@ namespace Desert::Runtime
         /// (Graphic::TextureStreamingDemand), turns it into the first mip each texture wants, fits the wanted set
         /// into the pool budget by dropping the least asked-for mips first, and starts the reads that move a
         /// texture to its wanted mips. The new levels go into the same texture when their upload runs
-        /// (Texture2D::ReplaceLevels): no material is rebuilt.
+        /// (Texture2D::ReplaceLevels): no material is rebuilt. Decided under the SHARED table lock into a list of
+        /// changes; one EXCLUSIVE section then commits only the rows that move, each re-checked against what the
+        /// scan saw: a render worker's Require hit, Get and AwaitedBy run beside the scan and wait only for that
+        /// short commit (a miss or a RebuildWhenReady also waits for the scan), and a frame with nothing to move
+        /// takes no exclusive lock.
         void UpdateStreaming();
 
         /// Cooked results still waiting for their upload (tests, diagnostics).
@@ -175,7 +180,9 @@ namespace Desert::Runtime
             bool SettleQueued = false;
             /// Streaming: the asset's level 0 size and every level's bytes (known after the first read), the
             /// level the built image starts at, the level the running read will start at, and the last frame a
-            /// draw asked for the texture with how many screen pixels.
+            /// draw asked for the texture with how many screen pixels. The last two belong to the frame loop:
+            /// UpdateStreaming alone reads and writes them, under the SHARED lock (no worker touches them), so a
+            /// frame's screen demand takes no exclusive lock.
             uint32_t              FullWidth = 0, FullHeight = 0;
             std::vector<uint64_t> LevelBytes;
             uint32_t              ResidentFirstMip  = 0;
@@ -211,7 +218,10 @@ namespace Desert::Runtime
 
         /// Guards m_Entries, m_ReportedMissing, m_Waiters, m_CookAdmission and m_NextCookTicket.
         mutable std::shared_mutex m_TableLock;
-        /// Serializes discovery (the AssetManager has no lock of its own). Taken before m_TableLock, never under.
+        /// Serializes TEXTURE discovery only (`Discover` against itself): two workers missing one handle make one
+        /// shell, and no two texture discoveries enter the AssetManager together. It is NOT the AssetManager's
+        /// lock: mesh and material discovery and `HandleForPath` (FindByPath/CreateAsset, game thread) still reach
+        /// AssetManager::CreateAsset beside it (CPU-ONE-SYNC R19). Taken before m_TableLock, never under.
         mutable std::mutex m_DiscoverLock;
         /// m_Waiters is not empty: written under the exclusive lock, read by AwaitedBy before any lock.
         mutable std::atomic<bool> m_AnyWaiting{ false };
