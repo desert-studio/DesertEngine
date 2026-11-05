@@ -61,8 +61,7 @@ namespace Desert::Geometry
 
     std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
                                                        const std::vector<Index>& localTris,
-                                                       const LODChainSettings& chain, const float* attributes,
-                                                       std::vector<LODAddedVertex>* addedVertices )
+                                                       const LODChainSettings& chain, const float* attributes )
     {
         const std::vector<uint32_t> targets = LODChainTargets( static_cast<uint32_t>( localTris.size() ), chain );
         std::vector<std::vector<Index>> levels;
@@ -114,15 +113,15 @@ namespace Desert::Geometry
         }
 
         // THE ELEMENTS: parts too small for a reduction of their own to keep them (a leaf card is a quad or two;
-        // any collapse folds it to nothing). They are reduced by count with their area preserved; the rest -
-        // trunk, branches, rails, posts - by error. Without vertex storage (the load-time chain) or with only a
-        // few small parts (a fence's bolts) none is an element: they are solid parts like the rest.
+        // any collapse folds it to nothing). They are reduced by count within the error budget; the rest -
+        // trunk, branches, rails, posts - by error. With only a few small parts (a fence's bolts) none is an
+        // element: they are solid parts like the rest. The cook and the load-time chain thin them alike.
         const float           extent = meshopt_simplifyScale( positions, vertexCount, sizeof( float ) * 3 );
         std::vector<uint32_t> elements;
         for ( uint32_t p = 0; p < components.size(); ++p )
             if ( extent > 0.0f && LODHalfDiagonal( components[p] ) <= kLODElementExtentShare * extent )
                 elements.push_back( p );
-        if ( elements.size() < kLODMinElements || addedVertices == nullptr )
+        if ( elements.size() < kLODMinElements )
             elements.clear();
         std::vector<bool> isElement( components.size(), false );
         double            elementArea = 0.0, elementRadiusArea = 0.0;
@@ -140,7 +139,7 @@ namespace Desert::Geometry
             if ( !isElement[p] )
                 for ( const uint32_t t : components[p].Triangles )
                     solidFlat.insert( solidFlat.end(), { flat[t * 3], flat[t * 3 + 1], flat[t * 3 + 2] } );
-        // The elements' mean radius against the extent (area-weighted): how far inflating one moves its edge.
+        // The elements' mean radius against the extent (area-weighted): what the budget is against one's edge.
         const double elementRadiusShare =
              elementArea > 0.0 && extent > 0.0f ? elementRadiusArea / elementArea / extent : 0.0;
         std::sort( elements.begin(), elements.end(),
@@ -150,7 +149,6 @@ namespace Desert::Geometry
         const std::size_t     solidTris  = solidFlat.size() / 3;
         std::size_t           prevCount  = flat.size(); // each level must strictly decrease
         float                 screenSize = kLOD0ScreenSize;
-        std::vector<uint32_t> remap( vertexCount, kNone );
         for ( std::size_t level = 0; level < targets.size(); ++level )
         {
             // THE LEVEL'S ERROR BUDGET: kLODMaxPixelError reference pixels at the screen size the automatic
@@ -162,7 +160,6 @@ namespace Desert::Geometry
                  kLODMaxPixelError / ( std::max( screenSize, 1e-6f ) * kAutoLODReferenceScreenRows );
             const double share = static_cast<double>( targets[level] ) / static_cast<double>( totalTris );
 
-            const std::size_t     addedBefore = addedVertices ? addedVertices->size() : 0;
             std::vector<uint32_t> out;
             float                 error = 0.0f;
             if ( solidTris > 0 )
@@ -177,60 +174,36 @@ namespace Desert::Geometry
                 error = lod.Error;
             }
 
-            // ELEMENTS (UE Nanite Preserve Area): keep a scrambled subset reaching the level's share of their
-            // triangles, but never less area than the budget lets the kept ones grow back (one inflated by s
-            // moves its edge by (s - 1) x its radius), and inflate each kept one about its centre by
-            // sqrt(all area / kept area), so a crown covers what it covered with fewer, larger cards.
+            // ELEMENTS (UE Nanite Preserve Area's selection; a discrete level adds no vertex, so no inflation):
+            // keep a scrambled subset reaching the level's share of their triangles, but never less area than the
+            // budget may lose - the coverage a level drops is at most what moving every element's edge in by the
+            // budget would drop (all area / (1 + budget / mean radius)^2). The kept ones keep their own corners:
+            // an inflated copy per level was a second vertex set of the crown (MESH-VTX-2X).
             std::size_t keptElements = 0;
-            float       inflation    = 1.0f;
+            double      keptArea     = 0.0;
             if ( !elements.empty() )
             {
-                const double maxInflation =
+                const double maxShrink =
                      elementRadiusShare > 0.0 ? 1.0 + static_cast<double>( errorBudget ) / elementRadiusShare : 1.0;
-                const double minArea   = elementArea / ( maxInflation * maxInflation );
+                const double minArea   = elementArea / ( maxShrink * maxShrink );
                 const auto   triTarget = static_cast<std::size_t>( static_cast<double>( elementTris ) * share );
                 std::size_t  keptTris  = 0;
-                double       keptArea  = 0.0;
                 while ( keptElements < elements.size() && ( keptTris < triTarget || keptArea < minArea ) )
                 {
                     keptTris += components[elements[keptElements]].Triangles.size();
                     keptArea += components[elements[keptElements]].Area;
                     ++keptElements;
                 }
-                inflation          = keptArea > 0.0 ? static_cast<float>( std::sqrt( elementArea / keptArea ) ) : 1.0f;
-                const bool inflate = inflation > 1.0f + 1e-4f;
-                std::vector<uint32_t> touched;
                 for ( std::size_t e = 0; e < keptElements; ++e )
-                {
-                    const LODComponent& part   = components[elements[e]];
-                    const glm::vec3     centre = 0.5f * ( part.Min + part.Max );
-                    for ( const uint32_t t : part.Triangles )
-                        for ( uint32_t k = 0; k < 3; ++k )
-                        {
-                            const uint32_t v = flat[t * 3 + k];
-                            if ( !inflate )
-                            {
-                                out.push_back( v );
-                                continue;
-                            }
-                            if ( remap[v] == kNone )
-                            {
-                                remap[v] = vertexCount + static_cast<uint32_t>( addedVertices->size() );
-                                addedVertices->push_back(
-                                     { v, centre + inflation * ( LODPosition( positions, v ) - centre ) } );
-                                touched.push_back( v );
-                            }
-                            out.push_back( remap[v] );
-                        }
-                }
-                for ( const uint32_t v : touched )
-                    remap[v] = kNone;
+                    for ( const uint32_t t : components[elements[e]].Triangles )
+                        out.insert( out.end(), { flat[t * 3], flat[t * 3 + 1], flat[t * 3 + 2] } );
             }
+            const double keptAreaPercent = elementArea > 0.0 ? 100.0 * keptArea / elementArea : 0.0;
 
             LOG_INFO( "[MeshLOD] LOD {}: target {} tris, result {} of {} tris, solid deviation {:.4f} of the extent "
-                      "(budget {:.4f} at screen size {:.4f}); {} of {} elements kept, inflated x{:.3f}{}",
+                      "(budget {:.4f} at screen size {:.4f}); {} of {} elements kept ({:.1f} % of their area){}",
                       level + 1, targets[level], out.size() / 3, totalTris, error, errorBudget, screenSize,
-                      keptElements, elements.size(), inflation, attributes ? "" : " (positions only)" );
+                      keptElements, elements.size(), keptAreaPercent, attributes ? "" : " (positions only)" );
             std::vector<Index> tris;
             if ( out.size() >= 3 && out.size() < prevCount )
             {
@@ -239,8 +212,6 @@ namespace Desert::Geometry
                     tris.push_back( { out[i], out[i + 1], out[i + 2] } );
                 prevCount = out.size();
             }
-            else if ( addedVertices )
-                addedVertices->resize( addedBefore ); // the level is not kept: neither are its inflated elements
             levels.push_back( std::move( tris ) ); // empty => reuse previous at assembly
         }
         return levels;

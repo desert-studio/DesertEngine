@@ -23,10 +23,16 @@ namespace Desert::Editor
     // skinned alike - a LOD only selects a subset of the index buffer, the skin weights ride on the kept
     // vertices. Submeshes that already carry LODs (folded from authored source models) are kept. @p chain is the
     // mesh's MeshImportSettings::LodChain: each level's triangle share and the floor (Geometry::LODChainTargets).
-    // A static mesh's levels may add vertices (a thinned crown's inflated leaf cards, Geometry::LODAddedVertex):
-    // they are inserted right behind their submesh's own (its VertexCount and box grow, later submeshes move
-    // back), copies of their source vertex in every stream.
+    // A level adds no vertex: every LOD index names one of its submesh's own vertices (a thinned crown keeps the
+    // kept cards' own corners), so the vertex buffer is LOD0's.
     void BakeMeshLODs( Assets::Serialization::MeshAssetData& data, const Geometry::LODChainSettings& chain );
+
+    // Welds each section's vertices over every stream (skin joints and weights, colours, UV1, morph deltas) and
+    // puts its index sets and vertices in GPU order (meshopt vertex cache, overdraw 1.05, vertex fetch), as UE's
+    // FStaticMeshBuilder does - before its LODs, cluster DAG or meshlets are cut. Refuses streams that do not hold
+    // one entry per vertex, sections whose vertex ranges overlap, and an index past its section (by @p name).
+    Common::BoolResultStr OptimizeSectionsForGpu( Assets::Serialization::MeshAssetData& data,
+                                                  const std::string&                     name );
 
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );
 

@@ -20,6 +20,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <meshoptimizer.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -28,6 +30,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -39,24 +42,8 @@ namespace Desert::Editor
     {
         const size_t vertexCount = data.IsSkinned ? data.SkinnedVertices.size() : data.StaticVertices.size();
 
-        // A level's inflated leaf cards (Geometry::LODAddedVertex) are vertices behind their submesh's own, so a
-        // submesh may add them only when its vertex range is its alone: a static mesh whose submeshes' ranges do
-        // not overlap. A skinned mesh uploads no LOD chain and adds none (its added corners would need skin
-        // weights of their own); its parts are all reduced by error.
-        bool disjoint = !data.IsSkinned;
+        for ( auto& sm : data.Submeshes )
         {
-            std::vector<std::pair<uint32_t, uint32_t>> ranges;
-            for ( const auto& sm : data.Submeshes )
-                ranges.emplace_back( sm.VertexOffset, sm.VertexOffset + sm.VertexCount );
-            std::sort( ranges.begin(), ranges.end() );
-            for ( size_t i = 1; i < ranges.size(); ++i )
-                disjoint = disjoint && ranges[i].first >= ranges[i - 1].second;
-        }
-
-        std::vector<std::vector<Geometry::LODAddedVertex>> added( data.Submeshes.size() );
-        for ( size_t s = 0; s < data.Submeshes.size(); ++s )
-        {
-            auto& sm = data.Submeshes[s];
             if ( !sm.LODs.empty() )
                 continue; // authored LODs already folded in -> don't regenerate
 
@@ -95,7 +82,7 @@ namespace Desert::Editor
             }
 
             const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain,
-                                                             attrs.data(), disjoint ? &added[s] : nullptr );
+                                                             attrs.data() );
             sm.LODs.clear();
             sm.LODs.reserve( levels.size() );
             for ( const auto& lvl : levels )
@@ -107,82 +94,6 @@ namespace Desert::Editor
                 sm.LODs.push_back( std::move( tris ) );
             }
         }
-
-        // THE ADDED VERTICES GO RIGHT BEHIND THEIR SUBMESH'S OWN: every index is submesh-local, so a level's index
-        // N + i (N the submesh's old vertex count) names its i-th added vertex once the submesh's range grows by
-        // them, and every later submesh's range moves back by what was inserted before it. Each added vertex is
-        // a copy of its source - normal, UV, tangent, colour, UV1, morph deltas - at its inflated position, and
-        // the submesh's box grows to hold it.
-        size_t totalAdded = 0;
-        for ( const auto& list : added )
-            totalAdded += list.size();
-        if ( totalAdded == 0 )
-            return;
-
-        std::vector<size_t> order( data.Submeshes.size() );
-        for ( size_t s = 0; s < order.size(); ++s )
-            order[s] = s;
-        std::sort( order.begin(), order.end(), [&]( size_t a, size_t b )
-                   { return data.Submeshes[a].VertexOffset < data.Submeshes[b].VertexOffset; } );
-
-        const bool hasColors = data.Colors.size() == vertexCount;
-        const bool hasUV1    = data.UV1.size() == vertexCount;
-        std::vector<Ser::StaticVertexData>  vertices;
-        std::vector<std::array<uint8_t, 4>> colors;
-        std::vector<glm::vec2>              uv1;
-        std::vector<Ser::MorphTargetData>   morphs = data.MorphTargets;
-        vertices.reserve( vertexCount + totalAdded );
-        for ( auto& morph : morphs )
-        {
-            morph.DeltaPositions.clear();
-            morph.DeltaNormals.clear();
-        }
-        const auto copyVertex = [&]( const size_t from )
-        {
-            vertices.push_back( data.StaticVertices[from] );
-            if ( hasColors )
-                colors.push_back( data.Colors[from] );
-            if ( hasUV1 )
-                uv1.push_back( data.UV1[from] );
-            for ( size_t m = 0; m < morphs.size(); ++m )
-            {
-                const auto& source = data.MorphTargets[m];
-                if ( from < source.DeltaPositions.size() )
-                    morphs[m].DeltaPositions.push_back( source.DeltaPositions[from] );
-                if ( from < source.DeltaNormals.size() )
-                    morphs[m].DeltaNormals.push_back( source.DeltaNormals[from] );
-            }
-        };
-
-        size_t next = 0; // the next old vertex to copy
-        for ( const size_t s : order )
-        {
-            auto&        sm  = data.Submeshes[s];
-            const size_t oldOffset = sm.VertexOffset;
-            const size_t end       = oldOffset + sm.VertexCount;
-            for ( ; next < oldOffset; ++next )
-                copyVertex( next );
-            sm.VertexOffset = static_cast<uint32_t>( vertices.size() );
-            for ( ; next < end; ++next )
-                copyVertex( next );
-            for ( const Geometry::LODAddedVertex& corner : added[s] )
-            {
-                copyVertex( oldOffset + corner.Source );
-                vertices.back().Position = corner.Position;
-                sm.BoundingBox.Min       = glm::min( sm.BoundingBox.Min, corner.Position );
-                sm.BoundingBox.Max       = glm::max( sm.BoundingBox.Max, corner.Position );
-            }
-            sm.VertexCount += static_cast<uint32_t>( added[s].size() );
-        }
-        for ( ; next < vertexCount; ++next )
-            copyVertex( next );
-
-        data.StaticVertices = std::move( vertices );
-        if ( hasColors )
-            data.Colors = std::move( colors );
-        if ( hasUV1 )
-            data.UV1 = std::move( uv1 );
-        data.MorphTargets = std::move( morphs );
     }
 
     // VIRT-GEOM: each submesh's cluster LOD DAG (Geometry/ClusterDag.hpp) and, when @p cutLods, the discrete LOD
@@ -600,6 +511,233 @@ namespace Desert::Editor
         }
     } // namespace
 
+    // THE SECTIONS' GPU ORDER (UE FStaticMeshBuilder: vertices welded over every attribute, the index buffer
+    // ordered for the post-transform cache, the vertex buffer in fetch order), per section and before anything
+    // is cut from it - its LOD chain, cluster DAG, meshlets. meshopt, in its documented order: a remap over
+    // every stream a vertex has (the vertex itself - position, normal, tangent, bitangent, UV, for a skinned
+    // one its joints and weights - the colour and UV1 streams, each morph target's deltas), then per index set
+    // optimizeVertexCache, optimizeOverdraw at kGpuOverdrawThreshold, and one optimizeVertexFetch over all of
+    // the section's sets. The weld is exact (the same bytes in every stream), so nothing a shader reads
+    // changes; a vertex no face uses is dropped. A section's authored LOD index sets (folded source models)
+    // are vertex uses like LOD0's: remapped with it, ordered on their own. Faces keep their polygroups.
+    constexpr float kGpuOverdrawThreshold = 1.05f;
+
+    Common::BoolResultStr OptimizeSectionsForGpu( Ser::MeshAssetData& data, const std::string& name )
+    {
+        const auto run = [&]( auto& vertices ) -> Common::BoolResultStr
+        {
+            using VertexType   = typename std::decay_t<decltype( vertices )>::value_type;
+            const size_t total = vertices.size();
+            if ( !data.Colors.empty() && data.Colors.size() != total )
+                return Common::MakeFormattedError<bool>( "'{}': {} colours for {} vertices", name,
+                                                         data.Colors.size(), total );
+            if ( !data.UV1.empty() && data.UV1.size() != total )
+                return Common::MakeFormattedError<bool>( "'{}': {} UV1 entries for {} vertices", name,
+                                                         data.UV1.size(), total );
+            for ( const Ser::MorphTargetData& morph : data.MorphTargets )
+                if ( ( !morph.DeltaPositions.empty() && morph.DeltaPositions.size() != total ) ||
+                     ( !morph.DeltaNormals.empty() && morph.DeltaNormals.size() != total ) )
+                    return Common::MakeFormattedError<bool>( "'{}': morph target '{}' does not hold one delta "
+                                                             "per vertex ({} vertices)",
+                                                             name, morph.Name, total );
+            const bool hasGroups = !data.PolyGroups.empty();
+            if ( hasGroups && data.PolyGroups.size() != data.Indices.size() )
+                return Common::MakeFormattedError<bool>( "'{}': {} polygroups for {} faces", name,
+                                                         data.PolyGroups.size(), data.Indices.size() );
+
+            // The sections in vertex order; each is welded inside its own range, so the ranges must be
+            // disjoint (they are, as ToRenderMesh and the LOD fold write them).
+            std::vector<size_t> order( data.Submeshes.size() );
+            for ( size_t s = 0; s < order.size(); ++s )
+                order[s] = s;
+            std::sort( order.begin(), order.end(), [&]( size_t a, size_t b )
+                       { return data.Submeshes[a].VertexOffset < data.Submeshes[b].VertexOffset; } );
+            size_t rangeEnd = 0;
+            for ( const size_t s : order )
+            {
+                const Ser::SubmeshData& sm = data.Submeshes[s];
+                if ( sm.VertexOffset < rangeEnd || size_t{ sm.VertexOffset } + sm.VertexCount > total )
+                    return Common::MakeFormattedError<bool>(
+                         "'{}': section '{}' vertices {}..{} overlap another section or pass the {} vertices",
+                         name, sm.Name, sm.VertexOffset, sm.VertexOffset + sm.VertexCount, total );
+                rangeEnd = size_t{ sm.VertexOffset } + sm.VertexCount;
+            }
+
+            std::vector<VertexType>             outVertices;
+            std::vector<std::array<uint8_t, 4>> outColors;
+            std::vector<glm::vec2>              outUV1;
+            std::vector<Ser::MorphTargetData>   outMorphs = data.MorphTargets;
+            std::vector<int32_t>                outGroups = data.PolyGroups;
+            outVertices.reserve( total );
+            for ( Ser::MorphTargetData& morph : outMorphs )
+            {
+                morph.DeltaPositions.clear();
+                morph.DeltaNormals.clear();
+            }
+            const auto remapInto = [&]( auto& target, const auto& source, const size_t base,
+                                        const size_t count, const size_t used,
+                                        const std::vector<uint32_t>& remap )
+            {
+                if ( source.empty() )
+                    return;
+                const size_t at = target.size();
+                target.resize( at + used );
+                meshopt_remapVertexBuffer( target.data() + at, source.data() + base, count,
+                                           sizeof( source[0] ), remap.data() );
+            };
+
+            for ( const size_t s : order )
+            {
+                Ser::SubmeshData& sm        = data.Submeshes[s];
+                const size_t      base      = sm.VertexOffset;
+                const size_t      count     = sm.VertexCount;
+                const size_t      firstFace = sm.IndexOffset / 3;
+                const size_t      faceCount = sm.IndexCount / 3;
+                if ( firstFace + faceCount > data.Indices.size() )
+                    return Common::MakeFormattedError<bool>(
+                         "'{}': section '{}' faces {}..{} pass the {} faces", name, sm.Name, firstFace,
+                         firstFace + faceCount, data.Indices.size() );
+
+                // Its index sets: [0] = LOD0 (its faces in Indices), [k] = authored LOD k (sm.LODs[k - 1]).
+                std::vector<std::vector<uint32_t>> sets( 1 + sm.LODs.size() );
+                const auto appendFace = [&]( std::vector<uint32_t>& set, const Ser::IndexData& face )
+                { set.insert( set.end(), { face.V1, face.V2, face.V3 } ); };
+                for ( size_t f = 0; f < faceCount; ++f )
+                    appendFace( sets[0], data.Indices[firstFace + f] );
+                for ( size_t k = 0; k < sm.LODs.size(); ++k )
+                    for ( const Ser::IndexData& face : sm.LODs[k] )
+                        appendFace( sets[k + 1], face );
+                std::vector<uint32_t> all;
+                for ( const std::vector<uint32_t>& set : sets )
+                    all.insert( all.end(), set.begin(), set.end() );
+                for ( const uint32_t index : all )
+                    if ( index >= count )
+                        return Common::MakeFormattedError<bool>(
+                             "'{}': section '{}' indexes vertex {} of its {}", name, sm.Name, index, count );
+                sm.VertexOffset = static_cast<uint32_t>( outVertices.size() );
+                if ( all.empty() )
+                {
+                    sm.VertexCount = 0;
+                    continue;
+                }
+
+                std::vector<meshopt_Stream> streams;
+                streams.push_back( { vertices.data() + base, sizeof( VertexType ), sizeof( VertexType ) } );
+                if ( !data.Colors.empty() )
+                    streams.push_back( { data.Colors.data() + base, sizeof( data.Colors[0] ),
+                                         sizeof( data.Colors[0] ) } );
+                if ( !data.UV1.empty() )
+                    streams.push_back( { data.UV1.data() + base, sizeof( glm::vec2 ), sizeof( glm::vec2 ) } );
+                for ( const Ser::MorphTargetData& morph : data.MorphTargets )
+                {
+                    if ( !morph.DeltaPositions.empty() )
+                        streams.push_back( { morph.DeltaPositions.data() + base, sizeof( glm::vec3 ),
+                                             sizeof( glm::vec3 ) } );
+                    if ( !morph.DeltaNormals.empty() )
+                        streams.push_back( { morph.DeltaNormals.data() + base, sizeof( glm::vec3 ),
+                                             sizeof( glm::vec3 ) } );
+                }
+                std::vector<uint32_t> remap( count );
+                const size_t          welded = meshopt_generateVertexRemapMulti(
+                     remap.data(), all.data(), all.size(), count, streams.data(), streams.size() );
+                std::vector<VertexType> weldedVertices( welded );
+                meshopt_remapVertexBuffer( weldedVertices.data(), vertices.data() + base, count,
+                                           sizeof( VertexType ), remap.data() );
+
+                all.clear();
+                for ( std::vector<uint32_t>& set : sets )
+                {
+                    if ( set.empty() )
+                        continue;
+                    meshopt_remapIndexBuffer( set.data(), set.data(), set.size(), remap.data() );
+                    std::vector<uint32_t> cached( set.size() );
+                    meshopt_optimizeVertexCache( cached.data(), set.data(), set.size(), welded );
+                    meshopt_optimizeOverdraw( set.data(), cached.data(), cached.size(),
+                                              &weldedVertices[0].Position.x, welded, sizeof( VertexType ),
+                                              kGpuOverdrawThreshold );
+                    all.insert( all.end(), set.begin(), set.end() );
+                }
+                std::vector<uint32_t> fetch( welded );
+                const size_t          used =
+                     meshopt_optimizeVertexFetchRemap( fetch.data(), all.data(), all.size(), welded );
+                for ( uint32_t& target : remap )
+                    if ( target != ~0u )
+                        target = fetch[target];
+                for ( std::vector<uint32_t>& set : sets )
+                    meshopt_remapIndexBuffer( set.data(), set.data(), set.size(), fetch.data() );
+
+                // The polygroups follow their faces: meshopt moves whole triangles, corners in order, so a
+                // reordered face is found by its corners' final indices.
+                if ( hasGroups )
+                {
+                    std::map<std::array<uint32_t, 3>, std::vector<int32_t>> groupsOf;
+                    for ( size_t f = 0; f < faceCount; ++f )
+                    {
+                        const Ser::IndexData& face = data.Indices[firstFace + f];
+                        groupsOf[{ remap[face.V1], remap[face.V2], remap[face.V3] }].push_back(
+                             data.PolyGroups[firstFace + f] );
+                    }
+                    for ( size_t f = 0; f < faceCount; ++f )
+                    {
+                        std::vector<int32_t>& groups =
+                             groupsOf[{ sets[0][f * 3], sets[0][f * 3 + 1], sets[0][f * 3 + 2] }];
+                        outGroups[firstFace + f] = groups.back();
+                        groups.pop_back();
+                    }
+                }
+
+                for ( size_t f = 0; f < faceCount; ++f )
+                    data.Indices[firstFace + f] = { sets[0][f * 3], sets[0][f * 3 + 1], sets[0][f * 3 + 2] };
+                for ( size_t k = 0; k < sm.LODs.size(); ++k )
+                    for ( size_t f = 0; f < sm.LODs[k].size(); ++f )
+                        sm.LODs[k][f] = { sets[k + 1][f * 3], sets[k + 1][f * 3 + 1], sets[k + 1][f * 3 + 2] };
+
+                remapInto( outVertices, vertices, base, count, used, remap );
+                remapInto( outColors, data.Colors, base, count, used, remap );
+                remapInto( outUV1, data.UV1, base, count, used, remap );
+                for ( size_t m = 0; m < outMorphs.size(); ++m )
+                {
+                    remapInto( outMorphs[m].DeltaPositions, data.MorphTargets[m].DeltaPositions, base, count,
+                               used, remap );
+                    remapInto( outMorphs[m].DeltaNormals, data.MorphTargets[m].DeltaNormals, base, count,
+                               used, remap );
+                }
+                sm.VertexCount = static_cast<uint32_t>( used );
+            }
+
+            vertices          = std::move( outVertices );
+            data.Colors       = std::move( outColors );
+            data.UV1          = std::move( outUV1 );
+            data.MorphTargets = std::move( outMorphs );
+            data.PolyGroups   = std::move( outGroups );
+            return Common::MakeSuccess( true );
+        };
+        if ( data.IsSkinned )
+            return run( data.SkinnedVertices );
+        return run( data.StaticVertices );
+    }
+
+    namespace
+    {
+        // One line per built mesh (MESH-VTX-2X): what the source gave, what the GPU order kept, what is uploaded.
+        void LogBuiltMesh( const std::string& name, const Ser::MeshAssetData& data, const size_t sourceVertices,
+                           const size_t orderedVertices )
+        {
+            size_t lodSets = 0, lodIndices = 0;
+            for ( const Ser::SubmeshData& submesh : data.Submeshes )
+            {
+                lodSets += submesh.LODs.size();
+                for ( const auto& level : submesh.LODs )
+                    lodIndices += level.size() * 3;
+            }
+            const size_t uploaded = data.IsSkinned ? data.SkinnedVertices.size() : data.StaticVertices.size();
+            LOG_INFO( "[MeshBuild] '{}': {} section(s), {} vertices from the source -> {} welded in GPU order, {} "
+                      "uploaded; LOD0 {} indices, {} LOD index set(s) with {} indices",
+                      name, data.Submeshes.size(), sourceVertices, orderedVertices, uploaded,
+                      data.Indices.size() * 3, lodSets, lodIndices );
+        }
+    } // namespace
+
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset )
     {
         if ( asset.Source.Skin.has_value() )
@@ -637,6 +775,10 @@ namespace Desert::Editor
         }
         else
             out = std::move( lod0.ExtractValue().Data );
+        const size_t sourceVertices = out.StaticVertices.size();
+        if ( const auto ordered = OptimizeSectionsForGpu( out, asset.Name ); !ordered.IsSuccess() )
+            return Common::MakeError<std::string>( ordered.GetError() );
+        const size_t orderedVertices = out.StaticVertices.size();
         // Sections the authored models left without LODs are simplified; folded ones are kept as authored.
         if ( virtualGeometry )
         {
@@ -650,6 +792,7 @@ namespace Desert::Editor
         // has now - none with LodPolicy None, or when no target of the chain improves on it - are all it draws.
         for ( Ser::SubmeshData& submesh : out.Submeshes )
             submesh.LodChainCooked = true;
+        LogBuiltMesh( asset.Name, out, sourceVertices, orderedVertices );
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 
@@ -767,11 +910,16 @@ namespace Desert::Editor
             data.BoundingBox  = sm.BoundingBox;
             out.Submeshes.push_back( std::move( data ) );
         }
+        const size_t sourceVertices = out.StaticVertices.size();
+        if ( const auto ordered = OptimizeSectionsForGpu( out, "displaced mesh" ); !ordered.IsSuccess() )
+            return Common::MakeError<std::string>( ordered.GetError() );
+        const size_t orderedVertices = out.StaticVertices.size();
         if ( input.BakeLODs )
             BakeMeshLODs( out, input.LodChain );
         // The cook's chain, as BuildMeshPlatformData states it: none without BakeLODs.
         for ( Ser::SubmeshData& submesh : out.Submeshes )
             submesh.LodChainCooked = true;
+        LogBuiltMesh( "displaced mesh", out, sourceVertices, orderedVertices );
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 } // namespace Desert::Editor

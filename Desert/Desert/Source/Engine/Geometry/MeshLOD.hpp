@@ -38,10 +38,10 @@ namespace Desert::Geometry
     // THE PARTS A LEVEL THINS INSTEAD OF SIMPLIFYING (UE Nanite "Preserve Area"): a connected part (over
     // position-welded topology) whose box half-diagonal is at most this share of the submesh's extent is an
     // ELEMENT - a leaf card, a grass blade card - when the submesh has at least kLODMinElements of them. An
-    // element is too small for a collapse to keep it, so a level keeps a subset of them and inflates each kept one
-    // about its centre until the subset's area is all the elements' area: a crown keeps its coverage with fewer,
-    // larger cards instead of losing every card at once. Anything larger (trunk, branch, rail, post) is reduced by
-    // error.
+    // element is too small for a collapse to keep it, so a level keeps a subset of them, never losing more of
+    // their area than the level's error budget allows: a crown thins card by card instead of losing every card at
+    // once. A level adds no vertex (the kept cards keep their own corners). Anything larger (trunk, branch, rail,
+    // post) is reduced by error.
     inline constexpr float       kLODElementExtentShare = 0.05f;
     inline constexpr std::size_t kLODMinElements        = 16;
 
@@ -49,15 +49,6 @@ namespace Desert::Geometry
     // the automatic progression starts it at (UE: a reduction's MaxDeviation is turned into the LOD's screen size
     // at 1 pixel of error). A part thinner than that there may go, one wider stays: a fence keeps its rails.
     inline constexpr float kLODMaxPixelError = 1.0f;
-
-    // A vertex a generated level adds behind the submesh's own: a copy of vertex @p Source (normal, UV, tangent,
-    // colour) moved to @p Position - an inflated element's corner. A level's index >= the submesh's vertex count
-    // N names AddedVertices[index - N]; the caller appends them right after the submesh's own vertices.
-    struct LODAddedVertex
-    {
-        uint32_t  Source;
-        glm::vec3 Position;
-    };
 
     // Simplifies ONE submesh into the LOD levels @p chain states (LODChainTargets), returning the simplified
     // TRIANGLE sets (submesh-local indices, coarsest last; an empty level = "this target did not improve, reuse
@@ -67,15 +58,13 @@ namespace Desert::Geometry
     // floats per vertex (normal xyz, uv) so the reduction is attribute-aware.
     // Each level aims at its target share of the BASE triangles: the solid parts are reduced by meshopt with the
     // level's error budget (kLODMaxPixelError - a level stops short of its target rather than exceed it), the
-    // elements (kLODElementExtentShare) are thinned to the same share and inflated to keep their area, never
-    // inflated past what the budget allows. @p addedVertices receives the inflated corners (LODAddedVertex);
-    // null = the caller cannot add vertices (the load-time chain over a fixed vertex buffer), and then no part is
-    // an element - all are reduced by error. Logs target / result / error / elements per level.
+    // elements (kLODElementExtentShare) are thinned to the same share, never below the area the budget may lose.
+    // Every index names one of the submesh's own vertexCount vertices (a level adds none), so the cook and the
+    // load-time chain over a fixed vertex buffer build the same levels. Logs target / result / error / elements.
     std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
                                                        const std::vector<Index>& localTris,
                                                        const LODChainSettings&   chain,
-                                                       const float*              attributes    = nullptr,
-                                                       std::vector<LODAddedVertex>* addedVertices = nullptr );
+                                                       const float*              attributes = nullptr );
 
     // Packs one vertex's simplifier attributes (normal xyz, uv) onto `out` - the one layout both the
     // load-time chain and the import-time bake hand to SimplifyLODLevels.
