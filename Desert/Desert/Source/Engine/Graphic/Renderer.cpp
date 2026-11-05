@@ -351,12 +351,13 @@ namespace Desert::Graphic
         return s_RendererAPI->CopyDepthImage( src, dst );
     }
 
-    Common::BoolResultStr Renderer::CopyGraphDepthToLayer( const RDG::PassContext& context,
-                                                           const RDG::TextureRef   source,
-                                                           const RDG::TextureRef   target,
-                                                           const uint32_t          targetLayer )
+    Common::BoolResultStr Renderer::CopyGraphDepthToLayer( const RDG::PassContext&           context,
+                                                           const RDG::TextureRef             source,
+                                                           const RDG::TextureRef             target,
+                                                           const uint32_t                    targetLayer,
+                                                           const std::span<const glm::uvec4> regions )
     {
-        return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer );
+        return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer, regions );
     }
 
     Common::BoolResultStr Renderer::ScrollGraphDepthIntoLayer( const RDG::PassContext& context,

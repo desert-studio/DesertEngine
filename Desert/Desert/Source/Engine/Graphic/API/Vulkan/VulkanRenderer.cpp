@@ -2512,10 +2512,11 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr VulkanRendererAPI::CopyGraphDepthToLayer( const RDG::PassContext& context,
-                                                                    const RDG::TextureRef   source,
-                                                                    const RDG::TextureRef   target,
-                                                                    const uint32_t          targetLayer )
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphDepthToLayer( const RDG::PassContext&           context,
+                                                                    const RDG::TextureRef             source,
+                                                                    const RDG::TextureRef             target,
+                                                                    const uint32_t                    targetLayer,
+                                                                    const std::span<const glm::uvec4> regions )
     {
         const auto commands = VulkanRdgBackend::CommandBufferOf( context );
         if ( !commands )
@@ -2544,14 +2545,37 @@ namespace Desert::Graphic::API::Vulkan
                  from.GetValue().Name, src.Size.Width, src.Size.Height, src.Samples, targetLayer,
                  to.GetValue().Name, dst.Size.Width, dst.Size.Height, dst.Samples, dst.Layers ) );
 
-        // The graph's Copy node put the source in TRANSFER_SRC and the target layer in TRANSFER_DST.
-        VkImageCopy region{};
-        region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
-        region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, targetLayer, 1 };
-        region.extent         = { src.Size.Width, src.Size.Height, 1 };
+        // The graph's Copy node put the source in TRANSFER_SRC and the target layer in TRANSFER_DST. One region
+        // per asked rectangle (the same texels in both images), kept on the image; none asked: the whole layer.
+        std::vector<VkImageCopy> copies;
+        const auto               add = [&copies, targetLayer]( const VkOffset3D offset, const VkExtent3D extent )
+        {
+            VkImageCopy region{};
+            region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+            region.srcOffset      = offset;
+            region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, targetLayer, 1 };
+            region.dstOffset      = offset;
+            region.extent         = extent;
+            copies.push_back( region );
+        };
+        if ( regions.empty() )
+            add( { 0, 0, 0 }, { src.Size.Width, src.Size.Height, 1 } );
+        for ( const glm::uvec4& rect : regions )
+        {
+            const uint32_t x = std::min( rect.x, src.Size.Width );
+            const uint32_t y = std::min( rect.y, src.Size.Height );
+            const uint32_t w = std::min( rect.z, src.Size.Width - x );
+            const uint32_t h = std::min( rect.w, src.Size.Height - y );
+            if ( w == 0u || h == 0u )
+                continue;
+            add( { static_cast<int32_t>( x ), static_cast<int32_t>( y ), 0 }, { w, h, 1 } );
+        }
+        if ( copies.empty() )
+            return BOOLSUCCESS;
         vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, toImage.GetValue()->GetImage(),
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>( copies.size() ),
+                        copies.data() );
         return BOOLSUCCESS;
     }
 

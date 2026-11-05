@@ -205,8 +205,11 @@ namespace Desert::Graphic
                          pass.Read( cache, RDG::Access::CopySrc );
                          pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( copy.Layer ) );
                      },
-                     [cache, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
-                     { return Renderer::CopyGraphDepthToLayer( context, cache, maps, layer ); } );
+                     // Only the rectangles a cascade's moved casters dirtied when it names them
+                     // (CascadeCacheCopy::Regions); none named, the whole layer.
+                     [cache, maps, layer = copy.Layer,
+                      regions = copy.Regions]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphDepthToLayer( context, cache, maps, layer, regions ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
         }

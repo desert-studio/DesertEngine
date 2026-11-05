@@ -242,7 +242,8 @@ namespace Desert::Graphic
         // RendererAPI::CopyGraphDepthToLayer: a graph depth into one layer of a graph depth array.
         static Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                             RDG::TextureRef source, RDG::TextureRef target,
-                                                            uint32_t targetLayer );
+                                                            uint32_t                    targetLayer,
+                                                            std::span<const glm::uvec4> regions );
         // RendererAPI::ScrollGraphDepthIntoLayer: a graph depth, shifted, into one cleared layer of a graph array.
         static Common::BoolResultStr ScrollGraphDepthIntoLayer( const RDG::PassContext& context,
                                                                 RDG::TextureRef source, RDG::TextureRef target,

@@ -395,6 +395,7 @@ namespace Desert::Graphic::System
             state.Movable      = false;
             state.Scroll       = false;
             state.StripCount   = 0;
+            state.MovableRegion.reset();
         }
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
@@ -877,7 +878,7 @@ namespace Desert::Graphic::System
     }
 
     uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, const glm::mat4& casterVP,
-                                                   const bool withLod, bool& movable, bool& windSplit )
+                                                   const bool withLod, CascadeMovers& movers, bool& windSplit )
     {
         // THE CASTER BOX, as BuildShadowCascadeDraws culls with: a static caster outside it is not in the cache,
         // so it moving changes nothing drawn.
@@ -885,7 +886,7 @@ namespace Desert::Graphic::System
         // BuildShadowCascadeDraws says why).
         if ( !ShadowCastersGathered() )
         {
-            movable = true;
+            movers.Unkeyed = "casters gathered for other mesh queues";
             return 0;
         }
         // Open on the sun's side, as that walk's (CascadeCasterFrustum: a sun cascade's casters draw pancaked).
@@ -1038,15 +1039,52 @@ namespace Desert::Graphic::System
         }
         hash.Add( part.Hash );
         if ( part.Movable )
-            movable = true;
+            movers.Unkeyed = "swaying instances (wind time)";
         if ( part.WindSplit )
             windSplit = true;
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
-            if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 reaches( m_ShadowCasterSetup.Skinned[i] ) )
-                movable = true;
+            if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() ||
+                 !reaches( m_ShadowCasterSetup.Skinned[i] ) )
+                continue;
+            // A skinned caster is keyed by everything its depth is drawn from (BuildShadowCascadeDraws' skinned
+            // walk, the movable bins): its entry, its meshes (a displaced or morphed twin and the base it skins,
+            // each with its content revision), its sections' materials and masks, its transform, its bones and its
+            // morph blend (MorphTwin: a pending blend keys apart from the blended one).
+            movers.Keyed = true;
+            movers.Casters.Add( i );
+            movers.Casters.Add( sd.Entity );
+            movers.Casters.Add( sd.GpuPrimitive );
+            movers.Casters.Add( sd.Mesh );
+            movers.Casters.Add( sd.Mesh->GetRenderRevision() );
+            movers.Casters.Add( sd.SkinSource );
+            if ( sd.SkinSource != nullptr )
+                movers.Casters.Add( sd.SkinSource->GetRenderRevision() );
+            movers.Casters.Add( sd.Transform );
+            movers.Casters.Add( sd.Sections.size() );
+            for ( const SkinnedSection& section : sd.Sections )
+            {
+                movers.Casters.Add( section.Material );
+                movers.Casters.Add( section.Instance );
+                movers.Casters.Add( section.HiddenSubmeshes );
+            }
+            movers.Pose.Add( sd.BoneMatrices.size() );
+            movers.Pose.Bytes( sd.BoneMatrices.data(), sd.BoneMatrices.size() * sizeof( glm::mat4 ) );
+            if ( const auto twin = m_MorphTwins.find( sd.Entity ); twin != m_MorphTwins.end() )
+            {
+                movers.Pose.Add( twin->second.Twin.get() );
+                movers.Pose.Add( twin->second.Blended );
+                movers.Pose.Add( twin->second.Revision );
+                movers.Pose.Add( twin->second.Pending );
+                movers.Pose.Add( twin->second.PendingRevision );
+            }
+            const Common::Math::AABB& box = m_ShadowCasterSetup.Skinned[i].WorldBounds;
+            if ( movers.Bounds )
+                movers.Bounds = Common::Math::AABB{ glm::min( movers.Bounds->Min, box.Min ),
+                                                    glm::max( movers.Bounds->Max, box.Max ) };
+            else
+                movers.Bounds = box;
         }
         // A GPU-instanced section (BuildGpuInstancedShadowDraws): one whose instances move by themselves makes
         // every cascade it reaches movable. A still one (the grass, GpuInstancedRenderData::Still) is keyed by its
@@ -1062,7 +1100,7 @@ namespace Desert::Graphic::System
                 continue;
             if ( !gpu.Still )
             {
-                movable = true;
+                movers.Unkeyed = "instances the GPU moves";
                 continue;
             }
             hash.Add( gpu.Key );
@@ -1096,10 +1134,10 @@ namespace Desert::Graphic::System
             const glm::vec3 moverReach( windOrigin.w + gpu.Still->Reach );
             const glm::vec3 origin( windOrigin );
             if ( frustum.Intersects( Common::Math::AABB{ origin - moverReach, origin + moverReach } ) )
-                movable = true;
+                movers.Unkeyed = "swaying GPU instances (wind time)";
         }
-        if ( m_GpuInstancedCastersExpected )
-            movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
+        if ( m_GpuInstancedCastersExpected ) // submitted later this frame (ExpectGpuInstancedCasters)
+            movers.Unkeyed = "particle mesh casters (submitted after the plan)";
         return hash.Value;
     }
 
@@ -1136,7 +1174,7 @@ namespace Desert::Graphic::System
                 // it); an unkeyed one makes the cascade movable. Asked of THIS frame's draws: the plan runs after
                 // TerrainRenderer::PrepareLocalShadowViews. A keyed one's content (CascadeShadowContent: its key less
                 // the camera's detail) is what the content key below holds of it.
-                bool          movable = false;
+                bool          unkeyedCaster = false;
                 SignatureHash casterKey;
                 bool          contentKnown = StaticCastersTracked();
                 for ( const auto& weak : m_ShadowCasters )
@@ -1151,7 +1189,7 @@ namespace Desert::Graphic::System
                     }
                     else
                     {
-                        movable = true;
+                        unkeyedCaster = true;
                         m_CascadeUnkeyedCasters[v].push_back( weak );
                     }
                 }
@@ -1169,11 +1207,11 @@ namespace Desert::Graphic::System
                 // landscape in the box the cache was drawn with, not this frame's draws, so a shifted map whose
                 // old box holds the same tiles scrolls; nullopt (a caster that cannot tell its content apart) keys
                 // by the full key.
-                const auto contentKey = [&]( const glm::mat4& casterVP, bool& reachedMovable,
+                const auto contentKey = [&]( const glm::mat4& casterVP, CascadeMovers& reached,
                                              bool& windSplit ) -> std::optional<uint64_t>
                 {
                     SignatureHash content;
-                    content.Add( CascadeStaticSignature( v, casterVP, false, reachedMovable, windSplit ) );
+                    content.Add( CascadeStaticSignature( v, casterVP, false, reached, windSplit ) );
                     for ( const auto& weak : m_CascadeKeyedCasters[v] )
                     {
                         const auto caster = weak.lock();
@@ -1194,6 +1232,7 @@ namespace Desert::Graphic::System
                 uint64_t                newKey       = 0;
                 state.Scroll                         = false;
                 state.StripCount                     = 0;
+                CascadeMovers movers;
                 if ( keyIsContent )
                 {
                     glm::ivec2 shift( 0 );
@@ -1205,14 +1244,14 @@ namespace Desert::Graphic::System
                     if ( samePlace && shift != glm::ivec2( 0 ) && state.KeyIsContent && state.StaticKey &&
                          CascadeScrollOverlaps( shift, m_Shadow.ShadowMapSize ) )
                     {
-                        bool                          cachedMovable = false;
+                        CascadeMovers                 cachedMovers;
                         bool                          cachedSplit   = false;
                         const std::optional<uint64_t> cached =
-                             contentKey( state.CasterVP, cachedMovable, cachedSplit );
+                             contentKey( state.CasterVP, cachedMovers, cachedSplit );
                         cacheHolds = cached && *cached == *state.StaticKey && !cachedSplit;
                     }
                     bool                          windSplit = false;
-                    const std::optional<uint64_t> content = contentKey( m_CascadeCasterVP[v], movable, windSplit );
+                    const std::optional<uint64_t> content = contentKey( m_CascadeCasterVP[v], movers, windSplit );
                     if ( content )
                         newKey = *content;
                     if ( windSplit || !content )
@@ -1232,7 +1271,8 @@ namespace Desert::Graphic::System
                 {
                     bool          unusedSplit = false;
                     SignatureHash key;
-                    key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], true, movable, unusedSplit ) );
+                    movers = CascadeMovers{}; // the full key's walk: its movers, not the content key's again
+                    key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], true, movers, unusedSplit ) );
                     key.Add( casterKey.Value );
                     key.Add( m_CascadeCasterVP[v] );
                     key.Add( m_CascadeCasterBias[v] );
@@ -1240,15 +1280,115 @@ namespace Desert::Graphic::System
                     redraw = state.KeyIsContent || state.StaticKey != newKey;
                 }
 
-                state.Movable      = movable;
+                if ( unkeyedCaster )
+                    movers.Unkeyed = "a non-mesh caster with no key";
+                state.Movable      = movers.Any();
                 state.RedrawStatic = redraw || state.Scroll;
                 state.StaticKey    = newKey;
                 state.KeyIsContent = keyIsContent;
                 state.Placement    = placement;
                 state.CasterVP     = m_CascadeCasterVP[v];
-                state.Rebuild      = state.RedrawStatic || state.Movable || state.MapHasMovable;
+
+                // THE MOVABLE LAYER (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a
+                // primitive that updates). Keyed movers only (CascadeMovers): their casters and poses, the caster
+                // matrix and the bias the movable pass draws with. Their box in framebuffer texels (x right, y
+                // down, as CascadeScrollStrips): its corners through the caster matrix, grown two texels.
+                state.MovableKey.reset();
+                state.MovableRect.reset();
+                if ( movers.Keyed && movers.Unkeyed == nullptr )
+                {
+                    SignatureHash movableKey;
+                    movableKey.Add( movers.Casters.Value );
+                    movableKey.Add( movers.Pose.Value );
+                    movableKey.Add( m_CascadeCasterVP[v] );
+                    movableKey.Add( m_CascadeCasterBias[v] );
+                    state.MovableKey = movableKey.Value;
+                    if ( movers.Bounds )
+                    {
+                        const float side = static_cast<float>( m_Shadow.ShadowMapSize );
+                        glm::vec2   low( side );
+                        glm::vec2   high( 0.0f );
+                        for ( uint32_t corner = 0; corner < 8u; ++corner )
+                        {
+                            const glm::vec3 pick( static_cast<float>( corner & 1u ),
+                                                  static_cast<float>( ( corner >> 1u ) & 1u ),
+                                                  static_cast<float>( ( corner >> 2u ) & 1u ) );
+                            const glm::vec3 span  = movers.Bounds->Max - movers.Bounds->Min;
+                            const glm::vec3 point = movers.Bounds->Min + span * pick;
+                            const glm::vec4 clip  = m_CascadeCasterVP[v] * glm::vec4( point, 1.0f );
+                            const glm::vec2 texel( ( clip.x / clip.w + 1.0f ) * 0.5f * side,
+                                                   ( 1.0f - clip.y / clip.w ) * 0.5f * side );
+                            low  = glm::min( low, texel );
+                            high = glm::max( high, texel );
+                        }
+                        low  = glm::clamp( glm::floor( low ) - 2.0f, glm::vec2( 0.0f ), glm::vec2( side ) );
+                        high = glm::clamp( glm::ceil( high ) + 2.0f, glm::vec2( 0.0f ), glm::vec2( side ) );
+                        const glm::vec2 extent = glm::max( high - low, glm::vec2( 0.0f ) );
+                        state.MovableRect      = glm::uvec4( glm::uvec2( low ), glm::uvec2( extent ) );
+                    }
+                }
+                // Equal keys over a standing static layer: the map is last frame's, no restore, no movable draw.
+                const bool movableHeld = state.MapHasMovable && state.Movable && state.MovableKey &&
+                                         state.MapMovableKey == state.MovableKey;
+                const bool hadMovable  = state.MapHasMovable;
+                state.Rebuild = state.RedrawStatic || ( ( state.Movable || state.MapHasMovable ) && !movableHeld );
+                // A rebuild over a standing static layer restores and draws only the union of the texels the
+                // map's movers covered and this frame's cover, when both are known (an unkeyed mover, or a map
+                // whose movers had no box: the whole layer).
+                state.MovableRegion.reset();
+                if ( state.Rebuild && !state.RedrawStatic &&
+                     ( !state.MapHasMovable || state.MapMovableRect.has_value() ) &&
+                     ( !state.Movable || state.MovableRect.has_value() ) )
+                {
+                    glm::uvec2 low( m_Shadow.ShadowMapSize );
+                    glm::uvec2 high( 0u );
+                    const auto cover = [&low, &high]( const glm::uvec4& rect )
+                    {
+                        low  = glm::min( low, glm::uvec2( rect.x, rect.y ) );
+                        high = glm::max( high, glm::uvec2( rect.x + rect.z, rect.y + rect.w ) );
+                    };
+                    if ( state.MapHasMovable )
+                        cover( *state.MapMovableRect );
+                    if ( state.Movable )
+                        cover( *state.MovableRect );
+                    if ( high.x > low.x && high.y > low.y )
+                        state.MovableRegion = glm::uvec4( low, high - low );
+                }
                 if ( state.Rebuild )
-                    state.MapHasMovable = state.Movable;
+                {
+                    state.MapHasMovable  = state.Movable;
+                    state.MapMovableKey  = state.MovableKey;
+                    state.MapMovableRect = state.MovableRect;
+                }
+                // One line a change of why the movable layer is drawn or kept.
+                std::string reason;
+                if ( movableHeld )
+                    reason = "holds: no restore, no movable draw";
+                else if ( state.Movable && movers.Unkeyed != nullptr )
+                    reason = std::format( "unkeyed: {}", movers.Unkeyed );
+                else if ( state.Movable && state.RedrawStatic )
+                    reason = "static layer redrawn";
+                else if ( state.Movable && !hadMovable )
+                    reason = "movers arrived";
+                else if ( state.Movable )
+                    reason = "pose, transform or caster matrix";
+                else if ( hadMovable )
+                    reason = "movers left";
+                if ( reason != state.MovableLogged )
+                {
+                    if ( !reason.empty() )
+                    {
+                        std::string restored = "none";
+                        if ( state.MovableRegion )
+                            restored =
+                                 std::format( "{}x{} texels", state.MovableRegion->z, state.MovableRegion->w );
+                        else if ( state.Rebuild )
+                            restored = "whole layer";
+                        LOG_INFO( "[Shadow] cascade {}.{} movable key changed ({}); restore {}", v / kMaxCascades,
+                                  v % kMaxCascades, reason, restored );
+                    }
+                    state.MovableLogged = reason;
+                }
             }
         }
 
@@ -2247,7 +2387,11 @@ namespace Desert::Graphic::System
             for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
             {
                 if ( c < fitted )
+                {
+                    // ...whole: a fresh layer holds no static depth around a region to keep (MovableRegion).
                     m_CascadeCache[slot * kMaxCascades + c].Rebuild = true;
+                    m_CascadeCache[slot * kMaxCascades + c].MovableRegion.reset();
+                }
                 else
                     m_CascadeCache[slot * kMaxCascades + c].StaticKey.reset();
             }
@@ -2391,9 +2535,15 @@ namespace Desert::Graphic::System
                                           .Name    = name + ".ToCache",
                                           .ToCache = true } );
             else
-                frame.Copies.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
+            {
+                CascadeCacheCopy restore{ .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
                                           .Layer = layer,
-                                          .Name  = name + ".FromCache" } );
+                                          .Name  = name + ".FromCache" };
+                // Over a standing static layer, only the texels the movers left and reach (PlanCascadeCache).
+                if ( state.MovableRegion )
+                    restore.Regions.push_back( *state.MovableRegion );
+                frame.Copies.push_back( std::move( restore ) );
+            }
 
             if ( !state.Movable )
                 continue;
@@ -2403,6 +2553,13 @@ namespace Desert::Graphic::System
                  .ExecuteFunc = [this, c]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
+                     // Under the restored region alone (PlanCascadeCache's MovableRegion): the layer around it is
+                     // last frame's, its movers' depth already gone from it or never there.
+                     const std::optional<glm::uvec4> region   = m_CascadeCache[c].MovableRegion;
+                     auto&                           renderer = Renderer::GetInstance();
+                     if ( region )
+                         renderer.SetScissor( static_cast<int32_t>( region->x ), static_cast<int32_t>( region->y ),
+                                              region->z, region->w );
                      if ( auto drawn = m_CascadeMovableDraws[c].Record( context ); !drawn.IsSuccess() )
                          return drawn;
 
@@ -2423,6 +2580,8 @@ namespace Desert::Graphic::System
                              return cast;
                          }
                      }
+                     if ( region )
+                         renderer.SetScissor( 0, 0, m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
                      return BOOLSUCCESS;
                  },
                  .TargetDepthArray = maps,
