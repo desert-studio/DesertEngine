@@ -60,6 +60,9 @@ namespace Desert::Graphic::API::Vulkan
         /// Ends and submits @p commandBuffer on the graphics queue WITHOUT waiting for it — the caller polls
         /// IsComplete() on later frames. The flush above blocks the calling thread until the GPU is done,
         /// which is what made a thumbnail readback a main-thread stall (TH3).
+        /// IN QUEUE ORDER WITH THE FRAMES: while a frame loop runs, the vkQueueSubmit (this one and every
+        /// flush's) is made by its submit thread (VulkanFrameLoop::SubmitOrdered) after the frames handed to it
+        /// so far, and the call returns once it was made; the GPU is never waited.
         Common::ResultStr<Submitted> RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer );
 
         /// True once the submission's fence has signalled. Never blocks.
@@ -150,8 +153,9 @@ namespace Desert::Graphic::API::Vulkan
         /// vkCreateSemaphore refused: every graphics one-off submit is then refused by name).
         VkSemaphore m_UploadTimeline = VK_NULL_HANDLE;
         /// Held across "pick the next value + vkQueueSubmit": a timeline must be signalled with increasing
-        /// values in submission order, and uploads are submitted from several threads. Taken before the
-        /// device's queue mutex (inside SubmitToQueue), never after it.
+        /// values in submission order, and uploads are submitted from several threads (the frame loop's
+        /// submit thread, or inline callers when no loop runs). Taken before the device's queue mutex (inside
+        /// SubmitToQueue), never after it, and never held while waiting for the submit thread.
         std::mutex m_UploadSubmitMutex;
         /// The newest value whose signal is already submitted; published after the submit returns, so a
         /// reader never waits on a value nothing will signal. The ONE source of UploadSyncPoint::Value.

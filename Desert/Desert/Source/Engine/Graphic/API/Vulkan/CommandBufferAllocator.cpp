@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
@@ -226,26 +227,38 @@ namespace Desert::Graphic::API::Vulkan
         // copy lands. UE orders such a reader behind the upload's sync point: this submit waits the upload
         // timeline on the GPU (NewestUploadSync), the same wait the frame's async-compute pipe makes. Same
         // VkQueue (one family, as on MoltenVK): submission order already covers it.
-        const UploadSyncPoint      uploads    = NewestUploadSync();
-        const bool                 waitUpload = queue != m_GraphicsQueue && uploads.Value != 0;
-        const VkPipelineStageFlags waitStage  = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        const VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-                                                          .pNext = nullptr,
-                                                          .waitSemaphoreValueCount   = 1,
-                                                          .pWaitSemaphoreValues      = &uploads.Value,
-                                                          .signalSemaphoreValueCount = 0,
-                                                          .pSignalSemaphoreValues    = nullptr };
-        const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                          .pNext                = waitUpload ? &timelineInfo : nullptr,
-                                          .waitSemaphoreCount   = waitUpload ? 1u : 0u,
-                                          .pWaitSemaphores      = waitUpload ? &uploads.Timeline : nullptr,
-                                          .pWaitDstStageMask    = waitUpload ? &waitStage : nullptr,
-                                          .commandBufferCount   = 1,
-                                          .pCommandBuffers      = &commandBuffer,
-                                          .signalSemaphoreCount = 0,
-                                          .pSignalSemaphores    = nullptr };
-        if ( const VkResult submitted = m_Device->SubmitToQueue( queue, 1, &submitInfo, fence );
-             submitted != VK_SUCCESS )
+        // IN QUEUE ORDER, ON EVERY QUEUE (VK-SUBMIT-THREAD step 2): the submit goes through the frame loop's
+        // submit thread (VulkanFrameLoop::SubmitOrdered), FIFO with the frames and the unwaited uploads, and the
+        // sync point is read THERE: an upload this thread handed over just before is submitted and published by
+        // then, while read here it could still be queued and this reader would not wait for it.
+        const VkCommandBuffer buffer    = commandBuffer;
+        const VkResult        submitted = VulkanFrameLoop::SubmitOrdered(
+             [this, queue, buffer, fence]() -> VkResult
+             {
+                 const UploadSyncPoint               uploads = NewestUploadSync();
+                 const bool                          waitUpload = queue != m_GraphicsQueue && uploads.Value != 0;
+                 const VkPipelineStageFlags          waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                 const VkTimelineSemaphoreSubmitInfo timelineInfo{
+                             .sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                             .pNext                     = nullptr,
+                             .waitSemaphoreValueCount   = 1,
+                             .pWaitSemaphoreValues      = &uploads.Value,
+                             .signalSemaphoreValueCount = 0,
+                             .pSignalSemaphoreValues    = nullptr };
+                 VkSubmitInfo submitInfo{};
+                 submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                 submitInfo.commandBufferCount = 1;
+                 submitInfo.pCommandBuffers    = &buffer;
+                 if ( waitUpload )
+                 {
+                     submitInfo.pNext              = &timelineInfo;
+                     submitInfo.waitSemaphoreCount = 1;
+                     submitInfo.pWaitSemaphores    = &uploads.Timeline;
+                     submitInfo.pWaitDstStageMask  = &waitStage;
+                 }
+                 return m_Device->SubmitToQueue( queue, 1, &submitInfo, fence );
+             } );
+        if ( submitted != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( submitted ) ), fence );
 
         {
@@ -327,31 +340,45 @@ namespace Desert::Graphic::API::Vulkan
             submitted.Fence = VK_NULL_HANDLE;
             return refuse( std::format( "vkCreateFence failed: {}", VkResultToString( created ) ) );
         }
-        // SIGNALS THE UPLOAD TIMELINE (NewestUploadSync) with the next value. The pick and the submit are one
-        // step under m_UploadSubmitMutex, so values reach the queue in increasing order whichever thread
-        // uploads; the value is published only once the submit returned, so no reader waits on a value whose
-        // signal was never submitted. A refused submit publishes nothing, and the next one reuses the value.
-        const std::scoped_lock ordered( m_UploadSubmitMutex );
-        const uint64_t         value = m_UploadSubmittedValue.load( std::memory_order_relaxed ) + 1;
-        const VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-                                                          .pNext = nullptr,
-                                                          .waitSemaphoreValueCount   = 0,
-                                                          .pWaitSemaphoreValues      = nullptr,
-                                                          .signalSemaphoreValueCount = 1,
-                                                          .pSignalSemaphoreValues    = &value };
-        const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                          .pNext                = &timelineInfo,
-                                          .waitSemaphoreCount   = 0,
-                                          .pWaitSemaphores      = nullptr,
-                                          .pWaitDstStageMask    = nullptr,
-                                          .commandBufferCount   = 1,
-                                          .pCommandBuffers      = &commandBuffer,
-                                          .signalSemaphoreCount = 1,
-                                          .pSignalSemaphores    = &m_UploadTimeline };
-        if ( const VkResult result = m_Device->SubmitToQueue( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
-             result != VK_SUCCESS )
+        // ORDERED WITH THE FRAMES (REVIEW-FPS13 R1). The frame threads hand frames to the submit thread and go
+        // on recording, so an upload for frame N+1 submitted from here at once could reach the queue before
+        // frame N's draws (a streamed mip in TRANSFER_DST while N samples it). It is ordered work of that thread
+        // instead (VulkanFrameLoop::SubmitOrdered, FIFO with the frames); this thread blocks only until the
+        // submit thread has made the call, never on the GPU. Inline when no loop runs or it stopped / failed.
+        // SIGNALS THE UPLOAD TIMELINE (NewestUploadSync) with the next value, picked where the submit is made,
+        // i.e. in queue order. The pick and the submit are one step under m_UploadSubmitMutex (an inline submit
+        // from another thread is ordered against it); the value is published only once the submit returned, so
+        // no reader waits on a value whose signal was never submitted. A refused submit publishes nothing, and
+        // the next one reuses the value.
+        const VkFence  fence  = submitted.Fence;
+        const VkResult result = VulkanFrameLoop::SubmitOrdered(
+             [this, commandBuffer, fence]() -> VkResult
+             {
+                 const std::scoped_lock ordered( m_UploadSubmitMutex );
+                 const uint64_t         value = m_UploadSubmittedValue.load( std::memory_order_relaxed ) + 1;
+                 const VkTimelineSemaphoreSubmitInfo timelineInfo{
+                      .sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                      .pNext                     = nullptr,
+                      .waitSemaphoreValueCount   = 0,
+                      .pWaitSemaphoreValues      = nullptr,
+                      .signalSemaphoreValueCount = 1,
+                      .pSignalSemaphoreValues    = &value };
+                 const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                                   .pNext                = &timelineInfo,
+                                                   .waitSemaphoreCount   = 0,
+                                                   .pWaitSemaphores      = nullptr,
+                                                   .pWaitDstStageMask    = nullptr,
+                                                   .commandBufferCount   = 1,
+                                                   .pCommandBuffers      = &commandBuffer,
+                                                   .signalSemaphoreCount = 1,
+                                                   .pSignalSemaphores    = &m_UploadTimeline };
+                 const VkResult submittedNow   = m_Device->SubmitToQueue( m_GraphicsQueue, 1, &submitInfo, fence );
+                 if ( submittedNow == VK_SUCCESS )
+                     m_UploadSubmittedValue.store( value, std::memory_order_release );
+                 return submittedNow;
+             } );
+        if ( result != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( result ) ) );
-        m_UploadSubmittedValue.store( value, std::memory_order_release );
         return Common::MakeSuccess( submitted );
     }
 

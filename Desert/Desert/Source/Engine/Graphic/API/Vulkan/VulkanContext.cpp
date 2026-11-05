@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
@@ -332,6 +333,10 @@ namespace Desert::Graphic::API::Vulkan
         // virtual and, until this commit, was called from NOWHERE: this body existed, destroyed the VMA
         // allocator, and never ran. VulkanLogicalDevice::Destroy calls it — the last moment at which the
         // VkDevice is still alive — because every object released below is a child of that device.
+        // NO QUEUED RELEASE RUNS AFTER vmaDestroyAllocator (REVIEW-FPS13 R2): the frame loop is destroyed in
+        // Renderer::Shutdown, before this, and its destructor runs its whole queue; drained here as well, so a
+        // loop that ever outlived this point still has nothing queued when the allocator below goes.
+        VulkanFrameLoop::DrainSubmitThread();
         CommandBufferAllocator::GetInstance().Destroy();
 
         if ( m_VulkanAllocator )

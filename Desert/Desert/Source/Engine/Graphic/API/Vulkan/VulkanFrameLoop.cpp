@@ -17,15 +17,59 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        // THE PROCESS'S FRAME LOOP, for DrainSubmitThread / DeferRelease: VulkanLogicalDevice::WaitIdle and the
-        // transient allocator cannot reach the renderer's loop. One VkDevice, one loop. The mutex is held across
-        // a drain, and the destructor unregisters under it, so a loop is never destroyed under a drain.
-        std::mutex& ActiveLoopMutex()
+        // THE PROCESS'S FRAME LOOP, for DrainSubmitThread / DeferRelease / SubmitOrdered: VulkanLogicalDevice::
+        // WaitIdle, the transient allocator and CommandBufferAllocator cannot reach the renderer's loop. One
+        // VkDevice, one loop. The mutex guards only the pointer and the lease count and is NEVER HELD ACROSS A
+        // WAIT (REVIEW-FPS13 R3: a release that defers again while a drainer held it would deadlock): a caller
+        // takes a lease, drops the mutex, and works on the loop; the destructor unregisters the loop and then
+        // waits until no lease is out, so a loop is never destroyed under a caller.
+        struct ActiveLoopRegistry
         {
-            static std::mutex mutex;
-            return mutex;
+            std::mutex              Mutex;
+            std::condition_variable Released; // a lease ended
+            VulkanFrameLoop*        Loop   = nullptr;
+            uint32_t                Leases = 0;
+        };
+        ActiveLoopRegistry& Registry()
+        {
+            static ActiveLoopRegistry registry;
+            return registry;
         }
-        VulkanFrameLoop*  g_ActiveLoop     = nullptr; // under ActiveLoopMutex
+
+        // The registered loop for one call, or none. The lease, not a lock, keeps the loop alive.
+        class ActiveLoopLease
+        {
+        public:
+            ActiveLoopLease()
+            {
+                ActiveLoopRegistry&    registry = Registry();
+                const std::scoped_lock lock( registry.Mutex );
+                m_Loop = registry.Loop;
+                if ( m_Loop != nullptr )
+                    ++registry.Leases;
+            }
+            ~ActiveLoopLease()
+            {
+                if ( m_Loop == nullptr )
+                    return;
+                ActiveLoopRegistry&    registry = Registry();
+                const std::scoped_lock lock( registry.Mutex );
+                --registry.Leases;
+                if ( registry.Leases == 0 )
+                    registry.Released.notify_all();
+            }
+            ActiveLoopLease( const ActiveLoopLease& )            = delete;
+            ActiveLoopLease& operator=( const ActiveLoopLease& ) = delete;
+
+            VulkanFrameLoop* Get() const
+            {
+                return m_Loop;
+            }
+
+        private:
+            VulkanFrameLoop* m_Loop = nullptr;
+        };
+
         thread_local bool t_OnSubmitThread = false;
     } // namespace
 
@@ -45,19 +89,27 @@ namespace Desert::Graphic::API::Vulkan
                 fence = VK_NULL_HANDLE; // refused by name at BeginSlot / Submit / WaitSlot
         }
         m_Thread = Common::StartEngineThread( [this]() { ThreadMain(); } );
-        const std::scoped_lock active( ActiveLoopMutex() );
-        g_ActiveLoop = this;
+        ActiveLoopRegistry&    registry = Registry();
+        const std::scoped_lock active( registry.Mutex );
+        registry.Loop = this;
     }
 
     VulkanFrameLoop::~VulkanFrameLoop()
     {
-        {
-            const std::scoped_lock active( ActiveLoopMutex() );
-            if ( g_ActiveLoop == this )
-                g_ActiveLoop = nullptr;
-        }
-        // Everything handed over is submitted, presented and released before a fence it signals is destroyed.
+        // DRAIN, THEN UNREGISTER (REVIEW-FPS13 R2). Stop runs everything handed over (frames, presents, the
+        // releases and one-off submits queued until the thread exits) while the loop is still the registered
+        // one, so a release deferred during the teardown is queued behind the frames rather than run inline
+        // ahead of them. Once the thread has exited, a caller that still finds the loop runs inline, which is
+        // then after everything handed over. Unregistered next; the leases still out end without waiting on
+        // anything (every ticket is handled), and none is left when the fences and the loop go.
         Stop();
+        {
+            ActiveLoopRegistry&          registry = Registry();
+            std::unique_lock<std::mutex> lock( registry.Mutex );
+            if ( registry.Loop == this )
+                registry.Loop = nullptr;
+            registry.Released.wait( lock, [&registry]() { return registry.Leases == 0; } );
+        }
         for ( VkFence fence : m_Fences )
         {
             if ( fence != VK_NULL_HANDLE )
@@ -103,17 +155,14 @@ namespace Desert::Graphic::API::Vulkan
                  "no graphics submission at or after entry {} of {} waits the acquired image",
                  output->FirstEntryAfterAcquire, frame.size() );
 
-        // Read HERE, on the frame's thread (ExecuteFrame says what it is for): every upload a resource of this
-        // frame needed was submitted before this call, so this value covers them all.
-        const CommandBufferAllocator::UploadSyncPoint uploads =
-             CommandBufferAllocator::GetInstance().NewestUploadSync();
-
         std::unique_lock<std::mutex> lock( m_Mutex );
         // The slot's previous frame left the thread before this frame began (BeginSlot waited it); waited here as
         // well, so no path can swap storage the thread is still reading.
         WaitHandled( lock, m_SlotTicket[slot] );
         if ( !m_Failure.empty() )
             return Common::MakeFormattedError<bool>( "the submit thread failed an earlier frame: {}", m_Failure );
+        if ( m_Exited )
+            return Common::MakeError( "the submit thread has stopped; nothing is handed over" );
         SlotWork& work = m_Work[slot];
         work.Frame.swap( frame );
         frame.clear(); // the slot's earlier frame, already submitted: its capacity is reused, its entries are not
@@ -126,8 +175,6 @@ namespace Desert::Graphic::API::Vulkan
             if ( presentTo != nullptr )
                 work.Present = presentTo->TakePresent();
         }
-        work.UploadTimeline   = uploads.Timeline;
-        work.UploadValue      = uploads.Value;
         const uint64_t ticket = ++m_NextTicket;
         m_SlotTicket[slot]    = ticket;
         m_Queue.push_back( QueuedWork{ .Ticket = ticket, .Slot = slot, .Release = {} } );
@@ -147,7 +194,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_Wake.wait( lock, [this]() { return m_Stop || !m_Queue.empty(); } );
             if ( m_Queue.empty() )
-                return; // stopping, and everything handed over has run
+            {
+                // Stopping, and everything handed over has run. Said under m_Mutex with the queue empty, so an
+                // entry queued before this ran and none is queued after it (the callers run inline instead).
+                m_Exited = true;
+                m_Handled.notify_all();
+                return;
+            }
             QueuedWork work = std::move( m_Queue.front() );
             m_Queue.pop_front();
             const bool earlierFailed = !m_Failure.empty();
@@ -162,6 +215,13 @@ namespace Desert::Graphic::API::Vulkan
                     DESERT_PROFILE_SCOPE( "Vulkan: deferred release" );
                     work.Release();
                     work.Release = nullptr; // what the release captured dies here too, on this thread
+                }
+                else if ( work.Ordered != nullptr )
+                {
+                    // A one-off submission, in its place among the frames. Run after a failed frame as well:
+                    // it waits no frame semaphore, and its caller's fence wait must end.
+                    DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
+                    *work.Result = ( *work.Ordered )();
                 }
                 else
                 {
@@ -218,12 +278,16 @@ namespace Desert::Graphic::API::Vulkan
         // (CommandBufferAllocator::RT_SubmitGraphicThenRelease); a graphics entry of this frame is ordered after
         // them by submission order, but an AsyncCompute entry on a separate compute queue is not, and the first
         // one may run before any graphics entry of the frame and read a buffer or image whose copy has not
-        // landed. Read ONCE, at the hand-off on the frame's thread (Submit): every resource the frame recorded
-        // had its upload submitted before that call, so the value covers them all. Only the FIRST async-compute
-        // entry waits; the later ones follow it on the same queue. ALL_COMMANDS, not COMPUTE_SHADER: an async
-        // segment also copies and reads indirect arguments, and at the head of the batch the wider stage costs
-        // nothing.
-        bool waitedOnUploads = work.UploadValue == 0; // nothing uploaded yet: nothing to wait
+        // landed. Read ONCE, HERE ON THE SUBMIT THREAD (VK-SUBMIT-THREAD step 2), not at the hand-off: every
+        // upload a resource of the frame needed was handed to this thread before the frame was (SubmitOrdered,
+        // FIFO), so it has been submitted and its value published by now, while at the hand-off it may still sit
+        // in the queue. A newer value (an upload made inline before the loop ran) is already submitted as well,
+        // so the wait is always signalled. Only the FIRST async-compute entry waits; the later ones follow it on
+        // the same queue. ALL_COMMANDS, not COMPUTE_SHADER: an async segment also copies and reads indirect
+        // arguments, and at the head of the batch the wider stage costs nothing.
+        const CommandBufferAllocator::UploadSyncPoint uploads =
+             CommandBufferAllocator::GetInstance().NewestUploadSync();
+        bool waitedOnUploads = uploads.Value == 0; // nothing uploaded yet: nothing to wait
         // PREPARE every entry first, into storage that outlives the batches below (VkSubmitInfo and the timeline
         // info point into it). Kept across frames: an entry's vectors are re-assigned, not re-allocated.
         if ( m_Prepared.size() < frame.size() )
@@ -258,9 +322,9 @@ namespace Desert::Graphic::API::Vulkan
                  prepared.Queue != device->GetGraphicsQueue() )
             {
                 prepared.WaitValues.resize( prepared.Waits.size(), 0 );
-                prepared.Waits.push_back( work.UploadTimeline );
+                prepared.Waits.push_back( uploads.Timeline );
                 prepared.Stages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
-                prepared.WaitValues.push_back( work.UploadValue );
+                prepared.WaitValues.push_back( uploads.Value );
                 waitedOnUploads = true;
             }
             if ( last && output != nullptr )
@@ -417,16 +481,18 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( t_OnSubmitThread )
             return;
-        const std::scoped_lock active( ActiveLoopMutex() );
-        if ( g_ActiveLoop != nullptr )
-            g_ActiveLoop->Drain();
+        // Drained under a lease, outside the registry lock (REVIEW-FPS13 R3).
+        const ActiveLoopLease lease;
+        if ( VulkanFrameLoop* const loop = lease.Get() )
+            loop->Drain();
     }
 
     bool VulkanFrameLoop::EnqueueRelease( std::function<void()>& release )
     {
         {
             const std::scoped_lock lock( m_Mutex );
-            if ( m_Stop )
+            // Queued while the thread runs, stopping included: it runs the whole queue before it exits.
+            if ( m_Exited )
                 return false;
             const uint64_t ticket = ++m_NextTicket;
             m_Queue.push_back( QueuedWork{ .Ticket = ticket, .Slot = 0, .Release = std::move( release ) } );
@@ -438,10 +504,48 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanFrameLoop::DeferRelease( std::function<void()> release )
     {
         {
-            const std::scoped_lock active( ActiveLoopMutex() );
-            if ( g_ActiveLoop != nullptr && g_ActiveLoop->EnqueueRelease( release ) )
+            const ActiveLoopLease  lease;
+            VulkanFrameLoop* const loop = lease.Get();
+            if ( loop != nullptr && loop->EnqueueRelease( release ) )
                 return;
         }
-        release(); // no loop runs, or it is stopping: the caller's thread pays
+        // No loop runs, or its thread has exited (everything handed to it ran): the caller's thread pays, still
+        // after every frame. The lease ended first, so a release that defers again takes a lease of its own.
+        release();
+    }
+
+    VkResult VulkanFrameLoop::RunOrdered( const std::function<VkResult()>& submit )
+    {
+        std::unique_lock<std::mutex> lock( m_Mutex );
+        if ( m_Exited || !m_Failure.empty() )
+        {
+            // STOPPED OR FAILED: inline, after everything handed over was handled. A failed loop submits no more
+            // frames (RunFrame), so nothing it still holds can overtake this; the submission still happens, so
+            // the timeline value it signals and the fence its caller waits are signalled.
+            WaitHandled( lock, m_NextTicket );
+            lock.unlock();
+            return submit();
+        }
+        VkResult       result = VK_NOT_READY;
+        const uint64_t ticket = ++m_NextTicket;
+        m_Queue.push_back(
+             QueuedWork{ .Ticket = ticket, .Slot = 0, .Release = {}, .Ordered = &submit, .Result = &result } );
+        m_Wake.notify_one();
+        // Normally short: the frames ahead of it are a submit and a present each, never a GPU wait.
+        WaitHandled( lock, ticket );
+        return result;
+    }
+
+    VkResult VulkanFrameLoop::SubmitOrdered( const std::function<VkResult()>& submit )
+    {
+        // On the submit thread (a deferred release that uploads) this IS queue order already, and waiting for
+        // its own ticket would never end.
+        if ( !t_OnSubmitThread )
+        {
+            const ActiveLoopLease lease;
+            if ( VulkanFrameLoop* const loop = lease.Get() )
+                return loop->RunOrdered( submit );
+        }
+        return submit();
     }
 } // namespace Desert::Graphic::API::Vulkan
