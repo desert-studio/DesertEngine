@@ -906,6 +906,13 @@ namespace Desert::Graphic::API::Vulkan
                 return CommandBufferAllocator::GetInstance().IsComplete( m_Submitted );
             }
 
+            // Blocks until the copy completed (ReadPixelsRGBA8). On the submit thread a copy still queued behind
+            // the entry it runs is submitted first, so this is never a wait on itself (WaitComplete).
+            [[nodiscard]] Common::BoolResultStr Wait() const
+            {
+                return CommandBufferAllocator::GetInstance().WaitComplete( m_Submitted );
+            }
+
             [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const override
             {
                 if ( !m_Source )
@@ -962,13 +969,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !begun.IsSuccess() )
             return Common::MakeError<std::vector<uint8_t>>( begun.GetError() );
         const std::shared_ptr<ImageReadback>& readback = begun.GetValue();
-        while ( !readback->IsComplete() )
-        {
-            if ( !Graphic::DeviceLost::AllowWork() )
-                return Common::MakeError<std::vector<uint8_t>>(
-                     "ReadPixelsRGBA8: the device was lost while the copy was in flight" );
-            std::this_thread::yield();
-        }
+        // A WAIT, NOT A SPIN ON IsComplete (REVIEW G1): on the submit thread a spin would never see a copy still
+        // queued behind the entry it runs; Wait submits it there first. A lost device ends the wait.
+        // Every readback BeginCopyToHost makes is a VulkanImageReadback, so the downcast cannot miss.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        if ( const auto waited = static_cast<const VulkanImageReadback&>( *readback ).Wait(); !waited )
+            return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadPixelsRGBA8: {}", waited.GetError() );
         return readback->ReadRGBA8();
     }
 
