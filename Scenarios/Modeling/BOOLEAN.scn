@@ -1,0 +1,28 @@
+# BOOLEAN: Difference A - B of a 100 cm Box and a radius-50 Sphere sunk into its top corner leaves a spherical bite; Undo brings both inputs back
+# Ours applies Boolean at once (no preview session, unlike UE UCSGMeshesTool): its "Cancel" is the one undo step it records.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 230,260,300
+Дано --subject viewport set Camera.Direction -0.5,-0.45,-0.74
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано --subject modeling set CreateShape.Sphere.Radius 50
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 40,60,40
+Дано run Modeling "Active tool: Accept"
+Дано --subject viewport set Camera.Position 150,190,180
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run Modeling "Boolean operation: Difference A - B"
+Дано run Modeling "Boolean write to: Input"
+Дано run Modeling "Boolean inputs: Delete Inputs"
+Тогда-вид 0_inputs the Box with the Sphere sunk into its near top corner
+Когда run Modeling "Boolean tool: Boolean"
+Тогда 1_difference the Box has a smooth spherical bite cut out of its near top corner; the Sphere is gone from viewport and Outliner
+Когда run Action Undo
+Тогда 2_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both

@@ -78,6 +78,12 @@ namespace Desert::Editor::Tools
             // UE's Remesh previews the remeshed mesh until Accept; Cancel puts it back (MeshProcessingTool).
             case T::Remesh:
                 return { ICON_MDI_VECTOR_TRIANGLE, "Remesh", true };
+            // UE's Mesh To Collision / Mesh To Volume preview the result until Accept; Cancel leaves the entity
+            // as it was (MeshToPhysicsTool).
+            case T::MeshToCollision:
+                return { ICON_MDI_CUBE_OUTLINE, "Mesh To Collision", true };
+            case T::MeshToVolume:
+                return { ICON_MDI_CUBE_OUTLINE, "Mesh To Volume", true };
             // UE's Simplify previews the reduced mesh until Accept; Cancel puts it back (MeshProcessingTool).
             case T::Simplify:
                 return { ICON_MDI_TRIANGLE_OUTLINE, "Simplify", true };

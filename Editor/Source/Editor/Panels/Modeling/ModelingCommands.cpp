@@ -34,7 +34,8 @@ namespace Desert::Editor
                                         const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         // UE's Mesh To Collision (Modeling panel, Collision palette): the combo's choice and the button in one
-        // entry per type, running the button's own path on the selection.
+        // entry per type, running the button's own path on the selection: it OPENS the tool, and "Active tool:
+        // Accept" / "Active tool: Cancel" end it.
         for ( const auto& shape : Editor::ModelingPanel::kCollisionShapes )
             commands.push_back( { "Modeling", std::string( "Mesh To Collision " ) + shape.Name, [&scene, &shape]
                                   { return Editor::ModelingPanel::MeshToCollision( scene, shape ); } } );
@@ -1060,6 +1061,20 @@ namespace Desert::Editor
                                   [interpolation]
                                   {
                                       MS::Get().DeformLattice.Interpolation = interpolation;
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE ULatticeControlPointsMechanic's click / Shift-click on a control point, at the viewport centre.
+        for ( const auto& [name, add] :
+              { std::pair{ "Lattice: pick control point at the viewport centre", false },
+                std::pair{ "Lattice: add pick control point at the viewport centre", true } } )
+            commands.push_back( { "Modeling", name, [add]
+                                  {
+                                      MS& ms = MS::Get();
+                                      if ( ms.ActiveTool != MS::Tool::Lattice )
+                                          return PaletteCommandOutcome(
+                                               false, "the Lattice tool is not active ('Deform tool: Lattice')" );
+                                      ms.LatticeReqPickCentre    = true;
+                                      ms.LatticeReqPickCentreAdd = add;
                                       return PaletteCommandDone();
                                   } } );
         modelingOnOff( "Modeling", "Lattice: Soft Deformation",

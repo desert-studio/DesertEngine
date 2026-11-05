@@ -65,8 +65,9 @@ namespace Desert::Editor
                { "Capsule", Physics::ShapeType::Capsule },
                { "Convex Hull", Physics::ShapeType::ConvexHull } } };
 
-        // UE's Mesh To Collision on the selected entity: fits `shape` to its mesh as its Collider, one undo
-        // step. The panel's button and the palette command both run this; a refusal carries its reason.
+        // UE's Mesh To Collision on the selected entity: opens the tool (Tools::MeshToPhysicsTool) that previews
+        // `shape` fitted to its mesh; Accept makes it the entity's Collider (one undo step), Cancel changes
+        // nothing. The panel's button and the palette command both run this; a refusal carries its reason.
         static Common::ResultStr<bool> MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,
                                                         const CollisionShapeEntry&                  shape );
 
@@ -80,8 +81,9 @@ namespace Desert::Editor
         static constexpr std::array<VolumeTypeEntry, 2> kVolumeTypes = {
              { { "Trigger", ::Desert::ECS::VolumeType::Trigger }, { "Blocking", ::Desert::ECS::VolumeType::Blocking } } };
 
-        // UE's Mesh To Volume on the selected entity: its mesh's points become a convex volume entity of @p type
-        // (outline only, a Jolt hull body with the type's collision profile) that REPLACES it, one undo step.
+        // UE's Mesh To Volume on the selected entity: opens the tool that previews its mesh's convex hull; Accept
+        // makes it a volume entity of @p type (outline only, a Jolt hull body with the type's collision profile)
+        // that REPLACES it, one undo step; Cancel changes nothing.
         static Common::ResultStr<bool> MeshToVolume( const std::shared_ptr<Desert::Core::Scene>& scene,
                                                      const VolumeTypeEntry&                      type );
 
