@@ -19,24 +19,27 @@ namespace Desert::Graphic
     {
         using namespace Common::Scalability;
 
-        // What the device runs that a method may need: inline ray query (a pipeline device offers it too), the
-        // ray tracing pipeline, fragment-stage stores and atomics, and the largest framebuffer / viewport side.
+        // What the device runs that a method may need: inline ray query and the ray tracing pipeline (two facts:
+        // neither implies the other, and an emulated-RT device's catalog lists neither), fragment-stage stores
+        // and atomics, the largest framebuffer / viewport side, and how it executes rays (the Device limit's
+        // words).
         struct DeviceOffers
         {
-            bool     RayQuery       = false;
-            bool     Pipeline       = false;
-            bool     FragmentStores = false;
-            uint32_t RenderArea     = 0;
+            bool                   RayQuery        = false;
+            bool                   Pipeline        = false;
+            bool                   FragmentStores  = false;
+            uint32_t               RenderArea      = 0;
+            RayTracingAcceleration RayTracingAccel = RayTracingAcceleration::None;
         };
 
         [[nodiscard]] DeviceOffers OffersOf( const CapabilityCatalog& catalog )
         {
-            return { .RayQuery = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
-                                              []( RayTracingMode m ) { return m != RayTracingMode::None; } ),
-                     .Pipeline = CapabilityCatalog::Offers( catalog.RayTracingModes,
-                                                            RayTracingMode::RayTracingPipeline ),
-                     .FragmentStores = catalog.FragmentStores,
-                     .RenderArea     = catalog.MaxRenderArea };
+            return { .RayQuery = CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayQuery ),
+                     .Pipeline =
+                          CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayTracingPipeline ),
+                     .FragmentStores  = catalog.FragmentStores,
+                     .RenderArea      = catalog.MaxRenderArea,
+                     .RayTracingAccel = catalog.RayTracingAccel };
         }
 
         // The program a view's renderer could not build for @p method, empty when every one it needs built.
@@ -128,7 +131,10 @@ namespace Desert::Graphic
             WalkDown( r, device, gBuffer, refusals );
         }
 
-        std::string_view LimitText( MethodLimit limit, std::string_view scalabilityKey, std::string& scratch,
+        // @p rayTracingAccel words the Device limit: an emulated-RT device has the extensions, so "no ray query"
+        // would be wrong about it.
+        std::string_view LimitText( MethodLimit limit, const RayTracingAcceleration rayTracingAccel,
+                                    std::string_view scalabilityKey, std::string& scratch,
                                     std::string_view ceiling, std::string_view program )
         {
             switch ( limit )
@@ -142,6 +148,9 @@ namespace Desert::Graphic
                     scratch = std::format( "machine override {} = {}", scalabilityKey, ceiling );
                     return scratch;
                 case MethodLimit::Device:
+                    if ( rayTracingAccel == RayTracingAcceleration::Emulated )
+                        return "emulated RT: the device traces rays on its shader cores, and traced methods run "
+                               "on hardware RT only";
                     return "the device offers no ray query";
                 case MethodLimit::DevicePipeline:
                     return "the device offers no ray tracing pipeline";
@@ -169,14 +178,16 @@ namespace Desert::Graphic
 
         template <typename Method, std::size_t N>
         std::string FormatAxis( std::string_view label, std::string_view scalabilityKey,
-                                const ResolvedMethod<Method>& m, const std::array<std::string_view, N>& names )
+                                const ResolvedMethod<Method>& m, const std::array<std::string_view, N>& names,
+                                const RayTracingAcceleration rayTracingAccel )
         {
             const auto name = [&]( Method v ) { return names[static_cast<std::size_t>( v )]; };
             if ( !m.Lowered() )
                 return std::format( "{}: {}", label, name( m.Effective ) );
-            std::string scratch;
-            return std::format( "{}: {} -> {} ({})", label, name( m.Requested ), name( m.Effective ),
-                                LimitText( m.Limit, scalabilityKey, scratch, name( m.Ceiling ), m.Program ) );
+            std::string            scratch;
+            const std::string_view limit =
+                 LimitText( m.Limit, rayTracingAccel, scalabilityKey, scratch, name( m.Ceiling ), m.Program );
+            return std::format( "{}: {} -> {} ({})", label, name( m.Requested ), name( m.Effective ), limit );
         }
 
         constexpr std::string_view kGIKey          = "GlobalIllumination.Method";
@@ -221,6 +232,7 @@ namespace Desert::Graphic
         out.Visibility        = out.DeviceVisibility;
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
+        out.RayTracingAccel      = device.RayTracingAccel;
         return out;
     }
 
@@ -291,9 +303,9 @@ namespace Desert::Graphic
         const DeviceOffers device = OffersOf( catalog );
         std::string        unused;
         if ( NeedsRayQuery( GIMethod::PathTraced ) && !device.RayQuery )
-            return LimitText( MethodLimit::Device, kGIKey, unused, {}, {} );
+            return LimitText( MethodLimit::Device, device.RayTracingAccel, kGIKey, unused, {}, {} );
         if ( NeedsRayTracingPipeline( GIMethod::PathTraced ) && !device.Pipeline )
-            return LimitText( MethodLimit::DevicePipeline, kGIKey, unused, {}, {} );
+            return LimitText( MethodLimit::DevicePipeline, device.RayTracingAccel, kGIKey, unused, {}, {} );
         return {};
     }
 
@@ -311,9 +323,11 @@ namespace Desert::Graphic
 
     std::vector<std::string> FormatRenderMethods( const RenderMethods& methods )
     {
-        return { FormatAxis( "GI", kGIKey, methods.GlobalIllumination, kGIMethodNames ),
-                 FormatAxis( "Reflections", kReflectionsKey, methods.Reflections, kReflectionMethodNames ),
-                 FormatAxis( "Shadows", kShadowsKey, methods.Shadows, kShadowMethodNames ) +
+        return { FormatAxis( "GI", kGIKey, methods.GlobalIllumination, kGIMethodNames, methods.RayTracingAccel ),
+                 FormatAxis( "Reflections", kReflectionsKey, methods.Reflections, kReflectionMethodNames,
+                             methods.RayTracingAccel ),
+                 FormatAxis( "Shadows", kShadowsKey, methods.Shadows, kShadowMethodNames,
+                             methods.RayTracingAccel ) +
                       ( methods.Shadows.Effective == ShadowMethod::Stochastic
                              ? std::format( " (visibility {})",
                                             kStochasticVisibilityNames[static_cast<std::size_t>( methods.Visibility )] )
