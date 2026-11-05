@@ -6,7 +6,9 @@
 // LumenMeshSDFCulling's per-cell object lists, RayTraceSingleMeshSDF / TraceMeshSDFs in LumenSoftwareRayTracing),
 // then the global distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF; UE LumenTraceGlobalSDF /
 // RayTraceGlobalDistanceField) from where the near field ended. The global field's 39 cm voxels close a dense crown
-// of leaf cards into one blob; the mesh fields keep the gaps between the cards (FOLIAGE-LOOK-7).
+// of leaf cards into one blob; the mesh fields keep the gaps between the cards (FOLIAGE-LOOK-7). The near field's
+// lists hold MESH objects only: the landscape is a surface of the global field (its tiles' heightfield records,
+// UE r.AOGlobalDistanceFieldRepresentHeightfields), met by the far field (SHADE-GI-LANDSCAPE).
 //
 // Included by Common/GITracer.glslh only, which declares GlobalDistanceField0Texture..3, the mesh field buffers
 // (Common/MeshDistanceField.glslh's inputs) and the object grid, includes both field headers, and defines
@@ -39,9 +41,6 @@ bool GIMeshObjectList( vec3 position, out uvec2 list )
 // near-field surface.
 float GIMeshObjectVoxel( uint objectIndex )
 {
-    // A landscape tile is analytic: no voxel coarsens its surface.
-    if ( DFObjectIsHeightfield( objectIndex ) )
-        return 0.0;
     const uint base       = objectIndex * uint( DF_OBJECT_STRIDE );
     const uint assetIndex = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
     const uint numMips    = DFAssetNumMips( assetIndex );
@@ -69,10 +68,6 @@ float GIMeshObjectVoxel( uint objectIndex )
 bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
                         bool ditheredTransparency, float tanConeAngle, uint seed, inout vec3 normal )
 {
-    // A landscape tile of the near field (DF_OBJECT_FLAG_HEIGHTFIELD): its walk over the heights (UE
-    // RayTraceHeightfield in the mesh SDF trace), solid - no dither.
-    if ( DFObjectIsHeightfield( objectIndex ) )
-        return HeightfieldObjectTrace( objectIndex, origin, direction, tStart, tEnd, normal );
     const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
     const vec4 r0          = DistanceFieldObjects[base + 0u];
     const vec4 r1          = DistanceFieldObjects[base + 1u];

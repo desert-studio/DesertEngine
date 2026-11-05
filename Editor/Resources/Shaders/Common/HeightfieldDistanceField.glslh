@@ -1,12 +1,13 @@
-// THE LANDSCAPE AS A DISTANCE-FIELD OBJECT (SHADE-GI-LANDSCAPE). Ported from UE 5.8 Lumen's heightfields, adapted:
-// UE keeps a landscape component's heightfield in a buffer of its own (FLumenHeightfieldGPUData, the global
-// field's
-// GlobalDistanceFieldHeightfields.usf composite, LumenMeshSDFCulling's heightfield list and RayTraceHeightfield of
-// the mesh SDF trace); here a landscape tile is ONE MORE RECORD of the distance-field object buffer flagged
-// DF_OBJECT_FLAG_HEIGHTFIELD, so the near field's frustum and froxel cull, the brick cull of the composite and the
-// object grid take it as they take a mesh. Its distance is analytic from the tile's R16 heights (the samples the
-// raster draws, through the one decode of Common/LandscapeHeight.glslh and its triangle split), never a baked
-// volume: a sculpt rewrites the heights, the tile's key changes and the bricks it touches are recomposited.
+// THE LANDSCAPE AS A SURFACE OF THE GLOBAL DISTANCE FIELD (SHADE-GI-LANDSCAPE; UE
+// r.AOGlobalDistanceFieldRepresentHeightfields, GlobalDistanceFieldHeightfields.usf composite). UE keeps a
+// landscape component's heightfield in a buffer of its own (FLumenHeightfieldGPUData); here a landscape tile is
+// ONE MORE RECORD of the distance-field object buffer flagged DF_OBJECT_FLAG_HEIGHTFIELD, placed after the mesh
+// objects, so the composite's brick cull takes it as it takes a mesh. The per-object NEAR FIELD is for meshes: its
+// cull reads the mesh objects only (MeshSDFCullObjects.shader, MeshDistanceFieldReads::NumMeshObjects), so no
+// near-field list holds a tile and a GI ray meets the ground in the far field. Its distance is analytic from the
+// tile's R16 heights (the samples the raster draws, through the one decode of Common/LandscapeHeight.glslh and its
+// triangle split), never a baked volume: a sculpt rewrites the heights, the tile's key changes and the bricks it
+// touches are recomposited.
 //
 // THE RECORD (GlobalDistanceField::AddUpdatePasses writes it; DF_OBJECT_STRIDE rows like a mesh's):
 //   row 0  xy = world x, z of the tile's sample (0, 0) (cm), z = the sample spacing (cm), w = quads a tile side
@@ -25,9 +26,6 @@
 #include <Common/DistanceFieldShared.glslh>
 #include <Common/LandscapeHeight.glslh>
 #include <Common/BindlessTextures.glslh>
-
-// Fixed steps of the near field's walk over one tile (HeightfieldObjectTrace).
-#define DF_HEIGHTFIELD_MAX_STEPS 16
 
 bool DFObjectIsHeightfield(uint objectIndex)
 {
@@ -127,54 +125,6 @@ float HeightfieldObjectDistance(uint objectIndex, vec3 p, float maxDistance)
     if (aside > 0.0)
         d = length(vec2(aside, max(plane, 0.0)));
     return min(d, maxDistance);
-}
-
-// THE NEAR FIELD'S WALK OVER ONE TILE (UE RayTraceHeightfield, LumenHeightfields.ush): the ray clipped to the
-// tile's
-// box and to [@p tStart, @p tEnd], stepped at half a sample spacing (at most DF_HEIGHTFIELD_MAX_STEPS over the
-// segment), the first crossing from ABOVE the surface to below it refined by the secant of the two heights. A ray
-// that starts below the LOD-0 surface (the raster's LOD morph or displacement put its origin under it) is not hit
-// before it has come out above: the ground under a pixel never occludes the rays that leave it. A hit lowers
-// @p tEnd to it and writes the triangle's normal.
-bool HeightfieldObjectTrace(uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
-                            inout vec3 normal)
-{
-    const uint  base  = objectIndex * uint(DF_OBJECT_STRIDE);
-    const vec3  lo    = DistanceFieldObjects[base + uint(DF_OBJECT_ROW_BOUNDS_MIN)].xyz;
-    const vec3  hi    = DistanceFieldObjects[base + uint(DF_OBJECT_ROW_BOUNDS_MAX)].xyz;
-    const vec3  inv   = 1.0 / mix(direction, vec3(1e-12), lessThan(abs(direction), vec3(1e-12)));
-    const vec3  ta    = (lo - origin) * inv;
-    const vec3  tb    = (hi - origin) * inv;
-    const vec3  tLow  = min(ta, tb);
-    const vec3  tHigh = max(ta, tb);
-    const float tIn   = max(max(tLow.x, max(tLow.y, tLow.z)), tStart);
-    const float tOut  = min(min(tHigh.x, min(tHigh.y, tHigh.z)), tEnd);
-    if (tIn >= tOut)
-        return false;
-
-    const DFHeightfield h    = LoadDFHeightfield(objectIndex);
-    const float         walk = max(0.5 * h.Spacing, (tOut - tIn) / float(DF_HEIGHTFIELD_MAX_STEPS));
-    vec3                n;
-    float               t     = tIn;
-    vec3                p     = origin + direction * t;
-    float               above = p.y - DFHeightfieldSurface(h, p.xz, n);
-    for (int step = 0; step < DF_HEIGHTFIELD_MAX_STEPS && t < tOut; ++step)
-    {
-        const float tNext = min(t + walk, tOut);
-        p                 = origin + direction * tNext;
-        const float next  = p.y - DFHeightfieldSurface(h, p.xz, n);
-        if (above > 0.0 && next <= 0.0)
-        {
-            const float tHit = mix(t, tNext, above / max(above - next, 1e-6));
-            const vec3  at   = origin + direction * tHit;
-            DFHeightfieldSurface(h, at.xz, normal);
-            tEnd = tHit;
-            return true;
-        }
-        above = next;
-        t     = tNext;
-    }
-    return false;
 }
 
 #endif // HEIGHTFIELD_DISTANCE_FIELD_GLSLH
