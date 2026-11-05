@@ -3072,13 +3072,43 @@ namespace Desert::Graphic::RDG
         }
     }
 
+    void CompileCache::CountRecordChunks( uint32_t chunks, bool byCost, float maxChunkMicros )
+    {
+        const std::lock_guard lock( m_Mutex );
+        m_Chunks += chunks;
+        if ( byCost )
+            ++m_GraphsByCost;
+        else
+            ++m_GraphsByCount;
+        m_MaxChunkMicros      = std::max( m_MaxChunkMicros, maxChunkMicros );
+        m_FrameMaxChunkMicros = std::max( m_FrameMaxChunkMicros, maxChunkMicros );
+    }
+
     void CompileCache::CountFrame()
     {
         std::string line;
+        std::string chunkLine;
         {
             const std::lock_guard lock( m_Mutex );
+            m_FrameMaxSumMicros += m_FrameMaxChunkMicros;
+            m_FrameMaxChunkMicros = 0.0f;
             if ( ++m_Frames < kReportEvery )
                 return;
+            // No graph recorded in chunks over the window (parallel recording off): no chunk line.
+            const double frames = static_cast<double>( m_Frames );
+            if ( m_GraphsByCost + m_GraphsByCount != 0 )
+            {
+                chunkLine =
+                     fmt::format( "record chunks: {:.1f} per frame ({} graphs cut by last frame's cost, {} by "
+                                  "pass count), max chunk {:.3f} ms (frames' mean max {:.3f} ms) over {} frames",
+                                  static_cast<double>( m_Chunks ) / frames, m_GraphsByCost, m_GraphsByCount,
+                                  m_MaxChunkMicros / 1000.0f, m_FrameMaxSumMicros / frames / 1000.0, m_Frames );
+            }
+            m_Chunks               = 0;
+            m_GraphsByCost         = 0;
+            m_GraphsByCount        = 0;
+            m_MaxChunkMicros       = 0.0f;
+            m_FrameMaxSumMicros    = 0.0;
             const uint64_t lookups = m_Hits + m_Misses;
             double         share   = 0.0;
             if ( lookups != 0 )
@@ -3093,6 +3123,10 @@ namespace Desert::Graphic::RDG
             m_Mismatches = 0;
         }
         if ( m_Sink )
+        {
             m_Sink( false, line );
+            if ( !chunkLine.empty() )
+                m_Sink( false, chunkLine );
+        }
     }
 } // namespace Desert::Graphic::RDG

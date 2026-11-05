@@ -388,6 +388,14 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t>            InvalidatedExternals;
         std::optional<FrameFault>        Frame;
 
+        // RDG-RECORD-CHUNKS (Frostbite FrameGraph / Granite: what the compile does not change is kept with the
+        // baked plan). NOT compiled: the CPU record cost of each position (Passes index) in microseconds, as the
+        // last frame that recorded this plan measured it (Execute, on whichever thread recorded the pass). A
+        // stored plan serves one graph at a time (CompileCache::Find), so the frame recording it writes its costs
+        // and the next hit cuts its record chunks by them; a fresh plan has none (empty) and Execute cuts by pass
+        // count. FirstPlanDifference does not compare it.
+        std::vector<float> RecordMicros;
+
         [[nodiscard]] const CompiledPass* FindPass( std::string_view name ) const
         {
             for ( const CompiledPass& pass : Passes )
@@ -446,7 +454,11 @@ namespace Desert::Graphic::RDG
         // The verdict of a checked hit. @p difference non-empty (FirstPlanDifference): logged as a warning and
         // the stored plan dropped - the caller records the fresh one.
         void Checked( std::string_view graph, uint64_t key, std::string_view difference );
-        // Once per frame (the backend's BeginFrame): every kReportEvery frames, one line of hits and misses.
+        // RDG-RECORD-CHUNKS. One graph's record phase: @p chunks record chunks, cut by the plan's measured costs
+        // (@p byCost) or by pass count, the costliest of them @p maxChunkMicros as recorded this frame.
+        void CountRecordChunks( uint32_t chunks, bool byCost, float maxChunkMicros );
+        // Once per frame (the backend's BeginFrame): every kReportEvery frames, one line of hits and misses and
+        // one of the record chunks.
         void CountFrame();
 
     private:
@@ -469,5 +481,13 @@ namespace Desert::Graphic::RDG
         uint64_t m_Misses     = 0;
         uint64_t m_Checks     = 0;
         uint64_t m_Mismatches = 0;
+        // RDG-RECORD-CHUNKS, since the last report line: chunks and graphs cut either way, the costliest chunk
+        // of the window and the sum of each frame's costliest (the open frame's in m_FrameMaxChunkMicros).
+        uint64_t m_Chunks              = 0;
+        uint64_t m_GraphsByCost        = 0;
+        uint64_t m_GraphsByCount       = 0;
+        float    m_MaxChunkMicros      = 0.0f;
+        float    m_FrameMaxChunkMicros = 0.0f;
+        double   m_FrameMaxSumMicros   = 0.0;
     };
 } // namespace Desert::Graphic::RDG
