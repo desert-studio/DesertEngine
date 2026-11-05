@@ -5,12 +5,12 @@
         "Versions": {
             "FOLT": 10
         },
-        "Dependencies": ["cc62ede6b961015fe8c801039f35dd63"]
+        "Dependencies": ["ad451fd14d727d0aaccbe1bc6093cd44"]
     },
     "Kind": "Mesh",
     "Mesh": {
-        "Guid": "cc62ede6b961015fe8c801039f35dd63",
-        "Path": "Meshes/Modeling/Box.stmesh"
+        "Guid": "ad451fd14d727d0aaccbe1bc6093cd44",
+        "Path": "assets:Meshes/Modeling/Box_1.stmesh"
     },
     "Prefab": {
         "Guid": "",
