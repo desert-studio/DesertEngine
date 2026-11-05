@@ -1,0 +1,39 @@
+{
+    "id": 7310021741200003,
+    "siblingIndex": 2,
+    "Tag": "Terrain",
+    "Translation": [-15000.0, 0.0, -15000.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "Landscape": {
+        "QuadsPerTile": 255,
+        "SpacingCm": 23.52941131591797,
+        "ZScale": 1.5625,
+        "EditLayers": [
+            {
+                "Guid": "4774188636615749681",
+                "Name": "Base",
+                "Visible": true,
+                "Locked": false,
+                "HeightAlpha": 1.0,
+                "WeightAlpha": 1.0
+            }
+        ],
+        "Layers": [
+            {
+                "Guid": "80a31d6cbbb94e2680f8d4fa2d3cc8a9",
+                "Path": "assets:Landscape/Layers/Ground.delayerinfo"
+            },
+            {
+                "Guid": "183bb65c84cd4755808cd9060f7b16e4",
+                "Path": "assets:Landscape/Layers/Grass.delayerinfo"
+            }
+        ]
+    },
+    "LandscapeMaterial": {
+        "Material": {
+            "Guid": "",
+            "Path": ""
+        }
+    }
+}

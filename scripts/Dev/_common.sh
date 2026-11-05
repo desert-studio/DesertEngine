@@ -59,7 +59,13 @@ dev_has_target() {
 # dev_up_to_date <name> — Ninja, asked in dry run, has nothing left to do for the target: it is newer than every object,
 # library and generated file it depends on. The build's own dependency graph answers, not a timestamp guess.
 dev_up_to_date() {
-    ninja -C "$DEV_BUILD" -f build-Debug.ninja -n "$1" 2>/dev/null | grep -q '^ninja: no work to do'
+    # CONFIGURE_DEPENDS globs (desert_glob) make the glob check an always-dirty phony edge, so a dry run lists it and
+    # the CMake re-run behind it after every build ("[0/2] Re-checking globbed directories...", "[1/2] Re-running
+    # CMake..."). Any OTHER step is real work left for the target.
+    local out
+    out=$(ninja -C "$DEV_BUILD" -f build-Debug.ninja -n "$1" 2>/dev/null) || return 1
+    grep -q '^ninja: no work to do' <<<"$out" && return 0
+    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
 }
 
 # dev_build <log> <target...> — build the Debug targets (and what they link) with the compiler cache, after any other
