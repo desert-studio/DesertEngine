@@ -108,9 +108,9 @@ namespace Desert::Geometry
                 if ( DynamicMeshMaterialAttribute* material = attributes->GetMaterialID() )
                 {
                     int32_t id = 0;
-                    material->GetValue( neighbour, id );
+                    material->GetValue( neighbour, &id );
                     for ( const int tri : tris )
-                        material->SetValue( tri, id );
+                        material->SetValue( tri, &id );
                 }
                 // Newell's plane of the loop: the projection axis of the fill's UVs
                 glm::dvec3   normal( 0.0 ), origin( 0.0 );

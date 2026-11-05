@@ -40,3 +40,13 @@
 Тогда 4_accept the red Box with a spherical bite whose inner wall stays green (Details: Material Slots CB_Red, CB_Green), the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
 Когда run Action Undo
 Тогда 5_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both
+# Union of the same pair: the cut seam (a sphere over a cube corner) welds shut as UE FMeshBoolean + FBooleanMeshesOp hole fix
+Когда run Entity Box
+Когда run Entity "Add to selection Sphere"
+Когда run Modeling "Boolean operation: Union"
+Когда run Modeling "Boolean tool: Boolean"
+Тогда 6_union_colors the preview is one fused surface: the Box red, the Sphere's dome bulging out of its corner green; no error in the tool bar, which reads Boolean with Accept and Cancel
+Когда run Modeling "Active tool: Accept"
+Тогда 7_union_accept one closed mesh (Box) with both colours, no holes or dark slits along the red-green seam; the Sphere gone from viewport and Outliner; no tool bar
+Когда run Action Undo
+Тогда 8_union_undo the whole Box and the Sphere in its corner again; Outliner lists both
