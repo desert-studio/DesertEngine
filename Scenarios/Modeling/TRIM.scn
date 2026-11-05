@@ -9,12 +9,12 @@
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 0,0,0
-Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
 Дано --subject modeling set CreateShape.Sphere.Radius 50
 Дано run Modeling "Create shape tool: Sphere"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 40,60,40
-Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Green.demat
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Green.demat
 Дано run Modeling "Active tool: Accept"
 Дано --subject viewport set Camera.Position 150,190,180
 Дано run Entity Box
