@@ -224,6 +224,7 @@ namespace Desert::Graphic::RDG
         std::array<float, 4> Color   = { 0.0f, 0.0f, 0.0f, 0.0f };
         float                Depth   = 0.0f;
         uint32_t             Stencil = 0;
+        bool                 operator==( const ClearValue& ) const = default;
     };
 
     enum class LoadAction : uint8_t

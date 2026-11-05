@@ -6,6 +6,9 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -67,6 +70,7 @@ namespace Desert::Graphic::RDG
         // Undefined). When the memory belonged to an aliased predecessor, Before carries that
         // predecessor's last stages and accesses so its work finishes before this resource overwrites it.
         bool DiscardContents = false;
+        bool operator==( const Barrier& ) const = default;
     };
 
     struct AttachmentDecision
@@ -82,6 +86,7 @@ namespace Desert::Graphic::RDG
         LoadAction  Load       = LoadAction::Load;
         StoreAction Store      = StoreAction::Store;
         ClearValue  Clear;
+        bool operator==( const AttachmentDecision& ) const = default;
     };
 
     // RDG-EXTERNAL. A value of a timeline semaphore the graph's queue shares with another API on the same GPU
@@ -143,6 +148,7 @@ namespace Desert::Graphic::RDG
         // that of a group HELD ON ASYNC (entered after its async writer, before the join its graphics readers
         // wait for). A pass with any epilogue barrier keeps no render pass open.
         std::vector<Barrier> EpilogueBarriers;
+        bool operator==( const CompiledPass& ) const = default;
     };
 
     // RDG-CONTRACTS B(2). A fork or a join between the two pipes (UE: FRDGPass cross-pipeline sync; Vulkan: one
@@ -180,6 +186,12 @@ namespace Desert::Graphic::RDG
         // SignalPosition is (RDGCompile CutRunsAtConsumers, CreateAsyncSyncs). The backend's async-segments log
         // prints it.
         std::string Cause;
+        // RDG-RECORD-COMPILE-CACHE: what Cause names - the AddPass index of the pass and the resource, both
+        // kInvalidResource for a Cause that names neither - so a cached plan rebuilds it from the names of the
+        // graph that asked (Builder::Compiler::FormatSyncCause).
+        uint32_t CausePass     = kInvalidResource;
+        uint32_t CauseResource = kInvalidResource;
+        bool     operator==( const CrossPipeSync& ) const = default;
     };
 
     // RDG-CONTRACTS B(2). A resource used on both pipes with contents that must survive the move (a release on
@@ -200,6 +212,7 @@ namespace Desert::Graphic::RDG
         // recorded after the graphics queue waited on the graph-end join.
         uint32_t AcquirePosition = 0;
         uint32_t Sync            = 0; // the CrossPipeSync ordering the two (index into Syncs)
+        bool operator==( const QueueOwnershipTransfer& ) const = default;
     };
 
     // RDG-CONTRACTS B(2)/(3). A maximal run of consecutive executed passes on ONE pipe that no sync splits: the
@@ -219,6 +232,7 @@ namespace Desert::Graphic::RDG
         // ExternalQueue pass and signals its Signal point (a segment never holds two: each one splits it).
         std::vector<ExternalTimelinePoint>   WaitExternal;
         std::optional<ExternalTimelinePoint> SignalExternal;
+        bool operator==( const PipeSegment& ) const = default;
     };
 
     enum class DependencyKind : uint8_t
@@ -234,6 +248,7 @@ namespace Desert::Graphic::RDG
         uint32_t       To       = 0; // later pass
         DependencyKind Kind     = DependencyKind::ReadAfterWrite;
         uint32_t       Resource = kInvalidResource;
+        bool operator==( const DependencyEdge& ) const = default;
     };
 
     // Where a graph-owned resource is live in the compiled plan: from the first to the last EXECUTED pass that
@@ -264,6 +279,7 @@ namespace Desert::Graphic::RDG
         uint32_t AliasFirstPosition = 0;
         uint32_t AliasLastPosition  = 0;
         bool     UsedOnAsyncCompute = false;
+        bool operator==( const ResourceLifetime& ) const = default;
     };
 
     // RDG-CONTRACTS A(1). One heap the backend's ITransientAllocator must provide for the graph, per memory class
@@ -276,6 +292,7 @@ namespace Desert::Graphic::RDG
         uint32_t    MemoryTypeBits = ~0u;
         uint64_t    Bytes          = 0;
         uint64_t    Alignment      = 1; // max alignment of its allocations
+        bool operator==( const TransientHeapDesc& ) const = default;
     };
 
     struct Allocation
@@ -290,6 +307,7 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t> AliasPredecessors;
         // RDG-CONTRACTS A(1). Index into AliasingPlan::Heaps; Offset is relative to that heap.
         uint32_t Heap = 0;
+        bool operator==( const Allocation& ) const = default;
     };
 
     struct AliasingPlan
@@ -305,6 +323,7 @@ namespace Desert::Graphic::RDG
         // to the graph's resource count and filled where Allocations is (Compile's placement), so
         // CompileResult::FindAllocation is one load, not a scan per subresource and per bound resource.
         std::vector<int32_t> AllocationOf;
+        bool operator==( const AliasingPlan& ) const = default;
     };
 
     // The state an external or extracted resource is left in, per subresource (layer-major); Execute
@@ -314,6 +333,7 @@ namespace Desert::Graphic::RDG
         uint32_t                 Resource = kInvalidResource;
         ResourceKind             Kind     = ResourceKind::Texture;
         std::vector<AccessState> SubresourceStates;
+        bool operator==( const ExternalFinalState& ) const = default;
     };
 
     // Usage the backend must create a transient with, OR-ed from every access declared on it by an
@@ -322,6 +342,7 @@ namespace Desert::Graphic::RDG
     {
         uint32_t Resource   = kInvalidResource;
         uint32_t AccessMask = 0;
+        bool operator==( const DerivedUsage& ) const = default;
     };
 
     struct CompileResult
@@ -367,6 +388,14 @@ namespace Desert::Graphic::RDG
         std::vector<uint32_t>            InvalidatedExternals;
         std::optional<FrameFault>        Frame;
 
+        // RDG-RECORD-CHUNKS (Frostbite FrameGraph / Granite: what the compile does not change is kept with the
+        // baked plan). NOT compiled: the CPU record cost of each position (Passes index) in microseconds, as the
+        // last frame that recorded this plan measured it (Execute, on whichever thread recorded the pass). A
+        // stored plan serves one graph at a time (CompileCache::Find), so the frame recording it writes its costs
+        // and the next hit cuts its record chunks by them; a fresh plan has none (empty) and Execute cuts by pass
+        // count. FirstPlanDifference does not compare it.
+        std::vector<float> RecordMicros;
+
         [[nodiscard]] const CompiledPass* FindPass( std::string_view name ) const
         {
             for ( const CompiledPass& pass : Passes )
@@ -386,5 +415,79 @@ namespace Desert::Graphic::RDG
                 return nullptr;
             return &Aliasing.Allocations[static_cast<size_t>( index )];
         }
+    };
+
+    // RDG-RECORD-COMPILE-CACHE. The first CompileResult field in which @p a and @p b differ ("Passes", "Syncs",
+    // ...), empty when they are equal. The fault lists compare by size: a stored plan has none.
+    [[nodiscard]] std::string_view FirstPlanDifference( const CompileResult& a, const CompileResult& b );
+
+    // RDG-RECORD-COMPILE-CACHE (Granite bake-on-change, Arntzen 2017; Frostbite FrameGraph, O'Donnell GDC 2017;
+    // UE's RDG compiles every graph every frame). The compiled plans of one backend, keyed by the hash of a
+    // graph's declaration (Builder::CompileThroughCache): the pass set and order, every flag, use, attachment
+    // (its clear value too) and binding block, the transient descriptors, the externals' states and created
+    // usage, the fault defaults, the pipes. Never a pass or resource NAME: names carry per-frame counters
+    // ("(N pages)") and only messages read them. A plan holds no physical handle - resources are graph indices
+    // and BeginGraph places the transients every frame - so a hit is the stored plan with its per-frame fields
+    // rebound to the graph that asked: pass and culled names, the sync causes, the ExternalQueue timeline points.
+    // A plan with any fault is never stored. The least recently used plan goes beyond kCapacity.
+    // IBackend::GetCompileCache returns nullptr when the cache is off (--rdg-compile-cache 0).
+    class CompileCache
+    {
+    public:
+        // @p warning: a stored plan differed from a fresh compile; otherwise the periodic hit/miss line.
+        using Sink = std::function<void( bool warning, std::string_view line )>;
+
+        static constexpr size_t   kCapacity    = 128; // plans across every graph of the backend
+        static constexpr uint64_t kCheckEvery  = 64;  // DESERT_DEV_INSTRUMENTS: such a hit is compiled afresh too
+        static constexpr uint32_t kReportEvery = 300; // frames between two hit/miss lines
+
+        explicit CompileCache( Sink sink );
+
+        // The plan stored under @p key, now the most recently used; nullptr when there is none, or when another
+        // Execute still holds it (a hit is rebound in place, so a plan serves one graph at a time). @p check is
+        // set on every kCheckEvery-th hit.
+        [[nodiscard]] std::shared_ptr<CompileResult> Find( uint64_t key, bool& check );
+        // Stores @p plan under @p key, replacing what is there. @p pinned keeps alive the objects whose ADDRESS
+        // the key hashes (binding layouts, other-route fills): an address in a stored key is never a new object.
+        void Store( uint64_t key, std::shared_ptr<CompileResult> plan,
+                    std::vector<std::shared_ptr<const void>> pinned );
+        // The verdict of a checked hit. @p difference non-empty (FirstPlanDifference): logged as a warning and
+        // the stored plan dropped - the caller records the fresh one.
+        void Checked( std::string_view graph, uint64_t key, std::string_view difference );
+        // RDG-RECORD-CHUNKS. One graph's record phase: @p chunks record chunks, cut by the plan's measured costs
+        // (@p byCost) or by pass count, the costliest of them @p maxChunkMicros as recorded this frame.
+        void CountRecordChunks( uint32_t chunks, bool byCost, float maxChunkMicros );
+        // Once per frame (the backend's BeginFrame): every kReportEvery frames, one line of hits and misses and
+        // one of the record chunks.
+        void CountFrame();
+
+    private:
+        struct Entry
+        {
+            uint64_t                                 Key     = 0;
+            uint64_t                                 LastUse = 0;
+            std::shared_ptr<CompileResult>           Plan;
+            std::vector<std::shared_ptr<const void>> Pinned;
+        };
+
+        Sink               m_Sink;
+        mutable std::mutex m_Mutex;
+        std::vector<Entry> m_Entries; // at most kCapacity: a linear scan of keys beats a map at this size
+        uint64_t           m_Clock          = 0;
+        uint64_t           m_HitsSinceCheck = 0;
+        // Since the last report line.
+        uint32_t m_Frames     = 0;
+        uint64_t m_Hits       = 0;
+        uint64_t m_Misses     = 0;
+        uint64_t m_Checks     = 0;
+        uint64_t m_Mismatches = 0;
+        // RDG-RECORD-CHUNKS, since the last report line: chunks and graphs cut either way, the costliest chunk
+        // of the window and the sum of each frame's costliest (the open frame's in m_FrameMaxChunkMicros).
+        uint64_t m_Chunks              = 0;
+        uint64_t m_GraphsByCost        = 0;
+        uint64_t m_GraphsByCount       = 0;
+        float    m_MaxChunkMicros      = 0.0f;
+        float    m_FrameMaxChunkMicros = 0.0f;
+        double   m_FrameMaxSumMicros   = 0.0;
     };
 } // namespace Desert::Graphic::RDG

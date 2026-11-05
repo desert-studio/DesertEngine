@@ -270,6 +270,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
     Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
     Desert::Graphic::RenderConfig::CloudVisualize = options.CloudVisualize;
+    Desert::Graphic::RenderConfig::RdgCompileCache = options.RdgCompileCache;
 
     // The device profile, before the device exists (VulkanLogicalDevice::Create reads it once). An unknown name
     // stops the start with the table's list: a frame of the full device saved under a GTX name is the silent

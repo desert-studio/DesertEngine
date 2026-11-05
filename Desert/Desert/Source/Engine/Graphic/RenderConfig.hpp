@@ -52,6 +52,10 @@ namespace Desert::Graphic
         // 4 = the march's cost per ray: R view-ray field evaluations / 256, G lit samples / 64, B the light
         // samples they scheduled / 512 (8 B / G = light samples per lit sample; CloudRaymarch.shader).
         static inline std::atomic<int> CloudVisualize{ 0 };
+
+        // RDG-RECORD-COMPILE-CACHE: `--rdg-compile-cache <0|1>` (Editor CommandLine). Off, VulkanRdgBackend keeps
+        // no compiled plans (GetCompileCache nullptr) and every graph is compiled every frame.
+        static inline std::atomic<bool> RdgCompileCache{ true };
     };
 
     // The sampler an engine Image2D / ImageCube carries as its own (VulkanImage CreateSampler, Global policy):

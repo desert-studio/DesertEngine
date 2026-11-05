@@ -740,6 +740,8 @@ namespace Desert::Graphic::API::Vulkan
         RDG::PipeCapabilities         GetPipeCapabilities() const override;
         RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override;
         RDG::PassFaultReporter&       GetPassFaultReporter() override;
+        // RDG-RECORD-COMPILE-CACHE: nullptr while RenderConfig::RdgCompileCache is off.
+        RDG::CompileCache*            GetCompileCache() override;
         Common::BoolResultStr         BeginPipeSegment( const RDG::PipeSegment& segment ) override;
         Common::BoolResultStr         EndPipeSegment( const RDG::PipeSegment& segment ) override;
         // Vulkan 1.0 queue family ownership transfer: a VkImage/BufferMemoryBarrier with srcQueueFamilyIndex =
@@ -864,6 +866,8 @@ namespace Desert::Graphic::API::Vulkan
         RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
         // RDG-FAULT1: the one place a pass fault is logged; per backend, so it outlives the per-frame graphs.
         RDG::PassFaultReporter m_FaultReporter;
+        // RDG-RECORD-COMPILE-CACHE: the compiled plans of this backend's graphs; counts its frames in BeginFrame.
+        RDG::CompileCache m_CompileCache;
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
         uint32_t                     m_FrameSlot   = 0;
         const VulkanRdgQueueSet*     m_Queues      = nullptr;

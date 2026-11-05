@@ -410,6 +410,11 @@ namespace Desert::Graphic::RDG
         class Compiler;
 
         Common::BoolResultStr RecordExternalStates( std::span<const Barrier> barriers );
+        // RDG-RECORD-COMPILE-CACHE (RDGCompile.cpp). Execute's compile: the plan @p backend's CompileCache stored
+        // for this declaration, rebound to this graph, or Compile( memory, pipes ) - stored when it has no fault.
+        // Without a cache (IBackend::GetCompileCache nullptr) exactly Compile( memory, pipes ).
+        [[nodiscard]] Common::ResultStr<std::shared_ptr<CompileResult>>
+        CompileThroughCache( IBackend& backend ) const;
 
         struct ResourceUse
         {
