@@ -81,6 +81,25 @@ Shader "VolumetricFogLightScattering"
         Uniform(7) texture2D DistantSkyLightTexture;
         #define DistantSkyLightTexture sampler2D(DistantSkyLightTexture, LinearClampSampler)
 
+        // THE CLOUD LAYER'S SHADOW ON THE SUN TERM (UE VolumetricCloud "Shadow On Atmosphere", Hillaire 2015's
+        // unified volumetrics): the surfaces' receiver text (Common/CloudShadowReceiver.glslh), its pair of
+        // values carried in the parameter block. White with Params.y = 0 when no layer casts: never fetched.
+        Uniform(12) texture2D CloudShadowMapTexture;
+        #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearClampSampler)
+        #define CloudShadowWorldToMap VfCloudShadowWorldToMap
+        #define CloudShadowParams VfCloudShadowParams
+        #include <Common/CloudShadowReceiver.glslh>
+
+        // THE SKY TERM'S VISIBILITY: the view's rain occlusion (Common/RainOcclusion.glslh, the one text the
+        // wetted surfaces read) - a froxel under a roof sees no sky, so a barn's interior gets no sky in-scatter.
+        // Read with textureGather (raw depths); the includer declares the pair (DESERT_RAIN_OCCLUSION_DECLARED).
+        Uniform(13) texture2D RainOcclusionMapTexture;
+        #define RainOcclusionSampler LinearClampSampler
+        #define RainOcclusionWorldToMap VfRainOcclusionWorldToMap
+        #define RainOcclusionParams VfRainOcclusionParams
+        #define DESERT_RAIN_OCCLUSION_DECLARED
+        #include <Common/RainOcclusion.glslh>
+
         ReadBuffer(8) LightGridParamsUB { LightGridParams lightGrid; };
         ReadBuffer(9) LightGridCellsUB { uint lightGridCells[]; };
 
@@ -150,7 +169,7 @@ Shader "VolumetricFogLightScattering"
             if (extinction > 0.0)
             {
                 if (VfSunDirection.w > 0.5)
-                    lighting += VfSunRadiance.rgb * SunShadow(p) *
+                    lighting += VfSunRadiance.rgb * SunShadow(p) * CloudShadowFactor(p) *
                                 VolumetricFogPhaseHG(g, dot(VfSunDirection.xyz, viewDir));
 
                 // The point's own cell of the light grid: the pixel it projects to and its view depth.
@@ -176,7 +195,8 @@ Shader "VolumetricFogLightScattering"
                 if (VfSkyAmbient.w > 0.5)
                     sky += VfSkyAmbientScale.rgb *
                            texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
-                lighting += sky;
+                // ... through what covers the froxel from above (1 in the open, 0 under a roof).
+                lighting += sky * (1.0 - DesertRainOcclusionAt(p));
             }
 
             vec4 current = vec4(scattering * lighting + VfEmissive.rgb * extinction, extinction);

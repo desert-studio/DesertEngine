@@ -4,10 +4,12 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/Fog/VolumetricFogPayload.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/View/PassHistory.hpp>
@@ -52,6 +54,12 @@ namespace Desert::Graphic::System
         std::array<glm::mat4, 4> CascadeViewProj{};
         glm::vec4                CascadeWorldPerTexel{ 0.0f };
         glm::vec4                CascadeDepthRange{ 1.0f };
+        // The cloud layer's shadow on the sun term, the very pair the surfaces receive (SceneRenderer::
+        // GetCloudShadowInput -> CloudShadowPackUniforms; Params.y = 0 when no layer casts).
+        CloudShadowUniforms CloudShadow{};
+        // What covers the sky from a froxel (MeshRenderer::GetRainOcclusionUniforms; Params.y = 0 without a map):
+        // the sky term's visibility, not the sun's - a roof hides the sky, the cascades already hide the sun.
+        RainOcclusionUniforms SkyOcclusion{};
     };
 
     // The LightScattering shader's parameters (Programs/Fog/VolumetricFogLightScattering.shader): the one spelling
@@ -75,6 +83,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, LocalShadowViewsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, LightGridParamsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, LightGridCellsUB );
+        DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
+        DESERT_SHADER_PARAMETER( Texture, RainOcclusionMapTexture );
         static constexpr std::array kAll{
              RDG::Erase( LightScatteringTexture ), RDG::Erase( LightScatteringHistoryTexture ),
              RDG::Erase( ShadowCascadesTexture ),  RDG::Erase( LocalShadowAtlasTexture ),
@@ -82,7 +92,8 @@ namespace Desert::Graphic::System
              RDG::Erase( LinearRepeatSampler ),    RDG::Erase( PointClampSampler ),
              RDG::Erase( PointLightsUB ),          RDG::Erase( SpotLightsUB ),
              RDG::Erase( LocalShadowViewsUB ),     RDG::Erase( LightGridParamsUB ),
-             RDG::Erase( LightGridCellsUB ) };
+             RDG::Erase( LightGridCellsUB ),       RDG::Erase( CloudShadowMapTexture ),
+             RDG::Erase( RainOcclusionMapTexture ) };
         static constexpr std::array kVirtualLocal{
              RDG::Erase( LightScatteringTexture ), RDG::Erase( LightScatteringHistoryTexture ),
              RDG::Erase( ShadowCascadesTexture ),  RDG::Erase( DistantSkyLightTexture ),
@@ -90,7 +101,8 @@ namespace Desert::Graphic::System
              RDG::Erase( PointLightsUB ),          RDG::Erase( SpotLightsUB ),
              RDG::Erase( LightGridParamsUB ),      RDG::Erase( LightGridCellsUB ),
              RDG::Erase( kVsmFrameDataBlock ),     RDG::Erase( kVsmPageTableBlock ),
-             RDG::Erase( kVsmPhysicalPool ),       RDG::Erase( kVsmLocalLightsBlock ) };
+             RDG::Erase( kVsmPhysicalPool ),       RDG::Erase( kVsmLocalLightsBlock ),
+             RDG::Erase( CloudShadowMapTexture ),  RDG::Erase( RainOcclusionMapTexture ) };
     };
 
     // The Integration shader's parameters (Programs/Fog/VolumetricFogIntegration.shader).

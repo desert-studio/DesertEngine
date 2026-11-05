@@ -312,6 +312,12 @@ namespace Desert::Graphic::System
                                       0.0f );
         }
 
+        // The cloud layer's shadow on the sun term and what covers the sky from each froxel: the surfaces' values.
+        p.CloudShadowWorldToMap   = sun.CloudShadow.WorldToMap;
+        p.CloudShadowParams       = sun.CloudShadow.Params;
+        p.RainOcclusionWorldToMap = sun.SkyOcclusion.WorldToMap;
+        p.RainOcclusionParams     = t.RainOcclusionMap.IsValid() ? sun.SkyOcclusion.Params : glm::vec4( 0.0f );
+
         if ( const auto uploaded = m_ParamsBuffer->SetData( &p, static_cast<uint32_t>( sizeof( p ) ) );
              !uploaded.IsSuccess() )
         {
@@ -349,13 +355,17 @@ namespace Desert::Graphic::System
             historyImageName = historyName;
         }
 
+        // Named here, not as a conditional inside the by-value argument (MSVC 19.44 hangs on that shape).
+        RDG::TextureRef rainOcclusionMap = refs.System.White;
+        if ( t.RainOcclusionMap.IsValid() )
+            rainOcclusionMap = t.RainOcclusionMap;
+
         using Scattering = VolumetricFogLightScatteringShaderParameters;
         ComputeNodeDeclaration scattering;
         scattering.Name = "VolumetricFog: LightScattering";
         auto block = scattering.Access.Bindings( scatteringLayout.Get( scatteringPipeline->GetShader() ),
                                                  Renderer::GetPipelineRouteFill( *scatteringPipeline ) );
-        block
-             .Storage( Scattering::LightScatteringTexture, std::shared_ptr<Image>( m_LightScattering[current] ),
+        block.Storage( Scattering::LightScatteringTexture, std::shared_ptr<Image>( m_LightScattering[current] ),
                        RDG::Access::StorageWrite, currentName )
              .Texture( Scattering::LightScatteringHistoryTexture, historyImage, RDG::Access::SampledCompute,
                        historyImageName )
@@ -370,7 +380,13 @@ namespace Desert::Graphic::System
              .Storage( Scattering::PointLightsUB, t.Lights.Point, RDG::Access::StorageRead )
              .Storage( Scattering::SpotLightsUB, t.Lights.Spot, RDG::Access::StorageRead )
              .Storage( Scattering::LightGridParamsUB, t.Lights.GridParams, RDG::Access::StorageRead )
-             .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead );
+             .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead )
+             // The cloud layer's map (white when none casts: CloudShadowParams.y = 0 and it is never fetched).
+             .Texture( Scattering::CloudShadowMapTexture, CloudShadowMapOrWhite( refs ),
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             // Read with textureGather (raw depths); white = depth 1, "nothing overhead", when the view has none.
+             .Texture( Scattering::RainOcclusionMapTexture, rainOcclusionMap,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         if ( virtualLocalShadows )
         {
             // The reader's tables (Common/VirtualShadowMap.glslh, DESERT_VSM_READ): this frame's map of the view.
