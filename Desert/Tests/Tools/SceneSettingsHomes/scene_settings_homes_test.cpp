@@ -214,7 +214,6 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
 
     Core::PostProcessSettings stated;
     stated.EnableSSAO           = false;
-    stated.GIIntensity          = 7.25f;
     stated.SSRIntensity         = 0.3f;
     stated.WhitePoint           = 3.0f;
     stated.BloomThreshold       = 0.7f;

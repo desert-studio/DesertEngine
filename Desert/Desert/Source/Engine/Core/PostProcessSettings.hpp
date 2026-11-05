@@ -65,8 +65,11 @@ namespace Desert::Core
         // FAMILY (GIRequest / ReflectionRequest): Traced names no tracer - hardware or software rays are the
         // machine's Scalability ceiling and the device's (TRACED-METHOD-AXIS; UE r.Lumen.HardwareRayTracing).
         //
-        //  ScreenSpace          — gathers from sun-lit G-buffer neighbours inside the lighting pass: only geometry
-        //                         on screen bounces, no denoiser.
+        //  Off                  — the sky light and ambient occlusion only; the default. GI comes from a method's
+        //                         own passes, never from a bounce the lighting composite adds.
+        //  ScreenSpace          — declared, not implemented (refused): the composite's sun-only neighbour gather
+        //                         is gone (GTX-TIER-LADDER; scene v73 re-stated it as Off). A screen trace of
+        //                         the lit scene (UE ScreenSpaceGI) lands on this rung.
         //  ProbeVolume          — the world radiance cache (probes on the global distance field, every light and
         //                         the sky, off screen too) read per pixel: the cheap traced path.
         //  Traced               — the same cache behind screen probes traced per frame: contact detail and
@@ -76,10 +79,7 @@ namespace Desert::Core
                   Refuse( "Common::Scalability::RefuseGIRequest" ),
                   Tooltip( "Requested method; Traced runs hardware or software rays by the machine's "
                            "Scalability and the device. The viewport overlay shows the effective one." ) )
-        Common::Scalability::GIRequest GlobalIlluminationMethod = Common::Scalability::GIRequest::ScreenSpace;
-        // The screen-space gather's strength (ScreenSpace only: the traced methods carry the lights' own energy).
-        PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
-        float GIIntensity = 2.0f;
+        Common::Scalability::GIRequest GlobalIlluminationMethod = Common::Scalability::GIRequest::Off;
 
         // Screen space by default (SSR1B, scene v48; the method since v52): the trace + resolve cost 0.25-0.29 ms
         // after SSR1, so a view no volume touches reflects, as UE's ScreenSpaceReflectionIntensity default does.

@@ -574,6 +574,10 @@ namespace
             out << " scene ->v" << Desert::Migration::kSceneVersionTracedRequest << " ("
                 << report.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
                 << "SoftwareTraced / HardwareTraced are Traced)";
+        if ( report.ComposedGIRaised && ( report.ComposedGI.Restated > 0 || report.ComposedGI.Dropped > 0 ) )
+            out << " scene ->v" << Desert::Migration::kSceneVersionComposedGI << " ("
+                << report.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
+                << report.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

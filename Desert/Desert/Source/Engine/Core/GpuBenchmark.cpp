@@ -14,6 +14,7 @@ namespace Desert::Engine
         key.DriverVersion = caps.DriverVersion;
         key.DeviceName    = caps.Name;
         key.TableVersion  = tableVersion;
+        key.VideoMemoryMiB = static_cast<uint32_t>( caps.Catalog.VideoMemory / ( 1024ull * 1024ull ) );
         return key;
     }
 } // namespace Desert::Engine

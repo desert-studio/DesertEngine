@@ -436,7 +436,15 @@ namespace Desert::Migration
     //       prefabs alike, the record and every prefab override.
     inline constexpr int kSceneVersionTracedRequest = 72;
 
-    static_assert( kSceneVersionTracedRequest == kSceneVersion,
+    //  73 - GI COMES FROM THE METHOD ALONE (GTX-TIER-LADDER). The deferred composite's screen-space gather (a
+    //       sun-only bounce of the on-screen G-buffer neighbours, scaled by PostProcessSettings.GIIntensity) is
+    //       gone, and GIRequest ScreenSpace (2) is declared but not implemented. A volume that stated it asks for
+    //       Off (0) - the GI it rendered in effect: the gather measured mean 0.11/255 on CornellDemo - and
+    //       GIIntensity, read by nothing now, is dropped (MigrateComposedGIV72ToV73). Scenes and prefabs alike,
+    //       the record and every prefab override.
+    inline constexpr int kSceneVersionComposedGI = 73;
+
+    static_assert( kSceneVersionComposedGI == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -849,6 +857,18 @@ namespace Desert::Migration
     // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod and ReflectionsMethod by the old ->
     // new tables kSceneVersionTracedRequest states, in the record and in every prefab override. PURE.
     TracedRequestReport MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateComposedGIV72ToV73 did to one file.
+    struct ComposedGIReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod ScreenSpace re-stated as Off
+        std::size_t              Dropped  = 0; // GIIntensity keys removed
+        std::vector<std::string> Refused;      // a Settings block that is not an object
+    };
+
+    // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod ScreenSpace (2) as Off (0) and drops
+    // its GIIntensity, in the record and in every prefab override (kSceneVersionComposedGI). PURE.
+    ComposedGIReport MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
 
     // What MigrateLightRotationV0ToV1 did to one file.
     struct SunRotationReport
@@ -1279,6 +1299,8 @@ namespace Desert::Migration
 
         bool                TracedRequestRaised = false; // below kSceneVersionTracedRequest
         TracedRequestReport TracedRequest;
+        bool                ComposedGIRaised = false; // below kSceneVersionComposedGI
+        ComposedGIReport    ComposedGI;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1297,7 +1319,7 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised;
+                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised;
         }
     };
 

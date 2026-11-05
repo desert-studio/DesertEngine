@@ -220,9 +220,6 @@ namespace Common::Scalability
         ShadowRainOcclusionMapSize,
         ShadowRainOcclusionExtent,
         ShadowRainOcclusionRefreshPercent,
-        // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
-        // ScreenSpaceGi.x). 4..64
-        ScreenSpaceGISamples,
         // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
         // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
         ReflectionDenoiserRadius,

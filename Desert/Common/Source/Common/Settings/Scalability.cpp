@@ -208,11 +208,6 @@ namespace Common::Scalability
              { P::ShadowRainOcclusionRefreshPercent, G::Shadows, "Shadows.RainOcclusionRefreshPercent", 5, 50,
                CL::None, "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)",
                25, Vis::Advanced },
-             { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
-               CL::None,
-               "SceneRenderer::BeginScene -> MaterialDeferredLighting (ScreenSpaceGi.x: DeferredLighting.shader "
-               "GatherIndirectGI samples)",
-               16, Vis::Advanced },
              { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)", 2,
                Vis::Advanced },
