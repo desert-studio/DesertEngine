@@ -3,11 +3,15 @@
         "Kind": "FoliageType",
         "Guid": "8ac54f754da3f672dcf8c2a6abe7bb25",
         "Versions": {
-            "FOLT": 8
+            "FOLT": 9
         },
         "Dependencies": ["9cf601bde61059a737e2cbfe2972b75a", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6"]
     },
     "Kind": "Mesh",
+    "Mesh": {
+        "Guid": "9cf601bde61059a737e2cbfe2972b75a",
+        "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_a.stmesh"
+    },
     "Prefab": {
         "Guid": "",
         "Path": ""
@@ -44,19 +48,15 @@
     ],
     "MinimumLayerWeight": 0.5,
     "CullDistance": {
-        "Min": 6000,
-        "Max": 9000
+        "Min": 6000.0,
+        "Max": 9000.0
     },
     "Wind": {
         "Strength": 35.0,
-        "Speed": 0.8,
+        "Speed": 0.800000011920929,
         "Height": 60.0
     },
     "IncludeInHLOD": true,
-    "Mesh": {
-        "Guid": "9cf601bde61059a737e2cbfe2972b75a",
-        "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_a.stmesh"
-    },
     "Procedural": {
         "CollisionRadius": 10.0,
         "ShadeRadius": 30.0,
@@ -86,5 +86,10 @@
                 "Value": 1.0
             }
         ]
+    },
+    "Collision": {
+        "Enabled": false,
+        "Profile": "BlockAll",
+        "Shape": "Mesh"
     }
 }
