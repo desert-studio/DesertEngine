@@ -1,0 +1,32 @@
+# TRIM: Trim is the Boolean tool session in its "cut A by B" mode (UE UTrimMeshesTool) - a red 100 cm Box trimmed by a green radius-50 Sphere over its +X top edge previews on the Box (the Sphere hidden), Accept writes it as one undo step, Undo brings both back
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 230,260,300
+Дано --subject viewport set Camera.Direction -0.5,-0.45,-0.74
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
+Дано --subject modeling set CreateShape.Sphere.Radius 50
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 40,60,40
+Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Green.demat
+Дано run Modeling "Active tool: Accept"
+Дано --subject viewport set Camera.Position 150,190,180
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run Modeling "Trim: Trim A"
+Дано run Modeling "Trim: Remove Inside"
+Дано run Modeling "Boolean write to: Input"
+Дано run Modeling "Boolean inputs: Delete Inputs"
+Тогда-вид 0_inputs the red Box with the green Sphere sunk into its near top corner
+Когда run Modeling "Boolean tool: Trim"
+Тогда 3_trim_preview the red Box with its near top corner cut away by the sphere (an open spherical hole, no green surface); the Sphere hidden; the tool bar at the viewport bottom reads Trim with Accept and Cancel
+Когда run Modeling "Active tool: Accept"
+Тогда 3_trim_accept the trimmed red Box stays, the Sphere gone from viewport and Outliner; no tool bar
+Когда run Action Undo
+Тогда 4_trim_undo the whole red Box and the green Sphere in its corner again; Outliner lists both

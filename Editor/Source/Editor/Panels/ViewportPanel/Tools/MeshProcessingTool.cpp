@@ -266,9 +266,9 @@ namespace Desert::Editor::Tools
         const bool boolean = ms.ActiveTool == MS::Tool::Boolean || ms.ActiveTool == MS::Tool::Trim;
         if ( ms.ActiveTool == MS::Tool::VoxBoolean || ms.ActiveTool == MS::Tool::VoxBlend || boolean )
         {
-            // A Boolean keeps B's triangles, so B's material IDs are remapped into A's slot table.
-            auto pair = Core::SelectedPairInSpaceOfA( scene, ProcessingToolName( ms.ActiveTool ),
-                                                      ms.ActiveTool == MS::Tool::Boolean );
+            // A Boolean (and a Trim of B) keeps B's triangles, so B's material IDs are remapped into A's slot
+            // table: the preview on A draws both inputs' materials.
+            auto pair = Core::SelectedPairInSpaceOfA( scene, ProcessingToolName( ms.ActiveTool ), boolean );
             if ( !pair.IsSuccess() )
             {
                 ms.DeformStatus = pair.GetError();
@@ -285,6 +285,8 @@ namespace Desert::Editor::Tools
             m_Session->NameA          = std::move( p.NameA );
             m_Session->BooleanInputs  = std::move( booleanInputs );
             HideOther( scene );
+            if ( boolean )
+                ShowPairMaterials( scene );
             Recompute( scene, ms, *m_Session );
             return;
         }
@@ -505,6 +507,8 @@ namespace Desert::Editor::Tools
         }
         session.Preview    = std::move( preview );
         ms.DeformStatus    = std::move( report );
+        if ( session.Tool == MS::Tool::Boolean || session.Tool == MS::Tool::Trim )
+            ShowPairMaterials( scene ); // a refused setting before this one put A's own slots back
     }
 
     void MeshProcessingTool::HideOther( ::Desert::Core::Scene& scene )
@@ -519,8 +523,36 @@ namespace Desert::Editor::Tools
         m_Session->OtherHidden = true;
     }
 
+    void MeshProcessingTool::ShowPairMaterials( ::Desert::Core::Scene& scene )
+    {
+        const auto ref = scene.FindEntityByID( m_Session->Entity );
+        if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            return;
+        const ECS::Entity a     = ref->get();
+        const auto&       smc   = a.GetComponent<ECS::StaticMeshComponent>();
+        const auto&       table = m_Session->BooleanInputs.MaterialSlots;
+        if ( smc.GetMaterialSlots() == table )
+            return;
+        if ( !m_Session->SlotsBefore )
+            m_Session->SlotsBefore = smc.GetMaterialSlots();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots       = table;
+        ECS::SetStaticMesh( scene.GetRegistry(), a.GetHandle(), desc );
+    }
+
     void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene, Session& session )
     {
+        if ( session.SlotsBefore )
+        {
+            if ( const auto ref = scene.FindEntityByID( session.Entity );
+                 ref && ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            {
+                ECS::StaticMeshDesc desc = ref->get().GetComponent<ECS::StaticMeshComponent>().GetDesc();
+                desc.MaterialSlots       = std::move( *session.SlotsBefore );
+                ECS::SetStaticMesh( scene.GetRegistry(), ref->get().GetHandle(), desc );
+            }
+            session.SlotsBefore.reset();
+        }
         if ( session.OtherHidden )
         {
             session.OtherHidden = false;
@@ -670,6 +702,7 @@ namespace Desert::Editor::Tools
             if ( const auto refA = scene.FindEntityByID( m_Session->Entity ); refA )
                 (void)ECS::SetEditableMesh( scene.GetRegistry(), refA->get().GetHandle(), m_Session->Preview );
             HideOther( scene );
+            ShowPairMaterials( scene );
             return refuse( done.GetError() );
         }
         m_Session.reset();

@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -123,6 +124,36 @@ namespace Desert::Editor::Core
                                                                        mapped.GetError() );
             }
             return Common::MakeSuccess( OperandMeshPtr( std::move( mesh ) ) );
+        }
+
+        // A mesh whose material IDs index @p table keeps only the slots its triangles use, in table order, its IDs
+        // renumbered to them (a Trim of B keeps B's triangles, whose IDs the session mapped into the pair's
+        // table). An ID past the table reads as the empty slot, as the renderer draws it.
+        Common::ResultStr<std::vector<Common::AssetHandle>>
+        KeepUsedSlots( Geometry::DynamicMesh3& mesh, const std::vector<Common::AssetHandle>& table )
+        {
+            using Out = std::vector<Common::AssetHandle>;
+            Out slots;
+            for ( const int id : Geometry::DistinctMaterialIds( mesh ) )
+            {
+                const Common::AssetHandle handle = id >= 0 && static_cast<size_t>( id ) < table.size()
+                                                        ? table[static_cast<size_t>( id )]
+                                                        : Common::AssetHandle{};
+                if ( std::find( slots.begin(), slots.end(), handle ) == slots.end() )
+                    slots.push_back( handle );
+            }
+            auto mapped = Geometry::MapMaterialIds(
+                 mesh,
+                 [&]( const int id )
+                 {
+                     const Common::AssetHandle handle = id >= 0 && static_cast<size_t>( id ) < table.size()
+                                                             ? table[static_cast<size_t>( id )]
+                                                             : Common::AssetHandle{};
+                     return static_cast<int>( std::find( slots.begin(), slots.end(), handle ) - slots.begin() );
+                 } );
+            if ( !mapped.IsSuccess() )
+                return Common::MakeError<Out>( mapped.GetError() );
+            return Common::MakeSuccess( std::move( slots ) );
         }
     } // namespace
 
@@ -247,8 +278,12 @@ namespace Desert::Editor::Core
         const Common::UUID opId     = bOnB ? inputs.B : inputs.A;
         const std::string& opName   = bOnB ? inputs.NameB : inputs.NameA;
 
-        // The result was computed in A's space; B operated takes it in its own.
-        OperandMeshPtr mesh = resultInA;
+        // The result was computed in A's space, its material IDs indexing the pair's table (A's slots, then B's
+        // not among them - UE UCSGMeshesTool's combined material set). B operated takes it in its own space.
+        OperandMeshPtr                                  mesh = resultInA;
+        std::optional<std::vector<Common::AssetHandle>> slots;
+        if ( tool == BooleanTool::Boolean )
+            slots = inputs.MaterialSlots; // both meshes' triangles: the whole table
         if ( bOnB )
         {
             auto moved = Geometry::TransformMesh( *resultInA, glm::inverse( eB.GetWorldTransform() ) *
@@ -256,16 +291,24 @@ namespace Desert::Editor::Core
             if ( !moved.IsSuccess() )
                 return Common::MakeFormattedError<Out>( "{}: the result into the space of '{}': {}", label, opName,
                                                         moved.GetError() );
-            mesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
+            auto movedMesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
+            if ( tool == BooleanTool::Trim )
+            {
+                // A Trim of B keeps only B's triangles: B keeps the slots they use.
+                auto kept = KeepUsedSlots( *movedMesh, inputs.MaterialSlots );
+                if ( !kept.IsSuccess() )
+                    return Common::MakeFormattedError<Out>( "{}: the materials of '{}': {}", label, opName,
+                                                            kept.GetError() );
+                slots = kept.ExtractValue();
+            }
+            mesh = std::move( movedMesh );
         }
+        // A Trim of A keeps A's triangles with their own IDs (the table starts with A's slots): A's slots stay.
 
         const auto&                tc = operated.GetComponent<ECS::TransformComponent>();
         Commands::XformEntityState state{ opId,          mesh,         tc.GetTranslation(), tc.GetRotation(),
                                           tc.GetScale(), std::nullopt, std::nullopt };
-        // A Boolean keeps both meshes' triangles: their material IDs index the pair's table. A Trim keeps only
-        // the operated mesh's triangles with their own IDs, so its slots stay as they are.
-        if ( tool == BooleanTool::Boolean )
-            state.MaterialSlots = inputs.MaterialSlots;
+        state.MaterialSlots = std::move( slots );
 
         std::vector<Commands::XformEntityState> changes;
         std::vector<Commands::XformNewEntity>   creates;
