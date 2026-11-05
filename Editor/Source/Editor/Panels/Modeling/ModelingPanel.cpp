@@ -300,9 +300,10 @@ namespace Desert::Editor
             LOG_WARN( "{0}: the Modeling panel has no scene", Core::ToString( tool ) );
             return;
         }
-        if ( const auto done = Core::ApplyBooleanTool( *m_Scene, tool, Core::BooleanArgsFromModelingState() );
-             !done )
-            LOG_WARN( "{0}", done.GetError() );
+        // Opens the tool session (MeshProcessingTool): the result previews until the tool bar's Accept.
+        using MS             = Core::ModelingState;
+        MS::Get().ActiveTool = tool == Core::BooleanTool::Trim ? MS::Tool::Trim : MS::Tool::Boolean;
+        Core::ViewportMode::Set( Core::EditorMode::Modeling );
     }
 
     void ModelingPanel::Transform( Core::XformOperation op )
@@ -374,8 +375,9 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Pick a shape above to place it." );
     }
 
-    // UE's Create palette: of its tools we have Boolean, Merge (UE's Combine Meshes) and Pattern, all operations
-    // on the scene selection that run on one click; in UE each is a tool with its own Accept.
+    // UE's Create palette: of its tools we have Boolean, Merge (UE's Combine Meshes) and Pattern. Boolean and
+    // Pattern are tool sessions as in UE (MeshProcessingTool: a live preview until the tool bar's Accept /
+    // Cancel); Merge still runs on one click.
     void ModelingPanel::DrawCreatePalette()
     {
         auto&       ms       = Core::ModelingState::Get();
@@ -397,6 +399,8 @@ namespace Desert::Editor
             DrawBooleanOutput();
             if ( ImGui::Button( Core::ToString( Core::BooleanTool::Boolean ), ImVec2( -1.0f, 0.0f ) ) )
                 RunBoolean( Core::BooleanTool::Boolean );
+            if ( ms.ActiveTool == Core::ModelingState::Tool::Boolean )
+                ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Merge" ) )
         {
@@ -444,8 +448,15 @@ namespace Desert::Editor
             ImGui::Checkbox( "Orient", &pattern.OrientToCircle );
         }
         ImGui::Checkbox( "Separate entities##Pattern", &ms.XformPatternSeparate );
+        // Opens the tool session (UE UPatternTool): the copies preview on the selected mesh and follow the
+        // settings above until the tool bar's Accept writes them (one undo step) or Cancel drops them.
         if ( ImGui::Button( Core::ToString( XO::Pattern ), ImVec2( -1.0f, 0.0f ) ) )
-            transform( XO::Pattern );
+        {
+            ms.ActiveTool = Core::ModelingState::Tool::Pattern;
+            Core::ViewportMode::Set( Core::EditorMode::Modeling );
+        }
+        if ( ms.ActiveTool == Core::ModelingState::Tool::Pattern )
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
 
         ImGui::Spacing();
     }
@@ -589,6 +600,8 @@ namespace Desert::Editor
         DrawBooleanOutput();
         if ( ImGui::Button( Core::ToString( Core::BooleanTool::Trim ), ImVec2( -1.0f, 0.0f ) ) )
             RunBoolean( Core::BooleanTool::Trim );
+        if ( ms.ActiveTool == Core::ModelingState::Tool::Trim )
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
     }
 
     // UE's Transform palette: Edit Pivot, Bake Transform and Split. In UE each is a tool with its own Accept;

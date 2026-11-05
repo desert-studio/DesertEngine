@@ -72,6 +72,14 @@ namespace Desert::Editor::Core
             VoxMorph,   // UE's UVoxelMorphologyMeshesTool: Dilate/Contract/Close/Open of the mesh's field -> a new
                         // entity
             VoxBlend,   // UE's UVoxelBlendMeshesTool: the two selected meshes' fields blended -> a new entity
+            // UE's Model palette Boolean / Trim (UCSGMeshesTool, MeshBooleanTool.hpp): the exact mesh CSG of the
+            // two selected meshes previews on A (B hidden) and is written on Accept (same session).
+            Boolean,
+            Trim,
+            // UE's Create palette Pattern (UPatternTool): copies of the selected mesh laid out by XformPattern
+            // preview on it, a change of shape / count / spacing recomputes them; Accept writes them merged into
+            // the source or - XformPatternSeparate - as new entities, one undo step; Cancel creates nothing.
+            Pattern,
             // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh
             // (Standard, Smooth, Move; Geometry/DynamicMeshSculpt.hpp).
             Sculpt,
@@ -343,7 +351,8 @@ namespace Desert::Editor::Core
         bool                   ElementPlaneCutKeepNegative = false;
         bool                   ElementPlaneCutFill         = true;
         Geometry::PlaneCutMode ElementPlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
-        // Boolean and Trim (MeshBooleanTool.hpp), on the scene selection's two entities.
+        // Boolean and Trim (MeshBooleanTool.hpp), on the scene selection's two entities: what the session
+        // computes, and what its Accept does.
         BooleanToolArgs Boolean;
 
         // XForm tab (MeshXformOperations.hpp), acting on the scene selection's entities. Edit Pivot moves the

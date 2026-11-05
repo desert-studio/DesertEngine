@@ -706,8 +706,11 @@ namespace Desert::Geometry
                 if ( ( tv[j] == ev.A || tv[j] == ev.B ) &&
                      ( tv[( j + 1 ) % 3] == ev.A || tv[( j + 1 ) % 3] == ev.B ) )
                     edge = OpenEdge{ tv[j], tv[( j + 1 ) % 3] };
+            // Triangles wind CLOCKWISE seen from the front (VectorUtil::Normal, UE's order), so the triangle's
+            // inside lies to the right of a -> b and n x (b - a) points away from it - outward, in its plane.
+            // (b - a) x n pointed INTO the face: the p1 strip lay folded back over its own wall, unseen.
             const glm::dvec3 out =
-                 glm::cross( before.GetVertex( edge.B ) - before.GetVertex( edge.A ), before.GetTriNormal( t ) );
+                 glm::cross( before.GetTriNormal( t ), before.GetVertex( edge.B ) - before.GetVertex( edge.A ) );
             const double len = glm::length( out );
             if ( !( len > 1e-12 ) )
                 return Common::MakeFormattedError<RegionOutcome>(

@@ -1,16 +1,14 @@
 // Ported from UE 5.8 Engine/Plugins/Runtime/MeshModelingToolset/Source/MeshModelingTools/Public/CSGMeshesTool.h
 // (UCSGMeshesToolProperties, UTrimMeshesToolProperties, the builder's two-input rule) and ModelingComponents
-// BaseTools/BaseCreateFromSelectedTool.h (OutputWriteTo, HandleInputs), adapted: no live preview and no Accept -
-// one click runs the operation on the scene selection; the operation is RunMeshBoolean (the ported
-// FMeshBoolean) with the other mesh baked into the operated one's space instead of FBooleanMeshesOp's world
-// frame; the result is written through Commands::ApplyXformEdit as one undo step; Hide Inputs is the entity's
-// VisibilityComponent.
+// BaseTools/BaseCreateFromSelectedTool.h (OutputWriteTo, HandleInputs), adapted: the preview session is
+// MeshProcessingTool's (UE UMeshOpPreviewWithBackgroundCompute); the operation is RunMeshBoolean (the ported
+// FMeshBoolean) in A's object space instead of FBooleanMeshesOp's world frame; Accept writes the result through
+// Commands::ApplyXformEdit as one undo step; Hide Inputs is the entity's VisibilityComponent.
 
 #include "MeshBooleanTool.hpp"
 #include "ModelingToolTarget.hpp"
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
-#include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -18,6 +16,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
+#include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshBooleanOperation.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -177,25 +176,32 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
-    BooleanToolArgs BooleanArgsFromModelingState()
+    namespace
     {
-        return ModelingState::Get().Boolean;
-    }
+        // Which input is operated on (the result belongs to it) and what MeshBoolean runs.
+        bool OperatesOnB( BooleanTool tool, const BooleanToolArgs& args )
+        {
+            return tool == BooleanTool::Trim ? args.Trimmed == TrimTarget::TrimB
+                                             : args.Operation == CsgOperation::DifferenceBA;
+        }
 
-    Common::BoolResultStr ApplyBooleanTool( ::Desert::Core::Scene& scene, BooleanTool tool,
-                                            const BooleanToolArgs& args )
+        std::string OperationLabel( BooleanTool tool, const BooleanToolArgs& args )
+        {
+            return tool == BooleanTool::Trim
+                        ? fmt::format( "{} {} {}", ToString( tool ), ToString( args.Trimmed ),
+                                       ToString( args.Side ) )
+                        : fmt::format( "{} {}", ToString( tool ), ToString( args.Operation ) );
+        }
+    } // namespace
+
+    Common::ResultStr<Geometry::DeformOutcome> RunBooleanTool( BooleanTool tool, const BooleanToolArgs& args,
+                                                               const SelectedMeshPair& inputs )
     {
-        const char* name   = ToString( tool );
-        auto        inputs = SelectedInputs( scene, name );
-        if ( !inputs.IsSuccess() )
-            return Common::MakeError<bool>( inputs.GetError() );
-        const std::array<Input, 2>& ab = inputs.GetValue();
-
-        // Which input is operated on (the result lands in its space) and what MeshBoolean runs.
+        using Out        = Geometry::DeformOutcome;
         const bool bTrim = tool == BooleanTool::Trim;
-        const bool bOnB = bTrim ? args.Trimmed == TrimTarget::TrimB : args.Operation == CsgOperation::DifferenceBA;
-        const Input&               operated  = ab[bOnB ? 1 : 0];
-        const Input&               other     = ab[bOnB ? 0 : 1];
+        const bool bOnB  = OperatesOnB( tool, args );
+        if ( !inputs.MeshA || !inputs.MeshBInA )
+            return Common::MakeFormattedError<Out>( "{}: an input has no mesh", ToString( tool ) );
         Geometry::BooleanOperation operation = Geometry::BooleanOperation::Difference;
         if ( bTrim )
             operation = args.Side == TrimSide::RemoveInside ? Geometry::BooleanOperation::TrimInside
@@ -205,26 +211,61 @@ namespace Desert::Editor::Core
         else if ( args.Operation == CsgOperation::Union )
             operation = Geometry::BooleanOperation::Union;
 
-        // A Trim drops every triangle of the cutter, so the operated entity's slots stay as they are.
-        std::vector<Common::AssetHandle> table =
-             operated.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
-        auto cutter = BakeInto( operated, other, bTrim ? nullptr : &table, name );
-        if ( !cutter.IsSuccess() )
-            return Common::MakeError<bool>( cutter.GetError() );
-        auto result = Geometry::RunMeshBoolean( operation, *operated.Mesh, *cutter.GetValue() );
+        const Geometry::DynamicMesh3& target     = bOnB ? *inputs.MeshBInA : *inputs.MeshA;
+        const Geometry::DynamicMesh3& cutter     = bOnB ? *inputs.MeshA : *inputs.MeshBInA;
+        const std::string&            targetName = bOnB ? inputs.NameB : inputs.NameA;
+        const std::string&            cutterName = bOnB ? inputs.NameA : inputs.NameB;
+        const std::string             label      = OperationLabel( tool, args );
+        auto                          result     = Geometry::RunMeshBoolean( operation, target, cutter );
         if ( !result.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "{} of '{}' by '{}': {}", name, operated.Name, other.Name,
-                                                     result.GetError() );
-        OperandMeshPtr mesh = std::move( result.ExtractValue().Mesh );
+            return Common::MakeFormattedError<Out>( "{} of '{}' by '{}': {}", label, targetName, cutterName,
+                                                    result.GetError() );
+        Out out;
+        out.Mesh   = *result.GetValue().Mesh;
+        out.Report = fmt::format( "{} of '{}' by '{}': {} triangles", label, targetName, cutterName,
+                                  out.Mesh.TriangleCount() );
+        return Common::MakeSuccess( std::move( out ) );
+    }
 
-        const auto&                tc = operated.Entity.GetComponent<ECS::TransformComponent>();
-        Commands::XformEntityState state{ operated.Id, mesh,         tc.GetTranslation(), tc.GetRotation(),
-                                          tc.GetScale(),    std::nullopt, std::nullopt };
-        if ( !bTrim )
-            state.MaterialSlots = std::move( table );
-        const std::string detail = bTrim ? fmt::format( "{} {}", ToString( args.Trimmed ), ToString( args.Side ) )
-                                         : std::string( ToString( args.Operation ) );
-        const std::string label  = fmt::format( "{} {}", name, detail );
+    Common::ResultStr<std::vector<Common::UUID>> CommitBooleanTool( ::Desert::Core::Scene& scene, BooleanTool tool,
+                                                                    const BooleanToolArgs&  args,
+                                                                    const SelectedMeshPair& inputs,
+                                                                    const OperandMeshPtr&   resultInA )
+    {
+        using Out               = std::vector<Common::UUID>;
+        const std::string label = OperationLabel( tool, args );
+        const auto        refA  = scene.FindEntityByID( inputs.A );
+        const auto        refB  = scene.FindEntityByID( inputs.B );
+        if ( !refA || !refB )
+            return Common::MakeFormattedError<Out>( "{}: an input is no longer in the scene", label );
+        if ( !resultInA )
+            return Common::MakeFormattedError<Out>( "{}: no result to write", label );
+        const bool         bOnB     = OperatesOnB( tool, args );
+        const ECS::Entity  eA       = refA->get();
+        const ECS::Entity  eB       = refB->get();
+        const ECS::Entity& operated = bOnB ? eB : eA;
+        const Common::UUID opId     = bOnB ? inputs.B : inputs.A;
+        const std::string& opName   = bOnB ? inputs.NameB : inputs.NameA;
+
+        // The result was computed in A's space; B operated takes it in its own.
+        OperandMeshPtr mesh = resultInA;
+        if ( bOnB )
+        {
+            auto moved = Geometry::TransformMesh( *resultInA, glm::inverse( eB.GetWorldTransform() ) *
+                                                                   eA.GetWorldTransform() );
+            if ( !moved.IsSuccess() )
+                return Common::MakeFormattedError<Out>( "{}: the result into the space of '{}': {}", label, opName,
+                                                        moved.GetError() );
+            mesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
+        }
+
+        const auto&                tc = operated.GetComponent<ECS::TransformComponent>();
+        Commands::XformEntityState state{ opId,          mesh,         tc.GetTranslation(), tc.GetRotation(),
+                                          tc.GetScale(), std::nullopt, std::nullopt };
+        // A Boolean keeps both meshes' triangles: their material IDs index the pair's table. A Trim keeps only
+        // the operated mesh's triangles with their own IDs, so its slots stay as they are.
+        if ( tool == BooleanTool::Boolean )
+            state.MaterialSlots = inputs.MaterialSlots;
 
         std::vector<Commands::XformEntityState> changes;
         std::vector<Commands::XformNewEntity>   creates;
@@ -232,10 +273,16 @@ namespace Desert::Editor::Core
         if ( args.WriteTo == BooleanWriteTo::Input )
             changes.push_back( std::move( state ) );
         else
-            creates.push_back( { operated.Id, fmt::format( "{} {}", operated.Name, name ), std::move( state ) } );
-        for ( const Input& in : ab )
+            creates.push_back( { opId, fmt::format( "{} {}", opName, ToString( tool ) ), std::move( state ) } );
+        const struct
         {
-            if ( args.WriteTo == BooleanWriteTo::Input && in.Id == operated.Id )
+            Common::UUID   Id;
+            ECS::Entity    Entity;
+            OperandMeshPtr Committed;
+        } both[2] = { { inputs.A, eA, inputs.CommittedA }, { inputs.B, eB, inputs.CommittedB } };
+        for ( const auto& in : both )
+        {
+            if ( args.WriteTo == BooleanWriteTo::Input && in.Id == opId )
                 continue;
             if ( args.Inputs == BooleanInputs::Delete )
                 deletes.push_back( in.Id );
@@ -243,23 +290,23 @@ namespace Desert::Editor::Core
             {
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 // The entity's own mesh, not the tool target: a lifted asset keeps drawing its asset.
-                changes.push_back(
-                     { in.Id, in.Committed, itc.GetTranslation(), itc.GetRotation(), itc.GetScale(), std::nullopt, false } );
+                changes.push_back( { in.Id, in.Committed, itc.GetTranslation(), itc.GetRotation(), itc.GetScale(),
+                                     std::nullopt, false } );
             }
         }
 
-        auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
+        auto applied = Commands::ApplyXformEdit( fmt::format( "Modeling: {}", label ), changes, creates, deletes );
         if ( !applied.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "{}: {}", label, applied.GetError() );
-        LOG_INFO( "[Modeling] {0} of '{1}' by '{2}': {3} triangles, written to {4}, {5}", label, operated.Name,
-                  other.Name, mesh->TriangleCount(), ToString( args.WriteTo ), ToString( args.Inputs ) );
-        SelectionManager::SetSelection( args.WriteTo == BooleanWriteTo::Input
-                                             ? std::vector<Common::UUID>{ operated.Id }
-                                             : applied.GetValue() );
-        return Common::MakeSuccess( true );
+            return Common::MakeFormattedError<Out>( "{}: {}", label, applied.GetError() );
+        LOG_INFO( "[Modeling] {0} accepted on '{1}': {2} triangles, written to {3}, {4}", label, opName,
+                  mesh->TriangleCount(), ToString( args.WriteTo ), ToString( args.Inputs ) );
+        Out result = args.WriteTo == BooleanWriteTo::Input ? Out{ opId } : applied.GetValue();
+        SelectionManager::SetSelection( result );
+        return Common::MakeSuccess( std::move( result ) );
     }
-    Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene,
-                                                                const char*            toolName )
+
+    Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene, const char* toolName,
+                                                                const bool remapMaterials )
     {
         auto inputs = SelectedInputs( scene, toolName );
         if ( !inputs.IsSuccess() )
@@ -267,10 +314,14 @@ namespace Desert::Editor::Core
         const std::array<Input, 2>& ab = inputs.GetValue();
         if ( !ab[0].Mesh )
             return Common::MakeFormattedError<SelectedMeshPair>( "{}: '{}' has no mesh", toolName, ab[0].Name );
-        auto b = BakeInto( ab[0], ab[1], nullptr, toolName );
+        std::vector<Common::AssetHandle> table;
+        if ( remapMaterials )
+            table = ab[0].Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
+        auto b = BakeInto( ab[0], ab[1], remapMaterials ? &table : nullptr, toolName );
         if ( !b.IsSuccess() )
             return Common::MakeError<SelectedMeshPair>( b.GetError() );
         return Common::MakeSuccess( SelectedMeshPair{ ab[0].Id, ab[1].Id, ab[0].Name, ab[1].Name, ab[0].Mesh,
-                                                      b.ExtractValue(), ab[0].Committed, ab[1].Committed } );
+                                                      b.ExtractValue(), ab[0].Committed, ab[1].Committed,
+                                                      std::move( table ) } );
     }
 } // namespace Desert::Editor::Core
