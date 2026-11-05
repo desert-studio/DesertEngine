@@ -88,7 +88,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( vkCreateFence( m_Device, &info, nullptr, &fence ) != VK_SUCCESS )
                 fence = VK_NULL_HANDLE; // refused by name at BeginSlot / Submit / WaitSlot
         }
-        m_Thread = Common::StartEngineThread( [this]() { ThreadMain(); } );
+        m_Thread = Common::StartEngineThread( "Submit Thread", Common::ThreadPriority::Normal,
+                                              [this]() noexcept { ThreadMain(); } );
         ActiveLoopRegistry&    registry = Registry();
         const std::scoped_lock active( registry.Mutex );
         registry.Loop = this;

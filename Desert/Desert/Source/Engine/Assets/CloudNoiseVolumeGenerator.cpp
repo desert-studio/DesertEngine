@@ -99,7 +99,7 @@ namespace Desert::Assets
 
         std::atomic<uint32_t> slicesDone{ 0u };
 
-        const auto fillSlabs = [&]( uint32_t worker )
+        const auto fillSlabs = [&]( uint32_t worker ) noexcept
         {
             for ( uint32_t z = worker; z < resolution; z += workers )
             {
@@ -130,7 +130,8 @@ namespace Desert::Assets
         std::vector<std::thread> threads;
         threads.reserve( workers - 1u );
         for ( uint32_t worker = 1; worker < workers; ++worker )
-            threads.push_back( Common::StartEngineThread( fillSlabs, worker ) );
+            threads.push_back( Common::StartEngineThread( "Cloud Noise Bake", Common::ThreadPriority::Normal,
+                                                          fillSlabs, worker ) );
 
         fillSlabs( 0u );
 

@@ -59,7 +59,8 @@ namespace Desert::Engine
         if ( m_Thread.joinable() )
             return;
         m_Stop   = false;
-        m_Thread = Common::StartEngineThread( [this]() { ThreadMain(); } );
+        m_Thread = Common::StartEngineThread( "Render Thread", Common::ThreadPriority::AboveNormal,
+                                              [this]() noexcept { ThreadMain(); } );
     }
 
     void RenderTask::ThreadMain()

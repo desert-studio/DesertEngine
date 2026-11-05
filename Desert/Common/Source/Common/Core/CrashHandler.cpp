@@ -2036,8 +2036,8 @@ namespace Common::Crash
         // `tid=` names the thread that overflowed and not the main thread or the report thread.
         [[noreturn]] void CrashTestStackOverflowWorker()
         {
-            std::thread worker = StartEngineThread(
-                 []
+            std::thread worker = StartEngineThread( "Crash Report Probe", Common::ThreadPriority::Normal,
+                 []() noexcept
                  {
                      LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
                      CrashTestStackOverflow();
