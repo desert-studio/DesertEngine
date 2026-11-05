@@ -51,8 +51,8 @@ Shader "ProceduralSky"
         #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, LinearClampSampler)
         Uniform(3) texture2D SkyViewLutTexture;       // per-view 192x104, refilled every frame
         #define SkyViewLutTexture sampler2D(SkyViewLutTexture, LinearClampSampler)
-        // Atmosphere light 1's Sky-View LUT (the moon), parameterised around ITS direction; black and never
-        // sampled while the scene has no light 1 (UnpackLight1Present).
+        // Atmosphere light 1's Sky-View LUT (the moon), in the same 360-degree referential as the sun's; black
+        // and never sampled while the scene has no light 1 (UnpackLight1Present).
         Uniform(4) texture2D SkyViewLut1Texture;
         #define SkyViewLut1Texture sampler2D(SkyViewLut1Texture, LinearClampSampler)
 
@@ -79,9 +79,12 @@ Shader "ProceduralSky"
 
             vec3  sunDir        = UnpackSunDirection(s);
             float viewZenithCos = clamp(dot(zenith, dir), -1.0f, 1.0f);
-            float lightViewCos  = SkyViewLightViewCos(zenith, dir, sunDir);
+            // The fill's 360-degree referential, rebuilt from the same camera position (SkyViewReferentialAt):
+            // the azimuth is the ray's own, not its angle to a light, so both atmosphere lights' LUTs are read
+            // through this one uv.
+            float azimuth = SkyViewAzimuth(SkyViewReferentialAt(zenith), dir);
 
-            vec2 unit = SkyViewUnitFromParams(atm.BottomRadiusKm, viewHeight, viewZenithCos, lightViewCos);
+            vec2 unit = SkyViewUnitFromParams(atm.BottomRadiusKm, viewHeight, viewZenithCos, azimuth);
             vec2 uv   = vec2(SkyUnitToTexelUv(unit.x, SKY_VIEW_LUT_WIDTH),
                              SkyUnitToTexelUv(unit.y, SKY_VIEW_LUT_HEIGHT));
 
@@ -90,15 +93,10 @@ Shader "ProceduralSky"
             vec4 lut = texture(SkyViewLutTexture, uv);
             vec3 sky = lut.rgb;
 
-            // Atmosphere light 1 (the moon): its own LUT, read through the same mapping around its own direction.
+            // Atmosphere light 1 (the moon): its own LUT, marched in the same referential, read at the same uv.
             const bool light1 = UnpackLight1Present(s);
             if (light1)
-            {
-                vec2 unit1 = SkyViewUnitFromParams(atm.BottomRadiusKm, viewHeight, viewZenithCos,
-                                                   SkyViewLightViewCos(zenith, dir, UnpackLight1Direction(s)));
-                sky += texture(SkyViewLut1Texture, vec2(SkyUnitToTexelUv(unit1.x, SKY_VIEW_LUT_WIDTH),
-                                                        SkyUnitToTexelUv(unit1.y, SKY_VIEW_LUT_HEIGHT))).rgb;
-            }
+                sky += texture(SkyViewLut1Texture, uv).rgb;
 
             vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
             // What stands between the eye and a star: the in-scattering of both atmosphere lights (DAY-STARS).

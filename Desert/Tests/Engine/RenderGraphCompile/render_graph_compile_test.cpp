@@ -2452,7 +2452,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // evaluation of the OPAQUE depth and its apply over the scene, all before the scene copy (the refraction
          // reads the fogged scene) and before every translucent draw, which fogs itself at its own depth.
          "Scene: DepthResolve",
-         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput())]",
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
@@ -2461,7 +2461,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Glass",
          // The forward path's opaque fog (the same call; the deferred path took it above).
          "Scene: DepthResolve",
-         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput())]",
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
@@ -2469,7 +2469,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: DepthResolve",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
          // A path-traced frame took no opaque fog: its sky LUTs here.
-         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput())]",
          // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
          "extension[AfterOpaque]",
          // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:
@@ -3945,7 +3945,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
     for ( const char* needle :
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
-            "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
+            "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput()))",
             "AddComputeNodes(graph,textures,volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual()))",
             "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients,volumeResult))",
             "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
