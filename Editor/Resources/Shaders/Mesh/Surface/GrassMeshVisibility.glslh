@@ -23,10 +23,20 @@ struct GrassMeshVisibilityData
     uvec4 Ranges[GRASS_MESH_VISIBILITY_MAX_RANGES];       // per L * w + s: first index, triangles, row offset, 0
 };
 
+#ifdef DESERT_SURFACE_DRAW_ROWS
+// A compacted bin's draw (GRASS-GPU-DRIVEN-DRAWS, Vertex_Instanced.glslh): the section's rows by address from its
+// draw row (GpuInstanceDrawRow::MeshVisibility), which the includer names in GRASS_MESH_VISIBILITY_ROWS.
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassMeshVisibilityRef
+{
+    GrassMeshVisibilityData Rows;
+};
+#define MeshRows GrassMeshVisibilityRef( GRASS_MESH_VISIBILITY_ROWS ).Rows
+#else
 layout( std430, binding = 13 ) readonly buffer GrassMeshVisibility
 {
     GrassMeshVisibilityData MeshRows;
 };
+#endif
 
 // The LOD level slot @p slot was drawn with (the generator's bucket: the blade's BladeLevelSegments rule).
 uint GrassMeshVisibilityLevel( const uint slot )

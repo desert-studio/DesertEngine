@@ -269,6 +269,10 @@ namespace Desert::Graphic::System
         {
             class Desert::Mesh*                             Mesh     = nullptr;
             uint32_t                                        Capacity = 0;
+            // The slots one bin list gives the variety's sections this frame, and its casting ones
+            // (MeshRenderer::DrawBinSlots): what AddDrawGather sizes the tables by.
+            uint32_t                                        BinSlots     = 0;
+            uint32_t                                        BinCastSlots = 0;
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
