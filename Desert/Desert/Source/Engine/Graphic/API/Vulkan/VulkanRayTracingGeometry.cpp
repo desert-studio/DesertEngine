@@ -1,4 +1,3 @@
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -144,7 +143,6 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanRayTracingGeometry::~VulkanRayTracingGeometry()
-    try
     {
         // Both on the frame ring: a frame in flight may still trace this BLAS through a TLAS instance.
         const auto& allocator =
@@ -152,5 +150,4 @@ namespace Desert::Graphic::API::Vulkan
         allocator->RT_DestroyAccelerationStructure( m_Handle, m_Destroy );
         allocator->RT_DestroyBuffer( m_Storage, m_StorageMemory );
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingGeometry" )
 } // namespace Desert::Graphic::API::Vulkan

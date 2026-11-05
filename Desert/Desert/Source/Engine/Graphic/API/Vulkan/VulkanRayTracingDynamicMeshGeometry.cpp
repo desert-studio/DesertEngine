@@ -4,7 +4,6 @@
 // or alpha-tested (VulkanRayTracingBuildInput.hpp maps the segments). Built with ALLOW_UPDATE so a change of the
 // vertices alone refits in place; every object is freed on the frame ring and has its own ledger row. The build is
 // recorded by RayTracingScene.DynamicGeometry like every other dynamic BLAS.
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -59,11 +58,9 @@ namespace Desert::Graphic::API::Vulkan
         {
         }
         ~VulkanRayTracingDynamicMeshGeometry() override
-        try
         {
             Release();
         }
-        DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingDynamicMeshGeometry" )
         VulkanRayTracingDynamicMeshGeometry( const VulkanRayTracingDynamicMeshGeometry& )            = delete;
         VulkanRayTracingDynamicMeshGeometry& operator=( const VulkanRayTracingDynamicMeshGeometry& ) = delete;
 

@@ -1,4 +1,3 @@
-#include <Common/Core/DestructorGuard.hpp>
 #include "MaterialEditorPanel.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -188,7 +187,6 @@ namespace Desert::Editor
     // that depends on which line a member happens to be declared on is the shape of defect this engine has
     // paid for in Vulkan lifetimes more than once.
     MaterialEditorPanel::~MaterialEditorPanel()
-    try
     {
         // CLOSING WITH EDITS NOBODY ACCEPTED IS A LOSS, AND STAGING IS WHAT MADE IT POSSIBLE. Before this
         // window held three states, an unaccepted edit was already in the scene and could still be saved
@@ -238,7 +236,6 @@ namespace Desert::Editor
             m_WorkingCopy.reset();
         }
     }
-    DESERT_DESTRUCTOR_GUARD( "~MaterialEditorPanel" )
 
     std::shared_ptr<Assets::SurfaceMaterialAsset> MaterialEditorPanel::ResolveSubject() const
     {

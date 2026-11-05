@@ -1,4 +1,3 @@
-#include <Common/Core/DestructorGuard.hpp>
 #include "ShaderIncluder.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -39,7 +38,6 @@ namespace Desert::Core
     }
 
     ShaderIncluder::~ShaderIncluder()
-    try
     {
         // SAID OUT LOUD RATHER THAN ASSERTED. shaderc's contract is to release every result it is given,
         // so this is zero after every compile — but if it ever is not, the bytes of that many include
@@ -52,7 +50,6 @@ namespace Desert::Core
                       m_LiveResults, m_BasePath.string() );
         }
     }
-    DESERT_DESTRUCTOR_GUARD( "~ShaderIncluder" )
 
     shaderc_include_result* ShaderIncluder::MakeResult( std::string name, std::string content )
     {

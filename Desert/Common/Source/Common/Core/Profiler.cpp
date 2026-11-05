@@ -118,17 +118,33 @@ namespace Common::Profiling
                 std::vector<uint32_t>              Touched;           // ids added to in this half, for the merge
                 double                             OutermostMs = 0.0; // see Profiler::LastFrameNamedMs
 
-                ScopeAccum& Row( const uint32_t id )
+                [[nodiscard]] bool Reserved( const uint32_t id ) const noexcept
+                {
+                    const uint32_t page = id / kPageRows;
+                    return page < Pages.size() && Pages[page] != nullptr;
+                }
+
+                // Makes row @p id exist and Touched hold one slot per row there is, so Row never allocates: an
+                // id goes into Touched once per drain (every add counts a call), so it never outgrows that.
+                void Reserve( const uint32_t id )
                 {
                     const uint32_t page = id / kPageRows;
                     if ( page >= Pages.size() )
                         Pages.resize( page + 1 );
                     if ( !Pages[page] )
                         Pages[page] = std::make_unique<Page>();
-                    ScopeAccum& row = ( *Pages[page] )[id % kPageRows];
+                    Touched.reserve( Pages.size() * kPageRows );
+                }
+
+                // Row @p id of a reserved page (Reserve), null for one never reserved. Never allocates.
+                ScopeAccum* Row( const uint32_t id ) noexcept
+                {
+                    if ( !Reserved( id ) )
+                        return nullptr;
+                    ScopeAccum& row = ( *Pages[id / kPageRows] )[id % kPageRows];
                     if ( row.Empty() )
-                        Touched.push_back( id );
-                    return row;
+                        Touched.push_back( id ); // within the capacity Reserve made: no reallocation
+                    return &row;
                 }
 
                 // Adds every touched row into @p merged (by id) and leaves the half empty.
@@ -159,13 +175,30 @@ namespace Common::Profiling
             // This thread's runtime names (LocalScopeName). Read and written by this thread alone.
             std::unordered_map<std::string, InternedScopeName, ScopeNameKeyHash, ScopeNameKeyEqual> Names;
 
+            // Row @p id in both halves (Half::Reserve). The thread's own call, under the publisher's lock: the
+            // publisher drains a half under it, the only time anyone but this thread reads a half.
+            [[nodiscard]] bool Reserved( const uint32_t id ) const noexcept
+            {
+                return Halves[0].Reserved( id ); // Reserve grows both halves together
+            }
+            void Reserve( const uint32_t id )
+            {
+                for ( Half& half : Halves )
+                    half.Reserve( id );
+            }
+
+            // Adds into row @p id of the active half; false (nothing added) for a row never reserved. @p add
+            // must not throw: this runs in ScopedTimer's destructor.
             template <class Add>
-            void Write( const uint32_t id, Add&& add )
+            bool Write( const uint32_t id, Add&& add ) noexcept
             {
                 Writing.store( true, std::memory_order_seq_cst );
-                Half& half = Halves[Active.load( std::memory_order_seq_cst )];
-                add( half, half.Row( id ) );
+                Half&       half = Halves[Active.load( std::memory_order_seq_cst )];
+                ScopeAccum* row  = half.Row( id );
+                if ( row != nullptr )
+                    add( half, *row );
                 Writing.store( false, std::memory_order_release );
+                return row != nullptr;
             }
 
             // The publisher's side of the handover: the half this thread wrote until now, no longer written.
@@ -537,26 +570,45 @@ namespace Common::Profiling
         m_Capture.compare_exchange_strong( expected, CaptureState::None, std::memory_order_acq_rel );
     }
 
+    bool Profiler::ReserveSample( const uint32_t nameId )
+    {
+        if ( !m_Enabled || nameId == kNoScopeName )
+            return false;
+        Detail::ThreadStats* const stats = LocalStats();
+        if ( stats == nullptr )
+            return false;
+        // Only this thread grows its halves, so it reads them without a lock; it grows them under the publisher's
+        // lock, the only other reader (BeginFrame drains a half under it). Once per page of rows per thread.
+        if ( !stats->Reserved( nameId ) )
+        {
+            const std::lock_guard<std::mutex> lock( m_ThreadsMutex );
+            stats->Reserve( nameId );
+        }
+        return true;
+    }
+
     void Profiler::AddSample( const uint32_t nameId, const double totalMs, const double selfMs,
-                              const double waitMs, const bool outermost )
+                              const double waitMs, const bool outermost ) noexcept
     {
         if ( !m_Enabled || nameId == kNoScopeName )
             return;
-        Detail::ThreadStats* const stats = LocalStats();
+        // t_Stats, not LocalStats: the buffer exists since ReserveSample, and making one would allocate.
+        Detail::ThreadStats* const stats = t_Stats;
         if ( stats == nullptr )
             return;
 
-        // Summed across the whole window in this thread's half, merged and averaged on publish.
-        stats->Write( nameId,
-                      [&]( Detail::ThreadStats::Half& half, Detail::ScopeAccum& row )
-                      {
-                          if ( outermost )
-                              half.OutermostMs += totalMs;
-                          row.TotalMs += totalMs;
-                          row.SelfMs += selfMs;
-                          row.WaitMs += waitMs;
-                          row.Calls += 1;
-                      } );
+        // Summed across the whole window in this thread's half, merged and averaged on publish. A row not
+        // reserved (the profiler was off when the scope opened) is not counted: the scope began unmeasured.
+        (void)stats->Write( nameId,
+                            [&]( Detail::ThreadStats::Half& half, Detail::ScopeAccum& row )
+                            {
+                                if ( outermost )
+                                    half.OutermostMs += totalMs;
+                                row.TotalMs += totalMs;
+                                row.SelfMs += selfMs;
+                                row.WaitMs += waitMs;
+                                row.Calls += 1;
+                            } );
     }
 
     namespace
@@ -567,62 +619,61 @@ namespace Common::Profiling
         thread_local ScopedTimer* t_Innermost = nullptr;
     } // namespace
 
+    // EVERYTHING THAT CAN ALLOCATE HAPPENS WHEN THE SCOPE OPENS: the runtime name's id (this thread's name
+    // cache), the thread's buffer and the row in both its halves (ReserveSample). The destructor then only does
+    // arithmetic and AddSample (noexcept). A scope opened while the profiler is off keeps kNoScopeName and is
+    // not measured; m_Start is taken last, so the lookup is not this scope's own time.
     ScopedTimer::ScopedTimer( const char* name, ScopeKind kind )
-         : m_Name( name ), m_Enclosing( t_Innermost ), m_Start( std::chrono::high_resolution_clock::now() ),
-           m_Kind( kind )
+         : m_Enclosing( t_Innermost ), m_Kind( kind )
     {
+        Profiler& profiler = Profiler::Get();
+        if ( name != nullptr && profiler.Enabled() )
+        {
+            const uint32_t id = profiler.LocalScopeName( {}, name ).Id;
+            if ( profiler.ReserveSample( id ) )
+                m_NameId = id;
+        }
         t_Innermost = this;
+        m_Start     = std::chrono::high_resolution_clock::now();
     }
 
     ScopedTimer::ScopedTimer( const InternedScopeName& name, ScopeKind kind )
-         : m_Name( name.Text ), m_NameId( name.Id ), m_Enclosing( t_Innermost ),
-           m_Start( std::chrono::high_resolution_clock::now() ), m_Kind( kind )
+         : m_Enclosing( t_Innermost ), m_Kind( kind )
     {
+        if ( Profiler::Get().ReserveSample( name.Id ) )
+            m_NameId = name.Id;
         t_Innermost = this;
+        m_Start     = std::chrono::high_resolution_clock::now();
     }
 
-    ScopedTimer::~ScopedTimer()
+    ScopedTimer::~ScopedTimer() noexcept
     {
-        // A BODY-LEVEL try, not a function-try-block, and the difference is not style. A function-try-block
-        // on a destructor also covers the destruction of bases and members, none of which can throw here;
-        // what it DOES do is put a `try` between the class body and the brace, and the pointer-ownership
-        // census tracks members by brace depth (measured: it stopped seeing the members entirely).
-        try
+        const double totalMs =
+             std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - m_Start )
+                  .count();
+        // A Wait scope is wait from end to end; a Work scope reports the waits nested in it.
+        const double waitMs = m_Kind == ScopeKind::Wait ? totalMs : m_WaitMs;
+
+        // Off the stack. The innermost timer in the ordinary case; otherwise a timer opened after this one
+        // is still open (it outlives its parent) and takes this one's enclosing timer as its own.
+        if ( t_Innermost == this )
+            t_Innermost = m_Enclosing;
+        else
+            for ( ScopedTimer* inner = t_Innermost; inner != nullptr; inner = inner->m_Enclosing )
+                if ( inner->m_Enclosing == this )
+                {
+                    inner->m_Enclosing = m_Enclosing;
+                    break;
+                }
+        if ( m_Enclosing != nullptr )
         {
-            const double totalMs =
-                 std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - m_Start )
-                      .count();
-            // A Wait scope is wait from end to end; a Work scope reports the waits nested in it.
-            const double waitMs = m_Kind == ScopeKind::Wait ? totalMs : m_WaitMs;
-
-            // Off the stack. The innermost timer in the ordinary case; otherwise a timer opened after this one
-            // is still open (it outlives its parent) and takes this one's enclosing timer as its own.
-            if ( t_Innermost == this )
-                t_Innermost = m_Enclosing;
-            else
-                for ( ScopedTimer* inner = t_Innermost; inner != nullptr; inner = inner->m_Enclosing )
-                    if ( inner->m_Enclosing == this )
-                    {
-                        inner->m_Enclosing = m_Enclosing;
-                        break;
-                    }
-            if ( m_Enclosing != nullptr )
-            {
-                m_Enclosing->m_NestedMs += totalMs;
-                m_Enclosing->m_WaitMs += waitMs;
-            }
-
-            Profiler& profiler = Profiler::Get();
-            if ( profiler.Enabled() && m_Name != nullptr )
-            {
-                // An interned name is its id already; a runtime one is found in this thread's name cache.
-                const uint32_t nameId =
-                     m_NameId != kNoScopeName ? m_NameId : profiler.LocalScopeName( {}, m_Name ).Id;
-                profiler.AddSample( nameId, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs,
-                                    m_Enclosing == nullptr );
-            }
+            m_Enclosing->m_NestedMs += totalMs;
+            m_Enclosing->m_WaitMs += waitMs;
         }
-        DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
+
+        if ( m_NameId != kNoScopeName )
+            Profiler::Get().AddSample( m_NameId, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs,
+                                       m_Enclosing == nullptr );
     }
 
     void Profiler::AddGpuSample( const char* name, double inclusiveMs, double selfMs )
@@ -639,18 +690,15 @@ namespace Common::Profiling
 
     void Profiler::AddGpuSample( const uint32_t nameId, const double inclusiveMs, const double selfMs )
     {
-        if ( !m_Enabled || nameId == kNoScopeName )
+        if ( !ReserveSample( nameId ) )
             return;
-        Detail::ThreadStats* const stats = LocalStats();
-        if ( stats == nullptr )
-            return;
-        stats->Write( nameId,
-                      [&]( Detail::ThreadStats::Half&, Detail::ScopeAccum& row )
-                      {
-                          row.GpuMs += inclusiveMs;
-                          row.GpuSelfMs += selfMs;
-                          row.GpuCalls += 1;
-                      } );
+        (void)t_Stats->Write( nameId,
+                              [&]( Detail::ThreadStats::Half&, Detail::ScopeAccum& row )
+                              {
+                                  row.GpuMs += inclusiveMs;
+                                  row.GpuSelfMs += selfMs;
+                                  row.GpuCalls += 1;
+                              } );
     }
 
     const char* Profiler::ScopeNameText( const uint32_t id )

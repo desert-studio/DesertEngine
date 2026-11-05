@@ -14,7 +14,6 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/PixelPack.hpp>
@@ -812,7 +811,6 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::LedgerView::~LedgerView()
-    try
     {
         // A view accounting under its scene's instance has no rows of its own to check: the scene's rows are
         // held by the scene and outlive this view by design.
@@ -847,7 +845,6 @@ namespace Desert::Graphic
                  ResourceOwnerInstanceName( Instance ), disagreement );
         }
     }
-    DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
     {
@@ -922,7 +919,6 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::~SceneRenderer()
-    try
     {
         // A job of this view may still be recording on the render task.
         ::Desert::Engine::RenderTask::Get().Join();
@@ -934,7 +930,6 @@ namespace Desert::Graphic
         LOG_INFO( "[SceneRenderer] Destroying view '{}' ({} before release).", m_ViewResources.GetName(),
                   DescribeLiveViews() );
     }
-    DESERT_DESTRUCTOR_GUARD( "~SceneRenderer" )
 
     float SceneRenderer::GetWorldParameterScalar( std::string_view name ) const
     {

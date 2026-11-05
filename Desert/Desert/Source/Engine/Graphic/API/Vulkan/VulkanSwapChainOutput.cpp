@@ -7,7 +7,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
-#include <Common/Core/DestructorGuard.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -248,11 +247,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanSwapChainOutput::~VulkanSwapChainOutput()
-    try
     {
         Release();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanSwapChainOutput" )
 
     void VulkanSwapChainOutput::Release()
     {

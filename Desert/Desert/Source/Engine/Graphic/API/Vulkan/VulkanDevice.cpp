@@ -4,7 +4,6 @@
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Projects/ProjectContext.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <vk-bootstrap/VkBootstrap.h>
 
@@ -371,11 +370,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanLogicalDevice::~VulkanLogicalDevice()
-    try
     {
         Destroy();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanLogicalDevice" )
 
     const Engine::DeviceCapabilities& VulkanLogicalDevice::GetCapabilities() const
     {

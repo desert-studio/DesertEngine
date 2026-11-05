@@ -544,34 +544,21 @@ namespace Desert::Editor
         // asset goes back to what its file holds. Left in memory they would be a sky nobody can save.
         if ( !m_PushedLive )
             return;
-        // A destructor may not throw: reading the file back and logging allocate and format. Whatever escapes
-        // them is reported on stderr (the logger itself may be what threw) and the panel still goes away.
-        try
+        // Load and Register report their failures as values, and each is logged here. No catch: what is left
+        // to throw is an allocation, and that ends the process at its site (the destructor is noexcept).
+        const auto painting = SubjectAsset();
+        if ( !painting )
+            return;
+        if ( const auto reloaded = painting->Load(); !reloaded )
         {
-            const auto painting = SubjectAsset();
-            if ( !painting )
-                return;
-            if ( const auto reloaded = painting->Load(); !reloaded )
-            {
-                LOG_ERROR( "[CloudLayout] '{}' could not be read back after closing it unsaved: {}",
-                           m_SubjectPath.string(), reloaded.GetError() );
-                return;
-            }
-            if ( const auto registered = Runtime::ResourceRegistry::GetCloudLayoutService()->Register( painting );
-                 !registered )
-                LOG_ERROR( "[CloudLayout] '{}' was read back but not re-registered: {}", m_SubjectPath.string(),
-                           registered.GetError() );
+            LOG_ERROR( "[CloudLayout] '{}' could not be read back after closing it unsaved: {}",
+                       m_SubjectPath.string(), reloaded.GetError() );
+            return;
         }
-        catch ( const std::exception& error )
-        {
-            std::fprintf( stderr, "[CloudLayout] restoring the unsaved layout on close threw: %s\n",
-                          error.what() );
-        }
-        catch ( ... )
-        {
-            std::fputs( "[CloudLayout] restoring the unsaved layout on close threw a non-std exception\n",
-                        stderr );
-        }
+        if ( const auto registered = Runtime::ResourceRegistry::GetCloudLayoutService()->Register( painting );
+             !registered )
+            LOG_ERROR( "[CloudLayout] '{}' was read back but not re-registered: {}", m_SubjectPath.string(),
+                       registered.GetError() );
     }
 
     void CloudLayoutPanel::DrawSourceSection()
