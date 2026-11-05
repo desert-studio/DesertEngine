@@ -35,6 +35,18 @@ namespace Desert::Graphic::API::Vulkan
                                                          const RDG::BufferBinding& instances,
                                                          const RDG::BufferBinding& scratch,
                                                          uint32_t instanceCount, bool update ) override;
+        [[nodiscard]] RDG::ExternalBuffer& GetInstances() override
+        {
+            return m_InstanceExternal;
+        }
+        [[nodiscard]] uint64_t GetInstanceMemoryBytes() const override
+        {
+            return m_InstanceLedger.GetBytes();
+        }
+        [[nodiscard]] Common::BoolResultStr
+        RecordInstanceScatter( const RDG::PassContext& context, const RDG::BufferBinding& staging,
+                               const RDG::BufferBinding&                   instances,
+                               std::span<const RayTracing::InstanceRowRun> runs ) override;
 
         // What a descriptor write binds (VkWriteDescriptorSetAccelerationStructureKHR). Null before the first
         // Prepare.
@@ -45,6 +57,10 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         void Release();
+        void ReleaseInstances();
+        // The persistent instance rows (GetInstances): made with room for at least @p rows rows; true when a new
+        // buffer was made (it holds nothing yet).
+        [[nodiscard]] Common::ResultStr<bool> EnsureInstances( uint32_t rows );
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;
@@ -58,5 +74,11 @@ namespace Desert::Graphic::API::Vulkan
         PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
         RDG::ExternalBuffer                   m_External;
         ResourceOwnership                     m_Ledger; // the storage's row; reset by Release
+        // The persistent instance rows, apart from the storage: a TLAS recreated for a larger scene keeps them.
+        VkBuffer                              m_Instances        = VK_NULL_HANDLE;
+        VmaAllocation                         m_InstanceMemory   = nullptr;
+        uint32_t                              m_InstanceCapacity = 0; // rows
+        RDG::ExternalBuffer                   m_InstanceExternal;
+        ResourceOwnership                     m_InstanceLedger; // reset by ReleaseInstances
     };
 } // namespace Desert::Graphic::API::Vulkan

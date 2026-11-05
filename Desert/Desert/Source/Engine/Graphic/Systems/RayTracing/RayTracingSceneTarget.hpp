@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 
 // THE DEVICE-FACING SIDE OF ONE VIEW'S TLAS (RenderCore): the interface the API implements (VulkanRayTracingScene)
 // and the scene renderer (RayTracingSceneRenderer.hpp, Renderer) drives, plus the instance-row layout both encode.
@@ -22,6 +23,17 @@ namespace Desert::Graphic::RayTracing
         // the rows' transforms, BLASes and masks may differ, their count may not); ScratchBytes is the update's.
         // false: built from nothing.
         bool Update = false;
+        // true: the persistent instance rows (RayTracingSceneTarget::GetInstances) were (re)created by this
+        // Prepare and hold nothing yet: every CPU row goes up this frame, not only the changed ones.
+        bool InstancesRecreated = false;
+    };
+
+    // One run of consecutive instance rows a scatter writes (RayTracingSceneTarget::RecordInstanceScatter): rows
+    // [FirstRow, FirstRow + RowCount) of the persistent rows, taken in order from the packed staging rows.
+    struct InstanceRowRun
+    {
+        uint32_t FirstRow = 0;
+        uint32_t RowCount = 0;
     };
 
     // The API side of one view's TLAS: the acceleration structure and its storage, alive across frames.
@@ -38,6 +50,19 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] virtual Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount, bool update ) = 0;
         // The TLAS storage as a graph external; it carries its own state across graphs.
         [[nodiscard]] virtual RDG::ExternalBuffer& GetStorage() = 0;
+        // THE PERSISTENT INSTANCE ROWS (UE FRayTracingScene's instance buffer): the rows the TLAS is built from,
+        // kept across frames, so a frame writes only the rows that changed (AddRayTracingScenePass). Prepare makes
+        // them hold @p instanceCount rows (at least one; TlasBuildSizes::InstancesRecreated when it had to make
+        // a new buffer). Written by copies (CopyDst) and by the GPU-instance pass (StorageWrite), read by the
+        // build (AccelStructBuildInput); a graph external that carries its own state across graphs.
+        [[nodiscard]] virtual RDG::ExternalBuffer& GetInstances() = 0;
+        // Device bytes of the instance rows: their ledger row (StorageBuffer).
+        [[nodiscard]] virtual uint64_t GetInstanceMemoryBytes() const = 0;
+        // Records the copy of @p runs, packed one after another from the start of @p staging, into their rows of
+        // @p instances, inside the scatter pass's exec (@p staging CopySrc, @p instances CopyDst).
+        [[nodiscard]] virtual Common::BoolResultStr
+        RecordInstanceScatter( const RDG::PassContext& context, const RDG::BufferBinding& staging,
+                               const RDG::BufferBinding& instances, std::span<const InstanceRowRun> runs ) = 0;
         // Device bytes of the TLAS storage: its ledger row (TopLevelAccelerationStructure), the one statement of
         // the allocation (the storage's graph desc is the size the build asked for, not what the device holds).
         [[nodiscard]] virtual uint64_t GetMemoryBytes() const = 0;

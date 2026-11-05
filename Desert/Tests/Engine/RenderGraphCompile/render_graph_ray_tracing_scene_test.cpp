@@ -34,8 +34,22 @@ namespace
     class FakeTarget final : public RayTracingSceneTarget
     {
     public:
-        FakeTarget() : m_Storage( BufferDesc{ 4096 }, Access::None )
+        FakeTarget()
+             : m_Storage( BufferDesc{ 4096 }, Access::None ), m_Instances( BufferDesc{ 4096 }, Access::None )
         {
+        }
+        ExternalBuffer& GetInstances() override
+        {
+            return m_Instances;
+        }
+        uint64_t GetInstanceMemoryBytes() const override
+        {
+            return m_Instances.Desc.Bytes;
+        }
+        Common::BoolResultStr RecordInstanceScatter( const PassContext&, const BufferBinding&, const BufferBinding&,
+                                                     std::span<const InstanceRowRun> ) override
+        {
+            return BOOLSUCCESS;
         }
         Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount, bool ) override
         {
@@ -59,6 +73,7 @@ namespace
 
     private:
         ExternalBuffer m_Storage;
+        ExternalBuffer m_Instances;
     };
 
     class FakeGeometry final : public RayTracingGeometryResource
@@ -102,7 +117,8 @@ TEST( RayTracingScenePass, GateOffDeclaresNothing )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.Off" );
-    const auto         frame = AddRayTracingScenePass( graph, false, EncodeRayTracingSceneRows( OneInstance( geometry ) ), target, {} );
+    RayTracingSceneRows rows  = EncodeRayTracingSceneRows( OneInstance( geometry ) );
+    const auto          frame = AddRayTracingScenePass( graph, false, rows, target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     EXPECT_FALSE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, ~0u );
@@ -118,7 +134,8 @@ TEST( RayTracingScenePass, GateOnWritesTheTlasAndLivesWithAReader )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.On" );
-    const auto         frame = AddRayTracingScenePass( graph, true, EncodeRayTracingSceneRows( OneInstance( geometry ) ), target, {} );
+    RayTracingSceneRows rows  = EncodeRayTracingSceneRows( OneInstance( geometry ) );
+    const auto          frame = AddRayTracingScenePass( graph, true, rows, target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     ASSERT_TRUE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, 1u );

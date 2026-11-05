@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -121,12 +122,87 @@ namespace Desert::Graphic::API::Vulkan
                 return BOOLSUCCESS;
             };
         }
+        const Common::ResultStr<bool> instancesMade = EnsureInstances( std::max( instanceCount, 1u ) );
+        if ( !instancesMade )
+            return Common::MakeFormattedError<Sizes>( "TLAS instance rows: {}", instancesMade.GetError() );
         // Recreated storage resets m_BuiltInstances (Release): its first frame builds.
         const bool updates = update && m_BuiltInstances == instanceCount;
         return Common::MakeSuccess(
              Sizes{ .ScratchBytes = ( updates ? frameSizes.updateScratchSize : frameSizes.buildScratchSize ) +
                                     kMaxAccelerationStructureScratchAlignment,
-                    .Update       = updates } );
+                    .Update             = updates,
+                    .InstancesRecreated = instancesMade.GetValue() } );
+    }
+
+    Common::ResultStr<bool> VulkanRayTracingScene::EnsureInstances( const uint32_t rows )
+    {
+        if ( m_Instances != VK_NULL_HANDLE && rows <= m_InstanceCapacity )
+            return Common::MakeSuccess( false );
+        ReleaseInstances();
+        // The same growth as the storage: a scene that adds one instance a frame does not recreate every frame.
+        const uint32_t     capacity = std::bit_ceil( std::max( rows, 16u ) );
+        const VkDeviceSize bytes    = static_cast<VkDeviceSize>( capacity ) * RayTracing::kInstanceRowBytes;
+        const auto&        allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        info.size = bytes;
+        // The build reads the rows by address; copies write the CPU rows, the GPU-instance pass the GPU rows.
+        info.usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        const auto memory =
+             allocator->RT_AllocateBuffer( "TLAS instances", info, VMA_MEMORY_USAGE_GPU_ONLY, m_Instances );
+        if ( !memory.IsSuccess() )
+        {
+            m_Instances = VK_NULL_HANDLE;
+            return Common::MakeError<bool>( memory.GetError() );
+        }
+        m_InstanceMemory   = memory.GetValue();
+        m_InstanceCapacity = capacity;
+        m_InstanceLedger   = ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer,
+                                                      VulkanAllocator::AllocationSize( m_InstanceMemory ) );
+        // A new buffer starts untouched; each graph hands back the state it leaves the buffer in.
+        m_InstanceExternal          = RDG::ExternalBuffer( RDG::BufferDesc{ bytes }, RDG::Access::None );
+        m_InstanceExternal.Physical = VulkanRdgBuffer::Wrap( m_Instances, bytes );
+        m_InstanceExternal.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
+        {
+            m_InstanceExternal.State = state;
+            return BOOLSUCCESS;
+        };
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRayTracingScene::RecordInstanceScatter(
+         const RDG::PassContext& context, const RDG::BufferBinding& staging, const RDG::BufferBinding& instances,
+         const std::span<const RayTracing::InstanceRowRun> runs )
+    {
+        const auto command = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !command )
+            return Common::MakeError( command.GetError() );
+        const auto source = VulkanRdgBackend::BufferOf( staging );
+        if ( !source )
+            return Common::MakeError( source.GetError() );
+        const auto destination = VulkanRdgBackend::BufferOf( instances );
+        if ( !destination )
+            return Common::MakeError( destination.GetError() );
+        std::vector<VkBufferCopy> regions;
+        regions.reserve( runs.size() );
+        VkDeviceSize packed = 0;
+        for ( const RayTracing::InstanceRowRun& run : runs )
+        {
+            const VkDeviceSize bytes = static_cast<VkDeviceSize>( run.RowCount ) * RayTracing::kInstanceRowBytes;
+            const VkDeviceSize row   = static_cast<VkDeviceSize>( run.FirstRow ) * RayTracing::kInstanceRowBytes;
+            regions.push_back( VkBufferCopy{ .srcOffset = source.GetValue()->GetOffset() + packed,
+                                             .dstOffset = destination.GetValue()->GetOffset() + row,
+                                             .size      = bytes } );
+            packed += bytes;
+        }
+        if ( regions.empty() )
+            return BOOLSUCCESS;
+        vkCmdCopyBuffer( command.GetValue(), source.GetValue()->GetBuffer(), destination.GetValue()->GetBuffer(),
+                         static_cast<uint32_t>( regions.size() ), regions.data() );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanRayTracingScene::RecordBuild( const RDG::PassContext&   context,
@@ -193,9 +269,24 @@ namespace Desert::Graphic::API::Vulkan
         m_External      = RDG::ExternalBuffer{};
     }
 
+    void VulkanRayTracingScene::ReleaseInstances()
+    {
+        if ( m_Instances == VK_NULL_HANDLE )
+            return;
+        const auto& allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        allocator->RT_DestroyBuffer( m_Instances, m_InstanceMemory );
+        m_Instances        = VK_NULL_HANDLE;
+        m_InstanceMemory   = nullptr;
+        m_InstanceCapacity = 0;
+        m_InstanceLedger   = ResourceOwnership{};
+        m_InstanceExternal = RDG::ExternalBuffer{};
+    }
+
     VulkanRayTracingScene::~VulkanRayTracingScene()
     {
         Release();
+        ReleaseInstances();
     }
 } // namespace Desert::Graphic::API::Vulkan
 
