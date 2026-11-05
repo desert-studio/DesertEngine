@@ -1047,12 +1047,19 @@ namespace Desert::Runtime
 
     bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
     {
-        // ASKED UNDER THIS LOCK, SHARED. TextureService has no lock of its own: its waiters are written by a
-        // build (CreateSurfaceMaterial -> ApplySurfaceAsset -> RebuildWhenReady) under this lock's exclusive
-        // mode, so a render worker reading them with this lock released raced another worker's insert.
-        const ReadGuard serviceLock;
-        const auto      it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
-        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
+        if ( built == nullptr )
+            return false;
+        // Only the built -> asset row is this lock's. The waiters are the texture table's, behind its own lock
+        // (CPU-ONE-SYNC R15), and asked with this one released: no worker holds two locks for a per-draw ask.
+        Assets::AssetHandle asset;
+        {
+            const ReadGuard serviceLock;
+            const auto      it = m_BuiltToAsset.find( built );
+            if ( it == m_BuiltToAsset.end() )
+                return false;
+            asset = it->second;
+        }
+        return ResourceRegistry::GetTextureService()->AwaitedBy( asset );
     }
 
     uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const

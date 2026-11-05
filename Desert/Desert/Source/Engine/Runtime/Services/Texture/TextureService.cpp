@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
 
 namespace Desert::Runtime
 {
@@ -59,40 +60,72 @@ namespace Desert::Runtime
 
     void TextureService::Register( const std::shared_ptr<Assets::TextureAsset>& texture )
     {
-        Entry& entry = m_Entries[texture->GetHandle()];
-        entry.Source = texture;
-        entry.Built  = Graphic::TextureFactory::Create2D( texture );
-        entry.Failed = false;
-        ClaimTextureImage( entry.Built, texture->GetHandle() );
+        // The GPU texture is created before the lock and the one it replaces is freed after it.
+        const Assets::AssetHandle           handle = texture->GetHandle();
+        std::shared_ptr<Graphic::Texture2D> built  = Graphic::TextureFactory::Create2D( texture );
+        std::shared_ptr<Graphic::Texture2D> replaced;
+        {
+            const std::unique_lock table( m_TableLock );
+            Entry&                 entry = m_Entries[handle];
+            entry.Source                 = texture;
+            replaced                     = std::exchange( entry.Built, built );
+            entry.Failed                 = false;
+        }
+        ClaimTextureImage( built, handle );
     }
 
     void TextureService::RegisterAsset( const std::shared_ptr<Assets::TextureAsset>& texture )
     {
-        if ( texture )
-            m_Entries[texture->GetHandle()].Source = texture; // read and built on the first Require
+        if ( !texture )
+            return;
+        const std::unique_lock table( m_TableLock );
+        m_Entries[texture->GetHandle()].Source = texture; // read and built on the first Require
     }
 
-    TextureService::Entry* TextureService::FindOrDiscover( const Assets::AssetHandle& handle ) const
+    std::optional<Assets::AssetRef<Graphic::Texture2D>> TextureService::Answer( const Assets::AssetHandle& handle,
+                                                                                const Entry&               entry )
     {
-        if ( static_cast<uint64_t>( handle ) == 0 )
-            return nullptr;
-        if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
-            return &it->second;
-        if ( m_ReportedMissing.contains( handle ) )
-            return nullptr;
+        if ( entry.Built )
+            return Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry.Built );
+        if ( entry.Failed || !entry.Source )
+            return Assets::AssetRef<Graphic::Texture2D>::Null();
+        if ( entry.Request.IsValid() || entry.Cooking )
+            return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
+        return std::nullopt;
+    }
 
+    bool TextureService::Discover( const Assets::AssetHandle& handle ) const
+    {
+        // ONE DISCOVERY AT A TIME, AND NOT UNDER THE TABLE LOCK: the registry row is checked on disk and the shell
+        // is created in the AssetManager, which has no lock of its own, while the table's readers keep answering.
+        const std::lock_guard discovering( m_DiscoverLock );
+        {
+            const std::shared_lock table( m_TableLock );
+            if ( m_Entries.contains( handle ) )
+                return true;
+            if ( m_ReportedMissing.contains( handle ) )
+                return false;
+        }
         auto created = Assets::CreateFromRegistryRow<Assets::TextureAsset>(
              m_Assets, handle, Common::Content::ContentKind::Texture );
-        if ( !created )
+        bool firstReport = false;
         {
-            // Once per handle, not once per frame: the caller falls back to the slot default and says so.
-            m_ReportedMissing.insert( handle );
-            LOG_ERROR( "[TextureService] {}", created.GetError() );
-            return nullptr;
+            const std::unique_lock table( m_TableLock );
+            if ( created )
+            {
+                // A Register or RegisterAsset on another thread may have seeded the row meanwhile: its shell
+                // stays.
+                Entry& entry = m_Entries[handle];
+                if ( !entry.Source )
+                    entry.Source = created.GetValue();
+                return true;
+            }
+            firstReport = m_ReportedMissing.insert( handle ).second;
         }
-        Entry& entry = m_Entries[handle];
-        entry.Source = created.GetValue();
-        return &entry;
+        // Once per handle, not once per frame: the caller falls back to the slot default and says so.
+        if ( firstReport )
+            LOG_ERROR( "[TextureService] {}", created.GetError() );
+        return false;
     }
 
     void TextureService::BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const
@@ -143,23 +176,50 @@ namespace Desert::Runtime
              } );
     }
 
-    void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome )
+    void TextureService::FinishCook( const Assets::AssetHandle& handle, const uint64_t ticket,
+                                     TextureCookOutcome outcome )
     {
-        entry.Cooking = false;
+        // THE RESULT IS CHECKED SHARED. Only the frame loop moves a cooking entry (a worker's Require starts
+        // nothing on it), so what is read here still holds when the commit below takes the lock again.
+        std::shared_ptr<Graphic::Texture2D>   built;
+        std::shared_ptr<Assets::TextureAsset> source;
+        uint32_t                              requestedFirstMip = 0;
+        {
+            const std::shared_lock table( m_TableLock );
+            const auto             it = m_Entries.find( handle );
+            // Stale: the entry was cleared, or a later cook replaced the one this result belongs to.
+            if ( it == m_Entries.end() || !it->second.Cooking || it->second.CookTicket != ticket )
+                return;
+            built             = it->second.Built;
+            source            = it->second.Source;
+            requestedFirstMip = it->second.RequestedFirstMip;
+        }
+        std::string path, name;
+        if ( source )
+        {
+            path = source->GetMetadata().Filepath.string();
+            name = source->GetMetadata().Filepath.filename().string();
+        }
+
         // A STREAMING READ (TEX-STREAMING) finishes over a texture that is already drawn: its new levels go INTO
         // the same texture (Texture2D::ReplaceLevels -- the Image2D every material slot and override points at
         // keeps its address and bindless slot, UE's RHIUpdateTextureReference), so no holder is rebuilt or left
         // with a released image. A read that fails leaves the resident levels drawing.
-        const bool streamed = entry.Built != nullptr;
-        bool       replaced = false;
-        if ( outcome.Cooked )
+        // THE GPU WORK RUNS UNLOCKED: a render worker's Require or AwaitedBy does not wait behind an upload.
+        const bool                          streamed = built != nullptr;
+        const bool                          cooked   = outcome.Cooked.has_value();
+        bool                                replaced = false;
+        std::shared_ptr<Graphic::Texture2D> created;
+        uint32_t                            firstMip = 0, fullWidth = 0, fullHeight = 0;
+        std::vector<uint64_t>               levelBytes;
+        if ( cooked )
         {
-            const auto     began    = std::chrono::steady_clock::now();
-            const uint64_t bytes    = outcome.Cooked->UploadBytes();
-            const uint32_t firstMip = outcome.Cooked->FirstMip;
-            entry.FullWidth         = outcome.Cooked->FullWidth;
-            entry.FullHeight        = outcome.Cooked->FullHeight;
-            entry.LevelBytes        = outcome.Cooked->FullLevelBytes;
+            const auto     began = std::chrono::steady_clock::now();
+            const uint64_t bytes = outcome.Cooked->UploadBytes();
+            firstMip             = outcome.Cooked->FirstMip;
+            fullWidth            = outcome.Cooked->FullWidth;
+            fullHeight           = outcome.Cooked->FullHeight;
+            levelBytes           = outcome.Cooked->FullLevelBytes;
             if ( streamed )
             {
                 // THE UPLOAD NOW, THE SWAP AT THE HAND-OFF (OVERLAP-ON-7; UE FRenderAssetUpdate: the RHI swap is a
@@ -167,99 +227,138 @@ namespace Desert::Runtime
                 // live Image2D every material slot names (its views, layout and bindless row) takes them only
                 // once the render work in flight has finished: RenderTask::AfterJoin runs it at once when nothing
                 // is in flight, else at the next Join (Scene::OnUpdate's, before this tick's views).
-                auto staged = entry.Built->StageLevels( std::move( *outcome.Cooked ) );
+                auto staged = built->StageLevels( std::move( *outcome.Cooked ) );
                 replaced    = staged.IsSuccess();
                 if ( replaced )
-                    AdoptAtHandOff( entry.Built, staged.ExtractValue() );
+                    AdoptAtHandOff( built, staged.ExtractValue() );
                 else
                     outcome.Error = staged.GetError();
             }
             else
             {
-                auto built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
-                if ( built.IsSuccess() )
+                auto made = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
+                if ( made.IsSuccess() )
                 {
-                    entry.Built = built.ExtractValue();
-                    replaced    = true;
+                    created  = made.ExtractValue();
+                    replaced = true;
                 }
                 else
-                    outcome.Error = built.GetError();
+                    outcome.Error = made.GetError();
             }
-            if ( replaced )
-                entry.ResidentFirstMip = firstMip;
             LOG_DEBUG(
-                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes, from mip {})",
-                 entry.Source->GetMetadata().Filepath.filename().string(),
+                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes, from mip {})", name,
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
                  bytes, firstMip );
         }
+
+        // THE COMMIT, EXCLUSIVE.
+        {
+            const std::unique_lock table( m_TableLock );
+            const auto             it = m_Entries.find( handle );
+            // Not reachable today (see above); a created image is then freed unused, after the lock.
+            if ( it == m_Entries.end() || !it->second.Cooking || it->second.CookTicket != ticket )
+                return;
+            Entry& entry  = it->second;
+            entry.Cooking = false;
+            if ( cooked )
+            {
+                entry.FullWidth  = fullWidth;
+                entry.FullHeight = fullHeight;
+                entry.LevelBytes = std::move( levelBytes );
+            }
+            if ( replaced )
+                entry.ResidentFirstMip = firstMip;
+            if ( streamed )
+            {
+                if ( !replaced )
+                    entry.RequestedFirstMip = entry.ResidentFirstMip;
+            }
+            else
+            {
+                entry.Built        = created;
+                entry.Failed       = created == nullptr;
+                entry.SettleQueued = true;
+            }
+        }
+
         if ( streamed )
         {
             if ( !replaced )
-            {
                 LOG_WARN( "[TextureStreaming] '{}' could not move to mip {}: {}. Its resident mips stay drawn.",
-                          entry.Source->GetMetadata().Filepath.filename().string(), entry.RequestedFirstMip,
-                          outcome.Error );
-                entry.RequestedFirstMip = entry.ResidentFirstMip;
-            }
+                          name, requestedFirstMip, outcome.Error );
             return;
         }
-        if ( !entry.Built )
-        {
-            entry.Failed = true;
+        if ( !created )
             LOG_ERROR( "[TextureService] '{}' was read but no GPU texture could be built from it: {}. Materials "
                        "naming it sample the slot's schema default; it is not retried.",
-                       entry.Source->GetMetadata().Filepath.string(), outcome.Error );
-        }
+                       path, outcome.Error );
         else
-            ClaimTextureImage( entry.Built, handle );
+            ClaimTextureImage( created, handle );
+        SettleAtHandOff( handle );
+    }
 
+    void TextureService::SettleAtHandOff( const Assets::AssetHandle& texture ) const
+    {
         // At the hand-off (MAT-CELL-LOAD): the render job builds cells on its workers (OVERLAP-ON-7), adding
-        // waiters (RebuildWhenReady) and asking them (AwaitsTextures) under the material service's lock; the
-        // settle and the invalidations it raises wait for that work, as the texture's own swap does.
+        // waiters (RebuildWhenReady) and asking them (AwaitedBy); the settle and the invalidations it raises wait
+        // for that work, as the texture's own swap does. AfterJoin may run the command at once, so this is called
+        // with the table lock released, and the materials are invalidated with it released again: the material
+        // service's lock comes BEFORE this one in the one order, never under it.
         Engine::RenderTask::Get().AfterJoin(
-             [this, handle]()
+             [this, texture]() noexcept
              {
-                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
-                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+                 std::vector<Assets::AssetHandle> waited;
+                 {
+                     const std::unique_lock table( m_TableLock );
+                     if ( const auto it = m_Entries.find( texture ); it != m_Entries.end() )
+                         it->second.SettleQueued = false;
+                     m_Waiters.Settle( texture, [&waited]( const Assets::AssetHandle& material )
+                                       { waited.push_back( material ); } );
+                     m_AnyWaiting.store( !m_Waiters.Empty(), std::memory_order_release );
+                 }
+                 for ( const auto& material : waited )
+                     ResourceRegistry::GetMaterialService()->Invalidate( material );
              } );
     }
 
     void TextureService::BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const
     {
         // BOTH DELEGATES (T2.3): a Clear() that drops the request must not leave the entry answering
-        // Pending at a worker that is never coming back.
+        // Pending at a worker that is never coming back. Asked under the caller's exclusive lock: Request never
+        // calls a delegate before it returns, and the delegates (main thread) take the table lock themselves.
         entry.Request = Assets::AsyncAssetLoader::Get().Request(
              entry.Source,
              [this, handle]( const Assets::Asset<Assets::AssetBase>&, const Assets::LoadOutcome outcome,
                              const std::string& error )
              {
-                 const auto it = m_Entries.find( handle );
-                 if ( it == m_Entries.end() )
-                     return; // cleared while the read ran
-                 // Released first, so nothing answers Pending for a texture whose read has settled.
-                 it->second.Request.Release();
-                 if ( outcome == Assets::LoadOutcome::Loaded )
+                 std::string failedPath;
                  {
-                     // Still Pending: the waiters settle when the upload runs (FinishCook).
-                     BeginCook( handle, it->second );
-                     return;
+                     const std::unique_lock table( m_TableLock );
+                     const auto             it = m_Entries.find( handle );
+                     if ( it == m_Entries.end() )
+                         return; // cleared while the read ran
+                     // Released first, so nothing answers Pending for a texture whose read has settled.
+                     it->second.Request.Release();
+                     if ( outcome == Assets::LoadOutcome::Loaded )
+                     {
+                         // Still Pending: the waiters settle when the upload runs (FinishCook).
+                         BeginCook( handle, it->second );
+                         return;
+                     }
+                     it->second.Failed       = true;
+                     it->second.SettleQueued = true;
+                     failedPath              = it->second.Source->GetMetadata().Filepath.string();
                  }
-                 it->second.Failed = true;
                  LOG_ERROR( "[TextureService] '{}' could not be read: {}. Materials naming it sample the "
                             "slot's schema default; it is not retried.",
-                            it->second.Source->GetMetadata().Filepath.string(), error );
+                            failedPath, error );
                  // At the hand-off, as a landed texture settles (MAT-CELL-LOAD).
-                 Engine::RenderTask::Get().AfterJoin(
-                      [this, handle]()
-                      {
-                          m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
-                                            { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
-                      } );
+                 SettleAtHandOff( handle );
              },
              [this, handle]
              {
                  // Back to "not asked for", not to "failed": the next Require starts a fresh read.
+                 const std::unique_lock table( m_TableLock );
                  if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
                      it->second.Request.Release();
              } );
@@ -267,25 +366,48 @@ namespace Desert::Runtime
 
     Assets::AssetRef<Graphic::Texture2D> TextureService::Require( const Assets::AssetHandle& handle ) const
     {
-        Entry* entry = FindOrDiscover( handle );
-        if ( entry == nullptr )
+        if ( static_cast<uint64_t>( handle ) == 0 )
             return Assets::AssetRef<Graphic::Texture2D>::Null();
-        if ( entry->Built )
-            return Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry->Built );
-        if ( entry->Failed || !entry->Source )
-            return Assets::AssetRef<Graphic::Texture2D>::Null();
-        if ( entry->Request.IsValid() || entry->Cooking )
-            return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
-
-        // Already read (an importer handed over a loaded asset): no request needed, straight to the cook.
-        if ( entry->Source->IsReadyForUse() )
+        // THE HIT, SHARED: a texture built, failed or in flight is answered by every worker at once.
+        bool known = false;
         {
-            BeginCook( handle, *entry );
-            return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
+            const std::shared_lock table( m_TableLock );
+            if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
+            {
+                if ( auto answer = Answer( handle, it->second ) )
+                    return std::move( *answer );
+                known = true;
+            }
+            else if ( m_ReportedMissing.contains( handle ) )
+                return Assets::AssetRef<Graphic::Texture2D>::Null();
         }
+        if ( !known && !Discover( handle ) )
+            return Assets::AssetRef<Graphic::Texture2D>::Null();
 
-        BeginRead( handle, *entry );
+        // THE MISS, EXCLUSIVE AND RE-CHECKED: another thread may have started the read between the two locks.
+        const std::unique_lock table( m_TableLock );
+        const auto             it = m_Entries.find( handle );
+        if ( it == m_Entries.end() )
+            return Assets::AssetRef<Graphic::Texture2D>::Null(); // cleared between the two locks
+        if ( auto answer = Answer( handle, it->second ) )
+            return std::move( *answer );
+        // Already read (an importer handed over a loaded asset): no request needed, straight to the cook.
+        if ( it->second.Source->IsReadyForUse() )
+            BeginCook( handle, it->second );
+        else
+            BeginRead( handle, it->second );
         return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
+    }
+
+    bool TextureService::AwaitedBy( const Assets::AssetHandle& material ) const
+    {
+        // THE STEADY FRAME TAKES NO LOCK: asked per draw by every render worker, and once the scene's textures
+        // have landed nothing waits. The flag is raised under the exclusive lock inside the build that added
+        // the waiter (under the material lock), so a worker that sees that build's cell sees the flag.
+        if ( !m_AnyWaiting.load( std::memory_order_acquire ) )
+            return false;
+        const std::shared_lock table( m_TableLock );
+        return m_Waiters.IsWaiting( material );
     }
 
     Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& handle ) const
@@ -298,7 +420,8 @@ namespace Desert::Runtime
                                     std::vector<Assets::AssetHandle>& awaited ) const
     {
         (void)Require( handle );
-        const auto it = m_Entries.find( handle );
+        const std::shared_lock table( m_TableLock );
+        const auto             it = m_Entries.find( handle );
         if ( it != m_Entries.end() && it->second.Request.IsValid() && it->second.Source )
             awaited.emplace_back( it->second.Source->GetMetadata().Handle );
     }
@@ -306,44 +429,64 @@ namespace Desert::Runtime
     void TextureService::RebuildWhenReady( const Assets::AssetHandle& texture,
                                            const Assets::AssetHandle& material ) const
     {
-        if ( const auto it = m_Entries.find( texture );
-             it != m_Entries.end() && ( it->second.Request.IsValid() || it->second.Cooking ) )
-            m_Waiters.Add( texture, material );
+        // UNTIL THE SETTLE HAS RUN, not until the upload: a texture that landed after this material's Require
+        // answered Pending, its settle still queued behind the render work in flight, settles this waiter too.
+        const std::unique_lock table( m_TableLock );
+        const auto             it = m_Entries.find( texture );
+        if ( it == m_Entries.end() )
+            return;
+        if ( !it->second.Request.IsValid() && !it->second.Cooking && !it->second.SettleQueued )
+            return;
+        m_Waiters.Add( texture, material );
+        m_AnyWaiting.store( true, std::memory_order_release );
     }
 
     std::string TextureService::GetSourcePath( const Assets::AssetHandle& handle ) const
     {
         (void)Require( handle );
-        const auto it = m_Entries.find( handle );
-        if ( it == m_Entries.end() || !it->second.Source )
-            return {};
-        if ( !it->second.Source->IsReadyForUse() && it->second.Request.IsValid() )
+        std::shared_ptr<Assets::TextureAsset> source;
+        bool                                  reading = false;
+        {
+            const std::shared_lock table( m_TableLock );
+            const auto             it = m_Entries.find( handle );
+            if ( it == m_Entries.end() || !it->second.Source )
+                return {};
+            source  = it->second.Source;
+            reading = it->second.Request.IsValid();
+        }
+        // UNLOCKED: the flush reads the file and runs the read's completion, which takes the table lock.
+        if ( !source->IsReadyForUse() && reading )
             Assets::AsyncAssetLoader::Get().FlushOne( handle );
-        const auto again = m_Entries.find( handle );
-        return again != m_Entries.end() && again->second.Source && again->second.Source->IsReadyForUse()
-                    ? again->second.Source->GetSourcePath()
-                    : std::string{};
+        if ( !source->IsReadyForUse() )
+            return {};
+        return source->GetSourcePath();
     }
 
     bool TextureService::EvictBuilt( const Assets::AssetHandle& handle )
     {
-        const auto it = m_Entries.find( handle );
-        if ( it == m_Entries.end() || !it->second.Built )
-            return false;
+        std::shared_ptr<Graphic::Texture2D> evicted;
+        {
+            const std::unique_lock table( m_TableLock );
+            const auto             it = m_Entries.find( handle );
+            if ( it == m_Entries.end() || !it->second.Built )
+                return false;
+            if ( it->second.Source )
+            {
+                evicted = std::move( it->second.Built );
+                // Read back from its tail, like any texture asked for the first time.
+                it->second.RequestedFirstMip = Graphic::Texture2D::kStreamingTail;
+            }
+        }
         // No shell means no recipe: a texture handed over by Register with nothing to read it back from. Only
         // the image holds it, so it is kept, and said - a silent "nothing to do" reads as "already released".
-        if ( !it->second.Source )
+        if ( !evicted )
         {
             LOG_WARN( "[TextureService] eviction asked for texture {} and it has no asset shell, so nothing could "
                       "rebuild it. Kept.",
                       static_cast<uint64_t>( handle ) );
             return false;
         }
-        m_Retiring.Park( std::move( it->second.Built ),
-                         Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
-        it->second.Built.reset();
-        // Read back from its tail, like any texture asked for the first time.
-        it->second.RequestedFirstMip = Graphic::Texture2D::kStreamingTail;
+        m_Retiring.Park( std::move( evicted ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         return true;
     }
 
@@ -384,15 +527,13 @@ namespace Desert::Runtime
         auto taken = m_Uploads->TakeWithinBudget( m_UploadSettings.BytesPerFrame );
         for ( auto& item : taken )
         {
-            const auto it = m_Entries.find( item.Handle );
-            // Stale: the entry was cleared, or a later cook replaced the one this result belongs to.
-            if ( it == m_Entries.end() || !it->second.Cooking || it->second.CookTicket != item.Ticket )
-                continue;
             // Read before the move: argument evaluation order is unspecified (clang L->R, MSVC R->L).
             const Assets::AssetHandle handle = item.Handle;
-            FinishCook( handle, it->second, std::move( item.Data ) );
+            const uint64_t            ticket = item.Ticket;
+            FinishCook( handle, ticket, std::move( item.Data ) );
         }
         // Every taken result, stale ones included, was one admitted cook: its decoded pixels are gone now.
+        const std::unique_lock table( m_TableLock );
         for ( std::size_t released = 0; released < taken.size(); ++released )
             m_CookAdmission.Release();
         StartAdmittedCooks();
@@ -401,6 +542,7 @@ namespace Desert::Runtime
 
     void TextureService::StartAdmittedCooks()
     {
+        // The caller holds the table lock exclusive: SubmitCook only queues a job.
         while ( const std::optional<Assets::AssetHandle> next = m_CookAdmission.NextToStart() )
         {
             const auto it = m_Entries.find( *next );
@@ -429,7 +571,19 @@ namespace Desert::Runtime
     {
         ++m_StreamingFrame;
         const TextureStreamingSettings& settings = m_StreamingSettings;
-        for ( const auto& [asset, pixels] : Graphic::TextureStreamingDemand::Get().TakeFrame() )
+        const auto                      demand   = Graphic::TextureStreamingDemand::Get().TakeFrame();
+        // A MOVE DECIDED UNDER THE LOCK, ISSUED AFTER IT: a stream-out moves the live image at the hand-off, and
+        // AfterJoin may run it at once or Join (which waits for workers that may wait for this lock).
+        struct Step
+        {
+            std::shared_ptr<Graphic::Texture2D> StreamOut; // null for a raise, whose read starts under the lock
+            std::string                         Name;
+            uint32_t                            From = 0, To = 0;
+        };
+        std::vector<Step> steps;
+        // THE TABLE, EXCLUSIVE, until the moves are decided: a raise starts its cook (Cooking, the admission).
+        std::unique_lock table( m_TableLock );
+        for ( const auto& [asset, pixels] : demand )
         {
             if ( const auto it = m_Entries.find( asset ); it != m_Entries.end() )
             {
@@ -517,7 +671,7 @@ namespace Desert::Runtime
                  want.First >= entry.ResidentFirstMip + 2 || ( overBudget && want.First > entry.ResidentFirstMip );
             if ( !up && !down )
                 continue;
-            const std::string name = entry.Source->GetMetadata().Filepath.filename().string();
+            std::string name = entry.Source->GetMetadata().Filepath.filename().string();
             if ( down )
             {
                 // A DROP READS NOTHING (UE FTexture2DStreamOut): the kept levels are copied on the GPU into a
@@ -525,18 +679,31 @@ namespace Desert::Runtime
                 // It moves the live image (a layout transition and the swap), so it runs at the hand-off like
                 // a raise's swap (OVERLAP-ON-7): at once when nothing is in flight, else after the next Join.
                 const uint32_t from = entry.ResidentFirstMip;
-                StreamOutAtHandOff( entry.Built, want.First - from );
+                steps.push_back( Step{ entry.Built, std::move( name ), from, want.First } );
                 entry.ResidentFirstMip = entry.RequestedFirstMip = want.First;
                 resident -= BytesFrom( entry.LevelBytes, from ) - BytesFrom( entry.LevelBytes, want.First );
-                LOG_INFO( "[TextureStreaming] '{}' streamed out mip {} -> {} by a GPU copy (no read)", name, from,
-                          want.First );
                 continue;
             }
-            LOG_INFO( "[TextureStreaming] '{}' reads mip {} -> {} from its asset", name, entry.ResidentFirstMip,
-                      want.First );
+            steps.push_back( Step{ nullptr, std::move( name ), entry.ResidentFirstMip, want.First } );
             entry.RequestedFirstMip = want.First;
             BeginCook( want.Handle, entry );
             ++streaming;
+        }
+        const std::size_t textures = wants.size();
+        wants.clear(); // its rows are the table's: not read past the lock
+        table.unlock();
+
+        for ( const Step& step : steps )
+        {
+            if ( step.StreamOut )
+            {
+                StreamOutAtHandOff( step.StreamOut, step.To - step.From );
+                LOG_INFO( "[TextureStreaming] '{}' streamed out mip {} -> {} by a GPU copy (no read)", step.Name,
+                          step.From, step.To );
+            }
+            else
+                LOG_INFO( "[TextureStreaming] '{}' reads mip {} -> {} from its asset", step.Name, step.From,
+                          step.To );
         }
 
         auto& pool = Graphic::TextureStreamingDemand::Get().Pool();
@@ -544,7 +711,7 @@ namespace Desert::Runtime
         pool.WantedBytes.store( wanted, std::memory_order_relaxed );
         pool.BudgetBytes.store( budget, std::memory_order_relaxed );
         pool.FullChainBytes.store( full, std::memory_order_relaxed );
-        pool.Textures.store( static_cast<uint32_t>( wants.size() ), std::memory_order_relaxed );
+        pool.Textures.store( static_cast<uint32_t>( textures ), std::memory_order_relaxed );
         pool.Streaming.store( streaming, std::memory_order_relaxed );
         if ( m_StreamingFrame % settings.LogEveryFrames == 0 &&
              ( resident != m_LoggedResident || wanted != m_LoggedWanted ) )
@@ -556,7 +723,7 @@ namespace Desert::Runtime
                  "[TextureStreaming] pool resident {:.1f} MB / budget {:.1f} MB (wanted {:.1f} MB, full chains "
                  "{:.1f} MB, {} textures, {} streaming)",
                  static_cast<double>( resident ) / MB, static_cast<double>( budget ) / MB,
-                 static_cast<double>( wanted ) / MB, static_cast<double>( full ) / MB, wants.size(), streaming );
+                 static_cast<double>( wanted ) / MB, static_cast<double>( full ) / MB, textures, streaming );
         }
     }
 
@@ -567,6 +734,7 @@ namespace Desert::Runtime
 
     std::size_t TextureService::InFlight() const
     {
+        const std::shared_lock table( m_TableLock );
         return static_cast<std::size_t>(
              std::count_if( m_Entries.begin(), m_Entries.end(), []( const auto& row )
                             { return row.second.Request.IsValid() || row.second.Cooking; } ) );
@@ -574,14 +742,22 @@ namespace Desert::Runtime
 
     void TextureService::Clear()
     {
-        // The cooks already on a worker keep their slots until their (now stale) results are taken; the results
-        // already queued are dropped here, and so are their slots.
-        for ( std::size_t released = m_Uploads->TakeWithinBudget( UINT64_MAX ).size(); released > 0; --released )
-            m_CookAdmission.Release();
-        m_CookAdmission.DropWaiting();
+        // The rows leave the table under the lock and are destroyed after it: their GPU textures are freed (and
+        // their requests released) with the table unlocked.
+        std::unordered_map<Assets::AssetHandle, Entry> dropped;
+        {
+            const std::unique_lock table( m_TableLock );
+            // The cooks already on a worker keep their slots until their (now stale) results are taken; the
+            // results already queued are dropped here, and so are their slots.
+            for ( std::size_t released = m_Uploads->TakeWithinBudget( UINT64_MAX ).size(); released > 0;
+                  --released )
+                m_CookAdmission.Release();
+            m_CookAdmission.DropWaiting();
+            dropped.swap( m_Entries );
+            m_ReportedMissing.clear();
+            m_Waiters.Clear();
+            m_AnyWaiting.store( false, std::memory_order_release );
+        }
         m_Retiring.Clear();
-        m_Entries.clear();
-        m_ReportedMissing.clear();
-        m_Waiters.Clear();
     }
 } // namespace Desert::Runtime

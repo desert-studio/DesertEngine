@@ -9,8 +9,11 @@
 #include <Engine/Runtime/Services/Texture/TextureUploadQueue.hpp>
 #include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -68,6 +71,14 @@ namespace Desert::Runtime
      * to a JobSystem worker. The worker's decoded result waits in `TextureUploads`, and `PumpUploads` creates
      * GPU images from it once per frame within `TextureUploadSettings::BytesPerFrame`. The texture stays
      * Pending, drawing the slot default, until its upload runs.
+     *
+     * THE TABLE HAS ITS OWN READER-WRITER LOCK (CPU-ONE-SYNC R15; UE FRWLock per table). Render workers ask it
+     * while the frame loop settles it: `Require`'s hit, `Get`, `AwaitedBy` and the counters take it SHARED; a
+     * miss (re-checked), `RebuildWhenReady`, a read's completion, an upload's commit, streaming and `Clear` take
+     * it EXCLUSIVE. One order: the material service's lock, then `m_DiscoverLock`, then `m_TableLock`, then
+     * only leaf locks (the loader's, the job queue's, the log's). Nothing runs under the table lock that reads a
+     * file, creates or frees a GPU image, asks the AssetManager, or reaches RenderTask (an AfterJoin may run at
+     * once or Join, and a join waits for workers that wait for this lock) or the material service.
      */
     class TextureService
     {
@@ -100,11 +111,9 @@ namespace Desert::Runtime
         /// on its next draw) when the texture lands.
         void RebuildWhenReady( const Assets::AssetHandle& texture, const Assets::AssetHandle& material ) const;
 
-        /// @p material still binds a slot default for a texture that has not settled (Ready or Failed).
-        bool AwaitedBy( const Assets::AssetHandle& material ) const
-        {
-            return m_Waiters.IsWaiting( material );
-        }
+        /// @p material still binds a slot default for a texture that has not settled (Ready or Failed). Asked per
+        /// draw by render workers: no lock once nothing waits, the shared lock while something does.
+        bool AwaitedBy( const Assets::AssetHandle& material ) const;
 
         // Original source file of a texture (e.g. ".../foo.gif"), empty when the handle is unknown. The one
         // synchronous door: an unread shell is finished NOW through AsyncAssetLoader::FlushOne, which the
@@ -156,6 +165,9 @@ namespace Desert::Runtime
             bool Cooking = false;
             /// Latched so a corrupt file is not re-read every frame.
             bool Failed = false;
+            /// Settled (built or failed) with its waiters' settle still queued behind the render work in flight:
+            /// a material whose Require saw Pending before the upload still registers, and that settle takes it.
+            bool SettleQueued = false;
             /// Streaming: the asset's level 0 size and every level's bytes (known after the first read), the
             /// level the built image starts at, the level the running read will start at, and the last frame a
             /// draw asked for the texture with how many screen pixels.
@@ -167,7 +179,16 @@ namespace Desert::Runtime
             float                 AskedPixels       = 0.0f;
         };
 
-        Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        /// What `Require` answers without starting anything: Ready, Null (failed, or no shell) or Pending (a read
+        /// or a cook in flight). Empty for a row never asked for, whose read the caller starts. Lock held.
+        static std::optional<Assets::AssetRef<Graphic::Texture2D>> Answer( const Assets::AssetHandle& handle,
+                                                                           const Entry&               entry );
+        /// A handle with no row yet gets its shell from the content registry: one discovery at a time under
+        /// `m_DiscoverLock`, the AssetManager and the disk asked with the table unlocked. False when it has none.
+        bool Discover( const Assets::AssetHandle& handle ) const;
+        /// The waiters of a settled texture are settled, and their materials invalidated, at the hand-off. Called
+        /// with the table lock released (AfterJoin may run it at once).
+        void SettleAtHandOff( const Assets::AssetHandle& texture ) const;
         // THE LIVE-IMAGE CHANGES AT THE HAND-OFF (OVERLAP-ON-7): a streamed raise's swap and a stream-out move
         // the Image2D a recording view may read, so they run behind the render work in flight
         // (RenderTask::AfterJoin); a new texture nothing references yet is still built at once (FinishCook).
@@ -175,12 +196,20 @@ namespace Desert::Runtime
                                     Graphic::Texture2D::StagedLevels           staged );
         static void StreamOutAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
                                         uint32_t                                   droppedLevels );
-        void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
-        void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
-        void        SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
-        void        StartAdmittedCooks();
-        void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome );
+        // These four run with the table lock held EXCLUSIVE by their caller.
+        void BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
+        void StartAdmittedCooks();
+        /// One upload result: checked shared, the GPU image staged or created unlocked, committed exclusive.
+        void FinishCook( const Assets::AssetHandle& handle, uint64_t ticket, TextureCookOutcome outcome );
 
+        /// Guards m_Entries, m_ReportedMissing, m_Waiters, m_CookAdmission and m_NextCookTicket.
+        mutable std::shared_mutex m_TableLock;
+        /// Serializes discovery (the AssetManager has no lock of its own). Taken before m_TableLock, never under.
+        mutable std::mutex m_DiscoverLock;
+        /// m_Waiters is not empty: written under the exclusive lock, read by AwaitedBy before any lock.
+        mutable std::atomic<bool> m_AnyWaiting{ false };
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.
         mutable std::unordered_map<Assets::AssetHandle, Entry> m_Entries;
@@ -188,7 +217,8 @@ namespace Desert::Runtime
         std::weak_ptr<Assets::AssetManager>                    m_Assets;
         /// Materials that drew a slot default while a texture was Pending.
         mutable TextureWaiters m_Waiters;
-        /// Textures eviction dropped, alive until the frames that could sample them have retired.
+        /// Textures eviction dropped, alive until the frames that could sample them have retired. Frame loop
+        /// only (EvictBuilt, RetireEvicted, Clear): no worker reaches it, so it is outside the table lock.
         Assets::FrameRetireQueue<std::shared_ptr<Graphic::Texture2D>> m_Retiring;
         /// Shared with the cook jobs, which may still finish after this service is cleared or destroyed.
         std::shared_ptr<TextureUploads> m_Uploads        = std::make_shared<TextureUploads>();

@@ -34,6 +34,12 @@ namespace Desert::Runtime
             return m_Pending.contains( material );
         }
 
+        /// No material waits on any texture: the steady frame, where a per-draw ask needs no lock.
+        bool Empty() const
+        {
+            return m_Pending.empty();
+        }
+
         /// @p texture settled (Ready or Failed): every material that waited on it is handed to
         /// @p invalidate exactly once, and forgotten. Failed settles too — the waiter would otherwise keep
         /// a default bound for a texture that will never arrive, with no rebuild to say so.
