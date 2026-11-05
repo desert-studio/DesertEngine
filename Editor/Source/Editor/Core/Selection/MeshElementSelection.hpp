@@ -94,7 +94,8 @@ namespace Desert::Editor::Core
 
         // Replaces the selection as one undo step labelled `label`; nothing is recorded when it is unchanged.
         void Commit( Geometry::ElementSelection next, const std::string& label );
-        // The same part of the mesh in another mode (ConvertSelection) - an undo step like any other change.
+        // The same part of the mesh in another mode (ConvertSelection). NOT an undo step: as in UE Modeling the
+        // mode is a tool setting; picks, selection ops and mesh edits are the undo steps.
         [[nodiscard]] Common::BoolResultStr SetMode( Geometry::ElementMode mode );
         // Refused, by name, when no editable mesh is being tracked.
         [[nodiscard]] Common::BoolResultStr Apply( Op op );

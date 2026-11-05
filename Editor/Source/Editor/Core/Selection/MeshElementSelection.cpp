@@ -123,8 +123,12 @@ namespace Desert::Editor::Core
             m_Selection = Geometry::ElementSelection( mode );
             return Common::MakeSuccess( true );
         }
-        Commit( Geometry::ConvertSelection( *m_Mesh, *m_Topology, m_Selection, mode ),
-                std::string( "Mesh Selection: " ) + Geometry::ToString( mode ) + " mode" );
+        // Not an undo step (UE Modeling: the selection mode is a tool setting, not a transaction - owner
+        // 11-05): the same part of the mesh is re-expressed in the new mode, and the next pick's undo step
+        // starts from that converted selection.
+        m_Selection = Geometry::ConvertSelection( *m_Mesh, *m_Topology, m_Selection, mode );
+        LOG_INFO( "[Mesh Selection] {} mode ({} element(s) selected; not an undo step)", Geometry::ToString( mode ),
+                  m_Selection.Size() );
         return Common::MakeSuccess( true );
     }
 
@@ -187,6 +191,12 @@ namespace Desert::Editor::Core
             m_Mesh.reset();
             m_Topology.reset();
         }
-        m_Selection = std::move( selection );
+        // Undo / redo give the elements back but never the mode: the mode is outside the history, so a
+        // restored set made in another mode is re-expressed in the mode the user is in now.
+        const Geometry::ElementMode current = m_Selection.Mode();
+        if ( selection.Mode() != current && m_Mesh && m_Topology )
+            m_Selection = Geometry::ConvertSelection( *m_Mesh, *m_Topology, selection, current );
+        else
+            m_Selection = std::move( selection );
     }
 } // namespace Desert::Editor::Core
