@@ -174,21 +174,34 @@ TEST( QueueSubmitCensus, EveryOwnerTakesTheQueueLockBeforeItsCall )
 }
 
 // The ImGui Vulkan backend is third-party and issues its own queue calls for detached platform windows, so the
-// scan above cannot see them. What CAN be read is that the one place that drives them holds the lock first.
+// scan above cannot see them. What CAN be read (VK-SUBMIT-THREAD step 7): ImGui's default renderer loop is not
+// used (the layer draws the windows itself, as submit-thread entries), and every call into the backend goes
+// through DetachedWindows::Capture from a scope that took VulkanLogicalDevice::LockQueues() first.
 TEST( QueueSubmitCensus, DetachedImGuiWindowsRenderUnderTheQueueLock )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string src = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
          ReadAll( fs::path( root ) / "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" ) );
-    const std::size_t render = src.find( "RenderPlatformWindowsDefault(" );
-    const std::size_t update = src.find( "UpdatePlatformWindows(" );
-    ASSERT_NE( render, std::string::npos )
-         << "VulkanImGuiLayer no longer renders platform windows; update the census";
-    ASSERT_NE( update, std::string::npos );
-    const std::size_t lock      = src.rfind( "LockQueues()", update );
-    const std::size_t scopeOpen = src.rfind( '{', update );
-    EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
-         << "UpdatePlatformWindows / RenderPlatformWindowsDefault must run inside a scope that took "
-            "VulkanLogicalDevice::LockQueues() first: the backend submits and presents on the shared queue.";
+    ASSERT_NE( src.find( "UpdatePlatformWindows(" ), std::string::npos )
+         << "VulkanImGuiLayer no longer drives platform windows; update the census";
+    EXPECT_EQ( src.find( "RenderPlatformWindowsDefault(" ), std::string::npos )
+         << "ImGui's default loop calls the backend outside the queue lock and the submit thread";
+    std::size_t calls = 0;
+    for ( std::size_t at = src.find( "return Capture(" ); at != std::string::npos;
+          at             = src.find( "return Capture(", at + 1 ) )
+    {
+        ++calls;
+        const std::size_t lock      = src.rfind( "LockQueues()", at );
+        const std::size_t scopeOpen = src.rfind( '{', at );
+        EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
+             << "a backend call (Capture) at offset " << at
+             << " must run in a scope that took VulkanLogicalDevice::LockQueues() first: the backend submits, "
+                "presents and waits the device idle on the shared queue.";
+    }
+    // The window calls (create / resize / destroy, AfterOwnWork) and the frame (Draw).
+    EXPECT_EQ( calls, 2u ) << "the backend is called from a new place; census it";
+    for ( const char* const call : { "BackendCreate(", "BackendDestroy(", "BackendResize(", "BackendRender(",
+                                     "BackendPresent(" } )
+        EXPECT_NE( src.find( call ), std::string::npos ) << call << " is no longer called; update the census";
 }
