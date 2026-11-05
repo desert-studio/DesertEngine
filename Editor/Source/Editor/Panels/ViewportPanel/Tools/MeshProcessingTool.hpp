@@ -161,8 +161,8 @@ namespace Desert::Editor::Tools
             // Merge (UE UCombineMeshesTool): the inputs gathered at Begin (Entity is the first, the receiver,
             // and draws the merged preview); the others are hidden for the session, each with its
             // VisibilityComponent before that (nullopt = it had none), put back by Restore.
-            std::shared_ptr<const Core::MergeInputs>                    Merge;
-            std::vector<std::pair<Common::UUID, std::optional<bool>>>  MergeHidden;
+            std::shared_ptr<const Core::MergeInputs>                  Merge;
+            std::vector<std::pair<Common::UUID, std::optional<bool>>> MergeHidden;
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
             // input and the settings; the last preview stays on screen until it lands. A settings change while it
             // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it

@@ -57,7 +57,7 @@ namespace Desert::Editor::Core
         };
         std::vector<Common::UUID>        Entities; // the selection, in order; [0] receives the result
         std::string                      IntoName;
-        std::vector<Part>                Parts;    // one per entity, same order
+        std::vector<Part>                Parts; // one per entity, same order
         std::vector<Common::AssetHandle> MaterialSlots;
     };
 

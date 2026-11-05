@@ -102,10 +102,12 @@ namespace Desert::Editor::Tools
                 return Common::MakeError<Geometry::DeformOutcome>( parts.GetError() );
             const size_t            count = parts.GetValue().size();
             Geometry::DeformOutcome out;
-            out.Mesh   = input;
-            out.Report = count < 2 ? std::format( "Split by {}: one part - nothing to split", Geometry::ToString( method ) )
-                                   : std::format( "Split by {}: {} parts - Accept keeps part 0 and makes {} new entities",
-                                                  Geometry::ToString( method ), count, count - 1 );
+            out.Mesh = input;
+            out.Report =
+                 count < 2
+                      ? std::format( "Split by {}: one part - nothing to split", Geometry::ToString( method ) )
+                      : std::format( "Split by {}: {} parts - Accept keeps part 0 and makes {} new entities",
+                                     Geometry::ToString( method ), count, count - 1 );
             return Common::MakeSuccess( std::move( out ) );
         }
 
@@ -323,8 +325,9 @@ namespace Desert::Editor::Tools
                                 m_Session->Tool == MS::Tool::VoxBlend );
             const bool boolean =
                  m_Session && ( m_Session->Tool == MS::Tool::Boolean || m_Session->Tool == MS::Tool::Trim );
-            const bool xform   = m_Session && ( m_Session->Tool == MS::Tool::Pattern ||
-                                                  m_Session->Tool == MS::Tool::Merge || m_Session->Tool == MS::Tool::Split );
+            const bool xform =
+                 m_Session && ( m_Session->Tool == MS::Tool::Pattern || m_Session->Tool == MS::Tool::Merge ||
+                                m_Session->Tool == MS::Tool::Split );
             if ( !( boolean         ? AcceptBoolean( scene, ms )
                     : xform         ? AcceptXform( scene, ms )
                     : createsEntity ? AcceptCreateFromSelected( scene, ms )
@@ -388,7 +391,7 @@ namespace Desert::Editor::Tools
                 ms.DeformStatus = target.GetError();
                 return;
             }
-            m_Session = Session{ ms.ActiveTool, inputs->Entities.front(), target.GetValue().Mesh,
+            m_Session        = Session{ ms.ActiveTool, inputs->Entities.front(), target.GetValue().Mesh,
                                  target.GetValue().Committed, nullptr };
             m_Session->Merge = inputs;
             for ( size_t i = 1; i < inputs->Entities.size(); ++i )
@@ -411,8 +414,8 @@ namespace Desert::Editor::Tools
         if ( ( ms.ActiveTool == MS::Tool::Pattern || ms.ActiveTool == MS::Tool::Split ) &&
              Core::SelectionManager::GetSelection().size() != 1 )
         {
-            ms.DeformStatus = std::format( "{}: select one entity with a static mesh.",
-                                           ProcessingToolName( ms.ActiveTool ) );
+            ms.DeformStatus =
+                 std::format( "{}: select one entity with a static mesh.", ProcessingToolName( ms.ActiveTool ) );
             return;
         }
         const auto selected = SessionEntity( ms.ActiveTool );
@@ -552,13 +555,13 @@ namespace Desert::Editor::Tools
         session.Pending        = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = session.Tool, input = session.Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
-              voxBlend = m_VoxBlend, boolean = m_Boolean, pattern = m_Pattern, split = m_Split, merge = session.Merge,
-              booleanInputs = session.BooleanInputs, other = session.OtherInput, normals = m_Normals,
-              tangents = m_Tangents, holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket,
-              remesh = m_Remesh, simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges,
-              targetMesh = session.TargetMesh, targetToInput = session.TargetToInput, warp = m_Warp,
-              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
-              objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
+              voxBlend = m_VoxBlend, boolean = m_Boolean, pattern = m_Pattern, split = m_Split,
+              merge = session.Merge, booleanInputs = session.BooleanInputs, other = session.OtherInput,
+              normals = m_Normals, tangents = m_Tangents, holeFill = m_HoleFill, holes = m_HoleFillSelected,
+              jacket = m_Jacket, remesh = m_Remesh, simplify = m_Simplify, project = m_Project,
+              weldEdges = m_WeldEdges, targetMesh = session.TargetMesh, targetToInput = session.TargetToInput,
+              warp = m_Warp, latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
+              objectToGizmo, objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
                  {

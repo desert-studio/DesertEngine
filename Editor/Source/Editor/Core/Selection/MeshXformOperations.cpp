@@ -107,7 +107,8 @@ namespace Desert::Editor::Core
         {
             if ( targets.size() < 2 )
                 return Common::MakeFormattedError<MergeInputs>( "{}: select at least two entities, not {}",
-                                                                ToString( XformOperation::Merge ), targets.size() );
+                                                                ToString( XformOperation::Merge ),
+                                                                targets.size() );
             const Target&   into   = targets.front();
             const glm::mat4 toInto = glm::inverse( into.Entity.GetWorldTransform() );
             MergeInputs     out;
@@ -119,7 +120,8 @@ namespace Desert::Editor::Core
                 out.Parts.push_back(
                      { t.Mesh, toInto * t.Entity.GetWorldTransform(),
                        RemapInto( out.MaterialSlots,
-                                  t.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots(), *t.Mesh ) } );
+                                  t.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots(),
+                                  *t.Mesh ) } );
             }
             return Common::MakeSuccess( std::move( out ) );
         }

@@ -231,7 +231,8 @@ namespace Desert::Editor
         }
         // Pattern, Merge, Split (UE's Pattern / Combine Meshes / Split Meshes tools): open the tool session on the
         // scene selection (MeshProcessingTool previews at the panel's values; the tool bar's Accept writes it).
-        for ( const auto& [op, tool] : std::initializer_list<std::pair<Core::XformOperation, Core::ModelingState::Tool>>{
+        for ( const auto& [op, tool] :
+              std::initializer_list<std::pair<Core::XformOperation, Core::ModelingState::Tool>>{
                    { Core::XformOperation::Pattern, Core::ModelingState::Tool::Pattern },
                    { Core::XformOperation::Merge, Core::ModelingState::Tool::Merge },
                    { Core::XformOperation::Split, Core::ModelingState::Tool::Split } } )
