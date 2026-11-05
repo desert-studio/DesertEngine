@@ -142,6 +142,7 @@ set(DESERT_EDITORSPECIFIC_INCLUDE_DIRS
     "${DESERT_ROOT}/Editor/ThirdParty/assimp/include"
     "${DESERT_ROOT}/build/generated/assimp/include"
     "ThirdParty/ImGuizmo"
+    "${_tp}/meshoptimizer/src"
     "${_tp}/reflect-cpp/include"
     "${_tp}/stb/include")
 
