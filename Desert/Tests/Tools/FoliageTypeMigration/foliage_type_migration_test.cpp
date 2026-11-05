@@ -1,7 +1,7 @@
 // FO-3: FOLT 1 -> 2; FO-5: FOLT 2 -> 3 (CullDistance joins at UE's never-culled default); FO-7: FOLT 3 -> 4
 // (Wind joins, still); FO-6: FOLT 4 -> 5 (IncludeInHLOD); FO-8: FOLT 5 -> 6 (Kind Mesh, Prefab joins); S1: FOLT 6
 // -> 7 (Procedural joins at UE defaults); WIND-SRC: FOLT 7 -> 8 (Wind.DirectionDegrees leaves: the scene's
-// WindSource gives the direction). A v1
+// WindSource gives the direction); FOLIAGE-COLLISION: FOLT 8 -> 9 (Collision joins, off). A v1
 // `.defoliage` stated Density per brush dab; v2 states it per 1000x1000 cm (UE). The step converts through the v1
 // brush's default radius, so one reference dab places the same count under both, keeps every other number and the
 // GUID, and the engine reads the result while refusing v1.
@@ -45,7 +45,7 @@ namespace
     }
 } // namespace
 
-TEST( FoliageTypeMigration, TheEngineReadsVersionEightOnlyAndRefusesVersionOne )
+TEST( FoliageTypeMigration, TheEngineReadsVersionNineOnlyAndRefusesVersionOne )
 {
     const auto v1 = Assets::Serialization::ParseFoliageType( kV1 );
     ASSERT_FALSE( v1 );
@@ -54,7 +54,7 @@ TEST( FoliageTypeMigration, TheEngineReadsVersionEightOnlyAndRefusesVersionOne )
 
 namespace
 {
-    // v2 -> v3 -> v4 -> v5 -> v6 -> v7 -> v8: the engine reads the last generation only.
+    // v2 -> v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9: the engine reads the last generation only.
     Common::ResultStr<std::string> RaiseV2ToEngine( const std::string& v2 )
     {
         const auto toV3 = Migration::MigrateFoliageTypeV2ToV3( v2 );
@@ -72,7 +72,10 @@ namespace
         const auto toV7 = Migration::MigrateFoliageTypeV6ToV7( toV6.GetValue() );
         if ( !toV7 )
             return toV7;
-        return Migration::MigrateFoliageTypeV7ToV8( toV7.GetValue() );
+        const auto toV8 = Migration::MigrateFoliageTypeV7ToV8( toV7.GetValue() );
+        if ( !toV8 )
+            return toV8;
+        return Migration::MigrateFoliageTypeV8ToV9( toV8.GetValue() );
     }
 } // namespace
 
@@ -95,9 +98,11 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
-    // The whole chain runs to the current generation (FOLT 8: the wind left the type).
+    // The whole chain runs to the current generation (FOLT 9: collision joined the type).
     EXPECT_EQ( data.Header->Versions.at( "FOLT" ),
                static_cast<uint32_t>( Assets::Serialization::kFoliageTypeVersion ) );
+    // FOLT 9 (FOLIAGE-COLLISION): nothing collided with a v8 field, so the raised type does not.
+    EXPECT_FALSE( data.Collision.Enabled );
     // FOLT 7 (S1): the procedural block takes UE UFoliageType's defaults.
     EXPECT_EQ( data.Procedural, Assets::Serialization::FoliageProcedural{} );
     // FOLT 6 (FO-8): every raised type draws a mesh, as every v5 type did.
@@ -206,12 +211,20 @@ TEST( FoliageTypeMigration, OnlyVersionThreeIsRaisedToFourAndKeepsItsCullDistanc
     ASSERT_FALSE( Assets::Serialization::ParseFoliageType( toV7.GetValue() ) );
     const auto toV8 = Migration::MigrateFoliageTypeV7ToV8( toV7.GetValue() );
     ASSERT_TRUE( toV8 ) << toV8.GetError();
-    const auto parsed = Assets::Serialization::ParseFoliageType( toV8.GetValue() );
+    // v8 text is no longer the engine's generation either.
+    ASSERT_FALSE( Assets::Serialization::ParseFoliageType( toV8.GetValue() ) );
+    const auto toV9 = Migration::MigrateFoliageTypeV8ToV9( toV8.GetValue() );
+    ASSERT_TRUE( toV9 ) << toV9.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV9.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 8u );
+    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 9u );
     const auto eight = Migration::MigrateFoliageTypeV7ToV8( toV8.GetValue() );
     ASSERT_FALSE( eight );
     EXPECT_NE( eight.GetError().find( "FOLT 8" ), std::string::npos ) << eight.GetError();
+    const auto nine = Migration::MigrateFoliageTypeV8ToV9( toV9.GetValue() );
+    ASSERT_FALSE( nine );
+    EXPECT_NE( nine.GetError().find( "FOLT 9" ), std::string::npos ) << nine.GetError();
+    EXPECT_FALSE( parsed.GetValue().Collision.Enabled ) << "FOLT 8 -> 9: nothing collided with a v8 field";
     const auto seven = Migration::MigrateFoliageTypeV6ToV7( toV7.GetValue() );
     ASSERT_FALSE( seven );
     EXPECT_NE( seven.GetError().find( "FOLT 7" ), std::string::npos ) << seven.GetError();
@@ -263,10 +276,14 @@ TEST( FoliageTypeMigration, VersionFiveIsRaisedToSixAsAMeshTypeKeepingEveryValue
     ASSERT_TRUE( toV7 ) << toV7.GetError();
     const auto toV8 = Migration::MigrateFoliageTypeV7ToV8( toV7.GetValue() );
     ASSERT_TRUE( toV8 ) << toV8.GetError();
-    const auto parsed = Assets::Serialization::ParseFoliageType( toV8.GetValue() );
+    // v8 text is no longer the engine's generation either.
+    ASSERT_FALSE( Assets::Serialization::ParseFoliageType( toV8.GetValue() ) );
+    const auto toV9 = Migration::MigrateFoliageTypeV8ToV9( toV8.GetValue() );
+    ASSERT_TRUE( toV9 ) << toV9.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV9.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const auto& data = parsed.GetValue();
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 8u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 9u );
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
     EXPECT_EQ( data.Kind, Assets::Serialization::FoliageTypeKind::Mesh );
     EXPECT_TRUE( data.Prefab.Guid.empty() && data.Prefab.Path.empty() );
@@ -276,7 +293,7 @@ TEST( FoliageTypeMigration, VersionFiveIsRaisedToSixAsAMeshTypeKeepingEveryValue
     EXPECT_FLOAT_EQ( data.Wind.Strength, 12.0f );
     EXPECT_FALSE( data.IncludeInHLOD ) << "FOLT 5 -> 6 must keep the file's IncludeInHLOD, not reset it";
     // A fixed point: the raised text is exactly what the engine writes for it.
-    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV8.GetValue() );
+    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV9.GetValue() );
 }
 
 TEST( FoliageTypeMigration, VersionSixIsRaisedToSevenWithUEProceduralDefaults )
@@ -311,10 +328,14 @@ TEST( FoliageTypeMigration, VersionSixIsRaisedToSevenWithUEProceduralDefaults )
     EXPECT_NE( toV7.GetValue().find( "\"FOLT\":7" ), std::string::npos ) << toV7.GetValue();
     const auto toV8 = Migration::MigrateFoliageTypeV7ToV8( toV7.GetValue() );
     ASSERT_TRUE( toV8 ) << toV8.GetError();
-    const auto parsed = Assets::Serialization::ParseFoliageType( toV8.GetValue() );
+    // v8 text is no longer the engine's generation either.
+    ASSERT_FALSE( Assets::Serialization::ParseFoliageType( toV8.GetValue() ) );
+    const auto toV9 = Migration::MigrateFoliageTypeV8ToV9( toV8.GetValue() );
+    ASSERT_TRUE( toV9 ) << toV9.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV9.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const auto& data = parsed.GetValue();
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 8u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 9u );
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
     EXPECT_EQ( data.Kind, Assets::Serialization::FoliageTypeKind::Prefab );
     EXPECT_EQ( data.Prefab.Path, "Prefabs/Bush.deprefab" );
@@ -330,7 +351,7 @@ TEST( FoliageTypeMigration, VersionSixIsRaisedToSevenWithUEProceduralDefaults )
     EXPECT_FLOAT_EQ( data.Procedural.ProceduralScale.Min, 1.0f );
     EXPECT_FLOAT_EQ( data.Procedural.ProceduralScale.Max, 3.0f );
     ASSERT_EQ( data.Procedural.ScaleCurve.size(), 2u );
-    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV8.GetValue() );
+    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV9.GetValue() );
 
     const auto refused = Migration::MigrateFoliageTypeV5ToV6( v6 );
     ASSERT_FALSE( refused );
@@ -371,10 +392,14 @@ TEST( FoliageTypeMigration, VersionSevenIsRaisedToEightDroppingTheDirectionAndKe
     EXPECT_EQ( toV8.GetValue().find( "DirectionDegrees" ), std::string::npos )
          << "FOLT 8 has no per-type wind direction:\n"
          << toV8.GetValue();
-    const auto parsed = Assets::Serialization::ParseFoliageType( toV8.GetValue() );
+    // v8 text is no longer the engine's generation either.
+    ASSERT_FALSE( Assets::Serialization::ParseFoliageType( toV8.GetValue() ) );
+    const auto toV9 = Migration::MigrateFoliageTypeV8ToV9( toV8.GetValue() );
+    ASSERT_TRUE( toV9 ) << toV9.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV9.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const auto& data = parsed.GetValue();
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 8u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 9u );
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
     EXPECT_FLOAT_EQ( data.Wind.Strength, 12.0f );
     EXPECT_FLOAT_EQ( data.Wind.Speed, 0.75f );
@@ -384,7 +409,7 @@ TEST( FoliageTypeMigration, VersionSevenIsRaisedToEightDroppingTheDirectionAndKe
     EXPECT_FLOAT_EQ( data.Procedural.CollisionRadius, 35.0f );
     EXPECT_FLOAT_EQ( data.Procedural.ShadeRadius, 70.0f );
     EXPECT_EQ( data.Procedural.NumSteps, 5 );
-    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV8.GetValue() );
+    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV9.GetValue() );
 
     // The engine refuses the v7 text by number, and the step refuses anything but FOLT 7.
     ASSERT_FALSE( Assets::Serialization::ParseFoliageType( v7 ) );
