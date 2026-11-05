@@ -1,6 +1,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 
 #include <Engine/Core/Projection.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -337,13 +338,13 @@ namespace Desert::Graphic::SurfaceCache
     }
 
     void SurfaceCacheRenderer::BeginFrame( const uint64_t engineFrame, std::vector<glm::vec3> origins,
-                                           const entt::registry& registry, const bool deferred )
+                                           const Core::PostProcessSettings& scenePost, const bool deferred )
     {
+        ::Desert::Engine::RenderTask::CheckRenderStateWrite( "SurfaceCacheRenderer::BeginFrame" );
         const Common::Scalability::ResolvedQuality&   quality = Common::Scalability::QualityState::Resolved();
         const Common::Scalability::CapabilityCatalog& catalog = Common::Scalability::QualityState::Catalog();
         // THE SCENE'S GI METHOD: its unbound volumes (no view position: a volume around one camera is that view's
         // grade, not the scene's), under the machine's ceiling and the device - the resolution a view runs.
-        const Core::PostProcessSettings scenePost = ResolveViewSettings( registry, std::nullopt ).Post;
         const RenderMethods methods = ResolveRenderMethods( scenePost, quality, catalog, deferred, m_Refusals );
         GlobalIllumination::Pipeline tracer =
              GlobalIllumination::PipelineFor( methods.GlobalIllumination.Effective, quality, catalog );

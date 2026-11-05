@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -159,9 +160,13 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override;
 
-        void Submit( GrassFieldDraw draw )
+        // BY REFERENCE (SceneRenderer::SubmitLandscapeGrass, REVIEW-FIX R6): @p draw is the recorded command's,
+        // which outlives the bracket; the queue holds it until ClearQueue (EndScene). Nothing of it is copied
+        // per capture face or per view.
+        void Submit( GrassFieldDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
+        void Submit( const GrassFieldDraw& draw )
         {
-            m_Queue.push_back( std::move( draw ) );
+            m_Queue.emplace_back( draw );
         }
         // The Foliage quality every later AddFrame grows its varieties under (GrassQuality).
         void SetQuality( const GrassQuality& quality )
@@ -500,7 +505,7 @@ namespace Desert::Graphic::System
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
-        std::vector<GrassFieldDraw>                                       m_Queue;
+        std::vector<std::reference_wrapper<const GrassFieldDraw>>         m_Queue;
         GrassQuality                                                      m_Quality;
         std::unordered_map<uint64_t, FieldGpu>                            m_Fields;
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;

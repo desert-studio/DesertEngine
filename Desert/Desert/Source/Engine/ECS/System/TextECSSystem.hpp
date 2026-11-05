@@ -43,20 +43,29 @@ namespace Desert::ECS
         // label. @p drawn is also what the cache is keyed on, so a language change rebuilds the glyph
         // mesh for free: nothing else would have told it to.
         static void RebuildGlyphMeshIfStale( TextComponent& text, const std::string& drawn,
-                                             const std::string& fontPath, const Text::BakedFont& baked )
+                                             const std::string& fontPath, const Runtime::Font& font )
         {
+            // The revision too: a glyph request re-bakes the atlas (FontService::RequestGlyphs) with the same
+            // path and size but new UVs, and a mesh laid on the old bake would sample the wrong glyphs.
             if ( text.RuntimeMesh && text.BuiltText == drawn && text.BuiltFont == fontPath &&
-                 text.BuiltSize == text.Size )
+                 text.BuiltSize == text.Size && text.BuiltFontRevision == font.Revision )
             {
                 return;
             }
 
+            // THE OLD GLYPH MESH IS RETIRED, NEVER FREED HERE (UE: a game-thread release of a render resource goes
+            // through the deferred-cleanup queue, BeginCleanup). This tick may run past the previous update's view
+            // job, which replays a DrawGenericMeshCommand naming that mesh by raw pointer: the last owner dropping
+            // it here freed it under the replay. Parked like SetStaticMesh's edited mesh (RetireRenderCache), it
+            // dies once no frame in flight names it (FrameManager::RetireAfterFrames: any thread, locked).
+            RetireRenderCache( text.RuntimeMesh );
             TextComponent laidOut = text;
             laidOut.Text          = drawn;
-            text.RuntimeMesh      = BuildTextMesh( laidOut, baked );
+            text.RuntimeMesh      = BuildTextMesh( laidOut, font.Baked );
             text.BuiltText        = drawn;
             text.BuiltFont        = fontPath;
             text.BuiltSize        = text.Size;
+            text.BuiltFontRevision = font.Revision;
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -95,7 +104,7 @@ namespace Desert::ECS
                          return;
                      const std::string fontPath = fontSvc->PathForHandle( fontHandle );
 
-                     RebuildGlyphMeshIfStale( text, drawn, fontPath, font->Baked );
+                     RebuildGlyphMeshIfStale( text, drawn, fontPath, *font );
                      if ( !text.RuntimeMesh )
                          return;
 
@@ -237,9 +246,10 @@ namespace Desert::ECS
                                            static_cast<uint32_t>( inds.size() ) * 3, glm::mat4( 1.0f ),
                                            aabb } };
 
-            auto mesh = std::make_shared<DynamicMesh>( verts, inds, subs, /*generateLODs*/ false );
-            mesh->Invalidate();
-            return mesh;
+            // No upload here: this runs in the tick, which may overlap the previous update's views, and the pool
+            // upload belongs to the fence. The constructor raised the mesh's pending flag; the draw's Prepare
+            // (SceneRenderer::PrepareMesh, Scene::OnUpdate's intake) uploads it before any view replays it.
+            return std::make_shared<DynamicMesh>( verts, inds, subs, /*generateLODs*/ false );
         }
     };
 } // namespace Desert::ECS

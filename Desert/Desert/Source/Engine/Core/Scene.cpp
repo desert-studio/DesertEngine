@@ -15,6 +15,7 @@
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -684,9 +685,10 @@ namespace Desert::Core
     {
         // THE TICK RUNS PAST THIS WORLD'S VIEWS OF THE PREVIOUS FRAME (UE: the game thread ticks N+1 while the
         // rendering thread draws N). Every job this update enqueues carries this world as its owner; another
-        // world's views still recording are joined here, this world's are joined before the surface cache below.
-        // What the tick writes and a view job reads is guarded at its writer (Scene.hpp m_SystemCommandArenas:
-        // the other arena; the deformation log and the rest: by value at BeginScene).
+        // world's views still recording are joined here, this world's by the first view's bracket below
+        // (SceneRenderer::BeginScene; the surface cache, retire queues and captures are handed over,
+        // CPU-ONE-SYNC). What the tick writes and a view job reads is guarded at its writer (Scene.hpp
+        // m_SystemCommandArenas: the other arena; the deformation log and the rest: by value at BeginScene).
         const ::Desert::Engine::RenderTask::ScopedOwner owner( this );
         ::Desert::Engine::RenderTask::Get().JoinUnlessOwnedBy( this );
 
@@ -954,57 +956,107 @@ namespace Desert::Core
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
         const SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
-        // THE FENCE OF THIS WORLD'S PREVIOUS VIEWS: the surface cache, the retire queues and the reflection
-        // captures below are what those views read; from here to the end the update writes the renderer's state.
-        ::Desert::Engine::RenderTask::Get().Join();
-        // THE MATERIAL HAND-OFF (MaterialInstance, THE RENDER COPY): the parameters this tick wrote while those
-        // views recorded reach the render copies here, before any view of this update reads them.
-        ::Desert::Graphic::MaterialInstance::PublishPending();
+        // NO FENCE HERE (CPU-ONE-SYNC; UE: the game thread never joins the rendering thread per frame, it enqueues
+        // render commands). This world's views of the previous frame may still be recording, and the surface
+        // cache, the retire queues and the reflection captures below are what they read, so nothing here writes
+        // them: the surface cache's frame is a render command behind those views, the retire queues and the
+        // captures are deferred to the fence the first view's bracket takes (SceneRenderer::BeginScene joins and
+        // runs the deferred commands, RenderTask::AfterJoin), and each writer names a write under a recording
+        // view (RenderTask::CheckRenderStateWrite). THE MATERIAL HAND-OFF (MaterialInstance, THE RENDER COPY) is
+        // BeginScene's too, after that fence, before any view of this update reads a parameter.
+        const auto&    frames         = Engine::FrameManager::GetInstance();
+        const uint64_t absoluteFrame  = frames.GetAbsoluteFrameCount();
+        const uint32_t framesInFlight = frames.GetMaxFramesInFlight();
+        // THE INTAKE OF THIS UPDATE'S RECORDING (CPU-ONE-SYNC step 4, REVIEW-FPS14 BUG 1; UE: a proxy's resources
+        // are initialised before the rendering thread draws it). The replays - the capture faces at the fence and
+        // every view on the render task - only read (RenderCommand::Execute); what they need from a mesh the
+        // commands point at (its device buffers, Mesh::EnsureGpuResources) is made HERE, on the game thread, at
+        // the fence: the previous frame's views that read those buffers are done, it runs before the captures
+        // below (deferred commands run in order) and before this update's first view is enqueued (that view's
+        // BeginScene joins first). Serial, or nothing in flight: it runs now.
+        {
+            const SystemCommandArena* const prepared = &arena;
+            ::Desert::Engine::RenderTask::Get().AfterJoin(
+                 [prepared]()
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Prepare recorded draws (fence)" );
+                     ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: Prepare recorded draws" );
+                     for ( const auto& buffer : *prepared )
+                         buffer->PrepareAll();
+                 } );
+        }
         {
             // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
             // and the scene's budget and card tracer are stated before the first view opens, so the one update the
             // first view to reach the cache runs captures the cards in front of every viewport, not its own.
             DESERT_PROFILE_SCOPE( "Scene: Surface cache + retire" );
-            const auto& frames = Engine::FrameManager::GetInstance();
-            m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
-            m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            // The parked caches and captures die at the fence, the same frame numbers as before (stamped here).
+            ::Desert::Engine::RenderTask::Get().AfterJoin(
+                 [this, absoluteFrame, framesInFlight]()
+                 {
+                     ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: retire queues (Collect)" );
+                     m_RetiringSurfaceCaches.Collect( absoluteFrame, framesInFlight );
+                     m_RetiringReflectionCaptures.Collect( absoluteFrame, framesInFlight );
+                 } );
             std::vector<glm::vec3> origins;
             for ( const auto& view : m_Views.All() )
                 if ( view.Camera )
                     origins.push_back( view.Camera->GetPosition() );
-            m_SurfaceCache->BeginFrame( frames.GetAbsoluteFrameCount(), std::move( origins ), m_Registry,
-                                        m_Settings.RenderingPath == RenderPath::Deferred );
+            // The registry is read HERE, on the game thread (the scene's unbound volumes); the command takes the
+            // values. The cache outlives the command: a Clear parks it (m_RetiringSurfaceCaches) for frames.
+            const Core::PostProcessSettings scenePost =
+                 Graphic::ResolveViewSettings( m_Registry, std::nullopt ).Post;
+            const bool deferred = m_Settings.RenderingPath == RenderPath::Deferred;
+            Graphic::SurfaceCache::SurfaceCacheRenderer* const cache = m_SurfaceCache.get();
+            ::Desert::Engine::RenderTask::Get().Enqueue(
+                 "Scene: Surface cache frame",
+                 [cache, absoluteFrame, origins, scenePost, deferred]() -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Surface cache frame" );
+                     cache->BeginFrame( absoluteFrame, origins, scenePost, deferred );
+                     return BOOLSUCCESS;
+                 } );
         }
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
             // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
             // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
-            // scene; a face bakes none). A scope of
-            // their own, so "Scene: Views" stays the cost of the views alone.
+            // scene; a face bakes none). A scope of their own, so "Scene: Views" stays the cost of the views
+            // alone. AT THE FENCE (RenderTask::AfterJoin): the driver reads the world and writes what the views in
+            // flight read (the cubes, the round's state). It runs before the first view of this update opens -
+            // that view's BeginScene joins first - and the recorded arena is cleared only behind this update's
+            // views.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
-            for ( auto& view : m_Views.All() )
-            {
-                if ( !view.Renderer->ReadsReflectionCaptures() )
-                    continue;
-                // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured again for
-                // is rendered into the captures with that sky, not under the old one. Index 0 is the atmosphere
-                // sun (ECS::Rules::AtmosphereSunDirection, the one negation).
-                const auto& suns = sceneRendererInfo.DirLights.DirectionLights;
-                const bool  skyFollows =
-                     !suns.empty() && view.Renderer->SkyLightRecapturesFor( ECS::Rules::AtmosphereSunDirection(
-                                           glm::vec3( suns.front().Direction ) ) );
-                m_ReflectionCaptures->RenderCaptureViews(
-                     *this,
-                     [&arena]( Graphic::SceneRenderer& face )
+            const SystemCommandArena* const recorded = &arena;
+            ::Desert::Engine::RenderTask::Get().AfterJoin(
+                 [this, recorded, info = sceneRendererInfo]()
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Reflection Captures (fence)" );
+                     for ( auto& view : m_Views.All() )
                      {
-                         for ( const auto& buffer : arena )
-                             buffer->ExecuteAll( face );
-                     },
-                     sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
-                     view.Renderer->GetEnvironment(), skyFollows );
-                break;
-            }
+                         if ( !view.Renderer->ReadsReflectionCaptures() )
+                             continue;
+                         // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured
+                         // again for is rendered into the captures with that sky, not under the old one. Index 0
+                         // is the atmosphere sun (ECS::Rules::AtmosphereSunDirection, the one negation).
+                         const auto& suns = info.DirLights.DirectionLights;
+                         const bool  skyFollows =
+                              !suns.empty() &&
+                              view.Renderer->SkyLightRecapturesFor(
+                                   ECS::Rules::AtmosphereSunDirection( glm::vec3( suns.front().Direction ) ) );
+                         const std::optional<Graphic::Environment> environment = view.Renderer->GetEnvironment();
+                         m_ReflectionCaptures->RenderCaptureViews(
+                              *this,
+                              [recorded]( Graphic::SceneRenderer& face )
+                              {
+                                  for ( const auto& buffer : *recorded )
+                                      buffer->ExecuteAll( face );
+                              },
+                              info.Timestep, info.RealTimestep, info.DirLights, environment, skyFollows );
+                         break;
+                     }
+                 } );
         }
         {
             DESERT_PROFILE_SCOPE( "Scene: Views" );
@@ -1036,24 +1088,38 @@ namespace Desert::Core
                     continue; // do NOT record into a renderer that refused to open
                 }
 
-                // Registration order — NOT completion order — so the frame's submission order is
-                // identical to the old single-buffer sequential path.
-                {
-                    DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
-                    for ( const auto& buffer : arena )
-                        buffer->ExecuteAll( *view.Renderer );
-                }
-
                 // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game
-                // thread enqueues the view family and goes on to the interface). BeginScene and the replay above
-                // read the registry and the live camera; from here the renderer works from its own copies (the
-                // frozen camera, the replayed draws, `info` copied by value). The next view's BeginScene joins
-                // this job first, so two brackets are never open at once. Its failure is reported by the render
-                // task.
-                auto* const renderer = &*view.Renderer;
+                // thread enqueues the view family and goes on to the interface). BeginScene reads the registry
+                // and the live camera; from here the renderer works from its own copies (the frozen camera, the
+                // recorded draws, `info` copied by value). The next view's BeginScene joins this job first, so
+                // two brackets are never open at once. Its failure is reported by the render task.
+                //
+                // THE REPLAY IS THE JOB'S (CPU-ONE-SYNC step 3; UE: the mesh draw commands are built on the
+                // rendering thread from the proxies the game thread handed over). The recorded commands hold
+                // values AND raw pointers to meshes and materials; the replay only READS them (RenderCommand::
+                // Execute): the one write it used to make - a stale mesh's upload - is the intake's, done at the
+                // fence above (RenderCommand::Prepare). The arena is this update's one: the next update records
+                // into the other arena, and this one is cleared only behind this update's views ("Scene: CmdBuffer
+                // Clear"). What the replay writes - the renderer's per-frame draw lists - is render-owned, so it
+                // is written on the render task, after BeginScene's state and before OnUpdate reads it. A
+                // game-thread edit of a drawn mesh while the job runs (DynamicMesh::Update from an editor tool,
+                // a system ticking past the previous frame's views) writes only what no replay reads: its CPU
+                // arrays and a pending flag (Mesh::MarkGpuStale). The revision, the BLAS and the device
+                // buffers change at the next fence (SceneRenderer::PrepareMesh, CPU-ONE-SYNC step 5).
+                // ECS::SetEditableMesh builds a new mesh and retires the old one behind the views
+                // (SetStaticMesh, RetireRenderCache). Registration order - NOT
+                // completion order - so the frame's submission order is the old sequential path's.
+                auto* const                     renderer = &*view.Renderer;
+                const SystemCommandArena* const replayed = &arena;
                 ::Desert::Engine::RenderTask::Get().Enqueue(
-                     "Scene view", [renderer, info = sceneRendererInfo]() -> Common::BoolResultStr
+                     "Scene view",
+                     [renderer, replayed, info = sceneRendererInfo]() -> Common::BoolResultStr
                      {
+                         {
+                             DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
+                             for ( const auto& buffer : *replayed )
+                                 buffer->ExecuteAll( *renderer );
+                         }
                          renderer->OnUpdate( info );
                          DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
                          return renderer->EndScene();
@@ -1430,12 +1496,14 @@ namespace Desert::Core
 
     void Scene::ReleaseParkedRenderers()
     {
+        // The render task is joined FIRST (a view of another world may be recording the draws that name its own,
+        // and the parked objects' destructors free into the allocators that view records with); the device is
+        // idle. Then the parked caches and captures die, and the render caches this world's Clear parked as its
+        // components died (ECS::RetireRenderCachesOf) go too, with any other world's.
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+        ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene::ReleaseParkedRenderers" );
         m_RetiringSurfaceCaches.Clear();
         m_RetiringReflectionCaptures.Clear();
-        // The render caches this world's Clear parked as its components died (ECS::RetireRenderCachesOf) go too,
-        // with any other world's: the device is idle, and the render task is joined first (a view of another
-        // world may be recording the draws that name its own).
-        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         ::Desert::Engine::FrameManager::GetInstance().ReleaseRetiredNow();
     }
 

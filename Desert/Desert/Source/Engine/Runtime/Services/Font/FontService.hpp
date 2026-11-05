@@ -6,6 +6,7 @@
 #include <Common/Core/AssetHandle.hpp>
 
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -17,12 +18,20 @@ namespace Desert::Runtime
     {
         std::shared_ptr<Graphic::Image2D> Atlas; // RGBA8; RGB is the multi-channel distance field, A = 255
         Text::BakedFont                   Baked; // metrics: glyph UVs/advances + vertical metrics
+        // Unique per bake for the service's lifetime (never reused, not reset by Clear): a glyph request re-bakes
+        // the atlas with new UVs, so a text laid out on an older revision is rebuilt (TextECSSystem).
+        uint64_t Revision = 0;
     };
 
     // Owns baked fonts keyed by (ttf path + bake pixel height). First request for a key reads the TTF
     // (VFS-aware), bakes the SDF atlas on the calling thread and uploads it once; later requests hit the
-    // cache. The atlas Image2D stays alive for the service's lifetime, so render systems can hold a raw
-    // pointer for the frame. Text is niche vs meshes/materials, so no lazy/eviction machinery yet.
+    // cache. Text is niche vs meshes/materials, so no lazy/eviction machinery yet.
+    //
+    // ANY THREAD (UE: a cache parallel tasks share is guarded by an FRWLock). TextECSSystem lays text out on a
+    // worker (CanRunParallel) while the UI canvas and the debug strings resolve the same fonts on their threads.
+    // A hit is a shared lock; a bake, a glyph request that re-bakes and a registration take the exclusive one.
+    // A Font a re-bake replaces is RETIRED, never freed here (FrameManager::RetireAfterFrames): a raw Font* or
+    // atlas pointer stays valid for the frame that resolved it and the frames in flight behind it, never longer.
     class FontService
     {
     public:
@@ -56,19 +65,21 @@ namespace Desert::Runtime
         bool RequestGlyphs( uint64_t handle, const std::vector<uint32_t>& codepoints );
 
         // Every registered .ttf path (scans the project + engine font roots once). Drives the picker dropdown.
-        const std::vector<std::string>& AvailableFonts();
+        // A copy taken under the lock: a worker may register a font while the editor walks the list.
+        std::vector<std::string> AvailableFonts();
 
     private:
         // Scan ASSETS_PATH + FONTS_PATH for .ttf once, registering each — the "preloaded at startup" set.
         void EnsurePreloaded();
+        // RegisterFont with m_Mutex held exclusively.
+        uint64_t RegisterFontLocked( const std::string& ttfPath );
 
-        std::unordered_map<std::string, std::unique_ptr<Font>> m_Fonts;        // key = path + '|' + size
-        std::unordered_map<std::string, std::vector<uint32_t>> m_ExtraGlyphs;  // ttf path -> extra codepoints
-        // A re-bake replaces the atlas while the frame that asked for it may already have recorded draws
-        // against the old one (and ImGui caches descriptors by image view). Retired atlases are therefore
-        // held until Clear(), never freed mid-frame — the set settles after the first frames of a scene.
-        std::vector<std::shared_ptr<Graphic::Image2D>>         m_Retired;
-        std::vector<std::string>                               m_Available;    // registered paths (for the picker)
+        // Guards every member below. Never held across a call into another FontService entry point.
+        mutable std::shared_mutex                              m_Mutex;
+        std::unordered_map<std::string, std::shared_ptr<Font>> m_Fonts;       // key = path + '|' + size
+        std::unordered_map<std::string, std::vector<uint32_t>> m_ExtraGlyphs; // ttf path -> extra codepoints
+        std::vector<std::string>                               m_Available;   // registered paths (for the picker)
         bool                                                   m_Scanned = false;
+        uint64_t m_NextRevision                                          = 0; // Font::Revision of the last bake
     };
 } // namespace Desert::Runtime

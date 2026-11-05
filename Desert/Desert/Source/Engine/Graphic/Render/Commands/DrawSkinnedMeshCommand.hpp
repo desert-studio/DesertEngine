@@ -38,6 +38,12 @@ namespace Desert::Graphic::Render
         {
         }
 
+        void Prepare() override
+        {
+            if ( Mesh != nullptr )
+                SceneRenderer::PrepareMesh( *Mesh );
+        }
+
         void Execute( SceneRenderer& renderer ) override
         {
             // CastShadows must survive this hop: the flag is consumed three links away (the cascade pass

@@ -387,6 +387,11 @@ namespace Desert::Graphic
             return m_ViewExtent;
         }
 
+        // GAME THREAD, at the update's fence (RenderCommand::Prepare): applies @p mesh's pending edit - the render
+        // revision, the BLAS release, the device buffers made from its CPU geometry (Mesh::EnsureGpuResources) -
+        // with no view job in flight. The submits below only read the result (they may run on the render task).
+        static void PrepareMesh( Mesh& mesh );
+
         // WHETHER A MESH IS WITHIN ITS MAX DRAW DISTANCE FROM THIS VIEW (UE's LDMaxDrawDistance): asked by the
         // mesh draw commands before they submit, so a mesh beyond it enters no queue and no pass — lit, shadow,
         // velocity or debug — of this view. Measured from the view's main camera and stretched by its lens
@@ -415,12 +420,19 @@ namespace Desert::Graphic
                                   const System::LandscapeWeightDraw&               weights );
 
         // Submit one landscape root's grass for this frame (from LandscapeECSSystem via
-        // DrawLandscapeGrassCommand).
-        void SubmitLandscapeGrass( System::GrassFieldDraw draw );
+        // DrawLandscapeGrassCommand). BY REFERENCE, NOT COPIED (REVIEW-FIX R6; UE: a mesh draw command reads its
+        // proxy's data in place): @p draw is the recorded command's, which outlives this bracket - the arena is
+        // cleared only behind every view and capture face that replayed it (Scene::OnUpdate, "Scene: CmdBuffer
+        // Clear") - and the grass renderer keeps the reference only until EndScene clears its queue.
+        void SubmitLandscapeGrass( const System::GrassFieldDraw& draw );
+        // A temporary would dangle in the queue (the renderer keeps a reference until EndScene).
+        void SubmitLandscapeGrass( System::GrassFieldDraw&& ) = delete;
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
-        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
-        void SubmitWaterZone( System::WaterZoneDraw zone );
+        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6). By reference, as
+        // SubmitLandscapeGrass: @p zone is the recorded command's, kept until EndScene.
+        void SubmitWaterZone( const System::WaterZoneDraw& zone );
+        void SubmitWaterZone( System::WaterZoneDraw&& ) = delete; // a reference to a temporary would dangle
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
@@ -1031,7 +1043,9 @@ namespace Desert::Graphic
         // added, removed, re-meshed, moved, its instances or its sections changed, a discarded frame), a mesh's
         // field landing (MeshDistanceFieldSlot::PublishGeneration), the surface cache's placements (its rows,
         // SurfaceCacheScene::GetPlacementRevision), or the frame after a move (GpuScene::BeginFrame settles
-        // PrevLocalToWorld := LocalToWorld without a stream entry). Otherwise the frame reuses the sealed set.
+        // PrevLocalToWorld := LocalToWorld without a stream entry), or the landscape's tiles (Landscape: their
+        // heightmaps, height revisions and frames - a tile streamed in or out, a sculpt). Otherwise the frame
+        // reuses the sealed set.
         struct KeptGdfObjects
         {
             DistanceField::GlobalDistanceFieldObjectSet Set;
@@ -1039,6 +1053,7 @@ namespace Desert::Graphic
             uint64_t                                    Cursor            = 0;
             uint64_t                                    FieldsPublished   = 0;
             uint64_t                                    SurfacePlacements = 0;
+            uint64_t                                    Landscape         = 0;
             const void*                                 SurfaceCache      = nullptr;
             bool                                        SettleAfterMove   = false;
         };

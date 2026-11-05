@@ -454,10 +454,11 @@ namespace Desert::Assets
             return *s_Queue;
         }
 
+        // The pool's Background cap (JobSystem::BackgroundWorkerCap: one worker fewer than the pool), the one
+        // number that keeps a build burst off the worker the frame's High jobs need.
         size_t DfConcurrency()
         {
-            const size_t workers = Common::JobSystem::Get().WorkerCount();
-            return workers > 1 ? workers - 1 : 1;
+            return Common::JobSystem::Get().BackgroundWorkerCap();
         }
 
         void DfRun( DfQueuedWork item );
@@ -492,7 +493,8 @@ namespace Desert::Assets
                     ++q.Running;
                 }
                 auto shared = std::make_shared<DfQueuedWork>( std::move( next ) );
-                if ( Common::JobSystem::Get().Submit( [shared]() noexcept { DfRun( std::move( *shared ) ); } ) )
+                if ( Common::JobSystem::Get().Submit( [shared]() noexcept { DfRun( std::move( *shared ) ); },
+                                                      Common::JobPriority::Background ) )
                     continue;
                 // The pool was shut down ahead of this queue's exit hook (it drains what it holds, then refuses
                 // more): the work never runs, so it is not running - otherwise DfQuiesce waits for it forever

@@ -39,6 +39,9 @@ bool GIMeshObjectList( vec3 position, out uvec2 list )
 // near-field surface.
 float GIMeshObjectVoxel( uint objectIndex )
 {
+    // A landscape tile is analytic: no voxel coarsens its surface.
+    if ( DFObjectIsHeightfield( objectIndex ) )
+        return 0.0;
     const uint base       = objectIndex * uint( DF_OBJECT_STRIDE );
     const uint assetIndex = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
     const uint numMips    = DFAssetNumMips( assetIndex );
@@ -66,6 +69,10 @@ float GIMeshObjectVoxel( uint objectIndex )
 bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
                         bool ditheredTransparency, float tanConeAngle, uint seed, inout vec3 normal )
 {
+    // A landscape tile of the near field (DF_OBJECT_FLAG_HEIGHTFIELD): its walk over the heights (UE
+    // RayTraceHeightfield in the mesh SDF trace), solid - no dither.
+    if ( DFObjectIsHeightfield( objectIndex ) )
+        return HeightfieldObjectTrace( objectIndex, origin, direction, tStart, tEnd, normal );
     const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
     const vec4 r0          = DistanceFieldObjects[base + 0u];
     const vec4 r1          = DistanceFieldObjects[base + 1u];

@@ -437,13 +437,14 @@ namespace Desert::ECS
                               { return CustomSlotMaterial( ism.RuntimeMaterialInstances()[slot].get() ); } );
                          if ( !ismSplit.SlotDraws.empty() )
                          {
-                             static bool s_WarnedCustomISM = false;
-                             if ( !s_WarnedCustomISM )
+                             // An atomic: this tick runs on a worker (CanRunParallel), and every scene's
+                             // MeshECSSystem shares the function's static.
+                             static std::atomic<bool> s_WarnedCustomISM{ false };
+                             if ( !s_WarnedCustomISM.exchange( true ) )
                              {
                                  LOG_WARN( "Instanced Static Mesh doesn't support custom-shader materials "
                                            "(instancing is a lit-path optimization) — the sections using one "
                                            "are not drawn. Assign a lit material." );
-                                 s_WarnedCustomISM = true;
                              }
                          }
                          if ( ismSplit.SectionDraws.empty() )

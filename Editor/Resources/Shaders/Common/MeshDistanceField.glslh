@@ -14,6 +14,8 @@
 #define MESH_DISTANCE_FIELD_GLSLH
 
 #include <Common/DistanceFieldShared.glslh>
+// A landscape tile is an object of the same buffer (DF_OBJECT_FLAG_HEIGHTFIELD): its distance is analytic.
+#include <Common/HeightfieldDistanceField.glslh>
 
 const uint DF_INVALID_BRICK = 0xFFFFFFFFu;
 
@@ -90,6 +92,8 @@ float DistanceToMeshSurfaceStandalone(vec3 volumePosition, uint assetIndex)
 // object's box is at least that far (UE DistanceToNearestSurfaceForObject).
 float DistanceToNearestSurfaceForObject(uint objectIndex, vec3 worldPosition, float maxDistance)
 {
+    if (DFObjectIsHeightfield(objectIndex))
+        return HeightfieldObjectDistance(objectIndex, worldPosition, maxDistance);
     const uint base = objectIndex * uint(DF_OBJECT_STRIDE);
     const vec4 r0 = DistanceFieldObjects[base + 0u];
     const vec4 r1 = DistanceFieldObjects[base + 1u];

@@ -32,6 +32,11 @@ const int DF_OBJECT_ROW_FLAGS = 7;
 const int DF_OBJECT_ROW_TO_PREVIOUS_WORLD = 8;
 // Flag bits of DF_OBJECT_ROW_FLAGS' .x: the mesh is mostly two-sided (foliage, UE bMostlyTwoSided).
 const int DF_OBJECT_FLAG_MOSTLY_TWO_SIDED = 1;
+// The object is a LANDSCAPE TILE, not a mesh field (UE: a landscape component's heightfield object in the global
+// distance field and the mesh SDF trace, GlobalDistanceFieldHeightfields.usf / LumenHeightfields): rows 0..4 are
+// Common/HeightfieldDistanceField.glslh's (the tile's sample frame and the bindless slot of its R16 heights), the
+// box, the flags and the motion rows are every object's.
+const int DF_OBJECT_FLAG_HEIGHTFIELD = 2;
 
 // The near field a GI ray traces through the mesh distance fields before the global one (UE
 // r.Lumen.TraceMeshSDFs.TraceDistance 180 cm), and the view's froxel grid of object lists a ray looks its objects up

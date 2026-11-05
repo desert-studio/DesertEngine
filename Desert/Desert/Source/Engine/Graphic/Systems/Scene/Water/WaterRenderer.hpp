@@ -17,6 +17,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -89,9 +90,11 @@ namespace Desert::Graphic::System
                            const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
-        void Submit( WaterZoneDraw zone )
+        // By reference, as GrassRenderer::Submit: @p zone is the recorded command's, held until ClearQueue.
+        void Submit( WaterZoneDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
+        void Submit( const WaterZoneDraw& zone )
         {
-            m_Queue.push_back( std::move( zone ) );
+            m_Queue.emplace_back( zone );
         }
 
         void ClearQueue()
@@ -145,7 +148,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
         std::shared_ptr<Image2D>                      m_WaterInfo;
 
-        std::vector<WaterZoneDraw> m_Queue;
-        std::vector<FrameDraw>     m_FrameDraws;
+        std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
+        std::vector<FrameDraw>                                   m_FrameDraws;
     };
 } // namespace Desert::Graphic::System
