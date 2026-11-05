@@ -1,5 +1,6 @@
 # PATTERN-SESSION: Pattern is a tool session as UE UPatternTool - copies of the selected Box preview on it, a change of shape / count recomputes them, Cancel creates nothing, Accept writes them (here as separate entities) as one undo step
-# 100 cm Box at the origin, Spacing 150 cm: Grid 3 x 3 over X and Z, Line along X.
+# 100 cm Box at the origin, Spacing 150 cm: Grid 3 x 3 over local X and Y (the placed Box is turned 90 deg about X, so its local Y is world Z: the floor plane), Line along X.
+# The Modeling tab covers the Outliner: entities are counted by the status bar (the Sandbox scene has 28 with the Box).
 Дано run Panel "Open Modeling"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 300,650,1050
@@ -15,23 +16,23 @@
 Дано --subject modeling set Pattern.Spacing 150
 Дано --subject modeling set Pattern.SpacingB 150
 Дано run Modeling "Pattern axis: X"
-Дано run Modeling "Pattern axis B: Z"
+Дано run Modeling "Pattern axis B: Y"
 Дано run Modeling "Pattern: Separate entities: on"
 Тогда-вид 0_box one 100 cm Box at the origin
 Когда run Modeling "Pattern shape: Grid"
 Когда --subject modeling set Pattern.Count 3
 Когда --subject modeling set Pattern.CountB 3
 Когда run Modeling "XForm: Pattern"
-Тогда 1_preview_grid a 3 x 3 grid of Box copies on the floor plane; the tool bar at the viewport bottom reads Pattern with Accept and Cancel; Outliner still lists one Box
+Тогда 1_preview_grid a 3 x 3 grid of Box copies on the floor plane; the tool bar at the viewport bottom reads Pattern with Accept and Cancel; status bar 28 entities (no new ones)
 Когда run Modeling "Pattern shape: Line"
 Когда --subject modeling set Pattern.Count 5
-Тогда 2_preview_line five Box copies in one line along X; tool bar still reads Pattern; Outliner one Box
+Тогда 2_preview_line five Box copies in one line along X; tool bar still reads Pattern; status bar 28 entities
 Когда run Modeling "Active tool: Cancel"
-Тогда 3_cancel one Box only, no copies; no tool bar; Outliner lists one Box, no new entities
+Тогда 3_cancel one Box only, no copies; no tool bar; status bar 28 entities
 Когда run Entity Box
 Когда --subject modeling set Pattern.Count 4
 Когда run Modeling "XForm: Pattern"
 Когда run Modeling "Active tool: Accept"
-Тогда 4_accept four Boxes in a line along X; Outliner lists Box, Box Pattern 1, Box Pattern 2, Box Pattern 3; no tool bar
+Тогда 4_accept four Boxes in a line along X; Details shows Box Pattern 3, status bar 31 entities and 4 selected; no tool bar
 Когда run Action Undo
-Тогда 5_undo one Box again; Outliner lists one Box
+Тогда 5_undo one Box again; status bar 28 entities
