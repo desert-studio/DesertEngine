@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 71,
+            "SCNE": 73,
             "UNIT": 1,
             "WPAR": 1
         },
@@ -136,6 +136,7 @@
                 "PerSampleAtmosphereTransmittance": false,
                 "LightMarchDistance": 1500000.0,
                 "LightMarchSamples": 32,
+                "LightMarchLocalSamples": 8,
                 "AerialPerspectiveStartDistance": 0.0,
                 "AerialPerspectiveFadeDistance": 0.0,
                 "CastShadows": true,
@@ -215,8 +216,8 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GlobalIlluminationMethod": 2,
-                    "GIIntensity": 2.0,
+                    "GrassVisibilityBuffer": false,
+                    "GlobalIlluminationMethod": 0,
                     "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,

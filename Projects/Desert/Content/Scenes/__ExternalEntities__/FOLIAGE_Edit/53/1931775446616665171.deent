@@ -14,8 +14,7 @@
         "Settings": {
             "EnableSSAO": true,
             "GrassVisibilityBuffer": false,
-            "GlobalIlluminationMethod": 2,
-            "GIIntensity": 2.0,
+            "GlobalIlluminationMethod": 0,
             "ReflectionsMethod": 2,
             "SSRIntensity": 1.0,
             "SSRMaxDistance": 4000.0,
