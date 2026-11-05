@@ -1623,7 +1623,6 @@ namespace Desert::Graphic::System
             scratch.InstSetCount = 0;
             scratch.Groups.clear();
             scratch.Walked.clear();
-            scratch.GroupPlans.clear();
             if ( mode.Walk == nullptr )
                 scratch.WalkGroups.clear();
         }
@@ -2035,9 +2034,9 @@ namespace Desert::Graphic::System
 
         // WHICH MATERIAL RECORDS A GROUP's SINGLES (the comment where the singles take it), each refusal said once
         // per material. A Record call takes its Resolve call's answer (StaticGroupPlan::DrawMat). Asked only of a
-        // group the bucketing leaves a single draw (R5), and @p singleCount() counts those singles for the refusal
-        // alone: a Resolve call's bucketing stops at the first one. The once-sets are the function's, not the
-        // lambda's, because a generic lambda's statics are one per instantiation.
+        // group whose plan keeps a single draw (R5), and @p singleCount() counts those singles for the refusal.
+        // The once-sets are the function's, not the lambda's, because a generic lambda's statics are one per
+        // instantiation.
         static bool                                          s_WarnedSecondUnowned = false;
         static std::unordered_set<const DataDrivenMaterial*> s_WarnedNoGBufferVariant;
         const auto drawMatOf = [&]( DataDrivenMaterial* mat, const auto& singleCount ) -> DataDrivenMaterial*
@@ -2093,50 +2092,37 @@ namespace Desert::Graphic::System
             return drawMat;
         };
 
-        // WHAT A GROUP RECORDS, one bucketing for both calls (R5). Its objects by (mesh, hidden mask): a mesh's
-        // batchable ones go per LOD level into one instanced draw of @p groupSet when the level holds two, and
-        // everything else is a single draw (scratch.Singles). Only a call that records packs the batches. A
-        // Resolve call asks it what its Record call will find - whether the group keeps a single draw (only then
-        // is a material resolved, lent and given the scene state for it) and whether it batches into its set - and
-        // @p stopEarly ends it once both are known; the Record call repeats it whole on the same objects, so the
-        // two answers are one answer by construction.
-        struct GroupFate
+        // WHAT A GROUP RECORDS (R5; GAP 1, UE FParallelMeshDrawCommandPass: the setup decides once, the record
+        // replays). Its objects by (mesh, hidden mask): a mesh's batchable ones go per LOD level into one
+        // instanced draw of the group's set when the level holds two, and everything else is a single draw - into
+        // the group's plan @p plan (DrawBuildScratch::StaticGroupPlan), with @p slice's buckets. Made ONCE, by the
+        // call that plans (Full or Resolve), from one read of each object's instance; a Record call packs and
+        // records the plan and buckets nothing, so what its Resolve call lent, applied and marked Drawn is what it
+        // records. A setup task runs it, one slice of groups each: it reads the group, the walk's masks and the
+        // objects' instances, and writes @p plan and @p slice alone.
+        const auto planGroup = [&]( const std::vector<const StaticMeshRenderData*>& objects, const bool standsIn,
+                                    DrawBuildScratch::StaticGroupPlan& plan,
+                                    DrawBuildScratch::BucketScratch&   slice )
         {
-            bool Single = false; // scratch.Singles is not empty
-            bool Batch  = false; // an instanced draw into the group's set
-        };
-        const auto bucketGroup = [&]( DataDrivenMaterial*                             mat,
-                                      const std::vector<const StaticMeshRenderData*>& objects,
-                                      InstancedBatchSet* const groupSet, const bool stopEarly ) -> GroupFate
-        {
-            GroupFate fate;
-            auto&     singles = scratch.Singles;
-            singles.clear();
-            if ( stopEarly && groupSet == nullptr )
-            {
-                fate.Single = !objects.empty(); // no set: every object is a single draw
-                return fate;
-            }
-            // Known: a single draw, and the set needs no answer (none, or another group already batches into it).
-            const auto known = [&]
-            { return fate.Single && ( groupSet == nullptr || fate.Batch || groupSet->Drawn ); };
-
+            plan.Batches.clear();
+            plan.Instances.clear();
+            plan.Singles.clear();
             // Sub-group this material's objects by Mesh*; a sub-group of >= 2 identical meshes collapses into
             // one instanced draw. Singletons (and everything when instancing is off / wireframe) take the
             // classic per-object path below — which also preserves their individual material overrides.
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
-            // section of its twins, one mask for the whole instanced draw. The buckets are the scratch's, reused
-            // by index (DrawBuildScratch::Buckets): both calls bucket a group, and neither allocates per group.
-            auto& buckets        = scratch.Buckets;
-            scratch.BucketCount  = 0;
+            // section of its twins, one mask for the whole instanced draw. The buckets are the slice's, reused
+            // by index: no allocation per group in the steady state.
+            auto& buckets        = slice.Buckets;
+            slice.BucketCount    = 0;
             const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
             {
-                for ( std::size_t bi = 0; bi < scratch.BucketCount; ++bi )
+                for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
                     if ( buckets[bi].first.first == mesh && buckets[bi].first.second == hidden )
                         return buckets[bi].second;
-                if ( scratch.BucketCount == buckets.size() )
+                if ( slice.BucketCount == buckets.size() )
                     buckets.emplace_back();
-                DrawBuildScratch::MeshBucket& made = buckets[scratch.BucketCount++];
+                DrawBuildScratch::MeshBucket& made = buckets[slice.BucketCount++];
                 made.first                         = std::make_pair( mesh, hidden );
                 made.second.clear();
                 return made.second;
@@ -2144,18 +2130,14 @@ namespace Desert::Graphic::System
 
             // Each object's row is the scene material table's (SyncGpuScene); here only its instance and whether
             // it overrides anything (an overriding object leaves the batch).
-            // Translucency split: a material whose template is BlendMode Translucent is skipped by every
-            // opaque pass (forward + deferred G-buffer) and drawn ONLY by RenderGlassManual (a dedicated material
-            // per translucent cell), which composites forward over the scene with blending.
             for ( const auto* obj : objects )
             {
                 ObjDraw od;
-                od.Obj  = obj;
+                od.Obj = obj;
                 // A stand-in object is the default surface, not the material it waits for: its own instance, its
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
-                od.Inst = mat == standInKey
-                               ? standIn->Instance.get()
-                               : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
+                od.Inst = standsIn ? standIn->Instance.get()
+                                   : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
                 if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
                         if ( prop.bIsOverridden )
@@ -2166,7 +2148,7 @@ namespace Desert::Graphic::System
                 bucketFor( obj->Mesh, hiddenOf( obj ) ).push_back( od );
             }
 
-            for ( std::size_t bi = 0; bi < scratch.BucketCount; ++bi )
+            for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
             {
                 Desert::Mesh* const         mesh   = buckets[bi].first.first;
                 const SubmeshMask           hidden = buckets[bi].first.second;
@@ -2176,90 +2158,154 @@ namespace Desert::Graphic::System
                 // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
                 // entry, so an overridden instance in it would silently render with someone
                 // else's values. All of those take the per-object path.
-                auto& batchable = scratch.Batchable;
+                auto& batchable = slice.Batchable;
                 batchable.clear();
                 for ( const auto& od : bucket )
                 {
                     if ( !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow || od.HasOverrides )
-                        singles.push_back( od );
+                        plan.Singles.push_back( od );
                     else
                         batchable.push_back( od );
                 }
-
-                if ( groupSet != nullptr && batchable.size() >= 2 )
+                if ( plan.Set == nullptr || batchable.size() < 2 )
                 {
-                    // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
-                    // The per-object path below computes a LOD and passes it to the draw; this path
-                    // recorded its draw with the default, level 0. So the SAME object rendered at a
-                    // different detail depending on whether it happened to find a twin to batch with —
-                    // both ends of the chain (the policy and the draw) looked right and the link
-                    // between them silently lost a property.
-                    //
-                    // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
-                    // its batch stays one draw instead of splitting into four identical ones.
-                    const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
-                    auto&          levels   = scratch.LodLevels;
-                    levels.clear();
-                    levels.reserve( batchable.size() );
-                    for ( const auto& od : batchable )
-                        levels.push_back( std::min(
-                             ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
-                             maxLevel ) );
+                    plan.Singles.insert( plan.Singles.end(), batchable.begin(), batchable.end() );
+                    continue;
+                }
+                // PER-INSTANCE LOD, AND THE DEFECT IT CLOSES IS THAT BATCHING DROPPED THE LEVEL.
+                // The per-object path below computes a LOD and passes it to the draw; this path
+                // recorded its draw with the default, level 0. So the SAME object rendered at a
+                // different detail depending on whether it happened to find a twin to batch with —
+                // both ends of the chain (the policy and the draw) looked right and the link
+                // between them silently lost a property.
+                //
+                // Clamped to what the mesh HAS: a chain-less mesh answers 0 for every instance, so
+                // its batch stays one draw instead of splitting into four identical ones.
+                const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+                auto&          levels   = slice.LodLevels;
+                levels.clear();
+                levels.reserve( batchable.size() );
+                for ( const auto& od : batchable )
+                    levels.push_back( std::min(
+                         ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
+                         maxLevel ) );
 
-                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                {
+                    const auto count = static_cast<uint32_t>( std::count( levels.begin(), levels.end(), level ) );
+                    if ( count < 2 )
                     {
-                        const auto count =
-                             static_cast<uint32_t>( std::count( levels.begin(), levels.end(), level ) );
-                        if ( count < 2 )
-                        {
-                            // A level with a single member is cheaper as a per-object draw, and that is
-                            // the same threshold the batch itself is chosen by.
-                            for ( std::size_t i = 0; i < batchable.size(); ++i )
-                                if ( levels[i] == level )
-                                    singles.push_back( batchable[i] );
-                            continue;
-                        }
-                        fate.Batch = true;
-                        if ( resolveCall )
-                            continue; // a Resolve call packs nothing: its Record call does
-
-                        const auto firstInstance = static_cast<uint32_t>( groupSet->Transforms.size() );
+                        // A level with a single member is cheaper as a per-object draw, and that is
+                        // the same threshold the batch itself is chosen by.
                         for ( std::size_t i = 0; i < batchable.size(); ++i )
                             if ( levels[i] == level )
-                                groupSet->Transforms.push_back( batchable[i].Obj->Transform );
-
-                        InstancedDraw d;
-                        d.Mesh          = mesh;
-                        d.InstanceCount = count;
-                        d.FirstInstance = firstInstance;
-                        // No batchable object carries overrides (filtered above), so every instance of
-                        // the batch genuinely shares the parent material's effective values: the first one's
-                        // table row (a batch carries receivers only, so the row is the receiving one), or the
-                        // default surface's for a stand-in group.
-                        d.MaterialIndex =
-                             mat == standInKey ? m_StandInMaterialRows[0] : batchable[0].Obj->MaterialRow;
-                        d.HiddenSubmeshMask = hidden;
-                        d.LodLevel      = level;
-                        groupSet->Draws.push_back( d );
+                                plan.Singles.push_back( batchable[i] );
+                        continue;
                     }
+                    // No batchable object carries overrides (filtered above), so every instance of
+                    // the batch genuinely shares the parent material's effective values: the first one's
+                    // table row (a batch carries receivers only, so the row is the receiving one), or the
+                    // default surface's for a stand-in group.
+                    DrawBuildScratch::PlannedBatch batch;
+                    batch.Mesh          = mesh;
+                    batch.Hidden        = hidden;
+                    batch.Level         = level;
+                    batch.MaterialIndex = standsIn ? m_StandInMaterialRows[0] : batchable[0].Obj->MaterialRow;
+                    batch.First         = static_cast<uint32_t>( plan.Instances.size() );
+                    batch.Count         = count;
+                    for ( std::size_t i = 0; i < batchable.size(); ++i )
+                        if ( levels[i] == level )
+                            plan.Instances.push_back( batchable[i].Obj );
+                    plan.Batches.push_back( batch );
                 }
-                else
-                {
-                    for ( const auto& od : batchable )
-                        singles.push_back( od );
-                }
-                fate.Single = !singles.empty();
-                if ( stopEarly && known() )
-                    return fate;
             }
-            fate.Single = !singles.empty();
-            return fate;
+        };
+        // A plan's batches packed into its set (a Full or a Record call; a Resolve call packs nothing).
+        const auto packBatches = [&]( const DrawBuildScratch::StaticGroupPlan& plan )
+        {
+            for ( const DrawBuildScratch::PlannedBatch& batch : plan.Batches )
+            {
+                InstancedDraw d;
+                d.Mesh              = batch.Mesh;
+                d.InstanceCount     = batch.Count;
+                d.FirstInstance     = static_cast<uint32_t>( plan.Set->Transforms.size() );
+                d.MaterialIndex     = batch.MaterialIndex;
+                d.HiddenSubmeshMask = batch.Hidden;
+                d.LodLevel          = batch.Level;
+                for ( uint32_t i = 0; i < batch.Count; ++i )
+                    plan.Set->Transforms.push_back( plan.Instances[batch.First + i]->Transform );
+                plan.Set->Draws.push_back( d );
+            }
         };
 
-        // A Record call's groups are its Resolve call's, one plan each.
+        // A Record call's groups are its Resolve call's, one plan each. A call that plans: serial, in group order,
+        // each group's set (setForGroup makes the sets in the order the one loop made them); then the bucketing
+        // on setup tasks, about WorkerCount() + 1 contiguous slices of about equal object counts (the joining
+        // thread buckets one too), none below kBucketSliceMin objects. ParallelSetup 0 runs the slices inline, in
+        // group order: the same plans.
+        auto& plans = scratch.GroupPlans;
         if ( !recordCall )
-            scratch.GroupPlans.assign( groups.size(), DrawBuildScratch::StaticGroupPlan{} );
-        else if ( scratch.GroupPlans.size() != groups.size() )
+        {
+            plans.resize( groups.size() );
+            std::size_t planned = 0; // the objects of the opaque groups
+            for ( std::size_t gi = 0; gi < groups.size(); ++gi )
+            {
+                DrawBuildScratch::StaticGroupPlan& plan = plans[gi];
+                plan.Set                                = nullptr;
+                plan.DrawMat                            = nullptr;
+                plan.OneSided                           = nullptr;
+                plan.TwoSided                           = nullptr;
+                plan.Batches.clear();
+                plan.Instances.clear();
+                plan.Singles.clear();
+                // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
+                // no opaque bucket, no instanced variant is asked of them.
+                plan.Opaque = !groups[gi].second.empty() && !IsTranslucent( groups[gi].first );
+                if ( !plan.Opaque )
+                    continue;
+                // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
+                // Asked once per group rather than per mesh bucket: the answer depends on the material
+                // alone, and the ISM loop below asks the same question of its own materials.
+                plan.Set = setForGroup( groups[gi].first );
+                planned += groups[gi].second.size();
+            }
+            DESERT_PROFILE_SCOPE( "Mesh: Static bucketing" );
+            constexpr std::size_t kBucketSliceMin = 128; // objects: below it a task costs more than it buckets
+            const std::size_t     participants    = ::Common::JobSystem::Get().WorkerCount() + 1;
+            const std::size_t     slices = std::clamp<std::size_t>( planned / kBucketSliceMin, 1u, participants );
+            if ( scratch.BucketSlices.size() < slices )
+                scratch.BucketSlices.resize( slices );
+            ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+            std::size_t         first   = 0;
+            std::size_t         reached = 0; // the opaque objects of groups [0, first)
+            for ( std::size_t s = 0; s < slices && first < groups.size(); ++s )
+            {
+                // Slice s ends where the objects reach planned * (s + 1) / slices; the last one at the end.
+                const bool        lastSlice = s + 1 == slices;
+                const std::size_t target    = planned * ( s + 1 ) / slices;
+                std::size_t       last      = first;
+                while ( last < groups.size() && ( lastSlice || reached < target ) )
+                {
+                    if ( plans[last].Opaque )
+                        reached += groups[last].second.size();
+                    ++last;
+                }
+                if ( last == first )
+                    continue;
+                DrawBuildScratch::BucketScratch& slice = scratch.BucketSlices[s];
+                tasks.Launch( "Mesh: Static bucketing slice",
+                              [&groups, &plans, &planGroup, standInKey, &slice, first, last]() noexcept
+                              {
+                                  for ( std::size_t gi = first; gi < last; ++gi )
+                                      if ( plans[gi].Opaque )
+                                          planGroup( groups[gi].second, groups[gi].first == standInKey, plans[gi],
+                                                     slice );
+                              } );
+                first = last;
+            }
+            tasks.Join();
+        }
+        else if ( plans.size() != groups.size() )
         {
             static_cast<void>( MissInSetupTask( "the static group plans" ) );
             return 0;
@@ -2267,38 +2313,23 @@ namespace Desert::Graphic::System
 
         for ( std::size_t gi = 0; gi < groups.size(); ++gi )
         {
-            auto* const                        mat     = groups[gi].first;
-            const auto&                        objects = groups[gi].second;
-            DrawBuildScratch::StaticGroupPlan& plan    = scratch.GroupPlans[gi];
-            // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
-            // no opaque bucket, no instanced variant is asked of them.
-            if ( objects.empty() || IsTranslucent( mat ) )
+            auto* const                        mat  = groups[gi].first;
+            DrawBuildScratch::StaticGroupPlan& plan = plans[gi];
+            if ( !plan.Opaque )
                 continue;
-
-            // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
-            // Asked once per group rather than per mesh bucket: the answer depends on the material
-            // alone, and the ISM loop below asks the same question of its own materials.
-            InstancedBatchSet* groupSet = recordCall ? plan.Set : setForGroup( mat );
             // A Resolve call plans what its Record call records and nothing more (UE FParallelMeshDrawCommandPass:
-            // the setup prepares exactly what the parallel tasks record): the group's set and, only when the
-            // bucketing leaves the group a single draw, the material that records its singles (lent the material
-            // table and given the frame's scene state here, serially) and that material's one- and two-sided
-            // pipelines. A group whose objects all batch asks drawMatOf nothing, as the Full call never did (R5):
-            // no twin refusal, no unowned spare for it.
+            // the setup prepares exactly what the parallel tasks record): the group's set is drawn when the plan
+            // batches into it, and only when the plan keeps singles the material that records them (lent the
+            // material table and given the frame's scene state here, serially) and that material's one- and
+            // two-sided pipelines. A group whose objects all batch asks drawMatOf nothing, as the Full call never
+            // did (R5): no twin refusal, no unowned spare for it.
             if ( resolveCall )
             {
-                plan.Set             = groupSet;
-                const GroupFate fate = bucketGroup( mat, objects, groupSet, /*stopEarly*/ true );
-                if ( fate.Batch )
-                    groupSet->Drawn = true;
-                if ( !fate.Single )
+                if ( !plan.Batches.empty() )
+                    plan.Set->Drawn = true;
+                if ( plan.Singles.empty() )
                     continue;
-                const auto singleCount = [&]
-                {
-                    static_cast<void>( bucketGroup( mat, objects, groupSet, /*stopEarly*/ false ) );
-                    return scratch.Singles.size();
-                };
-                DataDrivenMaterial* const drawMat = drawMatOf( mat, singleCount );
+                DataDrivenMaterial* const drawMat = drawMatOf( mat, [&plan] { return plan.Singles.size(); } );
                 if ( drawMat != nullptr && LendMaterialTable( *drawMat ) )
                 {
                     DESERT_PROFILE_SCOPE( "Mesh: SharedSceneSetup (1x/group)" );
@@ -2310,9 +2341,10 @@ namespace Desert::Graphic::System
                 continue;
             }
 
-            if ( !bucketGroup( mat, objects, groupSet, /*stopEarly*/ false ).Single )
+            packBatches( plan );
+            if ( plan.Singles.empty() )
                 continue;
-            const auto& singles = scratch.Singles;
+            const auto& singles = plan.Singles;
 
             // WHICH MATERIAL RECORDS THE DRAW. The group is keyed by the (surface x Static x Forward)
             // material a mesh slot resolved to, but the deferred pass rasterizes with the G-buffer

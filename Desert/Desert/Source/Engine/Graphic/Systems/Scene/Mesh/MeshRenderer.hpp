@@ -3514,25 +3514,48 @@ namespace Desert::Graphic::System
         {
             std::vector<std::unique_ptr<InstancedBatchSet>> InstSets;
             std::size_t                                     InstSetCount = 0;
-            std::vector<ObjDraw>                            Singles;
-            std::vector<uint32_t>                           LodLevels;
-            // BuildStaticDraws' bucketing of one group (bucketGroup): its (mesh, hidden mask) buckets, reused by
-            // index as InstSets are (BucketCount of them in use), and one bucket's batchable objects.
-            using MeshBucket = std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>;
-            std::vector<MeshBucket>                         Buckets;
-            std::size_t                                     BucketCount = 0;
-            std::vector<ObjDraw>                            Batchable;
             std::vector<uint64_t>                           WalkWords; // CpuWalkHidden's
+            // THE BUCKETING OF ONE SLICE OF GROUPS (BuildStaticDraws' planGroup, one setup task per slice): the
+            // group's (mesh, hidden mask) buckets, reused by index as InstSets are (BucketCount of them in use),
+            // one bucket's batchable objects and their levels. Read by no one past the group's plan.
+            using MeshBucket = std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>;
+            struct BucketScratch
+            {
+                std::vector<MeshBucket> Buckets;
+                std::size_t             BucketCount = 0;
+                std::vector<ObjDraw>    Batchable;
+                std::vector<uint32_t>   LodLevels;
+            };
+            std::vector<BucketScratch> BucketSlices;
             // A Resolve call's plan, which the same half's Record call reads (DrawBuildPhase). WalkGroups: the
             // walk's groups before the half's split (the other half's Resolve takes them, DrawBuildMode::Walk);
-            // Groups: this half's (split, the stand-in group appended); GroupPlans: one per Groups entry.
+            // Groups: this half's (split, the stand-in group appended); GroupPlans: one per Groups entry, reused
+            // by index so their vectors keep their capacity.
             using StaticGroup = std::pair<DataDrivenMaterial*, std::vector<const StaticMeshRenderData*>>;
+            // One instanced draw of a group's plan: Count objects of Instances from First, all of Mesh at Level.
+            struct PlannedBatch
+            {
+                Desert::Mesh* Mesh = nullptr;
+                SubmeshMask   Hidden{};
+                uint32_t      Level         = 0;
+                uint32_t      MaterialIndex = 0;
+                uint32_t      First         = 0;
+                uint32_t      Count         = 0;
+            };
+            // UE FParallelMeshDrawCommandPass: the setup decides, the record replays. The group's bucketing is
+            // made ONCE, by the call that plans (Full or Resolve), from one read of the objects' instances: its
+            // batches and its singles. A Record call packs and records exactly these and buckets nothing, so the
+            // Resolve call's answers (Set->Drawn, DrawMat) are the plan's by construction.
             struct StaticGroupPlan
             {
                 InstancedBatchSet*  Set      = nullptr; // where its batches accumulate (setForGroup), or none
                 DataDrivenMaterial* DrawMat  = nullptr; // records its singles, lent and applied; null: not drawn
                 GraphicsPipeline*   OneSided = nullptr; // CellPipeline( pass state, DrawMat )
                 GraphicsPipeline*   TwoSided = nullptr; // CullPermutation( OneSided, true )
+                bool                      Opaque   = false;   // not empty, not Translucent: planned at all
+                std::vector<PlannedBatch> Batches;            // empty without a Set
+                std::vector<const StaticMeshRenderData*> Instances; // the batches' objects, batch after batch
+                std::vector<ObjDraw>                     Singles;   // the per-object draws, in bucket order
             };
             std::vector<StaticGroup>                                     WalkGroups;
             std::unordered_map<const StaticMeshRenderData*, SubmeshMask> Walked; // masks unlike the entry's

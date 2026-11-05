@@ -1246,7 +1246,8 @@ namespace Desert::Graphic::System
     {
         // RENDER-PARALLEL-SETUP: on a TaskGroup task (AddFrame). It reads the plan, the view and the mesh renderer
         // fitted cascades (const; MeshRenderer::UpdateCascades ran first); it writes the plan and its own
-        // VarietyGpu's ShadowLod and CascadeRings - a distinct entry per task (AddFrame refuses a repeated key).
+        // VarietyGpu's ShadowLod and CascadeRings - a distinct entry per task (AddFrame starts a segment at a
+        // repeated key).
         const GrassVarietyDraw& variety        = *plan.Variety;
         VarietyGpu&             gpu            = *plan.Gpu;
         const ViewFrame&        frame          = *plan.Frame;
@@ -1992,7 +1993,16 @@ namespace Desert::Graphic::System
                          std::any_of( plans.begin(), plans.end(), [&variety]( const VarietyPlan& plan )
                                       { return plan.Variety->Key == variety.Key; } );
                     if ( repeated )
+                    {
+                        // A content fault (two layers resolving to one variety): drawn twice at two Prepares'
+                        // cost, as the sequential code drew it - said once per key, not once per frame.
+                        static std::unordered_set<uint64_t> s_WarnedRepeatedKey;
+                        if ( s_WarnedRepeatedKey.insert( variety.Key ).second )
+                            LOG_ERROR( "[Grass] a field queues variety key {:#x} more than once; each repeat is "
+                                       "prepared and drawn again (two layers resolve to one variety)",
+                                       variety.Key );
                         break; // the next segment starts at the repeat, after this one's Apply
+                    }
                     // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self
                     // on the turn, scn-1104-073309); each row sums every variety's step.
                     DESERT_PROFILE_PHASES( varietyPhases );
