@@ -763,7 +763,9 @@ namespace Desert::Editor::Tools
                     hit = static_cast<int32_t>( i );
             }
             if ( hit < 0 )
+            {
                 LOG_WARN( "[Modeling] Lattice: no control point at the viewport centre" );
+            }
             else
             {
                 auto& sel = ms.LatticeSelection;
