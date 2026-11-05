@@ -49,6 +49,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <array>
 #include <vector>
 
 namespace Desert::Graphic::RayTracing
@@ -715,7 +716,8 @@ namespace Desert::Core
 
         // THE SCENE'S MESH DISTANCE FIELDS (UE: FScene's FDistanceFieldSceneData): one brick atlas, one set of
         // records and one streaming for every view of this scene, the reflection captures' face views included
-        // (Graphic/DistanceField/DistanceFieldSceneData.hpp). Renderer state cached on the scene, like the captures.
+        // (Graphic/DistanceField/DistanceFieldSceneData.hpp). Renderer state cached on the scene, like the
+        // captures.
         [[nodiscard]] Graphic::DistanceField::DistanceFieldSceneData& GetDistanceFields() const
         {
             return *m_DistanceFields;
@@ -928,10 +930,18 @@ namespace Desert::Core
         bool                          m_PlayFromHere   = false;
         bool                          m_Simulating         = false; // see SetSimulating
 
-        // One command buffer PER system (index-matched to m_Systems): parallel systems record without
-        // sharing the arena; buffers are executed in registration order, so the frame's draw order is
-        // identical to the old single-buffer sequential path.
-        std::vector<std::unique_ptr<Graphic::Render::RenderCommandBuffer>> m_SystemCommandBuffers;
+        // One command buffer PER system (index-matched to m_Systems): parallel systems record without sharing the
+        // arena; buffers are executed in registration order, so the frame's draw order is identical to the old
+        // single-buffer sequential path. THE SYSTEMS' DRAW COMMANDS, TWO ARENAS FLIPPED PER OnUpdate (UE: the game
+        // thread fills the next frame's primitive updates while the render thread drains the last's). The views of
+        // an update replay the arena its systems recorded into, and the replayed draws point into it until their
+        // view has recorded on the render task; the "Scene: CmdBuffer Clear" job behind them rewinds that arena.
+        // The next update records into the other one, so its systems never write what a view still recording
+        // reads. The update after that reuses the first, and every view before it joins (OnUpdate), so its clear
+        // has run. One buffer per system.
+        using SystemCommandArena = std::vector<std::unique_ptr<Graphic::Render::RenderCommandBuffer>>;
+        std::array<SystemCommandArena, 2> m_SystemCommandArenas;
+        std::size_t                       m_RecordingArena = 0; // the arena this update's systems record into
 
         SceneSettings m_Settings;
         std::string   m_SceneName;

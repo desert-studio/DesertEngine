@@ -31,9 +31,14 @@ PushConstant PushConstants
                          // view pass Transform is then the submesh's transform RELATIVE TO that row's World.
     vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
     vec4 WindB;         // offset 96
+#ifdef DESERT_SURFACE_DRAW_ROWS
+    uint DrawRowsLo;    // offset 112 - a compacted bin's draw (RENDER-JOB-CPU-4): the address of the bin's
+    uint DrawRowsHi;    // first DrawRows slot (DrawPushFields::DrawRows, Common/GpuInstanceDrawRow.glslh)
+#else
     vec2 ShadowSlope;   // offset 112 — terrain light-view vertex stage only (Programs/Terrain/TerrainShadow.shader,
                         // Material::SetShadowSlopeBias): Graphic::CascadeCasterBias SlopeBias / SlopeClamp
                         // of the cascade being drawn.
+#endif
     uint PrimitiveFlags; // offset 120 — G-buffer fragment stage only (Mesh/Surface/Pass_GBuffer.glslh,
                          // Material::SetPrimitiveFlags): the draw's per-primitive bits, Graphic::PrimitiveFlag
                          // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow). 0 = every default. Block size

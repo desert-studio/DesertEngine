@@ -76,6 +76,10 @@ namespace Desert::Editor::Core
             // two selected meshes previews on A (B hidden) and is written on Accept (same session).
             Boolean,
             Trim,
+            // UE's Create palette Pattern (UPatternTool): copies of the selected mesh laid out by XformPattern
+            // preview on it, a change of shape / count / spacing recomputes them; Accept writes them merged into
+            // the source or - XformPatternSeparate - as new entities, one undo step; Cancel creates nothing.
+            Pattern,
             // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh
             // (Standard, Smooth, Move; Geometry/DynamicMeshSculpt.hpp).
             Sculpt,

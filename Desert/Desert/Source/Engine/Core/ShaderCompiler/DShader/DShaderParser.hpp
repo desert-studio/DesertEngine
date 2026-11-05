@@ -104,6 +104,11 @@ namespace Desert::Core::Preprocess
     // only.
     inline constexpr std::string_view kSurfaceBinnedCellSuffix = ".Binned";
     inline constexpr std::string_view kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
+    // RENDER-JOB-CPU-4, A COMPACTED BIN'S DRAW (a runtime permutation, MeshRenderer::SurfaceDrawRowsVariant):
+    // the grass blade cell drawn by one vkCmdDrawIndexedIndirectCount per bin reads its section's transforms,
+    // ids, shape, material row and wind from the draw's row (Common/GpuInstanceDrawRow.glslh, gl_DrawID), and
+    // its fragment `Material` reads the row the vertex stage handed down (kSurfaceMaterialRowMacro).
+    inline constexpr std::string_view kSurfaceDrawRowsDefine   = "DESERT_SURFACE_DRAW_ROWS";
     // VirtualShadowDepth (VIRT-GEOM step 17): the virtual shadow map's own binned table (GpuDriven::MeshPass::
     // VirtualShadow), whose groups are what its `.VirtualGeometry` cells are twins of.
     // Depth (kSurfaceViewDepthPass, GRASS-VIS-11; UE r.EarlyZPass over the GPU Scene's cached draws): no table of

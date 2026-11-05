@@ -30,7 +30,10 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <atomic>
+#include <cstring>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -127,6 +130,87 @@ namespace
 
 namespace Desert::Graphic::API::Vulkan
 {
+    // One of VulkanImGui's draw buffers (the header's kInterfaceDrawBuffers): a frame's ImGui draw data, copied
+    // list for list. The lists are this buffer's own and keep their capacity from frame to frame, so a steady
+    // interface allocates nothing. Filled and destroyed on the game thread; InUse is set there before the hand-off
+    // and cleared by the render task once the interface graph has recorded from it.
+    struct VulkanImGui::InterfaceDrawBuffer
+    {
+        ImDrawData               Data;
+        std::vector<ImDrawList*> Lists; // owned; the first Data.CmdListsCount are this frame's
+        std::atomic<bool>        InUse{ false };
+
+        InterfaceDrawBuffer() = default;
+        InterfaceDrawBuffer( const InterfaceDrawBuffer& )            = delete;
+        InterfaceDrawBuffer& operator=( const InterfaceDrawBuffer& ) = delete;
+        ~InterfaceDrawBuffer()
+        {
+            for ( ImDrawList* list : Lists )
+            {
+                list->~ImDrawList();
+                ::ImGui::MemFree( list );
+            }
+        }
+
+        // What ImDrawList::CloneOutput copies (commands, indices, vertices, flags), into lists that already exist.
+        void Fill( const ImDrawData& source )
+        {
+            Data                = source;
+            const size_t count  = source.CmdListsCount > 0 ? static_cast<size_t>( source.CmdListsCount ) : 0u;
+            while ( Lists.size() < count )
+            {
+                // auto: the shared data pointer is const in this ImGui; ::ImGui, because Desert::ImGui hides it
+                // inside IM_NEW / IM_DELETE.
+                auto* const shared = source.CmdLists[Lists.size()]->_Data;
+                void* const memory = ::ImGui::MemAlloc( sizeof( ImDrawList ) );
+                Lists.push_back( new ( ImNewWrapper(), memory ) ImDrawList( shared ) );
+            }
+            for ( size_t i = 0; i < count; ++i )
+            {
+                const ImDrawList& from = *source.CmdLists[i];
+                ImDrawList&       to   = *Lists[i];
+                CopyInto( to.CmdBuffer, from.CmdBuffer );
+                CopyInto( to.IdxBuffer, from.IdxBuffer );
+                CopyInto( to.VtxBuffer, from.VtxBuffer );
+                to.Flags = from.Flags;
+            }
+            Data.CmdLists = Lists.data();
+        }
+
+    private:
+        template <typename T>
+        static void CopyInto( ImVector<T>& to, const ImVector<T>& from )
+        {
+            to.resize( from.Size ); // grows only: the capacity of earlier frames is kept
+            if ( from.Size > 0 )
+                std::memcpy( to.Data, from.Data, static_cast<size_t>( from.Size ) * sizeof( T ) );
+        }
+    };
+
+    VulkanImGui::VulkanImGui()  = default;
+    VulkanImGui::~VulkanImGui() = default;
+
+    VulkanImGui::InterfaceDrawBuffer& VulkanImGui::AcquireDrawBuffer()
+    {
+        for ( int attempt = 0; attempt < 2; ++attempt )
+        {
+            for ( auto& buffer : m_DrawBuffers )
+            {
+                if ( !buffer )
+                    buffer = std::make_unique<InterfaceDrawBuffer>();
+                if ( !buffer->InUse.load( std::memory_order_acquire ) )
+                    return *buffer;
+            }
+            // Every buffer is still being drawn (UE: the game thread waits for a free Slate draw buffer): the
+            // render task is kInterfaceDrawBuffers interfaces behind, and only its join frees one.
+            ::Desert::Engine::RenderTask::Get().Join();
+        }
+        // Drained, yet still marked: a job that took a buffer did not release it. Nothing reads it any more.
+        LOG_ERROR( "[VulkanImGui] an interface draw buffer was not released by its render job; reused" );
+        m_DrawBuffers.front()->InUse.store( false, std::memory_order_relaxed );
+        return *m_DrawBuffers.front();
+    }
+
     Common::BoolResultStr VulkanImGui::OnAttach()
     {
         if ( ::ImGui::GetCurrentContext() == nullptr )
@@ -251,6 +335,10 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImGui::OnDetach()
     {
+        // The last interface the render task may still be recording, before its backend and its buffers go.
+        ::Desert::Engine::RenderTask::Get().Join();
+        for ( auto& buffer : m_DrawBuffers )
+            buffer.reset();
         // Nothing is outstanding on a lost device, so the wait can only answer VK_ERROR_DEVICE_LOST; the
         // ImGui teardown below is destruction, which stays legal.
         if ( Graphic::DeviceLost::AllowWork() )
@@ -378,11 +466,59 @@ namespace Desert::Graphic::API::Vulkan
 
         ::ImGui::Render();
 
-        // THE FENCE (RenderTask; UE: FRenderCommandFence before the Slate draw buffer): the scene views recorded on the
-        // render task while the panels were built above; the interface graph samples their images and its
-        // submissions must follow theirs. The commands the panels deferred (RenderTask::AfterJoin) run here too.
-        ::Desert::Engine::RenderTask::Get().Join();
+        // THE INTERFACE IS DRAWN ON THE RENDER TASK (UE: Slate's draw elements are built on the game thread and
+        // rendered on the render thread). Its graph samples the scene images the views record there, and the queue
+        // keeps it behind them, so no fence is needed here: the frame's fence (Application, before the deferred
+        // events and the present) waits for both. The draw data goes as a copy, the encode is made ready here.
+        if ( const auto encode = EnsureDisplayEncode(); !encode )
+        {
+            LOG_ERROR( "[VulkanImGui] the display encode: {}", encode.GetError() );
+            return;
+        }
+        if ( const ImDrawData* const source = ::ImGui::GetDrawData() )
+        {
+            InterfaceDrawBuffer& drawBuffer = AcquireDrawBuffer();
+            drawBuffer.Fill( *source );
+            drawBuffer.InUse.store( true, std::memory_order_relaxed ); // published by Enqueue's lock
+            ::Desert::Engine::RenderTask::Get().Enqueue(
+                 "Interface", [this, buffer = &drawBuffer]() -> Common::BoolResultStr
+                 {
+                     struct ReleaseOnExit
+                     {
+                         InterfaceDrawBuffer& Buffer;
+                         ~ReleaseOnExit()
+                         {
+                             Buffer.InUse.store( false, std::memory_order_release );
+                         }
+                     } release{ *buffer };
+                     return RecordInterface( buffer->Data );
+                 } );
+        }
 
+        // THE DETACHED WINDOWS JOIN FIRST. They are GLFW windows (main thread only) drawn by the same ImGui
+        // backend, which is not thread-safe, and today's order records the main interface before them. With only
+        // the main viewport there is nothing to draw and UpdatePlatformWindows touches no backend state: no join.
+        // THE BOUNDARY OF THE FRAME'S GRAPH. The detached platform windows below are OS windows the ImGui backend
+        // owns, each with its own swapchain, render pass, command buffers, submit and present — they are not this
+        // frame's output and not the engine's back buffer, so they are not graph nodes.
+        if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
+        {
+            // The backend's own vkQueueSubmit / vkQueuePresentKHR / vkDeviceWaitIdle for detached windows run
+            // on this thread but on the queue uploads flush to from others: hold the device's queue lock (VK1).
+            if ( ::ImGui::GetPlatformIO().Viewports.Size > 1 )
+                ::Desert::Engine::RenderTask::Get().Join();
+            const auto queues =
+                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->LockQueues();
+            ::ImGui::UpdatePlatformWindows();
+            ::ImGui::RenderPlatformWindowsDefault();
+        }
+    }
+
+    Common::BoolResultStr VulkanImGui::RecordInterface( ImDrawData& interfaceData )
+    {
+        // ON THE RENDER TASK (End), behind the views of this frame; inline in serial mode.
+        if ( !Graphic::DeviceLost::AllowWork() )
+            return BOOLSUCCESS;
         auto& renderer = ::Desert::Graphic::Renderer::GetInstance();
 
         // THE INTERFACE IS A GRAPH NODE (UE: the viewport's back buffer is registered as an external texture each
@@ -393,26 +529,17 @@ namespace Desert::Graphic::API::Vulkan
         Graphic::RDG::Builder         graph( "EditorImGui" );
         Graphic::RDG::ExternalTexture backBuffer;
         if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
-        {
-            // Reported rather than returned: this function is void and its caller is the layer stack's UI pass.
-            LOG_ERROR( "[VulkanImGui] the back buffer: {}", imported.GetError() );
-            return;
-        }
+            return Common::MakeFormattedError<bool>( "[VulkanImGui] the back buffer: {}", imported.GetError() );
         const Graphic::RDG::TextureRef target   = graph.RegisterExternal( backBuffer, "BackBuffer" );
         // The acquired image has no picture of its own: without its writer the frame has none (cleared to black).
         graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
-        if ( const auto encode = EnsureDisplayEncode(); !encode )
-        {
-            LOG_ERROR( "[VulkanImGui] the display encode: {}", encode.GetError() );
-            return;
-        }
         Graphic::RDG::TextureDesc compositeDesc;
         compositeDesc.Size.Width  = backBuffer.Desc.Size.Width;
         compositeDesc.Size.Height = backBuffer.Desc.Size.Height;
         compositeDesc.Size.Depth  = 1;
         compositeDesc.Format      = kUICompositeFormat;
         const Graphic::RDG::TextureRef composite = graph.CreateTexture( compositeDesc, "EditorUIComposite" );
-        ImDrawData*                    drawData  = ::ImGui::GetDrawData();
+        ImDrawData* const              drawData  = &interfaceData;
         // NeverParallel (RDG::PassFlags): the exec calls the ImGui Vulkan backend, third-party code that is not
         // thread-safe; with every graphics segment cut into chunks (RDG-PARALLEL-1) it would record on a worker.
         graph.AddPass(
@@ -450,21 +577,10 @@ namespace Desert::Graphic::API::Vulkan
              } );
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
         // Its faults are logged by the graph backend, its own failures by ExecuteGraph; a FrameFault presents
-        // black, and the detached windows below draw either way.
+        // black, and the detached windows draw either way.
         (void)::Desert::Graphic::Renderer::ExecuteGraph( graph );
+        return BOOLSUCCESS;
 
-        // THE BOUNDARY OF THE FRAME'S GRAPH. The detached platform windows below are OS windows the ImGui
-        // backend owns, each with its own swapchain, render pass, command buffers, submit and present — they are
-        // not this frame's output and not the engine's back buffer, so they are not graph nodes.
-        if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
-        {
-            // The backend's own vkQueueSubmit / vkQueuePresentKHR / vkDeviceWaitIdle for detached windows run
-            // on this thread but on the queue uploads flush to from others: hold the device's queue lock (VK1).
-            const auto queues =
-                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->LockQueues();
-            ::ImGui::UpdatePlatformWindows();
-            ::ImGui::RenderPlatformWindowsDefault();
-        }
     }
 
 } // namespace Desert::Graphic::API::Vulkan

@@ -299,12 +299,12 @@ namespace Desert::Graphic
     struct CloudPush
     {
         glm::mat4 InverseViewProjection;
-        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceSubPixelCount:
-        // how many times the sub-pixel walk has visited every half-res pixel, which advances the march's
-        // start-offset sequence once per trace OF A PIXEL rather than once per frame (CloudRaymarch.shader,
-        // CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is here rather than in
-        // the parameter block because it changes every few frames while the block changes only when the
-        // artist does something.
+        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceWalkFrames:
+        // how many times the sub-pixel and lattice walk has visited every half-res pixel, which advances the
+        // march's start-offset sequence once per trace OF A PIXEL rather than once per frame
+        // (CloudRaymarch.shader, CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is
+        // here rather than in the parameter block because it changes every few frames while the block changes only
+        // when the artist does something.
         glm::vec4 CameraPosition;
         // x, y = the sub-pixel this frame traces inside its 2x2 block of HALF-resolution pixels, each 0
         //        or 1. This is the projection jitter: the march reconstructs its ray through the HALF-res
@@ -341,7 +341,9 @@ namespace Desert::Graphic
         // THE MEMBER USED TO BE CALLED SkyOcclusion and used to carry one lane. Renaming it is what keeps
         // the other three from being three unnamed floats hiding under a name that describes the first.
         glm::vec4 Frame;
-        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y, z, w unused.
+        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y = this frame's phase
+        // of the trace grid (CloudTraceGridPhase, as CloudTracePhase::Index): the march traces only the texels
+        // whose (x & 1) | (y & 1) << 1 is y; z, w unused.
         glm::vec4 Visualize;
     };
 
@@ -351,8 +353,10 @@ namespace Desert::Graphic
     /**
      * Unreal's VolumetricRenderTarget sub-pixel walk, mode 0.
      *
-     * Four frames cover the four half-resolution pixels of one quarter-resolution texel, in the order
-     * {0, 2, 3, 1} rather than {0, 1, 2, 3}.
+     * Four TRACES cover the four half-resolution pixels of one quarter-resolution texel, in the order
+     * {0, 2, 3, 1} rather than {0, 1, 2, 3}. Each sub-pixel is held for kCloudTraceGridPhases frames, one
+     * per phase of the trace grid's 2x2 lattice (below), so the walk of one texel spans kCloudTraceWalkFrames
+     * frames.
      *
      * WHY THAT ORDER. It is the 2x2 BAYER MATRIX read row by row — [[0, 2], [3, 1]] — so the four frames
      * visit the block in the ordered-dithering sequence rather than in raster order. Epic's own name for
@@ -384,19 +388,91 @@ namespace Desert::Graphic
 
     inline constexpr uint32_t kCloudTraceSubPixelCount = 4;
 
+    /**
+     * THE 2x2 LATTICE OVER THE TRACE GRID (CLOUD-TURN-CACHE-1): each frame traces the quarter-res texels of
+     * ONE of four lattice phases, (x & 1, y & 1) == CloudTraceGridPhase(frame), and the temporal resolve
+     * reconstructs the other three quarters from the history and from the traced quarter's lattice neighbours
+     * (CloudTemporalResolve.shader TraceFiltered). Unreal's r.VolumetricRenderTarget walks are the same family
+     * of one trace per pixel every N frames: mode 0 is N = 4 (the 2x2 sub-pixel walk above), mode 2 is N = 16
+     * (its 4x4 Bayer table, VolumetricRenderTarget.cpp:314), and this walk is N = 16 over the half-resolution
+     * reconstruction: a 4x4 block of half-res pixels is traced at (2 * phase + sub-pixel) on each axis, the
+     * phase the 4x4 table's coarse level and the sub-pixel its fine one.
+     *
+     * THE PHASE ORDER IS THAT TABLE'S COARSE LEVEL, (0,0) -> (1,1) -> (1,0) -> (0,1): its frames 0..3 sit at
+     * (0,0), (2,2), (2,0), (0,2) of the 4x4 block. Two consecutive frames from an even one are diagonally
+     * opposite and together one checkerboard, so no region of the screen goes two frames without a sample
+     * within a texel of it, and four frames cover the whole quarter grid once. The phase advances EVERY frame
+     * and the sub-pixel every fourth one, so a texel of any phase visits all four sub-pixels in
+     * kCloudTraceWalkFrames frames. The march dispatches only this phase's texels (a quarter of the threads,
+     * no idle lanes inside the grid); the untraced three quarters of the transient trace are never read.
+     *
+     * (The two-phase checkerboard this replaces, CLOUD-MARCH-COST-3, was N = 8: it halved the rays, this halves
+     * them again, and the per-trace history weights stay what they were measured as — CloudTemporalResolve's
+     * kStillOwnedSampleWeight says what that costs in frames.)
+     */
+    struct CloudTracePhase
+    {
+        uint32_t X;
+        uint32_t Y;
+
+        // The one encoding both shaders decode (CloudPush::Visualize.y, CloudResolveParams::TraceGridPhase):
+        // bit 0 the column's parity, bit 1 the row's.
+        [[nodiscard]] constexpr uint32_t Index() const
+        {
+            return X | ( Y << 1u );
+        }
+    };
+
+    inline constexpr uint32_t kCloudTraceGridPhases = 4;
+
+    // Frames between two traces of one half-resolution pixel: four sub-pixels times four lattice phases. The
+    // march's start offset advances once per trace of a pixel, i.e. once per this many frames.
+    inline constexpr uint32_t kCloudTraceWalkFrames = kCloudTraceSubPixelCount * kCloudTraceGridPhases;
+
+    inline constexpr CloudTracePhase CloudTraceGridPhase( uint32_t frameIndex )
+    {
+        // Indexed by CloudTracePhase::Index: 0 = (0,0), 3 = (1,1), 1 = (1,0), 2 = (0,1).
+        constexpr uint32_t order[kCloudTraceGridPhases] = { 0u, 3u, 1u, 2u };
+
+        const uint32_t index = order[frameIndex % kCloudTraceGridPhases];
+        return CloudTracePhase{ index & 1u, index >> 1u };
+    }
+
     inline constexpr CloudSubPixel CloudTraceSubPixel( uint32_t frameIndex )
     {
         constexpr uint32_t order[kCloudTraceSubPixelCount] = { 0u, 2u, 3u, 1u };
 
-        const uint32_t index = order[frameIndex % kCloudTraceSubPixelCount];
+        const uint32_t index = order[( frameIndex / kCloudTraceGridPhases ) % kCloudTraceSubPixelCount];
         return CloudSubPixel{ index % 2u, index / 2u };
     }
 
+    // Every half-resolution pixel of a 4x4 block is traced exactly once per walk: the walk is a permutation of
+    // the block, as Unreal's 4x4 table is.
+    inline constexpr bool CloudTraceWalkCoversBlock()
+    {
+        uint32_t visited = 0u;
+        for ( uint32_t frame = 0u; frame < kCloudTraceWalkFrames; ++frame )
+        {
+            const CloudTracePhase phase = CloudTraceGridPhase( frame );
+            const CloudSubPixel   sub   = CloudTraceSubPixel( frame );
+            visited |= 1u << ( ( 2u * phase.Y + sub.Y ) * 4u + 2u * phase.X + sub.X );
+        }
+        return visited == 0xFFFFu;
+    }
+
     static_assert( CloudTraceSubPixel( 0u ).X == 0u && CloudTraceSubPixel( 0u ).Y == 0u );
-    static_assert( CloudTraceSubPixel( 1u ).X == 0u && CloudTraceSubPixel( 1u ).Y == 1u );
-    static_assert( CloudTraceSubPixel( 2u ).X == 1u && CloudTraceSubPixel( 2u ).Y == 1u );
-    static_assert( CloudTraceSubPixel( 3u ).X == 1u && CloudTraceSubPixel( 3u ).Y == 0u );
-    static_assert( CloudTraceSubPixel( 4u ).X == CloudTraceSubPixel( 0u ).X, "The walk must be periodic." );
+    static_assert( CloudTraceSubPixel( 4u ).X == 0u && CloudTraceSubPixel( 4u ).Y == 1u );
+    static_assert( CloudTraceSubPixel( 8u ).X == 1u && CloudTraceSubPixel( 8u ).Y == 1u );
+    static_assert( CloudTraceSubPixel( 12u ).X == 1u && CloudTraceSubPixel( 12u ).Y == 0u );
+    // The four phases of one sub-pixel are four consecutive frames.
+    static_assert( CloudTraceSubPixel( 3u ).X == CloudTraceSubPixel( 0u ).X &&
+                   CloudTraceSubPixel( 15u ).Y == CloudTraceSubPixel( 12u ).Y );
+    static_assert( CloudTraceGridPhase( 0u ).Index() == 0u && CloudTraceGridPhase( 1u ).Index() == 3u &&
+                   CloudTraceGridPhase( 2u ).Index() == 1u && CloudTraceGridPhase( 3u ).Index() == 2u );
+    static_assert( CloudTraceWalkCoversBlock(), "The walk must trace every half-res pixel of a 4x4 block once." );
+    static_assert( CloudTraceSubPixel( kCloudTraceWalkFrames ).X == CloudTraceSubPixel( 0u ).X &&
+                        CloudTraceGridPhase( kCloudTraceWalkFrames ).Index() == CloudTraceGridPhase( 0u ).Index(),
+                   "The walk must be periodic." );
 
     /**
      * The temporal reconstruction's per-frame data.
@@ -436,6 +512,10 @@ namespace Desert::Graphic
         // pair was traced under (VolumetricCloudHistory::Refs::WindOffsetKm), km in the field's frame. The resolve
         // reprojects each front from where the wind carried it from; zero when there is no history to read.
         glm::vec3 WindStepKm;
+        // This frame's phase of the trace grid's 2x2 lattice (CloudTraceGridPhase, as CloudTracePhase::Index), the
+        // same one the march was given: a quarter-res texel holds a sample this frame only when
+        // (x & 1) | (y & 1) << 1 equals it.
+        int32_t TraceGridPhase;
     };
 
     static_assert( offsetof( CloudResolveParams, InverseViewProjection ) == 0 );
@@ -446,11 +526,13 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudResolveParams, SubPixelOffset ) == 160 );
     static_assert( offsetof( CloudResolveParams, CloudReach ) == 168 );
     static_assert( offsetof( CloudResolveParams, WindStepKm ) == 176 );
-    // 188: the vec3 starts on its 16-byte std430 boundary and nothing follows it. std430 rounds a block's STRIDE up to a multiple of 16, but a
-    // stride only exists for an array of blocks and this is a single one — the shader never reads past the last
-    // member, so the buffer is created at exactly the struct's size. Pinned here so that inserting a member and
-    // quietly changing the size is a build error.
-    static_assert( sizeof( CloudResolveParams ) == 188,
+    // The int fills the vec3's last four bytes, where std430 places a scalar after a vec3 too.
+    static_assert( offsetof( CloudResolveParams, TraceGridPhase ) == 188 );
+    // 192 (was 188 before the trace phase): the vec3 starts on its 16-byte std430 boundary and the int closes
+    // its 16 bytes, so the block ends on a 16-byte multiple with no padding member. The buffer is created at
+    // exactly the struct's size (kCloudResolveParamsBytes) and the shader never reads past the last member.
+    // Pinned here so that inserting a member and quietly changing the size is a build error.
+    static_assert( sizeof( CloudResolveParams ) == 192,
                    "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
                    "exactly these members, in this "
                    "order, at these offsets." );

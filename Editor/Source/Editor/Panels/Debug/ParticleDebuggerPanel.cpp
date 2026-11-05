@@ -2,11 +2,13 @@
 
 #include <ImGui/imgui.h>
 #include <Engine/Desert.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
 
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor
@@ -39,7 +41,24 @@ namespace Desert::Editor
         request.EntityId = m_Selected ? m_EntityId : 0xFFFFFFFFu; // no table without a selection
         request.Emitter  = m_Emitter;
         request.FirstRow = m_FirstRow;
-        ParticleWorldGpu::Of( scene->GetVFXWorld() ).SetDebugRequest( request );
+        // The simulating view reads the request on the render task (ParticleWorldGpu::DebugRequest, its
+        // "Particles: Debug Readback"), and this panel writes it every interface frame, while the views of the
+        // frame record: the write waits for them (AfterJoin: the next Join, before the next views are enqueued,
+        // or now when nothing is in flight) instead of changing the copy one of them reads. Serial order: the
+        // request a view reads is the one sent before its frame, as before. On the render task itself the write
+        // is sequential with the views it runs, so it lands at once.
+        const std::weak_ptr<Desert::Core::Scene> target = m_Scene;
+        auto                                     apply  = [target, request]()
+        {
+            if ( const std::shared_ptr<Desert::Core::Scene> live = target.lock() )
+                ParticleWorldGpu::Of( live->GetVFXWorld() ).SetDebugRequest( request );
+        };
+        if ( ::Desert::Engine::RenderTask::OnRenderThread() )
+        {
+            apply();
+            return;
+        }
+        ::Desert::Engine::RenderTask::Get().AfterJoin( std::move( apply ) );
     }
 
     void ParticleDebuggerPanel::OnUIRender()

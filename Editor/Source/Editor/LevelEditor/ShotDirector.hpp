@@ -63,15 +63,31 @@ namespace Desert::Editor
         // after its PNG — the layer then finishes its own records and closes with Finish().
         // @p recordedFrame is this frame's AdmitFrame verdict.
         [[nodiscard]] bool CountRenderedFrame( bool recordedFrame );
+        // What FrameRecorded holds for EndFrame: the frame's AdmitFrame verdict and the start-up state it was
+        // rendered under.
+        struct RecordedFrame
+        {
+            bool Recorded        = false;
+            bool StartupLoading  = false;
+            bool ContentSettling = false;
+        };
+
         // THIS FRAME'S RENDER IS RECORDED (end of the layer's update): its AdmitFrame verdict and the start-up
         // state it was rendered under are held for EndFrame. Nothing is read back here - the frame's commands
         // are recorded but not yet submitted, so the scene image still holds the PREVIOUS frame.
         void FrameRecorded( bool recordedFrame, bool startupLoading, bool contentSettling );
+        // THE FRAME'S RECORD, TAKEN WHEN THE FRAME ENDS (EditorLayer::CaptureFramePresented, OVERLAP-ON-3) and
+        // carried by value to its presented notification: a frame presented on the render task is announced
+        // after the NEXT update has recorded its own, so EndFrame never reads the record live. Empty when this
+        // frame's update never reached FrameRecorded.
+        [[nodiscard]] std::optional<RecordedFrame> TakePendingFrame();
         // THE END OF A FRAME OF THE CAPTURE, called once the frame is submitted and presented (the layer's
         // OnFramePresented): the --flight sample, then CountRenderedFrame; on the last frame the profiler dump
         // and the --flight CSV are written and the capture's status comes back to close with. A frame whose
         // update never reached FrameRecorded counts nothing.
-        [[nodiscard]] std::optional<int32_t> EndFrame( ProfilerWindow& profiler );
+        // @p pending is the presented frame's record (TakePendingFrame at its end).
+        [[nodiscard]] std::optional<int32_t> EndFrame( ProfilerWindow&                     profiler,
+                                                       const std::optional<RecordedFrame>& pending );
         // A record the layer keeps for the capture (the --flight CSV) failed: the capture fails with it.
         void MarkFailed()
         {
@@ -109,13 +125,7 @@ namespace Desert::Editor
         // Set when any PNG of this capture could not be written; becomes the process exit status.
         bool m_ShotFailed = false;
 
-        // The frame FrameRecorded saw, waiting for its submit: EndFrame reads back and counts it, then clears it.
-        struct RecordedFrame
-        {
-            bool Recorded        = false;
-            bool StartupLoading  = false;
-            bool ContentSettling = false;
-        };
+        // The frame FrameRecorded saw, until its frame ends: TakePendingFrame hands it on and clears it.
         std::optional<RecordedFrame> m_PendingFrame;
     };
 } // namespace Desert::Editor

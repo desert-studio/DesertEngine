@@ -16,7 +16,9 @@ namespace Desert::Graphic
 
         virtual void Init() = 0;
 
-        /// The frame boundary: applies a requested swapchain rebuild and reports a lost device. It does NOT
+        /// The frame boundary: applies a requested swapchain rebuild (only with no render-task job in flight,
+        /// VulkanContext::BeginFrame; Application::Run joins first when one is pending) and reports a lost
+        /// device. It does NOT
         /// acquire; the image is acquired late, at the frame's back-buffer import (RendererAPI::ImportBackBuffer).
         /// This is the LIVE path — `Window::PrepareNextFrame` calls it — and its result reaches
         /// `Application::Run`, which ends the run on a lost device rather than recording one more frame into

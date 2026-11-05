@@ -204,7 +204,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanGpuProfiler::BeginFrame()
     {
-        const VkCommandBuffer commandBuffer = m_RecordingTarget;
+        const VkCommandBuffer commandBuffer = m_RecordingTarget();
         if ( !m_Active || commandBuffer == VK_NULL_HANDLE )
             return;
 
@@ -372,7 +372,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanGpuProfiler::EndFrame()
     {
-        const VkCommandBuffer commandBuffer = m_RecordingTarget;
+        const VkCommandBuffer commandBuffer = m_RecordingTarget();
         if ( !m_Active || commandBuffer == VK_NULL_HANDLE || m_Recording == nullptr )
             return;
 

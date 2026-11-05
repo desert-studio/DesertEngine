@@ -1,5 +1,6 @@
 #include "MaterialService.hpp"
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/RenderTask.hpp>
 
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
@@ -14,6 +15,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <mutex>
 
 namespace Desert::Runtime
 {
@@ -329,8 +331,48 @@ namespace Desert::Runtime
         return material;
     }
 
+    namespace
+    {
+        // ONE LOCK FOR THE SERVICE'S CACHES (MAT-CELL-LOAD). The render frame records on the job's workers
+        // (OVERLAP-ON-7) and asks for cells there - GetVariant/GetViewVariant build and insert - while the game
+        // thread registers, loads and invalidates; every cache of the service is `mutable` and was grown from
+        // both at once (the grass and instanced cells refused for the first seconds of FIELD_Barn). Recursive:
+        // one public call reaches another on its own thread (GetVariant -> Get, a load completion). One
+        // service per process, so the lock lives here and the header (27 includers) is untouched.
+        std::recursive_mutex& ServiceLock()
+        {
+            static std::recursive_mutex lock;
+            return lock;
+        }
+
+        // A game-thread WRITER (it may destroy a material or write an instance) joins the render job BEFORE it
+        // locks: those paths join it again inside (ViewResourceRegistry::Forget, the MaterialInstance setters of
+        // OVERLAP-ON-2), and a join under the lock would wait for a job that waits for the lock. A thread that
+        // already holds the lock does not join; off the game thread the join returns at once.
+        thread_local uint32_t t_ServiceDepth = 0;
+        class ServiceGuard
+        {
+        public:
+            explicit ServiceGuard( const bool writer )
+            {
+                if ( writer && t_ServiceDepth == 0 )
+                    ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+                ServiceLock().lock();
+                ++t_ServiceDepth;
+            }
+            ~ServiceGuard()
+            {
+                --t_ServiceDepth;
+                ServiceLock().unlock();
+            }
+            ServiceGuard( const ServiceGuard& )            = delete;
+            ServiceGuard& operator=( const ServiceGuard& ) = delete;
+        };
+    } // namespace
+
     Common::BoolResultStr MaterialService::Register( const std::shared_ptr<Assets::MaterialAsset>& materialAsset )
     {
+        const ServiceGuard serviceLock( true );
         if ( !materialAsset->GetMetadata().IsValid() )
         {
             return Common::MakeError( "Material asset is invalid" );
@@ -389,6 +431,7 @@ namespace Desert::Runtime
 
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceTemplate() const
     {
+        const ServiceGuard serviceLock( false );
         const auto assets = m_Assets.lock();
         if ( !assets )
             return Common::MakeError<std::string>(
@@ -406,6 +449,7 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
+        const ServiceGuard serviceLock( false );
         auto templateName = DefaultSurfaceTemplate();
         if ( !templateName )
             return templateName;
@@ -420,6 +464,7 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::StandInSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto assets = m_Assets.lock();
         if ( !assets )
             return Common::MakeError<std::string>(
@@ -441,6 +486,7 @@ namespace Desert::Runtime
 
     void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
     {
+        const ServiceGuard serviceLock( true );
         m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
              handle,
              "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
@@ -448,12 +494,14 @@ namespace Desert::Runtime
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
+        const ServiceGuard serviceLock( true );
         m_Assets = assets;
     }
 
     void MaterialService::StartRead( const Assets::AssetHandle&        handle,
                                      std::vector<Assets::AssetHandle>& awaited ) const
     {
+        const ServiceGuard serviceLock( false );
         if ( handle.IsNull() )
             return;
         // A copy of the pointer, not the iterator: the request below may discover and rehash.
@@ -507,6 +555,7 @@ namespace Desert::Runtime
 
     bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
+        const ServiceGuard serviceLock( false );
         if ( asset->IsReadyForUse() )
             return true;
         const auto handle = asset->GetMetadata().Handle;
@@ -524,6 +573,7 @@ namespace Desert::Runtime
              [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
                              const std::string& error )
              {
+                 const ServiceGuard serviceLock( false );
                  m_Requests.erase( handle );
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
@@ -539,7 +589,11 @@ namespace Desert::Runtime
                      loaded->ResolveDependencies( *manager );
                  ++m_InvalidationVersion;
              },
-             [this, handle] { m_Requests.erase( handle ); } );
+             [this, handle]
+             {
+                 const ServiceGuard serviceLock( false );
+                 m_Requests.erase( handle );
+             } );
         return false;
     }
 
@@ -614,6 +668,7 @@ namespace Desert::Runtime
     Graphic::Material* MaterialService::Get( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
                                              Graphic::MeshPass pass, const bool displaced ) const
     {
+        const ServiceGuard serviceLock( false );
         // Material-instance assets resolve through the parent chain to the BASE material: an
         // instance never builds a runtime Material of its own (its overrides live on the
         // per-entity MaterialInstance, see CreateRuntimeInstance). Depth-capped cycle guard.
@@ -677,6 +732,7 @@ namespace Desert::Runtime
                                                               Graphic::MeshVertexPath  path,
                                                               Graphic::MeshPass        pass ) const
     {
+        const ServiceGuard serviceLock( false );
         if ( !built )
             return nullptr;
 
@@ -705,6 +761,7 @@ namespace Desert::Runtime
                                                                   Graphic::MeshPass pass, uint32_t view,
                                                                   const void* owner ) const
     {
+        const ServiceGuard serviceLock( false );
         return SiblingOf( built, path, pass, view, Core::ShaderVariant{}, owner );
     }
 
@@ -714,11 +771,13 @@ namespace Desert::Runtime
                                                                   const Core::ShaderVariant& permutation,
                                                                   const void*                owner ) const
     {
+        const ServiceGuard serviceLock( false );
         return SiblingOf( built, path, pass, view, permutation, owner );
     }
 
     void MaterialService::ReleaseViewVariants( const void* owner )
     {
+        const ServiceGuard serviceLock( true );
         if ( owner == nullptr )
             return;
         for ( auto& [handle, views] : m_ViewMaterials )
@@ -729,6 +788,7 @@ namespace Desert::Runtime
                                                               Graphic::MeshVertexPath path, Graphic::MeshPass pass,
                                                               const Core::ShaderVariant& permutation ) const
     {
+        const ServiceGuard serviceLock( false );
         if ( permutation.IsDefault() )
             return GetVariant( built, path, pass );
         return SiblingOf( built, path, pass, kEveryView, permutation );
@@ -740,6 +800,7 @@ namespace Desert::Runtime
                                                              const Core::ShaderVariant& permutation,
                                                              const void*                asker ) const
     {
+        const ServiceGuard serviceLock( false );
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
         const auto* sibling = GetVariant( built, path, pass );
@@ -773,17 +834,20 @@ namespace Desert::Runtime
 
     bool MaterialService::Owns( const Graphic::Material* material ) const
     {
+        const ServiceGuard serviceLock( false );
         return material && m_BuiltToAsset.count( material ) != 0;
     }
 
     bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
         return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
     }
 
     uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
         if ( it == m_BuiltToAsset.end() )
             return 0;
@@ -793,6 +857,7 @@ namespace Desert::Runtime
 
     std::vector<Graphic::Material*> MaterialService::GetBuiltVariants( const Assets::AssetHandle& handle ) const
     {
+        const ServiceGuard serviceLock( false );
         std::vector<Graphic::Material*> out;
         const auto                      it = m_Materials.find( handle );
         if ( it == m_Materials.end() )
@@ -812,6 +877,7 @@ namespace Desert::Runtime
                                                                          Graphic::MeshVertexPath    path,
                                                                          const bool displaced ) const
     {
+        const ServiceGuard serviceLock( true );
         // Collect the instance chain child -> base (depth-capped cycle guard), then create one
         // runtime instance of the base material and apply overrides base-first so the NEAREST
         // (childmost) override wins.
@@ -862,6 +928,7 @@ namespace Desert::Runtime
     bool MaterialService::ResolveOverrides( const Assets::AssetHandle&  handle,
                                             Graphic::MaterialOverrides& out ) const
     {
+        const ServiceGuard serviceLock( false );
         // Same walk as CreateRuntimeInstance: collect the instance chain child -> base (depth-capped
         // cycle guard), then append base-first so the childmost override lands last and wins.
         std::vector<const Assets::SurfaceMaterialAsset*> chain;
@@ -921,6 +988,7 @@ namespace Desert::Runtime
 
     std::string MaterialService::AssetNameOf( const Assets::AssetHandle& handle ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto it = FindOrDiscover( handle );
         if ( it == m_MaterialAssets.end() || !it->second )
             return {};
@@ -929,12 +997,14 @@ namespace Desert::Runtime
 
     bool MaterialService::IsBroken( const Assets::AssetHandle& handle ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto it = FindOrDiscover( handle );
         return it != m_MaterialAssets.end() && it->second && it->second->IsBroken();
     }
 
     const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
     {
+        const ServiceGuard serviceLock( false );
         // An instance names no program of its own, so every question about its template is the base's.
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
@@ -959,6 +1029,7 @@ namespace Desert::Runtime
 
     MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto* base = BaseOf( handle );
         if ( base == nullptr )
             return MaterialTemplate{};
@@ -969,6 +1040,7 @@ namespace Desert::Runtime
                                                                       Graphic::MeshVertexPath    path,
                                                                       Graphic::MeshPass          pass ) const
     {
+        const ServiceGuard serviceLock( false );
         const auto* base = BaseOf( handle );
         if ( base == nullptr )
             return Common::MakeError<std::string>( std::format(
@@ -981,6 +1053,7 @@ namespace Desert::Runtime
     Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
                                                    Graphic::MeshPass pass ) const
     {
+        const ServiceGuard serviceLock( false );
         if ( const auto cell = CellShaderNameOf( handle, path, pass ); !cell )
             return Common::MakeFormattedError( "{}", cell.GetError() );
         return BOOLSUCCESS;
@@ -988,6 +1061,7 @@ namespace Desert::Runtime
 
     void MaterialService::Clear()
     {
+        const ServiceGuard serviceLock( true );
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
         // The revisions outlive the clear and move: a material built after it is a new build of its asset.
@@ -1008,6 +1082,7 @@ namespace Desert::Runtime
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )
     {
+        const ServiceGuard serviceLock( true );
         auto it = m_Materials.find( handle );
         if ( it == m_Materials.end() )
             return;
@@ -1045,6 +1120,7 @@ namespace Desert::Runtime
 
     void MaterialService::Release( const Assets::AssetHandle& handle )
     {
+        const ServiceGuard serviceLock( true );
         // The built materials first, through the graveyard — Invalidate already writes that correctly
         // (reverse index dropped now, destruction deferred to a safe point) and it bumps the stamp, which
         // is what makes every cached runtime instance of the dying material rebuild instead of holding a
@@ -1066,6 +1142,7 @@ namespace Desert::Runtime
 
     void MaterialService::CollectGarbage()
     {
+        const ServiceGuard serviceLock( true );
         // Safe point: no frame is being recorded (caller guarantees frame start). Only the materials whose
         // last possible frame has retired are destroyed; the rest wait for a later frame start.
         const auto& frames = Engine::FrameManager::GetInstance();
@@ -1074,6 +1151,7 @@ namespace Desert::Runtime
 
     Graphic::Material* MaterialService::GetByExternalHandle( const Common::UUID& handle ) const
     {
+        const ServiceGuard serviceLock( false );
         auto it = m_ExternalToInternal.find( handle );
         if ( it == m_ExternalToInternal.end() )
         {
@@ -1085,6 +1163,7 @@ namespace Desert::Runtime
 
     Assets::AssetHandle MaterialService::GetAssetHandleByExternal( const Common::UUID& uuid ) const
     {
+        const ServiceGuard serviceLock( false );
         auto it = m_ExternalToInternal.find( uuid );
         if ( it != m_ExternalToInternal.end() )
             return it->second;

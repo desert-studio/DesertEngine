@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/TextureFactory.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -161,10 +162,17 @@ namespace Desert::Runtime
             entry.LevelBytes        = outcome.Cooked->FullLevelBytes;
             if ( streamed )
             {
-                const auto swapped = entry.Built->ReplaceLevels( std::move( *outcome.Cooked ) );
-                replaced           = swapped.IsSuccess();
-                if ( !replaced )
-                    outcome.Error = swapped.GetError();
+                // THE UPLOAD NOW, THE SWAP AT THE HAND-OFF (OVERLAP-ON-7; UE FRenderAssetUpdate: the RHI swap is a
+                // render command, applied between frames). The new levels go into a NEW image nothing reads; the
+                // live Image2D every material slot names (its views, layout and bindless row) takes them only
+                // once the render work in flight has finished: RenderTask::AfterJoin runs it at once when nothing
+                // is in flight, else at the next Join (Scene::OnUpdate's, before this tick's views).
+                auto staged = entry.Built->StageLevels( std::move( *outcome.Cooked ) );
+                replaced    = staged.IsSuccess();
+                if ( replaced )
+                    AdoptAtHandOff( entry.Built, staged.ExtractValue() );
+                else
+                    outcome.Error = staged.GetError();
             }
             else
             {
@@ -206,8 +214,15 @@ namespace Desert::Runtime
         else
             ClaimTextureImage( entry.Built, handle );
 
-        m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
-                          { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+        // At the hand-off (MAT-CELL-LOAD): the render job builds cells on its workers (OVERLAP-ON-7), adding
+        // waiters (RebuildWhenReady) and asking them (AwaitsTextures) under the material service's lock; the
+        // settle and the invalidations it raises wait for that work, as the texture's own swap does.
+        Engine::RenderTask::Get().AfterJoin(
+             [this, handle]()
+             {
+                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+             } );
     }
 
     void TextureService::BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const
@@ -234,8 +249,13 @@ namespace Desert::Runtime
                  LOG_ERROR( "[TextureService] '{}' could not be read: {}. Materials naming it sample the "
                             "slot's schema default; it is not retried.",
                             it->second.Source->GetMetadata().Filepath.string(), error );
-                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
-                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+                 // At the hand-off, as a landed texture settles (MAT-CELL-LOAD).
+                 Engine::RenderTask::Get().AfterJoin(
+                      [this, handle]()
+                      {
+                          m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                                            { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+                      } );
              },
              [this, handle]
              {
@@ -331,6 +351,32 @@ namespace Desert::Runtime
     {
         const auto& frames = Engine::FrameManager::GetInstance();
         return m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+    }
+
+    void TextureService::AdoptAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
+                                         Graphic::Texture2D::StagedLevels           staged )
+    {
+        Engine::RenderTask::Get().AfterJoin(
+             [texture, staged = std::move( staged )]()
+             {
+                 if ( const auto taken = texture->AdoptStagedLevels( staged ); !taken.IsSuccess() )
+                     LOG_ERROR( "[TextureStreaming] a streamed read's levels were not swapped in at the hand-off: "
+                                "{}. Its resident mips stay drawn; the entry counts the new ones.",
+                                taken.GetError() );
+             } );
+    }
+
+    void TextureService::StreamOutAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
+                                             const uint32_t                             droppedLevels )
+    {
+        Engine::RenderTask::Get().AfterJoin(
+             [texture, droppedLevels]()
+             {
+                 if ( const auto dropped = texture->StreamOutLevels( droppedLevels ); !dropped.IsSuccess() )
+                     LOG_ERROR( "[TextureStreaming] a stream-out of {} level(s) failed at the hand-off: {}. Its "
+                                "resident mips stay drawn; the entry counts the kept ones.",
+                                droppedLevels, dropped.GetError() );
+             } );
     }
 
     std::size_t TextureService::PumpUploads()
@@ -476,15 +522,10 @@ namespace Desert::Runtime
             {
                 // A DROP READS NOTHING (UE FTexture2DStreamOut): the kept levels are copied on the GPU into a
                 // smaller image the same Image2D takes; the .detex is read only to raise a texture again.
-                const uint32_t from    = entry.ResidentFirstMip;
-                const auto     dropped = entry.Built->StreamOutLevels( want.First - from );
-                if ( !dropped.IsSuccess() )
-                {
-                    LOG_WARN( "[TextureStreaming] '{}' could not stream out from mip {} to {}: {}. Its resident "
-                              "mips stay drawn.",
-                              name, from, want.First, dropped.GetError() );
-                    continue;
-                }
+                // It moves the live image (a layout transition and the swap), so it runs at the hand-off like
+                // a raise's swap (OVERLAP-ON-7): at once when nothing is in flight, else after the next Join.
+                const uint32_t from = entry.ResidentFirstMip;
+                StreamOutAtHandOff( entry.Built, want.First - from );
                 entry.ResidentFirstMip = entry.RequestedFirstMip = want.First;
                 resident -= BytesFrom( entry.LevelBytes, from ) - BytesFrom( entry.LevelBytes, want.First );
                 LOG_INFO( "[TextureStreaming] '{}' streamed out mip {} -> {} by a GPU copy (no read)", name, from,

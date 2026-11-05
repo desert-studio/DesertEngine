@@ -122,8 +122,10 @@ Shader "CloudRaymarch"
         // its own sub-pixels and reprojects its own history through the unjittered previous matrix; a TAA
         // jitter in its rays is an offset its history never undoes (SKY-FLICKER).
         //
-        // Four frames therefore cover every half-res pixel exactly once, and the reconstruction is what
-        // turns four quarter-res traces into one half-res image instead of one blurred one.
+        // Four TRACES therefore cover every half-res pixel of a texel's block exactly once. A frame traces one
+        // phase of the quarter grid's 2x2 lattice (main, Graphic::CloudTraceGridPhase), so the four traces of a
+        // texel span Graphic::kCloudTraceWalkFrames = 16 frames, and the reconstruction is what turns those
+        // quarter-res traces into one half-res image instead of one blurred one.
         //
         // LINEAR HDR ONLY — no tonemap, no gamma, no exposure. The engine's tonemap owns the curve and
         // runs later in the frame.
@@ -389,6 +391,9 @@ Shader "CloudRaymarch"
             //     Written whatever y says, read only when y is 1.
             vec4 CloudFrame;
             // x = the diagnostic mode, Graphic::RenderConfig::CloudVisualize (0 = the ordinary picture).
+            // y = this frame's 2x2 lattice phase of the trace grid, 0..3 (Graphic::CloudTraceGridPhase, encoded as
+            //     Graphic::CloudTracePhase::Index): only the texels whose (x & 1) | (y & 1) << 1 equals it are
+            //     marched (main).
             vec4 CloudVisualize;
         };
 
@@ -502,13 +507,19 @@ Shader "CloudRaymarch"
         // (SKY-FLICKER-2). It is low-discrepancy on all three axes the reconstruction averages over:
         //
         //   * IN SPACE, on the grid this frame traces: interleaved gradient noise (Jimenez 2014, the pattern of
-        //     UE's InterleavedGradientNoise and of this engine's contact-shadow dither) over the QUARTER-res
-        //     texel, so the four texels a not-owned pixel's bilinear estimate blends hold four well spread
-        //     offsets and their errors cancel rather than add;
-        //   * IN THE BLOCK: the 2x2 ordered-dither rank of the half-res sub-pixel the ray goes through
-        //     ({0, 2; 3, 1}, the table the sub-pixel walk itself is, Graphic::CloudTraceSubPixel) in quarters,
-        //     so the four half-res pixels one quarter-res texel stands for sit in four different quarters of
-        //     the step;
+        //     UE's InterleavedGradientNoise and of this engine's contact-shadow dither) over the LATTICE CELL,
+        //     the quarter-res texel halved — the unit grid of the texels this frame writes (one 2x2 lattice
+        //     phase, Graphic::CloudTraceGridPhase) — so the written texels a not-owned pixel's estimate blends
+        //     (CloudTemporalResolve.shader TraceFiltered) are unit steps of the noise, hold well spread offsets
+        //     and their errors cancel rather than add. Over the quarter-res texel itself the lattice would read
+        //     the noise at a stride of two, where its step along x falls from 0.56 to 0.11 of the period and
+        //     neighbouring rays start nearly together;
+        //   * IN THE BLOCK: the 4x4 ordered-dither rank of the half-res pixel the ray goes through, in
+        //     sixteenths — 4 x the 2x2 rank ({0, 2; 3, 1}, the table the sub-pixel walk itself is,
+        //     Graphic::CloudTraceSubPixel) of its sub-pixel plus the 2x2 rank of its lattice phase, the recursive
+        //     Bayer construction of Unreal's 4x4 table (VolumetricRenderTarget.cpp:314) — so the sixteen half-res
+        //     pixels one lattice cell stands for sit in sixteen different sixteenths of the step, and the four
+        //     one quarter-res texel stands for in four different quarters;
         //   * IN TIME, per pixel: the golden-ratio (R1) sequence over @p traceCycle, the number of times this
         //     pixel has been traced (Graphic::CloudPush::CameraPosition.w), so successive traces of one pixel
         //     fill the step evenly and any run of them averages to the step's mean. Unreal walks its 128x128x64
@@ -518,18 +529,31 @@ Shader "CloudRaymarch"
         //
         // In integers for the temporal term: 0x9E3779B9 is 2^32 / phi, and the top 24 bits of the product are
         // the R1 value exactly at any cycle count, where a float `fract(cycle * 0.618)` loses its low bits.
-        float CloudMarchStartOffset(ivec2 traceCoord, ivec2 subPixel, uint traceCycle)
+        // The 2x2 ordered-dither rank of a cell of a 2x2 block, {0, 2; 3, 1} read at (x, y).
+        uint CloudDitherRank2x2(ivec2 cellOfBlock)
         {
-            float spatial  = fract(52.9829189f * fract(dot(vec2(traceCoord), vec2(0.06711056f, 0.00583715f))));
-            uint  rank     = subPixel.y == 0 ? uint(subPixel.x) * 2u : 3u - uint(subPixel.x) * 2u;
+            return cellOfBlock.y == 0 ? uint(cellOfBlock.x) * 2u : 3u - uint(cellOfBlock.x) * 2u;
+        }
+
+        float CloudMarchStartOffset(ivec2 latticeCell, ivec2 gridPhase, ivec2 subPixel, uint traceCycle)
+        {
+            float spatial  = fract(52.9829189f * fract(dot(vec2(latticeCell), vec2(0.06711056f, 0.00583715f))));
+            uint  rank     = 4u * CloudDitherRank2x2(subPixel) + CloudDitherRank2x2(gridPhase);
             float temporal = float((traceCycle * 0x9E3779B9u) >> 8u) * (1.0f / 16777216.0f);
-            return fract(spatial + float(rank) * 0.25f + temporal);
+            return fract(spatial + float(rank) * (1.0f / 16.0f) + temporal);
         }
 
         void main()
         {
-            ivec2 size  = imageSize(CloudScatterTexture);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+            // ONE 2x2 LATTICE PHASE OF THE TRACE GRID PER FRAME (Graphic::CloudTraceGridPhase, CLOUD-TURN-CACHE-1):
+            // the dispatch is half the grid's width and half its height, and thread (x, y) marches texel
+            // (2x + phase.x, 2y + phase.y), so (coord & 1) == phase on every texel written. The other three phases'
+            // texels are not written this frame and CloudTemporalResolve.shader never reads them (its
+            // CloudTraceTexelHoldsSample). The phase arrives as bit 0 the column's parity, bit 1 the row's.
+            ivec2 size      = imageSize(CloudScatterTexture);
+            int   phaseBits = int(CloudVisualize.y + 0.5f) & 3;
+            ivec2 gridPhase = ivec2(phaseBits & 1, phaseBits >> 1);
+            ivec2 coord     = ivec2(gl_GlobalInvocationID.xy) * 2 + gridPhase;
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
@@ -668,7 +692,8 @@ Shader "CloudRaymarch"
             // The offset moves from trace to trace, so the reconstruction integrates it; a still frame of
             // this pass is therefore NOT a valid check of it — it shows one realization of the dither, not
             // what the viewer sees. Spatio-temporal low-discrepancy, not white (CloudMarchStartOffset).
-            float jitter = CloudMarchStartOffset(coord, ivec2(CloudTraceParams.xy), uint(CameraPosition.w));
+            float jitter = CloudMarchStartOffset(ivec2(gl_GlobalInvocationID.xy), gridPhase, ivec2(CloudTraceParams.xy),
+                                                 uint(CameraPosition.w));
 
             CloudFieldParams params = CloudUnpackFieldParams();
 

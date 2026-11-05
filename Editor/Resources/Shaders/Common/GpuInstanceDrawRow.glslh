@@ -1,0 +1,53 @@
+#ifndef DESERT_GPU_INSTANCE_DRAW_ROW_GLSLH
+#define DESERT_GPU_INSTANCE_DRAW_ROW_GLSLH
+
+// RENDER-JOB-CPU-3, A COMPACTED BIN'S DRAW ROWS (Engine/Graphic/GpuInstances.hpp GpuInstanceDrawRow /
+// GpuDrawBinRefs; UE GPU Scene: a merged draw finds its primitive's data by its draw's index). A bin is drawn by
+// ONE vkCmdDrawIndexedIndirectCount (Renderer::RenderMeshIndirectCount); its draw d reads the address of its row
+// at DrawRows[d] - the push field pair DrawRowsLo / DrawRowsHi is the address of the bin's first slot
+// (DrawPushFields::DrawRows) and d is gl_DrawIDARB - and from the row everything the per-variety path bound or
+// pushed per section: the transforms, the list's ids, the blade shape, the mesh visibility rows by address, the
+// material row and the wind by value. GL_EXT_buffer_reference(_uvec2) is enabled for every stage by the assembler
+// (DShaderParser.cpp AssembleStage); a stage that includes this needs GL_ARB_shader_draw_parameters for
+// gl_DrawIDARB, which the draw-row permutation's assembly enables (device feature shaderDrawParameters,
+// DeviceCapabilities::SupportsShaderDrawParameters).
+
+// std430, 96 bytes, mirrors GpuInstanceDrawRow.
+struct GpuInstanceDrawRow
+{
+    uvec2 Instances;      // mat4 per instance (the per-variety path's InstanceTransforms)
+    uvec2 Ids;            // the list's ids into Instances (GpuInstanceIds); (0, 0): the slot is the row
+    uvec2 BladeShape;     // the variety's GrassBladeShape; (0, 0): not a blade
+    uvec2 MeshVisibility; // GrassMeshVisibilityGpu rows; (0, 0): not drawn through the visibility buffer
+    uint  MaterialRow;    // the scene material table's row (the per-variety path's MaterialIndex push)
+    uint  PrimitiveFlags;
+    uint  Reserved0;
+    uint  Reserved1;
+    vec4  WindA;          // the per-variety path's WindA / WindB push (PackViewInstanceWind)
+    vec4  WindB;
+    vec4  Caster;         // a cascade caster's (GRASS-SHADOW-BINS-1): xyz the thin origin, w the ring's inner
+};
+
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GpuInstanceDrawRowRef
+{
+    GpuInstanceDrawRow Row;
+};
+
+// A bin's slice of GpuDrawBinRefs::DrawRows: per draw the address of its row.
+layout( buffer_reference, std430, buffer_reference_align = 8 ) readonly buffer GpuInstanceDrawRowSlots
+{
+    uvec2 Slots[];
+};
+
+// The row of draw @p drawIndex (gl_DrawIDARB) of the bin whose first slot is at @p slots (the DrawRows push).
+GpuInstanceDrawRow GpuInstanceDrawRowOf( uvec2 slots, uint drawIndex )
+{
+    return GpuInstanceDrawRowRef( GpuInstanceDrawRowSlots( slots ).Slots[drawIndex] ).Row;
+}
+
+bool GpuInstanceAddressValid( uvec2 address )
+{
+    return ( address.x | address.y ) != 0u;
+}
+
+#endif // DESERT_GPU_INSTANCE_DRAW_ROW_GLSLH

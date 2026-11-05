@@ -2,6 +2,7 @@
 
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <future>
@@ -118,6 +119,33 @@ namespace Common
         const Ops* m_Ops = nullptr;
     };
 
+    // THE FRAME A THREAD RECORDS FOR, CARRIED FROM THE THREAD THAT SUBMITS A JOB TO THE WORKER THAT RUNS IT
+    // (OVERLAP-ON-7; UE: a task the render thread spawns reads the render frame, GFrameNumberRenderThread,
+    // wherever it runs). Engine::FrameManager owns the meaning: ScopedRecordingFrame binds it on the render task
+    // around one job, and GetCurrentFrameIndex / GetAbsoluteFrameCount (the RENDER frame) answer it while bound,
+    // else the game thread's frame. JobSystem::Submit captures the submitter's binding and the worker runs the job
+    // under it, so a pass the render graph records on a worker keeps its job's slot and frame number after the
+    // game thread has counted the next frame (a material prepared on the render task and checked on a worker saw
+    // two numbers and was dropped; a uniform buffer bound the game thread's slot). A job a game-side thread
+    // submits runs unbound: it reads the game thread's frame, as its submitter does.
+    struct RecordingFrame
+    {
+        static constexpr uint32_t k_Unbound = 0xFFFFFFFFu;
+        uint32_t                  Slot      = k_Unbound; // the frame-in-flight slot; k_Unbound: no binding
+        uint64_t                  Frame     = 0;         // the absolute frame number, read only while bound
+
+        [[nodiscard]] bool Bound() const noexcept
+        {
+            return Slot != k_Unbound;
+        }
+        /// The calling thread's binding (one per thread; Engine::FrameManager::ScopedRecordingFrame writes it).
+        [[nodiscard]] static RecordingFrame& OfThisThread() noexcept
+        {
+            static thread_local RecordingFrame t_Binding;
+            return t_Binding;
+        }
+    };
+
     // Engine-wide worker-thread pool — THE place for CPU-parallel work (asset cooking, LUT generation,
     // background mesh cooks, future parallel ECS). Replaces the ad-hoc one-off std::thread/std::async
     // sprinkled around the codebase so thread count stays bounded (workers = cores - 1) and work is
@@ -221,9 +249,16 @@ namespace Common
         JobSystem();
         void WorkerLoop();
 
+        // A queued job and the submitter's recording frame (RecordingFrame), bound around it on the worker.
+        struct QueuedJob
+        {
+            InlineJob      Job;
+            RecordingFrame Recording;
+        };
+
         mutable std::mutex      m_Mutex;
         std::condition_variable m_CV;
-        std::deque<InlineJob>   m_Queue;
+        std::deque<QueuedJob>             m_Queue;
         std::vector<std::thread>          m_Workers;
         size_t                            m_Running = 0; // jobs currently executing
         bool                              m_Stop    = false;

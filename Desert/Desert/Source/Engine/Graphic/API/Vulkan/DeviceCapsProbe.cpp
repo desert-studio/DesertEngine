@@ -290,6 +290,29 @@ namespace Desert::Graphic::API::Vulkan
                     f.shaderBufferInt64Atomics = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
+                case Capability::DrawIndirectCount:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        f.drawIndirectCount = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    // The extension has no feature struct: present = usable.
+                    return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
+                }
+                case Capability::ShaderDrawParameters:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan11Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+                        f.shaderDrawParameters = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
+                }
                 case Capability::Count:
                     break;
             }

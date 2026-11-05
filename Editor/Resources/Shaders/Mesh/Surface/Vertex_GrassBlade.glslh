@@ -28,6 +28,7 @@ invariant gl_Position;
 #endif
 #include <Common/Velocity.glslh>
 
+#ifndef DESERT_SURFACE_DRAW_ROWS
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
@@ -45,18 +46,67 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #else
 #define GRASS_BLADE_ROW( slot ) ( slot )
 #endif
+#else
+// RENDER-JOB-CPU-4, A COMPACTED BIN'S DRAW (DESERT_SURFACE_DRAW_ROWS, MeshRenderer::SurfaceDrawRowsVariant): one
+// vkCmdDrawIndexedIndirectCount draws every blade section of the bin, so nothing is bound per section; draw
+// gl_DrawID finds its section's row (Common/GpuInstanceDrawRow.glslh) and reads the transforms, the list's ids,
+// the shape, the material row and the wind through it (UE GPU Scene: the primitive's data by the draw's index).
+#include <Common/GpuInstanceDrawRow.glslh>
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassDrawRowTransforms
+{
+    mat4 Rows[];
+};
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer GrassDrawRowIds
+{
+    uint Rows[];
+};
+GpuInstanceDrawRow g_GrassDrawRow; // set first thing in main()
+#define transforms GrassDrawRowTransforms( g_GrassDrawRow.Instances ).Rows
+#ifdef DESERT_SURFACE_INSTANCE_IDS
+#define GRASS_BLADE_ROW( slot ) GrassDrawRowIds( g_GrassDrawRow.Ids ).Rows[slot]
+#else
+#define GRASS_BLADE_ROW( slot ) ( slot )
+#endif
+#endif // DESERT_SURFACE_DRAW_ROWS
 
 // The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
 #include <Mesh/Surface/GrassBlade.glslh>
 
 // The variety's shape (GrassBladeShapeGpu), std430.
+#ifndef DESERT_SURFACE_DRAW_ROWS
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
 };
+#else
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassDrawRowBlade
+{
+    GrassBladeShapeData Shape;
+};
+#define Blade GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Shape
+#endif
 
 #include <Common/MaterialTransport.glslh>
+// The section's wind: its push (a per-variety draw) or its draw row (a bin's draw).
+#ifdef DESERT_SURFACE_DRAW_ROWS
+#define GRASS_BLADE_WIND_A g_GrassDrawRow.WindA
+#define GRASS_BLADE_WIND_B g_GrassDrawRow.WindB
+#else
+#define GRASS_BLADE_WIND_A m_PushConstants.WindA
+#define GRASS_BLADE_WIND_B m_PushConstants.WindB
+#endif
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
+// GRASS-SHADOW-BINS-1, A CASCADE'S BIN (MeshRenderer::BuildGpuInstancedShadowDraws; UE FInstanceCullingContext per
+// shadow view): the bin's cell carries the cascade's light camera (view-projection, bias, the rule's origin and
+// distance - CasterWindOrigin), the draw row the section's words of it: the split (WindB.w), the ring's inner
+// distance and the origin the cascade thins from (Caster). A per-section draw reads them from its push and camera.
+#ifdef DESERT_SURFACE_DRAW_ROWS
+#define DESERT_CASTER_WIND_SPLIT GRASS_BLADE_WIND_B.w
+#define DESERT_CASTER_WIND_INNER g_GrassDrawRow.Caster.w
+#define GRASS_BLADE_THIN_ORIGIN  g_GrassDrawRow.Caster.xyz
+#else
+#define GRASS_BLADE_THIN_ORIGIN cameraUB.CasterWindOrigin.xyz
+#endif
 // A cached cascade's layers split the blades by the shadow wind distance (CasterWindLayer.glslh).
 #include <Mesh/Surface/CasterWindLayer.glslh>
 #endif
@@ -81,6 +131,14 @@ layout( location = 15 ) flat out uint v_VisibilityRow;
 
 void main()
 {
+#ifdef DESERT_SURFACE_DRAW_ROWS
+    g_GrassDrawRow = GpuInstanceDrawRowOf( uvec2( m_PushConstants.DrawRowsLo, m_PushConstants.DrawRowsHi ),
+                                           uint( gl_DrawID ) );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    v_Surface.MaterialRow    = g_GrassDrawRow.MaterialRow; // the fragment's `Material` (SurfaceTypes.glslh)
+    v_Surface.PrimitiveFlags = g_GrassDrawRow.PrimitiveFlags;
+#endif
+#endif
 #ifdef DESERT_SURFACE_PASS_Visibility
     v_VisibilityRow = Blade.Visibility.x + uint( gl_InstanceIndex );
 #endif
@@ -91,7 +149,7 @@ void main()
 #endif
     const float      side   = a_Position.x;
     const float      t      = a_Position.y;
-    vec4             windA  = m_PushConstants.WindA;
+    vec4             windA  = GRASS_BLADE_WIND_A;
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     if ( !DesertCasterWindLayer( model[3].xyz, windA ) )
     {
@@ -107,10 +165,10 @@ void main()
     // and widens a survivor as the generator does (1 / sqrt(share)): the covered area stays the same. WindB.z:
     // half x ThinFrom, half y F (GpuInstanceBladeShadowLod::StartCull); 0 = every blade.
     {
-        const vec2 thin = unpackHalf2x16( floatBitsToUint( m_PushConstants.WindB.z ) );
+        const vec2 thin = unpackHalf2x16( floatBitsToUint( GRASS_BLADE_WIND_B.z ) );
         if ( thin.x > 0.0 && thin.y > 0.0 )
         {
-            const float d     = max( length( model[3].xyz - cameraUB.CasterWindOrigin.xyz ), 1.0 );
+            const float d     = max( length( model[3].xyz - GRASS_BLADE_THIN_ORIGIN ), 1.0 );
             const float at    = max( d, thin.x );
             const float share = GrassThinShare( at, thin.y ) / GrassThinShare( d, thin.y );
             if ( share < 1.0 )
@@ -132,7 +190,7 @@ void main()
         }
     }
 #endif
-    const BladePoint blade = BladeAt( Blade, model, side, t, windA, m_PushConstants.WindB );
+    const BladePoint blade = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B );
 #if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
 #define GRASS_BLADE_DEPTH_CELL 1
 #endif
@@ -179,7 +237,7 @@ void main()
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
     const BladePoint previous = BladeAt( Blade, model, side, t, windA,
-                                         vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a blade never moves, only the wind bends it.

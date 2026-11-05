@@ -1,5 +1,7 @@
 #include <Engine/Graphic/Upscalers/DLSS/DLSSUpscaler.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -583,6 +585,13 @@ namespace Desert::Graphic
         if ( !exposure )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
                                                                         exposure.GetError() );
+        // Streamline is told the vectors include the camera's motion (cameraMotionIncluded): the sky's must be
+        // written too, or its history stays glued to the screen under a turn (UpscalerVelocity.hpp).
+        const Common::ResultStr<RDG::TextureRef> combinedVelocity =
+             m_Velocity.AddPass( graph, frame, inputs.Velocity, inputs.SceneDepth );
+        if ( !combinedVelocity )
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
+                                                                        combinedVelocity.GetError() );
 
         RDG::TextureDesc outputDesc;
         outputDesc.Size              = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
@@ -609,7 +618,7 @@ namespace Desert::Graphic
         evaluation.OutputHeight   = frame.Split.Output.Height;
         evaluation.ViewToClip     = frame.Projection;
         evaluation.ClipToView     = frame.InvProjection;
-        evaluation.ClipToPrevClip = frame.PrevViewProjection * frame.InvViewProjection;
+        evaluation.ClipToPrevClip = frame.ClipToPrevClip();
         evaluation.PrevClipToClip = frame.ViewProjection * frame.PrevInvViewProjection;
         // The engine moves the geometry by +JitterPixels in render pixels with NDC y up (ApplyJitter,
         // negative-height viewport); Streamline takes the offset in pixels with y down, as UE hands it
@@ -632,10 +641,19 @@ namespace Desert::Graphic
 
         const RDG::TextureRef color       = inputs.SceneColor;
         const RDG::TextureRef depth       = inputs.SceneDepth;
-        const RDG::TextureRef velocity    = inputs.Velocity;
+        const RDG::TextureRef velocity    = combinedVelocity.GetValue();
         const RDG::TextureRef exposureRef = exposure.GetValue();
         const RDG::TextureRef normal      = rr ? guides.NormalRoughness : RDG::TextureRef{};
         const bool            traced      = rr && guides.HitDistanceTraced;
+        // The pass's GPU row splits in two: its child "<name>: NGX Evaluate" is everything slEvaluateFeature
+        // records (Streamline's transitions of the tagged images and NGX's network), the row's own self time is
+        // the render graph's barriers into the pass (VulkanRdgBackend::BeginPass opens the row before
+        // RecordBarriers). Nothing else is recorded here: the tags are eValidUntilPresent (no Streamline copy),
+        // the guides, the velocity and the exposure are passes of their own before this one (UE's DLSS plugin:
+        // GBuffer resolve, velocity combine, then the evaluate).
+        const char* evaluateZone = "DLSS: NGX Evaluate";
+        if ( rr )
+            evaluateZone = "DLSS-RR: NGX Evaluate";
         graph.AddPass(
              DebugName().data(), RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
              [&]( RDG::PassBuilder& pass )
@@ -656,8 +674,8 @@ namespace Desert::Graphic
                  // reset), which needs TRANSFER_DST usage and the transfer stage in the barrier into this pass.
                  pass.Write( output, RDG::Access::ExternalWrite );
              },
-             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr,
-              traced]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
+             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr, traced,
+              evaluateZone]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
              {
                  const auto commandBuffer = API::Vulkan::VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
@@ -689,6 +707,7 @@ namespace Desert::Graphic
                      *target = image.GetValue();
                  }
                  evaluation.EngineFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+                 DESERT_PROFILE_PASS_DYNAMIC( evaluateZone );
                  return Streamline::Runtime::Get().Evaluate( commandBuffer.GetValue(), evaluation );
              } );
 

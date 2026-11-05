@@ -3,6 +3,7 @@
 #include <Common/Core/DevInstruments.hpp>
 
 #if DESERT_DEV_INSTRUMENTS
+#include <Engine/Core/DebugDraw.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
@@ -10,11 +11,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-
-namespace Desert::Core
-{
-    class DebugDrawWorld;
-}
 
 namespace Desert::Graphic
 {
@@ -36,10 +32,15 @@ namespace Desert::Graphic
         {
         }
 
-        /// This frame's store, or nullptr outside a BeginScene (nothing is drawn then).
+        /// This frame's items, COPIED (UE: the line batcher's proxy owns its batched lines): BeginScene hands
+        /// over the scene's store on the game thread, and the passes read the copy on the render task while the
+        /// next update ages the store and draws into it. nullptr outside a BeginScene (nothing is drawn then).
+        /// Copy-assigned, so the copy keeps its capacity from frame to frame.
         void SetWorld( const Core::DebugDrawWorld* world )
         {
-            m_World = world;
+            if ( world != nullptr )
+                m_Captured = *world;
+            m_World = world != nullptr ? &m_Captured : nullptr;
         }
 
         [[nodiscard]] bool HasLines() const;
@@ -64,6 +65,7 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr RecordStrings( float width, float height );
 
         SceneRenderer&                                              m_Owner;
+        Core::DebugDrawWorld                                        m_Captured; // this frame's copy (SetWorld)
         const Core::DebugDrawWorld*                                 m_World = nullptr;
         std::array<std::shared_ptr<GraphicsPipeline>, kBatchCount>  m_Pipelines;
         std::array<std::unique_ptr<MaterialDebugLine>, kBatchCount> m_Materials;

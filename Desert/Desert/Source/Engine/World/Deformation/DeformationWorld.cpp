@@ -14,6 +14,9 @@ namespace Desert::World
                                                    contact.Stamp, contact.Params.Radius ) );
         if ( !std::isfinite( contact.At.x ) || !std::isfinite( contact.At.y ) || !std::isfinite( contact.At.z ) )
             return Common::MakeError( std::format( "deform: stamp '{}' position is not finite", contact.Stamp ) );
+        // NO FENCE. The render task never reads the log: each view copies what it has not taken at BeginScene
+        // (DeformationFieldRenderer::CaptureContacts, the game thread after the scene's Join), and its job applies
+        // that copy while the tick of the next frame appends here (UE: proxy data handed over by value).
         contact.Sequence = m_Next++;
         m_Log.push_back( std::move( contact ) );
         while ( m_Log.size() > kMaxRetained )

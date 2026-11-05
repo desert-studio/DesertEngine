@@ -52,6 +52,10 @@ namespace Desert::Graphic
         void                  Shutdown();
 
         [[nodiscard]] Common::BoolResultStr BeginFrame();
+        // BeginFrame's two halves (RendererAPI::WaitFrameSlot / BeginFrameRecording): the game thread waits the
+        // slot, the render task begins the recording behind the previous frame's submit (Application::Run step 3).
+        [[nodiscard]] Common::BoolResultStr WaitFrameSlot();
+        [[nodiscard]] Common::BoolResultStr BeginFrameRecording();
         [[nodiscard]] Common::BoolResultStr EndFrame();
         // A refused pass (not recording, or a target with no VkFramebuffer) is the RESULT, not a log line
         // swallowed here: a caller that records draws and an EndRenderPass after a refusal records them
@@ -193,6 +197,21 @@ namespace Desert::Graphic
                             const glm::mat4& transform, const MaterialExecutor& material,
                             std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
                             SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order, uint32_t groups );
+        // RENDER-JOB-CPU-3, A COMPACTED BIN (GpuInstances.hpp; UE: one DrawIndexedIndirectCount per merged mesh
+        // draw command): @p mesh's pass state, geometry and @p push bound once through its one drawn submesh (the
+        // first one @p hiddenSubmeshMask leaves), then ONE vkCmdDrawIndexedIndirectCount of up to @p maxDraws
+        // VkDrawIndexedIndirectCommand at @p offset of @p args, kGpuDrawBinCommandBytes apart, the drawn count the
+        // GPU wrote as a uint at @p countOffset of @p count. Each command carries its own firstIndex / indexCount
+        // (a strip level, a LOD's submesh), so a bin draws several varieties' records of one mesh in one call;
+        // the vertex stage tells them apart by gl_DrawIDARB. Refused: a device without drawIndirectCount
+        // (DeviceCapabilities::SupportsDrawIndirectCount), offsets not multiples of four, @p maxDraws past
+        // maxDrawIndirectCount, records or the count past their buffers. 0 draws records nothing.
+        [[nodiscard]] static Common::BoolResultStr
+        RenderMeshIndirectCount( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                 const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
+                                 std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
+                                 RDG::BufferRef count, uint64_t countOffset, uint32_t maxDraws,
+                                 SubmeshMask hiddenSubmeshMask );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything

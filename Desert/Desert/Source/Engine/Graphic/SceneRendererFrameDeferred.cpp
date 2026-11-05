@@ -571,6 +571,8 @@ namespace Desert::Graphic
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
         inputs.Lighting        = GetFrameDirectionalLighting();
+        // The screen probes' far field falls back to a coarser clipmap (RadianceCacheRadianceAt): Mark stamps it.
+        inputs.MarkRadianceFallback = m_GIPipeline.ScreenProbes;
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.
         if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
             inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();
@@ -859,6 +861,17 @@ namespace Desert::Graphic
                   : graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1u, .Height = 1u },
                                                            .Format = ViewTargetFormats::kSubsurfaceDiffuse },
                                          "SubsurfaceDiffuse (unsplit)" );
+        // GPU-TURN-3: the direct lights' sum, at the scene target's extent (the composite reads it at its own
+        // gl_FragCoord), and a scattered texel's direct specular for the subsurface split.
+        const RDG::TextureDesc directDesc{ .Size   = { .Width  = m_TargetFramebuffer->GetFramebufferWidth(),
+                                                       .Height = m_TargetFramebuffer->GetFramebufferHeight() },
+                                           .Format = ViewTargetFormats::kDeferredDirectLighting };
+        inputs.DirectLighting = graph.CreateTexture( directDesc, "DeferredDirectLighting" );
+        RDG::TextureDesc specularDesc = directDesc;
+        specularDesc.Format           = ViewTargetFormats::kDeferredDirectSpecular;
+        if ( !subsurfaceDiffuse.IsValid() )
+            specularDesc.Size = { .Width = 1u, .Height = 1u };
+        inputs.DirectSpecular = graph.CreateTexture( specularDesc, "DeferredDirectSpecular" );
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
@@ -907,8 +920,14 @@ namespace Desert::Graphic
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
 
+        // GPU-TURN-3 (UE RenderLights, then DiffuseIndirectComposite): the direct lights leave the composite.
+        // "Deferred: Direct Lighting" sums the sun, light 1 and the local lights with their shadows into
+        // inputs.DirectLighting; it reads no GI, AO or reflection, so it has no edge to the async chain and the
+        // graphics queue runs it inside the async window (it is declared after the chain's fork and before its
+        // first consumer). The composite then adds only the ambient, the emissive and the subsurface split.
+        // FillMaterial fills both programs' materials.
         graph.AddPass(
-             "Deferred: Composite", RDG::PassFlags::Raster,
+             "Deferred: Direct Lighting", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
@@ -921,7 +940,15 @@ namespace Desert::Graphic
                                          pointCount, spotCount,
                                          shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
-                 deferred->DeclareCompositeBindings( pass, inputs, lights );
+                 deferred->DeclareDirectBindings( pass, inputs, lights );
+             },
+             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordDirect( context ); } );
+        graph.AddPass(
+             "Deferred: Composite", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 deferred->DeclareCompositeBindings( pass, inputs );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1323,7 +1350,7 @@ namespace Desert::Graphic
     {
         m_DeformationFrame.reset();
         // A reflection capture's face sees the ground as the scene's views do not need it to: no field of its own.
-        if ( m_FrameDeformation == nullptr || m_ViewProfile.SceneCapture )
+        if ( !m_FrameDeformationCaptured || m_ViewProfile.SceneCapture )
             return;
 #if DESERT_DEV_INSTRUMENTS
         const bool wanted = m_DebugView.DeferredDebug == DeferredDebugMode::DeformationField;
@@ -1333,8 +1360,8 @@ namespace Desert::Graphic
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
         // The window follows the UNJITTERED camera position (ViewFrame::CameraPosition), texel-snapped per level.
-        auto field = m_DeformationField.AddUpdatePasses( graph, import, *m_FrameDeformation, frame.CameraPosition,
-                                                         wanted );
+        // The contacts are the copy BeginScene captured (CaptureContacts), not the world's log.
+        auto field = m_DeformationField.AddUpdatePasses( graph, import, frame.CameraPosition, wanted );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Deformation field: {}", field.GetError() );
@@ -2001,25 +2028,55 @@ namespace Desert::Graphic
              frontLayer != nullptr ? System::SSRRenderer::FrontLayerInputs{ .Normal = frontLayer->Normal,
                                                                             .Depth  = frontLayer->Depth }
                                    : System::SSRRenderer::FrontLayerInputs{};
+        // UE Lumen reflections' tile classification: the classify lists the texels it hands the trace, the trace
+        // runs one thread per listed texel by an indirect dispatch (SSR.shader). The hit-lit classify keeps no
+        // list: its ray generation traces every texel.
+        std::optional<System::SSRRenderer::TraceList> traceList;
+        if ( !hitLit )
+            traceList = System::SSRRenderer::CreateTraceList( graph, *traceTargets );
+        const System::SSRRenderer::TraceList* const listPtr = traceList ? &*traceList : nullptr;
+        const bool                                  hardwareTraced =
+             traced && traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
+        const System::SSRRenderer::TracedReads* const tracedPtr = traced ? &*traced : nullptr;
+        const System::SSRRenderer::FrontLayerInputs* const frontPtr = frontLayer != nullptr ? &frontInputs : nullptr;
+        const char* const classifyName = !traced          ? "Deferred: SSR"
+                                         : hitLit         ? "Deferred: Reflections (classify)"
+                                         : hardwareTraced ? "Deferred: Reflections (HardwareTraced)"
+                                                          : "Deferred: Reflections (SoftwareTraced)";
+        const char* const traceName    = !traced          ? "Deferred: SSR Trace"
+                                         : hardwareTraced ? "Deferred: Reflections Trace (HardwareTraced)"
+                                                          : "Deferred: Reflections Trace (SoftwareTraced)";
         graph.AddPass(
-             !traced  ? "Deferred: SSR"
-             : hitLit ? "Deferred: Reflections (classify)"
-             : traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery
-                  ? "Deferred: Reflections (HardwareTraced)"
-                  : "Deferred: Reflections (SoftwareTraced)",
-             RDG::PassFlags::Compute,
+             classifyName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
-                                           traceUniforms, traced ? &*traced : nullptr,
-                                           frontLayer != nullptr ? &frontInputs : nullptr );
+                                           traceUniforms, System::SSRRenderer::TraceStage::Classify, listPtr,
+                                           tracedPtr, frontPtr );
                  // Only the textures the trace samples (its block): an unsampled G-buffer colour declared here
                  // joined the screen probes' async run at its last pass, the first reader of the shading word
                  // ("ScreenProbes: Disocclusion"), and the graphics queue waited for the whole run before it.
              },
              [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
               seed]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+             { return ssrPtr->RecordClassify( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+        if ( traceList )
+        {
+            graph.AddPass(
+                 traceName, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
+                                               traceUniforms, System::SSRRenderer::TraceStage::Trace, listPtr,
+                                               tracedPtr, frontPtr );
+                 },
+                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                  sceneHistoryReadable, seed,
+                  listArgs = traceList->Args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                     return ssrPtr->RecordTraceList( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                     listArgs );
+                 } );
+        }
         if ( hitLit )
         {
             // THE HIT-LIT TRACE (Reflections.HitLighting): every trace texel from the ray tracing pipeline, after
@@ -2061,7 +2118,8 @@ namespace Desert::Graphic
                                                              .TileMask             = tiles,
                                                              .TraceSeed            = seed,
                                                              .ReconstructionRadius = m_ReflectionDenoiserRadius,
-                                                             .DownsampleFactor     = traceTargets->DownsampleFactor },
+                                                             .DownsampleFactor     = traceTargets->DownsampleFactor,
+                                                             .RoughSpecularFromGI  = settings.RoughSpecularFromGI },
                           // The reflecting surface's own normal, depth and motion: the front layer's for its
                           // renderer, whose history is its own.
                           System::DenoiserSceneTextures{

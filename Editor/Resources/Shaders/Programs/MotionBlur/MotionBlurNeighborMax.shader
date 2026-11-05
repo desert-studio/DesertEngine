@@ -27,6 +27,7 @@ Shader "MotionBlurNeighborMax"
             float Pad0;
             float Pad1;
             float Pad2;
+            mat4  ClipToPrevClip; // ViewFrame::ClipToPrevClip (unjittered); Flatten's sky branch
         };
 
         void main()

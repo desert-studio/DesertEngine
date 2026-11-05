@@ -41,6 +41,7 @@ Shader "TemporalAA"
         LocalSize(8, 8, 1);
 
         #include <Common/ReconstructPosition.glslh>
+        #include <Common/Velocity.glslh>
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
@@ -218,13 +219,7 @@ Shader "TemporalAA"
             // The sky: nothing wrote velocity; reproject the view direction (a point at infinity, w = 0 kept
             // homogeneous, so the far plane needs no finite distance).
             if (velocity == vec2(0.0) && closestDepth <= 0.0)
-            {
-                const vec2 ndc      = ScreenUVToNdc(uv);
-                const vec4 world    = InverseViewProjection * vec4(ndc, 0.0, 1.0);
-                const vec4 prevClip = PreviousViewProjection * world;
-                if (abs(prevClip.w) > 1e-6)
-                    velocity = ndc - prevClip.xy / prevClip.w;
-            }
+                velocity = DesertCameraVelocityAtInfinity(ScreenUVToNdc(uv), PreviousViewProjection * InverseViewProjection);
             // The motion in OUTPUT pixels (NDC spans two uv units).
             const float velocityPixels = length(velocity * 0.5 * OutputSize);
 

@@ -237,7 +237,9 @@ PushConstant PushConstants
 	vec4 SsrParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2),
 	                   // y = 1 / PrevPreExposure (SceneColorTexture is stored at LAST frame's pre-exposure),
 	                   // z = 1 when the composite answers the lobe past kTracedMaxRoughness with the traced GI's
-	                   // rough specular (traced only, SSRRenderer::TraceSettings::RoughSpecularFromGI), w unused
+	                   // rough specular (traced only, SSRRenderer::TraceSettings::RoughSpecularFromGI),
+	                   // w = the compute's stage: 0 = classify + list (one workgroup per tile), 1 = trace the list
+	                   // (SSRRenderer::TraceStage; the ray generation ignores it)
 };
 
 // Whether texel source pixel gb is traced at all: the screen trace's gate, or the traced reflections' own under the
@@ -265,6 +267,27 @@ ivec2 SSRTraceSourcePixel(ivec2 q, int factor, int frame, ivec2 full)
 LocalSize(8, 8, 1);
 
 shared uint s_TileReflects;
+
+#if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+// THE TRACED TEXELS' LIST (UE LumenReflections.cpp ReflectionTileClassification's compacted trace texels and
+// ReflectionTracingTileIndirectArgs): the classify (SSR.shader, SsrParams3.w = 0) appends every texel it hands to
+// the trace, one atomic per tile, and sizes the trace's indirect dispatch; the trace (SsrParams3.w = 1) runs one
+// thread per listed texel, so a wave walks rays on every lane instead of waiting on the texels its tile does not
+// own (three in four at DownsampleFactor 2) or does not trace (sky, rougher than the gate). Reset by the graph's
+// upload (SSRRenderer::kTraceListArgsReset). The hit-lit permutation traces from its ray generation over every
+// texel and keeps no list.
+const uint kSSRTraceListGroupSize = 64u; // = LocalSize: the trace's threads per workgroup
+layout(std430, binding = 42) buffer SsrTraceListArgsUB
+{
+	uvec4 ssrTraceListArgs; // x = the trace's workgroups, y = z = 1 (the indirect dispatch), w = texels listed
+};
+layout(std430, binding = 43) buffer SsrTraceListUB
+{
+	uint ssrTraceList[]; // q.x | q.y << 16: a trace texel (SsrTraceTexture)
+};
+shared uint s_ListCount;
+shared uint s_ListStart;
+#endif
 #endif
 
 #include <Common/MonteCarlo.glslh>

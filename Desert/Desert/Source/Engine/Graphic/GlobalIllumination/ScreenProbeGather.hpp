@@ -288,10 +288,11 @@ namespace Desert::Graphic::GlobalIllumination
     // read but an answered one is a ray "ScreenProbes: Trace Cache Miss" traces on to the full distance.
     struct ScreenProbeMissReasons
     {
-        static constexpr uint32_t kReasons = 5; // RADIANCE_CACHE_READ_REASONS
-        // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected (every
-        // traced probe's visibility 0), nan (a NaN weight). Covered rays only: the read takes the coverage's clipmap,
-        // so none is past the coarsest one. Rays.
+        static constexpr uint32_t kReasons = 6; // RADIANCE_CACHE_READ_REASONS
+        // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected
+        // (every traced probe's visibility 0), nan (a NaN weight), coarser (the coverage's clipmap had no traced
+        // probe, a coarser clipmap answered: not a miss). Empty and untraced count the reads no clipmap answered.
+        // Covered rays only: the read takes the coverage's clipmap, so none is past the coarsest one. Rays.
         std::array<uint32_t, kReasons> Rays{};
         bool                           Valid = false; // a frame's words have come back
     };

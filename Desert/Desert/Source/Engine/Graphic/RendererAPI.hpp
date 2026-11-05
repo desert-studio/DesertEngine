@@ -102,6 +102,19 @@ namespace Desert::Graphic
         virtual void Shutdown() = 0;
 
         virtual Common::BoolResultStr BeginFrame()                                                     = 0;
+        // THE FRAME BEGIN IN TWO HALVES (OVERLAP-ON-1; UE: the game thread throttles on the GPU, the render thread
+        // begins the RHI frame). WaitFrameSlot is the game thread's: the slot's GPU wait, so the game thread puts
+        // nothing into a slot the GPU still reads. BeginFrameRecording is the render task's, in order behind the
+        // previous frame's submit: the slot's retire, the render graph's frame objects, the command buffer.
+        // BeginFrame is both, inline. A backend with nothing to wait begins everything in the second half.
+        virtual Common::BoolResultStr WaitFrameSlot()
+        {
+            return Common::MakeSuccess( true );
+        }
+        virtual Common::BoolResultStr BeginFrameRecording()
+        {
+            return BeginFrame();
+        }
         virtual Common::BoolResultStr EndFrame()                                                       = 0;
         // `PrepareNextFrame() = 0` USED TO SIT HERE, AND THE WHOLE CHAIN BELOW IT WAS UNREACHABLE.
         // `Window::PrepareNextFrame` runs the frame boundary through `RendererContext::BeginFrame` (and the
@@ -268,6 +281,13 @@ namespace Desert::Graphic
                             const glm::mat4& transform, const MaterialExecutor& material,
                             std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
                             SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order, uint32_t groups ) = 0;
+        // A compacted bin's draws (see Renderer::RenderMeshIndirectCount).
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirectCount( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                 const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
+                                 std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
+                                 RDG::BufferRef count, uint64_t countOffset, uint32_t maxDraws,
+                                 SubmeshMask hiddenSubmeshMask ) = 0;
         // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
         // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream /
         // index buffers (the group's shared binding: one bind per pipeline switch), then the indirect draws @p

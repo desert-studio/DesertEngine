@@ -1,6 +1,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -102,6 +103,24 @@ namespace Desert::Graphic
 
     [[nodiscard]] Common::BoolResultStr Renderer::BeginFrame()
     {
+        if ( const Common::BoolResultStr waited = WaitFrameSlot(); !waited )
+            return waited;
+        return BeginFrameRecording();
+    }
+
+    [[nodiscard]] Common::BoolResultStr Renderer::BeginFrameRecording()
+    {
+        return s_RendererAPI->BeginFrameRecording();
+    }
+
+    [[nodiscard]] Common::BoolResultStr Renderer::WaitFrameSlot()
+    {
+        // THE FRAME BOUNDARY'S FENCE (RenderTask::FrameEndSync) is not the first statement here any more
+        // (FRAME-SLOT-1): this frame's submission list and command buffer are its slot's own
+        // (VulkanRendererAPI::FrameSlotState), so the previous frame's job may still record into its slot. The
+        // backend's BeginFrame joins it after the slot's GPU wait, before it binds the render graph's
+        // single-slot frame objects; every path that begins a frame still passes it there.
+
         // THE MEMORY READING IS TAKEN HERE, ONCE A FRAME, IN THE SHIPPED PATH.
         //
         // Not in a HUD, and not behind a flag: the world programme's §0.4 acceptance criterion is about
@@ -153,7 +172,7 @@ namespace Desert::Graphic
         }
 #endif
 
-        return s_RendererAPI->BeginFrame();
+        return s_RendererAPI->WaitFrameSlot();
     }
 
     uint32_t Renderer::GetCurrentFrameIndex()
@@ -175,7 +194,19 @@ namespace Desert::Graphic
     // something else.
     Common::BoolResultStr Renderer::PresentFinalImage()
     {
-        return s_RendererAPI->PresentFinalImage();
+        // The other half of the frame boundary (RenderTask::FrameEndSync): the submit takes the frame's list as
+        // it is and FrameManager::NextFrame moves the slot index, so no job of this frame may still record.
+        ::Desert::Engine::RenderTask::Get().FrameEndSync();
+        auto&                       frames    = ::Desert::Engine::FrameManager::GetInstance();
+        const Common::BoolResultStr presented = s_RendererAPI->PresentFinalImage();
+        // The frame is on the queue: a job of it that starts later is torn (RenderTask::ThreadMain).
+        ::Desert::Engine::RenderTask::Get().NoteFrameSubmitted( frames.GetAbsoluteFrameCount() );
+        // Presented inline (the game thread's serial frame, a loading frame, a tool): the game thread moves to the
+        // next frame here. As the render task's job "Frame: Submit/Present" the game thread moved on as it handed
+        // the frame over (Application::Run step 6), and this thread keeps the frame's own count.
+        if ( presented.IsSuccess() && !::Desert::Engine::RenderTask::OnRenderThread() )
+            frames.NextFrame();
+        return presented;
     }
 
     void Renderer::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
@@ -280,6 +311,19 @@ namespace Desert::Graphic
     {
         return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, push, args,
                                                   offset, hiddenSubmeshMask, order, groups );
+    }
+
+    Common::BoolResultStr
+    Renderer::RenderMeshIndirectCount( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                       const Mesh& mesh, const glm::mat4& transform,
+                                       const MaterialExecutor& material, const std::span<const std::byte> push,
+                                       const RDG::BufferRef args, const uint64_t offset,
+                                       const RDG::BufferRef count, const uint64_t countOffset,
+                                       const uint32_t maxDraws,
+                                       const SubmeshMask hiddenSubmeshMask )
+    {
+        return s_RendererAPI->RenderMeshIndirectCount( bindings, pipeline, mesh, transform, material, push, args,
+                                                       offset, count, countOffset, maxDraws, hiddenSubmeshMask );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )

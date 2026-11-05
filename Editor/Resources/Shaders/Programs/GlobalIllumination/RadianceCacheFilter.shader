@@ -118,7 +118,11 @@ Shader "RadianceCacheFilter"
             {
                 const RadianceCacheProbe state = radianceCacheProbes[probe];
                 radianceCacheProbes[probe].frames = uvec4( state.frames.x, FrameIndex, state.frames.w, state.frames.w );
-                radianceCacheIndirection[RadianceCacheIndirectionIndex( radianceCache, state.cell.xyz, clipmap )] = probe;
+                // The traced probe's entry drops its untraced bit - only while that entry still holds this probe:
+                // writing an entry that holds another slot (or none) would leave that slot or this one doubled.
+                const uint entry = RadianceCacheIndirectionIndex( radianceCache, state.cell.xyz, clipmap );
+                if ( ( radianceCacheIndirection[entry] & ~RADIANCE_CACHE_PROBE_UNTRACED ) == probe )
+                    radianceCacheIndirection[entry] = probe;
             }
         }
     }

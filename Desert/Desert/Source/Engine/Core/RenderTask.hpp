@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -34,7 +35,10 @@ namespace Desert::Engine
      *    (Scene::OnUpdate) or destroys a world or a renderer: two brackets are never open at once, and nothing
      *    a job reads is freed under it;
      *  - before the game thread records anything itself (RecordGuard, from every recording entry point of the
-     *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment.
+     *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment;
+     *  - at the frame boundary, with one frame of lag (SyncPreviousFrame, Application::Run step 4b): frame N-1's
+     *    jobs - its begin, views, interface, submit and present - are done before frame N's interface is
+     *    painted; and before a swapchain rebuild, only when one is pending (step 2, SwapChain::RebuildPending).
      * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
@@ -78,6 +82,59 @@ namespace Desert::Engine
         // waiting on that worker: a join there would deadlock).
         void JoinOnGameThread();
 
+        // GAME THREAD, THE FRAME BOUNDARY'S FENCE (UE FFrameEndSync): the first statement of
+        // Renderer::PresentFinalImage (frame N's submission takes its slot's list as it is, so N's jobs have
+        // recorded), and VulkanRendererAPI::BeginFrame right after the slot's GPU wait (frame N+1 binds the
+        // render graph's frame objects - frame loop queue objects, transient heaps, pass descriptors, backend -
+        // and the GPU profiler, which hold ONE slot at a time). The frame's own state - its submission list, its
+        // recording command buffer - is per slot (VulkanRendererAPI::FrameSlotState), and a job records into the
+        // slot it was enqueued for (QueuedJob::Slot, FrameManager::ScopedRecordingFrame), so the game thread
+        // moving to the next slot (NextFrame) no longer tears it. On the render task, where the frame's begin and
+        // its submit run as jobs (OVERLAP-ON-1), it returns at once; the game thread's fence, with one frame of
+        // lag, is SyncPreviousFrame (Application::Run step 4b). ThreadMain checks the rule from the other side: a
+        // job of frame F that starts after F was submitted is an error.
+        void FrameEndSync();
+        // GAME THREAD. THE FRAME BOUNDARY WITH ONE FRAME OF LAG (UE FFrameEndSync, bAllowOneFrameThreadLag):
+        // returns when every job of a frame BEFORE the game thread's current one (GetGameFrameCount) has
+        // finished - frame N-1's views, interface, submit and present - while frame N's own jobs (its frame begin)
+        // keep running, then runs the commands deferred behind that work (AfterJoin) in order. Application::Run
+        // calls it once per iteration after the layers' update, so the head and the tick of frame N overlap frame
+        // N-1's render work. No-op off the game thread.
+        void SyncPreviousFrame();
+        // GAME THREAD. Scene::OnUpdate's fence for ANOTHER world's views: joins unless every job in flight was
+        // enqueued under @p owner (ScopedOwner) or is the frame's own work (FrameOwner). This world's views of the
+        // previous frame keep recording under its tick; a job with no owner is treated as foreign.
+        void JoinUnlessOwnedBy( const void* owner );
+        // ANY THREAD. Frame @p frame was handed to the queue (Renderer::PresentFinalImage). A job of that frame
+        // that starts later missed its submission, and ThreadMain names it.
+        void NoteFrameSubmitted( uint64_t frame ) noexcept;
+        // Whether frame @p frame has been submitted (its fence may be waited: Application::Run step 3).
+        [[nodiscard]] bool FrameSubmitted( uint64_t frame ) const noexcept
+        {
+            return m_SubmittedEnd.load( std::memory_order_acquire ) > frame;
+        }
+        // GAME THREAD. Every job enqueued in the scope is stamped with @p owner (the world, Scene::OnUpdate; the
+        // frame's own work, FrameOwner). Scopes nest.
+        class ScopedOwner
+        {
+        public:
+            explicit ScopedOwner( const void* owner ) : m_Previous( Get().m_EnqueueOwner )
+            {
+                Get().m_EnqueueOwner = owner;
+            }
+            ~ScopedOwner()
+            {
+                Get().m_EnqueueOwner = m_Previous;
+            }
+            ScopedOwner( const ScopedOwner& )            = delete;
+            ScopedOwner& operator=( const ScopedOwner& ) = delete;
+
+        private:
+            const void* m_Previous;
+        };
+        // The owner of the frame's own work: its begin, its interface, its submit and present.
+        [[nodiscard]] static const void* FrameOwner() noexcept;
+
         // True from an Enqueue until the job queue drains (the render thread clears it).
         [[nodiscard]] bool InFlight() const noexcept
         {
@@ -117,7 +174,25 @@ namespace Desert::Engine
         {
             std::string Name;
             Job         Body;
+            // FrameManager::GetAbsoluteFrameCount at Enqueue: the frame whose slot the job records into.
+            uint64_t Frame = 0;
+            // FrameManager::GetGameFrameIndex at Enqueue: that slot. ThreadMain binds it as the thread's recording
+            // frame (FrameManager::ScopedRecordingFrame), so the job reads and writes its own slot's frame state
+            // even after the game thread has submitted its frame and moved on.
+            uint32_t Slot = 0;
+            // ScopedOwner at Enqueue (JoinUnlessOwnedBy).
+            const void* Owner = nullptr;
         };
+        // A command deferred to the next Join, with the frame of the last job enqueued before it:
+        // SyncPreviousFrame runs it once that frame's work has finished.
+        struct Deferred
+        {
+            Command  Body;
+            uint64_t Frame = 0;
+        };
+        // Under m_Mutex: every job of a frame before @p frame has finished.
+        [[nodiscard]] bool FramesBeforeDone( uint64_t frame ) const;
+        void               RunDueCommands( uint64_t currentFrame );
 
         void               ThreadMain();
         void               EnsureThread();
@@ -139,7 +214,14 @@ namespace Desert::Engine
         std::atomic<std::thread::id> m_GameThread{};
 
         // Game thread only.
-        std::vector<Command> m_AfterJoin;
-        bool                 m_Joining = false;
+        std::vector<Deferred> m_AfterJoin;
+        bool                  m_Joining           = false;
+        const void*           m_EnqueueOwner      = nullptr;
+        uint64_t              m_LastEnqueuedFrame = 0;
+        // Under m_Mutex: the running job's frame and owner.
+        uint64_t    m_RunningFrame = 0;
+        const void* m_RunningOwner = nullptr;
+        // One past the last frame submitted (NoteFrameSubmitted); 0: none yet.
+        std::atomic<uint64_t> m_SubmittedEnd{ 0 };
     };
 } // namespace Desert::Engine

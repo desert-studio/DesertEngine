@@ -69,6 +69,8 @@ namespace Desert::Graphic::API::Vulkan
                                                       m_DeviceCaps.Has( Capability::ShaderBufferInt64Atomics ) &&
                                                       m_DeviceCaps.Has( Capability::FragmentStoresAndAtomics );
         m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
+        m_Capabilities.SupportsDrawIndirectCount    = m_DeviceCaps.Has( Capability::DrawIndirectCount );
+        m_Capabilities.SupportsShaderDrawParameters = m_DeviceCaps.Has( Capability::ShaderDrawParameters );
         // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
         m_Capabilities.Neural = m_DeviceCaps.Neural;
         // machine.json HideRayTracing, applied at the probe (DeviceCaps::RayTracingHidden): the reason rt is off.

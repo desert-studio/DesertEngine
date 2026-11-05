@@ -285,10 +285,10 @@ namespace Desert::Graphic::System
             m_InstancedQueue.push_back( data );
     }
 
-    void MeshRenderer::SubmitGpuInstanced( const GpuInstancedRenderData& data )
+    void MeshRenderer::SubmitGpuInstanced( GpuInstancedRenderData&& data )
     {
         if ( data.Mesh != nullptr && data.Material && data.Instances && data.Refs != nullptr )
-            m_GpuInstancedQueue.push_back( data );
+            m_GpuInstancedQueue.push_back( std::move( data ) );
     }
 
     namespace MeshRendererDetail
@@ -532,6 +532,16 @@ namespace Desert::Graphic::System
                 Fail( "mesh draw refused: zero indirect record groups" );
                 return;
             }
+            // A compacted bin (MeshDrawCommand::IndirectCount): its commands in IndirectArgs, one group, a room.
+            if ( command.IndirectCount.IsValid() &&
+                 ( !command.IndirectArgs.IsValid() || command.IndirectLevels != 1u ||
+                   command.IndirectMaxDraws == 0u ) )
+            {
+                Fail( std::format( "mesh draw refused: a compacted bin needs its commands, one record group and "
+                                   "a room ({} groups, {} draws)",
+                                   command.IndirectLevels, command.IndirectMaxDraws ) );
+                return;
+            }
             if ( command.IndirectLevels > 1u && !command.IndirectArgs.IsValid() )
             {
                 Fail( std::format( "mesh draw refused: {} indirect record groups for a draw without records",
@@ -652,6 +662,10 @@ namespace Desert::Graphic::System
                 readOnce( command.IndirectArgs, RDG::Access::IndirectArgs );
                 readOnce( command.IndirectInstances, RDG::Access::StorageRead );
                 readOnce( command.IndirectIds, RDG::Access::StorageRead );
+                // RENDER-JOB-CPU-3: a compacted bin's count, and the buffers its draws reach by address.
+                readOnce( command.IndirectCount, RDG::Access::IndirectArgs );
+                for ( const RDG::BufferRef& addressed : command.AddressedReads )
+                    readOnce( addressed, RDG::Access::StorageRead );
             }
         }
 
@@ -736,6 +750,18 @@ namespace Desert::Graphic::System
                 if ( auto written = draw.Push.WriteInto( push, *placement ); !written )
                     return Common::MakeFormattedError( "{}: draw {} ('{}'): {}", context.GetPassName(), i,
                                                        draw.Material->GetDubugName(), written.GetError() );
+                // RENDER-JOB-CPU-3, a compacted bin (GpuInstances.hpp): one indirect-count draw of its commands.
+                if ( draw.IndirectCount.IsValid() )
+                {
+                    static_assert( kGpuDrawBinCommandBytes == kMeshDrawArgumentsBytes );
+                    if ( auto drawn = Renderer::RenderMeshIndirectCount(
+                              blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform,
+                              *draw.Material, push, draw.IndirectArgs, draw.IndirectArgsOffset, draw.IndirectCount,
+                              draw.IndirectCountOffset, draw.IndirectMaxDraws, draw.HiddenSubmeshMask );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                    continue;
+                }
                 // A GPU-instanced draw (GpuInstances.hpp): its own argument records, one per submesh of the mesh
                 // after the header, the instance counts its generator wrote.
                 if ( draw.IndirectArgs.IsValid() )
