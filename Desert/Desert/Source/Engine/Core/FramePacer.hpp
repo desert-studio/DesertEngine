@@ -35,6 +35,11 @@ namespace Desert::Engine
         // spins the rest, so a cap of 120 holds 120 and not the 64 the coarse tick rounds it to.
         void SleepUntil( Clock::time_point until );
 
+        // Windows: sleeps @p span on the high-resolution timer; false, and nothing slept, when there is none - on
+        // another platform, or the timer refused (made, set or waited on), which is said in the log once and
+        // closes the timer for good. SleepUntil then makes the plain wait.
+        [[nodiscard]] bool SleepOnTimer( Clock::duration span ) noexcept;
+
         void* m_Timer        = nullptr; // Windows: the high-resolution waitable timer, made on first use
         bool  m_TimerRefused = false;   // Windows: the timer was refused once (said in the log); sleep_until then
 

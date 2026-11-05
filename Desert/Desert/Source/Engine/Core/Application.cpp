@@ -36,8 +36,11 @@ namespace Desert::Engine
         // thread FEngineLoop::PreInit runs on): named and raised here, and the process opts out of EcoQoS so a
         // run without focus keeps the clock of one with it (OS-SCHED-HYGIENE).
         Common::NameCurrentThread( "Game Thread", Common::ThreadPriority::AboveNormal );
+        // Said once: the opt-out is the process's, and this is its one call.
         if ( const auto optedOut = Common::OptOutOfPowerThrottling(); !optedOut )
             LOG_WARN( "[Threads] EcoQoS not opted out: {}", optedOut.GetError() );
+        else if ( !optedOut.GetValue() )
+            LOG_INFO( "[Threads] EcoQoS opt-out skipped: this Windows exports no SetProcessInformation" );
         WindowSpecification windowSpec;
         windowSpec.Title     = appInfo.Title;
         windowSpec.VSync     = appInfo.Display.VSync;

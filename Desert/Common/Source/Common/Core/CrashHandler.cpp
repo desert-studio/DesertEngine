@@ -1987,7 +1987,7 @@ namespace Common::Crash
         [[noreturn]] void CrashTestStackOverflowWorker()
         {
             std::thread worker = StartEngineThread( "Crash Report Probe", Common::ThreadPriority::Normal,
-                 []
+                 []() noexcept
                  {
                      LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
                      CrashTestStackOverflow();

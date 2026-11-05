@@ -41,6 +41,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -701,6 +702,21 @@ namespace Desert::Physics
                 m_Jobs.Init( maxJobs, maxJobs );
             }
 
+            // DRAINED BEFORE IT IS GONE (Jolt's JobSystemThreadPool::StopThreads, UE FTaskGraph's shutdown):
+            // intake stops, then the destructor waits for every closure the engine pool still holds. Update's
+            // waiter runs a job no worker took, which leaves that job's closure queued, still to Release it into
+            // m_Jobs, so the step's end is not the closures' end. Each one does end: the pool's workers run every
+            // queued job, at the pool's own shutdown too, and a job the pool refused is never counted.
+            ~EngineJobSystem() noexcept override
+            {
+                std::unique_lock<std::mutex> lock( m_InFlightMutex );
+                m_Closed = true;
+                m_Drained.wait( lock, [this] { return m_InFlight == 0; } );
+            }
+
+            EngineJobSystem( const EngineJobSystem& )            = delete;
+            EngineJobSystem& operator=( const EngineJobSystem& ) = delete;
+
             int GetMaxConcurrency() const override
             {
                 return static_cast<int>( m_Pool.WorkerCount() ) + 1; // the workers and the thread in Update
@@ -727,14 +743,24 @@ namespace Desert::Physics
         protected:
             void QueueJob( Job* job ) override
             {
-                job->AddRef(); // the pool's reference, dropped when the job has run
-                const auto run = [job]() noexcept
                 {
-                    job->Execute();
+                    const std::lock_guard<std::mutex> lock( m_InFlightMutex );
+                    if ( m_Closed )
+                        return; // draining: no intake, the barrier's waiter runs the job itself
+                    ++m_InFlight;
+                }
+                job->AddRef(); // the pool's reference, dropped when the job has run
+                const auto run = [this, job]() noexcept
+                {
+                    job->Execute(); // a job the barrier's waiter already ran returns at once
                     job->Release();
+                    Landed();
                 };
                 if ( !m_Pool.Submit( run, Common::JobPriority::Normal ) )
+                {
                     job->Release(); // the pool is shutting down: the barrier's waiter runs the job itself
+                    Landed();
+                }
             }
 
             void QueueJobs( Job** jobs, const JPH::uint count ) override
@@ -751,8 +777,21 @@ namespace Desert::Physics
         private:
             using AvailableJobs = JPH::FixedSizeFreeList<Job>;
 
-            Common::JobSystem& m_Pool;
-            AvailableJobs      m_Jobs;
+            // A closure's last touch of this object. The count and the wake share one lock, so the destructor
+            // cannot see zero, return and free the lock between the two (RangeShare::Finish's argument).
+            void Landed() noexcept
+            {
+                const std::lock_guard<std::mutex> lock( m_InFlightMutex );
+                if ( --m_InFlight == 0 )
+                    m_Drained.notify_all();
+            }
+
+            Common::JobSystem&      m_Pool;
+            AvailableJobs           m_Jobs;
+            std::mutex              m_InFlightMutex;
+            std::condition_variable m_Drained;
+            JPH::uint               m_InFlight = 0;     // closures in the pool's queues or running, under the lock
+            bool                    m_Closed   = false; // the destructor runs: QueueJob takes nothing more
         };
     } // namespace
 
@@ -766,7 +805,7 @@ namespace Desert::Physics
         JPH::PhysicsSystem                  System;
         CollisionProfiles                          Profiles; // before the filters that read it
         std::unique_ptr<JPH::TempAllocatorImpl>    TempAllocator;
-        std::unique_ptr<EngineJobSystem>           JobSystem;
+        std::unique_ptr<EngineJobSystem>           JobSystem; // destroyed first, by Shutdown (drains its jobs)
         BPLayerInterfaceImpl                BroadPhaseLayerInterface;
         ObjectVsBroadPhaseLayerFilterImpl   ObjectVsBroadPhaseFilter;
         ObjectLayerPairFilterImpl           ObjectLayerPairFilter;
@@ -1097,6 +1136,11 @@ namespace Desert::Physics
     {
         if ( !m_Impl )
             return;
+        // THE JOB SYSTEM GOES FIRST, before the temp allocator, the bodies and the listeners its jobs touch:
+        // ~EngineJobSystem waits for every closure the engine pool still holds, so no job of this world runs
+        // after any part of it is gone. Impl's member order would destroy it after the members declared below
+        // it (the filters, the characters, the ragdolls); the order is said here, once, and not left to that.
+        m_Impl->JobSystem.reset();
         m_Impl.reset();
 
         if ( --s_GlobalRefCount == 0 )

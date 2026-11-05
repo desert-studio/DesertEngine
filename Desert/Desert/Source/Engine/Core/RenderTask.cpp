@@ -60,7 +60,7 @@ namespace Desert::Engine
             return;
         m_Stop   = false;
         m_Thread = Common::StartEngineThread( "Render Thread", Common::ThreadPriority::AboveNormal,
-                                              [this]() { ThreadMain(); } );
+                                              [this]() noexcept { ThreadMain(); } );
     }
 
     void RenderTask::ThreadMain()

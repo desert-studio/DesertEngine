@@ -183,7 +183,7 @@ namespace Common
         // Global pool, started lazily on first use; joined automatically at exit (or via Shutdown()).
         static JobSystem& Get();
 
-        ~JobSystem();
+        ~JobSystem() noexcept; // Shutdown()
         JobSystem( const JobSystem& )            = delete;
         JobSystem& operator=( const JobSystem& ) = delete;
 
@@ -298,12 +298,15 @@ namespace Common
         // Pending + currently-running job count (approximate; for tests/diagnostics).
         size_t PendingJobs() const;
 
-        // Stops accepting jobs, drains the queue and joins the workers. Idempotent.
-        void Shutdown();
+        // Stops intake (Submit returns false from here on), lets the workers run every queued job - a Background
+        // job past the cap too - and joins them (UE FTaskGraphInterface::Shutdown, Jolt StopThreads). A job that
+        // submits while the pool drains is refused, and its owner runs it (TaskGroup::Join, ParallelRanges's
+        // caller, Jolt's barrier). Idempotent; never from a worker, which would join itself.
+        void Shutdown() noexcept;
 
     private:
         JobSystem();
-        void WorkerLoop();
+        void WorkerLoop( size_t index ) noexcept; // named "Job Worker #index"
 
         // A queued job and the submitter's recording frame (RecordingFrame), bound around it on the worker.
         struct QueuedJob

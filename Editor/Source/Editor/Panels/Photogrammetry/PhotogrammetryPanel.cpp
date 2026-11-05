@@ -395,7 +395,7 @@ namespace Desert::Editor
             m_Worker.join();
 
         m_Worker = Common::StartEngineThread( "Photogrammetry", Common::ThreadPriority::Normal,
-             [this, cmd]()
+             [this, cmd]() noexcept
              {
 #if defined( DE_POSIX_PROC )
                  int fds[2];

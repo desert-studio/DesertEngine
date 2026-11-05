@@ -227,12 +227,20 @@ namespace Common
     BoolResultStr OptOutOfPowerThrottling() noexcept
     {
 #if defined( DESERT_PLATFORM_WINDOWS )
+        // Resolved from kernel32 as SetThreadDescription is (SetOsThreadName): the declaration depends on the
+        // SDK's target version, the export on the running Windows (8 and later). A Windows 10 older than 1709
+        // exports it but refuses ProcessPowerThrottling, and that refusal is the error below.
+        using SetProcessInformationFn = BOOL( WINAPI* )( HANDLE, PROCESS_INFORMATION_CLASS, LPVOID, DWORD );
+        const SetProcessInformationFn setInformation =
+             reinterpret_cast<SetProcessInformationFn>( reinterpret_cast<void*>(
+                  ::GetProcAddress( ::GetModuleHandleW( L"kernel32.dll" ), "SetProcessInformation" ) ) );
+        if ( setInformation == nullptr )
+            return MakeSuccess( false ); // skipped: no SetProcessInformation, so no EcoQoS to opt out of either
         PROCESS_POWER_THROTTLING_STATE state{};
         state.Version     = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
         state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
         state.StateMask   = 0; // controlled and not set: EXECUTION_SPEED throttling is OFF, focus or not
-        if ( ::SetProcessInformation( ::GetCurrentProcess(), ProcessPowerThrottling, &state, sizeof( state ) ) ==
-             0 )
+        if ( setInformation( ::GetCurrentProcess(), ProcessPowerThrottling, &state, sizeof( state ) ) == 0 )
         {
             const unsigned long error = ::GetLastError();
             return MakeFormattedError<bool>( "SetProcessInformation(ProcessPowerThrottling) failed: error {}",

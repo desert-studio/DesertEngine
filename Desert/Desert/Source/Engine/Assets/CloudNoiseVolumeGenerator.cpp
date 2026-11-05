@@ -99,7 +99,7 @@ namespace Desert::Assets
 
         std::atomic<uint32_t> slicesDone{ 0u };
 
-        const auto fillSlabs = [&]( uint32_t worker )
+        const auto fillSlabs = [&]( uint32_t worker ) noexcept
         {
             for ( uint32_t z = worker; z < resolution; z += workers )
             {

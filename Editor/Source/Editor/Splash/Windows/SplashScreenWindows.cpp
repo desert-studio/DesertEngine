@@ -75,7 +75,7 @@ namespace Desert::Editor::Splash
         explicit SplashScreenWindows( const SplashContent& content ) : m_Content( content )
         {
             m_Thread = Common::StartEngineThread( "Splash Screen", Common::ThreadPriority::Normal,
-                                                  [this] { Run(); } );
+                                                  [this]() noexcept { Run(); } );
             // Show() promises the window is on screen when it returns.
             std::unique_lock<std::mutex> lock( m_Mutex );
             m_Wake.wait( lock, [this] { return m_Started; } );
@@ -250,7 +250,7 @@ namespace Desert::Editor::Splash
             // on a thread of its own, because this one has to keep pumping: the fade in is a timer
             // message, and a decode run here (1.2 s in Debug) would hold the window invisible.
             std::thread decoder = Common::StartEngineThread( "Splash Decoder", Common::ThreadPriority::Normal,
-                 [this, window]
+                 [this, window]() noexcept
                  {
                      auto pixels = LoadSplashPixels( m_Content.CookedImage );
                      if ( !pixels.IsSuccess() )
