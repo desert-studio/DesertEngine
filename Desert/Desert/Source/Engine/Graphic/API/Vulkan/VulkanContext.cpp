@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanUploadRing.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
@@ -338,6 +339,8 @@ namespace Desert::Graphic::API::Vulkan
         // loop that ever outlived this point still has nothing queued when the allocator below goes.
         VulkanFrameLoop::DrainSubmitThread();
         CommandBufferAllocator::GetInstance().Destroy();
+        // Every upload reading the stream-in ring has been waited by the line above: its buffer goes before VMA.
+        VulkanUploadRing::Get().Destroy();
 
         if ( m_VulkanAllocator )
         {

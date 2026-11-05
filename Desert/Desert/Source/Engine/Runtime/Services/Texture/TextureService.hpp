@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/GpuBatch.hpp>
+
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRef.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -50,7 +52,8 @@ namespace Desert::Runtime
     /// What a cook worker hands the frame loop: the decoded texture, or why there is none.
     struct TextureCookOutcome
     {
-        std::optional<Graphic::CookedTexture2D> Cooked;
+        /// The worker made the image and staged its levels (Texture2D::PrepareCooked); copies not recorded yet.
+        std::optional<Graphic::Texture2D::PreparedTexture2D> Prepared;
         std::string                             Error;
     };
 
@@ -179,7 +182,19 @@ namespace Desert::Runtime
         void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
         void        SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
         void        StartAdmittedCooks();
-        void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome );
+        // @p recordMs: the main-thread time the upload's copies took to record (PumpUploads), in its log line.
+        void FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome,
+                         double recordMs = 0.0 );
+
+        /// A prepared texture whose copies PumpUploads records, a few levels a frame (CPU-STREAM-UPLOAD-RING).
+        struct RecordingUpload
+        {
+            Assets::AssetHandle                   Handle;
+            uint64_t                              Ticket    = 0;
+            uint64_t                              Remaining = 0;
+            double                                RecordMs  = 0.0;
+            Graphic::Texture2D::PreparedTexture2D Prepared;
+        };
 
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.
@@ -199,5 +214,9 @@ namespace Desert::Runtime
         uint64_t m_LoggedResident = 0, m_LoggedWanted = 0;
         /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).
         mutable CookAdmission<Assets::AssetHandle> m_CookAdmission{ m_UploadSettings.CooksInFlight };
+        /// Main thread: the prepared textures being recorded, in the order their reads finished.
+        std::vector<RecordingUpload> m_Recording;
+        /// The pumps' upload batches until the GPU has finished them: dropping one retires its upload-ring slices.
+        std::vector<std::unique_ptr<Graphic::GpuBatch>> m_UploadBatches;
     };
 } // namespace Desert::Runtime
