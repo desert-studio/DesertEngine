@@ -171,6 +171,12 @@ namespace Desert::Graphic::RDG
         // RDG-FAULT1: the one dedupe point for pass and frame faults (RDGFault.hpp). Valid for the backend's
         // whole life, so what it already said survives the per-frame graphs. Builder::Execute is its only caller.
         virtual PassFaultReporter& GetPassFaultReporter() = 0;
+        // RDG-RECORD-COMPILE-CACHE: the backend's compiled plans (RDGCompileResult.hpp), valid for its whole life;
+        // nullptr when it keeps none - Execute then compiles every graph afresh, as before the cache existed.
+        [[nodiscard]] virtual CompileCache* GetCompileCache()
+        {
+            return nullptr;
+        }
 
         // B(3): per-pipe recording. Execute walks CompileResult::Segments in order and brackets each with
         // BeginPipeSegment / EndPipeSegment; every BeginPass .. EndPass, RecordBarriers and render pass in

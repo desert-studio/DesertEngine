@@ -50,6 +50,10 @@ namespace Desert::Graphic
         // cut keeps, G the largest rank step between neighbours x 8 (a seam reads bright). 3 = which clip
         // level of the modelling volume answers at the entry (0 red, 1 green, 2 blue; blend bands mixed).
         static inline std::atomic<int> CloudVisualize{ 0 };
+
+        // RDG-RECORD-COMPILE-CACHE: `--rdg-compile-cache <0|1>` (Editor CommandLine). Off, VulkanRdgBackend keeps
+        // no compiled plans (GetCompileCache nullptr) and every graph is compiled every frame.
+        static inline std::atomic<bool> RdgCompileCache{ true };
     };
 
     // The sampler an engine Image2D / ImageCube carries as its own (VulkanImage CreateSampler, Global policy):

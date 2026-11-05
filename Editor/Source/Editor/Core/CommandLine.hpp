@@ -97,6 +97,7 @@ namespace Desert::Editor
          { "--language", true, "ru" },
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
+         { "--rdg-compile-cache", true, "0" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
@@ -158,6 +159,10 @@ namespace Desert::Editor
         /// `--cloud-visualize <N>`: the cloud march draws a diagnostic instead of the sky
         /// (Graphic::RenderConfig::CloudVisualize, which names the modes). 0 is the ordinary picture.
         int CloudVisualize = 0;
+
+        /// `--rdg-compile-cache <0|1>`: the render graph's compiled-plan cache (RDG::CompileCache, switched by
+        /// Graphic::RenderConfig::RdgCompileCache). 0 compiles every graph every frame, as before the cache.
+        bool RdgCompileCache = true;
 
         /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
         /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
@@ -516,6 +521,17 @@ namespace Desert::Editor
                          value );
                 }
                 options.CloudVisualize = static_cast<int>( mode );
+            }
+            else if ( arg == "--rdg-compile-cache" )
+            {
+                if ( value != "0" && value != "1" )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--rdg-compile-cache '{}' is neither 0 (every graph compiled every frame) nor 1 (the "
+                         "compiled-plan cache, the default).",
+                         value );
+                }
+                options.RdgCompileCache = value == "1";
             }
             else if ( arg == "--stream-delay-ticks" )
             {

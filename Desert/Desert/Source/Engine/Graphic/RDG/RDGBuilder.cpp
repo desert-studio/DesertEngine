@@ -1127,11 +1127,13 @@ namespace Desert::Graphic::RDG
 
         DESERT_PROFILE_PHASES( phases );
         DESERT_PROFILE_PHASE( phases, "RDG: Compile" );
-        const Common::ResultStr<CompileResult> compiled =
-             Compile( backend.GetMemoryRequirements(), backend.GetPipeCapabilities() );
+        // RDG-RECORD-COMPILE-CACHE: the backend's stored plan for this declaration, rebound to this graph, or a
+        // fresh compile. Held to the end of Execute: a stored plan serves no other graph while this one records.
+        Common::ResultStr<std::shared_ptr<CompileResult>> compiled = CompileThroughCache( backend );
         if ( !compiled )
             return frameFault( compiled.GetError(), {} );
-        const CompileResult& result   = compiled.GetValue();
+        const std::shared_ptr<CompileResult> plan   = compiled.ExtractValue();
+        const CompileResult&                 result = *plan;
         m_Report.Faults               = result.Faults;
         m_Report.FaultCulled          = result.FaultCulledPasses;
         m_Report.InvalidatedExternals = result.InvalidatedExternals;

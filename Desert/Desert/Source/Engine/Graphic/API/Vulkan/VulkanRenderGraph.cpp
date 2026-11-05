@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
@@ -1431,6 +1432,18 @@ namespace Desert::Graphic::API::Vulkan
                     {
                         LOG_INFO( "[RDG] {}", line );
                     }
+                } ),
+           m_CompileCache(
+                []( bool warning, std::string_view line )
+                {
+                    if ( warning )
+                    {
+                        LOG_WARN( "[RDG] {}", line );
+                    }
+                    else
+                    {
+                        LOG_INFO( "[RDG] {}", line );
+                    }
                 } )
     {
     }
@@ -1521,6 +1534,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( queues.GraphicsQueue == VK_NULL_HANDLE )
             return Common::MakeError( "BeginFrame: the queue set has no graphics queue" );
+        m_CompileCache.CountFrame();
         m_FrameSlot   = slot;
         m_Queues      = &queues;
         m_Transients  = &transients;
@@ -2452,6 +2466,13 @@ namespace Desert::Graphic::API::Vulkan
     RDG::PassFaultReporter& VulkanRdgBackend::GetPassFaultReporter()
     {
         return m_FaultReporter;
+    }
+
+    RDG::CompileCache* VulkanRdgBackend::GetCompileCache()
+    {
+        if ( !::Desert::Graphic::RenderConfig::RdgCompileCache.load( std::memory_order_relaxed ) )
+            return nullptr;
+        return &m_CompileCache;
     }
 
     Common::BoolResultStr VulkanRdgBackend::BeginPipeSegment( const RDG::PipeSegment& segment )
