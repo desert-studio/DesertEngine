@@ -12,6 +12,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -503,14 +504,38 @@ namespace Desert::Graphic::API::Vulkan
         // frame's output and not the engine's back buffer, so they are not graph nodes.
         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
         {
-            // The backend's own vkQueueSubmit / vkQueuePresentKHR / vkDeviceWaitIdle for detached windows run
-            // on this thread but on the queue uploads flush to from others: hold the device's queue lock (VK1).
-            if ( ::ImGui::GetPlatformIO().Viewports.Size > 1 )
+            const ImVector<ImGuiViewport*>& viewports = ::ImGui::GetPlatformIO().Viewports;
+            const bool                      joined    = viewports.Size > 1;
+            if ( joined )
                 ::Desert::Engine::RenderTask::Get().Join();
-            const auto queues =
-                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->LockQueues();
-            ::ImGui::UpdatePlatformWindows();
-            ::ImGui::RenderPlatformWindowsDefault();
+            const auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+            {
+                // Creating, resizing and destroying a detached window is GLFW (this thread only) plus the
+                // backend's vkDeviceWaitIdle, which needs every queue: under the device's queue lock (VK1).
+                const auto queues = device->LockQueues();
+                ::ImGui::UpdatePlatformWindows();
+            }
+            // THE DETACHED WINDOWS SUBMIT IN QUEUE ORDER (VK-SUBMIT-THREAD step 5, REVIEW G3; UE: every queue
+            // submit goes through the RHI submission thread). The backend's vkQueueSubmit / vkQueuePresentKHR
+            // run as an ordered entry of the submit thread, after the frames and the uploads handed over so far,
+            // so a texture a detached window shows is never sampled before its queued copy. This thread blocks
+            // until they ran (the backend and the ImGui context are not thread-safe, the render task is joined)
+            // and holds no lock meanwhile: the submit thread needs the queue lock for the entries ahead. The
+            // backend's own Vulkan render callbacks are all that runs there (GLFW's are no-ops for Vulkan).
+            // Only with a detached window: the main viewport alone renders nothing here and pays no hand-off.
+            if ( viewports.Size > 1 )
+            {
+                if ( !joined )
+                    ::Desert::Engine::RenderTask::Get().Join();
+                const VkResult rendered = VulkanFrameLoop::SubmitOrdered(
+                     [&device]() -> VkResult
+                     {
+                         const auto queues = device->LockQueues();
+                         ::ImGui::RenderPlatformWindowsDefault();
+                         return VK_SUCCESS;
+                     } );
+                (void)rendered; // the backend reports its own results (check_vk_result)
+            }
         }
     }
 

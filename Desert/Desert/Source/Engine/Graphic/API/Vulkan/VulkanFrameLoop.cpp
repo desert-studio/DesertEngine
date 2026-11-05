@@ -203,6 +203,8 @@ namespace Desert::Graphic::API::Vulkan
             }
             QueuedWork work = std::move( m_Queue.front() );
             m_Queue.pop_front();
+            if ( work.Unwaited )
+                --m_QueuedUnwaited; // room under the depth bound; the producer wakes on m_Handled below
             const bool earlierFailed = !m_Failure.empty();
             lock.unlock();
             std::string failure;
@@ -210,38 +212,91 @@ namespace Desert::Graphic::API::Vulkan
                 // The submit thread's rows: the frame's submit and present, and the deferred releases, all off
                 // the render thread.
                 DESERT_PROFILE_SCOPE( "Vulkan submit" );
-                if ( work.Release )
-                {
-                    DESERT_PROFILE_SCOPE( "Vulkan: deferred release" );
-                    work.Release();
-                    work.Release = nullptr; // what the release captured dies here too, on this thread
-                }
-                else if ( work.Ordered != nullptr )
-                {
-                    // A one-off submission, in its place among the frames. Run after a failed frame as well:
-                    // it waits no frame semaphore, and its caller's fence wait must end.
-                    DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
-                    *work.Result = ( *work.Ordered )();
-                }
-                else if ( work.Unwaited )
-                {
-                    // An unwaited one-off (step 3), run after a failed frame as well: nobody waits for this
-                    // entry, so its refusal is the loop's failure, after the callee signalled its value.
-                    DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
-                    failure       = work.Unwaited( work.Reserved );
-                    work.Unwaited = nullptr; // what it captured dies here, on this thread
-                }
-                else
-                {
-                    failure = RunFrame( work.Slot, earlierFailed );
-                }
+                failure = RunEntry( work, earlierFailed );
             }
             lock.lock();
             if ( !failure.empty() && m_Failure.empty() )
                 m_Failure = std::move( failure );
-            m_HandledTicket = work.Ticket;
+            // The entries this one answered inline (RunInlineUntil) came after it in the queue and ran inside it:
+            // all of them are handled now, and none was published before this entry ended.
+            m_HandledTicket = std::max( work.Ticket, m_InlineHandledTicket );
             m_Handled.notify_all();
         }
+    }
+
+    std::string VulkanFrameLoop::RunEntry( QueuedWork& work, const bool earlierFailed ) noexcept
+    {
+        if ( work.Release )
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: deferred release" );
+            work.Release();
+            work.Release = nullptr; // what the release captured dies here too, on this thread
+            return {};
+        }
+        if ( work.Ordered != nullptr )
+        {
+            // A one-off submission, in its place among the frames. Run after a failed frame as well: it waits no
+            // frame semaphore, and its caller's fence wait must end.
+            DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
+            *work.Result = ( *work.Ordered )();
+            return {};
+        }
+        if ( work.Unwaited )
+        {
+            // An unwaited one-off (step 3), run after a failed frame as well: nobody waits for this entry, so its
+            // refusal is the loop's failure, after the callee signalled its value.
+            DESERT_PROFILE_SCOPE( "Vulkan: one-off submit" );
+            std::string failure = work.Unwaited( work.Reserved );
+            work.Unwaited       = nullptr; // what it captured dies here, on this thread
+            return failure;
+        }
+        return RunFrame( work.Slot, earlierFailed );
+    }
+
+    bool VulkanFrameLoop::RunInlineUntil( const std::function<bool()>& reached ) noexcept
+    {
+        std::unique_lock<std::mutex> lock( m_Mutex );
+        while ( !reached() )
+        {
+            // Empty: what the caller waits for is not in this queue (never handed over), so running more cannot
+            // reach it; the caller refuses its wait.
+            if ( m_Queue.empty() )
+                return false;
+            QueuedWork work = std::move( m_Queue.front() );
+            m_Queue.pop_front();
+            if ( work.Unwaited )
+                --m_QueuedUnwaited;
+            const bool earlierFailed = !m_Failure.empty();
+            lock.unlock();
+            m_Handled.notify_all(); // a producer held at the depth bound sees the room
+            std::string failure;
+            {
+                DESERT_PROFILE_SCOPE( "Vulkan: wait answered on the submit thread" );
+                failure = RunEntry( work, earlierFailed );
+            }
+            lock.lock();
+            if ( !failure.empty() && m_Failure.empty() )
+                m_Failure = std::move( failure );
+            m_InlineHandledTicket = std::max( m_InlineHandledTicket, work.Ticket );
+        }
+        return true;
+    }
+
+    bool VulkanFrameLoop::OnSubmitThread() noexcept
+    {
+        return t_OnSubmitThread;
+    }
+
+    bool VulkanFrameLoop::AnswerOnSubmitThread( const std::function<bool()>& reached ) noexcept
+    {
+        if ( !t_OnSubmitThread )
+            return false;
+        // The loop stays registered while its thread runs (the destructor joins it before it unregisters).
+        const ActiveLoopLease  lease;
+        VulkanFrameLoop* const loop = lease.Get();
+        if ( loop == nullptr )
+            return reached();
+        return loop->RunInlineUntil( reached );
     }
 
     std::string VulkanFrameLoop::RunFrame( uint32_t slot, bool earlierFailed )
@@ -564,7 +619,15 @@ namespace Desert::Graphic::API::Vulkan
     {
         uint64_t reserved = 0;
         {
-            const std::scoped_lock lock( m_Mutex );
+            std::unique_lock<std::mutex> lock( m_Mutex );
+            // THE DEPTH BOUND (kMaxQueuedUnwaited): held here, before the reservation, until the thread took
+            // one. It always ends: the thread takes entries while it runs, and Stop drains the whole queue and
+            // sets m_Exited. Not on the submit thread, which would wait for itself.
+            if ( !t_OnSubmitThread && m_QueuedUnwaited >= kMaxQueuedUnwaited && !m_Exited )
+            {
+                DESERT_PROFILE_WAIT( "Vulkan: upload queue full" );
+                m_Handled.wait( lock, [this]() { return m_Exited || m_QueuedUnwaited < kMaxQueuedUnwaited; } );
+            }
             // Queued while the thread runs, stopping and after a failed frame included: it runs the whole queue
             // before it exits. Once it has exited the queue is empty and stays so: the caller submits inline,
             // after every entry handed over, with no wait.
@@ -581,6 +644,7 @@ namespace Desert::Graphic::API::Vulkan
                                            .Result   = nullptr,
                                            .Unwaited = std::move( submit ),
                                            .Reserved = reserved } );
+            ++m_QueuedUnwaited;
         }
         m_Wake.notify_one();
         return reserved;
@@ -590,9 +654,9 @@ namespace Desert::Graphic::API::Vulkan
     VulkanFrameLoop::EnqueueUnwaited( const std::function<uint64_t()>&       reserve,
                                       std::function<std::string( uint64_t )> submit ) noexcept
     {
-        // No t_OnSubmitThread case: nothing here waits, so the submit thread may queue behind itself. Inline
-        // there instead would overtake the uploads already queued behind the current entry, whose values are
-        // lower than one picked now.
+        // No t_OnSubmitThread case here: on that thread nothing waits (QueueUnwaited skips the depth bound), so
+        // it may queue behind itself. Inline there instead would overtake the uploads already queued behind the
+        // current entry, whose values are lower than one picked now.
         const ActiveLoopLease  lease;
         VulkanFrameLoop* const loop = lease.Get();
         if ( loop == nullptr )

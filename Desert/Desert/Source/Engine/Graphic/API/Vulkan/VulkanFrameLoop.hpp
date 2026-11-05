@@ -128,12 +128,30 @@ namespace Desert::Graphic::API::Vulkan
         // submit thread later calls submit( reserved ) after everything handed over before it. What reserve
         // hands out (the upload timeline value) is therefore in queue order, which is signal order. A non-empty
         // result of submit is the loop's failure (the next Submit / WaitSlot return it); submit must have
-        // signalled the value anyway, so no waiter hangs. Returns at once: never waits for the submit thread or
-        // the GPU, and is legal on the submit thread itself (the entry runs after the current one), and after a
-        // failed frame (the thread runs one-offs after it). Nothing queued, nothing run: no loop is registered
-        // or its thread has exited, and then every entry handed over before has run (the caller submits inline).
+        // signalled the value anyway, so no waiter hangs. Never waits for the GPU, and for the submit thread only
+        // at the depth bound below; legal on the submit thread itself (the entry runs after the current one),
+        // after a failed frame (the thread runs one-offs after it). Nothing queued, nothing run: no loop is
+        // registered or its thread has exited, and then every entry handed over before has run (the caller submits
+        // inline). THE QUEUE DEPTH BOUND (VK-SUBMIT-THREAD step 5, REVIEW R1; UE: the render thread stalls once
+        // the RHI thread falls behind): a producer that finds kMaxQueuedUnwaited unwaited entries still unrun
+        // waits in EnqueueUnwaited until the submit thread has taken one, so a loader cannot pile up thousands of
+        // uploads (and their staging copies) behind a present. Never on the submit thread itself (it would wait
+        // for itself; its own uploads are bounded by the entry it runs), and never once the thread has exited.
         static std::optional<uint64_t> EnqueueUnwaited( const std::function<uint64_t()>&       reserve,
                                                         std::function<std::string( uint64_t )> submit ) noexcept;
+        static constexpr uint32_t      kMaxQueuedUnwaited = 64;
+
+        // True on the loop's submit thread (ThreadMain and everything it runs), false on every other thread.
+        [[nodiscard]] static bool OnSubmitThread() noexcept;
+        // A WAIT ISSUED ON THE SUBMIT THREAD ITSELF IS ANSWERED INLINE (VK-SUBMIT-THREAD step 5, REVIEW G1; UE:
+        // a wait on the RHI thread executes the pending commands rather than waiting for them). On the submit
+        // thread, while @p reached is false, the entries queued behind the one it runs are run here, in order,
+        // inside that entry; true once @p reached holds. False: not on the submit thread, or the queue ran empty
+        // first (what the caller waits for was never handed over, so it must refuse rather than wait forever).
+        // The entries run here count as handled when the entry that called this ends, so no waiter on one of
+        // them returns before it. @p reached runs under the hand-off lock: an atomic read, no lock. Never from
+        // a frame entry (the frame's storage is in use): callers are one-off waits (a release, a readback).
+        static bool AnswerOnSubmitThread( const std::function<bool()>& reached ) noexcept;
 
         VulkanRdgQueueObjects& GetQueueObjects()
         {
@@ -169,6 +187,12 @@ namespace Desert::Graphic::API::Vulkan
         };
 
         void ThreadMain();
+        // One queued entry, on the submit thread (ThreadMain, RunInlineUntil): a release, a blocking or an
+        // unwaited one-off, or a slot's frame. Empty on success, else the failure Submit / WaitSlot return next.
+        std::string RunEntry( QueuedWork& work, bool earlierFailed ) noexcept;
+        // AnswerOnSubmitThread on this loop: runs the queue's front entries until @p reached or the queue is
+        // empty.
+        bool RunInlineUntil( const std::function<bool()>& reached ) noexcept;
         // The submit thread's half of one frame: the submission, then the present (or, when the submission
         // failed, the present given up). Empty on success, else the failure Submit / WaitSlot return next.
         std::string RunFrame( uint32_t slot, bool earlierFailed );
@@ -219,6 +243,11 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<uint64_t>   m_SlotTicket;
         uint64_t                m_NextTicket    = 0;
         uint64_t                m_HandledTicket = 0;
+        // The newest ticket RunInlineUntil ran inside the entry ThreadMain runs; published into m_HandledTicket
+        // when that entry ends (the inline ones come after it in the queue, so all of them are handled then).
+        uint64_t m_InlineHandledTicket = 0;
+        // Unwaited entries queued and not yet taken by the submit thread (the depth bound, kMaxQueuedUnwaited).
+        uint32_t                m_QueuedUnwaited = 0;
         std::string             m_Failure; // the first failure the submit thread met; empty while none
         bool                    m_Stop = false;
         // Set by the submit thread as it returns, under m_Mutex and only with m_Queue empty: from then on

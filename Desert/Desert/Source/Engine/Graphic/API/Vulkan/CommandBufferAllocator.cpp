@@ -5,6 +5,7 @@
 
 #include <Common/Core/Profiler.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <format>
 #include <mutex>
@@ -46,8 +47,11 @@ namespace Desert::Graphic::API::Vulkan
 
     CommandBufferAllocator::UploadSyncPoint CommandBufferAllocator::NewestUploadSync() const
     {
+        // A reader on another queue waits this value ON THE GPU: an unsignalled one (m_UnsignalledUploadValues)
+        // would be a wait nothing ends, so it waits the value below it, which orders it after the same uploads.
         return UploadSyncPoint{ .Timeline = m_UploadTimeline,
-                                .Value    = m_UploadSubmittedValue.load( std::memory_order_acquire ) };
+                                .Value =
+                                     SignalTarget( m_UploadSubmittedValue.load( std::memory_order_acquire ) ) };
     }
 
     Common::ResultStr<VkCommandBuffer> CommandBufferAllocator::AllocateOneShot( uint32_t family, bool begin )
@@ -416,11 +420,20 @@ namespace Desert::Graphic::API::Vulkan
             }
             if ( signalled != VK_SUCCESS )
             {
-                // A lost device ends every host wait on it in finite time; any other result is logged by name.
+                // NOTHING WILL SIGNAL IT NOW (REVIEW G2): on a device that is not lost (an out-of-memory) the
+                // timeline would stay below it, and every wait on it (a holder's, Destroy's UINT64_MAX wait, a
+                // reader on another queue) would never end. Its buffer never ran and every upload before it is
+                // ordered ahead of it, so it is marked DONE ONCE THE VALUE BELOW IT IS
+                // (m_UnsignalledUploadValues), recorded before it is published; logged once, here.
                 (void)NoteIfDeviceLost( signalled, "vkSignalSemaphore", __FILE__, __LINE__ );
-                LOG_ERROR(
-                     "[CommandBuffers] the refused upload's value {} could not be signalled from the host: {}",
-                     value, VkResultToString( signalled ) );
+                {
+                    const std::scoped_lock ordered( m_UploadSubmitMutex );
+                    m_UnsignalledUploadValues.push_back( value );
+                    m_AnyUnsignalled.store( true, std::memory_order_release );
+                }
+                LOG_ERROR( "[CommandBuffers] the refused upload's value {} could not be signalled from the host: "
+                           "{}; it counts as reached once value {} is, so no wait hangs on it.",
+                           value, VkResultToString( signalled ), value - 1 );
             }
         }
         PublishUploadValue( value );
@@ -469,18 +482,85 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t completed = 0;
         if ( vkGetSemaphoreCounterValue( m_LogicalDevice, m_UploadTimeline, &completed ) != VK_SUCCESS )
             return 0;
+        // An unsignalled value right above the reached one is done as well (m_UnsignalledUploadValues): carried.
+        if ( m_AnyUnsignalled.load( std::memory_order_acquire ) )
+        {
+            const std::scoped_lock ordered( m_UploadSubmitMutex );
+            while ( std::binary_search( m_UnsignalledUploadValues.begin(), m_UnsignalledUploadValues.end(),
+                                        completed + 1 ) )
+                ++completed;
+        }
         return completed;
+    }
+
+    uint64_t CommandBufferAllocator::SignalTarget( uint64_t value ) const noexcept
+    {
+        if ( !m_AnyUnsignalled.load( std::memory_order_acquire ) )
+            return value;
+        const std::scoped_lock ordered( m_UploadSubmitMutex );
+        while ( value != 0 &&
+                std::binary_search( m_UnsignalledUploadValues.begin(), m_UnsignalledUploadValues.end(), value ) )
+            --value;
+        return value;
     }
 
     VkResult CommandBufferAllocator::WaitUploadValue( const uint64_t value ) const noexcept
     {
-        const VkSemaphoreWaitInfo wait{ .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-                                        .pNext          = nullptr,
-                                        .flags          = 0,
-                                        .semaphoreCount = 1,
-                                        .pSemaphores    = &m_UploadTimeline,
-                                        .pValues        = &value };
-        return vkWaitSemaphores( m_LogicalDevice, &wait, UINT64_MAX );
+        // IN SLICES, NOT ONE UINT64_MAX WAIT (REVIEW G2): a wait that began on a value whose host signal then
+        // failed would never end; each slice re-reads the target, so it ends on the value below once the
+        // failure is recorded. A steady wait ends on the signal, inside its first slice.
+        for ( ;; )
+        {
+            const uint64_t target = SignalTarget( value );
+            if ( target == 0 )
+                return VK_SUCCESS; // the timeline starts reached at 0
+            const VkSemaphoreWaitInfo wait{ .sType          = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+                                            .pNext          = nullptr,
+                                            .flags          = 0,
+                                            .semaphoreCount = 1,
+                                            .pSemaphores    = &m_UploadTimeline,
+                                            .pValues        = &target };
+            const VkResult            waited = vkWaitSemaphores( m_LogicalDevice, &wait, kUploadWaitSliceNs );
+            if ( waited != VK_TIMEOUT )
+                return waited;
+            // A loss the driver has not reported to this wait yet but another call latched ends it as well.
+            if ( !Graphic::DeviceLost::AllowWork() )
+                return VK_ERROR_DEVICE_LOST;
+        }
+    }
+
+    bool CommandBufferAllocator::AnswerQueuedOnSubmitThread( const uint64_t value ) noexcept
+    {
+        const auto published = [this, value]() noexcept -> bool
+        { return m_UploadSubmittedValue.load( std::memory_order_acquire ) >= value; };
+        if ( !VulkanFrameLoop::OnSubmitThread() || published() )
+            return true;
+        // ON THE SUBMIT THREAD, NOT YET SUBMITTED: queued behind the entry this thread runs, and only this thread
+        // will ever submit it. It runs the queue up to it here (UE: a wait on the RHI thread executes the
+        // pending commands); the value is published there, and the host wait that follows ends on the GPU.
+        if ( VulkanFrameLoop::AnswerOnSubmitThread( published ) )
+            return true;
+        if ( !m_SelfWaitRefusalLogged.exchange( true, std::memory_order_relaxed ) )
+            LOG_ERROR( "[CommandBuffers] the submit thread waited for upload timeline value {}, which is neither "
+                       "submitted nor queued behind it: the wait is refused (it would never end) and its one-off "
+                       "buffer is left to its pool. Logged once.",
+                       value );
+        return false;
+    }
+
+    Common::BoolResultStr CommandBufferAllocator::WaitComplete( const Submitted& submitted )
+    {
+        if ( !AnswerQueuedOnSubmitThread( submitted.Value ) )
+            return Common::MakeFormattedError<bool>( "upload timeline value {} was waited on the submit thread, "
+                                                     "which cannot reach it; refused rather than waited forever",
+                                                     submitted.Value );
+        if ( const VkResult waited = WaitUploadValue( submitted.Value ); waited != VK_SUCCESS )
+        {
+            (void)NoteIfDeviceLost( waited, "vkWaitSemaphores", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "the wait for upload timeline value {} failed: {}",
+                                                     submitted.Value, VkResultToString( waited ) );
+        }
+        return BOOLSUCCESS;
     }
 
     bool CommandBufferAllocator::IsComplete( const Submitted& submitted ) const
@@ -507,8 +587,11 @@ namespace Desert::Graphic::API::Vulkan
         // The buffer may still be queued or executing only if the caller gives up early (teardown) or waits on
         // purpose (VulkanGpuBatch::Wait); waiting the value here is what makes releasing it legal. A value still
         // queued is waited as well: a host wait before its signal is submitted is legal for a timeline, and the
-        // submit thread signals it without this thread (never call this ON that thread for a submission queued
-        // behind the entry it runs).
+        // submit thread signals it without this thread. ON that thread, a submission queued behind the entry it
+        // runs is submitted here first (AnswerQueuedOnSubmitThread); one it cannot reach is refused (logged
+        // once) and its buffer left to the pool rather than freed while it might still be submitted.
+        if ( !AnswerQueuedOnSubmitThread( submitted.Value ) )
+            return;
         VK_CHECK_RESULT( WaitUploadValue( submitted.Value ) );
         ReleaseOneShot( *submitted.Pool, submitted.Buffer );
     }
