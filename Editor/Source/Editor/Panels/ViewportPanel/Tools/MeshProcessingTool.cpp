@@ -116,7 +116,7 @@ namespace Desert::Editor::Tools
             out.Mesh = std::move( merged.ExtractValue().Mesh );
             out.Report =
                  std::format( "Pattern ({}): {} copies", Geometry::ToString( settings.Shape ), parts.size() );
-            return out;
+            return Common::MakeSuccess( std::move( out ) );
         }
 
         // UE UMeshSpaceDeformerTool::Setup: the gizmo on the mesh's bounds centre, its Z (the deformation axis)
