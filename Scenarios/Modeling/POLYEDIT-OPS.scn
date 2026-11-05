@@ -1,10 +1,12 @@
 # POLYEDIT-OPS: on a 100 cm Box (base pivot, 0..100 in Y) - Insert Edge Loop, Extrude, Inset, Bevel, each one undo step; four Undo give the original Box
 # Edge picks aim the viewport centre at a box edge (P15B); face picks look almost straight down at the top.
 Дано run Panel "Open Modeling"
-Дано run View "View mode: Wireframe"
+Дано run View "View mode: Lit"
 Дано --subject modeling set CreateShape.Box.Width 100
 Дано --subject modeling set CreateShape.Box.Depth 100
 Дано --subject modeling set CreateShape.Box.Height 100
+Дано --subject viewport set Camera.Position 220,260,320
+Дано --subject viewport set Camera.Direction -0.5,-0.45,-0.74
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 0,0,0
@@ -39,4 +41,4 @@
 Когда run Action Undo
 Когда run Action Undo
 Когда run Action Undo
-Тогда-вид 3_undo4 the plain 100 cm box again in its original wireframe: no loop, no extrusion, no inset, no bevel
+Тогда-вид 3_undo4 the plain 100 cm box again as before: no loop, no extrusion, no inset, no bevel

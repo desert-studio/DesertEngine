@@ -14,6 +14,8 @@
 Дано run Modeling "Create shape tool: Sphere"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Translation 40,60,40
+Дано run Modeling "Active tool: Accept"
+Дано --subject viewport set Camera.Position 150,190,180
 Дано run Entity Box
 Дано run Entity "Add to selection Sphere"
 Дано run Modeling "Boolean operation: Difference A - B"
