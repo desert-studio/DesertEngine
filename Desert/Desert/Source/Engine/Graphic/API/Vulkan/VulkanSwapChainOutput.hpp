@@ -4,7 +4,10 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 
 #include <vulkan/vulkan.h>
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
+#include <optional>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
@@ -52,8 +55,18 @@ namespace Desert::Graphic::API::Vulkan
         // The current frame slot's wait (the acquired image, at the stage the back buffer is first written)
         // and signal (render complete, waited by Present).
         [[nodiscard]] VulkanFrameOutput GetFrameOutput() const;
-        // Presents the held image and gives it up; a frame that holds none has nothing to present.
+        // Presents the held image now, on the calling thread (VulkanSwapChain::Present), after everything handed
+        // to the submit thread; a frame that holds none has nothing to present.
         void Present();
+        // THE HAND-OFF'S HALF (VulkanFrameLoop::Submit, on the frame's thread): gives the held image up to the
+        // submit thread, which presents it after the frame's submission. None when no image is held.
+        [[nodiscard]] std::optional<VulkanPresentRequest> TakePresent();
+        // ON THE SUBMIT THREAD: presents a taken image, waiting the request's RenderComplete. Counted as issued
+        // however it ends, so the next AcquireImage never waits for it forever.
+        void Present( const VulkanPresentRequest& request );
+        // ON THE SUBMIT THREAD: a taken image whose frame was not submitted (nothing signals RenderComplete) is
+        // not presented; it is counted as issued (the run ends on the failure that caused it).
+        void AbandonPresent( const VulkanPresentRequest& request );
 
         Common::ResultStr<VkResult> Init();
 
@@ -79,5 +92,13 @@ namespace Desert::Graphic::API::Vulkan
         };
 
         std::vector<Semaphores> m_FrameSemaphores;
+
+        // THE SWAPCHAIN'S EXTERNAL SYNCHRONISATION (vkAcquireNextImageKHR on the frame's thread, vkQueuePresentKHR
+        // on the submit thread): both hold m_PresentMutex, and an acquire first waits until every taken image
+        // was presented (m_PresentsIssued == m_PresentsTaken). A rebuild runs with the submit thread drained.
+        std::mutex              m_PresentMutex;
+        std::condition_variable m_PresentIssued;
+        uint64_t                m_PresentsTaken  = 0; // under m_PresentMutex
+        uint64_t                m_PresentsIssued = 0; // under m_PresentMutex
     };
 } // namespace Desert::Graphic::API::Vulkan

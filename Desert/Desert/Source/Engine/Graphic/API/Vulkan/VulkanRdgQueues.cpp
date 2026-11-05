@@ -70,7 +70,9 @@ namespace Desert::Graphic::API::Vulkan
         Slot& frameSlot = m_Slots[m_Slot];
         for ( PipePool& pipe : frameSlot.Pipes )
         {
-            if ( pipe.Pool == VK_NULL_HANDLE )
+            // A pool none of whose buffers was begun since its last reset holds only initial-state buffers:
+            // resetting it again is a driver call that changes nothing (VK-SUBMIT-THREAD).
+            if ( pipe.Pool == VK_NULL_HANDLE || pipe.Used == 0 )
                 continue;
             const VkResult reset = vkResetCommandPool( m_Device, pipe.Pool, 0 );
             if ( reset != VK_SUCCESS )
@@ -82,6 +84,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( PipePool& arena : arenas )
             {
+                if ( arena.Used == 0 )
+                    continue; // nothing begun from it since its last reset (the rule above)
                 const VkResult reset = vkResetCommandPool( m_Device, arena.Pool, 0 );
                 if ( reset != VK_SUCCESS )
                     return Common::MakeError( std::format(

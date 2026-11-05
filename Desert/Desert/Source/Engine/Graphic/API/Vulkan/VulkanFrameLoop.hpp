@@ -5,13 +5,21 @@
 
 #include <vulkan/vulkan.h>
 
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <optional>
 #include <span>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
+    class VulkanSwapChainOutput;
+
     // What a window adds to a frame (VulkanSwapChainOutput::GetFrameOutput): the first Graphics submission at or
     // after FirstEntryAfterAcquire waits ImageAcquired at ImageFirstUse — the stage the back buffer is first
     // written — and the frame's last submission signals RenderComplete, which the output's present waits. The
@@ -27,6 +35,16 @@ namespace Desert::Graphic::API::Vulkan
         size_t FirstEntryAfterAcquire = 0;
     };
 
+    // A frame's present as the submit thread runs it (VK-SUBMIT-THREAD), captured on the frame's own thread at
+    // the hand-off (VulkanSwapChainOutput::TakePresent): the image index and the semaphore the present waits
+    // are the frame's, so the submit thread reads nothing the next frame's acquire changes.
+    struct VulkanPresentRequest
+    {
+        VulkanSwapChainOutput* Output         = nullptr;
+        uint32_t               ImageIndex     = 0;
+        VkSemaphore            RenderComplete = VK_NULL_HANDLE;
+    };
+
     // THE FRAME'S ONE SUBMISSION PATH, owned by the frame loop and not by a window. Per frame slot: the fence the
     // slot's last submission signals, and the slot's graph objects (VulkanRdgQueueObjects: command pools and
     // semaphores). Every frame is begun here (BeginSlot), submitted here (Submit) and waited here (WaitSlot); a
@@ -34,6 +52,22 @@ namespace Desert::Graphic::API::Vulkan
     // frame. CPU/GPU sync is the slot fence, never a device-wide wait.
     // Never: begin a slot's objects before its fence was waited; submit a frame whose last entry is not its
     // graphics tail; reset a slot fence anywhere but immediately before the submission that signals it.
+    //
+    // THE SUBMIT THREAD (VK-SUBMIT-THREAD; UE 5.x: the RHI submission thread). The frame's thread does not call
+    // vkQueueSubmit or vkQueuePresentKHR: Submit hands the slot's finished frame (its submissions, the window's
+    // output and the captured present) to one thread the loop owns, and returns. That thread submits and
+    // presents in hand-off order, and runs the releases the frame threads deferred to it (DeferRelease). The
+    // rules that keep it correct:
+    //   - a slot's fence is waited (WaitSlot) only after the thread has submitted the slot's last frame, so the
+    //     wait never returns on the fence of the frame before (the reset happens on the submit thread);
+    //   - every VkQueue call still goes through the device's queue lock (VulkanLogicalDevice::SubmitToQueue,
+    //     PresentToQueue), so a queue is used by one thread at a time whichever thread that is;
+    //   - the swapchain is externally synchronised between the frame thread's acquire and this thread's
+    //     present by VulkanSwapChainOutput (an acquire waits until the previous present was issued);
+    //   - a failure the thread meets is kept and returned by the next Submit / WaitSlot (the run ends there),
+    //     a lost device by the DeviceLost latch; nothing waits forever on a frame that was never submitted;
+    //   - a swapchain rebuild, a device-idle wait and the teardown drain the thread first (Drain, and
+    //     DrainSubmitThread from VulkanLogicalDevice::WaitIdle), and the destructor joins it.
     class VulkanFrameLoop
     {
     public:
@@ -46,15 +80,32 @@ namespace Desert::Graphic::API::Vulkan
         // Waits for the slot's previous frame, then begins the slot's graph objects (their command buffers and
         // semaphores become reusable).
         Common::BoolResultStr BeginSlot( uint32_t slot );
-        // Submits the frame IN ORDER (RDG-CONTRACTS B(3)): the frame command buffer split at every graph and the
-        // graphs' segment submissions. The last entry (the frame's graphics tail) signals the slot fence, which
-        // covers every AsyncCompute entry too (each one is joined by a later Graphics entry). With @p output, the
-        // first Graphics entry from output->FirstEntryAfterAcquire on also waits for the acquired image and the
-        // last one signals render-complete.
-        Common::BoolResultStr Submit( uint32_t slot, std::span<const VulkanRdgSubmission> frame,
-                                      const VulkanFrameOutput* output );
-        // Waits for the slot's last submitted frame (a slot never submitted is signalled).
+        // HANDS THE FRAME TO THE SUBMIT THREAD, which submits it IN ORDER (RDG-CONTRACTS B(3)): the frame command
+        // buffer split at every graph and the graphs' segment submissions. The last entry (the frame's graphics
+        // tail) signals the slot fence, which covers every AsyncCompute entry too (each one is joined by a later
+        // Graphics entry). With @p output, the first Graphics entry from output->FirstEntryAfterAcquire on also
+        // waits for the acquired image and the last one signals render-complete; with @p presentTo as well, the
+        // held image is taken (VulkanSwapChainOutput::TakePresent) and the thread presents it after the submit.
+        // @p frame is swapped with the slot's storage and comes back empty with the capacity of an earlier
+        // frame, so a steady frame allocates nothing. Refused (nothing handed over, the image still held) on a
+        // lost device, a malformed frame or a failure the thread met on an earlier frame.
+        Common::BoolResultStr Submit( uint32_t slot, std::vector<VulkanRdgSubmission>& frame,
+                                      const VulkanFrameOutput* output, VulkanSwapChainOutput* presentTo );
+        // Waits for the slot's last frame: first until the submit thread has submitted it, then its fence (a
+        // slot never submitted is signalled).
         Common::BoolResultStr WaitSlot( uint32_t slot );
+        // Returns once the submit thread has run everything handed to it before the call (frames, presents,
+        // deferred releases). Not a device wait: the GPU may still be executing the frames.
+        void Drain();
+
+        // THE PROCESS'S SUBMIT THREAD, for code that cannot reach the frame loop (one VkDevice, one loop):
+        // VulkanLogicalDevice::WaitIdle and the swapchain rebuild drain it. A no-op with no loop running, and
+        // on the submit thread itself.
+        static void DrainSubmitThread();
+        // Runs @p release on the submit thread after everything handed to it so far: for destruction a frame
+        // thread has proven safe (the resources' last frame's fence was waited) but should not pay for
+        // (vkDestroy*, vmaFreeMemory). Inline when no loop runs or it is stopping.
+        static void DeferRelease( std::function<void()> release );
 
         VulkanRdgQueueObjects& GetQueueObjects()
         {
@@ -62,8 +113,41 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
-        // One frame entry as Submit hands it to vkQueueSubmit: the entry's waits and signals plus the window's
-        // and the uploads' (Submit), with the timeline info that points into them.
+        // One slot's frame as the submit thread runs it. Written by the frame thread at Submit and read by the
+        // submit thread until the hand-off's ticket is handled; the slot is not handed over again before that
+        // (BeginSlot -> WaitSlot, and Submit waits it as well), so the two never touch it at once.
+        struct SlotWork
+        {
+            std::vector<VulkanRdgSubmission>    Frame;
+            std::optional<VulkanFrameOutput>    Output;
+            std::optional<VulkanPresentRequest> Present;
+            // CommandBufferAllocator::NewestUploadSync at the hand-off (ExecuteFrame says why).
+            VkSemaphore UploadTimeline = VK_NULL_HANDLE;
+            uint64_t    UploadValue    = 0;
+        };
+        // One entry of the submit thread's queue, in hand-off order: a slot's frame, or a deferred release.
+        struct QueuedWork
+        {
+            uint64_t              Ticket = 0;
+            uint32_t              Slot   = 0;
+            std::function<void()> Release; // set: a DeferRelease entry; empty: the slot's frame
+        };
+
+        void ThreadMain();
+        // The submit thread's half of one frame: the submission, then the present (or, when the submission
+        // failed, the present given up). Empty on success, else the failure Submit / WaitSlot return next.
+        std::string RunFrame( uint32_t slot, bool earlierFailed );
+        // vkResetFences + vkQueueSubmit of one frame, on the submit thread.
+        Common::BoolResultStr ExecuteFrame( uint32_t slot, const SlotWork& work );
+        // Under m_Mutex (@p lock): returns once the submit thread has handled @p ticket.
+        void WaitHandled( std::unique_lock<std::mutex>& lock, uint64_t ticket );
+        // Queues @p release unless the thread is stopping; false: the caller runs it.
+        bool EnqueueRelease( std::function<void()>& release );
+        // Drains and joins the submit thread (the destructor; idempotent).
+        void Stop();
+
+        // One frame entry as vkQueueSubmit gets it (ExecuteFrame): the entry's waits and signals plus the window's
+        // and the uploads', with the timeline info that points into them.
         struct PreparedSubmission
         {
             VkQueue                           Queue = VK_NULL_HANDLE;
@@ -79,8 +163,23 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice              m_Device = VK_NULL_HANDLE;
         VulkanRdgQueueObjects m_QueueObjects;
         std::vector<VkFence>  m_Fences; // per slot; VK_NULL_HANDLE when its creation failed (refused by name)
-        // Submit's per-frame storage, kept across frames so a steady frame allocates nothing to submit.
+        // ExecuteFrame's per-frame storage, kept across frames so a steady frame allocates nothing to submit.
+        // The submit thread's alone.
         std::vector<PreparedSubmission> m_Prepared;
         std::vector<VkSubmitInfo>       m_SubmitInfos;
+        std::vector<SlotWork>           m_Work; // per slot
+
+        // THE HAND-OFF, all of it under m_Mutex. Tickets number the queue's entries from 1; m_HandledTicket is
+        // the last one the thread finished, m_SlotTicket the ticket of each slot's last frame.
+        std::mutex              m_Mutex;
+        std::condition_variable m_Wake;    // the submit thread: work arrived, or stop
+        std::condition_variable m_Handled; // the frame threads: a ticket was handled
+        std::deque<QueuedWork>  m_Queue;
+        std::vector<uint64_t>   m_SlotTicket;
+        uint64_t                m_NextTicket    = 0;
+        uint64_t                m_HandledTicket = 0;
+        std::string             m_Failure; // the first failure the submit thread met; empty while none
+        bool                    m_Stop = false;
+        std::thread             m_Thread; // declared last: started once everything above exists
     };
 } // namespace Desert::Graphic::API::Vulkan

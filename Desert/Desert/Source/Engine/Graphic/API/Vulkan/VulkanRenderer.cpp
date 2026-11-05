@@ -56,6 +56,9 @@ namespace Desert::Graphic::API::Vulkan
     }
     void VulkanRendererAPI::Shutdown()
     {
+        // Everything handed to the submit thread is out before anything it names is released.
+        if ( m_FrameLoop )
+            m_FrameLoop->Drain();
 #if DESERT_DEV_INSTRUMENTS
         m_GpuProfiler.Shutdown();
 #endif
@@ -279,23 +282,26 @@ namespace Desert::Graphic::API::Vulkan
             frameOutput->FirstEntryAfterAcquire = RecordingSlot().BackBufferFirstEntry;
         }
         {
-            DESERT_PROFILE_SCOPE( "Vulkan: frame submit" );
+            // THE HAND-OFF (VK-SUBMIT-THREAD): the frame's submissions, its output and its held image go to the
+            // frame loop's submit thread, which submits and presents them; this thread takes the next frame.
+            DESERT_PROFILE_SCOPE( "Vulkan: frame hand-off" );
             const VulkanFrameOutput* const presentTo = frameOutput ? &*frameOutput : nullptr;
             const Common::BoolResultStr    submitted =
-                 m_FrameLoop->Submit( slot, RecordingSlot().Submissions, presentTo );
+                 m_FrameLoop->Submit( slot, RecordingSlot().Submissions, presentTo, output );
             RecordingSlot().Submissions.clear();
             RecordingSlot().BackBufferFirstEntry = 0;
             if ( !submitted )
                 return Common::MakeError( submitted.GetError() );
         }
 
-        // With an output, present (a frame holding no image presents nothing: Present returns). Without one the
-        // frame is synchronous: THIS slot's fence is waited, so the caller may read back what the frame wrote
-        // (EngineHost) -- the slot's fence, not the device.
-        if ( output != nullptr )
-            output->Present();
-        else if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
-            return Common::MakeFormattedError<bool>( "the frame's slot: {}", waited.GetError() );
+        // Without an output the frame is synchronous: THIS slot's fence is waited (once the submit thread has
+        // submitted it), so the caller may read back what the frame wrote (EngineHost) -- the slot's fence, not
+        // the device. With one, the submit thread presents (a frame holding no image presents nothing).
+        if ( output == nullptr )
+        {
+            if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
+                return Common::MakeFormattedError<bool>( "the frame's slot: {}", waited.GetError() );
+        }
 
         // The submit and the present are where an asynchronous loss surfaces. Saying so HERE, in this
         // frame's own result, is what carries it up to Application::Run -- and nothing below (a fence wait,
@@ -2216,13 +2222,21 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgQueues.ComputeFamily  = computeFamily;
             m_RdgQueues.Objects        = &m_FrameLoop->GetQueueObjects();
         }
+        // EACH STAGE A ROW (VK-SUBMIT-THREAD): "Vulkan: begin RDG frame" measured 0.22-0.25 ms on the field turn
+        // with no row under it, so the profile names which stage it is.
+        DESERT_PROFILE_PHASES( stages );
+        DESERT_PROFILE_PHASE( stages, "RDG frame: slot fence + command pools" );
         // The slot's fence FIRST: every object begun below may still be in use by the slot's previous frame.
         const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( Common::BoolResultStr begun = m_FrameLoop->BeginSlot( slot ); !begun )
             return begun;
+        DESERT_PROFILE_PHASE( stages, "RDG frame: physical pool" );
         m_RdgPool->BeginFrame();
+        DESERT_PROFILE_PHASE( stages, "RDG frame: transient heaps" );
         m_RdgTransients->BeginFrameSlot( slot );
+        DESERT_PROFILE_PHASE( stages, "RDG frame: pass descriptors" );
         m_RdgDescriptors->BeginFrameSlot( slot );
+        DESERT_PROFILE_PHASE( stages, "RDG frame: backend" );
         return m_RdgBackend->BeginFrame( slot, m_RdgQueues, *m_RdgTransients, *m_RdgDescriptors );
     }
 
