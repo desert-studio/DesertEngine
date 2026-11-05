@@ -46,6 +46,7 @@
 #include <map>
 #include <regex>
 #include <string>
+#include <cstdio>
 #include <unordered_map>
 #include <string_view>
 #include <unordered_set>
@@ -254,6 +255,7 @@ namespace Desert::Editor::Tools
         wanted.Kind          = Assets::Serialization::FoliageTypeKind::Prefab;
         wanted.Prefab        = Assets::AssetGuidRef{ guid.GetValue(), relative };
         wanted.IncludeInHLOD = false; // kFoliagePrefabMeshOnlyReason
+        wanted.Collision.Enabled = false; // the prefab's own colliders collide
         const auto file      = Assets::Serialization::FindOrCreateFoliageTypeFile(
              Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted,
              std::filesystem::path( prefabPath ).stem().string() );
@@ -599,6 +601,43 @@ namespace Desert::Editor::Tools
             if ( prefabType && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
                 ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
             Row::EndPropertyRow();
+        }
+        // UE's Details put the BodyInstance under Collision (FOLIAGE-COLLISION): the bodies are built per cell in
+        // Play (ECS::FoliageCollision), from this type's mesh, under this profile.
+        if ( Row::SectionHeader( "Collision" ) )
+        {
+            Row::BeginPropertyRow( "Collision Enabled", "The instances block what their profile blocks" );
+            ImGui::BeginDisabled( prefabType );
+            commit = ImGui::Checkbox( "##CollisionEnabled", &f.Collision.Enabled ) || commit;
+            ImGui::EndDisabled();
+            if ( prefabType && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
+            Row::EndPropertyRow();
+
+            ImGui::BeginDisabled( prefabType || !f.Collision.Enabled );
+            Row::BeginPropertyRow( "Collision Profile", "A profile of the project's Config/CollisionProfiles.json" );
+            char profile[128] = {};
+            std::snprintf( profile, sizeof( profile ), "%s", f.Collision.Profile.c_str() );
+            if ( ImGui::InputText( "##CollisionProfile", profile, sizeof( profile ),
+                                   ImGuiInputTextFlags_EnterReturnsTrue ) &&
+                 profile[0] != '\0' )
+            {
+                f.Collision.Profile = profile;
+                commit              = true;
+            }
+            Row::EndPropertyRow();
+
+            Row::BeginPropertyRow( "Collision Shape",
+                                   "Mesh: the render triangles (a trunk is a trunk). Convex Hull: the hull of the "
+                                   "mesh's points, cheaper, and solid under a canopy" );
+            int shape = static_cast<int>( f.Collision.Shape );
+            if ( ImGui::Combo( "##CollisionShape", &shape, "Mesh\0Convex Hull\0" ) )
+            {
+                f.Collision.Shape = static_cast<Assets::Serialization::FoliageCollisionShape>( shape );
+                commit            = true;
+            }
+            Row::EndPropertyRow();
+            ImGui::EndDisabled();
         }
         s_Editing = active;
 

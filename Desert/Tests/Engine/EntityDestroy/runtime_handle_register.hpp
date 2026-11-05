@@ -147,6 +147,11 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
+         { "Desert/Desert/Source/Engine/ECS/System/FoliageCollision.hpp", "m_Bodies", Release::Listener,
+           "Desert/Desert/Source/Engine/ECS/System/FoliageCollision.cpp",
+           "on_destroy<FoliageComponent>().connect",
+           "the foliage field's static compound Jolt body (FOLIAGE-COLLISION); Sync also drops fields whose type "
+           "stopped colliding" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Systems",
            Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp",
            "RetireDestroyedEmitters( m_Systems, reg )",
