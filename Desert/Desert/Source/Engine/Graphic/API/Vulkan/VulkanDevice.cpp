@@ -1,4 +1,5 @@
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp> // WaitIdle drains the submit thread
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
@@ -383,6 +384,10 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanLogicalDevice::WaitIdle() const
     {
+        // THE FRAMES HANDED TO THE SUBMIT THREAD ARE DEVICE WORK TOO (VK-SUBMIT-THREAD): drained first, and
+        // before the queue lock, which that thread needs to submit them. Also on a lost device: a present still
+        // running there must be out before the swapchain release that follows this call.
+        VulkanFrameLoop::DrainSubmitThread();
         // Nothing can be outstanding on a lost device, so this can only report the loss again. Skipping it
         // is what keeps the teardown path free of calls that add nothing but log noise.
         if ( !Graphic::DeviceLost::AllowWork() )
