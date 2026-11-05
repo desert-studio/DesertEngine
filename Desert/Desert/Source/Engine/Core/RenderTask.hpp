@@ -43,7 +43,8 @@ namespace Desert::Engine
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
      * Join: the renderer's own per-frame copies (BeginScene snapshots the camera and the world parameters; the
-     * view's job replays the recorded draws itself), never the registry, the live camera, the editor's selection
+     * view's job replays the recorded draws read-only - their intake ran at Scene::OnUpdate's fence,
+     * RenderCommand::Prepare), never the registry, the live camera, the editor's selection
      * or the OS. A pass that must read the world reads it on the game thread (ExtensionPass::Gather).
      *
      * SERIAL. Off by default — a test, a tool or a bake that drives Scene::OnUpdate itself gets the inline

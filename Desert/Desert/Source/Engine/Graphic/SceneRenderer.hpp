@@ -391,6 +391,9 @@ namespace Desert::Graphic
         // mesh draw commands before they submit, so a mesh beyond it enters no queue and no pass — lit, shadow,
         // velocity or debug — of this view. Measured from the view's main camera and stretched by its lens
         // (Graphic::IsWithinDrawDistance). maxDrawDistance <= 0, or no camera yet: drawn.
+        // GAME THREAD, at the update's fence (RenderCommand::Prepare): makes @p mesh's device buffers from its CPU
+        // geometry when they are stale. The submits below only read the result (they may run on the render task).
+        static void PrepareMesh( Mesh& mesh );
         [[nodiscard]] bool IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
                                                     float maxDrawDistance ) const;
 

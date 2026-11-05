@@ -21,7 +21,7 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitLandscapeGrass( std::move( Draw ) );
+            renderer.SubmitLandscapeGrass( Draw ); // a copy: every replay gets the whole draw (RenderCommand)
         }
     };
 } // namespace Desert::Graphic::Render

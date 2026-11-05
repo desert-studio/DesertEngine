@@ -17,7 +17,8 @@ namespace Desert::Graphic::Render
     // keeping the page memory for next frame — so steady-state frames do ZERO command allocations.
     //
     // Lifetime: command pointers stay valid until Clear() (pages are never freed/reallocated mid-frame).
-    // Usage contract: Emplace* during collection, then ExecuteAll() once, then Clear() once (between frames).
+    // Usage contract: Emplace* during collection, then PrepareAll() once on the game thread at the update's fence,
+    // then ExecuteAll() once per replay (read-only, RenderCommand), then Clear() once (between frames).
     class RenderCommandBuffer
     {
     public:
@@ -33,6 +34,15 @@ namespace Desert::Graphic::Render
             static_assert( std::is_base_of_v<RenderCommand, T>, "T must derive from RenderCommand" );
             void* mem = Allocate( sizeof( T ), alignof( T ) );
             m_Commands.push_back( new ( mem ) T( std::forward<Args>( args )... ) );
+        }
+
+        // GAME THREAD, nothing in flight that reads what the commands point at (Scene::OnUpdate's fence).
+        void PrepareAll()
+        {
+            for ( auto* cmd : m_Commands )
+            {
+                cmd->Prepare();
+            }
         }
 
         void ExecuteAll( Graphic::SceneRenderer& renderer )

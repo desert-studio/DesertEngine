@@ -20,7 +20,7 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitWaterZone( std::move( Zone ) );
+            renderer.SubmitWaterZone( Zone ); // a copy: every replay gets the whole zone (RenderCommand)
         }
     };
 } // namespace Desert::Graphic::Render

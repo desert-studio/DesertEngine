@@ -54,6 +54,12 @@ namespace Desert::Graphic::Render
         {
         }
 
+        void Prepare() override
+        {
+            if ( Mesh != nullptr )
+                SceneRenderer::PrepareMesh( *Mesh );
+        }
+
         void Execute( SceneRenderer& renderer ) override
         {
             if ( MaterialSlots && renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
@@ -100,6 +106,12 @@ namespace Desert::Graphic::Render
                CastShadows( castShadows ), CastContactShadow( castContactShadow ), CullDistance( cullDistance ),
                Wind( wind )
         {
+        }
+
+        void Prepare() override
+        {
+            if ( Mesh != nullptr )
+                SceneRenderer::PrepareMesh( *Mesh );
         }
 
         void Execute( SceneRenderer& renderer ) override

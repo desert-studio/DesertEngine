@@ -546,6 +546,33 @@ namespace Desert::Graphic::API::Vulkan
             m_Recording->Recorder.Retract( index );
     }
 
+    namespace
+    {
+        // The resolve job's state word: (generation << 2) | phase; phase 0 = idle.
+        constexpr uint64_t kResolvePhaseMask = 3;
+        constexpr uint64_t kResolveQueued    = 1;
+        constexpr uint64_t kResolveRunning   = 2;
+
+        [[nodiscard]] constexpr uint64_t ResolveWord( const uint64_t generation, const uint64_t phase ) noexcept
+        {
+            return ( generation << 2 ) | phase;
+        }
+
+        // Queued -> Running for @p generation's job; false when it is not queued (done, running, or older).
+        [[nodiscard]] bool ClaimResolve( std::atomic<uint64_t>& state, const uint64_t generation ) noexcept
+        {
+            uint64_t expected = ResolveWord( generation, kResolveQueued );
+            return state.compare_exchange_strong( expected, ResolveWord( generation, kResolveRunning ),
+                                                  std::memory_order_acq_rel, std::memory_order_acquire );
+        }
+
+        void ReleaseResolve( std::atomic<uint64_t>& state, const uint64_t generation ) noexcept
+        {
+            state.store( ResolveWord( generation, 0 ), std::memory_order_release );
+            state.notify_all();
+        }
+    } // namespace
+
     void VulkanGpuProfiler::Resolve( FrameQueries& frame )
     {
         if ( !frame.FrameTotalWritten )
@@ -630,25 +657,43 @@ namespace Desert::Graphic::API::Vulkan
 
         // OFF THE CALLER'S PATH: the arithmetic and the samples run on a worker. Inline when the job system
         // refuses the job (not started, or stopping) - the same result, on this thread.
-        m_ResolveBusy.store( true, std::memory_order_release );
+        // THE CLAIM (REVIEW-FPS14 BUG 2; UE::Tasks retraction): the job stays Queued until a worker or a wait
+        // claims it (CAS to Running), so the next Resolve or Shutdown runs a job no worker started instead of
+        // waiting behind a long Background or Normal job. The state is shared with the job: a job that lost the
+        // claim (run inline, or the profiler is gone) touches nothing but the state.
+        ++m_ResolveGeneration;
+        const uint64_t generation = m_ResolveGeneration;
+        m_ResolveState->store( ResolveWord( generation, kResolveQueued ), std::memory_order_release );
         const bool submitted = Common::JobSystem::Get().Submit(
-             [this]() noexcept
+             [this, state = m_ResolveState, generation]() noexcept
              {
+                 if ( !ClaimResolve( *state, generation ) )
+                     return;
                  ResolveTimes();
-                 m_ResolveBusy.store( false, std::memory_order_release );
-                 m_ResolveBusy.notify_all();
+                 ReleaseResolve( *state, generation );
              },
              Common::JobPriority::Normal );
         if ( !submitted )
-        {
-            ResolveTimes();
-            m_ResolveBusy.store( false, std::memory_order_release );
-        }
+            WaitResolve(); // the job was dropped unrun: claimed and run here
     }
 
-    void VulkanGpuProfiler::WaitResolve() const noexcept
+    void VulkanGpuProfiler::WaitResolve() noexcept
     {
-        m_ResolveBusy.wait( true, std::memory_order_acquire );
+        std::atomic<uint64_t>& state = *m_ResolveState;
+        // A WAIT THAT CAN RUN THE AWAITED WORK RUNS IT: no worker took the job yet, so it is claimed and run here.
+        if ( ClaimResolve( state, m_ResolveGeneration ) )
+        {
+            ResolveTimes();
+            ReleaseResolve( state, m_ResolveGeneration );
+            return;
+        }
+        // A worker runs it: wait for that one only, never for a job still in the queue.
+        uint64_t word = state.load( std::memory_order_acquire );
+        while ( ( word & kResolvePhaseMask ) == kResolveRunning )
+        {
+            state.wait( word, std::memory_order_acquire );
+            word = state.load( std::memory_order_acquire );
+        }
     }
 
     void VulkanGpuProfiler::ResolveTimes() noexcept

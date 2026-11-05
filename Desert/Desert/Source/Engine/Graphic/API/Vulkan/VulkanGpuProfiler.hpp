@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <functional>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
@@ -158,9 +159,9 @@ namespace Desert::Graphic::API::Vulkan
         // THE RESOLVE'S HALF OFF THE CRITICAL PATH (CPU-ONE-SYNC; UE: the GPU profiler's results are processed
         // off the rendering thread). Reads only the copies Resolve took (m_ResolveWords, m_ResolveScopes,
         // m_Parents) and writes the profiler's samples (AddGpuSample: per-thread, any thread). Not reentrant:
-        // Resolve and Shutdown wait for the one in flight (m_ResolveBusy) before they touch its members.
+        // Resolve and Shutdown wait for the one in flight - or claim and run it (m_ResolveState) - first.
         void ResolveTimes() noexcept;
-        void WaitResolve() const noexcept;
+        void WaitResolve() noexcept;
         void PrepareDrawPool( FrameQueries& frame, VkCommandBuffer commandBuffer );
         void ResolveDraws( FrameQueries& frame );
         // The Unaccounted rows (Profiler.hpp, kGpuUnaccountedGraphicsScope): what of each queue's timeline no
@@ -217,8 +218,10 @@ namespace Desert::Graphic::API::Vulkan
         // ResolveDraws keeps m_ResultScratch for itself.
         std::vector<uint64_t>                        m_ResolveWords;
         std::vector<GpuScopeRecorder<uint32_t>::Scope> m_ResolveScopes;
-        // True from the Submit until ResolveTimes returned (the worker clears it and notifies).
-        std::atomic<bool> m_ResolveBusy{ false };
+        // THE RESOLVE JOB'S CLAIM (WaitResolve): (generation << 2) | idle/queued/running, shared with the job so a
+        // job that lost the claim may outlive the profiler. m_ResolveGeneration: the last submitted job's.
+        std::shared_ptr<std::atomic<uint64_t>> m_ResolveState = std::make_shared<std::atomic<uint64_t>>( 0 );
+        uint64_t                               m_ResolveGeneration = 0;
         // The last pass-order trace Resolve logged (see there); a new line only when the order changes.
         std::string m_LastLoggedOrder;
         // [GpuOrder] (CPU-ONE-SYNC): the order is compared by a hash of (depth, row id) per scope, built with no

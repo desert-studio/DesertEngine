@@ -967,6 +967,24 @@ namespace Desert::Core
         const auto&    frames         = Engine::FrameManager::GetInstance();
         const uint64_t absoluteFrame  = frames.GetAbsoluteFrameCount();
         const uint32_t framesInFlight = frames.GetMaxFramesInFlight();
+        // THE INTAKE OF THIS UPDATE'S RECORDING (CPU-ONE-SYNC step 4, REVIEW-FPS14 BUG 1; UE: a proxy's resources
+        // are initialised before the rendering thread draws it). The replays - the capture faces at the fence and
+        // every view on the render task - only read (RenderCommand::Execute); what they need from a mesh the
+        // commands point at (its device buffers, Mesh::EnsureGpuResources) is made HERE, on the game thread, at
+        // the fence: the previous frame's views that read those buffers are done, it runs before the captures
+        // below (deferred commands run in order) and before this update's first view is enqueued (that view's
+        // BeginScene joins first). Serial, or nothing in flight: it runs now.
+        {
+            const SystemCommandArena* const prepared = &arena;
+            ::Desert::Engine::RenderTask::Get().AfterJoin(
+                 [prepared]()
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Prepare recorded draws (fence)" );
+                     ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: Prepare recorded draws" );
+                     for ( const auto& buffer : *prepared )
+                         buffer->PrepareAll();
+                 } );
+        }
         {
             // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
@@ -1078,10 +1096,15 @@ namespace Desert::Core
                 //
                 // THE REPLAY IS THE JOB'S (CPU-ONE-SYNC step 3; UE: the mesh draw commands are built on the
                 // rendering thread from the proxies the game thread handed over). The recorded commands hold
-                // values and the arena is this update's one: the next update records into the other arena, and
-                // this one is cleared only behind this update's views ("Scene: CmdBuffer Clear"). What the replay
-                // writes - the renderer's per-frame draw lists - is render-owned, so it is written on the render
-                // task, after BeginScene's state and before OnUpdate reads it. Registration order - NOT
+                // values AND raw pointers to meshes and materials; the replay only READS them (RenderCommand::
+                // Execute): the one write it used to make - a stale mesh's upload - is the intake's, done at the
+                // fence above (RenderCommand::Prepare). The arena is this update's one: the next update records
+                // into the other arena, and this one is cleared only behind this update's views ("Scene: CmdBuffer
+                // Clear"). What the replay writes - the renderer's per-frame draw lists - is render-owned, so it
+                // is written on the render task, after BeginScene's state and before OnUpdate reads it. NOT HELD
+                // YET: a game-thread edit of a drawn mesh's CPU side while the job runs (MarkGpuStale from the
+                // editor's step 5) races the job's reads of that mesh (CPU-ONE-SYNC-RETURN, REMAINDER).
+                // Registration order - NOT
                 // completion order - so the frame's submission order is the old sequential path's.
                 auto* const                     renderer = &*view.Renderer;
                 const SystemCommandArena* const replayed = &arena;
