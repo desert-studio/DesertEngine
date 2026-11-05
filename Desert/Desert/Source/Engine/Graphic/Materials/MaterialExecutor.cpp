@@ -394,4 +394,39 @@ namespace Desert::Graphic
         }
         return nullptr;
     }
+
+    namespace
+    {
+        // One body for the four raw finders: the lookup hashes the view in place (PropertyNameHash) and the
+        // storage keeps the property alive, so the caller holds a plain pointer.
+        template <typename T, typename Lookup, typename Storage>
+        T* FindInLookup( const Lookup& lookup, const Storage& storage, const std::string_view name )
+        {
+            const auto it = lookup.find( name );
+            return it != lookup.end() ? storage[it->second].get() : nullptr;
+        }
+    } // namespace
+
+    UniformBufferProperty* MaterialExecutor::FindUniformBufferProperty( const std::string_view name ) const
+    {
+        return FindInLookup<UniformBufferProperty>( m_UniformBufferPropertiesLookup,
+                                                    m_UniformBufferPropertiesStorage, name );
+    }
+
+    StorageBufferProperty* MaterialExecutor::FindStorageBufferProperty( const std::string_view name ) const
+    {
+        return FindInLookup<StorageBufferProperty>( m_StorageBufferPropertiesLookup,
+                                                    m_StorageBufferPropertiesStorage, name );
+    }
+
+    Texture2DProperty* MaterialExecutor::FindTexture2DProperty( const std::string_view name ) const
+    {
+        return FindInLookup<Texture2DProperty>( m_Texture2DPropertiesLookup, m_Texture2DPropertiesStorage, name );
+    }
+
+    TextureCubeProperty* MaterialExecutor::FindTextureCubeProperty( const std::string_view name ) const
+    {
+        return FindInLookup<TextureCubeProperty>( m_TextureCubePropertiesLookup, m_TextureCubePropertiesStorage,
+                                                  name );
+    }
 } // namespace Desert::Graphic

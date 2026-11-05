@@ -191,18 +191,14 @@ namespace Desert::Graphic
         // Get for a slot the shader MAY leave out (UE's FShaderParameter::IsBound probe): null, said nowhere, when
         // the shader declares no such property. Only for a program that legitimately lacks the slot (a shadow
         // variant without the surface's blocks); a slot the shader must have goes through Get.
+        // CPU-MAT-VIEW-UB: the executor's raw finders (no shared_ptr copy - the executor owns the property) over
+        // the parameter's own name view; a std::string is built only for an array element ("<Name>[<i>]").
         template <typename T>
         T* Find( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
-            const std::string name = parameter.SlotName();
-            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
-                return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
-            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
-                return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
-            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
-                return m_MaterialExecutor->GetTexture2DProperty( name ).get();
-            else
-                return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
+            if ( parameter.Element != parameter.kWhole )
+                return FindByName<T>( parameter.SlotName() );
+            return FindByName<T>( parameter.Name );
         }
 
         // Logs once that @p name is not a property of this material's shader (Get's miss).
@@ -290,6 +286,20 @@ namespace Desert::Graphic
         std::vector<IProperty*>           m_RegisteredProperties;
 
     private:
+        // Find's lookup by the slot name, a view the caller keeps alive for the call.
+        template <typename T>
+        T* FindByName( std::string_view name ) const
+        {
+            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
+                return m_MaterialExecutor->FindUniformBufferProperty( name );
+            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
+                return m_MaterialExecutor->FindStorageBufferProperty( name );
+            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
+                return m_MaterialExecutor->FindTexture2DProperty( name );
+            else
+                return m_MaterialExecutor->FindTextureCubeProperty( name );
+        }
+
         ResourceOwnership m_Accounting;
         bool              m_TwoSided = false;
     };
