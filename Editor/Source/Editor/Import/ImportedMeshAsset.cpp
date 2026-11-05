@@ -6,6 +6,7 @@
 #include <Common/Content/ImportRecord.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/NumberText.hpp>
 
 #include "CookPaths.hpp"
 #include "ImportedAssetSource.hpp"
@@ -49,7 +50,10 @@ namespace Desert::Editor
         if ( digits.empty() || digits.size() > 3 ||
              !std::ranges::all_of( digits, []( unsigned char c ) { return std::isdigit( c ) != 0; } ) )
             return { name, 0 };
-        return { name.substr( 0, pos ), std::stoi( digits ) };
+        const std::optional<int> lod = Common::WholeIntegerFromText<int>( digits );
+        if ( !lod )
+            return { name, 0 };
+        return { name.substr( 0, pos ), *lod };
     }
 
     std::string ImportedSlotName( const Ser::SubmeshData&                   submesh,

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -108,10 +110,11 @@ namespace Desert::Graphic
         ViewResources& operator=( ViewResources&& )      = delete;
 
         // This view's copy of `key` for `frameIndex`, created through `factory` the first time it is asked
-        // for. The factory must not return null: a resource that cannot make its copy has to say why through
-        // its own error path, not hand a view nothing to bind.
-        [[nodiscard]] IViewResourceCopy& Acquire( ViewResourceKey key, uint32_t frameIndex,
-                                                  IViewResourceCopyFactory& factory );
+        // for; never null on success. The factory must not return null: a resource that cannot make its copy
+        // has to say why through its own error path, not hand a view nothing to bind. An unassigned key and a
+        // null copy are refused as errors, and nothing is filed for either.
+        [[nodiscard]] Common::ResultStr<IViewResourceCopy*> Acquire( ViewResourceKey key, uint32_t frameIndex,
+                                                                     IViewResourceCopyFactory& factory );
 
         // The existing copy, or null when this view has not bound `key` in that frame slot yet.
         [[nodiscard]] IViewResourceCopy* Find( ViewResourceKey key, uint32_t frameIndex ) const;

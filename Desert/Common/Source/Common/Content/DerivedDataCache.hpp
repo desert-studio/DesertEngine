@@ -128,8 +128,9 @@ namespace Common::DDC
     // building and writing the same entry beside it. A build failure is returned to all of them; a Put
     // failure is an error too ("built but not cached", with the file system's reason), because a cache
     // that silently stays cold rebuilds on every load.
-    Common::ResultStr<std::string> GetOrBuild( const Deriver& deriver, uint64_t key,
-                                               const std::function<Common::ResultStr<std::string>()>& build );
+    Common::ResultStr<std::string>
+    GetOrBuild( const Deriver& deriver, uint64_t key,
+                const std::function<Common::ResultStr<std::string>()>& build ) noexcept;
 
     // BACKGROUND WRITERS AND A MOVING ROOT. A deriver whose builds run on worker threads (the mesh distance-field
     // queue) registers a hook here; RetireRoot() runs every hook, and each returns only when none of its work

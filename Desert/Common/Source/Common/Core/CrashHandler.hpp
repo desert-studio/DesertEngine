@@ -113,6 +113,13 @@ namespace Common::Crash
     // std::thread::id (opaque) and not the pid. Safe to call from the fault handler.
     std::uint64_t CurrentThreadId();
 
+    // THE CALLING THREAD'S STACK, ONE FRAME PER LINE ON stderr (UE: FWindowsPlatformStackWalk::
+    // StackWalkAndDump), for a fatal stop that is not a fault and so writes no report: the terminate handler
+    // (Engine/EntryPoint.hpp), whose throwing frames are still live. Windows walks with StackWalk64 over the
+    // image's unwind data and names each frame from its PDB (module+offset, function, file:line); POSIX
+    // prints backtrace_symbols_fd's lines. Needs no Install(). Not for a signal handler: it formats.
+    void PrintCallingThreadStack() noexcept;
+
     // EVERY THREAD THE ENGINE STARTS HOLDS ONE OF THESE FOR ITS WHOLE LIFE (UE's Unix pattern: each
     // FRunnableThreadPThread gives itself a crash-handling stack before it runs, and frees it when it
     // ends). On POSIX the fault handler runs on the ALTERNATE SIGNAL STACK, and that stack is per

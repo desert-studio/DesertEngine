@@ -135,9 +135,12 @@ namespace Desert::Graphic
                                                          "success and returned no sets",
                                                          view.GetName(), frameIndex );
 
-            HandOver handOver( std::move( made ) );
+            HandOver   handOver( std::move( made ) );
+            const auto filedCopy = view.Acquire( m_Key, frameIndex, handOver );
+            if ( !filedCopy.IsSuccess() )
+                return Common::MakeError<bool>( filedCopy.GetError() );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            out = static_cast<IViewDescriptorSetCopy*>( &view.Acquire( m_Key, frameIndex, handOver ) );
+            out = static_cast<IViewDescriptorSetCopy*>( filedCopy.GetValue() );
             initialize( frameIndex );
             return Common::MakeSuccess( true );
         }

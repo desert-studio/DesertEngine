@@ -1487,7 +1487,12 @@ namespace Desert::Core::Preprocess
                     if ( !run.IsCode )
                         continue;
                     for ( std::sregex_iterator it( run.Text.begin(), run.Text.end(), re ), end; it != end; ++it )
-                        used.insert( std::stoi( ( *it )[1].str() ) );
+                    {
+                        // Digits were matched, so a refusal is a number past int: no slot auto-allocation
+                        // could reach, so it occupies none.
+                        if ( const auto number = Common::WholeIntegerFromText<int>( ( *it )[1].str() ) )
+                            used.insert( *number );
+                    }
                 }
             };
             std::set<int> usedIn, usedOut, usedBind;

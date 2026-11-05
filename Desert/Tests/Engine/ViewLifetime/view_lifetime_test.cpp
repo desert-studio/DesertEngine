@@ -100,8 +100,11 @@ TEST_F( ViewLifetime, AViewPastTheOldSlotCeilingGetsCopiesOfItsOwn )
         views.push_back( Open( "view " + std::to_string( i ) ) );
     ASSERT_EQ( ViewResourceRegistry::LiveCount(), kOldSlotCeiling + 1 );
 
-    auto& mainCopy    = dynamic_cast<NamedCopy&>( views.front()->Acquire( key, 0, factory ) );
-    auto& seventhCopy = dynamic_cast<NamedCopy&>( views.back()->Acquire( key, 0, factory ) );
+    const auto mainBound    = views.front()->Acquire( key, 0, factory );
+    const auto seventhBound = views.back()->Acquire( key, 0, factory );
+    ASSERT_TRUE( mainBound.IsSuccess() && seventhBound.IsSuccess() );
+    auto& mainCopy    = dynamic_cast<NamedCopy&>( *mainBound.GetValue() );
+    auto& seventhCopy = dynamic_cast<NamedCopy&>( *seventhBound.GetValue() );
 
     EXPECT_NE( &mainCopy, &seventhCopy ) << "the seventh view shares the main viewport's copy";
     EXPECT_EQ( mainCopy.Owner, "view 0" );
