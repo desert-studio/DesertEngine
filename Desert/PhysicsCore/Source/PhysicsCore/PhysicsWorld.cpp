@@ -15,6 +15,7 @@
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/EstimateCollisionResponse.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -1323,6 +1324,97 @@ namespace Desert::Physics
             return Common::MakeError<BodyHandle>(
                  std::format( "Jolt refused the {} body: {} bodies exist, the world's limit is reached",
                               ShapeName( desc.Shape ), GetBodyCount() ) );
+        return Common::MakeSuccess( static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() ) );
+    }
+
+    Common::ResultStr<BodyHandle> PhysicsWorld::CreateInstancedStaticBody( const InstancedStaticBodyDesc& desc )
+    {
+        if ( !m_Impl )
+            return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
+        if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the instanced body" ); !profiled )
+            return Common::MakeError<BodyHandle>( profiled.GetError() );
+        if ( desc.Shape != ShapeType::Mesh && desc.Shape != ShapeType::ConvexHull )
+            return Common::MakeError<BodyHandle>( std::format(
+                 "an instanced body is cooked from its mesh (Mesh or ConvexHull), not a {}", ShapeName( desc.Shape ) ) );
+        if ( desc.MeshPoints.empty() )
+            return Common::MakeError<BodyHandle>(
+                 std::format( "{} collider has no points: its mesh has no vertices", ShapeName( desc.Shape ) ) );
+        if ( desc.Instances.empty() )
+            return Common::MakeError<BodyHandle>( "an instanced body needs at least one instance" );
+
+        // The one shape every child references, cooked once per content (CreateBody's cache).
+        BodyDesc keyed;
+        keyed.Shape       = desc.Shape;
+        keyed.MeshPoints  = desc.MeshPoints;
+        keyed.MeshIndices = desc.MeshIndices;
+        const uint64_t key = CookKey( keyed );
+        JPH::ShapeRefC source;
+        if ( const auto cached = m_Impl->CookedShapes.find( key ); cached != m_Impl->CookedShapes.end() )
+            source = cached->second;
+        else
+        {
+            auto cooked = desc.Shape == ShapeType::Mesh ? CookTriangleMesh( desc.MeshPoints, desc.MeshIndices )
+                                                        : CookConvexHull( desc.MeshPoints );
+            if ( !cooked.IsSuccess() )
+                return Common::MakeError<BodyHandle>( cooked.GetError() );
+            source = cooked.GetValue();
+            m_Impl->CookedShapes.emplace( key, source );
+        }
+
+        // The body stands at the instances' mean translation, so the children's offsets stay small floats even far
+        // from the world origin.
+        glm::dvec3 mean( 0.0 );
+        for ( const glm::mat4& m : desc.Instances )
+            mean += glm::dvec3( m[3] );
+        const glm::vec3 origin = glm::vec3( mean / static_cast<double>( desc.Instances.size() ) );
+
+        JPH::StaticCompoundShapeSettings compound;
+        // One ScaledShape per distinct scale, shared by every instance of that scale.
+        std::unordered_map<uint64_t, JPH::ShapeRefC> scaled;
+        for ( size_t i = 0; i < desc.Instances.size(); ++i )
+        {
+            const glm::mat4& m = desc.Instances[i];
+            glm::vec3 scale( glm::length( glm::vec3( m[0] ) ), glm::length( glm::vec3( m[1] ) ),
+                             glm::length( glm::vec3( m[2] ) ) );
+            if ( !( scale.x > 0.0f && scale.y > 0.0f && scale.z > 0.0f ) || !std::isfinite( scale.x + scale.y + scale.z ) )
+                return Common::MakeError<BodyHandle>( std::format(
+                     "instance {} has scale ({}, {}, {}): a collider needs a positive finite scale", i, scale.x,
+                     scale.y, scale.z ) );
+            glm::mat3 basis( glm::vec3( m[0] ) / scale.x, glm::vec3( m[1] ) / scale.y, glm::vec3( m[2] ) / scale.z );
+            if ( glm::determinant( basis ) < 0.0f ) // a mirrored instance: the mirror is the scale's, not a rotation
+            {
+                scale.x  = -scale.x;
+                basis[0] = -basis[0];
+            }
+            const glm::quat rotation = glm::normalize( glm::quat_cast( basis ) );
+
+            JPH::ShapeRefC child = source;
+            if ( glm::any( glm::greaterThan( glm::abs( scale - glm::vec3( 1.0f ) ), glm::vec3( 1e-5f ) ) ) )
+            {
+                const uint64_t scaleKey = HashBytes( 1469598103934665603ull, &scale, sizeof( scale ) );
+                auto           found    = scaled.find( scaleKey );
+                if ( found == scaled.end() )
+                    found = scaled.emplace( scaleKey, JPH::ShapeRefC( new JPH::ScaledShape( source, ToJolt( scale ) ) ) )
+                                 .first;
+                child = found->second;
+            }
+            compound.AddShape( ToJolt( glm::vec3( m[3] ) - origin ), ToJolt( rotation ), child );
+        }
+        const JPH::ShapeSettings::ShapeResult result = compound.Create( *m_Impl->TempAllocator );
+        if ( result.HasError() )
+            return Common::MakeError<BodyHandle>( std::format( "Jolt refused the compound of {} instances: {}",
+                                                               desc.Instances.size(), result.GetError() ) );
+
+        JPH::BodyCreationSettings settings( result.Get(), JPH::RVec3( origin.x, origin.y, origin.z ),
+                                            JPH::Quat::sIdentity(), JPH::EMotionType::Static,
+                                            LayerOf( desc.Profile, false ) );
+        settings.mFriction    = desc.Friction;
+        settings.mRestitution = desc.Restitution;
+        const JPH::BodyID id  = m_Impl->Bodies->CreateAndAddBody( settings, JPH::EActivation::DontActivate );
+        if ( id.IsInvalid() )
+            return Common::MakeError<BodyHandle>(
+                 std::format( "Jolt refused the instanced body: {} bodies exist, the world's limit is reached",
+                              GetBodyCount() ) );
         return Common::MakeSuccess( static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() ) );
     }
 

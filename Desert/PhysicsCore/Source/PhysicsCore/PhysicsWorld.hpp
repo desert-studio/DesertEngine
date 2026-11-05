@@ -174,6 +174,32 @@ namespace Desert::Physics
      * normal impulse it carries (Jolt EstimateCollisionResponse, summed over the manifold's points), in
      * kg·cm/s — the unit UE's damage thresholds are written in.
      */
+    /**
+     * @brief One STATIC body standing for many placements of one collision shape (UE: the FBodyInstance of each
+     * instance of a UInstancedStaticMeshComponent, built from the mesh's BodySetup). Ours is one body per
+     * foliage cell: a Jolt StaticCompoundShape whose children all reference the ONE cooked shape of the mesh,
+     * each at its instance's translation, rotation and scale. The broadphase sees one box per cell instead of one
+     * per tree; a query descends the compound's own tree to the instance it hits.
+     *
+     * The shape is cooked once per CONTENT, as CreateBody's Mesh/ConvexHull colliders are, so every cell of a type
+     * and every type on the same mesh share it.
+     */
+    struct InstancedStaticBodyDesc
+    {
+        ShapeType Shape = ShapeType::Mesh; ///< Mesh (complex as simple) or ConvexHull; the others are refused.
+        /// The mesh's own points, unscaled (each instance's scale is applied by its child), and for Mesh three
+        /// indices per triangle. Read during CreateInstancedStaticBody only.
+        std::span<const glm::vec3> MeshPoints;
+        std::span<const uint32_t>  MeshIndices;
+        /// World matrices of the instances (translation, rotation, scale; no shear). At least one.
+        std::span<const glm::mat4> Instances;
+
+        float Friction    = 0.5f;
+        float Restitution = 0.1f;
+
+        CollisionProfileId Profile = kNoProfile; ///< Refused when kNoProfile.
+    };
+
     struct ContactImpulse
     {
         BodyHandle Body1   = kInvalidBody;
@@ -321,6 +347,9 @@ namespace Desert::Physics
         /// Refused by name: no parts, a part without points, a hull Jolt cannot cook. Each part's hull is
         /// cooked once per content and shared, as a ConvexHull collider's is.
         Common::ResultStr<BodyHandle> CreateCompoundBody( const CompoundBodyDesc& desc );
+        /// One static body of every instance in @p desc (InstancedStaticBodyDesc). An error names the instance
+        /// whose matrix has a zero scale, or Jolt's reason for refusing the shape.
+        Common::ResultStr<BodyHandle> CreateInstancedStaticBody( const InstancedStaticBodyDesc& desc );
 
         /// How many distinct Mesh / ConvexHull shapes the world has cooked — the measure of the shape cache.
         [[nodiscard]] uint32_t GetCookedShapeCount() const;

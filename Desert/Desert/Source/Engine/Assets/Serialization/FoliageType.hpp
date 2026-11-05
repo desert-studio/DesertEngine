@@ -54,7 +54,11 @@ namespace Desert::Assets::Serialization
      *   8 - Wind.DirectionDegrees leaves (WIND-SRC): the direction is the scene's, ECS::WindAt over its
      *       WindSource entities (UE: the WindDirectionalSource, not the foliage type); the type keeps only its
      *       response (Strength, Speed, Height). SceneMigrator raises a v7 file (MigrateFoliageTypeV7ToV8), every
-     *       other value kept. The engine reads v8 only.
+     *       other value kept.
+     *   9 - Collision joins (FOLIAGE-COLLISION, UE UFoliageType::BodyInstance): whether the instances collide, under
+     *       which profile and with which shape of their mesh. SceneMigrator raises a v8 file
+     *       (MigrateFoliageTypeV8ToV9) with Enabled false, what every v8 field did (nothing collided with it).
+     *       The engine reads v9 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -154,6 +158,30 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const FoliageProcedural& ) const = default;
     };
 
+    /// Which surface of the mesh an instance collides with (UE: the mesh BodySetup's CollisionTraceFlag).
+    enum class FoliageCollisionShape
+    {
+        Mesh,       ///< the render triangles themselves (UE "Use Complex Collision As Simple"): a trunk is a trunk
+        ConvexHull, ///< the hull of the mesh's points (UE's auto convex): cheaper, fills the space under a canopy
+    };
+
+    /**
+     * @brief How a type's instances collide (UE UFoliageType::BodyInstance: CollisionEnabled and the collision
+     * profile). The bodies are built per foliage field, that is per World Partition cell (ECS::FoliageCollision),
+     * and live and unload with it.
+     */
+    struct FoliageCollision
+    {
+        /// The instances block what their profile blocks (UE ECollisionEnabled::QueryAndPhysics); false = none.
+        bool Enabled = true;
+        /// A profile NAME of the project's Config/CollisionProfiles.json, resolved when the body is built; a name
+        /// the register lacks refuses the body by name.
+        std::string Profile = "BlockAll";
+        FoliageCollisionShape Shape = FoliageCollisionShape::Mesh;
+
+        [[nodiscard]] bool operator==( const FoliageCollision& ) const = default;
+    };
+
     /**
      * @brief What one instance of a type IS (UE: the foliage type's class).
      *
@@ -173,8 +201,8 @@ namespace Desert::Assets::Serialization
     /// draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a Prefab type that
     /// sets them, and the Details panel greys them out with this text.
     inline constexpr const char* kFoliagePrefabMeshOnlyReason =
-         "a Prefab type places entities, which draw, cull and stream as themselves; cull distance, wind and HLOD "
-         "belong to an instanced mesh (UE FoliageType_Actor has none of them)";
+         "a Prefab type places entities, which draw, cull, collide and stream as themselves; cull distance, wind, "
+         "HLOD and collision belong to an instanced mesh (UE FoliageType_Actor has none of them)";
 
     /**
      * @brief One `.defoliage`: what to scatter and how (UE: UFoliageType_InstancedStaticMesh).
@@ -233,6 +261,9 @@ namespace Desert::Assets::Serialization
         bool IncludeInHLOD = true;
         /// What the procedural simulation grows from the type (FOLT 7). Applies to both kinds, as in UE.
         FoliageProcedural Procedural;
+        /// Whether and how the instances collide (FOLT 9). A Prefab type's instances collide through the prefab's
+        /// own colliders: Enabled false.
+        FoliageCollision Collision;
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
         [[nodiscard]] bool IsPrefab() const
