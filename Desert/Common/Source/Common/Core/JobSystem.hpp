@@ -146,10 +146,24 @@ namespace Common
         }
     };
 
+    // WHO A JOB SERVES, AND SO WHICH ONE A FREE WORKER TAKES FIRST (UE ENamedThreads / LowLevelTasks
+    // ETaskPriority: High for the frame's critical path, Normal, BackgroundNormal). A worker takes the oldest
+    // High job, else the oldest Normal one, else the oldest Background one - and a Background job only while
+    // fewer than JobSystem::BackgroundWorkerCap() Background jobs run, so a thumbnail bake, an import or a
+    // distance-field build can never hold every worker when the render thread hands out its record chunks.
+    // A running job is never pre-empted: a High job waits at most for the shortest job a worker is running.
+    enum class JobPriority : uint8_t
+    {
+        High,       // the frame: the render graph's record chunks, a view's setup work the builder thread joins
+        Normal,     // the default: work a caller waits for soon (a parallel loop, a load the game thread awaits)
+        Background, // work nobody waits for this frame (cooks, thumbnails, imports, bakes); capped below
+        Count
+    };
+
     // Engine-wide worker-thread pool — THE place for CPU-parallel work (asset cooking, LUT generation,
     // background mesh cooks, future parallel ECS). Replaces the ad-hoc one-off std::thread/std::async
-    // sprinkled around the codebase so thread count stays bounded (workers = cores - 1) and work is
-    // observable in one system.
+    // sprinkled around the codebase so thread count stays bounded (workers = cores - 2: the game thread and
+    // the render thread keep a core each, as UE sizes its workers) and work is observable in one system.
     //
     // Threading contract:
     //   - Submit()/Async() are safe from any thread; jobs may run on any worker in any order.
@@ -170,16 +184,18 @@ namespace Common
         // Fire-and-forget. Closures <= InlineJob::kInlineSize bytes enqueue with ZERO heap allocations.
         // False when the pool is shutting down and the job was dropped unrun: a caller that counts its jobs in
         // flight (and waits for them) must take this one back.
-        bool Submit( InlineJob job );
+        // @p priority: the queue it joins (JobPriority); a worker drains High, then Normal, then Background.
+        bool Submit( InlineJob job, JobPriority priority = JobPriority::Normal );
 
         // Submit with a result: returns a std::future for the callable's return value.
         template <typename F>
-        auto Async( F&& fn ) -> std::future<std::invoke_result_t<F>>
+        auto Async( F&&               fn,
+                    const JobPriority priority = JobPriority::Normal ) -> std::future<std::invoke_result_t<F>>
         {
             using R   = std::invoke_result_t<F>;
             auto task = std::make_shared<std::packaged_task<R()>>( std::forward<F>( fn ) );
             auto fut  = task->get_future();
-            Submit( [task] { ( *task )(); } );
+            Submit( [task] { ( *task )(); }, priority );
             return fut;
         }
 
@@ -225,18 +241,29 @@ namespace Common
          * cycle, and no primitive here can detect it.
          *
          * @param grain 0 is read as 1.
+         * @param priority the helpers' queue (JobPriority). The caller works whatever it is, so a Background
+         *        loop still completes while every Background slot is taken - on the caller alone.
          */
         void ParallelRanges( size_t count, size_t grain,
-                             const std::function<void( size_t begin, size_t end )>& body );
+                             const std::function<void( size_t begin, size_t end )>& body,
+                             JobPriority priority = JobPriority::Normal );
 
         // Blocking parallel-for over [0, count): body(index). ParallelRanges with the range walked for
         // you and a grain of about a quarter of a participant's share, so the loop stays balanced when
         // the indices cost different amounts (importing files, running ECS systems — both do).
-        void ParallelFor( size_t count, const std::function<void( size_t )>& body );
+        void ParallelFor( size_t count, const std::function<void( size_t )>& body,
+                          JobPriority priority = JobPriority::Normal );
 
         size_t WorkerCount() const
         {
             return m_Workers.size();
+        }
+
+        // How many Background jobs may run at once: cores - 3, at least one, and one fewer than the workers
+        // whenever there are two or more, so a worker is always left for High and Normal work.
+        size_t BackgroundWorkerCap() const
+        {
+            return m_BackgroundCap;
         }
 
         // Pending + currently-running job count (approximate; for tests/diagnostics).
@@ -256,11 +283,18 @@ namespace Common
             RecordingFrame Recording;
         };
 
-        mutable std::mutex      m_Mutex;
-        std::condition_variable m_CV;
-        std::deque<QueuedJob>             m_Queue;
-        std::vector<std::thread>          m_Workers;
-        size_t                            m_Running = 0; // jobs currently executing
-        bool                              m_Stop    = false;
+        static constexpr size_t kPriorityCount = static_cast<size_t>( JobPriority::Count );
+
+        // Under m_Mutex: the queue a free worker takes from now, kPriorityCount when it may take none.
+        size_t NextQueueLocked() const;
+
+        mutable std::mutex       m_Mutex;
+        std::condition_variable  m_CV;
+        std::deque<QueuedJob>    m_Queues[kPriorityCount]; // indexed by JobPriority
+        std::vector<std::thread> m_Workers;
+        size_t                   m_Running           = 0; // jobs currently executing
+        size_t                   m_RunningBackground = 0; // of them, Background jobs
+        size_t                   m_BackgroundCap     = 1; // BackgroundWorkerCap()
+        bool                     m_Stop              = false;
     };
 } // namespace Common
