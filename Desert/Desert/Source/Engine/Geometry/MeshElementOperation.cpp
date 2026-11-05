@@ -5,6 +5,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshBevel.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMeshEditor.hpp"
+#include "Engine/Geometry/MeshHoleFillOperation.hpp"
 
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -429,5 +431,403 @@ namespace Desert::Geometry
                        fmt::format( "welded {} open edges, collapsed {} short edges, flipped {} zero-area "
                                     "triangles ({} kept), dropped {} isolated vertices",
                                     weldedEdges, collapsed, flipped, kept, isolated ) );
+    }
+    // ── Topology verbs: Bridge, Collapse, Extrude Edge, Flip, Retriangulate (UE EditMeshPolygonsTool) ───────
+
+    namespace
+    {
+        // The region's edge-connected components (triangles sharing an edge), each sorted.
+        std::vector<std::vector<int32_t>> RegionComponents( const DynamicMesh3& mesh, const std::vector<int32_t>& region )
+        {
+            const std::unordered_set<int32_t> inRegion( region.begin(), region.end() );
+            std::unordered_set<int32_t>       seen;
+            std::vector<std::vector<int32_t>> components;
+            for ( const int32_t seed : region )
+            {
+                if ( !seen.insert( seed ).second )
+                    continue;
+                std::vector<int32_t> component{ seed };
+                for ( size_t k = 0; k < component.size(); ++k )
+                {
+                    const Index3i te = mesh.GetTriEdges( component[k] );
+                    for ( int j = 0; j < 3; ++j )
+                    {
+                        const Index2i et = mesh.GetEdgeT( te[j] );
+                        for ( const int32_t other : { et.A, et.B } )
+                            if ( other >= 0 && inRegion.contains( other ) && seen.insert( other ).second )
+                                component.push_back( other );
+                    }
+                }
+                std::sort( component.begin(), component.end() );
+                components.push_back( std::move( component ) );
+            }
+            return components;
+        }
+
+        // The border loops of a triangle set, each walked the way the set's own triangles wind it (a -> b where
+        // a triangle of the set has the edge a -> b and the triangle across it, if any, is not in the set).
+        Common::ResultStr<std::vector<std::vector<int>>> RegionLoops( const DynamicMesh3&         mesh,
+                                                                       const std::vector<int32_t>& region,
+                                                                       const char*                 name )
+        {
+            const std::unordered_set<int32_t> inRegion( region.begin(), region.end() );
+            std::unordered_map<int, int>      next;
+            for ( const int32_t t : region )
+            {
+                const Index3i tv = mesh.GetTriangle( t );
+                const Index3i te = mesh.GetTriEdges( t );
+                for ( int j = 0; j < 3; ++j )
+                {
+                    const Index2i et    = mesh.GetEdgeT( te[j] );
+                    const int32_t other = et.A == t ? et.B : et.A;
+                    if ( other >= 0 && inRegion.contains( other ) )
+                        continue;
+                    if ( !next.emplace( tv[j], tv[( j + 1 ) % 3] ).second )
+                        return Common::MakeFormattedError<std::vector<std::vector<int>>>(
+                             "Mesh {}: the selected faces touch themselves at vertex {} (a bow-tie border)", name,
+                             tv[j] );
+                }
+            }
+            std::vector<std::vector<int>> loops;
+            std::unordered_set<int>       used;
+            for ( const auto& [start, unused] : next )
+            {
+                if ( used.contains( start ) )
+                    continue;
+                std::vector<int> loop;
+                for ( int v = start; !used.contains( v ); )
+                {
+                    used.insert( v );
+                    loop.push_back( v );
+                    const auto it = next.find( v );
+                    if ( it == next.end() )
+                        return Common::MakeFormattedError<std::vector<std::vector<int>>>(
+                             "Mesh {}: the selection's border is not closed at vertex {}", name, v );
+                    v = it->second;
+                }
+                loops.push_back( std::move( loop ) );
+            }
+            return Common::MakeSuccess( std::move( loops ) );
+        }
+
+        // 1 / (2 x the largest half-extent): the UV density Hole Fill projects its fills at.
+        float ProjectionScale( const DynamicMesh3& mesh )
+        {
+            const glm::dvec3 extents = mesh.GetBounds().Extents();
+            return static_cast<float>( 1.0 / ( 2.0 * std::max( { extents.x, extents.y, extents.z, 1e-9 } ) ) );
+        }
+
+        // Planar normal and a projection on the quad's own frame for each new quad (UE's AddQuad pattern).
+        void SetQuadAttributes( DynamicMesh3& mesh, const std::vector<Index2i>& quads, float uvScale )
+        {
+            if ( !mesh.HasAttributes() )
+                return;
+            const DynamicMeshEditor editor( &mesh );
+            for ( const Index2i& quad : quads )
+            {
+                const glm::vec3  normal = editor.ComputeAndSetQuadNormal( quad, true );
+                const Index3i    tv     = mesh.GetTriangle( quad.A );
+                const glm::dvec3 axisX  = glm::normalize( mesh.GetVertex( tv.B ) - mesh.GetVertex( tv.A ) );
+                const glm::dvec3 axisY  = glm::normalize( glm::cross( glm::dvec3( normal ), axisX ) );
+                editor.SetQuadUVsFromProjection( quad, axisX, axisY, uvScale, glm::vec2( 0.0f ) );
+            }
+        }
+    } // namespace
+
+    // ── Bridge ─────────────────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<RegionOutcome> BridgeSelection( const DynamicMesh3& before, const ElementSelection& selection )
+    {
+        const GroupTopology topology = PolyEditTopology( before );
+        auto                region   = RegionTriangles( before, topology, selection, "Bridge" );
+        if ( !region.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( region.GetError() );
+        const auto components = RegionComponents( before, region.GetValue() );
+        if ( components.size() != 2 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Bridge: the selection is {} connected face region(s) - select exactly two (Shift-click the "
+                 "second face)",
+                 components.size() );
+        std::vector<int> loops[2];
+        for ( int r = 0; r < 2; ++r )
+        {
+            auto found = RegionLoops( before, components[r], "Bridge" );
+            if ( !found.IsSuccess() )
+                return Common::MakeError<RegionOutcome>( found.GetError() );
+            if ( found.GetValue().size() != 1 )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Bridge: face region {} ({} triangles) has {} border loops - each side must be bounded "
+                     "by one loop",
+                     r + 1, components[r].size(), found.GetValue().size() );
+            loops[r] = found.GetValue().front();
+        }
+        const size_t n = loops[0].size();
+        if ( loops[1].size() != n )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Bridge: the two borders have {} and {} vertices - a bridge pairs them one to one", n,
+                 loops[1].size() );
+        for ( const int v : loops[0] )
+            if ( std::find( loops[1].begin(), loops[1].end(), v ) != loops[1].end() )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Bridge: the two regions share vertex {} - they must be apart", v );
+        // Loop1 winds as the triangles left around the first hole do (against the removed region); Loop2 as the
+        // second region did, so its edge d -> c is wound by the triangle left beside it (UE's stitch contract).
+        std::vector<int> loop1( loops[0].rbegin(), loops[0].rend() );
+        size_t           bestShift = 0;
+        double           bestCost  = std::numeric_limits<double>::max();
+        for ( size_t k = 0; k < n; ++k )
+        {
+            double cost = 0.0;
+            for ( size_t i = 0; i < n; ++i )
+            {
+                const glm::dvec3 d = before.GetVertex( loop1[i] ) - before.GetVertex( loops[1][( i + k ) % n] );
+                cost += glm::dot( d, d );
+            }
+            if ( cost < bestCost )
+            {
+                bestCost  = cost;
+                bestShift = k;
+            }
+        }
+        std::vector<int> loop2( n );
+        for ( size_t i = 0; i < n; ++i )
+            loop2[i] = loops[1][( i + bestShift ) % n];
+
+        auto                 mesh = std::make_shared<DynamicMesh3>( before );
+        std::vector<int32_t> removed = components[0];
+        removed.insert( removed.end(), components[1].begin(), components[1].end() );
+        if ( !DynamicMeshEditor( mesh.get() ).RemoveTriangles( removed, true ) )
+            return Common::MakeError<RegionOutcome>( "Mesh Bridge: the two faces could not be removed" );
+        const int            group = mesh->HasTriangleGroups() ? mesh->AllocateTriangleGroup() : 0;
+        std::vector<int32_t> strip;
+        std::vector<Index2i> quads;
+        for ( size_t i = 0; i < n; ++i )
+        {
+            const int a = loop1[i], b = loop1[( i + 1 ) % n], c = loop2[i], d = loop2[( i + 1 ) % n];
+            const int t1 = mesh->AppendTriangle( Index3i( b, a, d ), group );
+            const int t2 = t1 >= 0 ? mesh->AppendTriangle( Index3i( a, c, d ), group ) : -1;
+            if ( t1 < 0 || t2 < 0 )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Bridge: quad {} of {} ({}, {}, {}, {}) could not be added (an edge would get a third "
+                     "triangle)",
+                     i, n, a, b, c, d );
+            strip.push_back( t1 );
+            strip.push_back( t2 );
+            quads.emplace_back( t1, t2 );
+        }
+        SetQuadAttributes( *mesh, quads, ProjectionScale( *mesh ) );
+        auto selected = SelectionOf( *mesh, strip, selection.Mode(), "Bridge" );
+        if ( !selected.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( selected.GetError() );
+        return Finish( std::move( mesh ), "Bridge", selected.ExtractValue(),
+                       fmt::format( "{} + {} triangles removed, {} quads bridge the {}-vertex loops",
+                                    components[0].size(), components[1].size(), n, n ) );
+    }
+
+    // ── Collapse ───────────────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<RegionOutcome> CollapseSelection( const DynamicMesh3& before, const ElementSelection& selection )
+    {
+        if ( selection.Mode() != ElementMode::Edge )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Collapse: collapses edges - switch the selection to Edge mode ({} is selected)",
+                 ToString( selection.Mode() ) );
+        if ( selection.Empty() )
+            return Common::MakeError<RegionOutcome>( "Mesh Collapse: nothing is selected" );
+        auto                                  mesh = std::make_shared<DynamicMesh3>( before );
+        const DynamicMesh3::CollapseEdgeOptions options{};
+        int                                   collapsed = 0, refused = 0, gone = 0;
+        int                                   firstRefused = -1;
+        for ( const int e : selection.Ids() )
+        {
+            if ( !mesh->IsEdge( e ) )
+            {
+                ++gone; // removed by an earlier collapse of the same selection
+                continue;
+            }
+            const Index2i    ev = mesh->GetEdgeV( e );
+            EdgeCollapseInfo info{};
+            if ( mesh->CollapseEdge( ev.A, ev.B, 0.5, options, info ) == MeshResult::Ok )
+                ++collapsed;
+            else if ( refused++ == 0 )
+                firstRefused = e;
+        }
+        if ( collapsed == 0 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Collapse: none of the {} edges can be collapsed (edge {} first): it would close a hole, "
+                 "fold a tetrahedron or leave a non-manifold edge",
+                 selection.Size(), firstRefused );
+        if ( mesh->HasAttributes() && mesh->Attributes()->PrimaryNormals() != nullptr )
+            MeshNormals::QuickRecomputeOverlayNormals( *mesh );
+        return Finish( std::move( mesh ), "Collapse", ElementSelection( ElementMode::Edge ),
+                       fmt::format( "{} edges collapsed to their midpoints, {} refused, {} gone with an earlier one",
+                                    collapsed, refused, gone ) );
+    }
+
+    // ── Extrude Edge ───────────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<RegionOutcome> ExtrudeEdgeSelection( const DynamicMesh3& before, const ElementSelection& selection,
+                                                           float distance )
+    {
+        if ( selection.Mode() != ElementMode::Edge )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Extrude Edge: extrudes open edges - switch the selection to Edge mode ({} is selected)",
+                 ToString( selection.Mode() ) );
+        if ( selection.Empty() )
+            return Common::MakeError<RegionOutcome>( "Mesh Extrude Edge: nothing is selected" );
+        if ( !( std::abs( distance ) > 0.0f ) )
+            return Common::MakeError<RegionOutcome>( "Mesh Extrude Edge: the distance is 0 cm - nothing to extrude" );
+        // Each edge as its triangle winds it (a -> b), with its outward direction in that triangle's plane.
+        struct OpenEdge
+        {
+            int        A = -1, B = -1;
+        };
+        std::vector<OpenEdge>                   edges;
+        std::unordered_map<int, glm::dvec3>     direction;
+        for ( const int e : selection.Ids() )
+        {
+            if ( !before.IsEdge( e ) )
+                continue;
+            if ( !before.IsBoundaryEdge( e ) )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Extrude Edge: edge {} is closed (two faces meet on it) - only an open border edge can be "
+                     "extruded; Delete or Disconnect a face beside it first",
+                     e );
+            const int     t  = before.GetEdgeT( e ).A;
+            const Index3i tv = before.GetTriangle( t );
+            const Index2i ev = before.GetEdgeV( e );
+            OpenEdge      edge;
+            for ( int j = 0; j < 3; ++j )
+                if ( ( tv[j] == ev.A || tv[j] == ev.B ) && ( tv[( j + 1 ) % 3] == ev.A || tv[( j + 1 ) % 3] == ev.B ) )
+                    edge = OpenEdge{ tv[j], tv[( j + 1 ) % 3] };
+            const glm::dvec3 out = glm::cross( before.GetVertex( edge.B ) - before.GetVertex( edge.A ),
+                                               before.GetTriNormal( t ) );
+            const double     len = glm::length( out );
+            if ( !( len > 1e-12 ) )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Extrude Edge: edge {} has zero length or a degenerate triangle ({})", e, t );
+            direction[edge.A] += out / len;
+            direction[edge.B] += out / len;
+            edges.push_back( edge );
+        }
+        if ( edges.empty() )
+            return Common::MakeError<RegionOutcome>( "Mesh Extrude Edge: none of the selected edges exists" );
+        auto                         mesh = std::make_shared<DynamicMesh3>( before );
+        std::unordered_map<int, int> moved;
+        for ( const auto& [v, dir] : direction )
+        {
+            const double len = glm::length( dir );
+            if ( !( len > 1e-12 ) )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Extrude Edge: the edges through vertex {} point opposite ways - no direction to extrude", v );
+            moved[v] = mesh->AppendVertex( before.GetVertex( v ) + dir / len * static_cast<double>( distance ) );
+        }
+        const int            group = mesh->HasTriangleGroups() ? mesh->AllocateTriangleGroup() : 0;
+        std::vector<int32_t> strip;
+        std::vector<Index2i> quads;
+        for ( const OpenEdge& edge : edges )
+        {
+            const int a = edge.A, b = edge.B, a2 = moved[a], b2 = moved[b];
+            const int t1 = mesh->AppendTriangle( Index3i( b, a, a2 ), group );
+            const int t2 = t1 >= 0 ? mesh->AppendTriangle( Index3i( b, a2, b2 ), group ) : -1;
+            if ( t1 < 0 || t2 < 0 )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Extrude Edge: the quad on edge ({}, {}) could not be added", a, b );
+            strip.push_back( t1 );
+            strip.push_back( t2 );
+            quads.emplace_back( t1, t2 );
+        }
+        SetQuadAttributes( *mesh, quads, ProjectionScale( *mesh ) );
+        auto selected = SelectionOf( *mesh, strip, ElementMode::Edge, "Extrude Edge" );
+        if ( !selected.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( selected.GetError() );
+        return Finish( std::move( mesh ), "Extrude Edge", selected.ExtractValue(),
+                       fmt::format( "{} open edges extruded {} cm, {} new vertices", edges.size(), distance,
+                                    moved.size() ) );
+    }
+
+    // ── Flip ───────────────────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<RegionOutcome> FlipSelection( const DynamicMesh3& before, const ElementSelection& selection )
+    {
+        const GroupTopology topology = PolyEditTopology( before );
+        auto                region   = RegionTriangles( before, topology, selection, "Flip" );
+        if ( !region.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( region.GetError() );
+        auto mesh = std::make_shared<DynamicMesh3>( before );
+        DynamicMeshEditor( mesh.get() ).ReverseTriangleOrientations( region.GetValue(), true );
+        return Finish( std::move( mesh ), "Flip", selection,
+                       fmt::format( "{} triangles reversed", region.GetValue().size() ) );
+    }
+
+    // ── Retriangulate ──────────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<RegionOutcome> RetriangulateSelection( const DynamicMesh3&     before,
+                                                             const ElementSelection& selection )
+    {
+        const GroupTopology topology = PolyEditTopology( before );
+        auto                region   = RegionTriangles( before, topology, selection, "Retriangulate" );
+        if ( !region.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( region.GetError() );
+        std::set<int> groups;
+        for ( const int32_t t : region.GetValue() )
+            groups.insert( before.GetTriangleGroup( t ) );
+        DynamicMesh3         mesh( before );
+        std::vector<int32_t> refilled;
+        int                  removedTriangles = 0;
+        for ( const int g : groups )
+        {
+            std::vector<int32_t> triangles;
+            for ( const int t : mesh.TriangleIndicesItr() )
+                if ( mesh.GetTriangleGroup( t ) == g )
+                    triangles.push_back( t );
+            auto loops = RegionLoops( mesh, triangles, "Retriangulate" );
+            if ( !loops.IsSuccess() )
+                return Common::MakeError<RegionOutcome>( loops.GetError() );
+            if ( loops.GetValue().size() != 1 )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Retriangulate: polygroup {} has {} border loops - only a group bounded by one loop is "
+                     "retriangulated (UE refuses a ring too)",
+                     g, loops.GetValue().size() );
+            if ( static_cast<int32_t>( triangles.size() ) == mesh.TriangleCount() )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Retriangulate: polygroup {} is the whole mesh - nothing would bound the refill", g );
+            std::set<int> loopVertices( loops.GetValue().front().begin(), loops.GetValue().front().end() );
+            if ( !DynamicMeshEditor( &mesh ).RemoveTriangles( triangles, true ) )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Retriangulate: polygroup {} could not be removed", g );
+            removedTriangles += static_cast<int>( triangles.size() );
+            const auto holes = HoleBoundaryLoops( mesh );
+            int32_t    hole  = -1;
+            for ( size_t h = 0; h < holes.size(); ++h )
+                if ( std::set<int>( holes[h].begin(), holes[h].end() ) == loopVertices )
+                    hole = static_cast<int32_t>( h );
+            if ( hole < 0 )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Retriangulate: polygroup {}'s border is not one open loop once it is removed", g );
+            std::unordered_set<int> groupsLeft;
+            for ( const int t : mesh.TriangleIndicesItr() )
+                groupsLeft.insert( mesh.GetTriangleGroup( t ) );
+            HoleFillSettings settings;
+            settings.Type = HoleFillType::Minimal;
+            auto filled   = HoleFill( mesh, { hole }, settings );
+            if ( !filled.IsSuccess() )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Retriangulate: polygroup {}: {}", g,
+                                                                  filled.GetError() );
+            mesh = std::move( filled.ExtractValue().Mesh );
+            for ( const int t : mesh.TriangleIndicesItr() )
+                if ( !groupsLeft.contains( mesh.GetTriangleGroup( t ) ) )
+                {
+                    mesh.SetTriangleGroup( t, g );
+                    refilled.push_back( t );
+                }
+        }
+        auto result   = std::make_shared<DynamicMesh3>( std::move( mesh ) );
+        auto selected = SelectionOf( *result, refilled, selection.Mode(), "Retriangulate" );
+        if ( !selected.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( selected.GetError() );
+        return Finish( std::move( result ), "Retriangulate", selected.ExtractValue(),
+                       fmt::format( "{} polygroups: {} triangles replaced by {}", groups.size(), removedTriangles,
+                                    refilled.size() ) );
     }
 } // namespace Desert::Geometry

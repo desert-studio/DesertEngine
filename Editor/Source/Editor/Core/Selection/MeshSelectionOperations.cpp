@@ -77,6 +77,16 @@ namespace Desert::Editor::Core
                 return "Weld Edges";
             case MeshOperation::Disconnect:
                 return "Disconnect";
+            case MeshOperation::Bridge:
+                return "Bridge";
+            case MeshOperation::Collapse:
+                return "Collapse";
+            case MeshOperation::ExtrudeEdge:
+                return "Extrude Edge";
+            case MeshOperation::Flip:
+                return "Flip";
+            case MeshOperation::Retriangulate:
+                return "Retriangulate";
         }
         return "Unknown";
     }
@@ -158,7 +168,12 @@ namespace Desert::Editor::Core
             case MeshOperation::FillHole:
             case MeshOperation::WeldEdges:
             case MeshOperation::Disconnect:
+            case MeshOperation::Bridge:
+            case MeshOperation::Collapse:
+            case MeshOperation::Flip:
+            case MeshOperation::Retriangulate:
                 return false;
+            case MeshOperation::ExtrudeEdge:
             case MeshOperation::Extrude:
             case MeshOperation::PushPull:
             case MeshOperation::Offset:
@@ -293,6 +308,16 @@ namespace Desert::Editor::Core
                         return Geometry::DeleteSelection( *before, selection );
                     case MeshOperation::Disconnect:
                         return Geometry::DisconnectSelection( *before, selection );
+                    case MeshOperation::Bridge:
+                        return Geometry::BridgeSelection( *before, selection );
+                    case MeshOperation::Collapse:
+                        return Geometry::CollapseSelection( *before, selection );
+                    case MeshOperation::ExtrudeEdge:
+                        return Geometry::ExtrudeEdgeSelection( *before, selection, distance );
+                    case MeshOperation::Flip:
+                        return Geometry::FlipSelection( *before, selection );
+                    case MeshOperation::Retriangulate:
+                        return Geometry::RetriangulateSelection( *before, selection );
                     case MeshOperation::Offset:
                         return Geometry::OffsetSelection( *before, selection, distance );
                     case MeshOperation::Bevel:

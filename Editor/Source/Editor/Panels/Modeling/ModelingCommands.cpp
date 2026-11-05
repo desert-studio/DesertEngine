@@ -201,7 +201,9 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Disconnect } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Disconnect,
+                Core::MeshOperation::Bridge, Core::MeshOperation::Collapse, Core::MeshOperation::ExtrudeEdge,
+                Core::MeshOperation::Flip, Core::MeshOperation::Retriangulate } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ),
                                   [&scene, op]
