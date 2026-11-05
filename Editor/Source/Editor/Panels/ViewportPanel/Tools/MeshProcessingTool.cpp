@@ -474,7 +474,7 @@ namespace Desert::Editor::Tools
               remesh = m_Remesh, simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges,
               targetMesh = session.TargetMesh, targetToInput = session.TargetToInput, warp = m_Warp,
               latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
-              objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
+              objectToWorld]() noexcept -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
                  {

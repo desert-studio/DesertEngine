@@ -625,7 +625,7 @@ namespace Desert::Graphic::API::Vulkan
         ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
         PipelineBuilds::Get().OnStarted( m_Role );
         m_Compile = Common::JobSystem::Get().Async(
-             [this, device, pipelineCache, role = m_Role]
+             [this, device, pipelineCache, role = m_Role]() noexcept
              {
                  Compile( device, pipelineCache );
                  PipelineBuilds::Get().OnFinished( role );

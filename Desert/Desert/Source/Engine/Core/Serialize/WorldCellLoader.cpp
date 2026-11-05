@@ -32,7 +32,7 @@ namespace Desert::Core
         flight.HoldTicks = m_DebugDelayTicks;
         m_Source->HoldUnit( unit ); // released by Unload, or when the load turns out cancelled or failed
         flight.Result = Common::JobSystem::Get().Async(
-             [source = std::move( source ), unit]
+             [source = std::move( source ), unit]() noexcept
              {
                  const auto started = std::chrono::steady_clock::now();
                  Read       read;

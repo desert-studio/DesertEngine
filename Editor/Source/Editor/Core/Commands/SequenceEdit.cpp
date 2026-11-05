@@ -420,7 +420,7 @@ namespace Desert::Editor
         m_PoseBefore = Animation::LocalPose{};
     }
 
-    Common::ResultStr<uint32_t> SequenceEditTransaction::End()
+    Common::ResultStr<uint32_t> SequenceEditTransaction::End() noexcept
     {
         if ( !m_Open )
         {

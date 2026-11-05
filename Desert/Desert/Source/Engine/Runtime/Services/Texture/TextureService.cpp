@@ -10,6 +10,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/PathText.hpp>
 #include <Common/Settings/Scalability.hpp>
 
 #include <algorithm>
@@ -122,13 +123,13 @@ namespace Desert::Runtime
                                                        entry.Source->GetMetadata().Filepath, m_Uploads,
                                                        entry.RequestedFirstMip, m_StreamingSettings.TailSize } );
         Common::JobSystem::Get().Submit(
-             [job]
+             [job]() noexcept
              {
                  TextureCookOutcome outcome;
                  const auto         began  = std::chrono::steady_clock::now();
                  auto cooked = Graphic::Texture2D::ReadCookedMips( job->Asset, job->FirstMip, job->TailSize );
                  LOG_DEBUG( "[TextureService] '{}' platform data read on a worker in {:.1f} ms",
-                            job->Asset.filename().string(),
+                            Common::PathUtf8( job->Asset.filename() ),
                             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began )
                                  .count() );
                  uint64_t bytes = 0;

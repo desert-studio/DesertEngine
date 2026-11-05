@@ -29,6 +29,10 @@ namespace Common
                   typename = std::enable_if_t<!std::is_same_v<D, InlineJob>>>
         InlineJob( F&& fn )
         {
+            // A JOB IS noexcept BY TYPE (UE: engine code does not catch). A callable that can fail returns its
+            // error as a value (Common::ResultStr) and says noexcept; a job not declared noexcept does not compile.
+            static_assert( std::is_nothrow_invocable_v<D&>,
+                           "a job is noexcept: declare the lambda noexcept and return its failure as a value" );
             if constexpr ( sizeof( D ) <= kInlineSize && alignof( D ) <= alignof( std::max_align_t ) &&
                            std::is_nothrow_move_constructible_v<D> )
             {
@@ -176,26 +180,35 @@ namespace Common
 
         // Submit with a result: returns a std::future for the callable's return value. A promise and not a
         // packaged_task: packaged_task catches the callable's throw into the future, which a caller that never
-        // calls get() never sees. Here the callable runs inside the job's noexcept call (InlineJob), so a throw
-        // ends the process at the job; a callable that can fail returns its error as the value. A job the pool
-        // refused (shutting down) still leaves a broken promise in the future.
+        // calls get() never sees. The callable is noexcept by type (the static_assert below, as InlineJob's), so a
+        // callable that can fail returns its error as the value. EVERY PROMISE IS KEPT: a job the pool refuses
+        // (shutting down) runs here, on the caller, so get() returns the value and never throws broken_promise.
         template <typename F>
-        auto Async( F&& fn ) -> std::future<std::invoke_result_t<F>>
+        auto Async( F&& fn ) -> std::future<std::invoke_result_t<std::decay_t<F>&>>
         {
-            using R      = std::invoke_result_t<F>;
-            auto promise = std::make_shared<std::promise<R>>();
-            auto fut     = promise->get_future();
-            Submit(
-                 [promise, call = std::forward<F>( fn )]() mutable
-                 {
-                     if constexpr ( std::is_void_v<R> )
-                     {
-                         call();
-                         promise->set_value();
-                     }
-                     else
-                         promise->set_value( call() );
-                 } );
+            using D = std::decay_t<F>;
+            using R = std::invoke_result_t<D&>;
+            static_assert( std::is_nothrow_invocable_v<D&>,
+                           "a job is noexcept: declare the lambda noexcept and return its failure as a value" );
+            struct State
+            {
+                std::promise<R> Promise;
+                D               Call;
+            };
+            auto       state = std::make_shared<State>( State{ std::promise<R>(), std::forward<F>( fn ) } );
+            auto       fut   = state->Promise.get_future();
+            const auto run   = [state]() noexcept
+            {
+                if constexpr ( std::is_void_v<R> )
+                {
+                    state->Call();
+                    state->Promise.set_value();
+                }
+                else
+                    state->Promise.set_value( state->Call() );
+            };
+            if ( !Submit( run ) )
+                run(); // the pool is shutting down: the job runs on the caller, so its promise is kept
             return fut;
         }
 

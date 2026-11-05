@@ -106,7 +106,7 @@ namespace Desert::Editor
         /// Open on @p owner. Refuses while one is open and an owner that does not resolve.
         [[nodiscard]] Common::BoolResultStr Begin( const AnimGraphOwner& owner );
         /// Close and push AT MOST ONE entry: 0 when nothing stored changed, 1 otherwise.
-        [[nodiscard]] Common::ResultStr<uint32_t> End();
+        [[nodiscard]] Common::ResultStr<uint32_t> End() noexcept;
         /// Close and push nothing.
         void Cancel();
         /**

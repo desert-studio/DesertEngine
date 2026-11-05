@@ -82,7 +82,7 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<uint32_t> AnimGraphEditTransaction::End()
+    Common::ResultStr<uint32_t> AnimGraphEditTransaction::End() noexcept
     {
         if ( !m_Open )
             return Common::MakeFormattedError<uint32_t>( "no anim graph transaction is open" );

@@ -978,7 +978,7 @@ namespace Desert::Editor
             // Read, downscale and write on a worker. The readback is shared so the object outlives the job
             // even if this renderer is torn down first (the destructor waits for the job anyway).
             std::future<Encoded> encode = Common::JobSystem::Get().Async(
-                 [readback = m_Readback, png = m_ReadbackPng]() -> Encoded
+                 [readback = m_Readback, png = m_ReadbackPng]() noexcept -> Encoded
                  {
                      using Clock   = std::chrono::steady_clock;
                      const auto ms = []( Clock::time_point from, Clock::time_point to )

@@ -205,7 +205,7 @@ namespace Common
         for ( size_t h = 0; h < helpers; ++h )
         {
             Submit(
-                 [share, bodyPtr, count, grain]
+                 [share, bodyPtr, count, grain]() noexcept
                  {
                      size_t index = 0;
                      while ( share->Claim( index, true ) )

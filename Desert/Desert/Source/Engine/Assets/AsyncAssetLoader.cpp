@@ -2,6 +2,7 @@
 
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/PathText.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -246,7 +247,7 @@ namespace Desert::Assets
             State* inner = m_State.get();
             inner->InFlight.fetch_add( 1, std::memory_order_relaxed );
             Common::JobSystem::Get().Submit(
-                 [record, handle, ticket, inner]
+                 [record, handle, ticket, inner]() noexcept
                  {
                      LoadOutcome outcome = LoadOutcome::Loaded;
                      std::string error;
@@ -270,7 +271,7 @@ namespace Desert::Assets
                          if ( !skip )
                          {
                              const AssetMetadata& metadata = record->Payload->GetMetadata();
-                             inner->CurrentPath            = metadata.Filepath.filename().string();
+                             inner->CurrentPath            = Common::PathUtf8( metadata.Filepath.filename() );
                              inner->CurrentType            = metadata.AssetType;
                          }
                      }

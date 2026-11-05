@@ -69,8 +69,8 @@ namespace Desert::Destruction
             m_Queued.pop_front();
             m_Running.emplace( ticket,
                                Common::JobSystem::Get().Async(
-                                    [sources = m_Sources,
-                                     request = std::move( request )]() -> Common::ResultStr<RuntimeFractureResult>
+                                    [sources = m_Sources, request = std::move( request )]() noexcept
+                                         -> Common::ResultStr<RuntimeFractureResult>
                                     {
                                         // One lift per source: the first cut of a mesh reads it, the others share
                                         // it.
@@ -115,17 +115,9 @@ namespace Desert::Destruction
         auto future = std::move( running->second );
         m_Running.erase( running );
         Start(); // the freed slot goes to the next queued cut now, not next frame
-        try
-        {
-            return future.get();
-        }
-        catch ( const std::exception& error )
-        {
-            // The pool dropped the job unrun (shutting down): a broken promise. A bake that throws ends the
-            // process at the job (JobSystem::Async), so it never arrives here.
-            return Common::MakeFormattedError<RuntimeFractureResult>( "the fracture job did not run: {}",
-                                                                      error.what() );
-        }
+        // JobSystem::Async keeps every promise (a job the pool refuses runs on the caller) and the bake is
+        // noexcept, so get() returns the bake's own value: nothing to catch.
+        return future.get();
     }
 
     void RuntimeFractureQueue::Cancel( Ticket ticket )
