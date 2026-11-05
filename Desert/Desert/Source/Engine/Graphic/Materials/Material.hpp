@@ -201,6 +201,23 @@ namespace Desert::Graphic
             return FindByName<T>( parameter.Name );
         }
 
+        // DL-6: the scene frame's blocks of this material's shader, resolved once where its properties were built
+        // (MaterialExecutor::SceneBlocks) - the per-frame writers (SceneFrameBinding::ApplyTo) read these, no
+        // name.
+        [[nodiscard]] const MaterialExecutor::SceneBlocks& GetSceneBlocks() const noexcept
+        {
+            return m_MaterialExecutor->GetSceneBlocks();
+        }
+
+        // Get over a slot resolved in advance (GetSceneBlocks): the same named miss as Get, without the lookup.
+        template <typename T>
+        T* GetResolved( T* resolved, RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
+        {
+            if ( resolved == nullptr )
+                ReportMissingProperty( parameter.SlotName() );
+            return resolved;
+        }
+
         // Logs once that @p name is not a property of this material's shader (Get's miss).
         void ReportMissingProperty( const std::string& name ) const;
 

@@ -52,9 +52,11 @@ namespace Desert::Graphic
     //
     // WHICH LOOKUP IS WHICH. SceneFrameBinding::ApplyTo calls a writer only for a group the template reads
     // (SceneResources::Table). A block that is its group's only name (CameraUB, TimeUB) is then certainly
-    // declared and goes through Material::Get, which names a miss; a block that shares its group with other
-    // names (the four light payloads, ShadowUB beside the cascade map, SkyLookUB beside the cubes) may be
-    // absent from a shader that entered the group by another name, and goes through Material::Find.
+    // declared and goes through Material::GetResolved, which names a miss; a block that shares its group with
+    // other names (the four light payloads, ShadowUB beside the cascade map, SkyLookUB beside the cubes) may be
+    // absent from a shader that entered the group by another name, and a null is no complaint (Find's rule).
+    // DL-6: every block is read from Material::GetSceneBlocks, resolved once when the material was built - no
+    // name is hashed per material per frame.
     //
     // The BLOCK LAYOUT and the block NAMES are not restated here; they are SceneResources', which is
     // where Desert/Tests/Engine/SceneFrameBinding asserts them against the reflected GLSL. One mirror, so a
@@ -70,7 +72,8 @@ namespace Desert::Graphic
         if ( material == nullptr )
             return;
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Parameter ) )
+        const auto& blocks = material->GetSceneBlocks();
+        if ( auto* ub = material->GetResolved( blocks.Camera, ShaderProtocols::Camera::Parameter ) )
         {
             const auto data  = ShaderProtocols::MakeCameraUB( frame );
             const auto bytes = std::as_bytes( std::span{ &data, 1 } );
@@ -84,7 +87,7 @@ namespace Desert::Graphic
     {
         if ( !material )
             return;
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kTimeBlock ) )
+        if ( auto* ub = material->GetResolved( material->GetSceneBlocks().Time, SceneResources::kTimeBlock ) )
         {
             const glm::vec4 data( seconds, 0.0f, 0.0f, 0.0f );
             const size_t    size = std::min( sizeof( data ), static_cast<size_t>( ub->GetUniform()->GetSize() ) );
@@ -108,21 +111,20 @@ namespace Desert::Graphic
         // (the skinned forward draw over StandardSurface/Skinned.Forward) was refused at setup.
         // Find, not Get, for all four: the Lights group is entered by ANY of its four names, so a shader that
         // reads only the sun (DirectionLightsUB) or only the counts legitimately lacks the rest.
-        if ( auto* sb = material->Find<StorageBufferProperty>(
-                  Desert::Graphic::ShaderProtocols::PointLight::Parameter ) )
+        const auto& blocks = material->GetSceneBlocks();
+        if ( auto* sb = blocks.PointLights )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( point.PointLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
-        if ( auto* sb =
-                  material->Find<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::SpotLight::Parameter ) )
+        if ( auto* sb = blocks.SpotLights )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( spot.SpotLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
 
         if ( !dir.DirectionLights.empty() )
-            if ( auto* ub = material->Find<UniformBufferProperty>( ShaderProtocols::DirectionLight::Parameter ) )
+            if ( auto* ub = blocks.DirectionLights )
             {
                 const size_t size =
                      std::min( dir.DirectionLights.size() * sizeof( ShaderProtocols::DirectionLightPayload ),
@@ -134,7 +136,7 @@ namespace Desert::Graphic
              .DirectionLightsCount = static_cast<uint32_t>( dir.DirectionLights.size() ),
              .PointLightsCount     = static_cast<uint32_t>( point.PointLights.size() ),
              .SpotLightsCount      = static_cast<uint32_t>( spot.SpotLights.size() ) };
-        if ( auto* ub = material->Find<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Parameter ) )
+        if ( auto* ub = blocks.LightsMetadata )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
@@ -166,7 +168,7 @@ namespace Desert::Graphic
 
         // Find: the Shadow group is entered by ShadowCascadesTexture as well, so a reader of the map alone has no
         // block.
-        if ( auto* ub = material->Find<UniformBufferProperty>( SceneResources::kShadowBlock ) )
+        if ( auto* ub = material->GetSceneBlocks().Shadow )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
 
@@ -181,7 +183,7 @@ namespace Desert::Graphic
             return;
         // Find: the Environment group is entered by the cubes and the BRDF LUT as well, so a reader of those alone
         // has no SkyLookUB.
-        if ( auto* ub = material->Find<UniformBufferProperty>( kSkyLookBlock ) )
+        if ( auto* ub = material->GetSceneBlocks().SkyLook )
         {
             const SkyLookGPU data = ToGPU( look );
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

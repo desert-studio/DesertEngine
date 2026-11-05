@@ -5,6 +5,7 @@
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <unordered_set>
+#include <algorithm>
 #include <array>
 #include <map>
 #include <string_view>
@@ -2478,8 +2479,19 @@ namespace Desert::Graphic::System
             bool                      PerObject = false;
             auto operator<=>( const PrepassCellKey& ) const = default;
         };
-        std::map<PrepassCellKey, MaterialPipelineTracker::CellDraw> m_PrepassCellDraws;
-        std::unordered_set<uint64_t>                                m_PrepassGpuSections; // GpuInstancedRenderData::Key
+        // A flat vector sorted by key (was a std::map: a node allocation per cell per frame); clear() per frame keeps
+        // its capacity. RecordPrepassCellDraw inserts in key order, PrepassCellDraw binary-searches; never walked.
+        using PrepassCellEntry = std::pair<PrepassCellKey, MaterialPipelineTracker::CellDraw>;
+        std::vector<PrepassCellEntry> m_PrepassCellDraws;
+        std::unordered_set<uint64_t>  m_PrepassGpuSections; // GpuInstancedRenderData::Key
+        void RecordPrepassCellDraw( const PrepassCellKey& key, const MaterialPipelineTracker::CellDraw draw )
+        {
+            const auto at = std::ranges::lower_bound( m_PrepassCellDraws, key, {}, &PrepassCellEntry::first );
+            if ( at != m_PrepassCellDraws.end() && at->first == key )
+                at->second = draw;
+            else
+                m_PrepassCellDraws.insert( at, PrepassCellEntry{ key, draw } );
+        }
         std::optional<uint64_t>                                     m_PrepassFrame;
         // The G-buffer groups' early-Z twins (EarlyZBinTwinsOf), per group pipeline: checked against the group's
         // cell shader (a pipeline rebuilt at the same address is a new group) and held weakly (the PipelineCache

@@ -1437,7 +1437,7 @@ namespace Desert::Graphic::System
     }
 
     void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,
-                                                   const std::vector<float>& cascadeWorldPerTexel )
+                                                   const std::span<const float>               cascadeWorldPerTexel )
     {
         // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
         m_LocalLightDraws.clear();

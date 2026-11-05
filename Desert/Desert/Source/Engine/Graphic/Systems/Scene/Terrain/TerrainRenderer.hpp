@@ -105,7 +105,7 @@ namespace Desert::Graphic::System
         // @p cascadeWorldPerTexel, MeshRenderer::GetCascadeWorldPerTexel; 0 = no cascade) the camera's tiles diced
         // to the cascade's own texels; then the instance rows of every group are uploaded.
         void PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,
-                                      const std::vector<float>&                  cascadeWorldPerTexel );
+                                      std::span<const float>                     cascadeWorldPerTexel );
 
         // After PrepareLocalShadowViews and SceneRenderer::AssignLocalShadowMaskSlots (every point/spot light has
         // its final ShadowView / ShadowMaskSlot): @p scene's lights, shadow block and cloud shadow onto the

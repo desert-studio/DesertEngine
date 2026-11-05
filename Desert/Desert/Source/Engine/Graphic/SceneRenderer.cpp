@@ -2201,7 +2201,8 @@ namespace Desert::Graphic
                 // light's key failed - TERRAIN-LOCAL-SHADOW-LOG.
                 // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 // And each sun cascade's, diced to its own texels (UpdateCascades fitted them above).
-                std::vector<float> cascadeWorldPerTexel( SceneResources::kMaxCascadeViews );
+                // DL-7: a fixed array on the stack (was a heap vector per frame).
+                std::array<float, SceneResources::kMaxCascadeViews> cascadeWorldPerTexel{};
                 for ( uint32_t v = 0; v < SceneResources::kMaxCascadeViews; ++v )
                     cascadeWorldPerTexel[v] = localShadowMeshes->GetCascadeWorldPerTexel( v );
                 m_Systems.Terrain->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(),
