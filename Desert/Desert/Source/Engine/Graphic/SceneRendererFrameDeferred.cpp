@@ -894,19 +894,18 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
-        // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
-        // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
+        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none (the sky's two cubes), 2 the traced
+        // final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3 the same gather occluded
+        // by its own short-range AO (the material AO alone left to apply). The composite gathers no bounce of its
+        // own: GI is the method's (GTX-TIER-LADDER). Spelled here, not cast from the enum, whose numbering is the
+        // method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
-        const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const bool     roughFromGI   = TracedGatherAnswersRoughSpecular( gi, traced );
-        const int giMode = gi == GIMethod::ScreenSpace ? 1 : !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
-        const DeferredGIInput compositeGI{ .Mode      = giMode,
-                                           .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
-                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples,
-                                           .PreExposure        = frame.PreExposure,
-                                           .SubsurfaceSplit    = subsurfaceDiffuse.IsValid() };
+        const GIMethod gi          = m_RenderMethods.GlobalIllumination.Effective;
+        const bool     roughFromGI = TracedGatherAnswersRoughSpecular( gi, traced );
+        const int      giMode      = !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
+        const DeferredGIInput compositeGI{ .Mode            = giMode,
+                                           .PreExposure     = frame.PreExposure,
+                                           .SubsurfaceSplit = subsurfaceDiffuse.IsValid() };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );

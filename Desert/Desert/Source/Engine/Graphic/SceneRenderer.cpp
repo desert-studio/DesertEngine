@@ -1249,7 +1249,6 @@ namespace Desert::Graphic
             m_RenderedAntiAliasing.Reason      = "the wireframe view draws one-pixel lines, unfiltered";
             m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
         }
-        m_GIIntensity    = post.GIIntensity;
         m_SubsurfaceScattering = post.SubsurfaceScattering;
         m_SubsurfaceScale      = post.SubsurfaceScale;
         m_SSRIntensity   = post.SSRIntensity;
@@ -1330,7 +1329,6 @@ namespace Desert::Graphic
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
-        m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_PathTracingSettings                    = System::PathTracer::Settings{
                                 .SamplesPerPixel  = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
                                 .PathsPerFrame    = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),

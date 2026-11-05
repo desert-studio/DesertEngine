@@ -97,6 +97,7 @@ namespace Desert::Editor
          { "--language", true, "ru" },
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
+         { "--device-profile", true, "gtx1660" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
@@ -158,6 +159,13 @@ namespace Desert::Editor
         /// `--cloud-visualize <N>`: the cloud march draws a diagnostic instead of the sky
         /// (Graphic::RenderConfig::CloudVisualize, which names the modes). 0 is the ordinary picture.
         int CloudVisualize = 0;
+
+        /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the Vulkan DeviceProfile
+        /// table in DeviceCapsProbe.cpp): its ray tracing rows, vendor upscalers and memory are withheld before the
+        /// device is created. Empty, the default, means this device as it is. The name is checked against the
+        /// table where it is published (Sandbox.hpp, RequestDeviceProfile), which refuses an unknown one with the
+        /// list, so the parse stays free of the graphics backend.
+        std::string DeviceProfile;
 
         /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
         /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
@@ -359,6 +367,8 @@ namespace Desert::Editor
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
                 options.ControlSocket = value;
+            else if ( arg == "--device-profile" )
+                options.DeviceProfile = value;
             else if ( arg == "--crash-test" )
             {
                 // Named here rather than accepted and interpreted later: an unrecognised word would

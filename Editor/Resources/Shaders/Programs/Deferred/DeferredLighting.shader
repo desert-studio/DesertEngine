@@ -46,10 +46,6 @@ Shader "DeferredLighting"
         // above (which already include it). Named explicitly because this pass calls it directly.
         #include <Mesh/BRDF.glslh>            // DirectLighting needs it first; under DESERT_MEGALIGHTS no light header brings it
         #include <Mesh/DirectLighting.glslh>
-        // The one-bounce estimate GatherIndirectGI below is built from — direct light seen a second time,
-        // so it is the SAME BRDF, reached through the same text. Must follow DirectLighting.glslh, which it
-        // calls.
-        #include <Mesh/IndirectBounce.glslh>
         // World position from the G-buffer depth (GBufferDepthTexture below): the one reconstruction every deferred
         // reader shares.
         #include <Common/ReconstructPosition.glslh>
@@ -131,7 +127,7 @@ Shader "DeferredLighting"
         #define GiBackfaceTexture sampler2D(GiBackfaceTexture, PointClampSampler)
 
         Out(0) vec4 oColor;
-        // SSS-PROFILE (CONTRACT §4): when the view scatters (ScreenSpaceGi.z), a texel whose shading model is
+        // SSS-PROFILE (CONTRACT §4): when the view scatters (CompositeView.z), a texel whose shading model is
         // screen-space scattered (the model's `SubsurfaceProfile` line) and whose material names a profile writes
         // its DEMODULATED diffuse (BaseColor = 1, UE AdjustBaseColorAndSpecularColorForSubsurfaceProfileLighting)
         // here, a = its profile row + 1, and only its specular + emissive to oColor; Graphic::SubsurfaceRenderer
@@ -202,93 +198,17 @@ Shader "DeferredLighting"
         {
         	vec4 LightDirection;   // xyz = direction the light travels (away from the sun); w unused
         	vec4 LightColor; // rgb = colour, a = intensity
-        	vec4 Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
+        	vec4 Params;     // x = debug mode (0..9), y unused, z = SSAO enabled, w = GI mode (0, 2, 3)
         	vec4 CameraPosition;  // xyz = camera world position (for the view vector); w = REFLECTION_INPUT_* of SsrTexture
         	mat4 InverseJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 JitteredWorldToClip;    // the matrix itself: the contact shadows march the depth in its space
-        	vec4 ScreenSpaceGi;  // x = the screen-space gather's samples per pixel (Scalability
-        	                       // GlobalIllumination.ScreenSpaceSamples); y = ViewFrame::PreExposure; z = 1 when the view
-        	                       // scatters (SSS-PROFILE, SubsurfaceDiffuseTexture); w unused
+        	vec4 CompositeView; // x unused; y = ViewFrame::PreExposure; z = 1 when the view scatters (SSS-PROFILE,
+        	                    // SubsurfaceDiffuseTexture); w unused
         	vec4 Light1Direction; // atmosphere light 1 (UE Atmosphere Sun Light Index 1, the moon): xyz = travel
         	vec4 Light1Color;     // rgb = colour, a = intensity (after the atmosphere's transmittance); a == 0: none
         };
 
-        #ifndef DESERT_DEFERRED_DIRECT // the screen-space bounce is an ambient term: the composite's
-        float ssgiHash(vec2 p)
-        {
-        	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-        	p3 += dot(p3, p3.yzx + 33.33);
-        	return fract((p3.x + p3.y) * p3.z);
-        }
-
-        // One-bounce screen-space GI: gather nearby G-buffer texels, work out how much of the SUN each of
-        // them reflects TOWARD this surface, and accumulate it. Screen-space only (no extra passes / no
-        // lit-colour feedback); misses off-screen and point-lit bounces.
-        //
-        // HOW LITTLE THIS DELIVERS IN A ROOM, measured on CornellDemo (the scene that existed to show
-        // colour bleed) at --camera 0,300,1400, 715x764, noise floor 0 pixels:
-        //   * the whole feature on vs off:  mean 0.11/255, max 16/255, 13.4 % of pixels;
-        //   * the isolated indirect buffer: 0.000 in every statistic on the floor, near the walls and at
-        //     the centre alike, with a faint band only where a SUNLIT wall meets the floor;
-        //   * aiming the sun at the unlit wall: no change whatsoever.
-        // Three divisors stack. A neighbour the sun does not reach returns exactly vec3(0) from the
-        // shared BRDF; BounceFalloff is 1 + d²/(1 m)², which is 9.4 across a 290 cm room; and the sum is
-        // divided by SAMPLES whether or not a sample found an emitter, so WIDENING the radius makes the
-        // bleed weaker rather than longer-ranged — measured at 0.45 instead of 0.12, the one non-zero
-        // floor reading fell from 0.001 to 0.000. RADIUS is therefore not the knob it looks like.
-        //
-        // What would change the answer is bouncing the point and spot lights as well as the sun, at a
-        // price of SAMPLES × lights BRDF evaluations per pixel inside the pass that produces the lit
-        // colour. That is a design decision for the owner, not a constant for whoever is passing.
-        //
-        // The per-sample estimate is Mesh/IndirectBounce.glslh, which shades the bouncing neighbour through the
-        // SAME Mesh/DirectLighting.glslh the sun below is shaded with. It used to shade it here, inline, as
-        // `nAlb * max(0.0, dot(nN, sunL)) * sunRadiance` — the un-normalized Lambert this engine deleted from
-        // its forward mesh shaders — which made every emitter PI times brighter than the same surface is when
-        // the main pass shades it. The G-buffer already carries the neighbour's metallic (GBufferA.a) and
-        // roughness (GBufferB.a), so nothing extra is sampled to shade it properly.
-        //
-        // WHAT THE ESTIMATE DELIBERATELY DOES NOT MODEL, stated so the omission is a property and not an
-        // oversight: the neighbour's own occlusion. The sun below is attenuated by ShadowFactor *
-        // CloudShadowFactor; re-deriving that per gather sample means a cascade choice plus nine PCF taps
-        // TWELVE more times per pixel, and there is no lit-colour buffer to read it back from because this
-        // gather runs inside the very pass that produces the lit colour. A neighbour standing in shadow
-        // therefore bounces as though it stood in sun.
-        vec3 GatherIndirectGI(vec2 uv, vec3 worldPos, vec3 N, vec3 sunL, vec3 sunRadiance)
-        {
-        	const int   SAMPLES = int(ScreenSpaceGi.x + 0.5); // the machine's quality, never the scene's
-        	// NOT a range knob, measured: because the sum below is divided by SAMPLES whether or not a
-        	// sample found an emitter, and BounceFalloff grows with distance, a WIDER radius spreads the
-        	// same fixed budget over dimmer contributions. At 0.45 instead of 0.12 the only non-zero
-        	// reading on CornellDemo's floor fell from 0.001 to 0.000. The line used to say "wider =
-        	// longer-range bleed, but noisier"; the first half of that is false.
-        	const float RADIUS  = 0.12;   // screen-space gather radius (UV)
-        	const float GOLDEN  = 2.3999632; // golden angle for an even spiral
-
-        	float ang      = ssgiHash(uv * 2048.0) * 6.2831853;
-        	vec3  indirect = vec3(0.0);
-
-        	for (int i = 0; i < SAMPLES; i++)
-        	{
-        		float r = RADIUS * sqrt((float(i) + 0.5) / float(SAMPLES));
-        		float a = ang + float(i) * GOLDEN;
-        		vec2  suv = uv + vec2(cos(a), sin(a)) * r;
-        		if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
-
-        		vec4 nb = texture(GBufferBTexture, suv);
-        		if (dot(nb.rgb, nb.rgb) <= 0.001) continue; // sky texel -> no bounce
-
-        		vec4  na   = texture(GBufferATexture, suv);
-        		vec3  nPos = ReconstructWorldPosition(suv, texture(GBufferDepthTexture, suv).r, InverseJitteredViewProjection);
-        		vec3  nF0  = mix(Fdielectric, na.rgb, na.a);
-
-        		indirect += EvaluateBounceSample(worldPos, N, nPos, normalize(nb.rgb), na.rgb, nF0, na.a,
-        		                                 max(nb.a, kDesertMinRoughness), sunL, sunRadiance);
-        	}
-        	return indirect / float(SAMPLES);
-        }
-
-        #else // the direct program: the shadows, the cloud shadow, the local lights and their grid
+        #ifdef DESERT_DEFERRED_DIRECT // the direct program: the shadows, the cloud shadow, the local lights
         // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
@@ -494,7 +414,7 @@ Shader "DeferredLighting"
         		const uint lights = LightGridCellOverflowed(lightGrid, count)
         		                        ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
         		                        : count;
-        		oDirect = vec4(HeatColor(float(lights) / 8.0) * ScreenSpaceGi.y, kDeferredDirectShown);
+        		oDirect = vec4(HeatColor(float(lights) / 8.0) * CompositeView.y, kDeferredDirectShown);
         		return;
         	}
 
@@ -532,7 +452,7 @@ Shader "DeferredLighting"
         	// cloud layer is a separate occluder and stays out), grey with no albedo, pre-exposed like every channel.
         	// 2 = Shadow Cascades - the lit colour tinted by `cascade` at the end of main().
         	const int shadowView = int(DebugParams.z + 0.5);
-        	if (shadowView == 1) { oDirect = vec4(vec3(shadow) * ScreenSpaceGi.y, kDeferredDirectShown); return; }
+        	if (shadowView == 1) { oDirect = vec4(vec3(shadow) * CompositeView.y, kDeferredDirectShown); return; }
         	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
         	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
         	// behind the leaf. 1 for every other model (none reads it).
@@ -547,7 +467,7 @@ Shader "DeferredLighting"
 
         	// The screen-space scattered texel (CONTRACT §4) is lit with BaseColor = 1: its diffuse leaves demodulated,
         	// so the scatter does not smear the albedo's texture detail; Recombine multiplies BaseColor back.
-        	const bool scatters = ScreenSpaceGi.z > 0.5 && DesertShadingModelScattersInScreenSpace(shadingModel) &&
+        	const bool scatters = CompositeView.z > 0.5 && DesertShadingModelScattersInScreenSpace(shadingModel) &&
         	                      DesertSubsurfaceProfileIndex(shadingModel, payload) != 255u;
         	if (scatters)
         		albedo = vec3(1.0);
@@ -670,13 +590,13 @@ Shader "DeferredLighting"
         	float       ao   = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
-        	// Each is stored pre-exposed like the lit result (x ScreenSpaceGi.y = PreExposure): the tonemap's
+        	// Each is stored pre-exposed like the lit result (x CompositeView.y = PreExposure): the tonemap's
         	// 1/PreExposure then leaves the channel as authored.
-        	if (dbg == 1) { oColor = vec4(albedo, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }                          // Albedo
-        	if (dbg == 2) { oColor = vec4(normalize(normal) * 0.5 + 0.5, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }   // Normal
-        	if (dbg == 3) { oColor = vec4(vec3(metallic),  1.0); oColor.rgb *= ScreenSpaceGi.y; return; }                 // Metallic
-        	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }                 // Roughness
-        	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); oColor.rgb *= ScreenSpaceGi.y; return; }                 // Ambient Occlusion
+        	if (dbg == 1) { oColor = vec4(albedo, 1.0); oColor.rgb *= CompositeView.y; return; }                          // Albedo
+        	if (dbg == 2) { oColor = vec4(normalize(normal) * 0.5 + 0.5, 1.0); oColor.rgb *= CompositeView.y; return; }   // Normal
+        	if (dbg == 3) { oColor = vec4(vec3(metallic),  1.0); oColor.rgb *= CompositeView.y; return; }                 // Metallic
+        	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); oColor.rgb *= CompositeView.y; return; }                 // Roughness
+        	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); oColor.rgb *= CompositeView.y; return; }                 // Ambient Occlusion
 
         	// THE DIRECT LIGHT of this texel, summed by "Deferred: Direct Lighting" (the program above).
         	const vec4 direct = texelFetch(DeferredDirectLightingTexture, ivec2(gl_FragCoord.xy), 0);
@@ -685,7 +605,7 @@ Shader "DeferredLighting"
 
         	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in the shading word's TEXTURES field
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
-        	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }
+        	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); oColor.rgb *= CompositeView.y; return; }
 
         	// Shading Model / Sun Shadow Receive: the word's other two fields, decoded from the same integer fetch (the
         	// slot is RG32_UINT; a float view of it would reinterpret the bits). One flat colour per model index (golden-
@@ -693,21 +613,18 @@ Shader "DeferredLighting"
         	if (dbg == 10)
         	{
         		const float hue = fract(float(shadingModel) * 0.618034);
-        		oColor          = vec4(clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), 1.0); oColor.rgb *= ScreenSpaceGi.y;
+        		oColor          = vec4(clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), 1.0); oColor.rgb *= CompositeView.y;
         		return;
         	}
-        	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }
+        	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); oColor.rgb *= CompositeView.y; return; }
 
         	// --- Lit: the direct pass's sum + the ambient, the emissive and the subsurface split ---
         	vec3 N    = normalize(normal);
         	vec3 view = normalize(CameraPosition.xyz - worldPos);
-        	// The sun the screen-space bounce (GI mode 1) re-lights its neighbours with.
-        	vec3  L        = normalize(-LightDirection.xyz);
-        	vec3  radiance = LightColor.rgb * LightColor.a;
 
         	// The screen-space scattered texel (CONTRACT §4) is lit with BaseColor = 1: its diffuse leaves demodulated,
         	// so the scatter does not smear the albedo's texture detail; Recombine multiplies BaseColor back.
-        	const bool scatters = ScreenSpaceGi.z > 0.5 && DesertShadingModelScattersInScreenSpace(shadingModel) &&
+        	const bool scatters = CompositeView.z > 0.5 && DesertShadingModelScattersInScreenSpace(shadingModel) &&
         	                      DesertSubsurfaceProfileIndex(shadingModel, payload) != 255u;
         	if (scatters)
         		albedo = vec3(1.0);
@@ -718,25 +635,19 @@ Shader "DeferredLighting"
         	vec3 specular = scatters ? texelFetch(DeferredDirectSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb
         	                         : vec3(0.0);
 
-        	// One-bounce screen-space GI (D6, Params.w == 1): gather from sun-lit G-buffer neighbours. Cheap and
-        	// self-contained, but only geometry currently ON SCREEN can bounce, and there is no denoiser.
-        	vec3  indirect    = vec3(0.0);
-        	float giIntensity = Params.y;
-        	int   giMode      = int(Params.w + 0.5);
-        	if (giMode == 1 && giIntensity > 0.0)
-        	{
-        		indirect = GatherIndirectGI(v_TexCoord, worldPos, N, L, radiance) * giIntensity;
-        	}
+        	// The GI method's final gather (Params.w): 0 none (the sky's two cubes), 2 the traced gather, 3 the
+        	// same gather with its own short-range AO. GI comes from the method alone: the composite adds no
+        	// bounce of its own (its sun-only screen-space neighbour gather is gone, GTX-TIER-LADDER).
+        	const int giMode = int(Params.w + 0.5);
+        	// Indirect GI only (UE: the Lumen Global Illumination view): the traced gather is the ambient's diffuse
+        	// below, where it replaced the sky terms; a view without one has no indirect GI to show.
+        	if (dbg == 6 && giMode < 2) { oColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
-        	// Indirect GI only. The screen-space bounce (GI mode 1) is `indirect` itself; the traced gather (modes 2, 3) is
-        	// the ambient's diffuse below, where it replaced the sky terms (UE: the Lumen Global Illumination view).
-        	if (dbg == 6 && giMode < 2) { oColor = vec4(indirect, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }
-
-        	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular)
-        	// plus the one-bounce indirect, attenuated by SSAO — assembled by the SAME shared function the
-        	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
-        	// model. The only argument that differs there is `indirect`, which the forward path passes as
-        	// zero because it has no bounce gather.
+        	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular),
+        	// attenuated by SSAO — assembled by the SAME shared function the forward mesh shaders call, so a
+        	// scene rendered through either RenderingPath gets one ambient model. Its `indirect` is zero here:
+        	// the forward cells pass their MegaLights volume's local light there (AmbientIBL.glslh
+        	// DesertSampleViewAmbient); this path's local lights are the direct pass's.
         	// The specular radiance along the reflection is the traced one where SSR answered, the indirect source's
         	// for the rest: the traced GI's final gather (screen probes or the irradiance field), else the reflection
         	// environment (captures, then sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the
@@ -748,8 +659,8 @@ Shader "DeferredLighting"
         	DesertAmbient sampled = giMode >= 2
         	                             ? DesertSampleAmbient(surface, texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   texelFetch(GiSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb,
-        	                                                   indirect, ao)
-        	                             : DesertSampleAmbient(surface, indirect, ao);
+        	                                                   vec3(0.0), ao)
+        	                             : DesertSampleAmbient(surface, vec3(0.0), ao);
         	// The reflection environment along the lobe: what a traced ray's miss sees (the captures, over the traced
         	// gather's specular in GI modes 2 and 3, else over the sky).
         	const vec3 environment     = sampled.Prefiltered;
@@ -794,7 +705,7 @@ Shader "DeferredLighting"
         	{
         		const vec3 ambientDiffuse =
         		     ambient - DesertEvaluateShadingModelAmbientSpecular(shadingModel, sampled, surface, payload);
-        		oColor = vec4(max(ambientDiffuse, vec3(0.0)) * ScreenSpaceGi.y, 1.0);
+        		oColor = vec4(max(ambientDiffuse, vec3(0.0)) * CompositeView.y, 1.0);
         		return;
         	}
 
@@ -804,7 +715,7 @@ Shader "DeferredLighting"
 
         	// The view scatters (CONTRACT §4): a scattered texel splits, every other geometry texel marks itself
         	// unscattered (the target is a transient: every texel the scatter reads is written here or is sky).
-        	if (ScreenSpaceGi.z > 0.5)
+        	if (CompositeView.z > 0.5)
         	{
         		if (scatters)
         		{
@@ -812,15 +723,15 @@ Shader "DeferredLighting"
         			     DesertEvaluateShadingModelAmbientSpecular(shadingModel, sampled, surface, payload);
         			const vec3 diffuse = max(result + ambient - specular - ambientSpecular, vec3(0.0));
         			imageStore(SubsurfaceDiffuseTexture, ivec2(gl_FragCoord.xy),
-        			           vec4(diffuse * ScreenSpaceGi.y, float(DesertSubsurfaceProfileIndex(shadingModel, payload)) + 1.0));
-        			oColor = vec4((specular + ambientSpecular + emissive) * ScreenSpaceGi.y, 1.0);
+        			           vec4(diffuse * CompositeView.y, float(DesertSubsurfaceProfileIndex(shadingModel, payload)) + 1.0));
+        			oColor = vec4((specular + ambientSpecular + emissive) * CompositeView.y, 1.0);
         			return;
         		}
         		imageStore(SubsurfaceDiffuseTexture, ivec2(gl_FragCoord.xy), vec4(0.0));
         	}
 
         	// Stored pre-exposed (ViewFrame::PreExposure): a 100 000 lx sun stays inside RGBA16F.
-        	oColor = vec4((result + ambient + emissive) * ScreenSpaceGi.y, 1.0);
+        	oColor = vec4((result + ambient + emissive) * CompositeView.y, 1.0);
         	// Shadow Cascades: red / green / blue / yellow front to back (the forward mesh shaders' order); a pixel
         	// no cascade covers keeps its lit colour.
         	if (direct.a >= 0.0)

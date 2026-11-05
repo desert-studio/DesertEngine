@@ -122,14 +122,37 @@ namespace Desert::Graphic::API::Vulkan
                   probe.ExternalTimelineExportFd )
             catalog.Sharing = Common::Scalability::GpuSharing::Fd;
 
-        // Ray tracing: the pipeline is never offered through portability (MoltenVK has no SBT path even when a
-        // feature bit leaks through).
+        // Ray tracing, as UE keeps GRHISupportsRayTracing apart from GRHISupportsInlineRayTracing and offers
+        // Lumen HWRT only on hardware RT. Ray query and the pipeline are two facts, never one implied by the
+        // other; the pipeline is never offered through portability (MoltenVK has no SBT path even when a feature
+        // bit leaks through).
+        const bool accelerationStructures = probe.Caps.Has( Capability::AccelerationStructure );
+        const bool rayQuery               = accelerationStructures && probe.Caps.Has( Capability::RayQuery );
+        const bool rayTracingPipeline =
+             accelerationStructures && probe.Caps.Has( Capability::RayTracingPipeline ) && !probe.Portability;
+        // How the device executes those rays. A played device profile names it (the device it plays, not this
+        // one); else ray query is hardware RT: every hardware implementation exposes VK_KHR_ray_query (NVIDIA
+        // RTX, AMD RDNA 2+, Intel Arc, Apple7+ through MoltenVK), so the pipeline alone is the driver's
+        // shader-core path (GeForce GTX 10/16).
+        if ( !rayQuery && !rayTracingPipeline )
+            catalog.RayTracingAccel = RayTracingAcceleration::None;
+        else if ( probe.ProfileRayTracingAccel.has_value() )
+            catalog.RayTracingAccel = *probe.ProfileRayTracingAccel;
+        else if ( rayQuery )
+            catalog.RayTracingAccel = RayTracingAcceleration::Hardware;
+        else
+            catalog.RayTracingAccel = RayTracingAcceleration::Emulated;
+        // Render methods trace only on hardware RT: an emulated device lists None alone, so no traced method, no
+        // ray-query program and no BLAS (MeshGpuUploader) is ever asked of it. The pipeline stays the device's
+        // (DeviceCaps) for offline work.
         catalog.RayTracingModes.push_back( RayTracingMode::None );
-        if ( probe.Caps.Has( Capability::RayQuery ) && probe.Caps.Has( Capability::AccelerationStructure ) )
-            catalog.RayTracingModes.push_back( RayTracingMode::RayQuery );
-        if ( probe.Caps.Has( Capability::RayTracingPipeline ) &&
-             probe.Caps.Has( Capability::AccelerationStructure ) && !probe.Portability )
-            catalog.RayTracingModes.push_back( RayTracingMode::RayTracingPipeline );
+        if ( catalog.RayTracingAccel == RayTracingAcceleration::Hardware )
+        {
+            if ( rayQuery )
+                catalog.RayTracingModes.push_back( RayTracingMode::RayQuery );
+            if ( rayTracingPipeline )
+                catalog.RayTracingModes.push_back( RayTracingMode::RayTracingPipeline );
+        }
 
         // Anisotropy: the standard levels up to the device's limit.
         catalog.AnisotropyLevels.push_back( 1 );

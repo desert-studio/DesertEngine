@@ -64,7 +64,6 @@ namespace Desert::Graphic
         target.LensFlareGhostCount = volume.LensFlareGhostCount;
         target.SubsurfaceScattering = volume.SubsurfaceScattering;
 
-        target.GIIntensity       = Lerp( target.GIIntensity, volume.GIIntensity, weight );
         target.SSRIntensity      = Lerp( target.SSRIntensity, volume.SSRIntensity, weight );
         target.SSRMaxDistance    = Lerp( target.SSRMaxDistance, volume.SSRMaxDistance, weight );
         target.SubsurfaceScale   = Lerp( target.SubsurfaceScale, volume.SubsurfaceScale, weight );

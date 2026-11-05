@@ -214,7 +214,6 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
 
     Core::PostProcessSettings stated;
     stated.EnableSSAO           = false;
-    stated.GIIntensity          = 7.25f;
     stated.SSRIntensity         = 0.3f;
     stated.WhitePoint           = 3.0f;
     stated.BloomThreshold       = 0.7f;
@@ -280,8 +279,8 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_EQ( v.Post.LensFlareTint, glm::vec3( 0.5f, 0.25f, 1.0f ) );
     // GIMode 2 (RSM) lifted at v36 and re-stated as the method at v52 — ProbeVolume, which replaced the reflective
     // shadow maps (GI-PROBE-SW); EnableSSR true as the screen-space method.
-    EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIMethod::ProbeVolume );
-    EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionMethod::ScreenSpace );
+    EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIRequest::ProbeVolume );
+    EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionRequest::ScreenSpace );
     EXPECT_TRUE( v.Post.EnableBloom );
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";

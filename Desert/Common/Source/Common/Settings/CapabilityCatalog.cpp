@@ -19,6 +19,20 @@ namespace Common::Scalability
             return kRayTracingModeNames[static_cast<std::size_t>( value )];
         }
 
+        std::string_view Name( RayTracingAcceleration value )
+        {
+            switch ( value )
+            {
+                case RayTracingAcceleration::None:
+                    return "None";
+                case RayTracingAcceleration::Emulated:
+                    return "Emulated";
+                case RayTracingAcceleration::Hardware:
+                    return "Hardware";
+            }
+            return "?";
+        }
+
         std::string_view Name( DisplayOutput value )
         {
             switch ( value )
@@ -116,6 +130,9 @@ namespace Common::Scalability
         std::format_to( std::back_inserter( out ), " scale={}..{}%", catalog.RenderScale.MinPercent,
                         catalog.RenderScale.MaxPercent );
         AppendList( out, "rt", catalog.RayTracingModes );
+        if ( catalog.RayTracingAccel == RayTracingAcceleration::Emulated )
+            out += " (emulated RT is not offered)";
+        std::format_to( std::back_inserter( out ), " rtaccel={}", Name( catalog.RayTracingAccel ) );
         AppendList( out, "aniso", catalog.AnisotropyLevels );
         AppendList( out, "out", catalog.DisplayOutputs );
         AppendList( out, "present", catalog.PresentModes );

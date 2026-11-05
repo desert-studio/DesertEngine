@@ -16,6 +16,17 @@ namespace Common::Scalability
         }
     } // namespace
 
+    std::string_view RefuseGIRequest( std::int64_t value )
+    {
+        return RefuseGIMethod( static_cast<std::int64_t>( LadderOf( static_cast<GIRequest>( value ) ) ) );
+    }
+
+    std::string_view RefuseReflectionRequest( std::int64_t value )
+    {
+        return RefuseReflectionMethod(
+             static_cast<std::int64_t>( LadderOf( static_cast<ReflectionRequest>( value ) ) ) );
+    }
+
     std::string_view RefuseGIMethod( std::int64_t value )
     {
         return RefuseUnimplemented<GIMethod>( value );

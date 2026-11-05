@@ -568,7 +568,6 @@ namespace
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },
          { "GlobalIlluminationMethod", kRenderMethods },
-         { "GIIntensity", kSceneRenderer },
          { "ReflectionsMethod", kRenderMethods },
          { "SSRIntensity", kSceneRenderer },
          { "SSRMaxDistance", kSceneRenderer },

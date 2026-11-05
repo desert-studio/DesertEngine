@@ -2,8 +2,10 @@
 
 #include <vk-bootstrap/VkBootstrap.h>
 
+#include <algorithm>
 #include <format>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
@@ -464,6 +466,80 @@ namespace Desert::Graphic::API::Vulkan
             return neural;
         }
 
+        // A row the profiled device does not have: planned Unreachable, as HideRayTracing plans the ray tracing
+        // rows, so it is neither asked for nor enabled and Has() answers as that device's driver would.
+        void Withhold( DeviceCaps& caps, Capability capability )
+        {
+            caps.Rows[static_cast<std::size_t>( capability )] =
+                 CapabilityRow{ .Route = CapabilityRoute::Unreachable, .Present = false };
+        }
+
+        // --device-profile (DeviceRestrictions::Profile): every row the named device lacks, before the probe asks
+        // the driver for any. The profile itself travels on as DeviceCaps::Profile (VRAM cap, vendor upscalers,
+        // RayTracingAccel), which is why RayTracingHidden stays machine.json's alone: a real GTX shows its ray
+        // tracing rows as "no", not "hidden".
+        void ApplyProfile( DeviceCaps& caps, const DeviceProfile& profile )
+        {
+            for ( std::size_t i = 0; i < kCapabilityCount; ++i )
+            {
+                const auto capability = static_cast<Capability>( i );
+                if ( profile.HideRayTracing && IsRayTracingCapability( capability ) )
+                    Withhold( caps, capability );
+            }
+            if ( profile.HideRayQuery )
+                Withhold( caps, Capability::RayQuery );
+            if ( profile.HideCooperativeMatrix )
+                Withhold( caps, Capability::CooperativeMatrix );
+            if ( profile.HideShaderFloat16 )
+                Withhold( caps, Capability::ShaderFloat16 );
+            if ( profile.HideInt64Atomics )
+                Withhold( caps, Capability::ShaderBufferInt64Atomics );
+            caps.Profile = profile;
+        }
+
+        // THE PROFILE TABLE (UE DeviceProfiles.ini), ONE SOURCE. What each card's Vulkan driver lacks against
+        // this engine's rows, and its memory. GTX 10 (Pascal): no ray tracing driver path in Vulkan, no native
+        // 16-bit arithmetic (D3D12 Native16BitShaderOps is Turing+), no tensor cores. GTX 16 (Turing TU116/117):
+        // fp16 native, no tensor cores; the 1660's driver exposes acceleration_structure + ray_tracing_pipeline
+        // over the shader cores but not ray_query, the 1650 (4 GB) none of them. RTX 2060: hardware RT, tensor
+        // cores (DLSS, RR; frame generation is Ada+, and the catalog lists none). PerfIndexCap 0 everywhere:
+        // the profile does not imitate speed, the recommender's measured index stands.
+        const std::vector<DeviceProfile>& DeviceProfileTable()
+        {
+            using Common::Scalability::RayTracingAcceleration;
+            static const std::vector<DeviceProfile> table = {
+                 DeviceProfile{ .Name                  = "gtx1060",
+                                .HideRayTracing        = true,
+                                .RayTracingAccel       = RayTracingAcceleration::None,
+                                .HideVendorUpscalers   = true,
+                                .HideCooperativeMatrix = true,
+                                .HideShaderFloat16     = true,
+                                .VideoMemoryMiB        = 6144 },
+                 DeviceProfile{ .Name                  = "gtx1650",
+                                .HideRayTracing        = true,
+                                .RayTracingAccel       = RayTracingAcceleration::None,
+                                .HideVendorUpscalers   = true,
+                                .HideCooperativeMatrix = true,
+                                .VideoMemoryMiB        = 4096 },
+                 DeviceProfile{ .Name                  = "gtx1660",
+                                .HideRayQuery          = true,
+                                .RayTracingAccel       = RayTracingAcceleration::Emulated,
+                                .HideVendorUpscalers   = true,
+                                .HideCooperativeMatrix = true,
+                                .VideoMemoryMiB        = 6144 },
+                 DeviceProfile{ .Name            = "rtx2060",
+                                .RayTracingAccel = RayTracingAcceleration::Hardware,
+                                .VideoMemoryMiB  = 6144 },
+            };
+            return table;
+        }
+
+        DeviceProfile& RequestedProfileSlot()
+        {
+            static DeviceProfile requested;
+            return requested;
+        }
+
         ProbedDevice Probe( VkInstance instance, const vkb::PhysicalDevice& candidate,
                             const DeviceRestrictions& restrictions )
         {
@@ -479,6 +555,10 @@ namespace Desert::Graphic::API::Vulkan
             // object is the one a card without ray tracing would give.
             if ( restrictions.HideRayTracing )
                 HideRayTracing( probed.Caps );
+            // --device-profile, at the same point for the same reason: the device built from this object is the
+            // one the profiled card would give. After HideRayTracing, so machine.json's switch is never undone.
+            if ( !restrictions.Profile.Name.empty() )
+                ApplyProfile( probed.Caps, restrictions.Profile );
 
             // Table order: every dependency is settled before the row that needs it (static_assert in
             // DeviceCaps.cpp), and a row whose dependencies are absent is not even asked.
@@ -552,5 +632,41 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<ProbedDevice>( "no Vulkan device meets the required set:{}",
                                                              refusals );
         return Common::MakeSuccess( std::move( *best ) );
+    }
+
+    Common::ResultStr<DeviceProfile> FindDeviceProfile( std::string_view name )
+    {
+        std::string known;
+        for ( const DeviceProfile& profile : DeviceProfileTable() )
+        {
+            if ( profile.Name == name )
+                return Common::MakeSuccess( profile );
+            if ( !known.empty() )
+                known += ", ";
+            known += profile.Name;
+        }
+        return Common::MakeFormattedError<DeviceProfile>(
+             "--device-profile '{}' is not a device profile; known: {}", name, known );
+    }
+
+    Common::BoolResultStr RequestDeviceProfile( std::string_view name )
+    {
+        auto found = FindDeviceProfile( name );
+        if ( !found )
+            return Common::MakeError<bool>( found.GetError() );
+        RequestedProfileSlot() = found.ExtractValue();
+        return Common::MakeSuccess( true );
+    }
+
+    const DeviceProfile& RequestedDeviceProfile()
+    {
+        return RequestedProfileSlot();
+    }
+
+    uint64_t ProfiledDeviceLocalBytes( const DeviceProfile& profile, uint64_t heapBytes )
+    {
+        if ( profile.VideoMemoryMiB == 0 )
+            return heapBytes;
+        return std::min<uint64_t>( heapBytes, profile.VideoMemoryMiB * 1024ull * 1024ull );
     }
 } // namespace Desert::Graphic::API::Vulkan

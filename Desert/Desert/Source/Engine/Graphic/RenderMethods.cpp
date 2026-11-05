@@ -19,24 +19,27 @@ namespace Desert::Graphic
     {
         using namespace Common::Scalability;
 
-        // What the device runs that a method may need: inline ray query (a pipeline device offers it too), the
-        // ray tracing pipeline, fragment-stage stores and atomics, and the largest framebuffer / viewport side.
+        // What the device runs that a method may need: inline ray query and the ray tracing pipeline (two facts:
+        // neither implies the other, and an emulated-RT device's catalog lists neither), fragment-stage stores
+        // and atomics, the largest framebuffer / viewport side, and how it executes rays (the Device limit's
+        // words).
         struct DeviceOffers
         {
-            bool     RayQuery       = false;
-            bool     Pipeline       = false;
-            bool     FragmentStores = false;
-            uint32_t RenderArea     = 0;
+            bool                   RayQuery        = false;
+            bool                   Pipeline        = false;
+            bool                   FragmentStores  = false;
+            uint32_t               RenderArea      = 0;
+            RayTracingAcceleration RayTracingAccel = RayTracingAcceleration::None;
         };
 
         [[nodiscard]] DeviceOffers OffersOf( const CapabilityCatalog& catalog )
         {
-            return { .RayQuery = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
-                                              []( RayTracingMode m ) { return m != RayTracingMode::None; } ),
-                     .Pipeline = CapabilityCatalog::Offers( catalog.RayTracingModes,
-                                                            RayTracingMode::RayTracingPipeline ),
-                     .FragmentStores = catalog.FragmentStores,
-                     .RenderArea     = catalog.MaxRenderArea };
+            return { .RayQuery = CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayQuery ),
+                     .Pipeline =
+                          CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayTracingPipeline ),
+                     .FragmentStores  = catalog.FragmentStores,
+                     .RenderArea      = catalog.MaxRenderArea,
+                     .RayTracingAccel = catalog.RayTracingAccel };
         }
 
         // The program a view's renderer could not build for @p method, empty when every one it needs built.
@@ -92,12 +95,36 @@ namespace Desert::Graphic
         // override of "<Group>.Method" is the user's choice and REPLACES the request (UE: the console variable set
         // by hand beats the post-process volume). Either way the result then walks down the ladder (the enum's
         // order): WalkDown, so an override still yields to the device, the render path and a refused program.
-        template <typename Method>
-        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, const bool overridden,
+        // Shadows have no request family: the view's ShadowMethod is its own rung and names no tracer.
+        [[nodiscard]] constexpr ShadowMethod LadderOf( const ShadowMethod method )
+        {
+            return method;
+        }
+        [[nodiscard]] constexpr bool IsTracedRequest( const GIRequest request )
+        {
+            return request == GIRequest::Traced;
+        }
+        [[nodiscard]] constexpr bool IsTracedRequest( const ReflectionRequest request )
+        {
+            return request == ReflectionRequest::Traced;
+        }
+        [[nodiscard]] constexpr bool IsTracedRequest( const ShadowMethod )
+        {
+            return false;
+        }
+
+        // A Traced request enters as HardwareTraced (LadderOf): the ceiling's traced rung and the device's rays
+        // then decide the tracer through the same walk - SoftwareTraced is the rung below.
+        template <typename Request, typename Method>
+        ResolvedMethod<Method> ResolveAxis( Request request, Method ceiling, const bool overridden,
                                             const DeviceOffers device, const bool gBuffer,
                                             std::span<const MethodRefusal<Method>> refusals )
         {
-            ResolvedMethod<Method> r{ .Requested = requested, .Ceiling = ceiling, .Effective = requested };
+            const Method           requested = LadderOf( request );
+            ResolvedMethod<Method> r{ .Requested     = requested,
+                                      .Ceiling       = ceiling,
+                                      .Effective     = requested,
+                                      .TracedRequest = IsTracedRequest( request ) };
             if ( overridden ? ceiling != requested : ceiling < requested )
             {
                 r.Effective = ceiling;
@@ -128,7 +155,10 @@ namespace Desert::Graphic
             WalkDown( r, device, gBuffer, refusals );
         }
 
-        std::string_view LimitText( MethodLimit limit, std::string_view scalabilityKey, std::string& scratch,
+        // @p rayTracingAccel words the Device limit: an emulated-RT device has the extensions, so "no ray query"
+        // would be wrong about it.
+        std::string_view LimitText( MethodLimit limit, const RayTracingAcceleration rayTracingAccel,
+                                    std::string_view scalabilityKey, std::string& scratch,
                                     std::string_view ceiling, std::string_view program )
         {
             switch ( limit )
@@ -142,6 +172,9 @@ namespace Desert::Graphic
                     scratch = std::format( "machine override {} = {}", scalabilityKey, ceiling );
                     return scratch;
                 case MethodLimit::Device:
+                    if ( rayTracingAccel == RayTracingAcceleration::Emulated )
+                        return "emulated RT: the device traces rays on its shader cores, and traced methods run "
+                               "on hardware RT only";
                     return "the device offers no ray query";
                 case MethodLimit::DevicePipeline:
                     return "the device offers no ray tracing pipeline";
@@ -169,14 +202,37 @@ namespace Desert::Graphic
 
         template <typename Method, std::size_t N>
         std::string FormatAxis( std::string_view label, std::string_view scalabilityKey,
-                                const ResolvedMethod<Method>& m, const std::array<std::string_view, N>& names )
+                                const ResolvedMethod<Method>& m, const std::array<std::string_view, N>& names,
+                                const RayTracingAcceleration rayTracingAccel )
         {
             const auto name = [&]( Method v ) { return names[static_cast<std::size_t>( v )]; };
             if ( !m.Lowered() )
                 return std::format( "{}: {}", label, name( m.Effective ) );
-            std::string scratch;
-            return std::format( "{}: {} -> {} ({})", label, name( m.Requested ), name( m.Effective ),
-                                LimitText( m.Limit, scalabilityKey, scratch, name( m.Ceiling ), m.Program ) );
+            std::string            scratch;
+            const std::string_view limit =
+                 LimitText( m.Limit, rayTracingAccel, scalabilityKey, scratch, name( m.Ceiling ), m.Program );
+            const std::string_view requested =
+                 m.TracedRequest ? std::string_view( "Traced" ) : name( m.Requested );
+            return std::format( "{}: {} -> {} ({})", label, requested, name( m.Effective ), limit );
+        }
+
+        // The axis' tracer row; empty when the axis is on no traced rung. Software names the first limit that
+        // stopped hardware rays (the walk's Limit: a Traced request starts on HardwareTraced).
+        template <typename Method, std::size_t N>
+        std::string FormatTracer( std::string_view label, std::string_view scalabilityKey,
+                                  const ResolvedMethod<Method>& m, const std::array<std::string_view, N>& names,
+                                  const RayTracingAcceleration rayTracingAccel )
+        {
+            if ( !IsTracerRung( m.Effective ) )
+                return {};
+            const Tracer           tracer = TracerOf( m.Effective );
+            const std::string_view tracerName = kTracerNames[static_cast<std::size_t>( tracer )];
+            if ( tracer == Tracer::Hardware || m.Limit == MethodLimit::None )
+                return std::format( "{} tracer: {}", label, tracerName );
+            std::string            scratch;
+            const std::string_view limit = LimitText( m.Limit, rayTracingAccel, scalabilityKey, scratch,
+                                                      names[static_cast<std::size_t>( m.Ceiling )], m.Program );
+            return std::format( "{} tracer: {} ({})", label, tracerName, limit );
         }
 
         constexpr std::string_view kGIKey          = "GlobalIllumination.Method";
@@ -221,6 +277,7 @@ namespace Desert::Graphic
         out.Visibility        = out.DeviceVisibility;
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
+        out.RayTracingAccel      = device.RayTracingAccel;
         return out;
     }
 
@@ -291,9 +348,9 @@ namespace Desert::Graphic
         const DeviceOffers device = OffersOf( catalog );
         std::string        unused;
         if ( NeedsRayQuery( GIMethod::PathTraced ) && !device.RayQuery )
-            return LimitText( MethodLimit::Device, kGIKey, unused, {}, {} );
+            return LimitText( MethodLimit::Device, device.RayTracingAccel, kGIKey, unused, {}, {} );
         if ( NeedsRayTracingPipeline( GIMethod::PathTraced ) && !device.Pipeline )
-            return LimitText( MethodLimit::DevicePipeline, kGIKey, unused, {}, {} );
+            return LimitText( MethodLimit::DevicePipeline, device.RayTracingAccel, kGIKey, unused, {}, {} );
         return {};
     }
 
@@ -309,11 +366,25 @@ namespace Desert::Graphic
             methods.Reflections.Limit = MethodLimit::FrameScene;
     }
 
+    std::vector<std::string> FormatTracers( const RenderMethods& methods )
+    {
+        std::vector<std::string> rows;
+        for ( std::string row : { FormatTracer( "GI", kGIKey, methods.GlobalIllumination, kGIMethodNames,
+                                                methods.RayTracingAccel ),
+                                  FormatTracer( "Reflections", kReflectionsKey, methods.Reflections,
+                                                kReflectionMethodNames, methods.RayTracingAccel ) } )
+            if ( !row.empty() )
+                rows.push_back( std::move( row ) );
+        return rows;
+    }
+
     std::vector<std::string> FormatRenderMethods( const RenderMethods& methods )
     {
-        return { FormatAxis( "GI", kGIKey, methods.GlobalIllumination, kGIMethodNames ),
-                 FormatAxis( "Reflections", kReflectionsKey, methods.Reflections, kReflectionMethodNames ),
-                 FormatAxis( "Shadows", kShadowsKey, methods.Shadows, kShadowMethodNames ) +
+        return { FormatAxis( "GI", kGIKey, methods.GlobalIllumination, kGIMethodNames, methods.RayTracingAccel ),
+                 FormatAxis( "Reflections", kReflectionsKey, methods.Reflections, kReflectionMethodNames,
+                             methods.RayTracingAccel ),
+                 FormatAxis( "Shadows", kShadowsKey, methods.Shadows, kShadowMethodNames,
+                             methods.RayTracingAccel ) +
                       ( methods.Shadows.Effective == ShadowMethod::Stochastic
                              ? std::format( " (visibility {})",
                                             kStochasticVisibilityNames[static_cast<std::size_t>( methods.Visibility )] )
@@ -326,12 +397,18 @@ namespace Desert::Graphic
         static std::mutex            s_Mutex;
         static std::set<std::string> s_Logged;
 
+        // The tracer is stated whether or not anything was lowered: hardware rays on an RTX are the answer a run
+        // checks as much as software rays on a GTX (one line per distinct row, process-wide).
+        const std::vector<std::string> tracers = FormatTracers( methods );
         const bool lowered[] = { methods.GlobalIllumination.Lowered(), methods.Reflections.Lowered(),
                                  methods.Shadows.Lowered() };
+        const std::lock_guard lock( s_Mutex );
+        for ( const std::string& tracer : tracers )
+            if ( s_Logged.insert( tracer ).second )
+                LOG_INFO( "[RenderMethods] {}", tracer );
         if ( !lowered[0] && !lowered[1] && !lowered[2] )
             return;
         const std::vector<std::string> rows = FormatRenderMethods( methods );
-        const std::lock_guard          lock( s_Mutex );
         for ( std::size_t i = 0; i < rows.size(); ++i )
             if ( lowered[i] && s_Logged.insert( rows[i] ).second )
                 LOG_WARN( "[RenderMethods] {}", rows[i] );

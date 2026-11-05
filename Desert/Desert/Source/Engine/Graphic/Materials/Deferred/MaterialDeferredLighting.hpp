@@ -69,19 +69,16 @@ namespace Desert::Graphic
         ShadowDebugMode Debug = ShadowDebugMode::Off;
     };
 
-    // Where the composite's indirect light comes from (DeferredLighting.shader Params.w / ScreenSpaceGi).
+    // Where the composite's indirect light comes from (DeferredLighting.shader Params.w / CompositeView).
     struct DeferredGIInput
     {
-        // 0 none, 1 the screen-space gather inside the composite, 2 the traced final gather in place of the sky's
-        // two cubes.
-        int   Mode      = 0;
-        float Intensity = 0.0f; // scales the screen-space gather only (PostProcessSettings GIIntensity)
-        // The screen-space gather's samples per pixel (Scalability GlobalIllumination.ScreenSpaceSamples).
-        int ScreenSpaceSamples = 12;
-        // ViewFrame::PreExposure: the composite writes the scene colour multiplied by it (ScreenSpaceGi.y).
+        // 0 none (the sky's two cubes), 2 the traced final gather in place of them, 3 the same gather occluded by
+        // its own short-range AO. The composite gathers no bounce of its own: GI is the GI method's alone.
+        int Mode = 0;
+        // ViewFrame::PreExposure: the composite writes the scene colour multiplied by it (CompositeView.y).
         float PreExposure = 1.0f;
         // SSS-PROFILE (CONTRACT §4): the view scatters - the composite splits the screen-space scattered texels'
-        // diffuse into SubsurfaceDiffuseTexture (ScreenSpaceGi.z).
+        // diffuse into SubsurfaceDiffuseTexture (CompositeView.z).
         bool SubsurfaceSplit = false;
     };
 
@@ -184,17 +181,15 @@ namespace Desert::Graphic
             // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
             SetInvJitteredViewProjection( invJitteredViewProjection );
-            // Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
-            // w = GI mode (0 = off, 1 = screen-space gather, 2 = the traced GI's final gather in place of the
-            // sky's two cubes). Mode picks WHERE the indirect light comes from; intensity scales the screen-space
-            // gather only.
-            SetParams( glm::vec4( static_cast<float>( debugMode ), gi.Intensity, ssaoEnabled ? 1.0f : 0.0f,
-                                  static_cast<float>( gi.Mode ) ) );
-            // ScreenSpaceGi: x = the screen-space gather's samples per pixel (read under mode 1 only), y = the
-            // view's PreExposure the lit colour is stored at.
-            SetScreenSpaceGI(
-                 glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), gi.PreExposure,
-                            gi.SubsurfaceSplit ? 1.0f : 0.0f, 0.0f ) );
+            // Params: x = debug mode, y unused, z = SSAO enabled (else shader uses AO=1), w = GI mode (0 none,
+            // 2 the traced GI's final gather in place of the sky's two cubes, 3 the same gather with its own
+            // short-range AO). Mode picks WHERE the indirect light comes from.
+            const float ssao = ssaoEnabled ? 1.0f : 0.0f;
+            SetParams( glm::vec4( static_cast<float>( debugMode ), 0.0f, ssao, static_cast<float>( gi.Mode ) ) );
+            // CompositeView: x unused, y = the view's PreExposure the lit colour is stored at, z = the view
+            // scatters (SSS-PROFILE).
+            const float scatters = gi.SubsurfaceSplit ? 1.0f : 0.0f;
+            SetCompositeView( glm::vec4( 0.0f, gi.PreExposure, scatters, 0.0f ) );
 
             // The contact shadows march the G-buffer depth in the space it was rasterised in
             // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).
@@ -245,7 +240,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, CameraPos,  "CameraPosition",  ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::mat4, InvJitteredViewProjection, "InverseJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
         MPROPERTY( glm::mat4, JitteredViewProjection, "JitteredWorldToClip", ( glm::mat4( 1.0f ) ) )
-        MPROPERTY( glm::vec4, ScreenSpaceGI, "ScreenSpaceGi", ( glm::vec4( 12.0f, 1.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, CompositeView, "CompositeView", ( glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f ) ) )
         MPROPERTY( glm::vec4, Light1Dir,   "Light1Direction", ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )
         MPROPERTY( glm::vec4, Light1Color, "Light1Color",     ( glm::vec4( 0.0f ) ) )
 

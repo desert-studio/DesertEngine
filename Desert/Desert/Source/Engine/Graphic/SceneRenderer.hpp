@@ -2084,7 +2084,6 @@ namespace Desert::Graphic
         }
 
     private:
-        float                   m_GIIntensity   = 2.0f;
         // PostProcessSettings SubsurfaceScattering / SubsurfaceScale of this view (SSS-PROFILE, CONTRACT §6).
         bool  m_SubsurfaceScattering = true;
         float m_SubsurfaceScale      = 1.0f;
@@ -2102,8 +2101,6 @@ namespace Desert::Graphic
         // Reflections.DenoiserRadius (Scalability): the reflections denoiser's reconstruction kernel, taps per
         // side from the centre. High column: 2 (5x5).
         uint32_t m_ReflectionDenoiserRadius = 2;
-        // GlobalIllumination.ScreenSpaceSamples (Scalability): the screen-space gather's samples per pixel.
-        int m_ScreenSpaceGISamples = 12;
         // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces / MaxPathIntensity (Scalability), taken each
         // BeginScene.
         System::PathTracer::Settings m_PathTracingSettings;

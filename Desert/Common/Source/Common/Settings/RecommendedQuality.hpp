@@ -38,6 +38,10 @@ namespace Common::Scalability
         std::string DeviceName;
         uint32_t    TableVersion = 0; // ScalabilityTable::Version — new thresholds re-map (no GPU re-run needed,
                                       // but the cache stores levels, so it is simplest and honest to re-run)
+        // The device-local MiB the levels were capped against (Catalog.VideoMemory, the VRAM cap's input). A
+        // device profile (--device-profile gtx1060) is the same GPU with less memory: without this the real
+        // card's cached levels would answer the profiled one, and its VRAM floors would never apply.
+        uint32_t VideoMemoryMiB = 0;
 
         bool operator==( const BenchmarkCacheKey& ) const = default;
     };
@@ -88,8 +92,10 @@ namespace Common::Scalability
         bool operator==( const RecommendedQuality& ) const = default;
     };
 
-    // PURE. Index -> level per group through the table thresholds, then the VRAM cap (Textures and Shadows never
-    // above the level whose budget fits VideoMemory — thresholds in the table, not in code), Cinematic never.
+    // PURE. Index -> level per group through the table thresholds, then the VRAM cap (Textures, Shadows,
+    // GlobalIllumination, Reflections and Foliage never above the level whose budget fits VideoMemory — the
+    // Recommend.MinVideoMemoryMiB rows of the table, not code; under a device profile VideoMemory is the
+    // profile's, DeviceCapsProbe ProfiledDeviceLocalBytes), Cinematic never.
     // When result.Timed is false the index is replaced by DeviceClassPerfIndex(Class, VideoMemory) — the
     // fallback is a named function, not a silent default.
     [[nodiscard]] std::array<Level, kGroupCount> RecommendLevels( const BenchmarkResult&  result,
