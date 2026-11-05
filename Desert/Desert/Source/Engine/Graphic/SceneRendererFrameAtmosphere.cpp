@@ -278,7 +278,8 @@ namespace Desert::Graphic
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
         AddComputeNodes( graph, textures,
-                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual() ) );
+                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual(),
+                                                    m_LocalFogVolumes ) );
     }
 
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,

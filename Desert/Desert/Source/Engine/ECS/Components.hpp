@@ -47,6 +47,7 @@ namespace Desert::Assets::Serialization
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/ECS/LocalFogVolumeComponent.hpp>
 #include <Engine/ECS/LightUnits.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>

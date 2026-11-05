@@ -5,6 +5,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Render/Commands/HeightFogCommand.hpp>
+#include <Engine/Graphic/Render/Commands/LocalFogVolumeCommand.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -15,7 +16,7 @@
 namespace Desert::ECS
 {
     /**
-     * @brief Collects the scene's exponential height fog for the frame.
+     * @brief Collects the scene's exponential height fog and its local fog volumes for the frame.
      *
      * A pure render-data collector: it reads one component
      * (plus the owning entity's transform, because the fog floor IS that transform's Y) and emits one
@@ -36,6 +37,8 @@ namespace Desert::ECS
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                      const Common::Timestep& /*ts*/ ) override
         {
+            CollectLocalFogVolumes( registry, renderCommandBuffer );
+
             std::vector<entt::entity> entities;
             auto                      view = registry.view<ECS::ExponentialHeightFogComponent>();
             for ( const auto entity : view )
@@ -84,6 +87,49 @@ namespace Desert::ECS
         }
 
     private:
+        // Every enabled, visible LocalFogVolumeComponent, packed with its entity's world transform (the
+        // parents' transforms folded in, as the local lights take theirs) - one command per volume, in the
+        // command arena. Nothing is emitted for a scene without volumes: the froxels then loop over none.
+        void CollectLocalFogVolumes( entt::registry& registry, Graphic::Render::RenderCommandBuffer& commands )
+        {
+            uint32_t gathered = 0;
+            auto     volumes  = registry.view<ECS::LocalFogVolumeComponent, ECS::TransformComponent>();
+            for ( const auto entity : volumes )
+            {
+                const auto& volume = volumes.get<ECS::LocalFogVolumeComponent>( entity );
+                if ( !volume.Data.Enabled || ECS::IsHidden( registry, entity ) )
+                    continue;
+                if ( gathered == Graphic::kVolumetricFogMaxLocalVolumes )
+                {
+                    if ( !m_LocalVolumeCapLogged )
+                        LOG_WARN( "[LocalFogVolume] more than {} enabled local fog volumes in the scene; the "
+                                  "froxels read the first {} and the rest are not drawn.",
+                                  Graphic::kVolumetricFogMaxLocalVolumes, Graphic::kVolumetricFogMaxLocalVolumes );
+                    m_LocalVolumeCapLogged = true;
+                    break;
+                }
+                commands.Emplace<Graphic::Render::LocalFogVolumeCommand>(
+                     Graphic::PackLocalFogVolume( volume.Data, WorldTransform( registry, entity ) ) );
+                ++gathered;
+            }
+        }
+
+        static glm::mat4 WorldTransform( entt::registry& registry, entt::entity entity )
+        {
+            glm::mat4    world   = registry.get<ECS::TransformComponent>( entity ).GetTransform();
+            entt::entity current = entity;
+            while ( registry.has<ECS::RelationshipComponent>( current ) )
+            {
+                const auto& relation = registry.get<ECS::RelationshipComponent>( current );
+                if ( relation.Parent == entt::null )
+                    break;
+                current = relation.Parent;
+                if ( registry.has<ECS::TransformComponent>( current ) )
+                    world = registry.get<ECS::TransformComponent>( current ).GetTransform() * world;
+            }
+            return world;
+        }
+
         static uint64_t EntityId( entt::registry& registry, entt::entity entity )
         {
             if ( auto* id = registry.try_get<ECS::UUIDComponent>( entity ) )
@@ -99,6 +145,7 @@ namespace Desert::ECS
         }
 
         // Describes the SCENE, not the frame, so it is said once.
-        bool m_DuplicateLogged = false;
+        bool m_DuplicateLogged      = false;
+        bool m_LocalVolumeCapLogged = false;
     };
 } // namespace Desert::ECS

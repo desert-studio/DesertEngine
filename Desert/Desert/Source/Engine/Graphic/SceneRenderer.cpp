@@ -3086,6 +3086,7 @@ namespace Desert::Graphic
         m_SpotLight.SpotLights.clear();
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
+        m_LocalFogVolumes.clear(); // keeps the capacity reserved by AddLocalFogVolume
         m_FrameExtensions         = nullptr;
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugDraw )
@@ -4859,6 +4860,15 @@ namespace Desert::Graphic
     {
         m_SpotLight.SpotLights.push_back( spotLight );
         m_SpotLightShadows.push_back( shadow );
+    }
+
+    void SceneRenderer::AddLocalFogVolume( const LocalFogVolumeGpu& volume )
+    {
+        // Reserved once; the gatherer (HeightFogECSSystem) emits at most the cap, so the list never grows.
+        if ( m_LocalFogVolumes.capacity() < kVolumetricFogMaxLocalVolumes )
+            m_LocalFogVolumes.reserve( kVolumetricFogMaxLocalVolumes );
+        if ( m_LocalFogVolumes.size() < kVolumetricFogMaxLocalVolumes )
+            m_LocalFogVolumes.push_back( volume );
     }
 
     void SceneRenderer::TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )

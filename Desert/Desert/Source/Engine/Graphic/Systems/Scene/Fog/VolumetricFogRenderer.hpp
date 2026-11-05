@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -182,10 +183,13 @@ namespace Desert::Graphic::System
          * @param virtualLocalShadows the view's local lights shadow through their virtual maps (SceneRenderer::
          *        LocalShadowsAreVirtual - Graphic::LocalShadowsVirtual, the rule the opaque composite reads): the
          *        DESERT_LOCAL_SHADOW_VSM permutation, reading refs' Transients.Vsm; false = the local shadow atlas.
+         * @param localVolumes this frame's local fog volumes (SceneRenderer::AddLocalFogVolume), voxelised
+         *        into the froxels; empty = the shader's loop runs zero times.
          */
         std::vector<ComputeNodeDeclaration> DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
                                                                const VolumetricFogSunInput& sun,
-                                                               bool virtualLocalShadows );
+                                                               bool virtualLocalShadows,
+                                                               std::span<const LocalFogVolumeGpu> localVolumes );
 
         // The integrated volume of THIS frame for the height fog pass (Integrated null when no node was declared).
         [[nodiscard]] const VolumetricFogFrameResult& GetFrameResult() const
@@ -210,6 +214,9 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_IntegrationLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
+        // The scattering pass's own LocalFogVolumesBuffer (kVolumetricFogLocalVolumesBinding), created at the
+        // cap (kVolumetricFogMaxLocalVolumes) so it never grows; uploaded only on a frame that has volumes.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_LocalFogBuffer;
 
         // The lit froxels, ping-pong: this frame writes [m_Current], [1 - m_Current] is last frame's (the
         // history).

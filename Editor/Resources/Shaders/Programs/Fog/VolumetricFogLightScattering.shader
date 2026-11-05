@@ -102,6 +102,9 @@ Shader "VolumetricFogLightScattering"
 
         ReadBuffer(8) LightGridParamsUB { LightGridParams lightGrid; };
         ReadBuffer(9) LightGridCellsUB { uint lightGridCells[]; };
+        // The frame's local fog volumes (Graphic::kVolumetricFogLocalVolumesBinding, the pipeline's own buffer
+        // like the parameter block); VfLocalFog.x of them are valid.
+        ReadBuffer(14) LocalFogVolumesBuffer { LocalFogVolumeGpu localFogVolumes[]; };
 
         // A froxel has no fragment and no ShadowUB: its froxel keys the PCF rotation, one tap per froxel.
         #define LOCAL_SHADOW_FILTER_PIXEL vec2(gl_GlobalInvocationID.xy)
@@ -164,6 +167,17 @@ Shader "VolumetricFogLightScattering"
 
             float extinction = VolumetricFogExtinction(p, distance);
             vec3  scattering = VfAlbedo.rgb * extinction;
+            vec3  emissive   = VfEmissive.rgb * extinction;
+            // The local fog volumes voxelised into this froxel (UE 5.3 Local Fog Volumes): each adds its own
+            // medium, lit below by the same sun, lights and sky. No volume: the loop runs zero times.
+            for (uint v = 0u; v < VfLocalFog.x; ++v)
+            {
+                LocalFogVolumeGpu volume = localFogVolumes[v];
+                float             e      = VolumetricFogLocalVolumeExtinction(volume, p);
+                extinction += e;
+                scattering += volume.Albedo.rgb * e;
+                emissive   += volume.Emissive.rgb * e;
+            }
 
             vec3 lighting = vec3(0.0);
             if (extinction > 0.0)
@@ -199,7 +213,7 @@ Shader "VolumetricFogLightScattering"
                 lighting += sky * (1.0 - DesertRainOcclusionAt(p));
             }
 
-            vec4 current = vec4(scattering * lighting + VfEmissive.rgb * extinction, extinction);
+            vec4 current = vec4(scattering * lighting + emissive, extinction);
 
             // Reprojection of the froxel CENTRE (not the jittered point) into last frame's grid.
             if (VfGridPixel.w > 0.5)

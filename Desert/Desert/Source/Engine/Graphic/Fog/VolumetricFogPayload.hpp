@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/ECS/LocalFogVolumeComponent.hpp>
+
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -79,6 +81,36 @@ namespace Desert::Graphic
     static_assert( offsetof( LocalFogVolumeGpu, Density ) == 64 );
     static_assert( offsetof( LocalFogVolumeGpu, Emissive ) == 96 );
     static_assert( sizeof( LocalFogVolumeGpu ) == 112 );
+
+    // PURE. One authored volume as the froxels read it: @p world is the entity's world transform (cm), the
+    // shape's half size Extent is in its local space. Extinctions are authored per metre (UE's units) and
+    // carried per centimetre; the height falloff and offset are already unit-space quantities.
+    [[nodiscard]] inline LocalFogVolumeGpu PackLocalFogVolume( const ECS::LocalFogVolumeData& data,
+                                                               const glm::mat4&               world )
+    {
+        constexpr float kPerMetreToPerCm = 1.0f / 100.0f;
+        const glm::vec3 extent           = glm::max( data.Extent, glm::vec3( 1.0f ) );
+        glm::mat4       localToUnit( 1.0f );
+        localToUnit[0][0] = 1.0f / extent.x;
+        localToUnit[1][1] = 1.0f / extent.y;
+        localToUnit[2][2] = 1.0f / extent.z;
+
+        LocalFogVolumeGpu gpu{};
+        gpu.WorldToVolume = localToUnit * glm::inverse( world );
+        gpu.Density       = glm::vec4( std::max( data.RadialFogExtinction, 0.0f ) * kPerMetreToPerCm,
+                                       std::max( data.HeightFogExtinction, 0.0f ) * kPerMetreToPerCm,
+                                       std::max( data.HeightFogFalloff, 0.0f ),
+                                       std::clamp( data.HeightFogOffset, -1.0f, 1.0f ) );
+        const float shape = data.Shape == ECS::LocalFogVolumeShape::Box ? 1.0f : 0.0f;
+        gpu.Albedo   = glm::vec4( glm::clamp( data.Albedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ), shape );
+        gpu.Emissive = glm::vec4( glm::max( data.Emissive, glm::vec3( 0.0f ) ),
+                                  std::clamp( data.EdgeFade, 1e-3f, 1.0f ) );
+        return gpu;
+    }
+
+    // The froxel pass reads at most this many volumes a frame (the buffer's reserve; UE caps its local fog
+    // volume instances per view the same way, r.LocalFogVolume.MaxInstanceCount); the gatherer says the excess.
+    inline constexpr uint32_t kVolumetricFogMaxLocalVolumes = 64;
 
     // Must equal VOLUMETRIC_FOG_LOCAL_VOLUMES_BINDING in Programs/Fog/VolumetricFogLightScattering.shader: the
     // pipeline's own buffer (SetStorageBuffer), like the parameter block.

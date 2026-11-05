@@ -910,6 +910,10 @@ namespace Desert::Graphic
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
                            const LocalLightShadowSettings&          shadow );
 
+        // One local fog volume of this frame (LocalFogVolumeCommand, replayed per view: by const reference).
+        // The list is reserved once at kVolumetricFogMaxLocalVolumes and emptied with the lights at frame end.
+        void AddLocalFogVolume( const LocalFogVolumeGpu& volume );
+
         const auto& GetSpotLights() const
         {
             return m_SpotLight;
@@ -1880,6 +1884,7 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
+        std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
         std::vector<LocalLightShadowSettings> m_SpotLightShadows;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.

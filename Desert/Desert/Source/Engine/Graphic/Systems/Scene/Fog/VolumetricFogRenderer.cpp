@@ -64,6 +64,12 @@ namespace Desert::Graphic::System
              kVolumetricFogParamsBinding, /*persistent=*/false );
         if ( !m_ParamsBuffer )
             return Common::MakeError( "VolumetricFogRenderer: could not create the parameter buffer" );
+        m_LocalFogBuffer = ShaderResources::StorageBuffer::Create(
+             "VolumetricFog.LocalVolumes",
+             static_cast<uint32_t>( sizeof( LocalFogVolumeGpu ) * kVolumetricFogMaxLocalVolumes ),
+             kVolumetricFogLocalVolumesBinding, /*persistent=*/false );
+        if ( !m_LocalFogBuffer )
+            return Common::MakeError( "VolumetricFogRenderer: could not create the local fog volume buffer" );
         if ( const auto valid = m_ScatteringLayout.Validate( m_ScatteringPipeline->GetShader(),
                                                              VolumetricFogLightScatteringShaderParameters::kAll );
              !valid )
@@ -164,7 +170,7 @@ namespace Desert::Graphic::System
     bool VolumetricFogRenderer::IsActive() const
     {
         return m_Present && m_Data.Enabled && m_Data.VolumetricFog && m_Quality.Enabled && m_ScatteringPipeline &&
-               m_IntegrationPipeline && m_ParamsBuffer;
+               m_IntegrationPipeline && m_ParamsBuffer && m_LocalFogBuffer;
     }
 
     bool VolumetricFogRenderer::EnsureVolumes( const glm::uvec3& gridSize )
@@ -205,7 +211,8 @@ namespace Desert::Graphic::System
 
     std::vector<ComputeNodeDeclaration>
     VolumetricFogRenderer::DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
-                                              const VolumetricFogSunInput& sun, const bool virtualLocalShadows )
+                                              const VolumetricFogSunInput& sun, const bool virtualLocalShadows,
+                                              const std::span<const LocalFogVolumeGpu> localVolumes )
     {
         std::vector<ComputeNodeDeclaration> nodes;
         m_Result = VolumetricFogFrameResult{};
@@ -318,6 +325,22 @@ namespace Desert::Graphic::System
         p.RainOcclusionWorldToMap = sun.SkyOcclusion.WorldToMap;
         p.RainOcclusionParams     = t.RainOcclusionMap.IsValid() ? sun.SkyOcclusion.Params : glm::vec4( 0.0f );
 
+        // The frame's local fog volumes (UE 5.3, voxelised into the froxels): the count rides in the block, the
+        // volumes in the pass's own buffer. A frame without volumes uploads nothing and the loop runs zero times.
+        const uint32_t localCount =
+             static_cast<uint32_t>( std::min<size_t>( localVolumes.size(), kVolumetricFogMaxLocalVolumes ) );
+        if ( localCount > 0 )
+        {
+            const auto uploadedVolumes = m_LocalFogBuffer->SetData(
+                 localVolumes.data(), static_cast<uint32_t>( sizeof( LocalFogVolumeGpu ) * localCount ) );
+            if ( uploadedVolumes.IsSuccess() )
+                p.LocalFog = glm::uvec4( localCount, 0u, 0u, 0u );
+            else
+                LOG_ERROR( "[VolumetricFog] the {} local fog volumes are not drawn this frame, their buffer was "
+                           "not uploaded: {}",
+                           localCount, uploadedVolumes.GetError() );
+        }
+
         if ( const auto uploaded = m_ParamsBuffer->SetData( &p, static_cast<uint32_t>( sizeof( p ) ) );
              !uploaded.IsSuccess() )
         {
@@ -327,6 +350,7 @@ namespace Desert::Graphic::System
             return nodes;
         }
         scatteringPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
+        scatteringPipeline->SetStorageBuffer( kVolumetricFogLocalVolumesBinding, m_LocalFogBuffer.get() );
         m_IntegrationPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
 
         const std::shared_ptr<Image> distantSkyLight =
