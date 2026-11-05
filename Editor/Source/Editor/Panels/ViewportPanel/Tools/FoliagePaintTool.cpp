@@ -374,11 +374,38 @@ namespace Desert::Editor::Tools
                      ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 1000.0f, "%.0f",
                                          ImGuiSliderFlags_Logarithmic );
                  } );
-            row( "Scale", "Uniform scale range drawn per instance (UE ScaleX, Uniform)",
-                 [&] {
-                     ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "%.2f",
-                                             "%.2f" );
-                 } );
+            // UE Scaling + ScaleX/ScaleY/ScaleZ: a range is shown only when the mode reads it (a locked pair
+            // draws from its first axis's range), as UE's FoliageType Details hides them.
+            Row::BeginPropertyRow( "Scaling",
+                                   "How the scale ranges combine (UE Scaling). Uniform: ScaleX on all axes. Free: "
+                                   "each axis its own range. Lock XY / XZ / YZ: the pair shares one draw of its "
+                                   "first axis's range. Z is the instance's up" );
+            ImGui::SetNextItemWidth( -1 );
+            int scaling = static_cast<int>( f.Scaling );
+            if ( ImGui::Combo( "##Scaling", &scaling, "Uniform\0Free\0Lock XY\0Lock XZ\0Lock YZ\0" ) )
+            {
+                f.Scaling = static_cast<Assets::Serialization::FoliageScaling>( scaling );
+                commit    = true;
+            }
+            Row::EndPropertyRow();
+            const auto reads      = Assets::Serialization::FoliageScalingReads( f.Scaling );
+            const auto scaleRange = [&]( const char* label, const char* tip, const char* id,
+                                         Assets::Serialization::FoliageFloatInterval& range )
+            {
+                row( label, tip,
+                     [&] {
+                         ImGui::DragFloatRange2( id, &range.Min, &range.Max, 0.01f, 0.02f, 10.0f, "%.2f", "%.2f" );
+                     } );
+            };
+            scaleRange( "Scale X",
+                        f.Scaling == Assets::Serialization::FoliageScaling::Uniform
+                             ? "Scale range drawn per instance, all three axes (UE ScaleX, Uniform)"
+                             : "Scale range of X drawn per instance (UE ScaleX)",
+                        "##ScaleX", f.ScaleX );
+            if ( reads.Y )
+                scaleRange( "Scale Y", "Scale range of Y, the other ground axis (UE ScaleY)", "##ScaleY", f.ScaleY );
+            if ( reads.Z )
+                scaleRange( "Scale Z", "Scale range of Z, the instance's up (UE ScaleZ)", "##ScaleZ", f.ScaleZ );
             row( "Z Offset", "Offset along the placement up axis, cm",
                  [&]
                  {
@@ -643,18 +670,24 @@ namespace Desert::Editor::Tools
         s_Editing = active;
 
         if ( commit && !( f == type->GetData() ) )
-        {
-            if ( const auto saved = Assets::FoliageTypeAsset::Save( type->GetMetadata().Filepath, f ); !saved )
+            if ( const auto written = WriteTypeEdit( manager, type, f ); !written )
             {
-                LOG_ERROR( "[Foliage] {}", saved.GetError() );
+                LOG_ERROR( "[Foliage] {}", written.GetError() );
                 s_Edit = type->GetData();
-                return;
             }
-            (void)type->Unload();
-            if ( const auto loaded = Assets::LoadThroughLoader( manager, type ); !loaded )
-                LOG_ERROR( "[Foliage] Foliage type '{}' could not be read back: {}",
-                           type->GetMetadata().Filepath.string(), loaded.GetError() );
-        }
+    }
+
+    Common::BoolResultStr FoliagePaintTool::WriteTypeEdit( Assets::AssetManager&                          manager,
+                                                           const Assets::Asset<Assets::FoliageTypeAsset>& type,
+                                                           const Assets::Serialization::FoliageTypeData&  data )
+    {
+        if ( const auto saved = Assets::FoliageTypeAsset::Save( type->GetMetadata().Filepath, data ); !saved )
+            return saved;
+        (void)type->Unload();
+        if ( const auto loaded = Assets::LoadThroughLoader( manager, type ); !loaded )
+            return Common::MakeFormattedError<bool>( "Foliage type '{}' could not be read back: {}",
+                                                     type->GetMetadata().Filepath.string(), loaded.GetError() );
+        return BOOLSUCCESS;
     }
 
     namespace
@@ -2464,6 +2497,23 @@ namespace Desert::Editor::Tools
         if ( !copy )
             return Common::MakeFormattedError<bool>( "foliage save as asset: {}", copy.GetError() );
         return ReplaceType( scene, manager, field, copy.GetValue().string() );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::EditType(
+         ::Desert::Core::Scene& scene, Assets::AssetManager& manager, const Common::UUID& field,
+         const std::function<void( Assets::Serialization::FoliageTypeData& )>& edit )
+    {
+        auto e = FieldOf( scene, field, "edit type" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        const auto type = ResolveType( manager, e.GetValue().GetComponent<ECS::FoliageComponent>().FoliageType );
+        if ( !type )
+            return Common::MakeError( "foliage edit type: the field's type does not load (the log says why)" );
+        Assets::Serialization::FoliageTypeData data = type->GetData();
+        edit( data );
+        if ( data == type->GetData() )
+            return BOOLSUCCESS;
+        return WriteTypeEdit( manager, type, data );
     }
 
     Common::BoolResultStr FoliagePaintTool::ShowTypeInBrowser( ::Desert::Core::Scene& scene,

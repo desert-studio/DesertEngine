@@ -89,6 +89,10 @@ namespace Desert::Editor::Tools
         static Assets::Asset<Assets::FoliageTypeAsset> OpenTypeFile( Assets::AssetManager& manager,
                                                                      const std::string&    path );
 
+        // Writes @p data to the type's `.defoliage` and reads it back into the asset (the one commit of an edit).
+        static Common::BoolResultStr WriteTypeEdit( Assets::AssetManager&                          manager,
+                                                    const Assets::Asset<Assets::FoliageTypeAsset>& type,
+                                                    const Assets::Serialization::FoliageTypeData&  data );
         // The type's scatter numbers as widgets; an edit is written to the `.defoliage` and read back, so
         // every field painted with this type sees it. Shared by the paint panel and the Details row.
         static void DrawTypeSettings( Assets::AssetManager&                          manager,
@@ -133,6 +137,11 @@ namespace Desert::Editor::Tools
         // SaveFoliageTypeCopy) and the field switched to the copy, so its tuning can fork.
         static Common::BoolResultStr SaveTypeCopy( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                    const Common::UUID& field );
+        // The Details' edit of the field's type: @p edit changes a copy of its numbers, which is written to the
+        // `.defoliage` and read back (the panel's own commit, DrawTypeSettings), so a scenario sets what a hand drags.
+        static Common::BoolResultStr EditType( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                               const Common::UUID&                                               field,
+                                               const std::function<void( Assets::Serialization::FoliageTypeData& )>& edit );
         // UE "Show in Content Browser": the type's folder, through the asset fields' one route.
         static Common::BoolResultStr ShowTypeInBrowser( ::Desert::Core::Scene& scene, const Common::UUID& field );
         // The palette's eye: the field's entity hidden or shown (VisibilityComponent, what the outliner's eye

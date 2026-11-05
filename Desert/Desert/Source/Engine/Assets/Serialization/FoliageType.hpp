@@ -2,8 +2,9 @@
 
 // Ported from UE 5.8 Engine/Source/Runtime/Foliage/Public/FoliageType.h:140-245 (UFoliageType's painting
 // block), adapted: a plain struct read by reflect-cpp instead of a UObject with UPROPERTY metadata; only the
-// fields the paint brush consumes today (a field nothing reads is a dead setting); Uniform scaling only
-// (ScaleX drives all three axes, as UE's EFoliageScaling::Uniform does); centimetres and degrees as in UE;
+// fields the paint brush consumes today (a field nothing reads is a dead setting); UE's five EFoliageScaling
+// modes over ScaleX/ScaleY/ScaleZ (FoliageScaleFromDraws, shared with the grass varieties); centimetres and
+// degrees as in UE;
 // the mesh (UFoliageType_InstancedStaticMesh::Mesh) named by {Guid, Path} like every other reference in a
 // text asset of this project.
 
@@ -58,7 +59,10 @@ namespace Desert::Assets::Serialization
      *   9 - Collision joins (FOLIAGE-COLLISION, UE UFoliageType::BodyInstance): whether the instances collide, under
      *       which profile and with which shape of their mesh. SceneMigrator raises a v8 file
      *       (MigrateFoliageTypeV8ToV9) with Enabled false, what every v8 field did (nothing collided with it).
-     *       The engine reads v9 only.
+     *  10 - Scaling, ScaleY and ScaleZ join (FOLIAGE-SCALING, UE EFoliageScaling and UFoliageType::ScaleY/ScaleZ):
+     *       the instances may scale per axis. SceneMigrator raises a v9 file (MigrateFoliageTypeV9ToV10) with
+     *       Scaling Uniform and ScaleY = ScaleZ = ScaleX, what every v9 instance drew (ScaleX on all three axes).
+     *       The engine reads v10 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -80,6 +84,98 @@ namespace Desert::Assets::Serialization
 
         [[nodiscard]] bool operator==( const FoliageFloatInterval& ) const = default;
     };
+
+    /**
+     * @brief UE EFoliageScaling: how a type's three scale ranges combine into one instance's scale.
+     *
+     * The axes are UE's: X and Y lie in the ground plane, Z is the instance's UP (the mesh's +Y here, since this
+     * project is Y-up; FoliageAxisScale::MeshLocal maps them). A locked pair draws ONE value from the pair's
+     * first range, so the panel shows only the ranges a mode reads (FoliageScalingReads).
+     */
+    enum class FoliageScaling
+    {
+        Uniform, ///< one draw of ScaleX for all three axes
+        Free,    ///< each axis its own draw from its own range
+        LockXY,  ///< X and Y share one draw of ScaleX, Z (up) draws ScaleZ
+        LockXZ,  ///< X and Z share one draw of ScaleX, Y draws ScaleY
+        LockYZ,  ///< Y and Z share one draw of ScaleY, X draws ScaleX
+    };
+
+    /// One instance's scale on UE's axes (Z up).
+    struct FoliageAxisScale
+    {
+        float X = 1.0f;
+        float Y = 1.0f;
+        float Z = 1.0f;
+
+        /// The same scale on the mesh's own axes in this Y-up project: (X, Z as up, Y as depth).
+        [[nodiscard]] std::array<float, 3> MeshLocal() const
+        {
+            return { X, Z, Y };
+        }
+        [[nodiscard]] float Largest() const
+        {
+            return X > Y ? ( X > Z ? X : Z ) : ( Y > Z ? Y : Z );
+        }
+    };
+
+    /// Which of ScaleY / ScaleZ a mode reads (ScaleX is read by every mode); the Details panels show only these.
+    struct FoliageScalingRanges
+    {
+        bool Y = false;
+        bool Z = false;
+    };
+    [[nodiscard]] constexpr FoliageScalingRanges FoliageScalingReads( FoliageScaling scaling )
+    {
+        switch ( scaling )
+        {
+            case FoliageScaling::Uniform: return { false, false };
+            case FoliageScaling::Free: return { true, true };
+            case FoliageScaling::LockXY: return { false, true };
+            case FoliageScaling::LockXZ: return { true, false };
+            case FoliageScaling::LockYZ: return { true, false };
+        }
+        return { false, false };
+    }
+
+    /**
+     * @brief UE UFoliageType::GetRandomScale: one instance's scale from the mode, the three ranges and three
+     *        uniform draws in [0, 1] (@p first for X, or for a locked pair; @p second, @p third for the others).
+     *        The one statement of the rule: the foliage brush (paint, fill, single, reapply) and the grass
+     *        varieties' CPU measure (LandscapeECSSystem, at the draws' middle 0.5) both call it.
+     */
+    [[nodiscard]] inline FoliageAxisScale FoliageScaleFromDraws( FoliageScaling scaling, const FoliageFloatInterval& x,
+                                                                 const FoliageFloatInterval& y,
+                                                                 const FoliageFloatInterval& z, float first,
+                                                                 float second, float third )
+    {
+        const auto at = []( const FoliageFloatInterval& r, float t ) { return r.Min + ( r.Max - r.Min ) * t; };
+        switch ( scaling )
+        {
+            case FoliageScaling::Uniform:
+            {
+                const float s = at( x, first );
+                return { s, s, s };
+            }
+            case FoliageScaling::Free: return { at( x, first ), at( y, second ), at( z, third ) };
+            case FoliageScaling::LockXY:
+            {
+                const float s = at( x, first );
+                return { s, s, at( z, second ) };
+            }
+            case FoliageScaling::LockXZ:
+            {
+                const float s = at( x, first );
+                return { s, at( y, second ), s };
+            }
+            case FoliageScaling::LockYZ:
+            {
+                const float s = at( y, first );
+                return { at( x, second ), s, s };
+            }
+        }
+        return {};
+    }
 
     /**
      * @brief How a type's instances RESPOND to the wind (UE: SimpleGrassWind's WindIntensity / WindSpeed and
@@ -228,8 +324,14 @@ namespace Desert::Assets::Serialization
         /// Instances per 1000x1000 cm of brushed area (UE UFoliageType::Density, default 100). The brush tops
         /// the area under it up to this count and no further, so repeated dabs do not pile instances up.
         float Density = 100.0f;
-        /// Uniform scale range (UE ScaleX under EFoliageScaling::Uniform).
+        /// How ScaleX/ScaleY/ScaleZ combine (UE Scaling, FOLT 10); FoliageScaleFromDraws is the rule.
+        FoliageScaling Scaling = FoliageScaling::Uniform;
+        /// Scale range of X (UE ScaleX); under Uniform, of all three axes.
         FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+        /// Scale range of Y, the other ground axis (UE ScaleY): read by Free, LockXZ and LockYZ.
+        FoliageFloatInterval ScaleY{ 0.8f, 1.3f };
+        /// Scale range of Z, the instance's up (UE ScaleZ; the mesh's +Y): read by Free and LockXY.
+        FoliageFloatInterval ScaleZ{ 0.8f, 1.3f };
         /// Offset along the placement up axis, cm, drawn per instance.
         FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
         /// Tilt instances to the surface normal.

@@ -2180,6 +2180,8 @@ namespace Desert::Migration
                 // current generation, so it states UE's areal density (the FOLT 1 -> 2 conversion).
                 data.Density          = FoliageDensityFromPerDab( data.Density );
                 data.ScaleX           = { scaleMin, scaleMax };
+                data.ScaleY           = data.ScaleX; // Uniform: the inline scale drove all three axes
+                data.ScaleZ           = data.ScaleX;
                 data.ZOffset          = { zMin, zMax };
                 data.GroundSlopeAngle = { slopeMin, slopeMax };
 
@@ -2725,6 +2727,30 @@ namespace Desert::Migration
             Assets::Serialization::FoliageWind          Wind;
             bool                                        IncludeInHLOD = true;
             Assets::Serialization::FoliageProcedural    Procedural;
+        };
+
+        // FOLT 9's body: v8 and Collision. The engine's struct is v10 (Scaling, ScaleY, ScaleZ).
+        struct FoliageTypeDataV9
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::Serialization::FoliageTypeKind      Kind = Assets::Serialization::FoliageTypeKind::Mesh;
+            Assets::AssetGuidRef                        Mesh;
+            Assets::AssetGuidRef                        Prefab;
+            float                                       Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
+            bool                                        AlignToNormal    = true;
+            bool                                        RandomYaw        = true;
+            float                                       RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>           LandscapeLayers;
+            float                                       MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind          Wind;
+            bool                                        IncludeInHLOD = true;
+            Assets::Serialization::FoliageProcedural    Procedural;
+            Assets::Serialization::FoliageCollision     Collision;
         };
 
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
@@ -4164,13 +4190,60 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "FOLT 8 body does not read: {}", v8.GetError() );
         const FoliageTypeDataV8& old = v8.GetValue();
 
+        // v9 text, not the engine's struct: the engine is v10, and v9 -> v10 is the chain's next step.
+        FoliageTypeDataV9 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 9u;
+        data.Kind                     = old.Kind;
+        data.Mesh                     = old.Mesh;
+        data.Prefab                   = old.Prefab;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        data.CullDistance             = old.CullDistance;
+        data.Wind                     = old.Wind;
+        data.IncludeInHLOD            = old.IncludeInHLOD;
+        data.Procedural               = old.Procedural;
+        // Nothing collided with a v8 field: the raised type keeps it so, and the author turns collision on.
+        data.Collision.Enabled = false;
+
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV9ToV10( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 9: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV9ToV10( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 9u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 9 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v9 = Common::Json::Read<FoliageTypeDataV9>( text );
+        if ( !v9 )
+            return Common::MakeFormattedError<std::string>( "FOLT 9 body does not read: {}", v9.GetError() );
+        const FoliageTypeDataV9& old = v9.GetValue();
+
         Assets::Serialization::FoliageTypeData data;
         data.Header             = old.Header;
         data.Kind               = old.Kind;
         data.Mesh               = old.Mesh;
         data.Prefab             = old.Prefab;
         data.Density            = old.Density;
+        // A v9 instance drew ScaleX on all three axes: UE's Uniform, with the other two ranges equal to it so a
+        // later switch to a per-axis mode starts from the shape the field already has.
+        data.Scaling            = Assets::Serialization::FoliageScaling::Uniform;
         data.ScaleX             = old.ScaleX;
+        data.ScaleY             = old.ScaleX;
+        data.ScaleZ             = old.ScaleX;
         data.ZOffset            = old.ZOffset;
         data.AlignToNormal      = old.AlignToNormal;
         data.RandomYaw          = old.RandomYaw;
@@ -4183,12 +4256,11 @@ namespace Desert::Migration
         data.Wind               = old.Wind;
         data.IncludeInHLOD      = old.IncludeInHLOD;
         data.Procedural         = old.Procedural;
-        // Nothing collided with a v8 field: the raised type keeps it so, and the author turns collision on.
-        data.Collision.Enabled = false;
+        data.Collision          = old.Collision;
 
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 9: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 10: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

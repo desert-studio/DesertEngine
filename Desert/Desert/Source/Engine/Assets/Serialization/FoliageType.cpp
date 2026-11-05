@@ -77,12 +77,16 @@ namespace Desert::Assets::Serialization
     {
         if ( !std::isfinite( data.Density ) || data.Density <= 0.0f )
             return Common::MakeFormattedError<bool>( "Density {} must be a positive number", data.Density );
-        if ( auto ok = CheckInterval( "ScaleX", data.ScaleX ); !ok )
-            return ok;
-        if ( data.ScaleX.Min <= 0.0f )
-            return Common::MakeFormattedError<bool>( "ScaleX.Min {} must be above zero (a zero scale is an "
-                                                     "invisible instance)",
-                                                     data.ScaleX.Min );
+        for ( const auto& [name, range] : { std::pair{ "ScaleX", &data.ScaleX }, std::pair{ "ScaleY", &data.ScaleY },
+                                            std::pair{ "ScaleZ", &data.ScaleZ } } )
+        {
+            if ( auto ok = CheckInterval( name, *range ); !ok )
+                return ok;
+            if ( range->Min <= 0.0f )
+                return Common::MakeFormattedError<bool>( "{}.Min {} must be above zero (a zero scale is an "
+                                                         "invisible instance)",
+                                                         name, range->Min );
+        }
         if ( auto ok = CheckInterval( "ZOffset", data.ZOffset ); !ok )
             return ok;
         if ( auto ok = CheckInterval( "GroundSlopeAngle", data.GroundSlopeAngle ); !ok )

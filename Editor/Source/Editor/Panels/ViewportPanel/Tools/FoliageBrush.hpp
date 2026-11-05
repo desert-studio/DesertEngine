@@ -284,7 +284,7 @@ namespace Desert::Editor::Tools
     /// re-rolls or re-checks that property from the type's CURRENT numbers; a clear one keeps the instance's.
     struct FoliageReapplySettings
     {
-        bool Scale           = true;  ///< UE ReapplyScaling: a new uniform scale from ScaleX
+        bool Scale           = true;  ///< UE ReapplyScaling: a new scale by the type's Scaling mode and ranges
         bool ZOffset         = false; ///< UE ReapplyZOffset: a new offset from ZOffset
         bool AlignToNormal   = true;  ///< UE ReapplyAlignToNormal: align to the ground, or stand upright
         bool RandomYaw       = false; ///< UE ReapplyRandomYaw: a new yaw, or yaw 0 when the type has none

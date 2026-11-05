@@ -93,13 +93,26 @@ namespace Desert::Editor::Tools
             return glm::angleAxis( std::acos( d ), glm::normalize( glm::cross( up, n ) ) );
         }
 
+        // UE UFoliageType::GetRandomScale through the rule the grass shares (FoliageScaleFromDraws), on the mesh's
+        // own axes (UE Z, the instance's up, is the mesh's +Y here).
+        glm::vec3 DrawScale( const Assets::Serialization::FoliageTypeData& type, FoliageRandom& rng )
+        {
+            const float first  = rng.Next01();
+            const float second = rng.Next01();
+            const float third  = rng.Next01();
+            const auto  local  = Assets::Serialization::FoliageScaleFromDraws( type.Scaling, type.ScaleX, type.ScaleY,
+                                                                               type.ScaleZ, first, second, third )
+                                     .MeshLocal();
+            return glm::vec3( local[0], local[1], local[2] );
+        }
+
         // UE FPotentialInstance::PlaceInstance reduced to this type's fields: scale, yaw, pitch, normal
         // alignment and the Z offset along the placed up axis.
         glm::mat4 PlaceInstance( const Assets::Serialization::FoliageTypeData& type, const PotentialInstance& p,
                                  FoliageRandom& rng )
         {
-            const float scale   = glm::mix( type.ScaleX.Min, type.ScaleX.Max, rng.Next01() );
-            const float zOffset = glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() );
+            const glm::vec3 scale   = DrawScale( type, rng );
+            const float     zOffset = glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() );
             glm::mat4   m       = glm::translate( glm::mat4( 1.0f ), p.Point );
             if ( type.AlignToNormal )
                 m *= glm::mat4_cast( AlignUpToNormal( p.Normal ) );
@@ -112,7 +125,7 @@ namespace Desert::Editor::Tools
                 const float heading = rng.Next01() * kTwoPi;
                 m = glm::rotate( m, pitch, glm::vec3( std::cos( heading ), 0.0f, std::sin( heading ) ) );
             }
-            return glm::scale( m, glm::vec3( scale ) );
+            return glm::scale( m, scale );
         }
     } // namespace
 
@@ -543,10 +556,13 @@ namespace Desert::Editor::Tools
                 continue;
 
             // The instance as PlaceInstance built it: origin = ground + align * (0, offset, 0), rotation =
-            // align * yaw (* pitch), uniform scale.
-            const float     scale = glm::length( glm::vec3( m[1] ) );
-            const glm::mat3 rot   = glm::mat3( m ) / std::max( scale, kSmall );
-            const glm::vec3 up    = glm::normalize( rot[1] );
+            // align * yaw (* pitch), then the per-axis scale on the mesh's own axes (each column's length).
+            const glm::vec3 scale( glm::length( glm::vec3( m[0] ) ), glm::length( glm::vec3( m[1] ) ),
+                                   glm::length( glm::vec3( m[2] ) ) );
+            glm::mat3       rot = glm::mat3( m );
+            for ( int axis = 0; axis < 3; ++axis )
+                rot[axis] /= std::max( scale[axis], kSmall );
+            const glm::vec3 up = glm::normalize( rot[1] );
 
             // UE traces along the mesh's Z axis; the offset is not stored per instance here, so the segment
             // spans the brush radius both ways instead of UE's 16 cm around the un-offset location.
@@ -581,8 +597,7 @@ namespace Desert::Editor::Tools
             const glm::quat align = settings.AlignToNormal ? ( type.AlignToNormal ? AlignUpToNormal( normal )
                                                                                   : glm::quat( 1, 0, 0, 0 ) )
                                                            : keptAlign;
-            const float     newScale =
-                 settings.Scale ? glm::mix( type.ScaleX.Min, type.ScaleX.Max, rng.Next01() ) : scale;
+            const glm::vec3 newScale = settings.Scale ? DrawScale( type, rng ) : scale;
             const float zOffset =
                  settings.ZOffset ? glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() ) : keptZ;
             const float yaw = settings.RandomYaw ? ( type.RandomYaw ? rng.Next01() * kTwoPi : 0.0f ) : keptYaw;
@@ -596,7 +611,7 @@ namespace Desert::Editor::Tools
                 const float heading = rng.Next01() * kTwoPi;
                 out = glm::rotate( out, pitch, glm::vec3( std::cos( heading ), 0.0f, std::sin( heading ) ) );
             }
-            m = glm::scale( out, glm::vec3( newScale ) );
+            m = glm::scale( out, newScale );
             readjusted.push_back( glm::vec3( m[3] ) );
             ++result.Updated;
         }

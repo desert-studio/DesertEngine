@@ -1080,6 +1080,10 @@ namespace Desert::Migration
     // with a v8 field), the header's GUID kept. A file that does not state FOLT 8 is an error naming what it
     // states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV8ToV9( const std::string& text );
+    // The v10 text of a v9 `.defoliage`: every v9 value kept, Scaling Uniform with ScaleY = ScaleZ = ScaleX (a v9
+    // instance drew ScaleX on all three axes), the header's GUID kept. A file that does not state FOLT 9 is an
+    // error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV9ToV10( const std::string& text );
     // The v6 text of a v5 `.decloudtype`: every v5 value kept, `Shape.Profile.Density` written as
     // Graphic::CloudProfileDensityBaseRamp (CLTY 5 had no altitude density, so every v5 type was dense from
     // its base up — the box H-BASE takes away), the header's GUID kept. A file that does not state CLTY 5 is
