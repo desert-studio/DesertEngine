@@ -290,7 +290,8 @@ TEST( FoliageTools, SelectionMovesAndDeletesAsOneUndoStep )
 
     FoliageStroke stroke( 1u );
     stroke.Touch( grass, field, selected );
-    FoliageMoveSelected( field, selected, { 0.0f, 50.0f, 10.0f } );
+    FoliageTransformSelected( field, before, selected,
+                              glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 50.0f, 10.0f ) ) );
     EXPECT_FLOAT_EQ( field[1][3].y, 50.0f );
     EXPECT_FLOAT_EQ( field[3][3].z, 10.0f );
     EXPECT_FLOAT_EQ( field[2][3].y, 0.0f );

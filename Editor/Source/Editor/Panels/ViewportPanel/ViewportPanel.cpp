@@ -2120,8 +2120,19 @@ namespace Desert::Editor
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos, m_UIHelper.get() );
             // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
             // viewport mid-drag does not split it (WidgetClaimsMouse: the window's own press is not a widget's).
+            // UE: the selected instances carry the transform gizmo (Select / Lasso); while it is under the cursor
+            // or held the brush stands down, and a stroke already running keeps going. End snaps them to the
+            // ground.
+            const bool gizmoOwns =
+                 !m_FoliageTool.IsStroking() &&
+                 Tools::FoliagePaintTool::SelectionGizmo( *m_Scene, m_Gizmo, ViewCamera(),
+                                                          m_ViewportData.ViewportPos, m_ViewportData.Size );
+            if ( m_ViewportData.IsHovered && ImGui::IsKeyPressed( ImGuiKey_End, false ) &&
+                 Core::FoliagePaint::SelectedCount() > 0 )
+                if ( auto snapped = Tools::FoliagePaintTool::SnapSelectedToGround( *m_Scene ); !snapped )
+                    ToastManager::Push( snapped.GetError(), ToastLevel::Error, 6.0f );
             const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !Tools::WidgetClaimsMouse() &&
-                                  ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
+                                  !gizmoOwns && ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
             if ( const auto camera = ViewCamera() )
             {
                 auto [mx, my]  = GetMouseViewportSpace();

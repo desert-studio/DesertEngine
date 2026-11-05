@@ -1213,7 +1213,6 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
-        m_StandInDraws = 0; // counted again by this frame's ChoosePipelineDraw calls
         m_GenericDraws.Clear();
         if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
              m_SceneRenderer->GetMainCamera() == nullptr )

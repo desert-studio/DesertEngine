@@ -1,4 +1,5 @@
 #include "FoliagePaintTool.hpp"
+#include <Editor/Panels/ViewportPanel/Tools/GizmoController.hpp>
 
 #include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
@@ -1578,9 +1579,21 @@ namespace Desert::Editor::Tools
         std::vector<Common::UUID> rows;
         for ( const auto& field : PaletteFields( scene ) )
             rows.push_back( field.GetComponent<ECS::UUIDComponent>().UUID );
+        // UE: a repartition moves instances between partition actors, never adds or drops one; the log carries
+        // the type counts on both sides so a run can be checked against it.
+        const auto count = [&]()
+        {
+            size_t n = 0;
+            for ( const auto& row : rows )
+                n += RowInstances( scene, row ).size();
+            return n;
+        };
+        const size_t  before = count();
         FoliageStroke stroke( 0u );
         if ( auto filed = RepartitionRows( scene, rows, stroke ); !filed )
             return filed;
+        LOG_INFO( "[Foliage] repartition: {} instances before, {} after, over {} types", before, count(),
+                  rows.size() );
         auto fields = FinishStroke( scene, stroke );
         if ( !fields.empty() )
             CommandHistory::Get().PushCommand(
@@ -1645,9 +1658,9 @@ namespace Desert::Editor::Tools
             // leaves is filed back by cell, a cell without a field getting one. WP22-REST: Paint and Single add
             // on the row's grid only (the palette row's grid picks where new paint goes); Remove, Lasso and
             // Reapply work on the type's fields on every grid, each cut by its own grid's cell.
-            const bool everyGrid = m_StrokeTool == Core::FoliageTool::Remove ||
-                                   m_StrokeTool == Core::FoliageTool::Lasso ||
-                                   m_StrokeTool == Core::FoliageTool::Reapply;
+            const bool everyGrid =
+                 m_StrokeTool == Core::FoliageTool::Remove || m_StrokeTool == Core::FoliageTool::Erase ||
+                 m_StrokeTool == Core::FoliageTool::Lasso || m_StrokeTool == Core::FoliageTool::Reapply;
             const auto parts = GridPartsOf( scene, uuid, everyGrid );
             if ( !parts )
             {
@@ -1655,6 +1668,12 @@ namespace Desert::Editor::Tools
                     ToastManager::Push( parts.GetError(), ToastLevel::Error, 6.0f );
                 continue;
             }
+            // Erase: the type's count in the sphere over every grid, taken before any grid gives up its share.
+            const size_t eraseTotal =
+                 m_StrokeTool == Core::FoliageTool::Erase
+                      ? FoliageCountInSphere( RowInstances( scene, uuid, dab.Center, dab.Radius ), dab.Center,
+                                              dab.Radius )
+                      : 0u;
             for ( const auto& part : parts.GetValue() )
             {
                 auto gathered =
@@ -1758,6 +1777,26 @@ namespace Desert::Editor::Tools
                         return MaxLayerWeight( *tile->Tile, tile->Frame, names, p.x, p.z );
                     };
 
+                    if ( m_StrokeTool == Core::FoliageTool::Erase )
+                    {
+                        // UE RemoveInstancesForBrush at DesiredInstanceCount(Density * EraseDensity): the sphere
+                        // is thinned at random down to that count, not emptied. The count is the type's on every
+                        // grid (UE counts every IFA's instances in the sphere); this grid gives up its share.
+                        const float  desiredF = FoliageBrushDesiredCount( data.Density, dab.Radius,
+                                                                          Core::FoliagePaint::EraseDensity() );
+                        const size_t total    = eraseTotal;
+                        const size_t here     = FoliageCountInSphere( instances, dab.Center, dab.Radius );
+                        const float  share =
+                             total > 0 ? static_cast<float>( here ) / static_cast<float>( total ) : 0.0f;
+                        const int    desired = static_cast<int>( std::lround( desiredF * share ) );
+                        const size_t thinned = FoliageBrushThin( instances, dab.Center, dab.Radius, desired,
+                                                                 m_Stroke->Random(), &selected );
+                        LOG_INFO( "[Foliage] erase '{}': {} removed to {} under the brush (Erase Density {:.2f}); "
+                                  "field now {}",
+                                  type->GetDisplayName(), thinned, desired, Core::FoliagePaint::EraseDensity(),
+                                  instances.size() );
+                        return;
+                    }
                     if ( m_StrokeTool == Core::FoliageTool::Single )
                     {
                         if ( const auto placed = FoliageBrushSingle( data, dab, m_Stroke->Random(), world ) )
@@ -2076,11 +2115,168 @@ namespace Desert::Editor::Tools
                               { FoliageRemoveSelected( instances, selected ); } );
     }
 
-    Common::BoolResultStr FoliagePaintTool::MoveSelected( ::Desert::Core::Scene& scene, const glm::vec3& offset )
+    Common::BoolResultStr FoliagePaintTool::SnapSelectedToGround( ::Desert::Core::Scene& scene )
     {
-        return EditSelection( scene, "Move Selected",
-                              [&]( std::vector<glm::mat4>& instances, FoliageSelection& selected )
-                              { FoliageMoveSelected( instances, selected, offset ); } );
+        // UE FEdModeFoliage::SnapSelectedInstancesToGround: a vertical trace from the instance; the brush's
+        // surface filter decides what counts as ground and foliage is traced through, as the brush traces.
+        // Below the instance first, then above it (an instance pushed under the ground comes back up).
+        const LandscapeTileIndex   tiles( scene );
+        const auto                 landscapeSet = scene.GatherRaycastLandscape();
+        const FoliageSurfaceFilter filter       = Core::FoliagePaint::SurfaceFilter();
+        const auto                 accept       = [&]( const Common::UUID& id )
+        {
+            if ( IsRealizedFoliage( scene, id ) )
+                return false;
+            return filter.Allows( tiles.OfEntity( id ) != nullptr ? FoliageSurface::Landscape
+                                                                  : FoliageSurface::StaticMesh );
+        };
+        const auto ground = [&]( const glm::vec3& from ) -> std::optional<glm::vec3>
+        {
+            ::Desert::Core::RaycastHit hit;
+            if ( scene.Raycast( Common::Math::Ray( from, glm::vec3( 0.0f, -1.0f, 0.0f ) ), hit, accept,
+                                landscapeSet ) )
+                return hit.Point;
+            if ( scene.Raycast( Common::Math::Ray( from, glm::vec3( 0.0f, 1.0f, 0.0f ) ), hit, accept,
+                                landscapeSet ) )
+                return hit.Point;
+            return std::nullopt;
+        };
+        size_t snapped = 0;
+        size_t missed  = 0;
+        auto   done    = EditSelection( scene, "Snap to Ground",
+                                        [&]( std::vector<glm::mat4>& instances, FoliageSelection& selected )
+                                        {
+                                       for ( const uint32_t i : selected )
+                                       {
+                                           if ( i >= instances.size() )
+                                               continue;
+                                           const auto at = ground( glm::vec3( instances[i][3] ) );
+                                           if ( !at )
+                                           {
+                                               ++missed;
+                                               continue;
+                                           }
+                                           instances[i][3] = glm::vec4( *at, 1.0f );
+                                           ++snapped;
+                                       }
+                                   } );
+        LOG_INFO( "[Foliage] snap to ground: {} instances on the ground, {} with no surface above or below",
+                  snapped, missed );
+        return done;
+    }
+
+    namespace
+    {
+        // The selection gizmo's drag (UE: the instances' transforms at the start of a gizmo drag, the
+        // FScopedTransaction open until release): the pivot frame and every selected field's instances at press.
+        struct SelectionGizmoDrag
+        {
+            glm::mat4                                                Start{ 1.0f };
+            std::unordered_map<Common::UUID, std::vector<glm::mat4>> Original;
+            std::unique_ptr<FoliageStroke>                           Stroke;
+        };
+        std::optional<SelectionGizmoDrag> s_GizmoDrag;
+        glm::mat4                         s_GizmoFrame{ 1.0f };
+    } // namespace
+
+    bool FoliagePaintTool::SelectionGizmo( ::Desert::Core::Scene& scene, GizmoController& gizmo,
+                                           const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                           const glm::vec2& viewportPos, const glm::vec2& viewportSize )
+    {
+        const auto tool = Core::FoliagePaint::Tool();
+        if ( !camera || Core::FoliagePaint::SelectedCount() == 0 ||
+             ( tool != Core::FoliageTool::Select && tool != Core::FoliageTool::Lasso ) )
+        {
+            s_GizmoDrag.reset();
+            return false;
+        }
+        if ( !s_GizmoDrag )
+        {
+            // At rest the pivot is the selection's centroid, axes the world's (UE: the widget at the
+            // selection's average location).
+            glm::vec3 sum( 0.0f );
+            size_t    n = 0;
+            for ( const auto& [uuid, selected] : Core::FoliagePaint::Selection() )
+            {
+                const auto ref = scene.FindEntityByID( uuid );
+                if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                    continue;
+                const auto& instances =
+                     ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
+                for ( const uint32_t i : selected )
+                    if ( i < instances.size() )
+                    {
+                        sum += glm::vec3( instances[i][3] );
+                        ++n;
+                    }
+            }
+            if ( n == 0 )
+                return false;
+            s_GizmoFrame = glm::translate( glm::mat4( 1.0f ), sum / static_cast<float>( n ) );
+        }
+
+        const glm::mat4 before  = s_GizmoFrame;
+        const bool      changed = gizmo.RenderFrame( "FoliageSelection", s_GizmoFrame, camera, viewportPos,
+                                                     viewportSize, GizmoController::kFrameTranslateRotateScale );
+        if ( changed )
+        {
+            if ( !s_GizmoDrag )
+            {
+                SelectionGizmoDrag drag;
+                drag.Stroke = std::make_unique<FoliageStroke>( 0u );
+                for ( auto& [uuid, selected] : Core::FoliagePaint::Selection() )
+                {
+                    const auto ref = scene.FindEntityByID( uuid );
+                    if ( selected.empty() || !ref ||
+                         !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                        continue;
+                    const auto& instances =
+                         ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
+                    drag.Stroke->Touch( uuid, instances, selected );
+                    drag.Original.emplace( uuid, instances );
+                }
+                drag.Start  = before; // the frame at press: the delta of every later frame is taken from it
+                s_GizmoDrag = std::move( drag );
+            }
+            const glm::mat4 delta = s_GizmoFrame * glm::inverse( s_GizmoDrag->Start );
+            for ( const auto& [uuid, original] : s_GizmoDrag->Original )
+            {
+                auto ref = scene.FindEntityByID( uuid );
+                if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                    continue;
+                ECS::InstancedStaticMeshDesc desc =
+                     ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                FoliageTransformSelected( desc.InstanceTransforms, original,
+                                          Core::FoliagePaint::SelectionOf( uuid ), delta );
+                ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
+            }
+        }
+        else if ( s_GizmoDrag && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+        {
+            // Release: ONE undo step, instances that crossed a cell edge filed to the neighbour cell (as
+            // EditSelection does for every selection edit).
+            SelectionGizmoDrag drag = std::move( *s_GizmoDrag );
+            s_GizmoDrag.reset();
+            std::vector<Common::UUID>        rows;
+            std::unordered_set<Common::UUID> types;
+            for ( const auto& [uuid, original] : drag.Original )
+                if ( const auto ref = scene.FindEntityByID( uuid );
+                     ref && IsFoliageField( ref->get() ) &&
+                     types.insert( static_cast<const Common::UUID&>(
+                                        ref->get().GetComponent<ECS::FoliageComponent>().FoliageType ) )
+                          .second )
+                    rows.push_back( uuid );
+            if ( auto filed = RepartitionRows( scene, rows, *drag.Stroke ); !filed )
+                ToastManager::Push( filed.GetError(), ToastLevel::Error, 6.0f );
+            auto fields = FinishStroke( scene, *drag.Stroke );
+            if ( !fields.empty() )
+                CommandHistory::Get().PushCommand(
+                     std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage Transform" ) );
+            LOG_INFO( "[Foliage] gizmo: {} selected instances transformed, pivot ({:.0f}, {:.0f}, {:.0f})",
+                      Core::FoliagePaint::SelectedCount(), s_GizmoFrame[3].x, s_GizmoFrame[3].y,
+                      s_GizmoFrame[3].z );
+        }
+        return gizmo.IsHovered() || s_GizmoDrag.has_value();
     }
 
     Common::BoolResultStr FoliagePaintTool::SelectNone( ::Desert::Core::Scene& scene )

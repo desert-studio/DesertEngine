@@ -1,0 +1,78 @@
+# FOLIAGE-EDIT-PROOF: every Foliage mode tool pressed once, a frame each (AUDIT-FOLIAGE-MOD-1104 p.2). The polygon
+# FOLIAGE_Edit.desce = Terrain_Grass's landscape + a WP world (Main 25 m, Foliage 12.8 m) + "Fill Block" (4x1x4 m
+# cube at 2000,50,0) + "Procedural Volume" (12x20x12 m at -2500,0,0); one type, Foliage/Proof/FOLIAGE_EditShrub
+# (shrub_02, Density 100 per 10x10 m, Scale 0.5..1.6, no layer filter). Spots are aimed with the camera at 45 deg:
+# Position (X, 1500, Z+1500) + Direction 0,-1,-1 puts the brush at (X, ground, Z). Overview: 300,2400,1900 / 0,-1,-0.75.
+# Drag points are viewport image points (1435x857 image: centre 717,428); the gizmo pivot is aimed at the centre.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FOLIAGE_Edit.desce
+Дано run View "View mode: Lit"
+Дано run Scene "World Partition: Load All"
+Дано --subject viewport set Camera.FOV 70
+Дано run Foliage "Add type to the palette: FOLIAGE_EditShrub"
+# 1: Paint, patch A at the origin and patch B at z = -1000.
+Когда run Foliage "Tool: Paint"
+Когда --subject viewport set Camera.Position 0,1500,1500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 0,1500,500
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 300,2400,1900
+Когда --subject viewport set Camera.Direction 0,-1,-0.75
+Тогда-вид 1_paint two round patches of shrubs on the landscape (origin and 10 m behind it), ~25-30 each, varied sizes
+# 2: Single, one shrub at x = 800.
+Когда run Foliage "Tool: Single"
+Когда --subject viewport set Camera.Position 800,1500,1500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 300,2400,1900
+Когда --subject viewport set Camera.Direction 0,-1,-0.75
+Тогда-вид 2_single the same view plus exactly one lone shrub 8 m right of patch A
+# 3: Lasso over patch A: rings on its instances, the transform gizmo at their centroid.
+Когда run Foliage "Tool: Lasso"
+Когда --subject viewport set Camera.Position 0,1500,1500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда run Foliage "Stroke at viewport centre"
+Тогда 3_select_lasso patch A at the centre: an orange ring on every shrub of it, a translate/rotate/scale gizmo at its centre; patch B and the single shrub without rings
+# 4: the gizmo's X arrow dragged 300 px to the right (live move, one undo step at release), then End (snap).
+Когда --subject viewport drag 750,428 1050,428 16
+Когда run Foliage "Snap selected instances to the ground"
+Тогда 4_gizmo patch A (still ringed) moved to the right of the centre along +X and standing on the ground (not floating, not sunk); the gizmo followed it
+# 5: Erase at Erase Density 0.3 over patch B: thinned to ~30 %, not emptied.
+Когда run Foliage "Erase density: 0.3"
+Когда run Foliage "Tool: Erase"
+Когда --subject viewport set Camera.Position 0,1500,500
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 300,2400,1900
+Когда --subject viewport set Camera.Direction 0,-1,-0.75
+Тогда-вид 5_erase_density patch B sparse (about a third of 1_paint's), not gone; moved patch A untouched
+# 6: Remove the selection (patch A).
+Когда run Foliage "Delete selected instances"
+Тогда-вид 6_remove patch A gone; thinned patch B and the single shrub remain
+# 7: Reapply (Scale switch on by default) over patch B: new scales from 0.5..1.6.
+Когда run Foliage "Tool: Reapply"
+Когда --subject viewport set Camera.Position 0,1500,500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 300,2400,1900
+Когда --subject viewport set Camera.Direction 0,-1,-0.75
+Тогда-вид 7_reapply patch B's shrubs at the same spots with different sizes than in 6_remove
+# 8: Fill the selected mesh: the top of Fill Block covered.
+Когда run Entity "Fill Block"
+Когда run Foliage "Fill the selected mesh"
+Когда --subject viewport set Camera.Position 2000,1500,1500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Тогда-вид 8_fill shrubs standing on top of the 4x4 m block (its sides bare)
+# 9: Undo the Fill: the block bare again.
+Когда run Action "Undo"
+Тогда-вид 9_undo the block bare again; everything else as in 8_fill
+# 10: Repartition: the count in editor.log "[Foliage] repartition: N before, N after".
+Когда run Foliage "Repartition foliage"
+Когда --subject viewport set Camera.Position 300,2400,1900
+Когда --subject viewport set Camera.Direction 0,-1,-0.75
+Тогда-вид 10_repartition the same instances as 7_reapply (editor.log: before = after)
+# 11: Procedural Resimulate of the volume at x = -2500.
+Когда run Entity "Procedural Volume"
+Когда run Foliage "Resimulate the selected procedural volume"
+Когда --subject viewport set Camera.Position -2500,2000,2000
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Тогда-вид 11_resimulate a 12x12 m square of naturally spread shrubs (seeds + spread) where the volume is; editor.log errors 0

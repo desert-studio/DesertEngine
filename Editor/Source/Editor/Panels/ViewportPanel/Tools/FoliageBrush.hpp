@@ -199,6 +199,9 @@ namespace Desert::Editor::Tools
         std::vector<std::pair<Common::UUID, std::vector<glm::vec3>>> m_Readjusted;
     };
 
+    /// How many of @p instances have their origin in the brush sphere.
+    size_t FoliageCountInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius );
+
     /// UE's Remove tool (RemoveInstancesForBrush at a desired count of 0): every instance whose origin lies in
     /// the brush sphere. @p selected, when given, is renumbered to the instances that remain. Returns how many
     /// were removed.
@@ -271,9 +274,10 @@ namespace Desert::Editor::Tools
     /// UE RemoveSelectedInstances: the selected instances leave the field and the selection is emptied.
     size_t FoliageRemoveSelected( std::vector<glm::mat4>& instances, FoliageSelection& selected );
 
-    /// UE TransformSelectedInstances (a drag): the selected instances move by @p offset cm.
-    void FoliageMoveSelected( std::vector<glm::mat4>& instances, const FoliageSelection& selected,
-                              const glm::vec3& offset );
+    /// UE TransformSelectedInstances (a gizmo drag): each selected instance becomes @p delta * its transform in
+    /// @p original (the field at the drag's press), so a drag's frames never compound.
+    void FoliageTransformSelected( std::vector<glm::mat4>& instances, std::span<const glm::mat4> original,
+                                   const FoliageSelection& selected, const glm::mat4& delta );
 
     /// UFoliageType's Reapply* switches, as tool settings (the pattern, not the letter: this project keeps them
     /// with the brush so the `.defoliage` format does not grow for an editor-only choice). Each set switch

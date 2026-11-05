@@ -236,9 +236,11 @@ namespace
         { "ToolButton", "ICON_MDI_SPROUT \" Single\"", Reach::Palette, { "\"Tool: \"", "Core::FoliageTool::Single" } },
         { "ToolButton", "ICON_MDI_FORMAT_COLOR_FILL \" Fill\"", Reach::Palette, { "\"Tool: \"", "Core::FoliageTool::Fill" } },
         { "ToolButton", "ICON_MDI_ERASER \" Remove\"", Reach::Palette, { "\"Tool: \"", "Core::FoliageTool::Remove" } },
+        { "ToolButton", "ICON_MDI_ERASER_VARIANT \" Erase\"", Reach::Palette, { "\"Tool: \"", "Core::FoliageTool::Erase" } },
         // Brush Options and Filters.
         { "SliderFloat", "\"##BrushSize\"", Reach::Exempt, { "a value, not an action: commands stroke with the current size" } },
         { "SliderFloat", "\"##PaintDensity\"", Reach::Exempt, { "a value, not an action: commands stroke with the current density" } },
+        { "SliderFloat", "\"##EraseDensity\"", Reach::Exempt, { "a value, not an action: the Erase stroke reads it" } },
         { "Checkbox", "\"##FilterLandscape\"", Reach::Palette, { "\"Brush filter: landscape on/off\"" } },
         { "Checkbox", "\"##FilterStaticMesh\"", Reach::Palette, { "\"Brush filter: static meshes on/off\"" } },
         { "BeginCombo", "\"##BrushLayers\"", Reach::Palette, { "\"Brush layer filter: off\"" } },
@@ -246,8 +248,7 @@ namespace
         { "SliderFloat", "\"##BrushLayerMin\"", Reach::Exempt, { "a value: the brush layer filter's threshold" } },
         // Selection and Reapply.
         { "Button", "ICON_MDI_DELETE \" Delete\"", Reach::Palette, { "\"Delete selected instances\"" } },
-        { "DragFloat3", "\"##MoveOffset\"", Reach::Exempt, { "a value: the offset the move command applies" } },
-        { "Button", "ICON_MDI_ARROW_ALL \" Move by offset (cm)\"", Reach::Palette, { "\"Move selected instances by the panel offset\"" } },
+        { "Button", "ICON_MDI_ARROW_DOWN_BOLD \" Snap to ground (End)\"", Reach::Palette, { "\"Snap selected instances to the ground\"" } },
         { "Checkbox", "names[i]", Reach::Exempt, { "Reapply's switches: values the Reapply stroke reads" } },
         // The palette.
         { "Button", "ICON_MDI_PLUS \" Foliage\"", Reach::Palette, { "\"Add type to the palette: \"", "\"Add mesh to the palette: \"" } },

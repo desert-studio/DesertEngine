@@ -2861,7 +2861,7 @@ namespace Desert::Graphic::System
         size_t                              m_MaterialRequestCursor = 0;
         size_t                                             m_CellRequestCursor     = 0;
         std::vector<MaterialPipelineRequests::CellRequest> m_PendingCellPrecache;
-        uint32_t m_StandInDraws = 0; // see GetStandInDraws; reset per frame in DeclareGenericDraws
+        uint32_t m_StandInDraws = 0; // see GetStandInDraws; reset per frame in SyncGpuScene
         std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO). A graph pass records only pipelines it can bind: binding a content
