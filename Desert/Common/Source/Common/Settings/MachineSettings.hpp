@@ -16,10 +16,10 @@
 #include <Common/Settings/Scalability.hpp>
 
 #include <rflcpp/rfl/Object.hpp>
+#include <rflcpp/rfl/Result.hpp>
 #include <rflcpp/rfl/internal/has_reflector.hpp>
 
 #include <format>
-#include <stdexcept>
 
 #include <optional>
 
@@ -237,7 +237,9 @@ struct rfl::Reflector<Common::Scalability::GroupLevels>
 {
     using ReflType = rfl::Object<Common::Scalability::Level>;
 
-    static Common::Scalability::GroupLevels to( const ReflType& object )
+    // A refusal is an rfl::Error, the value rfl's readers return: Parser_default hands a Reflector's Result
+    // through as it is, so the reader names the group and nothing throws.
+    static rfl::Result<Common::Scalability::GroupLevels> to( const ReflType& object ) noexcept
     {
         namespace SC = Common::Scalability;
         SC::GroupLevels              levels;
@@ -248,15 +250,15 @@ struct rfl::Reflector<Common::Scalability::GroupLevels>
             while ( g < SC::kGroupCount && SC::GroupKey( static_cast<SC::Group>( g ) ) != name )
                 ++g;
             if ( g == SC::kGroupCount )
-                throw std::runtime_error( std::format( "'{}' is not a quality group", name ) );
+                return rfl::error( std::format( "'{}' is not a quality group", name ) );
             if ( seen.test( g ) )
-                throw std::runtime_error( std::format( "the {} group is given twice", name ) );
+                return rfl::error( std::format( "the {} group is given twice", name ) );
             seen.set( g );
             levels[g] = level;
         }
         for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
             if ( !seen.test( g ) )
-                throw std::runtime_error(
+                return rfl::error(
                      std::format( "the {} group has no level", SC::GroupKey( static_cast<SC::Group>( g ) ) ) );
         return levels;
     }

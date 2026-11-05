@@ -257,7 +257,7 @@ namespace Desert::ShaderResources
                      "material in its setup (PassBuilder::Prepares)",
                      view.GetName(), frameIndex );
 
-            // Every refusal is produced BEFORE Acquire: Acquire throws on a null copy, and a view must never
+            // Every refusal is produced BEFORE Acquire: Acquire refuses only a null copy, and a view must never
             // be handed a copy that could not be seeded.
             // A COPY'S ROW BELONGS TO THE VIEWRESOURCES IT IS FILED IN. A copy made outside every
             // ActiveViewScope is the frame context's, which lives for the process; made inside a view's
@@ -286,9 +286,12 @@ namespace Desert::ShaderResources
                                                          view.GetName(), frameIndex, GetSize(),
                                                          seeded.GetError() );
 
-            HandOver handOver( std::move( made ) );
+            HandOver   handOver( std::move( made ) );
+            const auto filedCopy = view.Acquire( m_Key, frameIndex, handOver );
+            if ( !filedCopy.IsSuccess() )
+                return Common::MakeError<bool>( filedCopy.GetError() );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            out = static_cast<IBlockCopy*>( &view.Acquire( m_Key, frameIndex, handOver ) );
+            out = static_cast<IBlockCopy*>( filedCopy.GetValue() );
             return Common::MakeSuccess( true );
         }
 

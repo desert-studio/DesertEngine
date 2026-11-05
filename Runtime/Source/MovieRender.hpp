@@ -9,6 +9,7 @@
 #if DESERT_DEV_INSTRUMENTS
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/NumberText.hpp>
 
 #include <cmath>
 #include <cstdint>
@@ -73,7 +74,10 @@ namespace Desert::Player
         {
             if ( text.empty() || text.size() > 9 || text.find_first_not_of( "0123456789" ) != std::string::npos )
                 return false;
-            out = static_cast<uint32_t>( std::stoul( text ) );
+            const std::optional<uint32_t> value = Common::WholeIntegerFromText<uint32_t>( text );
+            if ( !value )
+                return false;
+            out = *value;
             return true;
         }
 

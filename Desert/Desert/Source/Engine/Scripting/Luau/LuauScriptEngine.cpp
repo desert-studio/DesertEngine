@@ -1,6 +1,7 @@
 #include <Engine/Scripting/Luau/LuauHost.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/NumberText.hpp>
 #include <Engine/Libraries/InputLibrary.hpp>
 
 #include <algorithm>
@@ -544,7 +545,12 @@ namespace Desert::Scripting
             while ( end < error.size() && error[end] >= '0' && error[end] <= '9' )
                 ++end;
             if ( end > colon + 1 && end < error.size() && error[end] == ':' )
-                return std::stoi( error.substr( colon + 1, end - colon - 1 ) );
+            {
+                // Digits only, so a refusal is a number past int, which names no line: the scan goes on.
+                const std::string_view digits = std::string_view( error ).substr( colon + 1, end - colon - 1 );
+                if ( const std::optional<int> line = Common::WholeIntegerFromText<int>( digits ) )
+                    return *line;
+            }
         }
         return 0;
     }

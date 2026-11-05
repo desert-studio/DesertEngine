@@ -166,8 +166,9 @@ namespace Common::DDC
              path, std::as_bytes( std::span( bytes.data(), bytes.size() ) ), UniqueWorkingFile( path ) );
     }
 
-    Common::ResultStr<std::string> GetOrBuild( const Deriver& deriver, const uint64_t key,
-                                               const std::function<Common::ResultStr<std::string>()>& build )
+    Common::ResultStr<std::string>
+    GetOrBuild( const Deriver& deriver, const uint64_t key,
+                const std::function<Common::ResultStr<std::string>()>& build ) noexcept
     {
         if ( auto hit = Get( deriver, key ); hit.has_value() )
             return Common::MakeSuccess( std::move( *hit ) );

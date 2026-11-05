@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -11,7 +12,7 @@
 #include <memory>
 #include <typeinfo>
 
-// `execinfo.h` is POSIX and does not exist under MSVC. `_WIN32` rather than the project's own
+// `pthread.h` is POSIX and does not exist under MSVC. `_WIN32` rather than the project's own
 // DESERT_PLATFORM_WINDOWS: this is a question about the toolchain's headers, and the compiler is the
 // authority on that whether or not the build system remembered to say so.
 #ifdef _WIN32
@@ -25,7 +26,6 @@
 #endif
 
 #ifndef _WIN32
-#include <execinfo.h>
 #include <pthread.h>
 #endif
 
@@ -55,14 +55,12 @@ extern std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc,
  * `_Exit` rather than `abort`: the frames have been printed, and abort would run the same teardown that
  * is already known to fault on the way out, burying the message that was the point.
  */
-inline void DesertTerminateBacktrace()
+inline void DesertTerminateBacktrace() noexcept
 {
 #ifndef _WIN32
-    void*     frames[128];
-    const int count = backtrace( frames, 128 );
     std::fprintf( stderr, "\n=== DESERT TERMINATE (thread %p) ===\n", (void*)pthread_self() );
 #else
-    std::fprintf( stderr, "\n=== DESERT TERMINATE ===\n" );
+    std::fprintf( stderr, "\n=== DESERT TERMINATE (thread %lu) ===\n", ::GetCurrentThreadId() );
 #endif
 
     // No rethrow-and-catch to read what(): engine code does not catch, and a job or a noexcept frame
@@ -72,9 +70,8 @@ inline void DesertTerminateBacktrace()
         std::fprintf( stderr, "an exception reached a noexcept frame (engine code does not throw)\n" );
     std::fflush( stderr );
 
-#ifndef _WIN32
-    backtrace_symbols_fd( frames, count, 2 );
-#endif
+    // Windows: a StackWalk64 walk named from the PDBs (UE: FWindowsPlatformStackWalk); POSIX: backtrace().
+    Common::Crash::PrintCallingThreadStack();
 
     std::fprintf( stderr, "=== END DESERT TERMINATE ===\n" );
     std::fflush( stderr );

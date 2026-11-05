@@ -172,7 +172,7 @@ TEST( PathCensus, WithoutAProjectThereIsNoContent )
     for ( std::size_t i = 0; i < Path::CONTENT_DIR_COUNT; ++i )
         EXPECT_TRUE( Path::Detail::Slot( static_cast<Path::ContentDir>( i ) ).empty() )
              << "census row " << i << " invented a content root without a project";
-    EXPECT_THROW( (void)Path::FullPath( "Scenes/Level.desce" ), std::logic_error );
+    EXPECT_DEATH( (void)Path::FullPath( "Scenes/Level.desce" ), "no project is open" );
     EXPECT_DEATH( (void)Path::Dir( Path::ContentDir::Scene ), "no project is open" );
     EXPECT_DEATH( (void)Path::ProjectDir(), "no project is open" );
 }

@@ -136,8 +136,11 @@ namespace Desert::Graphic::API::Vulkan
                 owned.push_back( layouts[index] );
         ViewResources&       view = ViewResourceRegistry::Active();
         ViewPoolChainFactory factory;
+        const auto chainCopy = view.Acquire( ChainKey(), 0, factory );
+        if ( !chainCopy.IsSuccess() )
+            return Common::MakeError<bool>( chainCopy.GetError() );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): ChainKey names this exact type
-        auto& chain = static_cast<ViewPoolChain&>( view.Acquire( ChainKey(), 0, factory ) );
+        auto& chain = static_cast<ViewPoolChain&>( *chainCopy.GetValue() );
 
         const std::vector<VkDescriptorSetLayout> handles = RawHandles( owned );
         const Graphic::DescriptorRequest         cost    = DescriptorCostOf( owned );

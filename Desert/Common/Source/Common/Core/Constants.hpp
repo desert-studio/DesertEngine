@@ -563,12 +563,13 @@ namespace Common::Constants
         // A relative content path made absolute (UE: FPaths::ConvertRelativePathToFull): read off ProjectDir(),
         // NEVER off the process's working directory — the editor and the runtime may be started from any folder.
         // An absolute path is returned as given. A relative path while no project is open has nothing to be
-        // relative to (no project, no content): THROWN here naming the path and the reader's file:line, rather
-        // than silently read off the engine or the working directory. (ProjectDir() itself stops the process;
-        // FullPath is reached from asset code that a caller may guard, so it reports instead.)
+        // relative to (no project, no content): the process STOPS here naming the path and the reader's
+        // file:line, as ProjectDir() and Dir() do, rather than silently reading off the engine or the working
+        // directory (UE: ConvertRelativePathToFull has no failure, so a read with nothing under it is a check).
+        // It was a throw, which nothing caught: engine code neither throws nor catches.
         inline std::filesystem::path
         FullPath( const std::filesystem::path& path,
-                  const std::source_location   reader = std::source_location::current() )
+                  const std::source_location   reader = std::source_location::current() ) noexcept
         {
             if ( path.is_absolute() )
                 return path.lexically_normal();
@@ -586,17 +587,23 @@ namespace Common::Constants
                 return ( anchor.root_name() / path ).lexically_normal();
             }
             if ( !HasProject() )
-                throw std::logic_error(
-                     std::format( "Path::FullPath: '{}' is a relative content path and no project "
-                                  "is open, so there is no content to resolve it against (read "
-                                  "at {}:{}); open a .deproj first",
-                                  path.generic_string(), reader.file_name(), reader.line() ) );
-            if ( !ProjectDir( reader ).is_absolute() )
-                throw std::logic_error( std::format( "Path::FullPath: '{}' is relative and the project directory "
-                                                     "'{}' is not absolute (read at {}:{})",
-                                                     path.generic_string(), ProjectDir( reader ).generic_string(),
-                                                     reader.file_name(), reader.line() ) );
-            return ( ProjectDir( reader ) / path ).lexically_normal();
+            {
+                std::fprintf( stderr, "[Engine] Path::FullPath: '%s' is a relative content path.\n",
+                              path.generic_string().c_str() );
+                Detail::NoProjectOpen( "Path::FullPath()", reader );
+            }
+            const std::filesystem::path& projectDir = ProjectDir( reader );
+            if ( !projectDir.is_absolute() )
+            {
+                std::fprintf( stderr,
+                              "[Engine] Path::FullPath: '%s' is relative and the project directory '%s' is not "
+                              "absolute (read at %s:%u); the project root was set from a relative path.\n",
+                              path.generic_string().c_str(), projectDir.generic_string().c_str(),
+                              reader.file_name(), static_cast<unsigned>( reader.line() ) );
+                std::fflush( stderr );
+                std::abort();
+            }
+            return ( projectDir / path ).lexically_normal();
         }
 
         // Closes the project: every content path is empty again and content reads refuse. Exists for tests,

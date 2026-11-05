@@ -2,6 +2,8 @@
 
 #include "CloudDocumentOpen.hpp"
 
+#include <Common/Core/NumberText.hpp>
+
 #include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
@@ -1081,7 +1083,11 @@ namespace Desert::Editor
         if ( dot == std::string::npos || name.rfind( "Lump", 0 ) != 0 )
             return Common::MakeFormattedError<bool>( "'{}' is not a name this document writes.", name );
 
-        const std::size_t index = static_cast<std::size_t>( std::stoul( name.substr( 4, dot - 4 ) ) );
+        const std::optional<std::size_t> lump =
+             Common::WholeIntegerFromText<std::size_t>( std::string_view( name ).substr( 4, dot - 4 ) );
+        if ( !lump )
+            return Common::MakeFormattedError<bool>( "'{}' is not a name this document writes.", name );
+        const std::size_t index = *lump;
         if ( index >= m_Recipe.Blobs.size() )
             return Common::MakeFormattedError<bool>( "this body has no lump {}.", index );
 

@@ -20,6 +20,7 @@
 #include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/NumberText.hpp>
 
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
@@ -825,8 +826,12 @@ namespace Desert::Editor
              Graph::KindOf( static_cast<Graph::ElementId>( clicked.Get() ) ) == Graph::ElementKind::Comment )
             if ( const std::string* key = ids.KeyOf( static_cast<Graph::ElementId>( clicked.Get() ) ) )
             {
-                m_RenamingComment = static_cast<uint32_t>( std::stoul( *key ) );
-                openRename        = true;
+                // A comment's key is std::to_string of its id (the Resolve above), so it reads back.
+                if ( const std::optional<uint32_t> id = Common::WholeIntegerFromText<uint32_t>( *key ) )
+                {
+                    m_RenamingComment = *id;
+                    openRename        = true;
+                }
             }
 
         ed::Suspend();
@@ -845,8 +850,10 @@ namespace Desert::Editor
         const std::string* key = ids.KeyOf( static_cast<Graph::ElementId>( deletedNode ) );
         if ( key == nullptr )
             return false;
-        const auto id = static_cast<uint32_t>( std::stoul( *key ) );
-        return std::erase_if( comments, [id]( const G::GraphComment& c ) { return c.Id == id; } ) > 0;
+        const std::optional<uint32_t> id = Common::WholeIntegerFromText<uint32_t>( *key );
+        if ( !id )
+            return false;
+        return std::erase_if( comments, [value = *id]( const G::GraphComment& c ) { return c.Id == value; } ) > 0;
     }
 
     void AnimGraphPanel::DrawFind( Graph::FindPopup& find, const Graph::CanvasPlan& plan )

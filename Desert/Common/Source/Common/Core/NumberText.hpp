@@ -1,10 +1,14 @@
 #pragma once
 
 #include <cerrno>
+#include <charconv>
+#include <concepts>
 #include <cstddef>
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 
 namespace Common
 {
@@ -44,6 +48,36 @@ namespace Common
             return std::nullopt;
         if ( used != nullptr )
             *used = static_cast<std::size_t>( end - begin );
+        return value;
+    }
+
+    // AN INTEGER READ FROM TEXT, AS A VALUE, in place of std::stoi / stol / stoll / stoul / stoull (they
+    // throw; UE: LexTryParseString answers). std::from_chars in base 10, locale-free: nullopt when the text
+    // does not start with a number of type T or the number is outside T's range, otherwise the value, with
+    // the count of characters read in `used`. Stricter than std::sto* where std::sto* is a defect: no leading
+    // space or '+' is skipped, and an unsigned T refuses a '-' (std::stoul wraps "-1" to ULONG_MAX).
+    template <std::integral T>
+    [[nodiscard]] inline std::optional<T> IntegerFromText( const std::string_view text,
+                                                           std::size_t*           used = nullptr ) noexcept
+    {
+        T                 value{};
+        const char* const begin = text.data();
+        const auto [end, error] = std::from_chars( begin, begin + text.size(), value );
+        if ( error != std::errc{} )
+            return std::nullopt;
+        if ( used != nullptr )
+            *used = static_cast<std::size_t>( end - begin );
+        return value;
+    }
+
+    // The same, but the WHOLE text is the number: "12x" and "" are refused, where IntegerFromText reads 12.
+    template <std::integral T>
+    [[nodiscard]] inline std::optional<T> WholeIntegerFromText( const std::string_view text ) noexcept
+    {
+        std::size_t      used  = 0;
+        std::optional<T> value = IntegerFromText<T>( text, &used );
+        if ( !value || used != text.size() )
+            return std::nullopt;
         return value;
     }
 } // namespace Common
