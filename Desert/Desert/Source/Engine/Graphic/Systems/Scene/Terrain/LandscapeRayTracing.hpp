@@ -176,6 +176,10 @@ namespace Desert::Graphic::RayTracing
         uint32_t                             Refit       = 0;
         uint64_t                             VertexBytes = 0; // vertex + index buffers of every tile
         uint64_t                             BlasBytes   = 0; // BLAS storage of every tile
+        // The change mark (RayTracingExternalPrimitives::Serial / Changed): this frame's serial (from 1, one per
+        // AddPasses call) and the tiles (indices into Primitives, ascending) with a build or refit in Builds.
+        uint64_t              Serial = 0;
+        std::vector<uint32_t> Changed;
     };
 
     // One view's landscape ray-tracing state (SceneRenderer owns one per view, like RayTracingSceneRenderer).
@@ -230,5 +234,6 @@ namespace Desert::Graphic::RayTracing
         std::shared_ptr<ComputePipeline>        m_Pipeline;
         ShaderBindingLayoutCache                m_Layout;
         LandscapeRayTracingFrame                m_Frame;
+        uint64_t m_Serial = 0; // the last AddPasses call's LandscapeRayTracingFrame::Serial
     };
 } // namespace Desert::Graphic::RayTracing

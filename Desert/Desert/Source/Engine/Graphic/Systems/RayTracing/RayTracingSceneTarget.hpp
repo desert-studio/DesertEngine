@@ -84,7 +84,9 @@ namespace Desert::Graphic::RayTracing
         // the allocation (the storage's graph desc is the size the build asked for, not what the device holds).
         [[nodiscard]] virtual uint64_t GetMemoryBytes() const = 0;
         // Records the build of @p instanceCount rows of @p instances into the TLAS, inside the pass's exec; @p
-        // update: the update Prepare answered (TlasBuildSizes::Update) instead of a build.
+        // update: the update Prepare answered (TlasBuildSizes::Update) instead of a build. The recorded build is
+        // one a later Prepare may answer an update over only once its graph ended (the storage external's
+        // RecordFinalState); after an abandoned graph the next Prepare answers a build.
         [[nodiscard]] virtual Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
                                                                  const RDG::BufferBinding& instances,
                                                                  const RDG::BufferBinding& scratch,

@@ -134,7 +134,8 @@ namespace Desert::Graphic::RayTracing
                                                           const bool                               required,
                                                           std::span<const LandscapeRayTracingTile> tiles )
     {
-        m_Frame = {};
+        m_Frame        = {};
+        m_Frame.Serial = ++m_Serial;
         if ( !required || tiles.empty() )
         {
             m_Tiles.clear();
@@ -208,6 +209,8 @@ namespace Desert::Graphic::RayTracing
                 state.Key      = key;
                 state.Instance = instance;
                 state.Valid    = true;
+                // Its BLAS storage and layout may move: the RT scene encodes this tile's rows again.
+                m_Frame.Changed.push_back( static_cast<uint32_t>( m_Frame.Primitives.size() ) );
                 if ( job.Plan.Update )
                     ++m_Frame.Refit;
                 else

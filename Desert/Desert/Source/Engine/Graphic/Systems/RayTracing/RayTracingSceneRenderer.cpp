@@ -433,6 +433,10 @@ namespace Desert::Graphic::RayTracing
         m_SceneViewOrigin  = viewOrigin;
         m_SceneLensScale   = drawDistanceScale;
         m_SceneGatherFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        // The producer frame the kept rows hold: set again only once this call encoded its external primitives,
+        // so a return before that (not required, an error) makes the next call encode every one.
+        const uint64_t externalBefore = m_ExternalSerial;
+        m_ExternalSerial              = 0;
         if ( !required )
             return BOOLSUCCESS;
 
@@ -533,16 +537,34 @@ namespace Desert::Graphic::RayTracing
             if ( m_Gather.Primitives[p].DeformedPositions.IsValid() )
                 m_FrameDeformed = true;
 
+        // The external primitives a kept list re-encodes: the ones the producer built or refit this frame (its
+        // change mark) when the kept rows hold its frame before, else every one. Every other external primitive
+        // traces the BLAS storage and layout it traced then; whatever else of it SameExternal compares relists.
+        m_ExternalPatched.clear();
+        if ( external.Serial != 0 && external.Serial == externalBefore + 1 )
+        {
+            for ( const uint32_t changed : external.Changed )
+            {
+                if ( changed >= external.Primitives.size() )
+                    return Common::MakeFormattedError<bool>(
+                         "RayTracingScene: the external producer marks primitive {} of {} changed", changed,
+                         external.Primitives.size() );
+                m_ExternalPatched.push_back( static_cast<uint32_t>( firstExternal + changed ) );
+            }
+        }
+        else
+            for ( std::size_t p = firstExternal; p < m_Gather.Primitives.size(); ++p )
+                m_ExternalPatched.push_back( static_cast<uint32_t>( p ) );
         // The rows a kept list re-encodes this frame: the moved primitives, the dynamic ones (their BLAS is this
-        // frame's) and the external tail.
+        // frame's; no per-view change mark) and the changed external ones.
         const auto forEachPatched = [&]( const auto& visit )
         {
             for ( const uint32_t p : m_SceneMoved )
                 visit( p );
             for ( const uint32_t p : m_DynamicPrimitives )
                 visit( p );
-            for ( std::size_t p = firstExternal; p < m_Gather.Primitives.size(); ++p )
-                visit( static_cast<uint32_t>( p ) );
+            for ( const uint32_t p : m_ExternalPatched )
+                visit( p );
         };
         if ( !relisted )
         {
@@ -625,9 +647,10 @@ namespace Desert::Graphic::RayTracing
         // the list was, or when a row of it is this frame's (a skinned stream's address, a procedural or a
         // landscape BLAS).
         // Built with the list (all rows dirty); on a kept list only the runs whose BLAS layout may have moved are
-        // filled again - the dynamic primitives (this frame's BLAS) and the external tail (landscape tiles) - and
-        // only the rows whose bytes changed go up (AddRayTracingMetadataUpload). A moved primitive's rows are its
-        // BLAS's, unchanged by a move.
+        // filled again - the dynamic primitives (this frame's BLAS) and the external ones the producer built or
+        // refit (m_ExternalPatched: O(changed tiles), never the whole landscape) - and only the rows whose bytes
+        // changed go up (AddRayTracingMetadataUpload). A moved primitive's rows are its BLAS's, unchanged by a
+        // move.
         const RayTracingSegmentMaterialFn materialOf =
              [&external]( const RayTracingSegmentRecord& segment ) -> std::optional<RayTracingMaterialRecord>
         {
@@ -653,12 +676,12 @@ namespace Desert::Graphic::RayTracing
             m_GeometryUpload.AllDirty = true;
             m_MaterialUpload.AllDirty = true;
         }
-        else if ( !m_DynamicPrimitives.empty() || m_Gather.Primitives.size() > firstExternal )
+        else if ( !m_DynamicPrimitives.empty() || !m_ExternalPatched.empty() )
         {
             DESERT_PROFILE_SCOPE( "RayTracingScene: MetadataPatch" );
             m_MetadataPatched.assign( m_DynamicPrimitives.begin(), m_DynamicPrimitives.end() );
-            for ( std::size_t p = firstExternal; p < m_Gather.Primitives.size(); ++p )
-                m_MetadataPatched.push_back( static_cast<uint32_t>( p ) );
+            m_MetadataPatched.insert( m_MetadataPatched.end(), m_ExternalPatched.begin(),
+                                      m_ExternalPatched.end() );
             const std::size_t           materialsBefore = m_Metadata->Metadata.Materials.size();
             const Common::BoolResultStr patched =
                  PatchRayTracingMetadata( *m_Metadata, m_Gather.Primitives, m_Gather.SegmentRecords,
@@ -671,6 +694,9 @@ namespace Desert::Graphic::RayTracing
             if ( m_Metadata->Metadata.Materials.size() != materialsBefore )
                 m_MaterialUpload.AllDirty = true;
         }
+        // The kept CPU rows (instances, metadata) hold this producer frame now; their dirty rows wait in the
+        // upload states until an upload is done, whatever fails below.
+        m_ExternalSerial = external.Serial;
 
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();

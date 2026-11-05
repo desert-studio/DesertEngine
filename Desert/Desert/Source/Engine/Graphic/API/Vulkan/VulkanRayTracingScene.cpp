@@ -119,8 +119,19 @@ namespace Desert::Graphic::API::Vulkan
             m_External.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
             {
                 m_External.State = state;
+                // After EndGraph: the build or update this graph recorded is submitted, so it is the storage's.
+                if ( m_RecordedInstances != kNoBuild )
+                    m_BuiltInstances = m_RecordedInstances;
+                m_RecordedInstances = kNoBuild;
                 return BOOLSUCCESS;
             };
+        }
+        // A build recorded into a graph that never ended (abandoned: nothing submitted) is still pending: its
+        // renderer counted it as done, so this frame builds instead of updating a source that build never wrote.
+        if ( m_RecordedInstances != kNoBuild )
+        {
+            m_BuiltInstances    = kNoBuild;
+            m_RecordedInstances = kNoBuild;
         }
         // Recreated storage resets m_BuiltInstances (Release): its first frame builds.
         const bool updates = update && m_BuiltInstances == instanceCount;
@@ -141,7 +152,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeSuccess( false );
         ReleaseRows( rows );
         // The same growth as the storage: a scene that adds one row a frame does not recreate every frame. 1 KiB
-        // at least: sixteen TLAS rows, and a multiple of every row size (8, 16, 48, 64 B).
+        // at least (sixteen TLAS rows); no row size needs the capacity to be its multiple.
         constexpr uint64_t kMinBytes = 1024u;
         const uint64_t     capacity  = std::bit_ceil( std::max( bytes, kMinBytes ) );
         // Copies write every buffer and ray-query passes read it; the build reads the instance rows by address.
@@ -254,7 +265,8 @@ namespace Desert::Graphic::API::Vulkan
         range.primitiveCount                                   = instanceCount;
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
-        m_BuiltInstances = instanceCount;
+        // Recorded, not yet submitted: m_BuiltInstances follows only when this graph ends (RecordFinalState).
+        m_RecordedInstances = instanceCount;
         return BOOLSUCCESS;
     }
 
@@ -274,8 +286,9 @@ namespace Desert::Graphic::API::Vulkan
         m_StorageBytes  = 0;
         m_Ledger        = ResourceOwnership{};
         m_Capacity      = 0;
-        m_BuiltInstances = kNoBuild;
-        m_External      = RDG::ExternalBuffer{};
+        m_BuiltInstances    = kNoBuild;
+        m_RecordedInstances = kNoBuild;
+        m_External          = RDG::ExternalBuffer{};
     }
 
     void VulkanRayTracingScene::ReleaseRows( RowBuffer& rows )

@@ -2113,9 +2113,10 @@ namespace Desert::Graphic
             // cache's variant, procedural and skin-cache BLASes and skinned positions carry the SCENE's instance
             // (RayTracingSceneRenderer::AddPasses opens the cache's scope around them): shared, in no view's
             // budget. A mesh BLAS built here by a lazy upload is claimed by the mesh service for its asset (an
-            // explicit claim wins and clears the instance). The graph transients (TLAS instance rows, build
-            // scratch, PrimitiveInstances) live in the device's transient heaps, each a TransientHeap row of the
-            // Device. The view's scope is OnUpdate's (RT-LEDGER-3), not a second one here.
+            // explicit claim wins and clears the instance). The TLAS instance rows, PrimitiveInstances and the
+            // metadata records are the view's persistent row buffers; the graph transients (build scratch, row
+            // staging) live in the device's transient heaps, each a TransientHeap row of the Device. The view's
+            // scope is OnUpdate's (RT-LEDGER-3), not a second one here.
             // The plan, by stage (GPU-COST-13): one row per stage, inside "Grass, TLAS, shadow plan".
             DESERT_PROFILE_PHASES( planPhases );
             DESERT_PROFILE_PHASE( planPhases, "Plan: View inputs" );
@@ -2207,7 +2208,9 @@ namespace Desert::Graphic
                              .VertexBytes      = landscapeFrame.VertexBytes,
                              .BlasBytes        = landscapeFrame.BlasBytes,
                              .SegmentRecords   = landscapeFrame.SegmentRecords,
-                             .LandscapeOpacity = landscapeFrame.Opacity };
+                             .LandscapeOpacity = landscapeFrame.Opacity,
+                             .Serial           = landscapeFrame.Serial,
+                             .Changed          = landscapeFrame.Changed };
 
             Common::BoolResultStr tlas = BOOLSUCCESS;
             if ( m_FrameRayTracingCache == nullptr )

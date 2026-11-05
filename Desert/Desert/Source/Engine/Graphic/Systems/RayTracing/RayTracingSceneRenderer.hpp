@@ -478,9 +478,10 @@ namespace Desert::Graphic::RayTracing
     // What one view's RT scene holds this frame (the viewport's RT scene overlay and the [ViewMemory] lines).
     // Every persistent byte count is READ FROM the ledger rows of the allocations (ResourceOwnership::GetBytes
     // through GetMemoryBytes / SkinCacheStreams::GetBytes / GetBuildInputBytes): one statement per allocation,
-    // the census and these numbers cannot disagree. The graph transients (instance rows, primitive ranges,
-    // scratch) are placed in the device's TransientHeap rows; their sizes are the frame's declared descs
-    // (RayTracingSceneFrame).
+    // the census and these numbers cannot disagree; the instance rows and primitive ranges are the view's
+    // persistent row buffers (RayTracingSceneTarget::GetRowMemoryBytes). The graph transients (build scratch, the
+    // row uploads' staging) are placed in the device's TransientHeap rows; their sizes are the frame's declared
+    // descs (RayTracingSceneFrame).
     struct RayTracingSceneStats
     {
         bool Built = false; // the frame built a TLAS: the rest is meaningful
@@ -539,6 +540,13 @@ namespace Desert::Graphic::RayTracing
         // The alpha test of each landscape tile's masked segment, by RayTracingSegmentRecord::LandscapeTile
         // (LandscapeVisibilityRecord); empty for a tile with no weightmap, whose masked segment holds no triangle.
         std::span<const std::optional<RayTracingMaterialRecord>> LandscapeOpacity;
+        // THE PRODUCER'S CHANGE MARK (UE FRayTracingScene: only the primitives the producer marks dirty are
+        // encoded again). Serial: the producer's frame, counted from 1 per producer AddPasses call (0: no producer
+        // frame, e.g. it failed). Changed: the primitives (indices into Primitives, ascending) whose BLAS the
+        // producer built or refit in that frame - the only ones whose BLAS storage or layout may differ from its
+        // frame Serial - 1. A consumer whose last encoded producer frame is not Serial - 1 re-encodes them all.
+        uint64_t                  Serial = 0;
+        std::span<const uint32_t> Changed;
     };
 
     class RayTracingSceneRenderer
@@ -753,6 +761,12 @@ namespace Desert::Graphic::RayTracing
         SceneRowUploadState   m_GeometryUpload;
         SceneRowUploadState   m_MaterialUpload;
         std::vector<uint32_t> m_MetadataPatched;
+        // The external primitives a kept list encodes again this frame (the producer's Changed, rebased; CPU
+        // scratch) and the producer frame (RayTracingExternalPrimitives::Serial) whose primitives the kept rows
+        // hold: 0 until an AddPasses encoded them, reset at the start of each one, so a call that returns before
+        // encoding them makes the next one encode every external primitive.
+        std::vector<uint32_t> m_ExternalPatched;
+        uint64_t              m_ExternalSerial = 0;
         // The distinct BLASes the list traces (RayTracingSceneStats::TracedBlasBytes), kept with the list and the
         // GPU rows' key they were collected for.
         std::vector<const RayTracingGeometryResource*> m_TracedGeometry;
