@@ -526,6 +526,9 @@ namespace Desert::Editor
             const auto mesh         = SkinnedAssetPath( sourcePath, ".skmesh" );
             if ( const auto allowed = ContentWriteAllowed( pass, sourcePath, mesh, "skinned mesh" ); !allowed )
                 record( allowed );
+            else if ( const auto ordered = OptimizeSectionsForGpu( resolved.Mesh.value(), sourcePath.string() );
+                      !ordered )
+                record( ordered );
             else
             {
                 if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
