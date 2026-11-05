@@ -508,8 +508,10 @@ namespace Desert::Editor
         return result;
     }
 
-    static ImportResult ProcessScene( const aiScene* scene, ImportManager& manager,
-                                      const std::filesystem::path& sourcePath, ImportPass pass )
+    // The scene as the engine's import result, or the reason it cannot be one (a value: engine code does not
+    // throw, and AssimpImporter::Import hands it to the one log line ImportManager::ImportParsed writes).
+    static Common::ResultStr<ImportResult> ProcessScene( const aiScene* scene, ImportManager& manager,
+                                                         const std::filesystem::path& sourcePath, ImportPass pass )
     {
         ImportResult result;
 
@@ -915,7 +917,9 @@ namespace Desert::Editor
                                                ? Geometry::ApplyMikkTangents( meshData.SkinnedVertices, first, triangles )
                                                : Geometry::ApplyMikkTangents( meshData.StaticVertices, first, triangles );
                 if ( !sourceVertex )
-                    throw std::bad_alloc();
+                    return Common::MakeFormattedError<ImportResult>(
+                         "'{}': MikkTSpace could not allocate its working set for mesh '{}' ({} triangles)",
+                         sourcePath.string(), mesh->mName.C_Str(), mesh->mNumFaces );
 
                 const auto follow = [&]( auto& values, size_t offset )
                 {
@@ -1209,7 +1213,7 @@ namespace Desert::Editor
             if ( referenced[m] )
                 result.Materials.push_back( materialData[m] );
 
-        return result;
+        return Common::MakeSuccess( std::move( result ) );
     }
 
     // Did the file say what its unit is? FBX states it in GlobalSettings::UnitScaleFactor, which assimp
@@ -1339,8 +1343,13 @@ namespace Desert::Editor
         return Common::MakeSuccess( ImportContentKind::StaticMesh );
     }
 
-    ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager,
-                                         const Assets::SourceImportSettings& settings, ImportPass pass )
+    // A FAILED IMPORT IS A VALUE (UE: UFbxFactory / Interchange return no asset and the caller logs the reader's
+    // reason; nothing throws). Every refusal below names the file and the reason, and ImportManager::ImportParsed
+    // writes it once as the cook's verdict.
+    Common::ResultStr<ImportResult> AssimpImporter::Import( const std::filesystem::path&        path,
+                                                            ImportManager&                      manager,
+                                                            const Assets::SourceImportSettings& settings,
+                                                            const ImportPass                    pass )
     {
         static ScopedAssimpLogger logger;
         Assimp::Importer          importer;
@@ -1363,10 +1372,9 @@ namespace Desert::Editor
         // never off the process's working directory (ENG-ROOT).
         const aiScene* scene = importer.ReadFile( Common::Constants::Path::FullPath( path ).string(), readFlags );
 
-        if ( !scene || !scene->mRootNode )
-        {
-            throw std::runtime_error( "Failed to import: " + path.string() );
-        }
+        if ( scene == nullptr || scene->mRootNode == nullptr )
+            return Common::MakeFormattedError<ImportResult>( "'{}' could not be read: {}", path.string(),
+                                                             importer.GetErrorString() );
 
         const std::string fileName = path.filename().string();
 
@@ -1410,11 +1418,9 @@ namespace Desert::Editor
         const float assimpMetresPerUnit = importer.GetPropertyFloat( AI_CONFIG_APP_SCALE_KEY, 1.0f );
 
         if ( !ImportUnits::IsUsableScale( assimpMetresPerUnit ) )
-        {
-            throw std::runtime_error( std::format( "Refusing to import {}: the reader reports {:f} metres per "
-                                                   "file unit, which is not a usable scale.",
-                                                   path.string(), assimpMetresPerUnit ) );
-        }
+            return Common::MakeFormattedError<ImportResult>(
+                 "'{}' is refused: the reader reports {:f} metres per file unit, which is not a usable scale",
+                 path.string(), assimpMetresPerUnit );
 
         importer.SetPropertyFloat(
              AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY,
@@ -1423,13 +1429,15 @@ namespace Desert::Editor
         scene = importer.ApplyPostProcessing( aiProcess_GlobalScale );
 
         if ( scene == nullptr || scene->mRootNode == nullptr )
-        {
-            throw std::runtime_error( "Failed to scale to centimetres on import: " + path.string() );
-        }
+            return Common::MakeFormattedError<ImportResult>( "'{}' could not be scaled to centimetres: {}",
+                                                             path.string(), importer.GetErrorString() );
 
-        ImportResult result = ProcessScene( scene, manager, path, pass );
+        auto processed = ProcessScene( scene, manager, path, pass );
+        if ( !processed )
+            return processed;
+        ImportResult result = processed.ExtractValue();
         result.Lights       = ReadSceneLights( *scene, fileName, unit.CentimetresPerUnit );
-        return result;
+        return Common::MakeSuccess( std::move( result ) );
     }
 
 } // namespace Desert::Editor

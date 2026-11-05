@@ -25,12 +25,14 @@ namespace Desert::Editor
     class BlendImporter : public IAssetImporter
     {
     public:
-        ImportResult Import( const std::filesystem::path& blendPath, ImportManager& manager,
-                             const Assets::SourceImportSettings& settings, ImportPass pass ) override
+        Common::ResultStr<ImportResult> Import( const std::filesystem::path& blendPath, ImportManager& manager,
+                                                const Assets::SourceImportSettings& settings,
+                                                ImportPass                          pass ) override
         {
             const std::filesystem::path fbx = ConvertToFbx( blendPath );
-            if ( fbx.empty() )
-                return {}; // conversion failed (no Blender / export error) — already logged
+            if ( fbx.empty() ) // no Blender, or its export failed: the Blender error is already logged
+                return Common::MakeFormattedError<ImportResult>(
+                     "'{}' was not converted to FBX (see the Blender error above)", blendPath.string() );
 
             AssimpImporter assimp;
             return assimp.Import( fbx, manager, settings, pass );
