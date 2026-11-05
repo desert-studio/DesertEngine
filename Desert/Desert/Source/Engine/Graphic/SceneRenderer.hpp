@@ -355,6 +355,10 @@ namespace Desert::Graphic
         // HDR-OUTPUT p3: the tonemap's HDR rendition of its last capture frame
         // (TonemapRenderer::GetHdrRenditionImage); null before the first window capture of an HDR output.
         [[nodiscard]] std::shared_ptr<Image2D> GetHdrRenditionImage() const;
+        // HDR-OUTPUT p4: logs the peak of that rendition ("[Display] HDR rendition of the captured frame: peak
+        // ...") after a capture of an HDR output — the evidence the HDR picture carries above paper white. Waits
+        // for the device. One body for every host that captures (the editor's shot.window, the runtime's --shot).
+        void LogHdrRenditionPeak() const;
 
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,

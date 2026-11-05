@@ -350,42 +350,11 @@ namespace Desert::Editor
 
     void ViewportCapture::LogHdrRenditionPeak()
     {
-        // HDR-OUTPUT p3: on an HDR output the PNG above is the SDR rendition (Graphic::SetSdrCaptureRendition);
-        // the HDR transform of the same frame is the tonemap's second target, and its peak is the evidence the
-        // HDR picture carries above paper white. Read on the idle device the swapchain readback already waited.
-        if ( !Graphic::SdrCaptureRenditionRequested() || !Graphic::CurrentDisplayOutput().IsHDR() )
-            return;
-        const auto*                   scene    = m_Workspace.ActiveScene().get();
-        const Graphic::SceneRenderer* renderer = scene ? scene->GetViewRenderer( 0 ) : nullptr;
-        const auto                    image    = renderer ? renderer->GetHdrRenditionImage() : nullptr;
-        if ( !image )
-        {
-            LOG_ERROR( "[Display] the HDR output's capture has no HDR rendition (view 0 drew none): no peak" );
-            return;
-        }
-        auto begun = image->BeginReadbackBytes();
-        if ( !begun.IsSuccess() )
-        {
-            LOG_ERROR( "[Display] HDR rendition readback refused: {}", begun.GetError() );
-            return;
-        }
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        const auto bytes = begun.GetValue()->ReadBytes();
-        if ( !bytes.IsSuccess() )
-        {
-            LOG_ERROR( "[Display] HDR rendition readback failed: {}", bytes.GetError() );
-            return;
-        }
-        const std::size_t pixels = static_cast<std::size_t>( image->GetWidth() ) * image->GetHeight();
-        // The rendition holds SceneComposite's extended-sRGB encoding: the brightest code is the brightest light.
-        const Graphic::ScRGBPeak peak =
-             Graphic::FindScRGBPeak( bytes.GetValue().data(), bytes.GetValue().size(), pixels );
-        const float linear = Graphic::SrgbToLinearExtended( peak.Value );
-        const float paper  = Graphic::CurrentDisplayOutput().PaperWhiteNits;
-        LOG_INFO(
-             "[Display] HDR rendition of the captured frame: peak {:.3f} x paper white ({:.0f} nits) at viewport "
-             "pixel ({}, {}) of {}x{}; headroom {:.3f}",
-             linear, linear * paper, peak.Pixel % image->GetWidth(), peak.Pixel / image->GetWidth(),
-             image->GetWidth(), image->GetHeight(), Graphic::CurrentDisplayOutput().Headroom );
+        // HDR-OUTPUT p3/p4: the HDR transform of the captured frame (view 0), measured by the renderer.
+        const auto* scene = m_Workspace.ActiveScene().get();
+        if ( const Graphic::SceneRenderer* renderer = scene ? scene->GetViewRenderer( 0 ) : nullptr )
+            renderer->LogHdrRenditionPeak();
+        else if ( Graphic::SdrCaptureRenditionRequested() && Graphic::CurrentDisplayOutput().IsHDR() )
+            LOG_ERROR( "[Display] the HDR output's capture has no view 0: no HDR rendition, no peak" );
     }
 } // namespace Desert::Editor

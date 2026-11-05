@@ -30,6 +30,12 @@ namespace Desert::Editor::HdrSphereThumbnail
         using glm::acos;
         using glm::atan;
         using glm::clamp;
+        using glm::exp2;
+        using glm::floor;
+        using glm::log2;
+        using glm::max;
+        using glm::min;
+        using glm::mix;
         DESERT_GLSL_AS_CPP_BEGIN
 #include "../../../Resources/Shaders/Common/SkyPanorama.glslh"
 #include "../../../Resources/Shaders/Common/TonemapACES.glslh"

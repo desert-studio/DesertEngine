@@ -15,6 +15,9 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/PixelPack.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
@@ -4662,6 +4665,42 @@ namespace Desert::Graphic
             return nullptr;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         return static_cast<const System::TonemapRenderer*>( it->second.get() )->GetHdrRenditionImage();
+    }
+
+    void SceneRenderer::LogHdrRenditionPeak() const
+    {
+        // On an HDR output the captured PNG is the SDR rendition (Graphic::SetSdrCaptureRendition); the HDR
+        // transform of the same frame is the tonemap's second target, and its peak is read here.
+        if ( !SdrCaptureRenditionRequested() || !CurrentDisplayOutput().IsHDR() )
+            return;
+        const auto image = GetHdrRenditionImage();
+        if ( !image )
+        {
+            LOG_ERROR( "[Display] the HDR output's capture has no HDR rendition (the view drew none): no peak" );
+            return;
+        }
+        auto begun = image->BeginReadbackBytes();
+        if ( !begun.IsSuccess() )
+        {
+            LOG_ERROR( "[Display] HDR rendition readback refused: {}", begun.GetError() );
+            return;
+        }
+        Renderer::GetInstance().WaitDeviceIdle();
+        const auto bytes = begun.GetValue()->ReadBytes();
+        if ( !bytes.IsSuccess() )
+        {
+            LOG_ERROR( "[Display] HDR rendition readback failed: {}", bytes.GetError() );
+            return;
+        }
+        const std::size_t pixels = static_cast<std::size_t>( image->GetWidth() ) * image->GetHeight();
+        // The rendition holds SceneComposite's extended-sRGB encoding: the brightest code is the brightest light.
+        const ScRGBPeak peak   = FindScRGBPeak( bytes.GetValue().data(), bytes.GetValue().size(), pixels );
+        const float     linear = SrgbToLinearExtended( peak.Value );
+        const float     paper  = CurrentDisplayOutput().PaperWhiteNits;
+        LOG_INFO( "[Display] HDR rendition of the captured frame: peak {:.3f} x paper white ({:.0f} nits) at view "
+                  "pixel ({}, {}) of {}x{}; headroom {:.3f}",
+                  linear, linear * paper, peak.Pixel % image->GetWidth(), peak.Pixel / image->GetWidth(),
+                  image->GetWidth(), image->GetHeight(), CurrentDisplayOutput().Headroom );
     }
 
     std::shared_ptr<Desert::Graphic::Framebuffer> SceneRenderer::GetDisplayFramebuffer() const
