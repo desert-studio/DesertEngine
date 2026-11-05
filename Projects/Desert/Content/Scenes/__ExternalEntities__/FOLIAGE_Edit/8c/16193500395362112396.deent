@@ -1,0 +1,14 @@
+{
+    "id": 16193500395362112396,
+    "siblingIndex": 25,
+    "Tag": "Terrain Tile 1_4",
+    "Translation": [0.0, 0.0, 0.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "LandscapeTile": {
+        "Landscape": "7310021741200003",
+        "TileX": 1,
+        "TileZ": 4,
+        "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/16193500395362112396.dlht"
+    }
+}

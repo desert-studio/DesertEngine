@@ -19,6 +19,7 @@ namespace Desert::Editor::Core
         Single,  ///< one instance per click (UE "Single")
         Select,  ///< click picks one instance; Shift adds (UE "Select")
         Lasso,   ///< the brush selects what it passes over; Shift deselects (UE "Lasso")
+        Erase,   ///< thin a checked type under the brush down to Erase Density of its Density (UE "Erase")
         Remove,  ///< every instance of a checked type under the brush (UE "Remove")
         Reapply, ///< re-roll / re-check existing instances from the type's current numbers (UE "Reapply")
         Fill,    ///< click a static mesh: cover its triangles at the checked types' density (UE "Fill")
@@ -36,6 +37,8 @@ namespace Desert::Editor::Core
                 return "Select";
             case FoliageTool::Lasso:
                 return "Lasso";
+            case FoliageTool::Erase:
+                return "Erase";
             case FoliageTool::Remove:
                 return "Remove";
             case FoliageTool::Reapply:
@@ -116,10 +119,11 @@ namespace Desert::Editor::Core
         {
             return s_Reapply;
         }
-        // The panel's "Move by" offset for the selected instances, cm.
-        static glm::vec3& MoveOffset()
+        // UE FFoliageUISettings EraseDensity: the share of each type's Density the Erase tool leaves under the
+        // brush, 0..1 (0 erases to empty, 1 leaves the type's full density).
+        static float& EraseDensity()
         {
-            return s_MoveOffset;
+            return s_EraseDensity;
         }
 
         // --- selected instances, per foliage entity (UE FFoliageInfo::SelectedIndices) -----------------
@@ -212,7 +216,7 @@ namespace Desert::Editor::Core
         static inline float                         s_PaintDensity = 1.0f;
         static inline FoliageTool                   s_Tool         = FoliageTool::Paint;
         static inline Tools::FoliageReapplySettings s_Reapply;
-        static inline glm::vec3                     s_MoveOffset = glm::vec3( 0.0f, 100.0f, 0.0f );
+        static inline float                         s_EraseDensity = 0.0f;
         static inline std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;
         static inline bool                                                      s_FilterLandscape  = true;
         static inline bool                                                      s_FilterStaticMesh = true;

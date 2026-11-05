@@ -1,0 +1,27 @@
+{
+    "id": 7310021741209001,
+    "siblingIndex": 30,
+    "Tag": "Fill Block",
+    "Translation": [
+        2000.0,
+        150.0,
+        0.0
+    ],
+    "Rotation": [
+        0.0,
+        0.0,
+        0.0
+    ],
+    "Scale": [
+        4.0,
+        1.0,
+        4.0
+    ],
+    "StaticMesh": {
+        "MeshHandle": {
+            "Guid": "ad451fd14d727d0aaccbe1bc6093cd44",
+            "Path": "assets:Meshes/Modeling/Box_1.stmesh"
+        },
+        "MaterialSlots": []
+    }
+}

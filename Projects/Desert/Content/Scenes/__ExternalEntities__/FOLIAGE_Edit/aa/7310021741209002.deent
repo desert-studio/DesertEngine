@@ -1,0 +1,24 @@
+{
+    "id": 7310021741209002,
+    "siblingIndex": 31,
+    "Tag": "Procedural Volume",
+    "Translation": [-2500.0, 0.0, 0.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "ProceduralFoliage": {
+        "Extent": [1200.0, 2000.0, 1200.0],
+        "TileSize": 3000.0,
+        "MinimumQuadTreeSize": 100.0,
+        "NumUniqueTiles": 10,
+        "RandomSeed": 7,
+        "TileOverlap": 0.0,
+        "AllowLandscape": true,
+        "AllowStaticMesh": false,
+        "FoliageTypes": [
+            {
+                "Guid": "ee636f776d95496283602b1ebe49b356",
+                "Path": "assets:Foliage/Proof/FOLIAGE_EditShrub.defoliage"
+            }
+        ]
+    }
+}

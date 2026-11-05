@@ -300,6 +300,8 @@ namespace Desert::Editor::Tools
             ImGui::SameLine();
             if ( ToolButton( ICON_MDI_ERASER " Remove", tool == Core::FoliageTool::Remove, third ) )
                 tool = Core::FoliageTool::Remove;
+            if ( ToolButton( ICON_MDI_ERASER_VARIANT " Erase", tool == Core::FoliageTool::Erase, third ) )
+                tool = Core::FoliageTool::Erase;
         }
         const Core::FoliageTool tool = Core::FoliagePaint::Tool();
         Row::ResetPropertyRows();
@@ -317,6 +319,14 @@ namespace Desert::Editor::Tools
             ImGui::SetNextItemWidth( -1 );
             ImGui::SliderFloat( "##PaintDensity", &Core::FoliagePaint::PaintDensity(), 0.0f, 1.0f, "%.2f" );
             Row::EndPropertyRow();
+            if ( tool == Core::FoliageTool::Erase )
+            {
+                Row::BeginPropertyRow( "Erase Density",
+                                       "Share of each type's Density the Erase brush leaves (UE EraseDensity)" );
+                ImGui::SetNextItemWidth( -1 );
+                ImGui::SliderFloat( "##EraseDensity", &Core::FoliagePaint::EraseDensity(), 0.0f, 1.0f, "%.2f" );
+                Row::EndPropertyRow();
+            }
 
             // FO-UI1 footprint preview: what one dab adds at the cursor, over the checked types.
             Row::BeginPropertyRow( "Footprint",
@@ -407,11 +417,10 @@ namespace Desert::Editor::Tools
                 if ( ImGui::Button( ICON_MDI_DELETE " Delete", ImVec2( half, 0 ) ) )
                     Report( RemoveSelected( scene ) );
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth( half );
-                ImGui::DragFloat3( "##MoveOffset", &Core::FoliagePaint::MoveOffset().x, 1.0f, -100000.0f,
-                                   100000.0f, "%.0f" );
-                if ( ImGui::Button( ICON_MDI_ARROW_ALL " Move by offset (cm)", ImVec2( -1, 0 ) ) )
-                    Report( MoveSelected( scene, Core::FoliagePaint::MoveOffset() ) );
+                // UE: the selected instances move with the viewport's transform gizmo; End drops them to the
+                // ground.
+                if ( ImGui::Button( ICON_MDI_ARROW_DOWN_BOLD " Snap to ground (End)", ImVec2( half, 0 ) ) )
+                    Report( SnapSelectedToGround( scene ) );
             }
         }
         if ( tool == Core::FoliageTool::Reapply && Row::SectionHeader( "Reapply" ) )
