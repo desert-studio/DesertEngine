@@ -22,7 +22,7 @@ MIN_MERGES = 2
 WHY_PER_DAY = 3
 RUNNING_SECONDS = 300
 
-ENTRY = re.compile(r"build_land\.sh\s+(\S+)\s+(\S+)")
+ENTRY = re.compile(r"(?:^|[;&|(]\s*|\bbash\s+|\bsh\s+)(?:\S*/)?build_land\.sh\s+(\S+)\s+(\S+)")
 OTHER = re.compile(r"(BuildWindows\.bat|cmake\s+--build|MSBuild(\.exe)?[\"']?\s|(^|[;&|(]\s*)ninja\s|"
                    r"build_low(_run)?\.sh\s)", re.I)
 READERS = re.compile(r"^\s*(cat|head|tail|grep|sed\s+-n|less|wc|ls|git\s+(log|show|diff|grep))\b")
@@ -86,6 +86,8 @@ def main():
     if data.get("tool_name") not in ("Bash", "PowerShell"):
         sys.exit(0)
     cmd = (data.get("tool_input") or {}).get("command", "")
+    if re.match(r"^\s*git\s", cmd) or "<<" in cmd:
+        sys.exit(0)  # a commit message or a heredoc that only mentions a build is not one
     entry = ENTRY.search(cmd)
     if not entry and (not OTHER.search(cmd) or READERS.match(cmd)):
         sys.exit(0)
