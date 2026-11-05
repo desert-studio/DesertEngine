@@ -1,5 +1,4 @@
 #include <Common/Core/Core.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSkinnedRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -101,11 +100,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanSkinCacheStreams::~VulkanSkinCacheStreams()
-    try
     {
         Release();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanSkinCacheStreams" )
 
     Common::ResultStr<RayTracing::SkinnedBlasPrepared>
     VulkanSkinnedRayTracingGeometry::Prepare( const RayTracing::RayTracingMeshInput& input )
@@ -296,11 +293,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanSkinnedRayTracingGeometry::~VulkanSkinnedRayTracingGeometry()
-    try
     {
         Release();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanSkinnedRayTracingGeometry" )
 } // namespace Desert::Graphic::API::Vulkan
 
 namespace Desert::Graphic::RayTracing

@@ -1,13 +1,12 @@
 #include <Common/Core/Logger.hpp>
 
 #include <spdlog/details/log_msg_buffer.h>
-#include <spdlog/sinks/basic_file_sink.h>
 
 #include <chrono>
 #include <condition_variable>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
-#include <exception>
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -80,6 +79,87 @@ namespace Common::Logger
             const std::optional<spdlog::level::level_enum> level = LevelFromName( name );
             return level.value_or( spdlog::level::info );
         }
+
+        // THE LOG FILE, the file writer's target. spdlog's basic_file_sink throws spdlog_ex on a failed
+        // open, write or flush; this one returns each failure as a value: Open gives null and the reason,
+        // a failed write or flush is counted and said on stderr at most once a second (the file is what
+        // failed), and the writer's line count still advances, so a caller waiting for an error line is
+        // never held. Never throws but for an allocation, which ends the process at its site.
+        class LogFileSink final : public spdlog::sinks::sink
+        {
+        public:
+            // The file at @p path, truncated; null with @p error set when it cannot be opened.
+            static std::shared_ptr<LogFileSink> Open( const std::filesystem::path& path, std::string& error )
+            {
+                std::FILE* const file = std::fopen( path.string().c_str(), "wb" );
+                if ( file == nullptr )
+                {
+                    error = std::error_code( errno, std::generic_category() ).message();
+                    return nullptr;
+                }
+                return std::make_shared<LogFileSink>( file );
+            }
+
+            explicit LogFileSink( std::FILE* file ) noexcept : m_File( file )
+            {
+            }
+            ~LogFileSink() override
+            {
+                (void)std::fclose( m_File );
+            }
+            LogFileSink( const LogFileSink& )            = delete;
+            LogFileSink& operator=( const LogFileSink& ) = delete;
+
+            void log( const spdlog::details::log_msg& msg ) override
+            {
+                const std::lock_guard lock( m_Mutex );
+                m_Line.clear();
+                m_Formatter->format( msg, m_Line );
+                if ( std::fwrite( m_Line.data(), 1, m_Line.size(), m_File ) != m_Line.size() )
+                    Failed( "write" );
+            }
+
+            void flush() override
+            {
+                const std::lock_guard lock( m_Mutex );
+                if ( std::fflush( m_File ) != 0 )
+                    Failed( "flush" );
+            }
+
+            void set_pattern( const std::string& pattern ) override
+            {
+                set_formatter( std::make_unique<spdlog::pattern_formatter>( pattern ) );
+            }
+
+            void set_formatter( std::unique_ptr<spdlog::formatter> formatter ) override
+            {
+                const std::lock_guard lock( m_Mutex );
+                m_Formatter = std::move( formatter );
+            }
+
+        private:
+            // Under m_Mutex.
+            void Failed( const char* what ) noexcept
+            {
+                const int error = errno;
+                ++m_Failures;
+                const auto now = std::chrono::steady_clock::now();
+                if ( m_Failures > 1 && now - m_LastReport < std::chrono::seconds( 1 ) )
+                    return;
+                m_LastReport = now;
+                std::fprintf( stderr,
+                              "[*** LOG ERROR ***] [log file] %s failed (errno %d); %llu failure(s) so far\n",
+                              what, error, static_cast<unsigned long long>( m_Failures ) );
+                std::fflush( stderr );
+            }
+
+            std::mutex                            m_Mutex;
+            std::FILE*                            m_File = nullptr;
+            std::unique_ptr<spdlog::formatter>    m_Formatter = std::make_unique<spdlog::pattern_formatter>();
+            spdlog::memory_buf_t                  m_Line;
+            std::uint64_t                         m_Failures = 0;
+            std::chrono::steady_clock::time_point m_LastReport;
+        };
 
         // MakeAsyncWriterSink's sink (Logger.hpp): the caller copies its line into the queue; the writer thread
         // writes the queue to the target in order and flushes it after every batch.
@@ -154,7 +234,10 @@ namespace Common::Logger
                 return sizeof( spdlog::details::log_msg_buffer ) + line.logger_name.size() + line.payload.size();
             }
 
-            void Run()
+            // noexcept and catching nothing: a target reports its failures as values (LogFileSink; the console
+            // sinks write with fwrite / WriteConsole), so what is left to throw is a bug or an allocation, and
+            // that ends the process here, at its site.
+            void Run() noexcept
             {
                 std::vector<spdlog::details::log_msg_buffer> batch;
                 std::unique_lock                             lock( m_Mutex );
@@ -166,10 +249,10 @@ namespace Common::Logger
                     batch.swap( m_Queue );
                     lock.unlock();
                     for ( const spdlog::details::log_msg_buffer& line : batch )
-                        Guarded( [&]() { m_Target->log( line ); } );
-                    Guarded( [&]() { m_Target->flush(); } );
+                        m_Target->log( line );
+                    m_Target->flush();
                     if ( m_RingFormatter )
-                        Guarded( [&]() { FeedRing( batch ); } );
+                        FeedRing( batch );
                     lock.lock();
                     for ( const spdlog::details::log_msg_buffer& line : batch )
                         m_QueuedBytes -= QueuedSize( line );
@@ -181,39 +264,6 @@ namespace Common::Logger
                         std::vector<spdlog::details::log_msg_buffer>().swap( batch );
                     m_Written.notify_all();
                 }
-            }
-
-            // A target that throws (spdlog's file sink on a full disk or a failed fflush: file_helper throws
-            // spdlog_ex) costs that write, never the process. On the caller's thread spdlog's logger caught the
-            // throw and handed it to its error handler; one leaving this thread is std::terminate, and the line
-            // count below would never reach a caller waiting for an error line. Reported on stderr at most once a
-            // second, as spdlog's default error handler does.
-            template <typename Write>
-            void Guarded( Write&& write )
-            {
-                try
-                {
-                    write();
-                }
-                catch ( const std::exception& error )
-                {
-                    Report( error.what() );
-                }
-                catch ( ... )
-                {
-                    Report( "unknown exception" );
-                }
-            }
-
-            void Report( const char* what )
-            {
-                const auto now = std::chrono::steady_clock::now();
-                if ( m_Reported && now - m_LastReport < std::chrono::seconds( 1 ) )
-                    return;
-                m_Reported   = true;
-                m_LastReport = now;
-                std::fprintf( stderr, "[*** LOG ERROR ***] [log writer] %s\n", what );
-                std::fflush( stderr );
             }
 
             // The writer thread, after a batch is in the file: the same lines, formatted as the file holds
@@ -242,8 +292,6 @@ namespace Common::Logger
             std::uint64_t                                m_Queued      = 0; // lines ever queued
             std::uint64_t                                m_Done        = 0; // lines ever written and flushed
             bool                                         m_Stop        = false;
-            std::chrono::steady_clock::time_point        m_LastReport; // the writer thread's own (Report)
-            bool                                         m_Reported = false;
             std::thread                                  m_Writer; // last: started once the members above exist
         };
 
@@ -251,7 +299,7 @@ namespace Common::Logger
         std::shared_ptr<AsyncWriterSink> FileWriterOf( const std::shared_ptr<spdlog::sinks::sink>& sink )
         {
             auto writer = std::dynamic_pointer_cast<AsyncWriterSink>( sink );
-            if ( writer && std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( writer->Target() ) )
+            if ( writer && std::dynamic_pointer_cast<LogFileSink>( writer->Target() ) )
                 return writer;
             return nullptr;
         }
@@ -390,7 +438,16 @@ namespace Common::Logger
 
         std::error_code ec;
         std::filesystem::create_directories( directory, ec );
-        auto placed = std::make_shared<spdlog::sinks::basic_file_sink_mt>( to.string(), true );
+        std::string                        openError;
+        const std::shared_ptr<LogFileSink> placed = LogFileSink::Open( to, openError );
+        if ( !placed )
+        {
+            // Said and kept where it was (the early ring, or the previous file): a value, never a throw.
+            Detail::Write( spdlog::level::err,
+                           "[Log] the log file '{}' could not be opened ({}); the log stays where it was.",
+                           to.string(), openError );
+            return;
+        }
         placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%v" ) );
         std::string carried;
         for ( const std::string& line : earlier )
@@ -418,7 +475,7 @@ namespace Common::Logger
                 begin = end + 1;
             }
         }
-        *slot = std::make_shared<AsyncWriterSink>( std::move( placed ), true );
+        *slot = std::make_shared<AsyncWriterSink>( placed, true );
         if ( !previous.empty() )
             std::filesystem::remove( previous, ec ); // the old copy would be a second, stale log
 

@@ -1,5 +1,4 @@
 #include <Common/Core/EngineThread.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include "PhotogrammetryPanel.hpp"
 
 #include <Editor/Platform/DesktopPlatform.hpp>
@@ -268,7 +267,6 @@ namespace Desert::Editor
     }
 
     PhotogrammetryPanel::~PhotogrammetryPanel()
-    try
     {
         StopCamera();
         CancelJob();
@@ -276,7 +274,6 @@ namespace Desert::Editor
             m_Worker.join();
         ReleasePreview();
     }
-    DESERT_DESTRUCTOR_GUARD( "~PhotogrammetryPanel" )
 
     // ---------------------------------------------------------------------------------------------------
     // Camera

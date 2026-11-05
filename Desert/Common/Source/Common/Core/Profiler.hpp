@@ -12,7 +12,6 @@
 // Use DESERT_PROFILE_FRAME(name) once at the top of the frame loop, and DESERT_PROFILE_SCOPE(name) inside
 // any scope you want timed. Names must be string literals (so Optick can cache its descriptors).
 
-#include <Common/Core/DestructorGuard.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/GpuQueue.hpp>
 #include <optick.h>
@@ -251,8 +250,13 @@ namespace Common::Profiling
         // One closed CPU scope of row @p nameId (InternedScopeName::Id): @p totalMs inclusive, @p selfMs with
         // nested scopes subtracted, @p waitMs the part of totalMs spent in Wait scopes (ScopeResult).
         // @p outermost: no scope of the same thread was open around it - on the frame thread such a scope adds
-        // to LastFrameNamedMs. Into the calling thread's buffer: no lock.
-        void AddSample( uint32_t nameId, double totalMs, double selfMs, double waitMs, bool outermost );
+        // to LastFrameNamedMs. Into the calling thread's buffer: no lock, no allocation, never throws (it runs in
+        // ScopedTimer's destructor). Only into a row ReserveSample made on this thread; another adds nothing.
+        void AddSample( uint32_t nameId, double totalMs, double selfMs, double waitMs, bool outermost ) noexcept;
+        // Makes row @p nameId exist in the calling thread's buffer (the buffer too, on the thread's first scope),
+        // so AddSample into it never allocates: what a ScopedTimer does when it opens. False - nothing will be
+        // measured - when the profiler is off, @p nameId is kNoScopeName or the thread's buffer is retired.
+        [[nodiscard]] bool ReserveSample( uint32_t nameId );
 
         // Resolved GPU time for a scope, fed by the backend once the queries for a finished frame are
         // readable. Lands in the same row as the CPU sample of the same name. @p inclusiveMs covers nested
@@ -467,19 +471,19 @@ namespace Common::Profiling
     class ScopedTimer
     {
     public:
-        // A RUNTIME name (DESERT_PROFILE_SCOPE_DYNAMIC, the backend's pass rows): @p name must outlive the
-        // scope; its row is found in the thread's name cache when the scope closes (Profiler::LocalScopeName).
+        // A RUNTIME name (DESERT_PROFILE_SCOPE_DYNAMIC, the backend's pass rows): its row is found in the
+        // thread's name cache when the scope OPENS (Profiler::LocalScopeName), and reserved there.
         explicit ScopedTimer( const char* name, ScopeKind kind = ScopeKind::Work );
         // An INTERNED name (a call site's static, DESERT_PROFILE_SCOPE_PREFIXED): its row is known already.
         explicit ScopedTimer( const InternedScopeName& name, ScopeKind kind = ScopeKind::Work );
-        ~ScopedTimer();
+        // Never throws and never allocates: the constructor did both (Profiler::ReserveSample).
+        ~ScopedTimer() noexcept;
 
         ScopedTimer( const ScopedTimer& )            = delete;
         ScopedTimer& operator=( const ScopedTimer& ) = delete;
 
     private:
-        const char*                                    m_Name;
-        uint32_t                                       m_NameId    = kNoScopeName; // kNoScopeName: resolve m_Name
+        uint32_t                                       m_NameId    = kNoScopeName; // kNoScopeName: not measured
         ScopedTimer*                                   m_Enclosing = nullptr;
         std::chrono::high_resolution_clock::time_point m_Start;
         double                                         m_NestedMs = 0.0; // inclusive time of the direct children
@@ -545,8 +549,8 @@ namespace Common::Profiling
             ( *m_Pages[page] )[m_Size % kPageSlots].emplace( name );
             ++m_Size;
         }
-        // Closes the newest scope; nothing when none is open.
-        void Pop()
+        // Closes the newest scope; nothing when none is open. ~ScopedTimer is noexcept, so this is too.
+        void Pop() noexcept
         {
             if ( m_Size == 0 )
                 return;

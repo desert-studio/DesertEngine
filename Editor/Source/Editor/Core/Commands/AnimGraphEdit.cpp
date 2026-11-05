@@ -185,25 +185,9 @@ namespace Desert::Editor
     {
         if ( !m_Began )
             return;
-        // A destructor may not throw: the edit inside the scope already happened, so a failed End loses only
-        // its undo entry, and the author is told so (UE: FScopedTransaction's EndTransaction).
-        try
-        {
-            try
-            {
-                if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
-                    LOG_ERROR( "[AnimGraphUndo] this edit will not be undoable: {}", ended.GetError() );
-            }
-            catch ( const std::exception& error )
-            {
-                LOG_ERROR( "[AnimGraphUndo] this edit will not be undoable: {}", error.what() );
-            }
-        }
-        catch ( ... )
-        {
-            // The logger itself threw: stderr is the channel left to say the entry is gone.
-            (void)std::fputs(
-                 "[AnimGraphUndo] an edit's undo entry was lost and the logger failed to report why\n", stderr );
-        }
+        // The edit inside the scope already happened, so a failed End loses only its undo entry: End says so
+        // as a value and the author is told (UE: FScopedTransaction's EndTransaction). No catch (noexcept).
+        if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
+            LOG_ERROR( "[AnimGraphUndo] this edit will not be undoable: {}", ended.GetError() );
     }
 } // namespace Desert::Editor

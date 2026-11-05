@@ -275,6 +275,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // The device profile, before the device exists (VulkanLogicalDevice::Create reads it once). An unknown name
     // stops the start with the table's list: a frame of the full device saved under a GTX name is the silent
     // fallback this command line refuses everywhere else.
+    if ( options.LogLevel )
+        Common::Logger::SetLevel( *options.LogLevel ); // --log-level: the gate, before the device logs its start
     if ( !options.DeviceProfile.empty() )
     {
         if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( options.DeviceProfile ); !set )

@@ -190,6 +190,19 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+        else if ( std::strcmp( argv[i], "--log-level" ) == 0 )
+        {
+            // The level gate (Common::Logger::SetLevel), moved before the first line it would drop; an unknown
+            // name is fatal with the names, as an unknown --device-profile is below.
+            const char* const name = argv[++i];
+            const auto        level = Common::Logger::LevelFromName( name );
+            if ( !level )
+                FailStartup( std::format( "--log-level '{}' names no level; the names are trace, debug, info, "
+                                          "warn (or warning), error, critical, off.",
+                                          name ),
+                             2 );
+            Common::Logger::SetLevel( *level );
+        }
         else if ( std::strcmp( argv[i], "--device-profile" ) == 0 )
         {
             // The lower device this run plays (the DeviceCapsProbe.cpp table), set before the device exists; an

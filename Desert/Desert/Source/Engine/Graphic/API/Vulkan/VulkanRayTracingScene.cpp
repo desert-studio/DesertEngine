@@ -1,5 +1,4 @@
 #include <Common/Core/Core.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingScene.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -195,11 +194,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanRayTracingScene::~VulkanRayTracingScene()
-    try
     {
         Release();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingScene" )
 } // namespace Desert::Graphic::API::Vulkan
 
 namespace Desert::Graphic::RayTracing

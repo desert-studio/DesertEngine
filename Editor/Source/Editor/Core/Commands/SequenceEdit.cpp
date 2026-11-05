@@ -572,27 +572,11 @@ namespace Desert::Editor
         {
             return;
         }
-        // A destructor may not throw: the edit inside the scope already happened, so a failed End loses only
-        // its undo entry, and the author is told so.
-        try
+        // The edit inside the scope already happened, so a failed End loses only its undo entry: End says so
+        // as a value and the author is told. No catch (the destructor is noexcept).
+        if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
         {
-            try
-            {
-                if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
-                {
-                    LOG_ERROR( "[SequenceUndo] {}", ended.GetError() );
-                }
-            }
-            catch ( const std::exception& error )
-            {
-                LOG_ERROR( "[SequenceUndo] this edit will not be undoable: {}", error.what() );
-            }
-        }
-        catch ( ... )
-        {
-            // The logger itself threw: stderr is the channel left to say the entry is gone.
-            (void)std::fputs( "[SequenceUndo] an edit's undo entry was lost and the logger failed to report why\n",
-                              stderr );
+            LOG_ERROR( "[SequenceUndo] {}", ended.GetError() );
         }
     }
 

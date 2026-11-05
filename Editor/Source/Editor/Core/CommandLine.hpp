@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/CrashHandler.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
@@ -98,6 +99,7 @@ namespace Desert::Editor
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
          { "--device-profile", true, "gtx1660" },
+         { "--log-level", true, "debug" },
          { "--rdg-compile-cache", true, "0" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
@@ -167,6 +169,10 @@ namespace Desert::Editor
         /// table where it is published (Sandbox.hpp, RequestDeviceProfile), which refuses an unknown one with the
         /// list, so the parse stays free of the graphics backend.
         std::string DeviceProfile;
+        /// `--log-level <trace|debug|info|warn|error|critical|off>`: the log's level gate
+        /// (Common::Logger::SetLevel), set by the host at start. Unset keeps the build's default:
+        /// info outside Debug, trace in Debug.
+        std::optional<spdlog::level::level_enum> LogLevel;
         /// `--rdg-compile-cache <0|1>`: the render graph's compiled-plan cache (RDG::CompileCache, switched by
         /// Graphic::RenderConfig::RdgCompileCache). 0 compiles every graph every frame, as before the cache.
         bool RdgCompileCache = true;
@@ -373,6 +379,17 @@ namespace Desert::Editor
                 options.ControlSocket = value;
             else if ( arg == "--device-profile" )
                 options.DeviceProfile = value;
+            else if ( arg == "--log-level" )
+            {
+                options.LogLevel = Common::Logger::LevelFromName( value );
+                if ( !options.LogLevel )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--log-level '{}' names no level; the names are trace, debug, info, warn (or warning), "
+                         "error, critical, off.",
+                         value );
+                }
+            }
             else if ( arg == "--crash-test" )
             {
                 // Named here rather than accepted and interpreted later: an unrecognised word would
