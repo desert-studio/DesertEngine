@@ -37,7 +37,10 @@ Shader "MeshSDFCullObjects"
                 return;
             const uint base  = o * uint(DF_OBJECT_STRIDE);
             const uint asset = floatBitsToUint(DistanceFieldObjects[base + 4u].x);
-            if (floatBitsToUint(DistanceFieldAssetData[asset * uint(DF_ASSET_STRIDE)].x) == 0u)
+            // A landscape tile (DF_OBJECT_FLAG_HEIGHTFIELD) has no asset: row 4 holds its heights' bindless slot.
+            const uint flags       = floatBitsToUint(DistanceFieldObjects[base + uint(DF_OBJECT_ROW_FLAGS)].x);
+            const bool heightfield = (flags & uint(DF_OBJECT_FLAG_HEIGHTFIELD)) != 0u;
+            if (!heightfield && floatBitsToUint(DistanceFieldAssetData[asset * uint(DF_ASSET_STRIDE)].x) == 0u)
                 return; // no resident mip: the trace has nothing to march
             const vec3 lo     = DistanceFieldObjects[base + uint(DF_OBJECT_ROW_BOUNDS_MIN)].xyz;
             const vec3 hi     = DistanceFieldObjects[base + uint(DF_OBJECT_ROW_BOUNDS_MAX)].xyz;
