@@ -125,6 +125,22 @@ namespace Desert::Graphic::DistanceField
             return ( hash ^ ( object.MostlyTwoSided ? 1u : 0u ) ) * 0x100000001B3ULL;
         }
 
+        // The identity of a placed heightfield: its heights, their revision, its frame, its box and its row.
+        uint64_t GdfHeightfieldKey( const GlobalDistanceFieldHeightfield& tile )
+        {
+            uint64_t hash = ( std::bit_cast<uint64_t>( tile.Heightmap.get() ) ^ 0x5851F42D4C957F2DULL ) *
+                            0x9E3779B97F4A7C15ULL;
+            hash = ( hash ^ tile.HeightRevision ) * 0x100000001B3ULL;
+            const std::array<float, 12> frame{
+                 tile.SampleOrigin.x, tile.SampleOrigin.y, tile.SpacingCm,
+                 tile.BaseY,          tile.ZScale,         tile.Bounds.Min.x,
+                 tile.Bounds.Min.y,   tile.Bounds.Min.z,   tile.Bounds.Max.x,
+                 tile.Bounds.Max.y,   tile.Bounds.Max.z,   static_cast<float>( tile.QuadsPerTile ) };
+            for ( const float value : frame )
+                hash = ( hash ^ std::bit_cast<uint32_t>( value ) ) * 0x100000001B3ULL;
+            return ( hash ^ ( static_cast<uint64_t>( tile.Row ) + 1u ) ) * 0x100000001B3ULL;
+        }
+
         template <typename T>
         Common::BoolResultStr GdfUpload( ShaderResources::StorageBuffer& buffer, const std::vector<T>& data,
                                       const std::string_view what )
@@ -192,6 +208,9 @@ namespace Desert::Graphic::DistanceField
             for ( int i = 0; i < 16; ++i )
                 identity = ( identity ^ std::bit_cast<uint32_t>( prev[i] ) ) * 0x100000001B3ULL;
         }
+        identity = ( identity ^ static_cast<uint64_t>( set.Heightfields.size() ) ) * 0x100000001B3ULL;
+        for ( const auto& tile : set.Heightfields )
+            identity = ( identity ^ GdfHeightfieldKey( tile ) ) * 0x100000001B3ULL;
         set.Identity = identity;
     }
 
@@ -478,6 +497,15 @@ namespace Desert::Graphic::DistanceField
                 ++tracked.Count;
                 placement.PlacedBounds.push_back( objects.Bounds[p.Object] );
             }
+            // The landscape tiles after the objects (no field to stream: always placed). A tile whose heights,
+            // revision or frame changed is another key: its old and new boxes are dirty, as a moved object's.
+            for ( const GlobalDistanceFieldHeightfield& tile : objects.Heightfields )
+            {
+                auto& tracked  = current[GdfHeightfieldKey( tile )];
+                tracked.Bounds = tile.Bounds;
+                ++tracked.Count;
+                placement.PlacedBounds.push_back( tile.Bounds );
+            }
             for ( const auto& [key, tracked] : current )
                 if ( const auto it = m_Tracked.find( key );
                      it == m_Tracked.end() || it->second.Count != tracked.Count )
@@ -530,6 +558,27 @@ namespace Desert::Graphic::DistanceField
                 objectData.push_back( toPrevious[0] );
                 objectData.push_back( toPrevious[1] );
                 objectData.push_back( toPrevious[2] );
+            }
+            // A landscape tile's record (Shaders/Common/HeightfieldDistanceField.glslh, THE RECORD): its sample
+            // frame and the bindless slot of its heights in rows 0..4, then the box, the flags with the row, and
+            // identity motion rows (a tile does not move).
+            for ( const GlobalDistanceFieldHeightfield& tile : objects.Heightfields )
+            {
+                const uint32_t slot = tile.Heightmap != nullptr ? tile.Heightmap->GetBindlessSlot().Index : 0u;
+                objectData.push_back(
+                     glm::vec4( tile.SampleOrigin, tile.SpacingCm, static_cast<float>( tile.QuadsPerTile ) ) );
+                objectData.push_back( glm::vec4( tile.BaseY, tile.ZScale, 0.0f, 0.0f ) );
+                objectData.push_back( glm::vec4( 0.0f ) );
+                objectData.push_back( glm::vec4( 0.0f ) );
+                objectData.push_back( glm::vec4( std::bit_cast<float>( slot ), 0.0f, 0.0f, 0.0f ) );
+                objectData.push_back( glm::vec4( tile.Bounds.Min, 0.0f ) ); // DF_OBJECT_ROW_BOUNDS_MIN
+                objectData.push_back( glm::vec4( tile.Bounds.Max, 0.0f ) ); // DF_OBJECT_ROW_BOUNDS_MAX
+                const auto flags = static_cast<uint32_t>( DFShared::DF_OBJECT_FLAG_HEIGHTFIELD );
+                objectData.push_back(
+                     glm::vec4( std::bit_cast<float>( flags ), std::bit_cast<float>( tile.Row ), 0.0f, 0.0f ) );
+                objectData.push_back( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ); // DF_OBJECT_ROW_TO_PREVIOUS_WORLD
+                objectData.push_back( glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f ) );
+                objectData.push_back( glm::vec4( 0.0f, 0.0f, 1.0f, 0.0f ) );
             }
             m_Placement = std::move( placement );
         }

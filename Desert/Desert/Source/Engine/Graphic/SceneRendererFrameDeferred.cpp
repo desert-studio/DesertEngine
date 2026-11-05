@@ -7,6 +7,10 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
+
+#include <bit>
+#include <cstdint>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupBuild.hpp>
@@ -1118,9 +1122,31 @@ namespace Desert::Graphic
         if ( changes )
             for ( const GpuDriven::PrimitiveChange& change : *changes )
                 moved = moved || change.Kind == GpuDriven::PrimitiveChangeKind::Moved;
+        // The landscape's tiles as heightfield objects (SHADE-GI-LANDSCAPE; UE: landscape components in the global
+        // distance field and the mesh SDF trace): which tiles, their heights' images, revisions and frames.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const terrainSystem =
+             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        std::span<const System::TerrainDrawData> landscapeTiles;
+        if ( terrainSystem != nullptr )
+            landscapeTiles = terrainSystem->GetQueue();
+        uint64_t landscape = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( landscapeTiles.size() );
+        for ( const System::TerrainDrawData& tile : landscapeTiles )
+        {
+            const System::LandscapeTileDraw& draw = tile.Landscape;
+            landscape =
+                 ( landscape ^ reinterpret_cast<std::uintptr_t>( tile.Heightmap.get() ) ) * 0x100000001B3ULL;
+            landscape = ( landscape ^ draw.HeightRevision ) * 0x100000001B3ULL;
+            for ( const float value :
+                  { draw.OriginX, draw.OriginZ, draw.BaseY, draw.SpacingCm, draw.ZScale, draw.MinY, draw.MaxY,
+                    static_cast<float>( draw.FirstSampleX ), static_cast<float>( draw.FirstSampleZ ),
+                    static_cast<float>( draw.QuadsPerTile ) } )
+                landscape = ( landscape ^ std::bit_cast<uint32_t>( value ) ) * 0x100000001B3ULL;
+        }
         const bool rebuild = !m_GdfObjects || !changes || !changes->empty() || m_GdfObjects->SettleAfterMove ||
                              m_GdfObjects->FieldsPublished != published ||
                              m_GdfObjects->SurfacePlacements != placements ||
+                             m_GdfObjects->Landscape != landscape ||
                              m_GdfObjects->SurfaceCache != static_cast<const void*>( surfaceCache );
         if ( rebuild )
         {
@@ -1129,6 +1155,7 @@ namespace Desert::Graphic
             kept.Cursor            = gpuScene.GetChangeSerial();
             kept.FieldsPublished   = published;
             kept.SurfacePlacements = placements;
+            kept.Landscape         = landscape;
             kept.SurfaceCache      = surfaceCache;
             // A rebuild after a move (or a first one, which cannot tell) looks once more next frame: by then the
             // moved primitives' previous worlds have settled.
@@ -1176,6 +1203,38 @@ namespace Desert::Graphic
                     if ( const auto field = ism.Mesh->GetDistanceField() )
                         for ( const glm::mat4& world : *ism.Transforms )
                             place( ism.Mesh, field, world, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
+            // Every drawn tile whose heights are in the bindless table (the trace reads them there); one that is
+            // not is said, never dropped silently.
+            uint32_t unslotted = 0;
+            for ( const System::TerrainDrawData& tile : landscapeTiles )
+            {
+                const System::LandscapeTileDraw& draw = tile.Landscape;
+                if ( tile.Heightmap == nullptr || tile.Heightmap->GetBindlessSlot().Index == 0u ||
+                     draw.QuadsPerTile == 0u )
+                {
+                    ++unslotted;
+                    continue;
+                }
+                const glm::vec2 origin( draw.OriginX + static_cast<float>( draw.FirstSampleX ) * draw.SpacingCm,
+                                        draw.OriginZ + static_cast<float>( draw.FirstSampleZ ) * draw.SpacingCm );
+                const float     side = static_cast<float>( draw.QuadsPerTile ) * draw.SpacingCm;
+                const Common::Math::AABB bounds{ glm::vec3( origin.x, draw.MinY, origin.y ),
+                                                 glm::vec3( origin.x + side, draw.MaxY, origin.y + side ) };
+                kept.Set.Heightfields.push_back(
+                     DistanceField::GlobalDistanceFieldHeightfield{ .Heightmap      = tile.Heightmap,
+                                                                    .HeightRevision = draw.HeightRevision,
+                                                                    .SampleOrigin   = origin,
+                                                                    .SpacingCm      = draw.SpacingCm,
+                                                                    .BaseY          = draw.BaseY,
+                                                                    .ZScale         = draw.ZScale,
+                                                                    .QuadsPerTile   = draw.QuadsPerTile,
+                                                                    .Bounds         = bounds } );
+            }
+            if ( unslotted != 0u )
+                LOG_ERROR(
+                     "[SceneRenderer] {}: {} landscape tiles have no bindless heights; the software GI trace "
+                     "does not see them",
+                     m_ViewResources.GetName(), unslotted );
             DistanceField::SealGlobalDistanceFieldObjectSet( kept.Set );
             m_GdfObjects = std::move( kept );
         }

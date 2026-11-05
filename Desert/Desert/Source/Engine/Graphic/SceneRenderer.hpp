@@ -1031,7 +1031,9 @@ namespace Desert::Graphic
         // added, removed, re-meshed, moved, its instances or its sections changed, a discarded frame), a mesh's
         // field landing (MeshDistanceFieldSlot::PublishGeneration), the surface cache's placements (its rows,
         // SurfaceCacheScene::GetPlacementRevision), or the frame after a move (GpuScene::BeginFrame settles
-        // PrevLocalToWorld := LocalToWorld without a stream entry). Otherwise the frame reuses the sealed set.
+        // PrevLocalToWorld := LocalToWorld without a stream entry), or the landscape's tiles (Landscape: their
+        // heightmaps, height revisions and frames - a tile streamed in or out, a sculpt). Otherwise the frame
+        // reuses the sealed set.
         struct KeptGdfObjects
         {
             DistanceField::GlobalDistanceFieldObjectSet Set;
@@ -1039,6 +1041,7 @@ namespace Desert::Graphic
             uint64_t                                    Cursor            = 0;
             uint64_t                                    FieldsPublished   = 0;
             uint64_t                                    SurfacePlacements = 0;
+            uint64_t                                    Landscape         = 0;
             const void*                                 SurfaceCache      = nullptr;
             bool                                        SettleAfterMove   = false;
         };
