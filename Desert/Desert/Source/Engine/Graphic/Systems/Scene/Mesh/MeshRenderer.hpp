@@ -2327,9 +2327,19 @@ namespace Desert::Graphic::System
         // GRASS-GPU-DRIVEN-DRAWS: the vertex paths a bin draws - a blade strip and a mesh grass section (its LOD
         // groups; Vertex_Instanced.glslh's DESERT_SURFACE_DRAW_ROWS cell). DrawBinsOf / CascadeBinsOf admit by it;
         // MaterialProgramVariants cooks the blade cells for every material and the mesh cells for the id-list
-        // (grass) materials, each in the kDrawRowsPasses.
+        // (grass) materials through their ids only (a mesh bins only through ids), each in the kDrawRowsPasses.
         static constexpr MeshVertexPath kDrawRowsPaths[] = { MeshVertexPath::GrassBlade,
                                                              MeshVertexPath::Instanced };
+        // THE BINS' CAPACITY (GRASS-GPU-DRIVEN-DRAWS; UE InstanceCulling sizes its draw table by what the passes
+        // admit): the lists of a camera phase table (0, 1) that can bin one section - the deferred early-Z pass,
+        // the G-buffer (its two halves share the levels), the visibility raster, the forward prepass and base
+        // pass - and of the cascades' table: each cascade view's two parts (the rest records and the movers).
+        static constexpr uint32_t kDrawBinCameraLists  = 5u;
+        static constexpr uint32_t kDrawBinCascadeLists = SceneResources::kMaxCascadeViews * 2u;
+        // The slots one list gives @p gpu in a bin: each drawn submesh's record of each of its levels (a blade
+        // strip: one level, its strip levels the submeshes). The producer sizes the tables by it
+        // (GrassRenderer::AddDrawGather) and DrawBinsOf reserves an admitted section's slots by it.
+        [[nodiscard]] static uint32_t DrawBinSlots( const GpuInstancedRenderData& gpu );
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook

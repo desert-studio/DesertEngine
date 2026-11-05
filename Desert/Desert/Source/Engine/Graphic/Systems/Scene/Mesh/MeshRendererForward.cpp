@@ -915,13 +915,12 @@ namespace Desert::Graphic::System
                             variants.push_back( { cell.GetValue(), std::move( permutation ) } );
                     }
                 }
-            // The compacted bins' blade cells through the list's ids (the camera's list, a cascade's own list).
-            // GRASS-GPU-DRIVEN-DRAWS: the mesh grass's bin cells too (kDrawRowsPaths), through the ids and over
-            // the full list (a cascade without a list of ids).
+            // The compacted bins' cells through the list's ids (the camera's list, a cascade's own list or the
+            // full list's ids): the blade's and, GRASS-GPU-DRIVEN-DRAWS, the mesh grass's (kDrawRowsPaths). A mesh
+            // section bins only through ids (DrawBinsOf, BuildGpuInstancedShadowDraws), so its bin cells come from
+            // the same id-list materials as its own ids cells above: a grass material has both or neither.
             for ( const MeshVertexPath path : kDrawRowsPaths )
                 AppendDrawRowsVariants( materials, shaders, handle, path, /*ids*/ true, listed, variants );
-            AppendDrawRowsVariants( materials, shaders, handle, MeshVertexPath::Instanced, /*ids*/ false, listed,
-                                    variants );
         }
         // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
         // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.

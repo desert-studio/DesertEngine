@@ -396,12 +396,11 @@ namespace Desert::Graphic::System
             glm::uvec4 Compact{ 0u }; // x entries, y the longest entry's Count, z bins, w 0 clear / 1 gather
         };
         static_assert( sizeof( GrassDrawCompactPush ) == 16 );
-        // The bins' table holds every blade level of the frame's varieties this many times over: the lists of a
-        // phase (the deferred early-Z pair and its G-buffer halves, the visibility raster, the forward pair) x the
-        // sections of a variety. A frame that passes it doubles the table (GpuDrawBinFrame::Overflow).
-        inline constexpr uint32_t kDrawBinSlotsPerLevel = 32u;
-        inline constexpr uint32_t kDrawBinMinSlots      = 1024u;
-        inline constexpr uint32_t kDrawBinMaxEntries    = 65535u; // the gather's dispatch y, a row per entry
+        // The bins' table: at least kDrawBinMinSlots, at most kDrawBinMaxEntries (the gather's dispatch y, a row
+        // per entry; a table holds no more slots than its entries can name). A frame a section did not fit
+        // doubles it up to that bound (GpuDrawBinFrame::Overflow).
+        inline constexpr uint32_t kDrawBinMinSlots   = 1024u;
+        inline constexpr uint32_t kDrawBinMaxEntries = 65535u;
 
         uint64_t BufferAddress( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
@@ -2213,6 +2212,8 @@ namespace Desert::Graphic::System
                     Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
                     if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
                         resolveMesh = nullptr;
+                    gpu->BinSlots     = 0u;
+                    gpu->BinCastSlots = 0u;
                     for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
                     {
                         std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
@@ -2250,6 +2251,11 @@ namespace Desert::Graphic::System
                                     .Generation = gpu->Generation, .Reach = gpu->Reach } } );
                         // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
                         sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
+                        // The section's slots of one bin list: what AddDrawGather sizes the tables by.
+                        const uint32_t binSlots = MeshRenderer::DrawBinSlots( sections.back() );
+                        gpu->BinSlots += binSlots;
+                        if ( sections.back().CastShadows )
+                            gpu->BinCastSlots += binSlots;
                     }
                     // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                     // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf
@@ -2697,12 +2703,21 @@ namespace Desert::Graphic::System
             m_DrawBins[1].Open = false; // a frame without the post-occlusion gather draws its phase per variety
         if ( m_DrawCompact == nullptr || m_FrameCull.empty() )
             return BOOLSUCCESS;
-        uint32_t levels = 0u;
+        // THE TABLE FROM WHAT THE PHASE ADMITS (UE InstanceCulling): each section's slots of one list
+        // (MeshRenderer::DrawBinSlots: a mesh's drawn submeshes x its levels, a blade's strip levels; summed per
+        // variety where its sections are built) x the lists of the phase - what DrawBinsOf reserves by.
+        uint64_t slots = 0u;
         for ( const VarietyGpu* gpu : m_FrameCull )
-            levels += std::max<uint32_t>( gpu->Buckets, 1u );
-        uint32_t need = std::max( kDrawBinMinSlots, levels * kDrawBinSlotsPerLevel );
+        {
+            if ( phase == kGpuDrawBinCascadesPhase )
+                slots += uint64_t{ gpu->BinCastSlots } * MeshRenderer::kDrawBinCascadeLists;
+            else
+                slots += uint64_t{ gpu->BinSlots } * MeshRenderer::kDrawBinCameraLists;
+        }
+        const uint64_t bounded = std::clamp<uint64_t>( slots, kDrawBinMinSlots, kDrawBinMaxEntries );
+        uint32_t       need    = static_cast<uint32_t>( bounded );
         if ( table.Overflow )
-            need = std::max( need, table.SlotCapacity * 2u );
+            need = std::min( std::max( need, table.SlotCapacity * 2u ), kDrawBinMaxEntries );
         table.Overflow = false;
         if ( need > table.SlotCapacity || buffers.Commands == nullptr )
         {
@@ -2744,6 +2759,8 @@ namespace Desert::Graphic::System
         table.Bins  = 0u;
         table.BinReads.clear();
         table.BinReads.reserve( table.BinCapacity );
+        table.Admitted.clear();
+        table.Reserved = 0u;
         table.Open = true;
 
         // The two runs (Compact.w): the clear of every bin's count, then the gather, its own pass so the graph

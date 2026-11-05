@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/vec3.hpp>
@@ -152,6 +153,11 @@ namespace Desert::Graphic
         uint32_t       BinCapacity   = 0; // Refs.Counts words
         bool           Open          = false;
         bool           Overflow      = false;
+        // GRASS-GPU-DRIVEN-DRAWS, THE SECTION AS A WHOLE (MeshRenderer::DrawBinsOf): each section's verdict for
+        // the phase this frame (by GpuInstancedRenderData::Key), kept for every list of it, and the slots the
+        // admitted ones reserved (MeshRenderer::DrawBinSlots x the phase's lists, at most EntryCapacity).
+        std::unordered_map<uint64_t, bool> Admitted;
+        uint32_t                           Reserved = 0;
         // This frame's content: the entries (FirstSlot final once their list is built), the rows they read, the
         // slots and bins handed out so far.
         std::vector<GpuDrawCompactEntry> Entries;

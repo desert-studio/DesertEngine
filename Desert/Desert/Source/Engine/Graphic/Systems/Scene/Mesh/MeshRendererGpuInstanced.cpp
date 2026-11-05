@@ -254,7 +254,68 @@ namespace Desert::Graphic::System
         GpuDrawBinFrame* const bins  = gpu.DrawBins[phase];
         if ( refs == nullptr || refs->ArgsAddress == 0u || bins == nullptr || !bins->Open )
             return nullptr;
+        // A mesh section bins only through its camera ids: the cook lists the Instanced rows cells for the id-list
+        // materials (MaterialProgramVariants), the set its own ids cell comes from, so a material has both.
+        if ( gpu.Path == MeshVertexPath::Instanced && !cameraList )
+            return nullptr;
+        // THE SECTION AS A WHOLE (UE InstanceCulling: a batch that does not fit falls back in every pass): its
+        // verdict is decided at its first question of the frame and kept for every list of the phase, and an
+        // admitted one reserves its slots of all of them (DrawBinSlots x kDrawBinCameraLists; its rows and entries
+        // are never more than its slots), so no list bins it while a later one lacks the room. Refused, it takes
+        // its own draws in every pass of the phase: past the table (Overflow, the producer grows it, bounded) or
+        // for a buffer with no device address (its own reason, no growth).
+        const auto [verdict, asked] = bins->Admitted.try_emplace( static_cast<uint64_t>( gpu.Key ), false );
+        if ( asked )
+        {
+            const bool addressed = AddressOf( gpu.Instances ) != 0u &&
+                                   ( !cameraList || AddressOf( gpu.CameraIds ) != 0u ) &&
+                                   ( gpu.Path != MeshVertexPath::GrassBlade || AddressOf( gpu.BladeShape ) != 0u );
+            const uint32_t reserve = DrawBinSlots( gpu ) * kDrawBinCameraLists;
+            if ( !addressed )
+            {
+                static bool s_SaidAddress = false;
+                if ( !s_SaidAddress )
+                {
+                    s_SaidAddress = true;
+                    LOG_ERROR( "[MeshRenderer] a grass section's instances, ids or shape have no device address; "
+                               "it draws per variety in every pass this frame." );
+                }
+            }
+            else if ( reserve != 0u && bins->Reserved + reserve > bins->EntryCapacity )
+            {
+                bins->Overflow         = true; // the producer grows the table at its next frame
+                static bool s_SaidFull = false;
+                if ( !s_SaidFull )
+                {
+                    s_SaidFull = true;
+                    LOG_ERROR( "[MeshRenderer] a grass section's draws do not fit its phase's compacted bins; it "
+                               "draws per variety in every pass this frame." );
+                }
+            }
+            else if ( reserve != 0u )
+            {
+                bins->Reserved += reserve;
+                verdict->second = true;
+            }
+        }
+        if ( !verdict->second )
+            return nullptr;
         return bins;
+    }
+
+    uint32_t MeshRenderer::DrawBinSlots( const GpuInstancedRenderData& gpu )
+    {
+        // ForEachRecordRun over every level: a list's draw of buckets [first, end), and the G-buffer's two halves
+        // together, never take more.
+        uint32_t slots = 0u;
+        ForEachRecordRun( 0u, LevelsOf( gpu ), static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() ),
+                          gpu.HiddenSubmeshes,
+                          [&slots]( const uint64_t, const uint32_t count, const uint32_t ) -> bool
+                          {
+                              slots += count;
+                              return true;
+                          } );
+        return slots;
     }
 
     GpuDrawBinFrame* MeshRenderer::CascadeBinsOf( const GpuInstancedRenderData& gpu ) const
@@ -654,8 +715,8 @@ namespace Desert::Graphic::System
             int64_t                sectionRow  = -1;
             const GpuInstanceRefs& argsRefs    = postOcclusion ? *gpu.PostRefs : refs;
             // The record runs of @p by's draw (ForEachRecordRun: @p groups levels from @p base, the submeshes in
-            // @p hidden not drawn), each one entry of the section's bin; false: the phase table is full this
-            // frame, or a buffer has no address.
+            // @p hidden not drawn), each one entry of the section's bin; false: past the slots DrawBinsOf
+            // reserved for the section (a walk that disagrees with DrawBinSlots).
             const auto binBuckets = [&]( const GpuInstancedDrawRecord& by, const uint64_t base,
                                          const uint32_t groups, const uint64_t hidden ) -> bool
             {
@@ -668,15 +729,14 @@ namespace Desert::Graphic::System
                     drawRow.Instances       = AddressOf( gpu.Instances );
                     drawRow.Ids             = cameraList ? AddressOf( gpu.CameraIds ) : uint64_t{ 0 };
                     drawRow.BladeShape      = AddressOf( gpu.BladeShape );
-                    drawRow.MeshVisibility  = AddressOf( gpu.MeshVisibility ); // a mesh's visibility raster
-                    drawRow.MaterialRow     = row;
-                    const auto wind         = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset );
-                    drawRow.WindA           = wind.A;
-                    drawRow.WindB           = wind.B;
-                    const bool idsMissing   = cameraList && drawRow.Ids == 0u;
-                    const bool shapeMissing = gpu.Path == MeshVertexPath::GrassBlade && drawRow.BladeShape == 0u;
-                    if ( drawRow.Instances == 0u || shapeMissing || idsMissing )
-                        return false;
+                    // Only the visibility raster reads a mesh's rows: no other pass resolves the view's copy.
+                    if ( pass == MeshPass::Visibility )
+                        drawRow.MeshVisibility = AddressOf( gpu.MeshVisibility );
+                    drawRow.MaterialRow = row;
+                    const auto wind     = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset );
+                    drawRow.WindA       = wind.A;
+                    drawRow.WindB       = wind.B;
+                    // The addresses were asked when DrawBinsOf admitted the section this frame.
                     sectionRow = static_cast<int64_t>( table.Rows.size() );
                     table.Rows.push_back( drawRow );
                 }
@@ -775,15 +835,16 @@ namespace Desert::Graphic::System
                     }
                     if ( sectionBins != nullptr && binBuckets( by, base, groups, hidden ) )
                         return;
+                    // Past what DrawBinsOf reserved for it: a walk that disagrees with DrawBinSlots, never a full
+                    // table (that refuses the section as a whole before any list bins it).
                     if ( sectionBins != nullptr )
                         sectionBins->Overflow = true;
                     static bool s_Said = false;
                     if ( !s_Said )
                     {
                         s_Said = true;
-                        LOG_ERROR( "[MeshRenderer] a grass section's draws do not fit its phase's compacted bins "
-                                   "(or a buffer of it has no device address); it is not drawn this frame, the "
-                                   "producer grows the bins at its next frame." );
+                        LOG_ERROR( "[MeshRenderer] a grass section's draws passed the bin slots reserved for it "
+                                   "(DrawBinSlots); this list does not draw it this frame." );
                     }
                     return;
                 }
@@ -1060,6 +1121,9 @@ namespace Desert::Graphic::System
                 drawRow.Caster      = glm::vec4( glm::vec3( setup.ThinOrigin ), inner );
                 const bool shapeMissing = gpu.Path == MeshVertexPath::GrassBlade && drawRow.BladeShape == 0u;
                 if ( drawRow.Instances == 0u || shapeMissing || ( throughIds && drawRow.Ids == 0u ) )
+                    return false;
+                // A mesh section bins only through ids (the cooked Instanced rows cells, DrawBinsOf).
+                if ( gpu.Path == MeshVertexPath::Instanced && !throughIds )
                     return false;
                 // The drawn records of the cascade's set and their runs (ForEachRecordRun): a blade's strip levels
                 // (submesh b = record b), a mesh's LOD levels of each drawn submesh (GRASS-GPU-DRIVEN-DRAWS).

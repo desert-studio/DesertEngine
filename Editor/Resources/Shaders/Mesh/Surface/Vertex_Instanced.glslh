@@ -105,6 +105,8 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #define DESERT_INSTANCE_INDEX gl_InstanceIndex
 #endif
 
+// The one push block (m_PushConstants): under DESERT_SURFACE_DRAW_ROWS it declares DrawRowsLo / DrawRowsHi at
+// offset 112 in ShadowSlope's place, the bin's first slot that main() reads the draw row through.
 #include <Common/MaterialTransport.glslh>
 #include <Common/FoliageWind.glslh>
 // The section's wind: its push (a per-variety draw) or its draw row (a bin's draw).
@@ -289,8 +291,8 @@ void main()
     const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, windA, GpuScene_WindB( row, true ) );
 #else
     const mat4 prevModel         = transforms[DESERT_INSTANCE_INDEX + floatBitsToUint( INSTANCED_WIND_B.w )];
-    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A,
-                                                           vec4( INSTANCED_WIND_B.x, INSTANCED_WIND_B.z, 0.0, 0.0 ) );
+    const vec4 prevWind          = vec4( INSTANCED_WIND_B.x, INSTANCED_WIND_B.z, 0.0, 0.0 );
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A, prevWind );
 #endif
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
