@@ -2759,7 +2759,7 @@ namespace Desert::Graphic::System
         table.Bins  = 0u;
         table.BinReads.clear();
         table.BinReads.reserve( table.BinCapacity );
-        table.Admitted.clear();
+        table.Verdicts.clear();
         table.Reserved = 0u;
         table.Open = true;
 

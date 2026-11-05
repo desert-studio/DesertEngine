@@ -264,8 +264,10 @@ namespace Desert::Graphic::System
         // are never more than its slots), so no list bins it while a later one lacks the room. Refused, it takes
         // its own draws in every pass of the phase: past the table (Overflow, the producer grows it, bounded) or
         // for a buffer with no device address (its own reason, no growth).
-        const auto [verdict, asked] = bins->Admitted.try_emplace( static_cast<uint64_t>( gpu.Key ), false );
-        if ( asked )
+        for ( const GpuDrawBinFrame::SectionVerdict& asked : bins->Verdicts )
+            if ( asked.Key == gpu.Key )
+                return asked.Admitted ? bins : nullptr;
+        bool admitted = false;
         {
             const bool addressed = AddressOf( gpu.Instances ) != 0u &&
                                    ( !cameraList || AddressOf( gpu.CameraIds ) != 0u ) &&
@@ -295,10 +297,11 @@ namespace Desert::Graphic::System
             else if ( reserve != 0u )
             {
                 bins->Reserved += reserve;
-                verdict->second = true;
+                admitted = true;
             }
         }
-        if ( !verdict->second )
+        bins->Verdicts.push_back( { .Key = gpu.Key, .Admitted = admitted } );
+        if ( !admitted )
             return nullptr;
         return bins;
     }
