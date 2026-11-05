@@ -11,6 +11,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <algorithm>
@@ -79,6 +80,12 @@ namespace Desert::Graphic::GlobalIllumination
 
         // The update's event counters in the schedule header (RC_STAT_WORDS, Common/RadianceCacheState.glslh).
         constexpr uint32_t kScheduleCounters = 6;
+        // A Trace workgroup's texels: one TRACE TILE of a probe, one ray per thread (RadianceCacheTrace's
+        // LocalSize 8x8; UE TraceFromProbes over probe trace tiles), so the budget's probes fill the GPU instead
+        // of leaving one group per probe to walk its res^2 rays in series.
+        constexpr uint32_t kTraceTileTexels = 64;
+        // The "[RadianceCache] traced X of budget Y, full update Z" line: once per this many updates of a view.
+        constexpr uint32_t kCountsLogFrames = 60;
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the update's event
         // counters, the trace list.
         constexpr uint32_t ScheduleEntries( const uint32_t traced )
@@ -282,6 +289,9 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t   clipCount = shape.Clipmaps;
         const glm::uvec3 entryGroups( DivideRoundUp( grid * clipCount, 4u ), DivideRoundUp( grid, 4u ),
                                       DivideRoundUp( grid, 4u ) );
+        // Trace: x the probe's place in the schedule (past its traced count a group ends), y its trace tile.
+        const uint32_t traceTiles =
+             DivideRoundUp( shape.ProbeResolution * shape.ProbeResolution, kTraceTileTexels );
         const glm::uvec3 groups[PassCount] = {
              // At least one group: Mark's first thread clears the schedule header Update and Allocate count into.
              glm::uvec3( std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) ),
@@ -289,7 +299,7 @@ namespace Desert::Graphic::GlobalIllumination
              entryGroups,
              entryGroups,
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
-             glm::uvec3( traced, 1u, 1u ),
+             glm::uvec3( traced, traceTiles, 1u ),
              glm::uvec3( traced, 1u, 1u ) };
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
@@ -386,6 +396,20 @@ namespace Desert::Graphic::GlobalIllumination
         }
 
         m_UpdateCounts.AddFrame( graph, push.FrameIndex, updateCounts );
+        // GPU-TURN-4: does the budget hold on a camera turn - the newest read-back frame's traced / budget, and
+        // how many of the last kCountsLogFrames updates were full updates (each traces every used probe).
+        if ( fullUpdate )
+            ++m_FullUpdatesInWindow;
+        if ( push.FrameIndex % kCountsLogFrames == 0u )
+        {
+            const RadianceCacheUpdateCounts& counts   = m_UpdateCounts.Last();
+            const char* const                readBack = counts.Valid ? "" : ", none read back yet";
+            LOG_INFO(
+                 "[RadianceCache] traced {} of budget {}, full update {} (full updates of the last {} updates; "
+                 "traced / budget of the newest frame read back{})",
+                 counts.Traced, counts.Budget, m_FullUpdatesInWindow, kCountsLogFrames, readBack );
+            m_FullUpdatesInWindow = 0;
+        }
 
         return Common::MakeSuccess( RadianceCacheFrame{ .Params      = params,
                                                         .Indirection = indirection,

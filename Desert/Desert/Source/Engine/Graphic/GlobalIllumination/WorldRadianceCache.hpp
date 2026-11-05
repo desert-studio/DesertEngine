@@ -224,6 +224,7 @@ namespace Desert::Graphic::GlobalIllumination
         // The directional lighting of the last full update (empty until the first update after a reset).
         std::optional<DirectionalLighting> m_LitBy;
         uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
+        uint32_t m_FullUpdatesInWindow                     = 0; // since the last "[RadianceCache] traced" line
         RadianceCacheUpdateCountsReadback  m_UpdateCounts;
     };
 } // namespace Desert::Graphic::GlobalIllumination
