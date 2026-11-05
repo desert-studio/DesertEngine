@@ -2,6 +2,7 @@
 
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/EngineThread.hpp>
 
 // Optick is on the shipping link line and contributes nothing to it, because after the two guards below
 // no translation unit in this engine references a single Optick symbol — the profiling macros are empty
@@ -66,6 +67,9 @@ namespace Common
         // Held for the worker's whole life: without it a stack overflow in a job dies with no crash
         // report on POSIX (CR1d; see ThreadCrashStackScope).
         const Crash::ThreadCrashStackScope crashStack;
+        // Named for debuggers, captures and the '[Threads]' census; Normal: the frame's two AboveNormal threads
+        // keep a core each and the workers have the rest (workers = cores - 2).
+        NameCurrentThread( "Job Worker", ThreadPriority::Normal );
         // Register with Optick so job scopes (e.g. parallel ECS systems) show on their own timeline
         // rows instead of being silently dropped for an unknown thread.
 #if DESERT_DEV_INSTRUMENTS

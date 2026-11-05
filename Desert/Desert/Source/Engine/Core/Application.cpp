@@ -16,6 +16,7 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <Common/Core/EngineThread.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 
@@ -31,6 +32,12 @@ namespace Desert::Engine
 {
     Application::Application( const ApplicationInfo& appInfo ) : m_ApplicationInfo( appInfo )
     {
+        // THE GAME THREAD is the thread that builds the application and runs its loop (UE: GGameThreadId, the
+        // thread FEngineLoop::PreInit runs on): named and raised here, and the process opts out of EcoQoS so a
+        // run without focus keeps the clock of one with it (OS-SCHED-HYGIENE).
+        Common::NameCurrentThread( "Game Thread", Common::ThreadPriority::AboveNormal );
+        if ( const auto optedOut = Common::OptOutOfPowerThrottling(); !optedOut )
+            LOG_WARN( "[Threads] EcoQoS not opted out: {}", optedOut.GetError() );
         WindowSpecification windowSpec;
         windowSpec.Title     = appInfo.Title;
         windowSpec.VSync     = appInfo.Display.VSync;
@@ -198,6 +205,8 @@ namespace Desert::Engine
         // Loop state rather than a member: nothing outside this loop has a use for it, and the whole of
         // what it remembers is whether the PREVIOUS iteration stood down (see 1b below).
         Graphic::DrawableAreaGate drawableArea;
+        // The '[Threads]' census is written once, after the first frame: the render, submit and pool threads run.
+        bool threadsCensused = false;
         // A shared view resource forgotten by the game thread while a view records on the render task waits for
         // it (ViewResourceRegistry::SetForgetFence).
         Graphic::ViewResourceRegistry::SetForgetFence( [] { ::Desert::Engine::RenderTask::Get().JoinOnGameThread(); } );
@@ -564,6 +573,12 @@ namespace Desert::Engine
                 DESERT_PROFILE_SCOPE( "PersistPipelineCache" );
                 if ( const auto persisted = m_Device->PersistPipelineCache(); !persisted )
                     LOG_WARN( "[PipelineCache] not written: {}", persisted.GetError() );
+            }
+
+            if ( !threadsCensused )
+            {
+                threadsCensused = true;
+                LOG_INFO( "[Threads] {}", Common::DescribeEngineThreads() );
             }
 
             // 9. The frame rate limit (GameUserSettings::Display.FrameRateLimit): the next frame starts on

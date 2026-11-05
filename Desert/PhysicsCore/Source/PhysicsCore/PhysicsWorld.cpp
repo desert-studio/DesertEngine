@@ -3,7 +3,8 @@
 #include <Jolt/Jolt.h>
 
 #include <Jolt/Core/Factory.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/FixedSizeFreeList.h>
+#include <Jolt/Core/JobSystemWithBarrier.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -35,7 +36,10 @@
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/RagdollDesc.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdint>
@@ -682,6 +686,74 @@ namespace Desert::Physics
                 Contacts.push_back( contact );
             }
         };
+        // JOLT ON THE ENGINE'S JOB POOL (UE: Chaos runs its solver on the task graph, not on threads of its own).
+        // Jolt's sample JobSystemThreadPool was a second pool of hardware_concurrency - 1 threads on the cores
+        // Common::JobSystem's workers already own. JobSystemWithBarrier keeps Jolt's barrier: the thread in
+        // PhysicsSystem::Update waits there and runs every job of its step no worker has taken yet, so a step
+        // completes even with every worker busy (the ParallelRanges argument). A job is a Normal job of the pool:
+        // its caller waits for it this frame, as a parallel loop's caller does (JobPriority).
+        class EngineJobSystem final : public JPH::JobSystemWithBarrier
+        {
+        public:
+            EngineJobSystem( const JPH::uint maxJobs, const JPH::uint maxBarriers )
+                 : JPH::JobSystemWithBarrier( maxBarriers ), m_Pool( Common::JobSystem::Get() )
+            {
+                m_Jobs.Init( maxJobs, maxJobs );
+            }
+
+            int GetMaxConcurrency() const override
+            {
+                return static_cast<int>( m_Pool.WorkerCount() ) + 1; // the workers and the thread in Update
+            }
+
+            JobHandle CreateJob( const char* name, JPH::ColorArg color, const JobFunction& function,
+                                 const JPH::uint32 dependencies ) override
+            {
+                JPH::uint32 index = m_Jobs.ConstructObject( name, color, this, function, dependencies );
+                while ( index == AvailableJobs::cInvalidObjectIndex )
+                {
+                    // cMaxPhysicsJobs in flight, as Jolt's own pool: wait for one to end and try again.
+                    JPH_ASSERT( false, "No jobs available!" );
+                    std::this_thread::sleep_for( std::chrono::microseconds( 100 ) );
+                    index = m_Jobs.ConstructObject( name, color, this, function, dependencies );
+                }
+                Job* const job = &m_Jobs.Get( index );
+                JobHandle  handle( job ); // a reference before the job is queued: it may end at once
+                if ( dependencies == 0 )
+                    QueueJob( job );
+                return handle;
+            }
+
+        protected:
+            void QueueJob( Job* job ) override
+            {
+                job->AddRef(); // the pool's reference, dropped when the job has run
+                const auto run = [job]() noexcept
+                {
+                    job->Execute();
+                    job->Release();
+                };
+                if ( !m_Pool.Submit( run, Common::JobPriority::Normal ) )
+                    job->Release(); // the pool is shutting down: the barrier's waiter runs the job itself
+            }
+
+            void QueueJobs( Job** jobs, const JPH::uint count ) override
+            {
+                for ( JPH::uint i = 0; i < count; ++i )
+                    QueueJob( jobs[i] );
+            }
+
+            void FreeJob( Job* job ) override
+            {
+                m_Jobs.DestructObject( job );
+            }
+
+        private:
+            using AvailableJobs = JPH::FixedSizeFreeList<Job>;
+
+            Common::JobSystem& m_Pool;
+            AvailableJobs      m_Jobs;
+        };
     } // namespace
 
     struct PhysicsWorld::Impl
@@ -694,7 +766,7 @@ namespace Desert::Physics
         JPH::PhysicsSystem                  System;
         CollisionProfiles                          Profiles; // before the filters that read it
         std::unique_ptr<JPH::TempAllocatorImpl>    TempAllocator;
-        std::unique_ptr<JPH::JobSystemThreadPool>  JobSystem;
+        std::unique_ptr<EngineJobSystem>           JobSystem;
         BPLayerInterfaceImpl                BroadPhaseLayerInterface;
         ObjectVsBroadPhaseLayerFilterImpl   ObjectVsBroadPhaseFilter;
         ObjectLayerPairFilterImpl           ObjectLayerPairFilter;
@@ -985,9 +1057,7 @@ namespace Desert::Physics
         m_Impl                = std::make_unique<Impl>( std::move( profiles ) );
         m_Impl->TempAllocator = std::make_unique<JPH::TempAllocatorImpl>( 16 * 1024 * 1024 );
 
-        const int threads = std::max( 1u, std::thread::hardware_concurrency() - 1u );
-        m_Impl->JobSystem =
-             std::make_unique<JPH::JobSystemThreadPool>( JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, threads );
+        m_Impl->JobSystem = std::make_unique<EngineJobSystem>( JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers );
 
         constexpr JPH::uint kMaxBodies            = 65536;
         constexpr JPH::uint kNumBodyMutexes       = 0;
