@@ -45,8 +45,13 @@ namespace Desert::Runtime
                          return;
                      }
 
-                     auto* textures = ResourceRegistry::GetTextureService();
-                     if ( auto* tex = textures->Get( Common::UUID( handle ) ) )
+                     // ONE ANSWER PER SLOT (CPU-ONE-SYNC step 11). Asked twice (Get, then Require for Pending), an
+                     // upload committed between the two on the game thread read as "Pending, then Ready": the slot
+                     // kept its default, no waiter was added and the error below was logged for a texture that
+                     // exists. The answer also holds the texture alive while its image is resolved.
+                     auto*      textures    = ResourceRegistry::GetTextureService();
+                     const auto slotTexture = textures->Require( Common::UUID( handle ) );
+                     if ( auto* tex = slotTexture.Get() )
                      {
                          if ( auto* image = ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() );
                               image != nullptr )
@@ -66,7 +71,7 @@ namespace Desert::Runtime
                      // PENDING IS NOT MISSING (AL1-4): the slot shows its default until the texture lands,
                      // and the texture service rebuilds this material then, bound.
                      setSlot( param.Name, nullptr );
-                     if ( textures->Require( Common::UUID( handle ) ).IsPending() )
+                     if ( slotTexture.IsPending() )
                      {
                          textures->RebuildWhenReady( Common::UUID( handle ), asset.GetMetadata().Handle );
                          return;
@@ -1047,12 +1052,19 @@ namespace Desert::Runtime
 
     bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
     {
-        // ASKED UNDER THIS LOCK, SHARED. TextureService has no lock of its own: its waiters are written by a
-        // build (CreateSurfaceMaterial -> ApplySurfaceAsset -> RebuildWhenReady) under this lock's exclusive
-        // mode, so a render worker reading them with this lock released raced another worker's insert.
-        const ReadGuard serviceLock;
-        const auto      it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
-        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
+        if ( built == nullptr )
+            return false;
+        // Only the built -> asset row is this lock's. The waiters are the texture table's, behind its own lock
+        // (CPU-ONE-SYNC R15), and asked with this one released: no worker holds two locks for a per-draw ask.
+        Assets::AssetHandle asset;
+        {
+            const ReadGuard serviceLock;
+            const auto      it = m_BuiltToAsset.find( built );
+            if ( it == m_BuiltToAsset.end() )
+                return false;
+            asset = it->second;
+        }
+        return ResourceRegistry::GetTextureService()->AwaitedBy( asset );
     }
 
     uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const
