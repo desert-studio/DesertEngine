@@ -317,6 +317,13 @@ namespace Desert::Editor::Tools
         }
     } // namespace
 
+    size_t FoliageCountInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius )
+    {
+        const float r2 = radius * radius;
+        return static_cast<size_t>( std::count_if( instances.begin(), instances.end(), [&]( const glm::mat4& m )
+                                                   { return InSphere( m, center, r2 ); } ) );
+    }
+
     size_t FoliageBrushRemove( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius,
                                FoliageSelection* selected )
     {
@@ -494,12 +501,12 @@ namespace Desert::Editor::Tools
         return removed;
     }
 
-    void FoliageMoveSelected( std::vector<glm::mat4>& instances, const FoliageSelection& selected,
-                              const glm::vec3& offset )
+    void FoliageTransformSelected( std::vector<glm::mat4>& instances, std::span<const glm::mat4> original,
+                                   const FoliageSelection& selected, const glm::mat4& delta )
     {
         for ( const uint32_t i : selected )
-            if ( i < instances.size() )
-                instances[i][3] += glm::vec4( offset, 0.0f );
+            if ( i < instances.size() && i < original.size() )
+                instances[i] = delta * original[i];
     }
 
     FoliageReapplyResult FoliageBrushReapply( const Assets::Serialization::FoliageTypeData& type,

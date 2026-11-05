@@ -6,6 +6,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Core/Logger.hpp>
 #include <filesystem>
 #include <format>
 #include <string>
@@ -116,8 +117,8 @@ namespace Desert::Editor
         // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
         // NOLINTBEGIN(bugprone-exception-escape)
         for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
-                                  Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply,
-                                  Core::FoliageTool::Fill } )
+                                  Core::FoliageTool::Lasso, Core::FoliageTool::Erase, Core::FoliageTool::Remove,
+                                  Core::FoliageTool::Reapply, Core::FoliageTool::Fill } )
             commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
                                   [tool]() -> Common::BoolResultStr
                                   {
@@ -131,13 +132,23 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false, "no scene" );
                                   return Tools::FoliagePaintTool::RemoveSelected( *scene );
                               } } );
-        commands.push_back(
-             { "Foliage", "Move selected instances by the panel offset", [&scene]() -> Common::BoolResultStr
-               {
-                   if ( !scene )
-                       return PaletteCommandOutcome( false, "no scene" );
-                   return Tools::FoliagePaintTool::MoveSelected( *scene, Core::FoliagePaint::MoveOffset() );
-               } } );
+        // UE: the selected instances move with the viewport's transform gizmo (FoliagePaintTool::SelectionGizmo);
+        // End drops them onto the surface under them.
+        commands.push_back( { "Foliage", "Snap selected instances to the ground",
+                              [&scene]() -> Common::BoolResultStr
+                              {
+                                  if ( !scene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::SnapSelectedToGround( *scene );
+                              } } );
+        // The panel's Erase Density slider in tenths, so a scenario sets what a hand drags.
+        for ( int tenth = 0; tenth <= 10; ++tenth )
+            commands.push_back( { "Foliage", std::format( "Erase density: {:.1f}", tenth / 10.0f ),
+                                  [tenth]() -> Common::BoolResultStr
+                                  {
+                                      Core::FoliagePaint::EraseDensity() = static_cast<float>( tenth ) / 10.0f;
+                                      return BOOLSUCCESS;
+                                  } } );
         commands.push_back( { "Foliage", "Fill the selected mesh", [&scene, &assets]() -> Common::BoolResultStr
                               {
                                   if ( !scene || !assets )
@@ -156,6 +167,24 @@ namespace Desert::Editor
                                            false, "the world is not partitioned: there are no cells to file by" );
                                   return Tools::FoliagePaintTool::RepartitionFoliage( *scene );
                               } } );
+        // S1: the Details' Resimulate button of a procedural foliage volume (UE ResimulateProceduralContent).
+        commands.push_back(
+             { "Foliage", "Resimulate the selected procedural volume", [&scene, &assets]() -> Common::BoolResultStr
+               {
+                   if ( !scene || !assets )
+                       return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                   const auto& selected = Core::SelectionManager::GetSelected();
+                   if ( !selected )
+                       return PaletteCommandOutcome( false, "no entity is selected" );
+                   const auto done = Tools::FoliagePaintTool::ResimulateProcedural( *scene, *assets, *selected );
+                   if ( !done )
+                       return Common::MakeError( done.GetError() );
+                   LOG_INFO( "[Foliage] procedural resimulate: {} instances ({} fields new, {} "
+                             "rewritten, {} removed)",
+                             done.GetValue().Instances, done.GetValue().Created, done.GetValue().Rewritten,
+                             done.GetValue().Removed );
+                   return BOOLSUCCESS;
+               } } );
         commands.push_back( { "Foliage", "Select no instances", [&scene]() -> Common::BoolResultStr
                               {
                                   if ( !scene )

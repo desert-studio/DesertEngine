@@ -23,6 +23,8 @@ namespace Desert::Editor::UI
 
 namespace Desert::Editor::Tools
 {
+    class GizmoController;
+
     // UE5-style foliage painting, extracted from ViewportPanel (god-object split). The tool holds only the
     // stroke in flight (its random stream, the fields as they were at press for undo) — brush/selection live in
     // Editor::Core::FoliagePaint; WHAT is painted is the `.defoliage` each foliage entity names
@@ -46,11 +48,20 @@ namespace Desert::Editor::Tools
         void Update( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
                      const Common::Math::Ray& ray, bool pressing, bool shift = false );
 
-        // UE RemoveSelectedInstances / TransformSelectedInstances / deselect, each ONE undo step. An error when
-        // nothing is selected.
+        // UE RemoveSelectedInstances / SnapSelectedInstancesToGround (End) / deselect, each ONE undo step. An
+        // error when nothing is selected. Snap: each selected instance drops along -Y onto the first surface the
+        // brush filter allows (or rises onto it when it was sunk below), rotation and scale kept.
         static Common::BoolResultStr RemoveSelected( ::Desert::Core::Scene& scene );
-        static Common::BoolResultStr MoveSelected( ::Desert::Core::Scene& scene, const glm::vec3& offset );
+        static Common::BoolResultStr SnapSelectedToGround( ::Desert::Core::Scene& scene );
         static Common::BoolResultStr SelectNone( ::Desert::Core::Scene& scene );
+
+        // UE TransformSelectedInstances: the level editor's transform gizmo on the selected instances (Select
+        // and Lasso), pivot at their centroid; a drag moves, turns and scales them live about it and is ONE undo
+        // step at release (instances crossing a cell edge are filed to the neighbour cell then). Returns true
+        // while the gizmo is under the cursor or held, so the brush stands down.
+        static bool SelectionGizmo( ::Desert::Core::Scene& scene, GizmoController& gizmo,
+                                    const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                    const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
         // UE ApplyPaintBucket_Add: the static mesh of @p entity (its tool-target mesh, world-placed) covered by
         // every checked type (FoliageFill), ONE undo step. An error naming why when the entity has no readable
