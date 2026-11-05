@@ -159,6 +159,11 @@ namespace Desert::Runtime
             std::shared_ptr<Assets::TextureAsset> Source;
             std::shared_ptr<Graphic::Texture2D>   Built;
             Assets::LoadRequest                   Request;
+            /// The read was asked for and neither of its delegates has run yet. Not `Request.IsValid()`: the
+            /// loader takes a landed read out of its live set BEFORE the completion runs (Pump, then the delegate
+            /// with its lock released), and in that window a worker saw no read and no cook - a second cook
+            /// started, and a RebuildWhenReady was dropped with nothing left to settle it (CPU-ONE-SYNC step 11).
+            bool Reading = false;
             /// Which cook the entry waits for; a result carrying another ticket is stale and dropped.
             uint64_t CookTicket = 0;
             /// The platform data is being read or cooked on a worker, or waits for its upload.

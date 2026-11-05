@@ -89,7 +89,7 @@ namespace Desert::Runtime
             return Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry.Built );
         if ( entry.Failed || !entry.Source )
             return Assets::AssetRef<Graphic::Texture2D>::Null();
-        if ( entry.Request.IsValid() || entry.Cooking )
+        if ( entry.Reading || entry.Cooking )
             return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
         return std::nullopt;
     }
@@ -329,7 +329,7 @@ namespace Desert::Runtime
         entry.Request = Assets::AsyncAssetLoader::Get().Request(
              entry.Source,
              [this, handle]( const Assets::Asset<Assets::AssetBase>&, const Assets::LoadOutcome outcome,
-                             const std::string& error )
+                             const std::string& error ) noexcept
              {
                  std::string failedPath;
                  {
@@ -337,8 +337,10 @@ namespace Desert::Runtime
                      const auto             it = m_Entries.find( handle );
                      if ( it == m_Entries.end() )
                          return; // cleared while the read ran
-                     // Released first, so nothing answers Pending for a texture whose read has settled.
+                     // The read ends and the cook (or the failure) begins in ONE exclusive section: a worker sees
+                     // Reading, Cooking or SettleQueued, never a gap between them.
                      it->second.Request.Release();
+                     it->second.Reading = false;
                      if ( outcome == Assets::LoadOutcome::Loaded )
                      {
                          // Still Pending: the waiters settle when the upload runs (FinishCook).
@@ -355,13 +357,19 @@ namespace Desert::Runtime
                  // At the hand-off, as a landed texture settles (MAT-CELL-LOAD).
                  SettleAtHandOff( handle );
              },
-             [this, handle]
+             [this, handle]() noexcept
              {
                  // Back to "not asked for", not to "failed": the next Require starts a fresh read.
                  const std::unique_lock table( m_TableLock );
                  if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
+                 {
                      it->second.Request.Release();
+                     it->second.Reading = false;
+                 }
              } );
+        // Request refuses only a null shell or a null delegate, neither possible here, so one of the two
+        // delegates above is owed and clears this under the lock the caller holds now.
+        entry.Reading = true;
     }
 
     Assets::AssetRef<Graphic::Texture2D> TextureService::Require( const Assets::AssetHandle& handle ) const
@@ -435,7 +443,7 @@ namespace Desert::Runtime
         const auto             it = m_Entries.find( texture );
         if ( it == m_Entries.end() )
             return;
-        if ( !it->second.Request.IsValid() && !it->second.Cooking && !it->second.SettleQueued )
+        if ( !it->second.Reading && !it->second.Cooking && !it->second.SettleQueued )
             return;
         m_Waiters.Add( texture, material );
         m_AnyWaiting.store( true, std::memory_order_release );
@@ -500,7 +508,7 @@ namespace Desert::Runtime
                                          Graphic::Texture2D::StagedLevels           staged )
     {
         Engine::RenderTask::Get().AfterJoin(
-             [texture, staged = std::move( staged )]()
+             [texture, staged = std::move( staged )]() noexcept
              {
                  if ( const auto taken = texture->AdoptStagedLevels( staged ); !taken.IsSuccess() )
                      LOG_ERROR( "[TextureStreaming] a streamed read's levels were not swapped in at the hand-off: "
@@ -513,7 +521,7 @@ namespace Desert::Runtime
                                              const uint32_t                             droppedLevels )
     {
         Engine::RenderTask::Get().AfterJoin(
-             [texture, droppedLevels]()
+             [texture, droppedLevels]() noexcept
              {
                  if ( const auto dropped = texture->StreamOutLevels( droppedLevels ); !dropped.IsSuccess() )
                      LOG_ERROR( "[TextureStreaming] a stream-out of {} level(s) failed at the hand-off: {}. Its "
@@ -735,9 +743,8 @@ namespace Desert::Runtime
     std::size_t TextureService::InFlight() const
     {
         const std::shared_lock table( m_TableLock );
-        return static_cast<std::size_t>(
-             std::count_if( m_Entries.begin(), m_Entries.end(), []( const auto& row )
-                            { return row.second.Request.IsValid() || row.second.Cooking; } ) );
+        return static_cast<std::size_t>( std::count_if( m_Entries.begin(), m_Entries.end(), []( const auto& row )
+                                                        { return row.second.Reading || row.second.Cooking; } ) );
     }
 
     void TextureService::Clear()
