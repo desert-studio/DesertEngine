@@ -47,7 +47,9 @@ namespace Desert::Editor
             dlib::deserialize( datPath ) >> m_Impl->predictor;
             m_Impl->loaded = true;
         }
-        catch ( ... )
+        // THE dlib BOUNDARY: dlib reports a missing or malformed model only by throwing its own
+        // serialization_error, so that one type is caught here and leaves as `false`. Nothing else is.
+        catch ( const dlib::serialization_error& )
         {
             m_Impl->loaded = false;
         }

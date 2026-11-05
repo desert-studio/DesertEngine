@@ -91,7 +91,13 @@ namespace Common::Logger
             // The file at @p path, truncated; null with @p error set when it cannot be opened.
             static std::shared_ptr<LogFileSink> Open( const std::filesystem::path& path, std::string& error )
             {
-                std::FILE* const file = std::fopen( path.string().c_str(), "wb" );
+                // The wide name on Windows: path::string() converts to the ANSI code page, which throws or
+                // mangles a character the page lacks.
+#ifdef _WIN32
+                std::FILE* const file = _wfopen( path.c_str(), L"wb" );
+#else
+                std::FILE* const file = std::fopen( path.c_str(), "wb" );
+#endif
                 if ( file == nullptr )
                 {
                     error = std::error_code( errno, std::generic_category() ).message();
@@ -338,7 +344,8 @@ namespace Common::Logger
     {
         if ( name == "warn" )
             return spdlog::level::warn;
-        for ( int level = spdlog::level::trace; level < spdlog::level::off; ++level )
+        // Through `off` inclusive (to_string_view(off) is "off"): `--log-level off` is a documented name.
+        for ( int level = spdlog::level::trace; level <= spdlog::level::off; ++level )
         {
             const spdlog::string_view_t text = spdlog::level::to_string_view(
                  static_cast<spdlog::level::level_enum>( level ) );
@@ -442,10 +449,13 @@ namespace Common::Logger
         const std::shared_ptr<LogFileSink> placed = LogFileSink::Open( to, openError );
         if ( !placed )
         {
-            // Said and kept where it was (the early ring, or the previous file): a value, never a throw.
+            // Said and kept where it was (the early ring, or the previous file): a value, never a throw. The
+            // name in UTF-8, not the ANSI code page (see LogFileSink::Open).
+            const std::u8string name = to.u8string();
             Detail::Write( spdlog::level::err,
                            "[Log] the log file '{}' could not be opened ({}); the log stays where it was.",
-                           to.string(), openError );
+                           std::string_view( reinterpret_cast<const char*>( name.data() ), name.size() ),
+                           openError );
             return;
         }
         placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%v" ) );

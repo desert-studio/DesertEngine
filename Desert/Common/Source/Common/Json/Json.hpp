@@ -118,26 +118,23 @@ namespace Common::Json
     template <IsPartial T>
     inline constexpr std::string_view PartialReason = DesertJsonPartialReason( static_cast<const T*>( nullptr ) );
 
+    // NO CATCH: rfl is used through its Result API only. rfl::json::read answers a text that is not JSON with
+    // an error, and its Parser::read is noexcept - it turns a Reflector's or a custom constructor's throw into
+    // an rfl::Error itself (rfl/parsing/Parser_default.hpp). What a `catch ( const std::exception& )` here
+    // could still see is bad_alloc, which is not a read error to report but the end of the process.
     template <typename T>
-    ResultStr<T> Read( std::string_view json )
+    ResultStr<T> Read( std::string_view json ) noexcept
     {
-        try
+        auto parsed = [&]
         {
-            auto parsed = [&]
-            {
-                if constexpr ( IsPartial<T> )
-                    return rfl::json::read<T, rfl::DefaultIfMissing>( json );
-                else
-                    return rfl::json::read<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( json );
-            }();
-            if ( !parsed )
-                return MakeError<T>( Detail::DescribeReadError( parsed.error().what() ) );
-            return MakeSuccess( std::move( parsed.value() ) );
-        }
-        catch ( const std::exception& e )
-        {
-            return MakeError<T>( Detail::DescribeReadError( e.what() ) );
-        }
+            if constexpr ( IsPartial<T> )
+                return rfl::json::read<T, rfl::DefaultIfMissing>( json );
+            else
+                return rfl::json::read<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( json );
+        }();
+        if ( !parsed )
+            return MakeError<T>( Detail::DescribeReadError( parsed.error().what() ) );
+        return MakeSuccess( std::move( parsed.value() ) );
     }
 
     template <typename T>
@@ -149,7 +146,7 @@ namespace Common::Json
     // The top-level members of a JSON object in file order, each value re-written compactly — for a caller
     // that has to compare two documents key by key without knowing their struct (which settings changed,
     // which keys another build added).
-    ResultStr<std::vector<std::pair<std::string, std::string>>> ObjectMembers( std::string_view json );
+    ResultStr<std::vector<std::pair<std::string, std::string>>> ObjectMembers( std::string_view json ) noexcept;
 
     template <typename T>
     ResultStr<T> ReadFile( const std::filesystem::path& file )

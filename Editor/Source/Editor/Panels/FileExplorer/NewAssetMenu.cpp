@@ -503,42 +503,31 @@ namespace Desert::Editor
              std::launch::async,
              // `bakePath` by init-capture: a plain `path` capture copies the `const` local into a `const`
              // member, so the closure's move constructor (std::async moves it) copies a path and can throw.
-             [this, bakePath = path, kind]() -> Common::BoolResultStr
+             [this, bakePath = path, kind]() noexcept -> Common::BoolResultStr
              {
-                 // A throw here would surface from m_Bake.get() in Poll, on the UI thread, with
-                 // nothing to catch it; the worker turns it into the error this menu already shows.
-                 try
+                 // noexcept: each bake step and each Save returns its failure as a value, which Poll shows. A
+                 // throw (bad_alloc) ends the process at its source rather than resurfacing from m_Bake.get().
+                 // SAVED ON THE WORKER: all four `Save`s are pure file I/O plus a log line —
+                 // no AssetManager, no ECS, no GPU — exactly the set a job may touch.
+                 if ( kind == CloudAssetKind::NoiseVolume )
                  {
-                     // SAVED ON THE WORKER: all four `Save`s are pure file I/O plus a log line —
-                     // no AssetManager, no ECS, no GPU — exactly the set a job may touch.
-                     if ( kind == CloudAssetKind::NoiseVolume )
-                     {
-                         auto volume = NewCloudAsset::DefaultNoiseVolume( &m_BakeProgress );
-                         if ( !volume )
-                             return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
+                     auto volume = NewCloudAsset::DefaultNoiseVolume( &m_BakeProgress );
+                     if ( !volume )
+                         return Common::MakeFormattedError<bool>( "{}", volume.GetError() );
 
-                         return Assets::CloudNoiseVolumeAsset::Save( bakePath, volume.GetValue() );
-                     }
+                     return Assets::CloudNoiseVolumeAsset::Save( bakePath, volume.GetValue() );
+                 }
 
-                     auto body = NewCloudAsset::DefaultModellingVolume(
-                          [this]( float fraction )
-                          {
-                              m_BakeProgress.store( fraction );
-                              return !m_BakeCancelled.load();
-                          } );
-                     if ( !body )
-                         return Common::MakeFormattedError<bool>( "{}", body.GetError() );
+                 auto body = NewCloudAsset::DefaultModellingVolume(
+                      [this]( float fraction )
+                      {
+                          m_BakeProgress.store( fraction );
+                          return !m_BakeCancelled.load();
+                      } );
+                 if ( !body )
+                     return Common::MakeFormattedError<bool>( "{}", body.GetError() );
 
-                     return Assets::CloudModellingVolumeAsset::Save( bakePath, body.GetValue() );
-                 }
-                 catch ( const std::exception& error )
-                 {
-                     return Common::MakeFormattedError<bool>( "[NewAssetMenu] bake failed: {}", error.what() );
-                 }
-                 catch ( ... )
-                 {
-                     return Common::MakeFormattedError<bool>( "[NewAssetMenu] bake failed: unknown exception" );
-                 }
+                 return Assets::CloudModellingVolumeAsset::Save( bakePath, body.GetValue() );
              } );
     }
 

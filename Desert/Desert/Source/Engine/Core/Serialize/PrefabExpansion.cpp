@@ -7,12 +7,14 @@
 
 #include <glm/gtx/matrix_decompose.hpp>
 
+#include <charconv>
 #include <cstdint>
 #include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <string>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 
@@ -173,15 +175,13 @@ namespace Desert::Core::WorldCells
                 const auto text = field.value().to_string();
                 if ( !text )
                     continue;
-                std::uint64_t id = 0;
-                try
-                {
-                    id = std::stoull( text.value() );
-                }
-                catch ( ... )
-                {
-                    continue; // not an id; the planner reports it as an Issue
-                }
+                // The whole text is the decimal id (std::to_string wrote it), or it is not an id; the planner
+                // reports that one as an Issue.
+                const std::string& digits = text.value();
+                std::uint64_t      id     = 0;
+                const auto         idRead = std::from_chars( digits.data(), digits.data() + digits.size(), id );
+                if ( idRead.ec != std::errc{} || idRead.ptr != digits.data() + digits.size() )
+                    continue;
                 const auto hit = remap.find( { scope, id } );
                 if ( hit == remap.end() )
                     continue;

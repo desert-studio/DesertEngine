@@ -314,7 +314,7 @@ namespace Desert::World::Landscape
         if ( !valid.IsSuccess() )
             return valid;
         m_Progress = std::make_shared<LandscapeGenerateProgress>();
-        m_Run      = Common::JobSystem::Get().Async( [settings, progress = m_Progress]
+        m_Run      = Common::JobSystem::Get().Async( [settings, progress = m_Progress]() noexcept
                                                 { return GenerateLandscape( settings, progress.get() ); } );
         return Common::MakeSuccess( true );
     }

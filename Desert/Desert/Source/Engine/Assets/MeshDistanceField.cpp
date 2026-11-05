@@ -492,7 +492,7 @@ namespace Desert::Assets
                     ++q.Running;
                 }
                 auto shared = std::make_shared<DfQueuedWork>( std::move( next ) );
-                if ( Common::JobSystem::Get().Submit( [shared] { DfRun( std::move( *shared ) ); } ) )
+                if ( Common::JobSystem::Get().Submit( [shared]() noexcept { DfRun( std::move( *shared ) ); } ) )
                     continue;
                 // The pool was shut down ahead of this queue's exit hook (it drains what it holds, then refuses
                 // more): the work never runs, so it is not running - otherwise DfQuiesce waits for it forever

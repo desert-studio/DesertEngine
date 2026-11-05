@@ -598,7 +598,7 @@ namespace Desert::Graphic::System
             std::vector<uint8_t>                                          levels   = wanted.Levels;
             entry.PendingKey                                                       = std::move( wanted );
             entry.Pending = Common::JobSystem::Get().Async(
-                 [topology, levels = std::move( levels )]() -> Common::ResultStr<Tessellation>
+                 [topology, levels = std::move( levels )]() noexcept -> Common::ResultStr<Tessellation>
                  {
                      Tessellation out;
                      out.Clusters.reserve( topology->Clusters.size() );

@@ -50,21 +50,15 @@ namespace Common::Json
         // The typed tree read off this document (no second parse). An unknown key is tolerated at every
         // level - refusing it would refuse a file another build wrote, and carrying it is MergeCarried's
         // job; a missing member takes T's in-struct default (Json::Read's rule), a wrong-typed value is an error.
+        // No catch: rfl's Parser::read is noexcept and answers with an rfl::Error (Json::Read's comment).
         template <typename T>
-        [[nodiscard]] ResultStr<T> AsDocument() const
+        [[nodiscard]] ResultStr<T> AsDocument() const noexcept
         {
-            try
-            {
-                auto parsed = rfl::json::read<T, rfl::DefaultIfMissing>(
-                     rfl::json::InputVarType( yyjson_doc_get_root( m_Doc.get() ) ) );
-                if ( !parsed )
-                    return MakeError<T>( "document: " + Detail::DescribeReadError( parsed.error().what() ) );
-                return MakeSuccess( std::move( parsed.value() ) );
-            }
-            catch ( const std::exception& e )
-            {
-                return MakeError<T>( "document: " + Detail::DescribeReadError( e.what() ) );
-            }
+            auto parsed = rfl::json::read<T, rfl::DefaultIfMissing>(
+                 rfl::json::InputVarType( yyjson_doc_get_root( m_Doc.get() ) ) );
+            if ( !parsed )
+                return MakeError<T>( "document: " + Detail::DescribeReadError( parsed.error().what() ) );
+            return MakeSuccess( std::move( parsed.value() ) );
         }
 
         // The member names of the root object (`member` empty) or of the root's object member `member`, in

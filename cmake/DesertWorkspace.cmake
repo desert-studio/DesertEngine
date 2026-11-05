@@ -112,6 +112,9 @@ add_compile_definitions(
     $<$<CONFIG:Shipping>:DESERT_CONFIG_SHIPPING>
     # EnTT's type-index counter must be atomic in every target or none.
     ENTT_USE_ATOMIC
+    # spdlog is header-only here, so every target or none (one logger::log_it_): spdlog catches nothing, its
+    # own failure aborts with its message, and a sink's throw ends the process at the log call (Logger.hpp).
+    SPDLOG_NO_EXCEPTIONS
 )
 
 # ── LANGUAGE ───────────────────────────────────────────────────────────────────────────────────────

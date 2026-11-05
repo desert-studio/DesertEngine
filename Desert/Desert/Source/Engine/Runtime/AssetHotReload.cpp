@@ -130,7 +130,7 @@ namespace Desert::Runtime
         AppendLoadedPaths<Assets::ShaderAsset>( assetManager, shaders );
 
         m_ProbeInFlight = Common::JobSystem::Get().Async(
-             [this, watched = std::move( watched ), shaders = std::move( shaders )]() mutable
+             [this, watched = std::move( watched ), shaders = std::move( shaders )]() mutable noexcept
              { return RunProbe( std::move( watched ), std::move( shaders ) ); } );
     }
 

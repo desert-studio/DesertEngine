@@ -84,8 +84,9 @@ namespace Common::Logger
         // One gated line: dropped below the threshold before anything is formatted; formatted into a stack
         // buffer otherwise and handed to the logger as a view, so no std::string is built per line.
         // noexcept: a log call never throws to its caller (a destructor logs). The format is checked by the
-        // compiler, spdlog's logger hands a sink's failure to its error handler, and what is left is an
-        // allocation failure, which ends the process here, at its site.
+        // compiler. spdlog is built with SPDLOG_NO_EXCEPTIONS in every target (DesertWorkspace.cmake), so it
+        // catches nothing: its own failure aborts with its message, and a sink's throw (an allocation in the
+        // writer's queue) reaches this noexcept function and ends the process here, at its site.
         template <typename... Args>
         void Write( spdlog::level::level_enum level, fmt::format_string<Args...> message, Args&&... args ) noexcept
         {

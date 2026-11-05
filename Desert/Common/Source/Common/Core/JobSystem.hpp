@@ -29,6 +29,10 @@ namespace Common
                   typename = std::enable_if_t<!std::is_same_v<D, InlineJob>>>
         InlineJob( F&& fn )
         {
+            // A JOB IS noexcept BY TYPE (UE: engine code does not catch). A callable that can fail returns its
+            // error as a value (Common::ResultStr) and says noexcept; a job not declared noexcept does not compile.
+            static_assert( std::is_nothrow_invocable_v<D&>,
+                           "a job is noexcept: declare the lambda noexcept and return its failure as a value" );
             if constexpr ( sizeof( D ) <= kInlineSize && alignof( D ) <= alignof( std::max_align_t ) &&
                            std::is_nothrow_move_constructible_v<D> )
             {
@@ -62,7 +66,11 @@ namespace Common
             Destroy();
         }
 
-        void operator()()
+        // THE JOB RUNS INSIDE A noexcept FUNCTION (UE: engine code does not catch). A throw from the callable
+        // ends the process at the job, through std::terminate and EntryPoint's handler, which prints what()
+        // and the stack. It never unwinds into the worker loop, which could only swallow it or die later.
+        // A job that can fail returns a value; a ThirdParty call that throws is wrapped once at its boundary.
+        void operator()() noexcept
         {
             m_Ops->Invoke( m_Storage );
         }
@@ -74,7 +82,7 @@ namespace Common
     private:
         struct Ops
         {
-            void ( *Invoke )( void* );
+            void ( *Invoke )( void* ) noexcept;
             void ( *MoveTo )( void* src, void* dst ); // dst is uninitialized; src is destroyed
             void ( *Destroy )( void* );
         };
@@ -83,21 +91,19 @@ namespace Common
         // rejects the destructor-call syntax on a template parameter naming a closure ("class has no
         // destructor called '~D'"). destroy_at is equivalent, standard, and accepted by both compilers.
         template <typename D>
-        static constexpr Ops s_InlineOps = {
-            []( void* s ) { ( *static_cast<D*>( s ) )(); },
-            []( void* src, void* dst )
-            {
-                new ( dst ) D( std::move( *static_cast<D*>( src ) ) );
-                std::destroy_at( static_cast<D*>( src ) );
-            },
-            []( void* s ) { std::destroy_at( static_cast<D*>( s ) ); } };
+        static constexpr Ops s_InlineOps = { []( void* s ) noexcept { ( *static_cast<D*>( s ) )(); },
+                                             []( void* src, void* dst )
+                                             {
+                                                 new ( dst ) D( std::move( *static_cast<D*>( src ) ) );
+                                                 std::destroy_at( static_cast<D*>( src ) );
+                                             },
+                                             []( void* s ) { std::destroy_at( static_cast<D*>( s ) ); } };
 
         template <typename D>
-        static constexpr Ops s_HeapOps = {
-            []( void* s ) { ( **static_cast<D**>( s ) )(); },
-            []( void* src, void* dst )
-            { *static_cast<D**>( dst ) = *static_cast<D**>( src ); },
-            []( void* s ) { delete *static_cast<D**>( s ); } };
+        static constexpr Ops s_HeapOps = { []( void* s ) noexcept { ( **static_cast<D**>( s ) )(); },
+                                           []( void* src, void* dst )
+                                           { *static_cast<D**>( dst ) = *static_cast<D**>( src ); },
+                                           []( void* s ) { delete *static_cast<D**>( s ); } };
 
         void MoveFrom( InlineJob& other ) noexcept
         {
@@ -172,14 +178,37 @@ namespace Common
         // flight (and waits for them) must take this one back.
         bool Submit( InlineJob job );
 
-        // Submit with a result: returns a std::future for the callable's return value.
+        // Submit with a result: returns a std::future for the callable's return value. A promise and not a
+        // packaged_task: packaged_task catches the callable's throw into the future, which a caller that never
+        // calls get() never sees. The callable is noexcept by type (the static_assert below, as InlineJob's), so a
+        // callable that can fail returns its error as the value. EVERY PROMISE IS KEPT: a job the pool refuses
+        // (shutting down) runs here, on the caller, so get() returns the value and never throws broken_promise.
         template <typename F>
-        auto Async( F&& fn ) -> std::future<std::invoke_result_t<F>>
+        auto Async( F&& fn ) -> std::future<std::invoke_result_t<std::decay_t<F>&>>
         {
-            using R   = std::invoke_result_t<F>;
-            auto task = std::make_shared<std::packaged_task<R()>>( std::forward<F>( fn ) );
-            auto fut  = task->get_future();
-            Submit( [task] { ( *task )(); } );
+            using D = std::decay_t<F>;
+            using R = std::invoke_result_t<D&>;
+            static_assert( std::is_nothrow_invocable_v<D&>,
+                           "a job is noexcept: declare the lambda noexcept and return its failure as a value" );
+            struct State
+            {
+                std::promise<R> Promise;
+                D               Call;
+            };
+            auto       state = std::make_shared<State>( State{ std::promise<R>(), std::forward<F>( fn ) } );
+            auto       fut   = state->Promise.get_future();
+            const auto run   = [state]() noexcept
+            {
+                if constexpr ( std::is_void_v<R> )
+                {
+                    state->Call();
+                    state->Promise.set_value();
+                }
+                else
+                    state->Promise.set_value( state->Call() );
+            };
+            if ( !Submit( run ) )
+                run(); // the pool is shutting down: the job runs on the caller, so its promise is kept
             return fut;
         }
 

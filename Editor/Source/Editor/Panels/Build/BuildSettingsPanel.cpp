@@ -223,7 +223,7 @@ namespace Desert::Editor
             m_Building.store( true );
             m_HasResult.store( false );
             Common::JobSystem::Get().Submit(
-                 [this, options]
+                 [this, options]() noexcept
                  {
                      const auto result   = PackageGame( options );
                      m_LastSuccess       = result.Success;
@@ -249,7 +249,7 @@ namespace Desert::Editor
             m_Building.store( true );
             m_HasResult.store( false );
             Common::JobSystem::Get().Submit(
-                 [this]
+                 [this]() noexcept
                  {
                      const auto result   = BuildContentPak();
                      m_LastSuccess       = result.Success;

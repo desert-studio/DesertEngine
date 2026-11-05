@@ -132,7 +132,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     // ShaderService::AcquireVariant (NN-RUNTIME step 5). Caught here it is one more refusal, through the channel
     // every refused resource already takes: VulkanShader::Reflect names the shader and stage, the compile fails,
     // the variant is refused by name. `data` may hold part of this stage; the caller reflects into a scratch
-    // copy and drops it on any refusal, so nothing half-reflected survives.
+    // copy and drops it on any refusal, so nothing half-reflected survives. ONLY THE LIBRARY'S OWN ERROR TYPE
+    // is caught (a ThirdParty boundary is wrapped once): bad_alloc or a logic error is not a refusal of the
+    // module, and it ends the process with its message instead of becoming one more diagnostic.
     std::vector<std::string> ReflectStage( const std::vector<uint32_t>& spirv, Core::Formats::ShaderStage stage,
                                            ShaderResource::ReflectionData& data )
     try
@@ -501,10 +503,6 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     catch ( const spirv_cross::CompilerError& error )
     {
         return { std::format( "SPIRV-Cross cannot reflect this stage's SPIR-V: {}", error.what() ) };
-    }
-    catch ( const std::exception& error )
-    {
-        return { std::format( "reflecting this stage's SPIR-V failed: {}", error.what() ) };
     }
 
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )

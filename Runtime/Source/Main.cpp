@@ -184,17 +184,25 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 #if DESERT_DEV_INSTRUMENTS
     std::string crashTestArg;
 #endif
-    for ( int i = 1; i + 1 < argc; ++i )
+    // Every argument, the last too: a flag that takes a value and has none is refused, as the Editor's table
+    // refuses it (CommandLine.hpp), and not run at its default with no word.
+    const auto valueAfter = [argc, argv]( int& i ) -> const char*
+    {
+        if ( i + 1 >= argc )
+            FailStartup( std::format( "{} takes a value and none follows it.", argv[i] ), 2 );
+        return argv[++i];
+    };
+    for ( int i = 1; i < argc; ++i )
     {
         if ( std::strcmp( argv[i], "--project" ) == 0 )
-            projectArg = argv[++i];
+            projectArg = valueAfter( i );
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
-            Desert::Player::s_SceneOverride = argv[++i];
+            Desert::Player::s_SceneOverride = valueAfter( i );
         else if ( std::strcmp( argv[i], "--log-level" ) == 0 )
         {
             // The level gate (Common::Logger::SetLevel), moved before the first line it would drop; an unknown
             // name is fatal with the names, as an unknown --device-profile is below.
-            const char* const name = argv[++i];
+            const char* const name = valueAfter( i );
             const auto        level = Common::Logger::LevelFromName( name );
             if ( !level )
                 FailStartup( std::format( "--log-level '{}' names no level; the names are trace, debug, info, "
@@ -207,12 +215,12 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         {
             // The lower device this run plays (the DeviceCapsProbe.cpp table), set before the device exists; an
             // unknown name is fatal with the list, as a malformed --player-start is below.
-            if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( argv[++i] ); !set )
+            if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( valueAfter( i ) ); !set )
                 FailStartup( set.GetError(), 2 );
         }
 #if DESERT_DEV_INSTRUMENTS
         else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
-            crashTestArg = argv[++i];
+            crashTestArg = valueAfter( i );
 #endif
     }
 

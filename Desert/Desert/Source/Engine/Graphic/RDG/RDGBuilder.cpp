@@ -1657,7 +1657,7 @@ namespace Desert::Graphic::RDG
             for ( size_t h = 0; h < helpers; ++h )
             {
                 std::shared_ptr<ChunkTasks> share = chunkTasks;
-                if ( !jobs.Submit( [share] { share->RunHelper(); } ) )
+                if ( !jobs.Submit( [share]() noexcept { share->RunHelper(); } ) )
                     break;
             }
         }

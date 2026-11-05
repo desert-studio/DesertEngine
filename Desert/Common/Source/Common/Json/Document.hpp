@@ -294,7 +294,7 @@ namespace Common::Json
     };
 
     // Parses a whole document; a syntax error names its byte offset.
-    [[nodiscard]] ResultStr<Value> Parse( std::string_view json );
+    [[nodiscard]] ResultStr<Value> Parse( std::string_view json ) noexcept;
 
     [[nodiscard]] inline Node Root( const Value& value, Path path = {} )
     {

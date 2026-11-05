@@ -219,7 +219,7 @@ namespace Desert::Graphic
 
         bake.Future = Common::JobSystem::Get().Async(
              [params, level, origin, boxes = std::move( boxes ), cached,
-              flag = bake.Flag]() -> Common::ResultStr<BakedBytes>
+              flag = bake.Flag]() noexcept -> Common::ResultStr<BakedBytes>
              {
                  DESERT_PROFILE_SCOPE( "Clouds: Modelling clipmap bake" );
                  const auto progress = [&flag]( float fraction )

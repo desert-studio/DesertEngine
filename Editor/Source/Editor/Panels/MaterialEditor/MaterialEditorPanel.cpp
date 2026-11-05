@@ -196,9 +196,14 @@ namespace Desert::Editor
         // person who closed the wrong window can put them back by hand.
         if ( const MaterialEdit::DirtyState dirty = Dirty(); dirty.Unapplied || dirty.Unsaved )
         {
-            const auto        subject = ResolveSubject();
-            const std::string name =
-                 subject ? subject->GetMetadata().Filepath.generic_string() : std::string( "<unloaded>" );
+            const auto  subject = ResolveSubject();
+            std::string name    = "<unloaded>";
+            if ( subject )
+            {
+                // UTF-8: generic_string() converts to the ANSI code page and throws on a character it lacks.
+                const std::u8string path = subject->GetMetadata().Filepath.generic_u8string();
+                name.assign( reinterpret_cast<const char*>( path.data() ), path.size() );
+            }
 
             if ( dirty.Unapplied )
             {

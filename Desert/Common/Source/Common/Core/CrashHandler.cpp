@@ -2000,7 +2000,7 @@ namespace Common::Crash
         [[noreturn]] void CrashTestStackOverflowJob()
         {
             const std::future<void> job = JobSystem::Get().Async(
-                 []
+                 []() noexcept
                  {
                      LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
                      CrashTestStackOverflow();

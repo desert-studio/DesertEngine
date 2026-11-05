@@ -789,7 +789,7 @@ namespace Desert::Editor
             // THE DESTRUCTOR STILL WAITS, and must: `onProgress` captures `this`. What the pool changes is
             // where the thread comes from, not who owns the panel.
             m_Baking = Common::JobSystem::Get().Async(
-                 [recipe, onProgress]
+                 [recipe, onProgress]() noexcept
                  {
                      DESERT_PROFILE_SCOPE( "Clouds: Sculpted volume bake" );
                      return Assets::GenerateCloudModellingVolume( recipe, onProgress );
