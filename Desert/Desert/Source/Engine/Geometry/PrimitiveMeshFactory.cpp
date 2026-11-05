@@ -4,8 +4,10 @@
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
+#include <array>
+#include <atomic>
 #include <format>
-#include <unordered_map>
+#include <mutex>
 #include <vector>
 
 namespace Desert::Geometry
@@ -25,11 +27,28 @@ namespace Desert::Geometry
         return std::make_shared<DynamicMesh>( shape->Vertices, shape->Indices, submeshes );
     }
 
-    // One shared mesh per primitive type, created lazily on first use and kept alive until
-    // ReleaseShared(). Single-threaded engine, so no synchronization needed. At file scope rather than
-    // inside GetShared() so that ReleaseShared() can reach it: as a function-local static it would only
-    // ever have been destroyed at __cxa_finalize, which is after the device it holds buffers from.
-    static std::unordered_map<PrimitiveType, std::shared_ptr<DynamicMesh>> s_SharedPrimitives;
+    // One shared mesh per primitive type, created on first use and kept alive until ReleaseShared().
+    //
+    // TWO THREADS MAY ASK AT ONCE (UE: a cache that parallel tasks share is guarded, or publishes an immutable
+    // value lock-free). MeshECSSystem ticks on a worker beside the other parallel systems (CanRunParallel), and
+    // the scene's raycasts, physics and the editor ask from their own threads. A first create of one type from
+    // two callers raced on a map, and one shared_ptr died under the other's raw pointer. Now the steady path is
+    // one acquire load per call, no lock per entity per frame. The first create of a type and ReleaseShared take
+    // the mutex. A slot is written once, under the mutex, and published by the release store of its flag only
+    // once its mesh is complete (distance field and cards attached); after that it is only read, until
+    // ReleaseShared. A type with no mesh here (Terrain, LightCube) resolves to null once and never locks again.
+    //
+    // At file scope rather than inside GetShared() so that ReleaseShared() can reach it: as a function-local
+    // static it would only ever have been destroyed at __cxa_finalize, after the device it holds buffers from.
+    namespace
+    {
+        constexpr size_t kPrimitiveTypeCount = static_cast<size_t>( PrimitiveType::Count );
+
+        std::mutex s_SharedCreateMutex;
+        std::array<std::shared_ptr<DynamicMesh>, kPrimitiveTypeCount>
+                                                           s_SharedPrimitives;  // written under the mutex
+        std::array<std::atomic<bool>, kPrimitiveTypeCount> s_SharedPublished{}; // release after the write
+    } // namespace
 
     // THE SHARED PRIMITIVE CARRIES A DISTANCE FIELD LIKE ANY STATIC MESH (UE: the BasicShapes are static mesh
     // assets, so their fields are built like every other mesh's). Without it every primitive is invisible to
@@ -86,8 +105,15 @@ namespace Desert::Geometry
 
     DynamicMesh* PrimitiveMeshFactory::GetShared( PrimitiveType type )
     {
-        auto& mesh = s_SharedPrimitives[type];
-        if ( !mesh )
+        const auto index = static_cast<size_t>( type );
+        if ( index >= kPrimitiveTypeCount )
+            return nullptr;
+        if ( s_SharedPublished[index].load( std::memory_order_acquire ) )
+            return s_SharedPrimitives[index].get();
+
+        // The first ask of this type: one creator, the others wait here and read what it published.
+        const std::lock_guard lock( s_SharedCreateMutex );
+        if ( !s_SharedPublished[index].load( std::memory_order_relaxed ) )
         {
             // CPU ONLY: the first caller may be a system's tick that runs past the previous update's views, so the
             // pool upload is the fence's, like every mesh's. The constructor raised the pending flag, and the
@@ -95,15 +121,27 @@ namespace Desert::Geometry
             // view job in flight. The pages it lands in are the pool's (GeometryPool claims them for
             // AssetService), so no view's ledger scope can take them (RT-LEDGER-4). A caller that only reads the
             // CPU arrays (bounds, collision, the spline mesh, the thumbnail framing) never needed the upload.
-            mesh = Create( type );
+            std::shared_ptr<DynamicMesh> mesh = Create( type );
             if ( mesh )
                 AttachDistanceField( type, *mesh );
+            s_SharedPrimitives[index] = std::move( mesh );
+            s_SharedPublished[index].store( true, std::memory_order_release );
         }
-        return mesh.get();
+        return s_SharedPrimitives[index].get();
     }
 
     void PrimitiveMeshFactory::ReleaseShared()
     {
-        s_SharedPrimitives.clear();
+        // Renderer::Shutdown: no system ticks any more, so no caller still holds a pointer published here. The
+        // meshes die outside the lock.
+        std::array<std::shared_ptr<DynamicMesh>, kPrimitiveTypeCount> released;
+        {
+            const std::lock_guard lock( s_SharedCreateMutex );
+            for ( size_t index = 0; index < kPrimitiveTypeCount; ++index )
+            {
+                s_SharedPublished[index].store( false, std::memory_order_relaxed );
+                released[index] = std::move( s_SharedPrimitives[index] );
+            }
+        }
     }
 } // namespace Desert::Geometry

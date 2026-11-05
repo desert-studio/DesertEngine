@@ -19,7 +19,8 @@ namespace Desert::Geometry
         // side is uploaded by the first draw's Prepare at the fence, SceneRenderer::PrepareMesh). All non-edited
         // primitive entities of the same type reference this single Mesh*, so they batch via GPU instancing. The
         // mesh editor forks a per-entity RuntimeMesh on edit (copy-on-edit), so this shared mesh is never mutated.
-        // Returns nullptr for an unknown type.
+        // Returns nullptr for an unknown type. ANY THREAD: a published mesh is one lock-free load, the first
+        // create of a type is serialized (PrimitiveMeshFactory.cpp, s_SharedPublished).
         static DynamicMesh* GetShared( PrimitiveType type );
 
         // Drop the shared meshes. "Kept alive for the process" is exactly the problem: they own vertex and
