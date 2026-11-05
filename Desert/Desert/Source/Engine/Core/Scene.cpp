@@ -1070,24 +1070,30 @@ namespace Desert::Core
                     continue; // do NOT record into a renderer that refused to open
                 }
 
-                // Registration order — NOT completion order — so the frame's submission order is
-                // identical to the old single-buffer sequential path.
-                {
-                    DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
-                    for ( const auto& buffer : arena )
-                        buffer->ExecuteAll( *view.Renderer );
-                }
-
                 // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game
-                // thread enqueues the view family and goes on to the interface). BeginScene and the replay above
-                // read the registry and the live camera; from here the renderer works from its own copies (the
-                // frozen camera, the replayed draws, `info` copied by value). The next view's BeginScene joins
-                // this job first, so two brackets are never open at once. Its failure is reported by the render
-                // task.
-                auto* const renderer = &*view.Renderer;
+                // thread enqueues the view family and goes on to the interface). BeginScene reads the registry
+                // and the live camera; from here the renderer works from its own copies (the frozen camera, the
+                // recorded draws, `info` copied by value). The next view's BeginScene joins this job first, so
+                // two brackets are never open at once. Its failure is reported by the render task.
+                //
+                // THE REPLAY IS THE JOB'S (CPU-ONE-SYNC step 3; UE: the mesh draw commands are built on the
+                // rendering thread from the proxies the game thread handed over). The recorded commands hold
+                // values and the arena is this update's one: the next update records into the other arena, and
+                // this one is cleared only behind this update's views ("Scene: CmdBuffer Clear"). What the replay
+                // writes - the renderer's per-frame draw lists - is render-owned, so it is written on the render
+                // task, after BeginScene's state and before OnUpdate reads it. Registration order - NOT
+                // completion order - so the frame's submission order is the old sequential path's.
+                auto* const                     renderer = &*view.Renderer;
+                const SystemCommandArena* const replayed = &arena;
                 ::Desert::Engine::RenderTask::Get().Enqueue(
-                     "Scene view", [renderer, info = sceneRendererInfo]() -> Common::BoolResultStr
+                     "Scene view",
+                     [renderer, replayed, info = sceneRendererInfo]() -> Common::BoolResultStr
                      {
+                         {
+                             DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
+                             for ( const auto& buffer : *replayed )
+                                 buffer->ExecuteAll( *renderer );
+                         }
                          renderer->OnUpdate( info );
                          DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
                          return renderer->EndScene();

@@ -42,9 +42,9 @@ namespace Desert::Engine
      * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
-     * Join: the renderer's own per-frame copies (BeginScene snapshots the camera, the world parameters and the
-     * replayed draws), never the registry, the live camera, the editor's selection or the OS. A pass that must
-     * read the world reads it on the game thread (ExtensionPass::Gather).
+     * Join: the renderer's own per-frame copies (BeginScene snapshots the camera and the world parameters; the
+     * view's job replays the recorded draws itself), never the registry, the live camera, the editor's selection
+     * or the OS. A pass that must read the world reads it on the game thread (ExtensionPass::Gather).
      *
      * SERIAL. Off by default — a test, a tool or a bake that drives Scene::OnUpdate itself gets the inline
      * sequence it always had — and the application switches it on (Application::Run). SetSerial(true) runs every
