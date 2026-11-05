@@ -9,6 +9,8 @@
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -161,6 +163,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanGpuProfiler::Shutdown()
     {
+        // The resolve job reads this profiler's members and writes its samples: it is done before they go.
+        WaitResolve();
         if ( Common::Profiling::Profiler::Get().GetGpuSink() == this )
             Common::Profiling::Profiler::Get().SetGpuSink( nullptr );
 
@@ -547,6 +551,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !frame.FrameTotalWritten )
             return;
         frame.FrameTotalWritten = false;
+        // The previous frame's resolve job reads the members refilled below.
+        WaitResolve();
 
         const std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes = frame.Recorder.Scopes();
         auto&                                                    profiler = Common::Profiling::Profiler::Get();
@@ -602,30 +608,66 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
         const uint32_t queryCount = GpuQueriesForScopes( static_cast<uint32_t>( scopes.size() ) );
-        m_ResultScratch.assign( static_cast<size_t>( queryCount ) * kWordsPerQuery, 0ull );
+        m_ResolveWords.assign( static_cast<size_t>( queryCount ) * kWordsPerQuery, 0ull );
 
         // One read for the queries this frame actually wrote. WITHOUT VK_QUERY_RESULT_WAIT_BIT: the fence
         // guarantees the data is there, and asking Vulkan to wait would turn a free read into a GPU stall.
         const VkResult result = vkGetQueryPoolResults(
-             m_Device, frame.Pool, 0, queryCount, m_ResultScratch.size() * sizeof( uint64_t ),
-             m_ResultScratch.data(), sizeof( uint64_t ) * kWordsPerQuery,
+             m_Device, frame.Pool, 0, queryCount, m_ResolveWords.size() * sizeof( uint64_t ),
+             m_ResolveWords.data(), sizeof( uint64_t ) * kWordsPerQuery,
              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT );
 
         if ( result != VK_SUCCESS && result != VK_NOT_READY )
             return;
+
+        // THE JOB'S COPIES: the caller resets the recorder and may grow the pool as soon as this returns.
+        const size_t scopeCount = scopes.size();
+        m_ResolveScopes.assign( scopes.begin(), scopes.end() );
+        m_Parents.resize( scopeCount );
+        // A retracted scope (a discarded chunk's) is no one's parent (LiveParent skips it).
+        for ( size_t i = 0; i < scopeCount; ++i )
+            m_Parents[i] = frame.Recorder.LiveParent( static_cast<int32_t>( i ) );
+
+        // OFF THE CALLER'S PATH: the arithmetic and the samples run on a worker. Inline when the job system
+        // refuses the job (not started, or stopping) - the same result, on this thread.
+        m_ResolveBusy.store( true, std::memory_order_release );
+        const bool submitted = Common::JobSystem::Get().Submit(
+             [this]() noexcept
+             {
+                 ResolveTimes();
+                 m_ResolveBusy.store( false, std::memory_order_release );
+                 m_ResolveBusy.notify_all();
+             },
+             Common::JobPriority::Normal );
+        if ( !submitted )
+        {
+            ResolveTimes();
+            m_ResolveBusy.store( false, std::memory_order_release );
+        }
+    }
+
+    void VulkanGpuProfiler::WaitResolve() const noexcept
+    {
+        m_ResolveBusy.wait( true, std::memory_order_acquire );
+    }
+
+    void VulkanGpuProfiler::ResolveTimes() noexcept
+    {
+        const std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes   = m_ResolveScopes;
+        auto&                                                    profiler = Common::Profiling::Profiler::Get();
 
         // Inclusive milliseconds of the pair starting at @p queryBase, or -1 when either end did not land.
         const auto pairMs = [this]( uint32_t queryBase ) -> double
         {
             const size_t beginWord = static_cast<size_t>( queryBase ) * kWordsPerQuery;
             const size_t endWord   = beginWord + kWordsPerQuery;
-            if ( endWord + 1 >= m_ResultScratch.size() )
+            if ( endWord + 1 >= m_ResolveWords.size() )
                 return -1.0;
-            if ( m_ResultScratch[beginWord + 1] == 0 || m_ResultScratch[endWord + 1] == 0 )
+            if ( m_ResolveWords[beginWord + 1] == 0 || m_ResolveWords[endWord + 1] == 0 )
                 return -1.0; // a scope whose end never recorded (early-out inside the pass)
 
-            const uint64_t beginTicks = m_ResultScratch[beginWord];
-            const uint64_t endTicks   = m_ResultScratch[endWord];
+            const uint64_t beginTicks = m_ResolveWords[beginWord];
+            const uint64_t endTicks   = m_ResolveWords[endWord];
             if ( endTicks < beginTicks )
                 return -1.0; // counter wrapped; one lost sample beats a nonsense one
 
@@ -639,12 +681,10 @@ namespace Desert::Graphic::API::Vulkan
 
         const size_t scopeCount = scopes.size();
         m_Inclusive.assign( scopeCount, -1.0 );
-        m_Parents.resize( scopeCount );
         for ( size_t i = 0; i < scopeCount; ++i )
         {
-            // A retracted scope (a discarded chunk's) is untimed and no one's parent: its queries were never
-            // executed, and the inline re-record timed the same passes under the live enclosing scope.
-            m_Parents[i] = frame.Recorder.LiveParent( static_cast<int32_t>( i ) );
+            // A retracted scope (a discarded chunk's) is untimed: its queries were never executed, and the
+            // inline re-record timed the same passes under the live enclosing scope (Resolve took the parents).
             if ( scopes[i].Retracted )
                 continue;
             m_Inclusive[i] = pairMs( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
@@ -688,17 +728,17 @@ namespace Desert::Graphic::API::Vulkan
         // Timestamps as ms from the frame bracket's begin. Signed: an async compute stamp can precede the
         // graphics bracket's first one (the compute queue is another timeline of the same device clock).
         const uint64_t frameBeginTicks =
-             m_ResultScratch[static_cast<size_t>( kGpuFrameTotalQuery ) * kWordsPerQuery];
+             m_ResolveWords[static_cast<size_t>( kGpuFrameTotalQuery ) * kWordsPerQuery];
         const auto intervalOf = [&]( uint32_t queryBase ) -> GpuInterval
         {
             const size_t beginWord = static_cast<size_t>( queryBase ) * kWordsPerQuery;
             const size_t endWord   = beginWord + kWordsPerQuery;
-            if ( endWord + 1 >= m_ResultScratch.size() || m_ResultScratch[beginWord + 1] == 0 ||
-                 m_ResultScratch[endWord + 1] == 0 || m_ResultScratch[endWord] < m_ResultScratch[beginWord] )
+            if ( endWord + 1 >= m_ResolveWords.size() || m_ResolveWords[beginWord + 1] == 0 ||
+                 m_ResolveWords[endWord + 1] == 0 || m_ResolveWords[endWord] < m_ResolveWords[beginWord] )
                 return GpuInterval{};
             const auto toMs = [&]( uint64_t ticks )
             { return static_cast<double>( static_cast<int64_t>( ticks - frameBeginTicks ) ) * m_PeriodNs * 1e-6; };
-            return GpuInterval{ toMs( m_ResultScratch[beginWord] ), toMs( m_ResultScratch[endWord] ), true };
+            return GpuInterval{ toMs( m_ResolveWords[beginWord] ), toMs( m_ResolveWords[endWord] ), true };
         };
 
         const GpuInterval frameInterval = intervalOf( kGpuFrameTotalQuery );

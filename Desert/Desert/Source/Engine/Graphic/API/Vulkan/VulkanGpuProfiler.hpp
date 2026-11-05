@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
@@ -151,11 +152,19 @@ namespace Desert::Graphic::API::Vulkan
         // Replaces @p frame's pool when the high-water mark no longer fits it. Only called where nothing
         // is recording into that pool and its previous contents have been resolved.
         void GrowIfNeeded( FrameQueries& frame );
+        // Takes @p frame's results and scopes (the caller's thread; the pool and the recorder are reused right
+        // after), then hands ResolveTimes to a worker (JobSystem), inline when Submit refuses.
         void Resolve( FrameQueries& frame );
+        // THE RESOLVE'S HALF OFF THE CRITICAL PATH (CPU-ONE-SYNC; UE: the GPU profiler's results are processed
+        // off the rendering thread). Reads only the copies Resolve took (m_ResolveWords, m_ResolveScopes,
+        // m_Parents) and writes the profiler's samples (AddGpuSample: per-thread, any thread). Not reentrant:
+        // Resolve and Shutdown wait for the one in flight (m_ResolveBusy) before they touch its members.
+        void ResolveTimes() noexcept;
+        void WaitResolve() const noexcept;
         void PrepareDrawPool( FrameQueries& frame, VkCommandBuffer commandBuffer );
         void ResolveDraws( FrameQueries& frame );
         // The Unaccounted rows (Profiler.hpp, kGpuUnaccountedGraphicsScope): what of each queue's timeline no
-        // scope covered, and the named gaps of the graphics one. Reads m_ResultScratch as Resolve left it.
+        // scope covered, and the named gaps of the graphics one. Reads m_ResolveWords as Resolve left it.
         void PublishUnaccounted( std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes );
         // Whether row @p nameId is an async segment's (GpuAsyncSegmentLabelStart), decided once per id.
         [[nodiscard]] bool IsSegmentRow( uint32_t nameId );
@@ -203,6 +212,13 @@ namespace Desert::Graphic::API::Vulkan
 
         /// Scratch for vkGetQueryPoolResults: {value, availability} per query, reused every frame.
         std::vector<uint64_t> m_ResultScratch;
+        // THE RESOLVE JOB'S INPUT (Resolve -> ResolveTimes): the frame's query words, its scopes and their live
+        // parents, copied on the caller's thread so the job outlives the frame's recorder and pool reuse.
+        // ResolveDraws keeps m_ResultScratch for itself.
+        std::vector<uint64_t>                        m_ResolveWords;
+        std::vector<GpuScopeRecorder<uint32_t>::Scope> m_ResolveScopes;
+        // True from the Submit until ResolveTimes returned (the worker clears it and notifies).
+        std::atomic<bool> m_ResolveBusy{ false };
         // The last pass-order trace Resolve logged (see there); a new line only when the order changes.
         std::string m_LastLoggedOrder;
         // [GpuOrder] (CPU-ONE-SYNC): the order is compared by a hash of (depth, row id) per scope, built with no
