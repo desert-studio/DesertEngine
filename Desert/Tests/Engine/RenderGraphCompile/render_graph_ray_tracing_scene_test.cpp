@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -34,8 +35,41 @@ namespace
     class FakeTarget final : public RayTracingSceneTarget
     {
     public:
-        FakeTarget() : m_Storage( BufferDesc{ 4096 }, Access::None )
+        FakeTarget()
+             : m_Storage( BufferDesc{ 4096 }, Access::None ),
+               m_Rows{ ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
+                       ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
+                       ExternalBuffer( BufferDesc{ 4096 }, Access::None ),
+                       ExternalBuffer( BufferDesc{ 4096 }, Access::None ) }
         {
+            // As the Vulkan target: a graph that ended holding a row buffer counts (GetRowGraphsEnded).
+            for ( std::size_t i = 0; i < m_Rows.size(); ++i )
+                m_Rows[i].RecordFinalState = [this, i]( const AccessState& ) -> Common::BoolResultStr
+                {
+                    ++m_Ended[i];
+                    return BOOLSUCCESS;
+                };
+        }
+        uint64_t GetRowGraphsEnded( SceneRowBuffer buffer ) const override
+        {
+            return m_Ended[static_cast<std::size_t>( buffer )];
+        }
+        Common::ResultStr<bool> EnsureRows( SceneRowBuffer, uint64_t ) override
+        {
+            return Common::MakeSuccess( false );
+        }
+        ExternalBuffer& GetRows( SceneRowBuffer buffer ) override
+        {
+            return m_Rows[static_cast<std::size_t>( buffer )];
+        }
+        uint64_t GetRowMemoryBytes( SceneRowBuffer buffer ) const override
+        {
+            return m_Rows[static_cast<std::size_t>( buffer )].Desc.Bytes;
+        }
+        Common::BoolResultStr RecordRowScatter( const PassContext&, const BufferBinding&, const BufferBinding&,
+                                                std::span<const SceneRowRun>, uint32_t ) override
+        {
+            return BOOLSUCCESS;
         }
         Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount, bool ) override
         {
@@ -59,6 +93,8 @@ namespace
 
     private:
         ExternalBuffer m_Storage;
+        std::array<ExternalBuffer, static_cast<std::size_t>( SceneRowBuffer::Count )> m_Rows;
+        std::array<uint64_t, static_cast<std::size_t>( SceneRowBuffer::Count )>       m_Ended{};
     };
 
     class FakeGeometry final : public RayTracingGeometryResource
@@ -102,7 +138,8 @@ TEST( RayTracingScenePass, GateOffDeclaresNothing )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.Off" );
-    const auto         frame = AddRayTracingScenePass( graph, false, EncodeRayTracingSceneRows( OneInstance( geometry ) ), target, {} );
+    RayTracingSceneRows rows  = EncodeRayTracingSceneRows( OneInstance( geometry ) );
+    const auto          frame = AddRayTracingScenePass( graph, false, rows, target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     EXPECT_FALSE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, ~0u );
@@ -118,7 +155,8 @@ TEST( RayTracingScenePass, GateOnWritesTheTlasAndLivesWithAReader )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.On" );
-    const auto         frame = AddRayTracingScenePass( graph, true, EncodeRayTracingSceneRows( OneInstance( geometry ) ), target, {} );
+    RayTracingSceneRows rows  = EncodeRayTracingSceneRows( OneInstance( geometry ) );
+    const auto          frame = AddRayTracingScenePass( graph, true, rows, target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     ASSERT_TRUE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, 1u );

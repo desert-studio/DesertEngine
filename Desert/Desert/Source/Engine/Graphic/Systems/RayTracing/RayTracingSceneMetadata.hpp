@@ -112,6 +112,59 @@ namespace Desert::Graphic::RayTracing
         uint32_t SegmentsWithoutOpacity = 0;
     };
 
+    // Fills the rows of @p primitive's run (it has a BLAS and a run inside @p segments) in @p metadata from its
+    // BLAS's layout - BuildRayTracingMetadata's step per run: the BLAS and the run must agree segment by segment.
+    // The rows are written over, never reset: a caller patching a run resets it first. @p withoutOpacity counts
+    // the run's non-opaque rows materialOf had no opacity source for.
+    [[nodiscard]] inline Common::BoolResultStr
+    FillRayTracingMetadataRun( RayTracingMetadata& metadata, const RayTracingPrimitive& primitive,
+                               std::span<const RayTracingSegmentRecord> segments,
+                               const RayTracingSegmentMaterialFn& materialOf, uint32_t& withoutOpacity )
+    {
+        const RayTracingGeometryLayout layout =
+             static_cast<const RayTracingGeometryResource*>( primitive.Geometry )->GetMetadataLayout();
+        if ( layout.Segments.size() != primitive.SegmentRecordCount )
+            return Common::MakeFormattedError<bool>(
+                 "RayTracingMetadata: GPU-scene row {}: the BLAS has {} segments, its run {} records",
+                 primitive.GpuSceneRow, layout.Segments.size(), primitive.SegmentRecordCount );
+        for ( uint32_t i = 0; i < primitive.SegmentRecordCount; ++i )
+        {
+            const uint32_t                   index   = primitive.FirstSegmentRecord + i;
+            const RayTracingGeometrySegment& segment = layout.Segments[i];
+            const RayTracingSegmentRecord&   source  = segments[index];
+            if ( segment.SubmeshIndex != source.SubmeshIndex || segment.Opaque != source.Opaque )
+                return Common::MakeFormattedError<bool>(
+                     "RayTracingMetadata: GPU-scene row {} segment {}: the BLAS is submesh {} ({}), the "
+                     "record submesh {} ({})",
+                     primitive.GpuSceneRow, i, segment.SubmeshIndex, segment.Opaque ? "opaque" : "alpha-tested",
+                     source.SubmeshIndex, source.Opaque ? "opaque" : "alpha-tested" );
+            RayTracingGeometryRecord& record = metadata.Geometry[index];
+            record.VertexAddress             = layout.VertexAddress;
+            record.IndexAddress              = layout.IndexAddress;
+            record.VertexStride              = layout.VertexStride;
+            record.FirstVertex               = segment.FirstVertex;
+            record.FirstIndex =
+                 segment.IndexByteOffset / static_cast<uint32_t>( sizeof( uint32_t ) );
+            record.NormalOffset              = layout.NormalOffset;
+            record.UvOffset                  = layout.UvOffset;
+            record.SubmeshIndex              = segment.SubmeshIndex;
+            if ( source.Opaque )
+                continue;
+            const std::optional<RayTracingMaterialRecord> material = materialOf( source );
+            if ( !material )
+            {
+                ++withoutOpacity;
+                continue;
+            }
+            std::vector<RayTracingMaterialRecord>& materials = metadata.Materials;
+            const auto found = std::find( materials.begin(), materials.end(), *material );
+            record.Material  = static_cast<uint32_t>( found - materials.begin() );
+            if ( found == materials.end() )
+                materials.push_back( *material );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     // PURE. One geometry record per segment record, in the same order (record i = @p segments[i]): every primitive
     // with a BLAS fills its run's rows from that BLAS's layout. The BLAS and the run must agree segment by segment
     // - the same count, submesh and Opaque - or the BLAS was built for other sections, and that is an error, never
@@ -148,85 +201,84 @@ namespace Desert::Graphic::RayTracing
                          primitive.GpuSceneRow, primitive.FirstSegmentRecord );
                 continue;
             }
-            const RayTracingGeometryLayout layout =
-                 static_cast<const RayTracingGeometryResource*>( primitive.Geometry )->GetMetadataLayout();
-            if ( layout.Segments.size() != primitive.SegmentRecordCount )
-                return Common::MakeFormattedError<Result>(
-                     "RayTracingMetadata: GPU-scene row {}: the BLAS has {} segments, its run {} records",
-                     primitive.GpuSceneRow, layout.Segments.size(), primitive.SegmentRecordCount );
-            for ( uint32_t i = 0; i < primitive.SegmentRecordCount; ++i )
-            {
-                const uint32_t                   index   = primitive.FirstSegmentRecord + i;
-                const RayTracingGeometrySegment& segment = layout.Segments[i];
-                const RayTracingSegmentRecord&   source  = segments[index];
-                if ( segment.SubmeshIndex != source.SubmeshIndex || segment.Opaque != source.Opaque )
-                    return Common::MakeFormattedError<Result>(
-                         "RayTracingMetadata: GPU-scene row {} segment {}: the BLAS is submesh {} ({}), the "
-                         "record submesh {} ({})",
-                         primitive.GpuSceneRow, i, segment.SubmeshIndex,
-                         segment.Opaque ? "opaque" : "alpha-tested", source.SubmeshIndex,
-                         source.Opaque ? "opaque" : "alpha-tested" );
-                filledBy[index]                  = primitive.Geometry;
-                RayTracingGeometryRecord& record = build.Metadata.Geometry[index];
-                record.VertexAddress             = layout.VertexAddress;
-                record.IndexAddress              = layout.IndexAddress;
-                record.VertexStride              = layout.VertexStride;
-                record.FirstVertex               = segment.FirstVertex;
-                record.FirstIndex   = segment.IndexByteOffset / static_cast<uint32_t>( sizeof( uint32_t ) );
-                record.NormalOffset = layout.NormalOffset;
-                record.UvOffset     = layout.UvOffset;
-                record.SubmeshIndex = segment.SubmeshIndex;
-                if ( source.Opaque )
-                    continue;
-                const std::optional<RayTracingMaterialRecord> material = materialOf( source );
-                if ( !material )
-                {
-                    ++build.SegmentsWithoutOpacity;
-                    continue;
-                }
-                std::vector<RayTracingMaterialRecord>& materials = build.Metadata.Materials;
-                const auto found = std::find( materials.begin(), materials.end(), *material );
-                record.Material  = static_cast<uint32_t>( found - materials.begin() );
-                if ( found == materials.end() )
-                    materials.push_back( *material );
-            }
+            if ( const Common::BoolResultStr filled = FillRayTracingMetadataRun(
+                      build.Metadata, primitive, segments, materialOf, build.SegmentsWithoutOpacity );
+                 !filled )
+                return Common::MakeError<Result>( filled.GetError() );
+            std::fill_n( filledBy.begin() + primitive.FirstSegmentRecord, primitive.SegmentRecordCount,
+                         primitive.Geometry );
         }
         return Common::MakeSuccess( std::move( build ) );
+    }
+
+    // PURE. BuildRayTracingMetadata again for the @p patched primitives only (indices into @p primitives), into
+    // the @p build made from the same list (a kept list: every primitive traces the BLAS it traced, over the same
+    // segment records and opacity sources; only a layout's buffers may have moved - a per-frame BLAS, a landscape
+    // tile built again). Each patched run is reset and filled anew from its BLAS; @p dirty gets every row whose
+    // bytes changed; a material record not yet in Materials is appended (Materials only grows until the next
+    // build); SegmentsWithoutOpacity follows the refilled rows. Errors as BuildRayTracingMetadata's, and @p build
+    // is then partly patched: the caller builds it again.
+    [[nodiscard]] inline Common::BoolResultStr
+    PatchRayTracingMetadata( RayTracingMetadataBuild& build, std::span<const RayTracingPrimitive> primitives,
+                             std::span<const RayTracingSegmentRecord> segments, std::span<const uint32_t> patched,
+                             const RayTracingSegmentMaterialFn& materialOf, std::vector<uint32_t>& dirty )
+    {
+        std::vector<RayTracingGeometryRecord>& rows = build.Metadata.Geometry;
+        if ( rows.size() != segments.size() )
+            return Common::MakeFormattedError<bool>(
+                 "RayTracingMetadata: a patch over {} segment records of a build made for {}", segments.size(),
+                 rows.size() );
+        std::vector<RayTracingGeometryRecord> before;
+        for ( const uint32_t p : patched )
+        {
+            if ( p >= primitives.size() )
+                return Common::MakeFormattedError<bool>( "RayTracingMetadata: patched primitive {} of {}", p,
+                                                         primitives.size() );
+            const RayTracingPrimitive& primitive = primitives[p];
+            if ( primitive.Geometry == nullptr || primitive.SegmentRecordCount == 0 )
+                continue;
+            const std::size_t first = primitive.FirstSegmentRecord;
+            const std::size_t end   = first + primitive.SegmentRecordCount;
+            if ( end > rows.size() )
+                return Common::MakeFormattedError<bool>(
+                     "RayTracingMetadata: GPU-scene row {} names segment records [{}, +{}) of {}",
+                     primitive.GpuSceneRow, first, primitive.SegmentRecordCount, rows.size() );
+            // The run's rows as the build left them, and its share of SegmentsWithoutOpacity: a non-opaque row
+            // with no material row is one (an untraced run is never patched: a primitive gaining its BLAS
+            // relists).
+            uint32_t withoutBefore = 0;
+            for ( std::size_t i = first; i < end; ++i )
+                if ( !segments[i].Opaque && rows[i].Material == kNoMetadataRecord )
+                    ++withoutBefore;
+            before.assign( rows.begin() + static_cast<std::ptrdiff_t>( first ),
+                           rows.begin() + static_cast<std::ptrdiff_t>( end ) );
+            std::fill( rows.begin() + static_cast<std::ptrdiff_t>( first ),
+                       rows.begin() + static_cast<std::ptrdiff_t>( end ), RayTracingGeometryRecord{} );
+            uint32_t withoutAfter = 0;
+            if ( const Common::BoolResultStr filled =
+                      FillRayTracingMetadataRun( build.Metadata, primitive, segments, materialOf, withoutAfter );
+                 !filled )
+                return filled;
+            if ( build.SegmentsWithoutOpacity < withoutBefore )
+                return Common::MakeFormattedError<bool>(
+                     "RayTracingMetadata: GPU-scene row {} held {} rows without opacity, the build counted {}",
+                     primitive.GpuSceneRow, withoutBefore, build.SegmentsWithoutOpacity );
+            build.SegmentsWithoutOpacity = build.SegmentsWithoutOpacity - withoutBefore + withoutAfter;
+            for ( std::size_t i = first; i < end; ++i )
+                if ( std::memcmp( &rows[i], &before[i - first], sizeof( RayTracingGeometryRecord ) ) != 0 )
+                    dirty.push_back( static_cast<uint32_t>( i ) );
+        }
+        return Common::MakeSuccess( true );
     }
 
     inline constexpr std::string_view kMetadataGeometryName  = "RayTracingScene.GeometryRecords";
     inline constexpr std::string_view kMetadataMaterialsName = "RayTracingScene.MaterialRecords";
 
-    // This frame's metadata as graph buffers (StorageRead by a ray-query pass). Refs valid only for that graph.
+    // This frame's metadata as graph buffers (StorageRead by a ray-query pass): the view's persistent rows
+    // (AddRayTracingMetadataUpload, RayTracingSceneRenderer.hpp). Refs valid only for that graph.
     struct RayTracingMetadataFrame
     {
         RDG::BufferRef Geometry;
         RDG::BufferRef Materials;
     };
-
-    // Uploads @p metadata into two graph buffers (at least one row each: a graph buffer cannot be empty, and a
-    // scene with no masked segment reads no material row).
-    template <typename Row>
-    [[nodiscard]] std::vector<std::byte> EncodeMetadataRows( std::span<const Row> rows )
-    {
-        std::vector<std::byte> bytes( ( rows.empty() ? 1u : rows.size() ) * sizeof( Row ) );
-        if ( !rows.empty() )
-            std::memcpy( bytes.data(), rows.data(), rows.size() * sizeof( Row ) );
-        return bytes;
-    }
-
-    [[nodiscard]] inline RayTracingMetadataFrame AddRayTracingMetadataUpload( RDG::Builder&             graph,
-                                                                              const RayTracingMetadata& metadata )
-    {
-        RayTracingMetadataFrame      frame;
-        const std::vector<std::byte> geometry =
-             EncodeMetadataRows( std::span<const RayTracingGeometryRecord>( metadata.Geometry ) );
-        const std::vector<std::byte> materials =
-             EncodeMetadataRows( std::span<const RayTracingMaterialRecord>( metadata.Materials ) );
-        frame.Geometry  = graph.CreateBuffer( RDG::BufferDesc{ geometry.size() }, kMetadataGeometryName );
-        frame.Materials = graph.CreateBuffer( RDG::BufferDesc{ materials.size() }, kMetadataMaterialsName );
-        graph.QueueBufferUpload( frame.Geometry, geometry );
-        graph.QueueBufferUpload( frame.Materials, materials );
-        return frame;
-    }
 } // namespace Desert::Graphic::RayTracing

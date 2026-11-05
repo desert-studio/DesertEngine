@@ -115,6 +115,13 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<RayTracing::SkinnedBlasPrepared>(
                  "SkinCache: the device has no acceleration-structure functions, but "
                  "a resolved method traces rays" );
+        // A build recorded into a graph that never ended (abandoned: nothing submitted) is still pending: the
+        // storage may hold no build, so this frame builds instead of refitting a source that build never wrote.
+        if ( m_Recorded )
+        {
+            m_Built    = false;
+            m_Recorded = false;
+        }
 
         const auto& vertices     = input.Vertices;
         const auto& indices      = input.Indices;
@@ -214,6 +221,10 @@ namespace Desert::Graphic::API::Vulkan
             // through the TLAS (readers declare the TLAS, never the BLAS). The next frame's refit writes this
             // storage in place, so it must wait for those reads: the state handed on is the ray-query read.
             m_StorageExternal.State = RDG::GetAccessState( RDG::Access::AccelStructRead );
+            // After EndGraph: the build this graph recorded is submitted, so the next one may refit it.
+            if ( m_Recorded )
+                m_Built = true;
+            m_Recorded = false;
             return BOOLSUCCESS;
         };
         return Common::MakeSuccess( RayTracing::SkinnedBlasPrepared{
@@ -257,7 +268,8 @@ namespace Desert::Graphic::API::Vulkan
 
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = input.Ranges.data();
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
-        m_Built = true;
+        // Recorded, not yet submitted: m_Built follows only when this graph ends (the storage's RecordFinalState).
+        m_Recorded = true;
         return BOOLSUCCESS;
     }
 
@@ -290,6 +302,7 @@ namespace Desert::Graphic::API::Vulkan
         m_BuildScratch  = 0;
         m_UpdateScratch = 0;
         m_Built         = false;
+        m_Recorded      = false;
     }
 
     VulkanSkinnedRayTracingGeometry::~VulkanSkinnedRayTracingGeometry()

@@ -56,7 +56,12 @@ namespace Desert::Graphic::API::Vulkan
         IndexBufferRange                                   m_Indices;
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
         VkDeviceSize                                       m_BuildScratch = 0;
-        bool            m_Built         = false;
+        // THE BUILD COMMITS ON GRAPH END (UE FRayTracingGeometry: valid once submitted). m_Recorded: RecordBuild
+        // recorded the build into the current graph. m_Built: the storage holds a build whose graph ended (the
+        // storage external's RecordFinalState, after EndGraph); an abandoned graph leaves it false, so the next
+        // Prepare answers NeedsBuild again.
+        bool m_Recorded = false;
+        bool m_Built    = false;
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;

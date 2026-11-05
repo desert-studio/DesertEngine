@@ -433,6 +433,10 @@ namespace Desert::Graphic::RayTracing
         m_SceneViewOrigin  = viewOrigin;
         m_SceneLensScale   = drawDistanceScale;
         m_SceneGatherFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        // The producer frame the kept rows hold: set again only once this call encoded its external primitives,
+        // so a return before that (not required, an error) makes the next call encode every one.
+        const uint64_t externalBefore = m_ExternalSerial;
+        m_ExternalSerial              = 0;
         if ( !required )
             return BOOLSUCCESS;
 
@@ -533,16 +537,34 @@ namespace Desert::Graphic::RayTracing
             if ( m_Gather.Primitives[p].DeformedPositions.IsValid() )
                 m_FrameDeformed = true;
 
+        // The external primitives a kept list re-encodes: the ones the producer built or refit this frame (its
+        // change mark) when the kept rows hold its frame before, else every one. Every other external primitive
+        // traces the BLAS storage and layout it traced then; whatever else of it SameExternal compares relists.
+        m_ExternalPatched.clear();
+        if ( external.Serial != 0 && external.Serial == externalBefore + 1 )
+        {
+            for ( const uint32_t changed : external.Changed )
+            {
+                if ( changed >= external.Primitives.size() )
+                    return Common::MakeFormattedError<bool>(
+                         "RayTracingScene: the external producer marks primitive {} of {} changed", changed,
+                         external.Primitives.size() );
+                m_ExternalPatched.push_back( static_cast<uint32_t>( firstExternal + changed ) );
+            }
+        }
+        else
+            for ( std::size_t p = firstExternal; p < m_Gather.Primitives.size(); ++p )
+                m_ExternalPatched.push_back( static_cast<uint32_t>( p ) );
         // The rows a kept list re-encodes this frame: the moved primitives, the dynamic ones (their BLAS is this
-        // frame's) and the external tail.
+        // frame's; no per-view change mark) and the changed external ones.
         const auto forEachPatched = [&]( const auto& visit )
         {
             for ( const uint32_t p : m_SceneMoved )
                 visit( p );
             for ( const uint32_t p : m_DynamicPrimitives )
                 visit( p );
-            for ( std::size_t p = firstExternal; p < m_Gather.Primitives.size(); ++p )
-                visit( static_cast<uint32_t>( p ) );
+            for ( const uint32_t p : m_ExternalPatched )
+                visit( p );
         };
         if ( !relisted )
         {
@@ -574,6 +596,7 @@ namespace Desert::Graphic::RayTracing
             m_ListInstancesByKind = m_Instances.InstancesByKind;
             m_SceneRows           = EncodeRayTracingSceneRows( m_Instances );
             m_ListValid           = true;
+            m_TracedGeometryValid = false;
             m_BuildPending        = true;
             ++m_LayoutSerial;
             m_LastExternalPrimitives.assign( external.Primitives.begin(), external.Primitives.end() );
@@ -623,28 +646,57 @@ namespace Desert::Graphic::RayTracing
         // SegmentsWithoutOpacity, and its candidates are confirmed as hits. Kept with the list: made again when
         // the list was, or when a row of it is this frame's (a skinned stream's address, a procedural or a
         // landscape BLAS).
-        if ( relisted || !m_Metadata || !m_DynamicPrimitives.empty() || m_Gather.Primitives.size() > firstExternal )
+        // Built with the list (all rows dirty); on a kept list only the runs whose BLAS layout may have moved are
+        // filled again - the dynamic primitives (this frame's BLAS) and the external ones the producer built or
+        // refit (m_ExternalPatched: O(changed tiles), never the whole landscape) - and only the rows whose bytes
+        // changed go up (AddRayTracingMetadataUpload). A moved primitive's rows are its BLAS's, unchanged by a
+        // move.
+        const RayTracingSegmentMaterialFn materialOf =
+             [&external]( const RayTracingSegmentRecord& segment ) -> std::optional<RayTracingMaterialRecord>
         {
-            const Common::ResultStr<RayTracingMetadataBuild> metadata = BuildRayTracingMetadata(
-                 m_Gather.Primitives, m_Gather.SegmentRecords,
-                 [&external]( const RayTracingSegmentRecord& segment ) -> std::optional<RayTracingMaterialRecord>
-                 {
-                     // A generic record's own alpha test (3D text's glyph coverage, RayTracingProgramHit::Opacity).
-                     if ( segment.ProgramHit != nullptr )
-                         return segment.ProgramHit->Opacity;
-                     if ( segment.LandscapeTile == kNoLandscapeTile ||
-                          segment.LandscapeTile >= external.LandscapeOpacity.size() )
-                         return std::nullopt;
-                     return external.LandscapeOpacity[segment.LandscapeTile];
-                 } );
+            // A generic record's own alpha test (3D text's glyph coverage, RayTracingProgramHit::Opacity).
+            if ( segment.ProgramHit != nullptr )
+                return segment.ProgramHit->Opacity;
+            if ( segment.LandscapeTile == kNoLandscapeTile ||
+                 segment.LandscapeTile >= external.LandscapeOpacity.size() )
+                return std::nullopt;
+            return external.LandscapeOpacity[segment.LandscapeTile];
+        };
+        if ( relisted || !m_Metadata )
+        {
+            DESERT_PROFILE_SCOPE( "RayTracingScene: Metadata" );
+            const Common::ResultStr<RayTracingMetadataBuild> metadata =
+                 BuildRayTracingMetadata( m_Gather.Primitives, m_Gather.SegmentRecords, materialOf );
             if ( !metadata )
             {
                 m_Metadata.reset();
                 return Common::MakeError( metadata.GetError() );
             }
-            m_Metadata = metadata.GetValue();
-            m_GeometryRecords.assign( m_Metadata->Metadata.Geometry.begin(), m_Metadata->Metadata.Geometry.end() );
+            m_Metadata                = metadata.GetValue();
+            m_GeometryUpload.AllDirty = true;
+            m_MaterialUpload.AllDirty = true;
         }
+        else if ( !m_DynamicPrimitives.empty() || !m_ExternalPatched.empty() )
+        {
+            DESERT_PROFILE_SCOPE( "RayTracingScene: MetadataPatch" );
+            m_MetadataPatched.assign( m_DynamicPrimitives.begin(), m_DynamicPrimitives.end() );
+            m_MetadataPatched.insert( m_MetadataPatched.end(), m_ExternalPatched.begin(),
+                                      m_ExternalPatched.end() );
+            const std::size_t           materialsBefore = m_Metadata->Metadata.Materials.size();
+            const Common::BoolResultStr patched =
+                 PatchRayTracingMetadata( *m_Metadata, m_Gather.Primitives, m_Gather.SegmentRecords,
+                                          m_MetadataPatched, materialOf, m_GeometryUpload.DirtyRows );
+            if ( !patched )
+            {
+                m_Metadata.reset();
+                return Common::MakeError( patched.GetError() );
+            }
+            if ( m_Metadata->Metadata.Materials.size() != materialsBefore )
+                m_MaterialUpload.AllDirty = true;
+        }
+        // The kept CPU rows (instances, metadata) hold this producer frame now; their dirty rows wait in the
+        // upload states until an upload is done, whatever fails below.
+        m_ExternalSerial = external.Serial;
 
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
@@ -667,22 +719,40 @@ namespace Desert::Graphic::RayTracing
                 m_UpdatesSinceBuild = 0;
                 m_BuildPending      = false;
             }
-            m_Frame.Metadata = AddRayTracingMetadataUpload( graph, m_Metadata->Metadata );
+            const Common::ResultStr<RayTracingMetadataFrame> metadata = AddRayTracingMetadataUpload(
+                 graph, m_Metadata->Metadata, m_GeometryUpload, m_MaterialUpload, *m_Target );
+            if ( !metadata )
+            {
+                m_Frame.Built = false; // no reader may bind metadata this graph does not hold
+                return Common::MakeError( metadata.GetError() );
+            }
+            m_Frame.Metadata = metadata.GetValue();
         }
 
         m_Stats.Built           = m_Frame.Built;
         m_Stats.InstancesByKind = m_Instances.InstancesByKind;
         m_Stats.SkippedByReason = m_Instances.Skipped;
-        std::unordered_set<const void*> traced;
-        for ( const RayTracingInstance& instance : m_Instances.Instances )
-            if ( traced.insert( instance.Geometry ).second )
-                m_Stats.TracedBlasBytes +=
-                     static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetMemoryBytes();
-        for ( const RayTracingGpuInstanceSource& source : m_Gather.GpuInstanced )
-            if ( const void* geometry = m_Gather.Primitives[source.Primitive].Geometry;
-                 geometry != nullptr && traced.insert( geometry ).second )
-                m_Stats.TracedBlasBytes +=
-                     static_cast<const RayTracingGeometryResource*>( geometry )->GetMemoryBytes();
+        // The distinct BLASes the TLAS instances: collected again only when the list was laid out anew or the
+        // GPU-written rows trace other BLASes (a kept list's instances trace the BLAS they traced), summed each
+        // frame.
+        if ( !m_TracedGeometryValid || m_TracedGpuRowsKey != m_LastGpuRowsKey )
+        {
+            DESERT_PROFILE_SCOPE( "RayTracingScene: TracedBlas" );
+            std::unordered_set<const void*> traced;
+            m_TracedGeometry.clear();
+            for ( const RayTracingInstance& instance : m_Instances.Instances )
+                if ( traced.insert( instance.Geometry ).second )
+                    m_TracedGeometry.push_back(
+                         static_cast<const RayTracingGeometryResource*>( instance.Geometry ) );
+            for ( const RayTracingGpuInstanceSource& source : m_Gather.GpuInstanced )
+                if ( const void* geometry = m_Gather.Primitives[source.Primitive].Geometry;
+                     geometry != nullptr && traced.insert( geometry ).second )
+                    m_TracedGeometry.push_back( static_cast<const RayTracingGeometryResource*>( geometry ) );
+            m_TracedGeometryValid = true;
+            m_TracedGpuRowsKey    = m_LastGpuRowsKey;
+        }
+        for ( const RayTracingGeometryResource* geometry : m_TracedGeometry )
+            m_Stats.TracedBlasBytes += geometry->GetMemoryBytes();
         m_Stats.VariantBlasBytes                    = cache.GetVariants().GetMemoryBytes();
         m_Stats.ProceduralBlasBytes                 = cache.GetProcedural().GetMemoryBytes();
         const RayTracingSkinCache::MemoryBytes skin = cache.GetSkinCache().GetMemoryBytes();
