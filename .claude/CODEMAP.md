@@ -26,7 +26,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets` — 138 files, 30,511 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+143)
 - `Assets/Mesh` — 14 files, 2,953 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 9 files, 1,502 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
-- `Assets/Serialization` — 44 files, 11,907 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+80)
+- `Assets/Serialization` — 44 files, 11,942 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageCollision, FoliageFloatInterval, FoliageProcedural, … (+81)
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Assets/StaticLighting` — 3 files, 258 lines: AtlasPlacement, BakedLightRecord, BakedPrimitiveRecord, LightingBuildDataAsset, MeshLightmapUVSettings, StaticLightingInput, StaticLightingInputs, VolumetricLightmapData
@@ -42,7 +42,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Traits` — 1 files, 17 lines
 - `Destruction` — 16 files, 3,480 lines: BodyRef, BodyState, BoxFalloff, BrickSettings, CellBounds, ConvexCell, CutPlane, DestructibleDesc, DestructionEvent, DestructionSettings, DestructionWorld, FieldCommand, … (+25)
 - `ECS` — 46 files, 9,883 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+180)
-- `ECS/System` — 53 files, 9,970 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, CachedGround, ColliderMesh, ComponentEventCursor, ComponentEventSystem, … (+48)
+- `ECS/System` — 55 files, 10,194 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, CachedGround, ColliderMesh, ComponentEventCursor, ComponentEventSystem, … (+50)
 - `GameplayDebugger` — 11 files, 1,209 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 31 files, 2,504 lines
@@ -234,7 +234,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/VFXSystem` — 4 files, 2,284 lines: Gesture, ModuleChoice, VFXSystemDocument
 - `Panels/Validation` — 2 files, 157 lines: Issue, SceneValidationPanel
 - `Panels/ViewportPanel` — 19 files, 7,034 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 44 files, 12,952 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+35)
+- `Panels/ViewportPanel/Tools` — 44 files, 12,991 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+35)
 - `Panels/WorldParameters` — 2 files, 327 lines: WorldParametersPanel
 - `Panels/WorldPartition` — 8 files, 2,494 lines: LandscapeHLODBake, LandscapeHLODBakeTile, LandscapeHLODBaked, LegendRow, RegionRequest, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 149 lines: WorldSettingsPanel
@@ -328,7 +328,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `LatticePeak/Source` — 2 files, 1,476 lines: ChordCensus, Peak
 - `LineJump/Source` — 1 files, 161 lines
 - `PakTool/Source` — 1 files, 297 lines
-- `SceneMigrator/Source` — 24 files, 12,859 lines: AnimationAssetData, AnimationClip, AnimationCurve, AnimationNotify, AssetKeysReport, BlockCanonicalisationReport, BoneTrack, ChannelData, ClipMigrationOutcome, ClipSection, CollisionProfilesReport, CurveData, … (+54)
+- `SceneMigrator/Source` — 24 files, 12,932 lines: AnimationAssetData, AnimationClip, AnimationCurve, AnimationNotify, AssetKeysReport, BlockCanonicalisationReport, BoneTrack, ChannelData, ClipMigrationOutcome, ClipSection, CollisionProfilesReport, CurveData, … (+54)
 - `ShaderRename` — 1 files, 306 lines
 - `Shared` — 3 files, 147 lines: OpenedToolProject
 - `TextureCook/Source` — 1 files, 256 lines
