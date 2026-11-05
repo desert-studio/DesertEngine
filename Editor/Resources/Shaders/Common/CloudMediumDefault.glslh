@@ -120,10 +120,22 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // on the billows. It is the same volume and not a second texture, so a cloud type's `.dcnv` still
     // decides the character of both octaves, and the wispy-at-the-base / billowy-at-the-crown relation
     // carries over through DetailType unchanged.
-    vec4 fineNoise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * ( CLOUD_DETAIL_LF_RATIO * CLOUD_DETAIL_HF_RATIO ) );
-
-    float detailField = mix( CloudDefaultErosionComposite( field, noise ),
-                             CloudDefaultErosionComposite( field, fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
+    //
+    // THE SHADOW RAY READS THE LOW OCTAVE ALONE (GPU-CLOUD-MARCH-2) — Epic's ShadowSampleDistance axis, the
+    // one CLOUD_RAY_SHADOW exists for, and Nubis' cheap light sample. A shadow ray integrates optical depth
+    // over segments of 15 m (the first) to 270 m (the last of the 1 km near march) and up to a kilometre on
+    // the full ray, against an octave whose lobes are a quarter of the low one's: the segment averages
+    // them, so the read buys the sun's transmittance nothing measurable and was one of the two noise
+    // fetches in every one of the up to 9 light samples per lit view sample. The low composite stands in
+    // for the blend at its full weight, so the mean optical depth is the same field's and not a thinner
+    // one. The view ray (CLOUD_RAY_VIEW) keeps both octaves — the billows on the billows are what is SEEN.
+    float detailField = CloudDefaultErosionComposite( field, noise );
+    if ( params.ShadowRay < 0.5f * ( CLOUD_RAY_VIEW + CLOUD_RAY_SHADOW ) )
+    {
+        vec4 fineNoise =
+             CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * ( CLOUD_DETAIL_LF_RATIO * CLOUD_DETAIL_HF_RATIO ) );
+        detailField = mix( detailField, CloudDefaultErosionComposite( field, fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
+    }
 
     // THE EROSION IS THE DECK'S VALUE EROSION, UNWEIGHTED (Nubis Cubed p.120: `remap(profile, erosion, 1,
     // 0, 1)`). The remap is what protects the core — a profile already near one stays near one whatever is

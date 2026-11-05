@@ -49,6 +49,8 @@ namespace Desert::Graphic
         // the column, B 1 where the column is kept (G < R). 2 = along the ray: R the share of 32 samples the
         // cut keeps, G the largest rank step between neighbours x 8 (a seam reads bright). 3 = which clip
         // level of the modelling volume answers at the entry (0 red, 1 green, 2 blue; blend bands mixed).
+        // 4 = the march's cost per ray: R view-ray field evaluations / 256, G lit samples / 64, B the light
+        // samples they scheduled / 512 (8 B / G = light samples per lit sample; CloudRaymarch.shader).
         static inline std::atomic<int> CloudVisualize{ 0 };
     };
 
