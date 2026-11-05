@@ -134,8 +134,9 @@ namespace Desert::Graphic
         // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
         RDG::TextureRef RainOcclusionMap;
         // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh: A base colour, B normal, C roughness /
-        // metallic / AO of the frame's decals, premultiplied, transmittance in alpha), written by "Deferred: Decals" between
-        // the depth prepass and the G-buffer (System::DecalRenderer); invalid when the frame records no decal
+        // metallic / AO of the frame's decals, premultiplied, transmittance in alpha), written by "Deferred:
+        // Decals" between the depth prepass and the G-buffer (System::DecalRenderer); invalid when the frame
+        // records no decal
         //   -> the G-buffer writers (the mesh G-buffer cells, TerrainGBuffer.shader) through SceneViewInputs
         RDG::TextureRef DBufferA;
         RDG::TextureRef DBufferB;
