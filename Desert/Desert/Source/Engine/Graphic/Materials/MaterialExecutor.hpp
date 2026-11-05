@@ -15,9 +15,13 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Graphic
@@ -81,6 +85,25 @@ namespace Desert::Graphic
         std::shared_ptr<StorageBufferProperty> GetStorageBufferProperty( const std::string& name ) const;
         std::shared_ptr<Texture2DProperty>     GetTexture2DProperty( const std::string& name ) const;
         std::shared_ptr<TextureCubeProperty>   GetTextureCubeProperty( const std::string& name ) const;
+
+        // CPU-MAT-VIEW-UB (UE: FShaderParameter resolves to an index, a draw takes no reference): the property
+        // itself, owned by this executor for as long as its properties are not re-initialised - no shared_ptr
+        // copy (two atomic operations) and no std::string per lookup. Null when the shader declares no such name.
+        [[nodiscard]] UniformBufferProperty* FindUniformBufferProperty( std::string_view name ) const;
+        [[nodiscard]] StorageBufferProperty* FindStorageBufferProperty( std::string_view name ) const;
+        [[nodiscard]] Texture2DProperty*     FindTexture2DProperty( std::string_view name ) const;
+        [[nodiscard]] TextureCubeProperty*   FindTextureCubeProperty( std::string_view name ) const;
+
+        // The dense property arrays, in the order the lookups index them: a walk over every block of the material
+        // (the prepare, the field flush) reads these and never goes back through a name.
+        [[nodiscard]] const std::vector<std::shared_ptr<UniformBufferProperty>>& GetUniformBufferStorage() const
+        {
+            return m_UniformBufferPropertiesStorage;
+        }
+        [[nodiscard]] const std::vector<std::shared_ptr<StorageBufferProperty>>& GetStorageBufferStorage() const
+        {
+            return m_StorageBufferPropertiesStorage;
+        }
 
         // RENDER-THREADS M1 + M3 (UE: a pass's uniform buffers and descriptor sets are created from its parameters
         // in its setup, the lambda only binds them). Called by the graph once per declaring pass's graph, after
@@ -146,8 +169,19 @@ namespace Desert::Graphic
         template <typename T>
         using PropertyStorage = std::vector<std::shared_ptr<T>>;
 
+        // CPU-MAT-VIEW-UB: transparent, so a Find by std::string_view hashes the parameter's name in place - no
+        // std::string is built per lookup (Material::Find ran one per scene block per material per frame).
+        struct PropertyNameHash
+        {
+            using is_transparent = void;
+            size_t operator()( std::string_view name ) const noexcept
+            {
+                return std::hash<std::string_view>{}( name );
+            }
+        };
+
         template <typename T>
-        using PropertyLookup = std::unordered_map<std::string, size_t>;
+        using PropertyLookup = std::unordered_map<std::string, size_t, PropertyNameHash, std::equal_to<>>;
 
         Common::Memory::Buffer m_PushConstantBuffer;
         Material*              m_Owner                = nullptr;

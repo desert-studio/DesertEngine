@@ -202,9 +202,9 @@ namespace Desert::Graphic
          std::string_view fieldName ) const
     {
         const std::string key( fieldName );
-        for ( const auto& [ubName, idx] : m_MaterialExecutor->GetUniformBufferProperties() )
+        // The dense array, not a second lookup by each block's own name (CPU-MAT-VIEW-UB).
+        for ( const auto& ubProp : m_MaterialExecutor->GetUniformBufferStorage() )
         {
-            auto ubProp = m_MaterialExecutor->GetUniformBufferProperty( ubName );
             if ( !ubProp )
                 continue;
             if ( auto* field = ubProp->GetField( key ) )
@@ -314,9 +314,8 @@ namespace Desert::Graphic
         if ( !m_MaterialExecutor )
             return;
 
-        for ( const auto& [ubName, idx] : m_MaterialExecutor->GetUniformBufferProperties() )
+        for ( const auto& ubProp : m_MaterialExecutor->GetUniformBufferStorage() )
         {
-            auto ubProp = m_MaterialExecutor->GetUniformBufferProperty( ubName );
             if ( ubProp && ubProp->HasDirtyFields() )
                 ubProp->UpdateFields();
         }
