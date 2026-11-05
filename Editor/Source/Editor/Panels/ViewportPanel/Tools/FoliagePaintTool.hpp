@@ -138,10 +138,11 @@ namespace Desert::Editor::Tools
         static Common::BoolResultStr SaveTypeCopy( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                    const Common::UUID& field );
         // The Details' edit of the field's type: @p edit changes a copy of its numbers, which is written to the
-        // `.defoliage` and read back (the panel's own commit, DrawTypeSettings), so a scenario sets what a hand drags.
-        static Common::BoolResultStr EditType( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
-                                               const Common::UUID&                                               field,
-                                               const std::function<void( Assets::Serialization::FoliageTypeData& )>& edit );
+        // `.defoliage` and read back (the panel's own commit, DrawTypeSettings), so a scenario sets what a hand
+        // drags.
+        static Common::BoolResultStr
+        EditType( ::Desert::Core::Scene& scene, Assets::AssetManager& manager, const Common::UUID& field,
+                  const std::function<void( Assets::Serialization::FoliageTypeData& )>& edit );
         // UE "Show in Content Browser": the type's folder, through the asset fields' one route.
         static Common::BoolResultStr ShowTypeInBrowser( ::Desert::Core::Scene& scene, const Common::UUID& field );
         // The palette's eye: the field's entity hidden or shown (VisibilityComponent, what the outliner's eye

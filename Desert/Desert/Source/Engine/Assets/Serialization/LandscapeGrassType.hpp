@@ -143,9 +143,12 @@ namespace Desert::Assets::Serialization
     {
         switch ( scaling )
         {
-            case GrassScaling::Uniform: return FoliageScaling::Uniform;
-            case GrassScaling::Free: return FoliageScaling::Free;
-            case GrassScaling::LockXY: return FoliageScaling::LockXY;
+            case GrassScaling::Uniform:
+                return FoliageScaling::Uniform;
+            case GrassScaling::Free:
+                return FoliageScaling::Free;
+            case GrassScaling::LockXY:
+                return FoliageScaling::LockXY;
         }
         return FoliageScaling::Uniform;
     }

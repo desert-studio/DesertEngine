@@ -403,7 +403,8 @@ namespace Desert::Editor::Tools
                              : "Scale range of X drawn per instance (UE ScaleX)",
                         "##ScaleX", f.ScaleX );
             if ( reads.Y )
-                scaleRange( "Scale Y", "Scale range of Y, the other ground axis (UE ScaleY)", "##ScaleY", f.ScaleY );
+                scaleRange( "Scale Y", "Scale range of Y, the other ground axis (UE ScaleY)", "##ScaleY",
+                            f.ScaleY );
             if ( reads.Z )
                 scaleRange( "Scale Z", "Scale range of Z, the instance's up (UE ScaleZ)", "##ScaleZ", f.ScaleZ );
             row( "Z Offset", "Offset along the placement up axis, cm",
@@ -2499,9 +2500,10 @@ namespace Desert::Editor::Tools
         return ReplaceType( scene, manager, field, copy.GetValue().string() );
     }
 
-    Common::BoolResultStr FoliagePaintTool::EditType(
-         ::Desert::Core::Scene& scene, Assets::AssetManager& manager, const Common::UUID& field,
-         const std::function<void( Assets::Serialization::FoliageTypeData& )>& edit )
+    Common::BoolResultStr
+    FoliagePaintTool::EditType( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                const Common::UUID&                                                   field,
+                                const std::function<void( Assets::Serialization::FoliageTypeData& )>& edit )
     {
         auto e = FieldOf( scene, field, "edit type" );
         if ( !e )

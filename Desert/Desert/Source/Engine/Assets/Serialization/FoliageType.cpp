@@ -77,8 +77,9 @@ namespace Desert::Assets::Serialization
     {
         if ( !std::isfinite( data.Density ) || data.Density <= 0.0f )
             return Common::MakeFormattedError<bool>( "Density {} must be a positive number", data.Density );
-        for ( const auto& [name, range] : { std::pair{ "ScaleX", &data.ScaleX }, std::pair{ "ScaleY", &data.ScaleY },
-                                            std::pair{ "ScaleZ", &data.ScaleZ } } )
+        for ( const auto& [name, range] :
+              { std::pair{ "ScaleX", &data.ScaleX }, std::pair{ "ScaleY", &data.ScaleY },
+                std::pair{ "ScaleZ", &data.ScaleZ } } )
         {
             if ( auto ok = CheckInterval( name, *range ); !ok )
                 return ok;

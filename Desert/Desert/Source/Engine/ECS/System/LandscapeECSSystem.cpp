@@ -752,12 +752,12 @@ namespace Desert::ECS
                         // mesh's footprint (a tuft covers the ground under it once), at the variety's mean scale.
                         // The mean instance's scale by the rule the foliage brush shares (UE GetRandomScale
                         // at the draws' middle): a locked axis takes its pair's range.
-                        const auto  mean   = Assets::Serialization::FoliageScaleFromDraws(
-                             Assets::Serialization::ToFoliageScaling( v.Scaling ), v.ScaleX, v.ScaleY, v.ScaleZ, 0.5f,
-                             0.5f, 0.5f );
-                        const float meanX  = mean.X;
-                        const float meanUp = mean.Z;
-                        float       area   = 0.0f;
+                        const auto mean = Assets::Serialization::FoliageScaleFromDraws(
+                             Assets::Serialization::ToFoliageScaling( v.Scaling ), v.ScaleX, v.ScaleY, v.ScaleZ,
+                             0.5f, 0.5f, 0.5f );
+                        const float meanX   = mean.X;
+                        const float meanUp  = mean.Z;
+                        float       area    = 0.0f;
                         float       radius  = 0.0f;
                         if ( blade )
                         {
@@ -768,15 +768,14 @@ namespace Desert::ECS
                             // Only the share of the strip its mask keeps is leaf (GrassCoverLook::Coverage, from
                             // the atlas): the rest is the soil the near field shows between its blades.
                             const float leaf = sections.Cover ? sections.Cover->Coverage : 1.0f;
-                            area             = v.Blade->Height * v.Blade->Height * aspect * leaf *
-                                   meanX * meanUp *
+                            area             = v.Blade->Height * v.Blade->Height * aspect * leaf * meanX * meanUp *
                                    ( 1.0f - 0.5f * v.Blade->Patchiness );
                         }
                         else
                         {
                             const Common::Math::AABB bounds = Geometry::LocalBounds( mesh->GetSubmeshes() );
-                            area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) *
-                                   meanX * mean.Y;
+                            area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) * meanX *
+                                   mean.Y;
                             // The far LOD's measure of the mean instance (GrassGenerate: the radius at scale 1 x
                             // the largest of its scales).
                             radius = Graphic::System::GrassFarLodRadius( bounds ) * mean.Largest();

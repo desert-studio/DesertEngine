@@ -100,9 +100,9 @@ namespace Desert::Editor::Tools
             const float first  = rng.Next01();
             const float second = rng.Next01();
             const float third  = rng.Next01();
-            const auto  local  = Assets::Serialization::FoliageScaleFromDraws( type.Scaling, type.ScaleX, type.ScaleY,
-                                                                               type.ScaleZ, first, second, third )
-                                     .MeshLocal();
+            const auto  local  = Assets::Serialization::FoliageScaleFromDraws(
+                                    type.Scaling, type.ScaleX, type.ScaleY, type.ScaleZ, first, second, third )
+                                    .MeshLocal();
             return glm::vec3( local[0], local[1], local[2] );
         }
 

@@ -56,8 +56,8 @@ namespace Desert::Assets::Serialization
      *       WindSource entities (UE: the WindDirectionalSource, not the foliage type); the type keeps only its
      *       response (Strength, Speed, Height). SceneMigrator raises a v7 file (MigrateFoliageTypeV7ToV8), every
      *       other value kept.
-     *   9 - Collision joins (FOLIAGE-COLLISION, UE UFoliageType::BodyInstance): whether the instances collide, under
-     *       which profile and with which shape of their mesh. SceneMigrator raises a v8 file
+     *   9 - Collision joins (FOLIAGE-COLLISION, UE UFoliageType::BodyInstance): whether the instances collide,
+     * under which profile and with which shape of their mesh. SceneMigrator raises a v8 file
      *       (MigrateFoliageTypeV8ToV9) with Enabled false, what every v8 field did (nothing collided with it).
      *  10 - Scaling, ScaleY and ScaleZ join (FOLIAGE-SCALING, UE EFoliageScaling and UFoliageType::ScaleY/ScaleZ):
      *       the instances may scale per axis. SceneMigrator raises a v9 file (MigrateFoliageTypeV9ToV10) with
@@ -129,11 +129,16 @@ namespace Desert::Assets::Serialization
     {
         switch ( scaling )
         {
-            case FoliageScaling::Uniform: return { false, false };
-            case FoliageScaling::Free: return { true, true };
-            case FoliageScaling::LockXY: return { false, true };
-            case FoliageScaling::LockXZ: return { true, false };
-            case FoliageScaling::LockYZ: return { true, false };
+            case FoliageScaling::Uniform:
+                return { false, false };
+            case FoliageScaling::Free:
+                return { true, true };
+            case FoliageScaling::LockXY:
+                return { false, true };
+            case FoliageScaling::LockXZ:
+                return { true, false };
+            case FoliageScaling::LockYZ:
+                return { true, false };
         }
         return { false, false };
     }
@@ -144,10 +149,9 @@ namespace Desert::Assets::Serialization
      *        The one statement of the rule: the foliage brush (paint, fill, single, reapply) and the grass
      *        varieties' CPU measure (LandscapeECSSystem, at the draws' middle 0.5) both call it.
      */
-    [[nodiscard]] inline FoliageAxisScale FoliageScaleFromDraws( FoliageScaling scaling, const FoliageFloatInterval& x,
-                                                                 const FoliageFloatInterval& y,
-                                                                 const FoliageFloatInterval& z, float first,
-                                                                 float second, float third )
+    [[nodiscard]] inline FoliageAxisScale
+    FoliageScaleFromDraws( FoliageScaling scaling, const FoliageFloatInterval& x, const FoliageFloatInterval& y,
+                           const FoliageFloatInterval& z, float first, float second, float third )
     {
         const auto at = []( const FoliageFloatInterval& r, float t ) { return r.Min + ( r.Max - r.Min ) * t; };
         switch ( scaling )
@@ -157,7 +161,8 @@ namespace Desert::Assets::Serialization
                 const float s = at( x, first );
                 return { s, s, s };
             }
-            case FoliageScaling::Free: return { at( x, first ), at( y, second ), at( z, third ) };
+            case FoliageScaling::Free:
+                return { at( x, first ), at( y, second ), at( z, third ) };
             case FoliageScaling::LockXY:
             {
                 const float s = at( x, first );

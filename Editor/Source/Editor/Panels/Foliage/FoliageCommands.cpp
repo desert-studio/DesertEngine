@@ -149,8 +149,8 @@ namespace Desert::Editor
                                       Core::FoliagePaint::EraseDensity() = static_cast<float>( tenth ) / 10.0f;
                                       return BOOLSUCCESS;
                                   } } );
-        // The edited type's Scaling and scale ranges (FOLIAGE-SCALING), as the Details panel sets them: a mode, and
-        // a range dragged to one value from the steps a hand picks.
+        // The edited type's Scaling and scale ranges (FOLIAGE-SCALING), as the Details panel sets them: a mode,
+        // and a range dragged to one value from the steps a hand picks.
         {
             using Assets::Serialization::FoliageFloatInterval;
             using Assets::Serialization::FoliageScaling;
