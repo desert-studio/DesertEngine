@@ -895,7 +895,9 @@ namespace Desert::Graphic::API::Vulkan
             auto* const slice       = std::get_if<VulkanUploadRing::Slice>( &reservation );
             if ( slice == nullptr )
             {
-                if ( std::get<VulkanUploadRing::Full>( reservation ).NeverFits )
+                // get_if, not get: std::get throws bad_variant_access, and nothing here may throw.
+                const auto* const full = std::get_if<VulkanUploadRing::Full>( &reservation );
+                if ( full == nullptr || full->NeverFits )
                     return Common::MakeFormattedError<RecordedUploadStep>(
                          "image '{}': level {} ({} bytes) cannot be staged: it is larger than the {} MB upload "
                          "ring, or the ring was not made",
@@ -924,7 +926,9 @@ namespace Desert::Graphic::API::Vulkan
                                      std::max( 1u, m_Specification.Height >> level ), 1 };
             regions.push_back( VkBufferImageCopy{
                  .bufferOffset     = offsets[level - first],
-                 .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = level, .layerCount = 1 },
+                 .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                       .mipLevel   = level,
+                                       .layerCount = 1 },
                  .imageExtent      = extent } );
         }
 
@@ -943,7 +947,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( end < levelCount )
             return Common::MakeSuccess( RecordedUploadStep{ bytes, false } );
 
-        // THE LAST LEVEL: sampled from here on. The barrier's first scope is every earlier submission on the queue,
+        // THE LAST LEVEL: sampled from here on. The barrier's first scope is every earlier submission on the
+        // queue,
         // so the levels an earlier frame's batch copied are covered too.
         TransitionLayout( cmd, Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties ) );
         m_PendingUpload.reset();

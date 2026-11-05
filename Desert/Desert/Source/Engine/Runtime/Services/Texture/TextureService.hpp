@@ -186,7 +186,9 @@ namespace Desert::Runtime
         void FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome,
                          double recordMs = 0.0 );
 
-        /// A prepared texture whose copies PumpUploads records, a few levels a frame (CPU-STREAM-UPLOAD-RING).
+        /// A prepared texture whose copies PumpUploads records, a few levels a frame (CPU-STREAM-UPLOAD-RING). It
+        /// holds its cook's admission (CookAdmission) until it leaves m_Recording: on the full path its decoded
+        /// pixels are still in CPU memory, which is what CooksInFlight bounds.
         struct RecordingUpload
         {
             Assets::AssetHandle                   Handle;
@@ -194,7 +196,16 @@ namespace Desert::Runtime
             uint64_t                              Remaining = 0;
             double                                RecordMs  = 0.0;
             Graphic::Texture2D::PreparedTexture2D Prepared;
+            /// Its last step found no room in the upload ring: it waits for slices to retire and is not owed.
+            bool Starved = false;
+            /// A step of it is in the batch this pump records (failed with that batch if it is not submitted).
+            bool InThisBatch = false;
         };
+        /// PumpUploads' second half: one batch for the copies of m_Recording within the frame's budget.
+        void RecordUploads();
+        /// Settles @p recording as failed with @p error and gives its admission back (a stale one only the
+        /// latter).
+        void FailRecording( RecordingUpload& recording, const std::string& error );
 
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.

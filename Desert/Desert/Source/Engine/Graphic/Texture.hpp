@@ -181,10 +181,11 @@ namespace Desert::Graphic
 
         /// THE WORKER HALF OF A STREAM-IN (CPU-STREAM-UPLOAD-RING; UE FTexture2DStreamIn's async reallocation):
         /// @p cooked becomes a device image with its views and its levels written into the upload ring
-        /// (Image2DSpecification::Upload = Recorded), on the calling thread -- the cook worker. Nothing is recorded,
-        /// submitted or registered. The frame's thread records the copies (Image2D::RecordUploadStep, a few levels a
-        /// frame) and, once the last one is recorded, hands the image to CreateFromPrepared (a texture asked for the
-        /// first time) or StagePrepared (a streamed raise of this texture; AdoptStagedLevels at the hand-off).
+        /// (Image2DSpecification::Upload = Recorded), on the calling thread -- the cook worker. Nothing is
+        /// recorded, submitted or registered. The frame's thread records the copies (Image2D::RecordUploadStep, a
+        /// few levels a frame) and, once the last one is recorded, hands the image to CreateFromPrepared (a
+        /// texture asked for the first time) or StagePrepared (a streamed raise of this texture;
+        /// AdoptStagedLevels at the hand-off).
         struct PreparedTexture2D
         {
             std::shared_ptr<Image2D> Image;
@@ -195,7 +196,8 @@ namespace Desert::Graphic
         static Common::ResultStr<PreparedTexture2D>
         PrepareCooked( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() );
         static Common::ResultStr<std::shared_ptr<Texture2D>>
-        CreateFromPrepared( const PreparedTexture2D& prepared, const TextureBackend& backend = TextureBackend::Device() );
+        CreateFromPrepared( const PreparedTexture2D& prepared,
+                            const TextureBackend&    backend = TextureBackend::Device() );
         Common::ResultStr<StagedLevels> StagePrepared( const PreparedTexture2D& prepared ) const;
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
