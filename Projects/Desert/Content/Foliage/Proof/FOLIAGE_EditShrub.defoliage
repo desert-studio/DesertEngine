@@ -54,7 +54,7 @@
         "CollisionRadius": 120.0,
         "ShadeRadius": 30.0,
         "NumSteps": 2,
-        "InitialSeedDensity": 0.2,
+        "InitialSeedDensity": 1.0,
         "AverageSpreadDistance": 150.0,
         "SpreadVariance": 150.0,
         "SeedsPerStep": 2,
