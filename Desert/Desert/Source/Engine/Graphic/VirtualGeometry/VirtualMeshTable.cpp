@@ -511,11 +511,19 @@ namespace Desert::Graphic::VirtualGeometry
 
     std::vector<VirtualMeshDagSpan> VirtualMeshTable::DescribeUploaded( const VirtualMeshIndex mesh ) const
     {
-        const Storage&                  s = *m_Storage;
-        std::lock_guard                 lock( s.Mutex );
         std::vector<VirtualMeshDagSpan> spans;
+        DescribeUploaded( mesh, spans );
+        return spans;
+    }
+
+    void VirtualMeshTable::DescribeUploaded( const VirtualMeshIndex           mesh,
+                                             std::vector<VirtualMeshDagSpan>& spans ) const
+    {
+        const Storage&  s = *m_Storage;
+        std::lock_guard lock( s.Mutex );
+        spans.clear();
         if ( mesh >= s.Rows.size() || !s.Rows[mesh].Live || !s.Rows[mesh].Uploaded )
-            return spans;
+            return;
         const MeshRows& rows = s.Rows[mesh];
         spans.reserve( rows.DagCount );
         for ( uint32_t d = rows.FirstDag; d < rows.FirstDag + rows.DagCount; ++d )
@@ -527,7 +535,6 @@ namespace Desert::Graphic::VirtualGeometry
                                .ClusterCount = dag.ClusterCount,
                                .RootNode     = dag.RootNode } );
         }
-        return spans;
     }
 
     std::string VirtualMeshTable::DagMeshName( const uint32_t dag ) const

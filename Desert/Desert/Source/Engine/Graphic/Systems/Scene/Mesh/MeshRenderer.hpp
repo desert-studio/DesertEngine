@@ -290,6 +290,15 @@ namespace Desert::Graphic::System
             // command i's first record is record @p firstRecords[i] of @p arguments, which the node declares
             // Access::IndirectArgs. Until the next Clear.
             void SetIndirect( RDG::BufferRef arguments, std::vector<uint32_t> firstRecords );
+            // The first-record storage handed out empty (CPU-FRAME-ARENA 7): a caller fills it and gives it back
+            // through SetIndirect, so a list kept across frames reuses its capacity instead of a new vector.
+            [[nodiscard]] std::vector<uint32_t> TakeFirstRecords() noexcept
+            {
+                std::vector<uint32_t> records = std::move( m_FirstRecords );
+                m_FirstRecords.clear(); // a moved-from vector is valid but unspecified
+                records.clear();
+                return records;
+            }
             // The GPU-driven mesh pass Record's draws are counted under (DrawCounter::LastFrameMeshPass, DesertCtl
             // `state views.meshPasses`); set once by the owner (MeshRenderer::Initialize), kept across Clear.
             // Unset: a list outside the binned passes (glass, debug, card capture), counted only globally.
@@ -2853,8 +2862,39 @@ namespace Desert::Graphic::System
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
         // Per still ISM (by its signature): what each instance cast last frame, 0 = faded out by its cull
         // distance, else 1 + its LOD - both follow the main camera, and an instance whose state changed redraws
-        // the pages under it.
-        std::unordered_map<uint64_t, std::vector<uint32_t>> m_VsmIsmStates;
+        // the pages under it. Kept in place (CPU-FRAME-ARENA 7): a row is stamped with the collect that wrote it
+        // (m_VsmIsmCollect), compared only when the previous collect wrote it, and erased when a collect does not
+        // name it, so a still field's vector keeps its capacity instead of a new map + vector per frame.
+        struct VsmIsmStateRow
+        {
+            std::vector<uint32_t> States;
+            uint64_t              Collect = 0;
+        };
+        std::unordered_map<uint64_t, VsmIsmStateRow> m_VsmIsmStates;
+        uint64_t                                     m_VsmIsmCollect = 0;
+        // CollectVirtualShadowInvalidation's working lists, the other half of the kept ones (m_VsmStillCasters,
+        // m_VsmMovingBoxes, m_VsmKeySnapshots, m_VsmStaticStill.Entries are swapped with them at the end, so both
+        // halves keep their capacity; UE FMemStack-style frame scratch with no allocation once warm). Empty
+        // between collects; the collect runs on the render thread alone.
+        struct VsmCollectScratch
+        {
+            std::vector<ShadowCasterEntry>                             Still;
+            std::vector<ShadowCasterEntry>                             Fresh;
+            std::vector<ShadowCasterEntry>                             Others;
+            std::vector<VsmInvalidationBox>                            Moving;
+            std::vector<VsmInvalidationBox>                            NowSorted;
+            std::vector<std::shared_ptr<const std::vector<glm::mat4>>> Snapshots;
+            std::vector<uint32_t>                                      States;
+        };
+        VsmCollectScratch m_VsmCollectScratch;
+        // The VSM frame's other kept working storage (render thread, one user at a time):
+        // ResetVirtualShadowGeometry rotates the carried list through m_VsmCarriedScratch (empty between frames);
+        // SetVirtualShadowGeometry's per-group fallback marks; AddVirtualShadowRasterNode's cull lists (copied
+        // into the graph's uploads by AddCasterCulling at the call) and one non-mesh caster's draws.
+        std::vector<const GraphicsPipeline*> m_VsmCarriedScratch;
+        std::vector<uint8_t>                 m_VsmFallbackScratch;
+        VsmCasterCull                        m_VsmCasterCullScratch;
+        std::vector<VirtualShadowCasterDraw> m_VsmCasterDrawsScratch;
         // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
         bool m_VsmCastersPending = false;
 

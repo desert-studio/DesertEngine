@@ -1608,11 +1608,30 @@ namespace Desert::Graphic::System
                                                                         const GraphicsPipeline* standIn,
                                                                         const RefusedCell&      refused )
     {
+        // The program by identity too (CellKey: serial x code generation), so an address reused after a free or
+        // a hot reload is a new row and never a stale one.
         MaterialPipelineTracker::CellKey key;
+        const Shader*                    program = nullptr;
+        std::shared_ptr<Shader>          cellProgram; // refused only: the executor hands its shader out by value
         if ( own != nullptr )
+        {
             key.Pipeline = own;
+            program      = own->GetShader().get();
+        }
         else
+        {
             key = { nullptr, refused.PassState, refused.Cell, refused.TwoSided };
+            const MaterialExecutor* const executor =
+                 refused.Cell != nullptr ? refused.Cell->GetMaterialExecutor() : nullptr;
+            if ( executor != nullptr )
+                cellProgram = executor->GetShader();
+            program = cellProgram.get();
+        }
+        if ( program != nullptr )
+        {
+            key.ShaderSerial   = program->GetSerial();
+            key.CodeGeneration = program->GetCodeGeneration();
+        }
         MaterialPipelineState reports = MaterialPipelineState::Failed; // refused: its builder logged why
         if ( own != nullptr )
         {

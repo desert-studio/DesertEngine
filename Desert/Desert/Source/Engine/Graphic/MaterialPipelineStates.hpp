@@ -194,14 +194,19 @@ namespace Desert::Graphic
         // cache by the initializer's state, not a string): the cell's own pipeline when it has one (one per pass
         // state x cell x cull permutation, rebuilt in place by a recompile), else the pass state x the cell
         // material x two-sidedness that would have built it. Its row carries the state reported this frame and
-        // the announce bits; the state is re-reported by every call, so an address a freed object hands to a
-        // new one can only skip one announce line, never change a draw.
+        // the announce bits. An address is not an identity (a freed pipeline's or material's address comes back
+        // on a later allocation, a hot reload frees and rebuilds), so the key also names the PROGRAM the row is
+        // about - Shader::GetSerial (never reused) x Shader::GetCodeGeneration (moves with every reload) - as UE
+        // keys a PSO by FShader x permutation: a reused address over another program, or the same program after
+        // a recompile, is a fresh row that announces again and never inherits a stale state.
         struct CellKey
         {
-            const void* Pipeline  = nullptr; ///< the cell's own pipeline, or null when it was refused
-            const void* PassState = nullptr; ///< refused only: the pass state the cell is drawn through
-            const void* Cell      = nullptr; ///< refused only: the cell material
-            bool        TwoSided  = false;   ///< refused only: the cull permutation it asked for
+            const void* Pipeline       = nullptr; ///< the cell's own pipeline, or null when it was refused
+            const void* PassState      = nullptr; ///< refused only: the pass state the cell is drawn through
+            const void* Cell           = nullptr; ///< refused only: the cell material
+            bool        TwoSided       = false;   ///< refused only: the cull permutation it asked for
+            uint64_t    ShaderSerial   = 0;       ///< the program: own pipeline's shader, else the cell's (0 none)
+            uint64_t    CodeGeneration = 0;       ///< that program's Shader::GetCodeGeneration when asked
 
             bool operator==( const CellKey& ) const = default;
         };
@@ -214,7 +219,9 @@ namespace Desert::Graphic
                 size_t seed = std::hash<const void*>{}( key.Pipeline );
                 seed        = mix( seed, std::hash<const void*>{}( key.PassState ) );
                 seed        = mix( seed, std::hash<const void*>{}( key.Cell ) );
-                return mix( seed, static_cast<size_t>( key.TwoSided ) );
+                seed        = mix( seed, static_cast<size_t>( key.TwoSided ) );
+                seed        = mix( seed, std::hash<uint64_t>{}( key.ShaderSerial ) );
+                return mix( seed, std::hash<uint64_t>{}( key.CodeGeneration ) );
             }
         };
 

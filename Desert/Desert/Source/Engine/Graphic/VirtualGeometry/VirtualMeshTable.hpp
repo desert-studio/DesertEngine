@@ -136,6 +136,9 @@ namespace Desert::Graphic::VirtualGeometry
         // after its RT_Register); empty for a row not registered, released, or registered since the last upload -
         // a draw that names rows the device buffers do not hold yet would read the previous owner's.
         [[nodiscard]] std::vector<VirtualMeshDagSpan> DescribeUploaded( VirtualMeshIndex mesh ) const;
+        // The same answer into @p spans (cleared first), for a per-frame caller that keeps the vector (CPU-FRAME-
+        // ARENA 7): no allocation once its capacity is warm.
+        void DescribeUploaded( VirtualMeshIndex mesh, std::vector<VirtualMeshDagSpan>& spans ) const;
         // Moves whenever an answer of DescribeUploaded may have changed: a row registered, released, freed, or
         // reaching / leaving the device in RT_Upload. Read BEFORE the DescribeUploaded calls a cache is made from (a
         // move between the two leaves the cache under the older value, so it is made again).
