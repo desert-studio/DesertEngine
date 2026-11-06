@@ -14,6 +14,7 @@
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -179,9 +180,12 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    MeshRenderer::VirtualShadowInvalidation MeshRenderer::CollectVirtualShadowInvalidation()
+    void MeshRenderer::CollectVirtualShadowInvalidation( VirtualShadowInvalidation& result )
     {
-        VirtualShadowInvalidation result;
+        // The caller's kept lists (CPU-FRAME-ARENA 8): refilled in place, their capacity kept across frames.
+        result.Boxes.clear();
+        result.MovableBoxes.clear();
+        result.StaticCastersChanged = false;
         // The pages drawn last frame lack a masked caster whose pipeline was still compiling: drop them all.
         result.StaticCastersChanged = std::exchange( m_VsmCastersPending, false );
         // Every caster's box, LOD and kept instances are this frame's gather (GatherShadowCasters), the ones the
@@ -191,7 +195,7 @@ namespace Desert::Graphic::System
             LOG_ERROR( "[Shadows] virtual shadow pages invalidated from casters gathered for other mesh queues (a "
                        "queue changed after MeshRenderer::GatherShadowCasters); every cached page drops." );
             result.StaticCastersChanged = true;
-            return result;
+            return;
         }
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
 
@@ -441,7 +445,7 @@ namespace Desert::Graphic::System
         std::vector<VsmInvalidationBox>& nowSorted = scratch.NowSorted;
         nowSorted.assign( moving.begin(), moving.end() );
         std::sort( nowSorted.begin(), nowSorted.end(), boxLess );
-        result.MovableBoxes = moving;
+        result.MovableBoxes.assign( moving.begin(), moving.end() );
         for ( const VsmInvalidationBox& old : m_VsmMovingBoxes )
             if ( !std::binary_search( nowSorted.begin(), nowSorted.end(), old, boxLess ) )
                 result.MovableBoxes.push_back( old );
@@ -457,7 +461,6 @@ namespace Desert::Graphic::System
         others.clear();
         nowSorted.clear();
         scratch.States.clear();
-        return result;
     }
 
     uint32_t MeshRenderer::CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const
@@ -675,27 +678,34 @@ namespace Desert::Graphic::System
         m_ClusterWalkWords.clear();
     }
 
-    Common::ResultStr<std::vector<uint8_t>>
-    MeshRenderer::SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
-                                            const GpuDriven::DrawCommandBuffers&     upload,
-                                            const GpuDriven::GpuSceneBuffers&        scene )
+    Common::BoolResultStr MeshRenderer::SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
+                                                                  const GpuDriven::DrawCommandBuffers&     upload,
+                                                                  const GpuDriven::GpuSceneBuffers&        scene,
+                                                                  std::vector<uint8_t>&                    drawn )
     {
-        using Result                        = std::vector<uint8_t>;
         constexpr GpuDriven::MeshPass kPass = GpuDriven::MeshPass::VirtualShadow;
+        drawn.clear();
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;
         m_VsmFallbackSubmeshes = 0;
         if ( !m_DrawCommandCache )
-            return Common::MakeError<Result>(
-                 "virtual shadow map clusters: no draw command cache to bin them by" );
+            return Common::MakeError( "virtual shadow map clusters: no draw command cache to bin them by" );
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
-            return Common::MakeError<Result>( pipelines.GetError() );
+            return pipelines;
         const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( kPass );
         if ( issue.GroupCount != table.Groups.size() )
-            return Common::MakeError<Result>(
-                 std::format( "virtual shadow map clusters: {} cluster bins for {} groups", issue.GroupCount,
-                              table.Groups.size() ) );
-        Result                drawn( table.Groups.size(), uint8_t{ 0 } );
+            return Common::MakeError( std::format( "virtual shadow map clusters: {} cluster bins for {} groups",
+                                                   issue.GroupCount, table.Groups.size() ) );
+        // Each group cell's class from m_VsmCellClasses: its name is read (and MeshCellPath /
+        // DeclaresVirtualGeometryTwin asked) only for a shader not met since the service last moved.
+        const uint64_t registry = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
+        if ( !m_VsmCellClassesValid || m_VsmCellClassesRegistry != registry )
+        {
+            m_VsmCellClasses.clear();
+            m_VsmCellClassesRegistry = registry;
+            m_VsmCellClassesValid    = true;
+        }
+        drawn.assign( table.Groups.size(), uint8_t{ 0 } );
         std::vector<uint8_t>& fallback = m_VsmFallbackScratch; // kept; refilled per frame
         fallback.assign( table.Groups.size(), uint8_t{ 0 } );
         bool anyFallback = false;
@@ -709,19 +719,39 @@ namespace Desert::Graphic::System
                 drawn[group] = 1u;
                 continue;
             }
-            // Only a group of a path with the VG permutation (Static, Instanced) can hold clusters.
-            const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
-            if ( const auto path = MeshCellPath( cell ); !path || !HasVirtualGeometryPermutation( *path ) )
+            const std::shared_ptr<Shader>& shader = indirect.Pipeline->GetSpecification().Shader;
+            if ( !shader )
                 continue;
-            // The template has no `.VirtualGeometry` permutation: the fallback (UE: no Nanite path -> the fallback
-            // mesh), a known state - its submeshes are counted below, nothing is logged.
-            if ( !DeclaresVirtualGeometryTwin( cell ) )
+            const uint64_t code = shader->GetCodeGeneration();
+            auto [row, fresh]   = m_VsmCellClasses.try_emplace( shader->GetSerial() );
+            VsmCellRow& cellRow = row->second;
+            if ( fresh || cellRow.CodeGeneration != code )
+            {
+                const std::string cell = shader->GetName();
+                cellRow                = VsmCellRow{ .CodeGeneration = code };
+                // Only a group of a path with the VG permutation (Static, Instanced) can hold clusters. The
+                // template with no `.VirtualGeometry` permutation is the fallback (UE: no Nanite path -> the
+                // fallback mesh), a known state - its submeshes are counted below, nothing is logged.
+                if ( const auto path = MeshCellPath( cell ); !path || !HasVirtualGeometryPermutation( *path ) )
+                    cellRow.Class = VsmCellClass::NoPermutation;
+                else if ( !DeclaresVirtualGeometryTwin( cell ) )
+                    cellRow.Class = VsmCellClass::Fallback;
+                else
+                    cellRow.Class = VsmCellClass::Twin;
+            }
+            if ( cellRow.Class == VsmCellClass::NoPermutation )
+                continue;
+            if ( cellRow.Class == VsmCellClass::Fallback )
             {
                 fallback[group] = 1u;
                 anyFallback     = true;
                 continue;
             }
             ++m_VsmRefusedGroups;
+            // Said once per cell (m_BinnedRefused); the row only spares the name and the key's concatenation.
+            if ( std::exchange( cellRow.RefusalSaid, true ) )
+                continue;
+            const std::string cell = shader->GetName();
             if ( m_BinnedRefused.insert( cell + "|vsm-vg" ).second )
                 LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` twin (no such cell, or it is compiling): "
                           "its virtual-geometry meshes cast into the virtual shadow map through the CPU walk",
@@ -739,7 +769,7 @@ namespace Desert::Graphic::System
         binned.BinsIssued      = false;
         binned.VirtualGeometry = std::move( issue );
         m_VsmGeometry          = std::move( binned );
-        return Common::MakeSuccess( std::move( drawn ) );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterPasses( RDG::Builder&                   graph,

@@ -845,7 +845,8 @@ namespace Desert::Graphic::System
         // [.Parallax].Binned.VirtualGeometry` on the VSM caster state), whose vertex stage takes the level's
         // matrix and fragment stage the level's page table from the cluster's view. The carriers are made by
         // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
-        // twin draws (CpuWalkHidden). Returns per group whether its clusters are drawn. A group with clusters
+        // twin draws (CpuWalkHidden). Writes per group whether its clusters are drawn into the caller's @p drawn
+        // (kept by the caller across frames: no vector per frame; left empty when refused). A group with clusters
         // binned and no twin is one of two states, both kept in the CPU walk (no shadow is lost):
         //  - a FALLBACK (UE: a material with no Nanite path renders the fallback mesh - a known state, not an
         //    error) when its template declares no `.VirtualGeometry` twin (DeclaresVirtualGeometryTwin): counted
@@ -854,10 +855,10 @@ namespace Desert::Graphic::System
         //    cell, counted (VsmRefusedGroups; must be 0).
         // Refused without the VSM caster pipelines, a draw command cache or for bins of another group count;
         // nothing is attached then.
-        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
+        [[nodiscard]] Common::BoolResultStr
         SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                   const GpuDriven::DrawCommandBuffers&     upload,
-                                  const GpuDriven::GpuSceneBuffers&        scene );
+                                  const GpuDriven::GpuSceneBuffers& scene, std::vector<uint8_t>& drawn );
         // THE ONE RULE "this submesh of a static entry or an ISM / foliage field would be drawn as clusters in @p
         // pass" (MeshPass::ShadowCascade: a sun cascade's static layer; MeshPass::VirtualShadow: the VSM levels;
         // one rule for both, VIRT-GEOM steps 24-25): bit i of @p words (word i / 64, for EVERY submesh of the mesh
@@ -1283,7 +1284,8 @@ namespace Desert::Graphic::System
             std::vector<VsmInvalidationBox> MovableBoxes; // every mover instance, now and last frame: merged layer
             bool                            StaticCastersChanged = false;
         };
-        [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
+        // Into the caller's @p result (kept by the caller across frames: no box vectors per frame).
+        void CollectVirtualShadowInvalidation( VirtualShadowInvalidation& result );
         // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over
         // the 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l)
         // through the VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow);
@@ -2895,6 +2897,25 @@ namespace Desert::Graphic::System
         std::vector<uint8_t>                 m_VsmFallbackScratch;
         VsmCasterCull                        m_VsmCasterCullScratch;
         std::vector<VirtualShadowCasterDraw> m_VsmCasterDrawsScratch;
+        // SetVirtualShadowGeometry's answer per group cell (CPU-FRAME-ARENA 8), so a frame asks no name of a
+        // group: keyed by the group pipeline's Shader serial, valid for that shader's code generation and while
+        // the shader service's RecompileGeneration stands (a Register / Recompile / Clear may add or drop the
+        // `.VirtualGeometry` twin DeclaresVirtualGeometryTwin looks up, so every row is forgotten then).
+        enum class VsmCellClass : uint8_t
+        {
+            NoPermutation, // not a Static / Instanced binned cell: holds no clusters
+            Fallback,      // its template declares no `.VirtualGeometry` twin
+            Twin,          // declares the twin: a group of it without a VG pipeline is a held refusal
+        };
+        struct VsmCellRow
+        {
+            uint64_t     CodeGeneration = 0;
+            VsmCellClass Class          = VsmCellClass::NoPermutation;
+            bool         RefusalSaid    = false; // m_BinnedRefused asked for "<cell>|vsm-vg" already
+        };
+        std::unordered_map<uint64_t, VsmCellRow> m_VsmCellClasses;
+        uint64_t                                 m_VsmCellClassesRegistry = 0;
+        bool                                     m_VsmCellClassesValid    = false;
         // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
         bool m_VsmCastersPending = false;
 

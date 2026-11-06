@@ -2052,6 +2052,10 @@ namespace Desert::Graphic
         // (the parameter is tenths), refreshed per frame.
         std::unique_ptr<VirtualGeometry::VirtualGeometryRenderer> m_VirtualGeometry;
         std::unique_ptr<VirtualGeometry::ClusterCutCounts>        m_ClusterCutCounts;
+        // The VSM levels' drawn groups (MeshRenderer::SetVirtualShadowGeometry's out-param), kept across frames.
+        std::vector<uint8_t>                                      m_VsmDrawnGroups;
+        // The VSM's caster invalidation (MeshRenderer::CollectVirtualShadowInvalidation's out-param), kept.
+        System::MeshRenderer::VirtualShadowInvalidation m_VsmInvalidation;
         std::string                                               m_VirtualGeometryLastError;
         // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
         bool  m_VirtualGeometryPostRefusalLogged = false;

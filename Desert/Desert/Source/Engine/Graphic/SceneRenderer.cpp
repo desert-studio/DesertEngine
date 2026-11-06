@@ -3524,8 +3524,8 @@ namespace Desert::Graphic
             return {};
         auto* const meshes = m_Systems.Mesh.get();
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
-        const System::MeshRenderer::VirtualShadowInvalidation invalidation =
-             meshes->CollectVirtualShadowInvalidation();
+        System::MeshRenderer::VirtualShadowInvalidation& invalidation = m_VsmInvalidation;
+        meshes->CollectVirtualShadowInvalidation( invalidation );
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
              graph, view, hasSun ? &sun : nullptr, locals, receiverDepths, m_VirtualShadowQuality,
              invalidation.Boxes, invalidation.MovableBoxes, invalidation.StaticCastersChanged );

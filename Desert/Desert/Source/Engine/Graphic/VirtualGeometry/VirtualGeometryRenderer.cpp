@@ -492,12 +492,24 @@ namespace Desert::Graphic::VirtualGeometry
         }
         Slot& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
         Count( slot );
-        slot      = Slot{};
+        // The counted frame's buffers are released; the entries and their DrawnGroups capacity are kept.
+        for ( size_t e = 0; e < slot.Used; ++e )
+        {
+            Entry& entry          = slot.Entries[e];
+            entry.Kind            = ClusterCutKind::Main;
+            entry.RasterArgs      = RDG::ExternalBuffer{};
+            entry.Status          = RDG::ExternalBuffer{};
+            entry.GroupArgs       = RDG::ExternalBuffer{};
+            entry.GroupViewCounts = RDG::ExternalBuffer{};
+            entry.CountViews      = 0;
+            entry.DrawnGroups.clear();
+        }
+        slot.Used = 0;
         m_Current = &slot;
     }
 
     void ClusterCutCounts::Add( RDG::Builder& graph, const ClusterCutKind kind, const ClusterCullResult& culled,
-                                const RasterBins* bins, std::vector<uint8_t> drawnGroups )
+                                const RasterBins* bins, const std::span<const uint8_t> drawnGroups )
     {
         if ( m_Current == nullptr )
         {
@@ -509,14 +521,16 @@ namespace Desert::Graphic::VirtualGeometry
             LOG_ERROR( "[VirtualGeometry] Cluster Cut counts: the cut left no RasterArgs / Status to read" );
             return;
         }
-        Entry& entry = m_Current->Entries.emplace_back();
+        if ( m_Current->Used == m_Current->Entries.size() )
+            m_Current->Entries.emplace_back();
+        Entry& entry = m_Current->Entries[m_Current->Used++];
         entry.Kind   = kind;
         graph.Extract( culled.RasterArgs, entry.RasterArgs, RDG::Access::HostRead );
         graph.Extract( culled.Status, entry.Status, RDG::Access::HostRead );
         if ( bins != nullptr && bins->GroupArgs.IsValid() && drawnGroups.size() == bins->GroupCount )
         {
             graph.Extract( bins->GroupArgs, entry.GroupArgs, RDG::Access::HostRead );
-            entry.DrawnGroups = std::move( drawnGroups );
+            entry.DrawnGroups.assign( drawnGroups.begin(), drawnGroups.end() );
             if ( bins->CountViews > 0u && bins->GroupViewCounts.IsValid() )
             {
                 graph.Extract( bins->GroupViewCounts, entry.GroupViewCounts, RDG::Access::HostRead );
@@ -534,13 +548,15 @@ namespace Desert::Graphic::VirtualGeometry
 
     void ClusterCutCounts::Count( const Slot& slot )
     {
-        if ( slot.Entries.empty() )
+        if ( slot.Used == 0 )
             return; // the slot has not been handed a frame yet
         ClusterCutCount count;
-        std::string     message;
-        const auto      fail = [&message]( std::string what )
+        count.VsmClustersDrawn.swap( m_CountLevels ); // kept storage (the other half of m_Last's)
+        count.VsmClustersDrawn.clear();
+        std::string message;
+        const auto  fail = [&message]( std::string what )
         { message += std::format( "{}{}", message.empty() ? "" : "; ", what ); };
-        for ( const Entry& entry : slot.Entries )
+        for ( const Entry& entry : std::span<const Entry>( slot.Entries ).first( slot.Used ) )
         {
             const char* const kind = entry.Kind == ClusterCutKind::Main            ? "main"
                                      : entry.Kind == ClusterCutKind::PostOcclusion ? "post-occlusion"
@@ -597,7 +613,8 @@ namespace Desert::Graphic::VirtualGeometry
                     const std::span<const std::byte> perView = entry.GroupViewCounts.Physical->ReadForHost();
                     const size_t                     views   = entry.CountViews;
                     const size_t rows = std::min( entry.DrawnGroups.size(), perView.size() / ( views * 4u ) );
-                    std::vector<uint64_t> levels( views, 0u );
+                    std::vector<uint64_t>& levels = m_LevelSums;
+                    levels.assign( views, 0u );
                     for ( size_t g = 0; g < rows; ++g )
                     {
                         if ( entry.DrawnGroups[g] == 0u )
@@ -641,7 +658,9 @@ namespace Desert::Graphic::VirtualGeometry
                      "{} cut: {} occluded entries past the post carry's capacity (missing this frame)", kind,
                      cut.OccludedOverflow ) );
         }
-        m_Last = count;
+        // m_Last's level storage becomes the next Count's working half; this count's moves in.
+        m_CountLevels.swap( m_Last.VsmClustersDrawn );
+        m_Last = std::move( count );
         if ( !message.empty() && message != m_LastError )
             LOG_ERROR( "[VirtualGeometry] Cluster Cut: {}", message );
         m_LastError = std::move( message );
