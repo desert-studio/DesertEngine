@@ -239,6 +239,62 @@ namespace Desert::Graphic
         return Common::MakeSuccess( true );
     }
 
+    Common::ResultStr<Texture2D::PreparedTexture2D> Texture2D::PrepareCooked( CookedTexture2D       cooked,
+                                                                             const TextureBackend& backend )
+    {
+        PreparedTexture2D prepared;
+        prepared.Width                            = cooked.Width;
+        prepared.Height                           = cooked.Height;
+        prepared.FullWidth                        = cooked.FullWidth;
+        prepared.FullHeight                       = cooked.FullHeight;
+        prepared.FirstMip                         = cooked.FirstMip;
+        prepared.FullLevelBytes                   = std::move( cooked.FullLevelBytes );
+        prepared.Bytes                            = cooked.UploadBytes();
+        const std::size_t                   levelCount = cooked.Levels.size();
+        Core::Formats::Image2DSpecification imageSpec;
+        imageSpec.Tag        = cooked.Tag;
+        imageSpec.Width      = cooked.Width;
+        imageSpec.Height     = cooked.Height;
+        imageSpec.Format     = cooked.Format;
+        imageSpec.Data       = std::move( cooked.Pixels );
+        imageSpec.Usage      = Core::Formats::Image2DUsage::Image2D;
+        imageSpec.Properties = Core::Formats::Sample;
+        imageSpec.MipLevels  = std::move( cooked.Levels );
+        imageSpec.Upload     = Core::Formats::ImageUpload::Recorded;
+        imageSpec.ColorSpace = cooked.ColorSpace;
+        prepared.Image       = backend.Images.CreateImage2D( imageSpec );
+        if ( !prepared.Image )
+            return Common::MakeFormattedError<PreparedTexture2D>(
+                 "the GPU image for texture '{}' ({}x{}, {} levels) was not prepared", imageSpec.Tag,
+                 prepared.Width, prepared.Height, levelCount );
+        return Common::MakeSuccess( std::move( prepared ) );
+    }
+
+    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromPrepared( const PreparedTexture2D& prepared,
+                                                                                 const TextureBackend&    backend )
+    {
+        if ( !prepared.Image )
+            return Common::MakeError<std::shared_ptr<Texture2D>>( "no prepared image to make a texture of" );
+        auto texture          = std::make_shared<Texture2D>();
+        texture->m_Width      = prepared.Width;
+        texture->m_Height     = prepared.Height;
+        texture->m_FullWidth  = prepared.FullWidth;
+        texture->m_FullHeight = prepared.FullHeight;
+        std::shared_ptr<Image2D> image = prepared.Image;
+        texture->AdoptImage( std::move( image ), backend.Registry );
+        return Common::MakeSuccess( texture );
+    }
+
+    Common::ResultStr<Texture2D::StagedLevels> Texture2D::StagePrepared( const PreparedTexture2D& prepared ) const
+    {
+        auto* current = m_Service != nullptr ? dynamic_cast<Image2D*>( m_Service->Resolve( m_Handle ) ) : nullptr;
+        if ( current == nullptr || !prepared.Image )
+            return Common::MakeError<StagedLevels>( "the texture has no resident image, or nothing was prepared" );
+        // The ledger row moves with the pixels, as in StageLevels: claimed here, on the main thread.
+        prepared.Image->ClaimOwnership( current->GetResourceOwner(), current->GetOwningAsset() );
+        return Common::MakeSuccess( StagedLevels{ prepared.Image, prepared.Width, prepared.Height } );
+    }
+
     Common::ResultStr<std::shared_ptr<Texture2D>>
     Texture2D::Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
                        Core::Formats::ImagePixelData&& data, const TextureBackend& backend )
