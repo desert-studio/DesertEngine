@@ -279,6 +279,7 @@ namespace Desert::Graphic::DistanceField
             uint64_t                                            Objects = 0;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps> Levels{};
             uint32_t                                            NumMeshObjects = 0;
+            uint32_t                                            NumObjects     = 0;
         };
         std::optional<FrameUpdate> m_FrameUpdate;
 

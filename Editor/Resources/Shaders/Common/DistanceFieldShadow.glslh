@@ -24,7 +24,8 @@ struct DistanceFieldShadowParams
     vec4  tiles;           // xy = the grid's light-space minimum corner (cm), zw = 1 / tile size (1/cm)
     vec4  receivers;       // x = the lowest receiver's light-space z (cm), y = tan(sun angle / 2),
                            // z = the receivers' farthest distance from the camera (cm), w = the band (UV width)
-    uvec4 counts;          // x = mesh objects, y = tiles a side, z = tiles in all, w = the list entries' room
+    uvec4 counts;          // x = objects (the meshes, then the landscape tiles), y = tiles a side,
+                           // z = tiles in all, w = the list entries' room
     mat4  invViewProjection; // the G-buffer's inverse jittered view-projection
     mat4  lastCascade;     // the sun's last cascade's view-projection (receiver side)
     vec4  camera;          // xyz = the camera (cm), w = 1 when the sun has a cascade (lastCascade valid)

@@ -1,8 +1,10 @@
 // DesertAsset {"Kind":"Shader","Guid":"f2ae27cbd3634e2da0904a1d55a5ece0","Versions":{"SHDR":1},"Dependencies":[]}
 // "SHADOWS: DISTANCE FIELD SUN", THE TILE CULL (UE CullObjectsForShadowCS + the light tile culling of
 // DistanceFieldShadowing.cpp, written from memory; a compute walk in place of UE's rasterised object bounds): one
-// thread per light-space tile (Common/DistanceFieldShadow.glslh) walks every mesh object, 64 at a time through shared
-// memory, and keeps each one whose light-space footprint - grown by the penumbra its top casts onto the lowest
+// thread per light-space tile (Common/DistanceFieldShadow.glslh) walks every object - the meshes, then the
+// landscape tiles (DF_OBJECT_FLAG_HEIGHTFIELD, MeshDistanceFieldReads::NumObjects: UE culls heightfields into the
+// same lists) - 64 at a time through shared memory, and keeps each one whose light-space footprint - grown by the
+// penumbra its top casts onto the lowest
 // receiver - overlaps the tile and whose top stands above the lowest receiver (an object wholly below every receiver
 // lies on the far side of each from the sun). Dispatched twice like the near field's grid (MeshSDFCullGrid.shader):
 // CullPass 0 COUNTS into the tile's header, DistanceFieldShadowCullOffsets.shader sums the counts into each list's

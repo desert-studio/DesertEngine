@@ -127,6 +127,19 @@ namespace Desert::Graphic::System
         // (SHADOW-CINE-ABORT). The caller takes the re-budget at the frame boundary, before any shadow view of the
         // frame is planned (SceneRenderer::OnUpdate, RebudgetShadowsFor).
         //
+        // A BUDGET THAT MOVES ONLY THE DISTANCE sizes nothing (the distance-field sun's nearer cascades,
+        // ShadowQualityOf: the view's first frame that resolves Distance Field Shadows): the maps, the static
+        // caches' targets, the lease and the local rows stay, no drain. The splits move, so the static caches
+        // drawn at the old ones are redrawn.
+        ShadowQuality sameTargets = budget;
+        sameTargets.MaxDistance   = m_Shadow.MaxDistance;
+        if ( sameTargets == m_Shadow )
+        {
+            m_Shadow.MaxDistance = budget.MaxDistance;
+            InvalidateCascadeCaches();
+            return true;
+        }
+
         // The maps may still be referenced by a frame in flight; a quality change is rare and user-driven, so the
         // whole device is drained rather than each object's release deferred.
         Renderer::GetInstance().WaitDeviceIdle();

@@ -72,7 +72,7 @@ namespace Desert::Graphic::System
         glm::vec4  LightZ{ 0.0f, 0.0f, 1.0f, 0.0f }; // toward the sun
         glm::vec4  Tiles{ 0.0f };                    // xy = the grid's min corner (cm), zw = 1 / tile size (1/cm)
         glm::vec4  Receivers{ 0.0f };                // lowest light z, tan(angle / 2), max distance, band
-        glm::uvec4 Counts{ 0u };                     // mesh objects, tiles a side, tiles, list room
+        glm::uvec4 Counts{ 0u };                     // objects (meshes + tiles), tiles a side, tiles, list room
         glm::mat4  InvViewProjection{ 1.0f };        // the G-buffer's inverse jittered view-projection
         glm::mat4  LastCascade{ 1.0f };              // the sun's last cascade's view-projection
         glm::vec4  Camera{ 0.0f };                   // xyz = camera (cm), w = 1 when LastCascade is the sun's
@@ -217,7 +217,7 @@ namespace Desert::Graphic::System
         gpu.Tiles              = glm::vec4( lo - tile, 1.0f / tile );
         gpu.Receivers =
              glm::vec4( lowest, in.SourceTanHalf, kDistanceFieldShadowDistance, kDistanceFieldShadowBand );
-        gpu.Counts            = glm::uvec4( in.Fields.NumMeshObjects, kDistanceFieldShadowTilesPerSide,
+        gpu.Counts            = glm::uvec4( in.Fields.NumObjects, kDistanceFieldShadowTilesPerSide,
                                             kDistanceFieldShadowTiles, listRoom );
         gpu.InvViewProjection = in.InvJitteredViewProjection;
         float hasCascade      = 0.0f;

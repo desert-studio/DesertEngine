@@ -872,7 +872,10 @@ namespace Desert::Graphic
         // A level's viewport is BUILT at the machine's Shadows level, so a Low machine never allocates the High
         // maps only to re-allocate them on the first frame. Later level changes: BeginScene.
         // Built for the cascaded sun: the Shadows method is resolved by the first BeginScene; the first frame that
-        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor).
+        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor). The
+        // distance-field sun's key is the scene's request (PostProcessSettings::DistanceFieldShadows), unknown
+        // here: its first frame moves only the cascades' distance, which re-allocates nothing
+        // (MeshRenderer::RebudgetShadows).
         if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality, /*sunRayTraced*/ false ) )
             m_ViewProfile.Shadows = *budget;
         m_ShadowBudgetGeneration = m_Quality.Generation;
@@ -4884,7 +4887,11 @@ namespace Desert::Graphic
 
     SceneResources::ShadowFilterSettings SceneRenderer::GetShadowFilterSettings() const
     {
-        return m_ShadowFilter;
+        // The hand-over to the distance-field mask: the same predicate the frame records the pass by (a renderer
+        // latched failed records none, binds System.White and hands over nothing).
+        SceneResources::ShadowFilterSettings filter = m_ShadowFilter;
+        filter.SunDistanceField                     = SunDistanceFieldShadowRuns() && !m_DistanceFieldShadowFailed;
+        return filter;
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const
