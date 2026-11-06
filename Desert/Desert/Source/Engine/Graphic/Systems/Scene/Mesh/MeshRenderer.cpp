@@ -684,7 +684,7 @@ namespace Desert::Graphic::System
                         if ( slots.Has( entry.Slot ) )
                             block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
                 }
-                perBlock( block, *layout );
+                perBlock( block, slotted );
             }
             if ( m_Binned && m_Binned->BinsIssued )
                 declaration.Read( m_Binned->Culled.IndirectDraws, RDG::Access::IndirectArgs );
@@ -725,8 +725,8 @@ namespace Desert::Graphic::System
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
-                                    const std::function<void( RDG::BindingBlockBuilder&,
-                                                              const RDG::ShaderBindingLayout& )>& perBlock ) const
+                                    const std::function<void( RDG::BindingBlockBuilder&, const SlottedLayout& )>&
+                                         perBlock ) const
         {
             DeclareBlocks( pass, view, perBlock );
         }

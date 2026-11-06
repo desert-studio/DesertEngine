@@ -203,7 +203,7 @@ namespace Desert::Graphic::System
         {
             Program& program = found->second;
             if ( program.Refused )
-                return nullptr;
+                return RetryRefused( program, material, pipelines );
             FollowShaderReload( program, material, pipelines );
             return &program;
         }
@@ -226,6 +226,28 @@ namespace Desert::Graphic::System
             program.Refused = true;
             return nullptr;
         }
+        return &program;
+    }
+
+    const DecalRenderer::Program*
+    DecalRenderer::RetryRefused( Program& program, const Assets::AssetHandle& material, PipelineCache& pipelines )
+    {
+        // A refusal stands until its shader recompiles (UE: an edited shader re-enters the PSO cache). A refusal
+        // that resolved no shader (none registered under the name) has no generation to follow and stands.
+        if ( !program.BuiltShader || program.BuiltShader->GetCodeGeneration() == program.Generation )
+            return nullptr;
+        // Once per generation: a build that refuses before it resolves the shader still leaves the retry behind.
+        program.Generation = program.BuiltShader->GetCodeGeneration();
+        if ( const auto built = Build( program, material, pipelines ); !built )
+        {
+            LOG_ERROR(
+                 "[Decals] material {}: still refused after its shader reloaded: {} - the decal draws nothing",
+                 static_cast<uint64_t>( material ), built.GetError() );
+            program.Pipeline.reset();
+            program.Material.reset();
+            return nullptr;
+        }
+        program.Refused = false;
         return &program;
     }
 
@@ -281,6 +303,9 @@ namespace Desert::Graphic::System
             return Common::MakeFormattedError( "no shader named '{}' is registered (the default decal is "
                                                "Editor/Resources/Shaders/Programs/Decals/DefaultDecal.shader)",
                                                shaderName );
+        // Recorded before any check can refuse: a refused program is retried when this generation moves.
+        program.BuiltShader = shader;
+        program.Generation  = shader->GetCodeGeneration();
         const auto& meta = shader->GetProgramMeta();
         if ( !Core::Formats::DrawnByDecalPath( meta.Domain ) )
             return Common::MakeFormattedError(

@@ -115,8 +115,10 @@ namespace Desert::Graphic::System
             std::unique_ptr<DataDrivenMaterial> Material;
             mutable ShaderBindingLayoutCache    Layout;
             uint32_t                            Channels   = 0u;    // the shader's `DecalChannels`
+            // The shader the last build resolved (kept also when the build refused, so a hot reload retries it).
+            std::shared_ptr<Shader>             BuiltShader;
             uint64_t                            Generation = 0u;    // the shader's code generation it was built at
-            bool                                Refused    = false; // logged once; the decal draws nothing
+            bool                                Refused    = false; // logged once per generation; draws nothing
             mutable uint32_t                    Block      = 0u;    // this frame's binding block (Declare order)
         };
         struct FrameDecal
@@ -143,6 +145,9 @@ namespace Desert::Graphic::System
 
         const Program*        ProgramFor( const Assets::AssetHandle& material, PipelineCache& pipelines );
         void FollowShaderReload( Program& program, const Assets::AssetHandle& material, PipelineCache& pipelines );
+        // A refused program rebuilt once its shader's code generation moved; nullptr while the refusal stands.
+        const Program*        RetryRefused( Program& program, const Assets::AssetHandle& material,
+                                            PipelineCache& pipelines );
         Common::BoolResultStr Build( Program& program, const Assets::AssetHandle& material,
                                      PipelineCache& pipelines ) const;
 

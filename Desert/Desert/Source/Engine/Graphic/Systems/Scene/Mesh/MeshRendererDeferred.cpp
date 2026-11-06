@@ -572,14 +572,12 @@ namespace Desert::Graphic::System
         BuildGpuInstancedDraws( list, m_InstancedVisibilityPipeline.get(), MeshPass::Visibility,
                                 CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
         list.Declare( pass, view,
-                                              [visibility]( RDG::BindingBlockBuilder&         block,
-                                                            const RDG::ShaderBindingLayout& layout )
-                                              {
-                                                  if ( SceneViewDetail::LayoutReadsBuffer(
-                                                            layout, SceneResources::kVisibilityBuffer.Name ) )
-                                                      block.Storage( SceneResources::kVisibilityBuffer, visibility,
-                                                                     RDG::Access::StorageWrite );
-                                              } );
+                      [visibility]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
+                      {
+                          if ( slotted.Slots.Has( SceneViewSlot::VisibilityBuffer ) )
+                              block.Storage( SceneResources::kVisibilityBuffer, visibility,
+                                             RDG::Access::StorageWrite );
+                      } );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
@@ -602,14 +600,12 @@ namespace Desert::Graphic::System
         BuildGpuInstancedDraws( list, m_InstancedVisibilityResolvePipeline.get(), MeshPass::VisibilityResolve,
                                 CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false, path );
         list.Declare( pass, view,
-                                               [visibility]( RDG::BindingBlockBuilder&         block,
-                                                             const RDG::ShaderBindingLayout& layout )
-                                               {
-                                                   if ( SceneViewDetail::LayoutReadsBuffer(
-                                                             layout, SceneResources::kVisibilityBuffer.Name ) )
-                                                       block.Storage( SceneResources::kVisibilityBuffer, visibility,
-                                                                      RDG::Access::StorageRead );
-                                               } );
+                      [visibility]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
+                      {
+                          if ( slotted.Slots.Has( SceneViewSlot::VisibilityBuffer ) )
+                              block.Storage( SceneResources::kVisibilityBuffer, visibility,
+                                             RDG::Access::StorageRead );
+                      } );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context,

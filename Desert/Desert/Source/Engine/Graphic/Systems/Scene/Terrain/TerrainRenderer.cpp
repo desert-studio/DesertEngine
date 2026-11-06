@@ -2612,16 +2612,15 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* pipeline = VirtualShadowPipeline();
         if ( pipeline == nullptr )
             return 0;
-        const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
-             m_VirtualShadowLayout.Get( pipeline->GetSpecification().Shader );
+        const SlottedLayout& slotted = m_VirtualShadowLayout.GetSlotted( pipeline->GetSpecification().Shader );
         const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
         PrepareGroupExecutors( pass, executors );
         for ( const MaterialExecutor* executor : executors )
         {
-            auto block = pass.Bindings( layout, executor->GetRouteFill() );
+            auto block = pass.Bindings( slotted.Layout, executor->GetRouteFill() );
             block.Storage( TerrainShaderParameters::LandscapeVertexPool, m_DicePool, RDG::Access::StorageRead );
             block.Storage( TerrainShaderParameters::LandscapeDiceCells, m_DiceCells, RDG::Access::StorageRead );
-            parameters( block, *layout );
+            parameters( block, slotted );
         }
         return static_cast<uint32_t>( executors.size() );
     }

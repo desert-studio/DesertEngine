@@ -21,6 +21,7 @@
 namespace Desert::Graphic
 {
     class RenderPassDeclaration;
+    struct SlottedLayout;
 }
 
 namespace Desert::Graphic::RDG
@@ -57,9 +58,9 @@ namespace Desert::Graphic::System
     };
 
     // The virtual shadow map's pass parameters, added to every binding block a caster declares on a "VSM: Raster"
-    // node (the frame data, the page table, the physical pool and the level), handed the block's layout.
-    using VirtualShadowBlockParameters =
-         std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>;
+    // node (the frame data, the page table, the physical pool and the level), handed the block's kept layout and
+    // its slot mask (a slot the pass binds only where the cell declares it is tested by bit).
+    using VirtualShadowBlockParameters = std::function<void( RDG::BindingBlockBuilder&, const SlottedLayout& )>;
 
     /**
      * @brief A renderer whose geometry casts into the MeshRenderer's shadow views: the sun's cascades and the

@@ -32,6 +32,9 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, VsmRasterLevel );
         DESERT_SHADER_PARAMETER( StorageBuffer, VsmInstanceRemap );
     };
+    // The level's declare tests the remap by SceneViewSlot bit: the bit's table name is the parameter's name.
+    static_assert( MeshVirtualShadowShaderParameters::VsmInstanceRemap.Name ==
+                   ::Desert::Graphic::kPassVsmInstanceRemapName );
 } // namespace
 
 namespace Desert::Graphic::System
@@ -828,7 +831,7 @@ namespace Desert::Graphic::System
             {
                 m_VsmClusteredThisFrame = true;
                 const VirtualShadowBlockParameters clusterParameters =
-                     [&frame]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& )
+                     [&frame]( RDG::BindingBlockBuilder& block, const SlottedLayout& )
                 {
                     block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
                                    RDG::Access::StorageRead )
@@ -989,8 +992,7 @@ namespace Desert::Graphic::System
         // cells also fetch through the level's instance remap (Vertex_Instanced.glslh).
         const RDG::BufferRef rasterLevel = movable ? frame.RasterLevelMovable[level] : frame.RasterLevel[level];
         const VirtualShadowBlockParameters parameters =
-             [&frame, rasterLevel, remap]( RDG::BindingBlockBuilder&       block,
-                                           const RDG::ShaderBindingLayout& layout )
+             [&frame, rasterLevel, remap]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
         {
             block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
                            RDG::Access::StorageRead )
@@ -1000,9 +1002,7 @@ namespace Desert::Graphic::System
                            RDG::Access::StorageWrite )
                  .Storage( MeshVirtualShadowShaderParameters::VsmRasterLevel, rasterLevel,
                            RDG::Access::StorageRead );
-            if ( remap.IsValid() &&
-                 std::any_of( layout.Slots.begin(), layout.Slots.end(),
-                              []( const RDG::ShaderSlot& slot ) { return slot.Name == "VsmInstanceRemap"; } ) )
+            if ( remap.IsValid() && slotted.Slots.Has( SceneViewSlot::VsmInstanceRemap ) )
                 block.Storage( MeshVirtualShadowShaderParameters::VsmInstanceRemap, remap,
                                RDG::Access::StorageRead );
         };
