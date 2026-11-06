@@ -1218,7 +1218,8 @@ namespace Desert::Graphic::System
         // (IShadowCaster: the terrain). SceneRenderer::AddFrameShadowDepths adds them after the cascades, LOADING
         // the atlas. The cache decision is made here (PlanLocalShadowCache), not in UpdateLocalShadows: a
         // non-mesh caster's draws are resolved after that (TerrainRenderer::PrepareFrame), and its key is theirs.
-        [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
+        // The span views this renderer's kept list (m_LocalShadowPassList): valid until the next call.
+        [[nodiscard]] std::span<const SystemRasterPass> LocalShadowPasses();
 
         // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp): a top-down depth of every caster in a box around
         // the camera, which the wetted surfaces read to stay dry under a roof. The budget comes from the
@@ -2979,6 +2980,25 @@ namespace Desert::Graphic::System
             AtlasTile Tile;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
+        // What each shadowed local light asks UpdateLocalShadows for (a tile size from its screen size): the
+        // per-call list, kept so its storage survives the frame (cleared and refilled each call).
+        struct LocalShadowRequest
+        {
+            uint64_t                        Key          = 0;
+            bool                            Spot         = false;
+            std::size_t                     Index        = 0;
+            uint32_t                        Size         = 0;
+            float                           ScreenRadius = 0.0f;
+            float                           Distance     = 0.0f; // from the eye to the light, cm
+            const LocalLightShadowSettings* Settings     = nullptr;
+        };
+        std::vector<LocalShadowRequest> m_LocalShadowRequests;
+        // LocalShadowPasses' output, kept: the first m_LocalShadowPassCount entries are this frame's passes, the
+        // ones past it are cleared (no captured atlas). Names come from m_LocalShadowPassNames, one per slot, made
+        // once ("MeshShadowLocal<slot>") and copied into the kept pass's string (its capacity reused).
+        std::vector<SystemRasterPass> m_LocalShadowPassList;
+        std::size_t                   m_LocalShadowPassCount = 0;
+        std::vector<std::string>      m_LocalShadowPassNames;
         // What PlanLocalShadowCache decides from: each light given views this frame, where it reaches.
         struct LocalShadowCachePlan
         {
