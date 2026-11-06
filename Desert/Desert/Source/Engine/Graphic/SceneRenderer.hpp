@@ -169,6 +169,7 @@ namespace Desert::Graphic
         class SubsurfaceRenderer;
         class TerrainRenderer;
         class TonemapRenderer;
+        class CombineLUTsRenderer;
         class VelocityViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
@@ -189,6 +190,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::GrassRenderer>             Grass;
         std::shared_ptr<System::WaterRenderer>             Water;
         std::shared_ptr<System::TonemapRenderer>           Tonemap;
+        std::shared_ptr<System::CombineLUTsRenderer>       CombineLUTs;
         std::shared_ptr<System::BackdropBlurRenderer>      BackdropBlur;
         std::shared_ptr<System::BloomRenderer>             Bloom;
         std::shared_ptr<System::LightShaftRenderer>        LightShaft;

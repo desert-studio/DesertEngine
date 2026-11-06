@@ -394,9 +394,8 @@ namespace Desert::Graphic
                     LOG_ERROR(
                          "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
                 // The grade table the tonemap samples (UE CombineLUTs), baked each frame from the view's grade.
-                RegisterSystem<System::CombineLUTsRenderer>( "CombineLUTsSystem", this, m_TargetFramebuffer );
-                const auto& combineLUTs =
-                     SP_CAST( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] );
+                RegisterSystem<System::CombineLUTsRenderer>( m_Systems.CombineLUTs, this, m_TargetFramebuffer );
+                const auto& combineLUTs = m_Systems.CombineLUTs;
                 if ( const auto lut = combineLUTs->Initialize(); !lut )
                     LOG_ERROR( "[SceneRenderer] the colour-grading table did not initialise: {}", lut.GetError() );
                 return "Tonemap";
@@ -1417,8 +1416,7 @@ namespace Desert::Graphic
         const float lowestExposure = post.AutoExposure ? lowestAutoExposure : manualExposure;
         m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
         m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] ) )
+        if ( auto* combine = m_Systems.CombineLUTs.get() )
             combine->SetGrade( post );
 
         m_Systems.Skybox->SetBackdropVisible( m_DebugView.ShowSkyBackdrop && !m_DebugView.WireframeMode );
