@@ -300,7 +300,7 @@ namespace Common::Scalability
     // contact shadows (Common/ContactShadow.glslh, gated in SceneRenderer::GetContactShadowSettings) and
     // distance-field shadows (DF-SHADOWS: the sun past its last cascade on the deferred cascade arm,
     // Engine/Graphic/Systems/Scene/Shadows/DistanceFieldShadow.hpp; gated in
-    // SceneRenderer::SunDistanceFieldShadowRuns).
+    // SceneRenderer::DistanceFieldShadowRuns).
     inline constexpr bool kContactShadowsImplemented       = true;
     inline constexpr bool kDistanceFieldShadowsImplemented = true;
 

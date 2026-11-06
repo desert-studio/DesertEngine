@@ -24,8 +24,8 @@ Uniform(7) ShadowUB
     vec4 SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
                               // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
     vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF;
-                              // SceneResources::PackShadowFilter), z = the sun's cascades hand over to the
-                              // distance-field mask (>0.5; Common/DistanceFieldShadow.glslh)
+                              // SceneResources::PackShadowFilter), z = the directional lights' cascades
+                              // hand over to the distance-field shadow (>0.5; Common/DistanceFieldShadow.glslh)
 };
 
 #endif // DESERT_SHADOW_UB_GLSLH

@@ -33,9 +33,10 @@ namespace Desert::Graphic
     struct DeferredCascadeShadow
     {
         SceneResources::DirectionalShadowViews Lights{};
-        // "Shadows: Distance Field Sun" wrote this frame's mask (SceneViewInputs::SunDistanceFieldShadow): the
-        // composite cross-fades the sun's cascades into it across the band (CompositeView.x = 1).
-        bool DistanceField = false;
+        // Per directional slot: "Shadows: Distance Field Sun" / "... Light 1" wrote the slot's channel of this
+        // frame's mask (SceneViewInputs::SunDistanceFieldShadow, r = slot 0, g = slot 1): the composite
+        // cross-fades the slot's cascades into it across the band (CompositeView.x = slot 0, .w = slot 1).
+        std::array<bool, SceneResources::kMaxShadowedDirectionalLights> DistanceField{};
     };
 
     // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask of the SUN, read by
@@ -191,13 +192,16 @@ namespace Desert::Graphic
             SetParams( glm::vec4( static_cast<float>( debugMode ), 0.0f, ssao, static_cast<float>( gi.Mode ) ) );
             // CompositeView: x = the sun's cascades cross-fade into the distance-field mask (DF-SHADOWS,
             // DeferredCascadeShadow::DistanceField), y = the view's PreExposure the lit colour is stored at, z =
-            // the view scatters (SSS-PROFILE).
+            // the view scatters (SSS-PROFILE), w = atmosphere light 1's cascades cross-fade into its channel.
             const float scatters = gi.SubsurfaceSplit ? 1.0f : 0.0f;
             const auto* cascades = std::get_if<DeferredCascadeShadow>( &shadow.Sun );
             float       field    = 0.0f;
-            if ( cascades != nullptr && cascades->DistanceField )
+            float       field1   = 0.0f;
+            if ( cascades != nullptr && cascades->DistanceField[0] )
                 field = 1.0f;
-            SetCompositeView( glm::vec4( field, gi.PreExposure, scatters, 0.0f ) );
+            if ( cascades != nullptr && cascades->DistanceField[1] )
+                field1 = 1.0f;
+            SetCompositeView( glm::vec4( field, gi.PreExposure, scatters, field1 ) );
 
             // The contact shadows march the G-buffer depth in the space it was rasterised in
             // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).

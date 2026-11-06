@@ -202,8 +202,10 @@ Shader "DeferredLighting"
         	vec4 CameraPosition;  // xyz = camera world position (for the view vector); w = REFLECTION_INPUT_* of SsrTexture
         	mat4 InverseJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 JitteredWorldToClip;    // the matrix itself: the contact shadows march the depth in its space
-        	vec4 CompositeView; // x unused; y = ViewFrame::PreExposure; z = 1 when the view scatters (SSS-PROFILE,
-        	                    // SubsurfaceDiffuseTexture); w unused
+        	vec4 CompositeView; // x = 1 when the sun's distance-field channel is this frame's (DF-SHADOWS);
+        	                    // y = ViewFrame::PreExposure; z = 1 when the view scatters (SSS-PROFILE,
+        	                    // SubsurfaceDiffuseTexture); w = 1 when light 1's distance-field
+        	                    // channel is this frame's
         	vec4 Light1Direction; // atmosphere light 1 (UE Atmosphere Sun Light Index 1, the moon): xyz = travel
         	vec4 Light1Color;     // rgb = colour, a = intensity (after the atmosphere's transmittance); a == 0: none
         };
@@ -224,9 +226,10 @@ Shader "DeferredLighting"
         // The four cascades are ONE array texture (layer c = cascade c), read through the shared repeat state.
         Uniform(5) texture2DArray ShadowCascadesTexture;
         #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
-        // "Shadows: Distance Field Sun" (Common/DistanceFieldShadow.glslh): the sun past its last cascade, at the
-        // render extent; System.White and CompositeView.x = 0 when the view draws no such pass (never read then).
-        Uniform(10) texture2D DistanceFieldShadowTexture; // r = visibility, 1 = lit
+        // "Shadows: Distance Field Sun" / "... Light 1" (Common/DistanceFieldShadow.glslh): the directional lights
+        // past their last cascades, at the render extent, a channel per slot; System.White and CompositeView.x / .w
+        // = 0 when the view wrote no such channel (never read then).
+        Uniform(10) texture2D DistanceFieldShadowTexture; // r = the sun's visibility, g = light 1's; 1 = lit
         #define DistanceFieldShadowTexture sampler2D(DistanceFieldShadowTexture, PointClampSampler)
         #endif
         #include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
@@ -237,24 +240,29 @@ Shader "DeferredLighting"
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
         #include <Mesh/CascadedShadow.glslh>
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
+        // Atmosphere light 1 keeps its own cascades under the sun's screen mask (DeferredScreenShadowMask::Lights).
+        #define DESERT_LIGHT1_SHADOW(worldPos, N, L, cascade) ShadowFactor(kShadowLightAtmosphere1, worldPos, N, L, cascade)
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>
         #include <Common/DistanceFieldShadow.glslh>
-        // The cascades, cross-faded into the distance-field mask across the band at the last cascade's border and
-        // replaced by it past the cascades (UE: the CSM and the distance-field projection into one shadow mask).
-        // CompositeView.x = 1 when the mask is this frame's; 0 returns the cascades as they are.
-        float DesertSunShadowWithDistanceField(vec3 worldPos, vec3 N, vec3 L, out int cascade)
+        // Directional slot @p light's cascades, cross-faded into its channel of the distance-field mask across the
+        // band at its last cascade's border and replaced by it past the cascades (UE: the CSM and the light's
+        // distance-field projection into one shadow mask, per directional light). @p field = 1 when the channel is
+        // this frame's (CompositeView.x for the sun, .w for light 1); 0 returns the cascades as they are.
+        float DesertDirectionalShadowWithDistanceField(int light, float field, vec3 worldPos, vec3 N, vec3 L,
+                                                       out int cascade)
         {
-        	const float cascades = ShadowFactor(kShadowLightSun, worldPos, N, L, cascade);
-        	if (CompositeView.x < 0.5 || DirectionalShadow[kShadowLightSun].y < 0.5)
+        	const float cascades = ShadowFactor(light, worldPos, N, L, cascade);
+        	if (field < 0.5 || DirectionalShadow[light].y < 0.5)
         		return cascades;
-        	const float band = DistanceFieldShadowHandOver(kShadowLightSun, cascade, worldPos);
+        	const float band = DistanceFieldShadowHandOver(light, cascade, worldPos);
         	if (band <= 0.0)
         		return cascades;
-        	return mix(cascades, texelFetch(DistanceFieldShadowTexture, ivec2(gl_FragCoord.xy), 0).r, band);
+        	return mix(cascades, texelFetch(DistanceFieldShadowTexture, ivec2(gl_FragCoord.xy), 0)[light], band);
         }
-        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) DesertSunShadowWithDistanceField(worldPos, N, L, cascade)
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) DesertDirectionalShadowWithDistanceField(kShadowLightSun, CompositeView.x, worldPos, N, L, cascade)
+        #define DESERT_LIGHT1_SHADOW(worldPos, N, L, cascade) DesertDirectionalShadowWithDistanceField(kShadowLightAtmosphere1, CompositeView.w, worldPos, N, L, cascade)
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(kShadowLightSun, worldPos, density)
         #endif
 
@@ -500,7 +508,8 @@ Shader "DeferredLighting"
 
         	// ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): the same shading model, its own
         	// direction and transmitted illuminance, occluded by ITS OWN cascades (slot kShadowLightAtmosphere1 of the
-        	// one CascadedShadow text; UE: a CSM per directional light). The contact march, the relief self-shadow and
+        	// one CascadedShadow text; UE: a CSM per directional light) and past them by ITS OWN distance-field
+        	// channel (DESERT_LIGHT1_SHADOW, the sun's hand-over). The contact march, the relief self-shadow and
         	// the cloud shadow map are fitted to the SUN's direction, so none of them occludes this light. Absent
         	// (a == 0) adds nothing at all.
         	if (Light1Color.a > 0.0)
@@ -508,7 +517,7 @@ Shader "DeferredLighting"
         		const vec3 L1 = normalize(-Light1Direction.xyz);
         		int        cascade1 = -1;
         		const float shadow1 =
-        		     receivesSun ? ShadowFactor(kShadowLightAtmosphere1, worldPos, N, L1, cascade1) : 1.0;
+        		     receivesSun ? DESERT_LIGHT1_SHADOW(worldPos, N, L1, cascade1) : 1.0;
         		const float transmission1 =
         		     (receivesSun && subsurfaceOpacity >= 0.0)
         		          ? TransmissionShadowFactor(kShadowLightAtmosphere1, worldPos,

@@ -68,7 +68,8 @@ layout( binding = kSunDistanceFieldShadowBinding ) uniform texture2D DistanceFie
 #define DistanceFieldShadowTexture sampler2D(DistanceFieldShadowTexture, PointClampSampler)
 
 // The cascades, cross-faded into the mask across the band at the last cascade's border and replaced by it past
-// the cascades - DeferredLighting.shader's DesertSunShadowWithDistanceField, the same band (one statement,
+// the cascades - DeferredLighting.shader's DesertDirectionalShadowWithDistanceField for slot 0 (the mask's r),
+// the same band (one statement,
 // Mesh/CascadedShadow.glslh DistanceFieldShadowHandOver).
 float DesertForwardSunShadow( vec3 worldPos, vec3 N, vec3 L, out int cascade )
 {

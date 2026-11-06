@@ -76,8 +76,8 @@ namespace Desert::Graphic::SceneResources
         // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
         glm::vec4 SunContactShadow;
         // The PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps; z = 1 when the
-        // sun's cascades hand over to this frame's distance-field mask (ShadowFilterSettings::SunDistanceField),
-        // w unused. Packed by PackShadowFilter.
+        // directional lights' cascades hand over to this frame's distance-field shadow
+        // (ShadowFilterSettings::DistanceField), w unused. Packed by PackShadowFilter.
         glm::vec4 ShadowFilter;
     };
 
@@ -110,21 +110,22 @@ namespace Desert::Graphic::SceneResources
     {
         int BlockerSearchTaps = 16;
         int FilterTaps        = 32;
-        // "Shadows: Distance Field Sun" runs this frame (SceneRenderer::SunDistanceFieldShadowRuns): every lit
+        // "Shadows: Distance Field Sun" / "... Light 1" run this frame (SceneRenderer::DistanceFieldShadowRuns:
+        // a directional slot casts; each casting slot's own trace, Common/DistanceFieldShadow.glslh): every lit
         // surface that samples the sun's cascades cross-fades them into the distance-field mask at the last
         // cascade's border and takes the mask past it (Common/DistanceFieldShadow.glslh
         // DistanceFieldShadowCompose) - one value per view, so the forward meshes and the glass agree with the
         // deferred composite.
-        bool SunDistanceField = false;
+        bool DistanceField = false;
     };
 
     inline void PackShadowFilter( ShadowUBData& data, const ShadowFilterSettings& filter )
     {
-        float sunDistanceField = 0.0f;
-        if ( filter.SunDistanceField )
-            sunDistanceField = 1.0f;
+        float distanceField = 0.0f;
+        if ( filter.DistanceField )
+            distanceField = 1.0f;
         data.ShadowFilter = glm::vec4( static_cast<float>( filter.BlockerSearchTaps ),
-                                       static_cast<float>( filter.FilterTaps ), sunDistanceField, 0.0f );
+                                       static_cast<float>( filter.FilterTaps ), distanceField, 0.0f );
     }
 
     // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the

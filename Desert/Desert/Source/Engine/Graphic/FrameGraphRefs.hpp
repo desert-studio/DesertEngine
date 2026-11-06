@@ -192,9 +192,13 @@ namespace Desert::Graphic
         // The mesh fields it is composited from and the near-field object grid (the same update) -> the GI
         // tracer's near field
         DistanceField::MeshDistanceFieldReads MeshDistanceFields;
-        // "Shadows: Distance Field Sun" (DF-SHADOWS): the sun's visibility past its last cascade at the render
-        // extent; invalid when the view draws no such pass   -> the deferred direct lighting (SceneViewInputs)
+        // "Shadows: Distance Field Sun" / "... Light 1" (DF-SHADOWS): the directional lights' visibility past
+        // their last cascades at the render extent, a channel per slot (r = the sun, g = atmosphere light 1);
+        // invalid when the view draws no such pass   -> the deferred direct lighting (SceneViewInputs)
         RDG::TextureRef SunDistanceFieldShadow;
+        // Bit s set: directional slot s's channel of SunDistanceFieldShadow was written this frame (its trace
+        // declared; SceneRenderer::AddFrameDistanceFieldShadow)   -> DeferredCascadeShadow::DistanceField
+        uint32_t DistanceFieldShadowLights = 0;
         // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
         // update, then GlobalIllumination::ScreenProbeGather under SoftwareTraced / HardwareTraced or
         // GlobalIllumination::IrradianceFieldGather under ProbeVolume): per pixel, the diffuse irradiance and the

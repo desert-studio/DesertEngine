@@ -843,11 +843,13 @@ namespace Desert::Graphic
         }
         else if ( meshRenderer != nullptr )
         {
-            // The distance-field mask past the last cascade when this frame wrote it (AddFrameDistanceFieldShadow
-            // logged why it is missing: the cascades alone then).
-            const bool field = refs.Transients.SunDistanceFieldShadow.IsValid();
-            shadow.Sun       = DeferredCascadeShadow{ .Lights        = meshRenderer->DirectionalShadows(),
-                                                      .DistanceField = field };
+            // The distance-field mask's channels this frame wrote, per directional slot
+            // (AddFrameDistanceFieldShadow logged why it is missing: the cascades alone then).
+            DeferredCascadeShadow cascades{ .Lights = meshRenderer->DirectionalShadows() };
+            for ( uint32_t light = 0; light < SceneResources::kMaxShadowedDirectionalLights; ++light )
+                cascades.DistanceField[light] = refs.Transients.SunDistanceFieldShadow.IsValid() &&
+                                                ( refs.Transients.DistanceFieldShadowLights >> light & 1u ) != 0u;
+            shadow.Sun = cascades;
         }
         // Shadows Stochastic: MegaLights' local lighting under either sun arm (the mask under rayquery and
         // vsm+screen, the cascades under screen; AddFrameMegaLights logged why one is missing, a view without local
@@ -1038,7 +1040,7 @@ namespace Desert::Graphic
         if ( ReflectionsTraced() && GlobalIllumination::TracerReadsGlobalDistanceField( ReflectionsTracer() ) )
             return true;
         // "Shadows: Distance Field Sun": its trace's far leg walks the global field, its near leg the mesh fields.
-        if ( SunDistanceFieldShadowRuns() )
+        if ( DistanceFieldShadowRuns() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&
