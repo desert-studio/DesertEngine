@@ -241,6 +241,7 @@ namespace Desert::Graphic::System
             MaterialInstancePtr                 Instance; // the cell's defaults: the row of an emitter without one
             Core::Formats::SurfaceBlendMode     Blend = Core::Formats::SurfaceBlendMode::Opaque;
             mutable ShaderBindingLayoutCache    Layout;
+            mutable RouteFillSlotsCache         RouteSlots; // the material route's SceneViewSlots
             std::vector<glm::vec4>              Rows; // this frame's Materials rows, one per drawn emitter
             // Drawn by this frame's pass (set by its declare): the cell's per-frame blocks are written. Not
             // !Rows.empty() - a template with no parameters (DefaultSurface, the broken-material checker) has

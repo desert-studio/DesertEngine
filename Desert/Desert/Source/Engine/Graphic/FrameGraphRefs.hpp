@@ -356,6 +356,14 @@ namespace Desert::Graphic
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
+    // Slots a pass binds itself where its cell declares them (SceneViewSlot rows, tested by bit per block): the
+    // glass cells' scene copy and front-layer reflection (MeshRendererForward.cpp), the instanced VSM casters'
+    // remap (MeshRendererVirtualShadow.cpp), a ribbon cell's link order (ParticleRenderer.cpp). Each pass's
+    // parameter struct static_asserts its member's name against these.
+    inline constexpr std::string_view kPassSceneColorTextureName           = "SceneColorTexture";
+    inline constexpr std::string_view kPassFrontLayerReflectionTextureName = "FrontLayerReflectionTexture";
+    inline constexpr std::string_view kPassVsmInstanceRemapName            = "VsmInstanceRemap";
+    inline constexpr std::string_view kPassParticleRibbonOrderName         = "RibbonOrder";
     // Common/DBuffer.glslh: texelFetch at the G-buffer writer's own pixel, through its own shared sampler state
     // (a G-buffer cell declares none of the others).
     inline constexpr std::string_view kSceneViewDBufferAName       = "DBufferATexture";

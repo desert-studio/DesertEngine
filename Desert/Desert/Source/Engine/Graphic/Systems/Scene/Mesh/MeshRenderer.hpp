@@ -267,11 +267,12 @@ namespace Desert::Graphic::System
             // scene/view inputs bound for every executor whose shader has slots for them (none: nothing bound).
             void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const;
             // @p perBlock adds the node's own pass parameters to EVERY block after the scene/view inputs (the
-            // translucency node's scene snapshot), handed the block's layout so it binds only the slots that
-            // shader has: a node whose cells are several shaders binds them once each.
+            // translucency node's scene snapshot), handed the block's kept layout with its slot mask so it binds
+            // only the slots that shader has by bit (SceneViewSlot), never by name: a node whose cells are several
+            // shaders binds them once each.
             void Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view,
-                          const std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>&
-                               perBlock ) const;
+                          const std::function<void( RDG::BindingBlockBuilder&, const SlottedLayout& )>& perBlock )
+                 const;
             void Declare( RenderPassDeclaration& declared, const std::optional<SceneViewInputs>& view ) const;
 
             [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
@@ -323,7 +324,10 @@ namespace Desert::Graphic::System
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
-            std::optional<GpuDriven::MeshPass> m_CountedPass;
+            // CPU-FRAME-ARENA 3: DeclareBlocks' each-buffer-once set, its capacity kept across frames (a list is
+            // declared on one thread at a time, as m_Layouts is used). Mutable: Declare is const.
+            mutable std::vector<RDG::BufferRef> m_DeclaredReads;
+            std::optional<GpuDriven::MeshPass>  m_CountedPass;
         };
     } // namespace MeshRendererDetail
 

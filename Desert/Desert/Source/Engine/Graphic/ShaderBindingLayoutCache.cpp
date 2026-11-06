@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
@@ -48,6 +49,8 @@ namespace Desert::Graphic
              { SceneViewSlot::FogAerialPerspective, kSceneFogAerialPerspectiveName, kTex },
              { SceneViewSlot::FogDistantSkyLight, kSceneFogDistantSkyLightName, kTex },
              { SceneViewSlot::FogVolume, kSceneFogVolumeName, kTex },
+             { SceneViewSlot::SceneColorTexture, kPassSceneColorTextureName, kTex },
+             { SceneViewSlot::FrontLayerReflectionTexture, kPassFrontLayerReflectionTextureName, kTex },
              { SceneViewSlot::ReflectionList, kSceneViewReflectionListName, kBuf },
              { SceneViewSlot::LightGridParams, kLightGridParamsBlockName, kBuf },
              { SceneViewSlot::LightGridCells, kLightGridCellsBlockName, kBuf },
@@ -68,6 +71,9 @@ namespace Desert::Graphic
              { SceneViewSlot::VgRasterDags, SceneResources::kVgRasterDags.Name, kBuf },
              { SceneViewSlot::VgRasterVisibleClusters, SceneResources::kVgRasterVisibleClusters.Name, kBuf },
              { SceneViewSlot::VgRasterPrimitiveDraws, SceneResources::kVgRasterPrimitiveDraws.Name, kBuf },
+             { SceneViewSlot::VisibilityBuffer, SceneResources::kVisibilityBuffer.Name, kBuf },
+             { SceneViewSlot::VsmInstanceRemap, kPassVsmInstanceRemapName, kBuf },
+             { SceneViewSlot::ParticleRibbonOrder, kPassParticleRibbonOrderName, kBuf },
              { SceneViewSlot::VsmPhysicalPool, kVsmPhysicalPoolName, RDG::ShaderResourceKind::StorageTexture },
         } };
 
@@ -90,6 +96,26 @@ namespace Desert::Graphic
                 if ( slot.Kind == row.Kind && slot.Name == row.Name )
                     slots.Bits |= uint64_t( 1 ) << static_cast<uint32_t>( row.Slot );
         return slots;
+    }
+
+    SceneViewSlots SceneViewSlotsOf( const RDG::OtherRouteFill& fill )
+    {
+        SceneViewSlots slots;
+        for ( const std::string& name : fill.Slots )
+            for ( const SceneViewSlotName& row : kSceneViewSlotTable )
+                if ( name == row.Name )
+                    slots.Bits |= uint64_t( 1 ) << static_cast<uint32_t>( row.Slot );
+        return slots;
+    }
+
+    SceneViewSlots RouteFillSlotsCache::Get( const std::shared_ptr<const RDG::OtherRouteFill>& fill )
+    {
+        if ( fill.get() != m_Fill.get() )
+        {
+            m_Fill  = fill;
+            m_Slots = fill ? SceneViewSlotsOf( *fill ) : SceneViewSlots{};
+        }
+        return m_Slots;
     }
 
     const SlottedLayout& ShaderBindingLayoutCache::GetSlotted( const std::shared_ptr<Shader>& shader )

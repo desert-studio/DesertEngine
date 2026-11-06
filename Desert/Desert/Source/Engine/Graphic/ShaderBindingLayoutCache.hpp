@@ -7,6 +7,11 @@
 #include <initializer_list>
 #include <memory>
 
+namespace Desert::Graphic::RDG
+{
+    struct OtherRouteFill;
+} // namespace Desert::Graphic::RDG
+
 namespace Desert::Graphic
 {
     class Shader;
@@ -44,6 +49,9 @@ namespace Desert::Graphic
         FogAerialPerspective,
         FogDistantSkyLight,
         FogVolume,
+        // A pass's own textures, bound by the pass (not BindSceneViewInputs) where its cell declares them.
+        SceneColorTexture,
+        FrontLayerReflectionTexture,
         // Storage buffers.
         ReflectionList,
         LightGridParams,
@@ -65,6 +73,10 @@ namespace Desert::Graphic
         VgRasterDags,
         VgRasterVisibleClusters,
         VgRasterPrimitiveDraws,
+        // A pass's own storage buffers, bound by the pass where its cell declares them.
+        VisibilityBuffer,
+        VsmInstanceRemap,
+        ParticleRibbonOrder,
         // A storage image.
         VsmPhysicalPool,
         Count
@@ -101,6 +113,22 @@ namespace Desert::Graphic
     // shader object and reload), and by a caller that holds a layout of its own (a test, a pass that edits a
     // copy of its layout) - never per block per frame on a kept layout.
     [[nodiscard]] SceneViewSlots SceneViewSlotsOf( const RDG::ShaderBindingLayout& layout );
+
+    // The rows of kSceneViewSlotTable whose name a route fill lists (a fill names slots, not kinds), as a mask.
+    [[nodiscard]] SceneViewSlots SceneViewSlotsOf( const RDG::OtherRouteFill& fill );
+
+    // A material's route fill and its SceneViewSlots, the mask re-walked only when the executor hands out another
+    // fill object (MaterialExecutor::GetRouteFill keeps its fill and rebuilds it only when what it holds changes):
+    // a pass that binds the scene view inputs minus the route's slots tests bits per frame, never names.
+    class RouteFillSlotsCache
+    {
+    public:
+        [[nodiscard]] SceneViewSlots Get( const std::shared_ptr<const RDG::OtherRouteFill>& fill );
+
+    private:
+        std::shared_ptr<const RDG::OtherRouteFill> m_Fill; // held: a new fill never reuses the walked address
+        SceneViewSlots                             m_Slots;
+    };
 
     // A kept layout and its slot mask, derived together.
     struct SlottedLayout

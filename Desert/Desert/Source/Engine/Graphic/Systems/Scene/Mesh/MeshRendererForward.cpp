@@ -31,6 +31,11 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
     };
+    // The glass declare tests these slots by SceneViewSlot bit: the bit's table name is the parameter's name.
+    static_assert( MeshForwardShaderParameters::SceneColorTexture.Name ==
+                   ::Desert::Graphic::kPassSceneColorTextureName );
+    static_assert( MeshForwardShaderParameters::FrontLayerReflectionTexture.Name ==
+                   ::Desert::Graphic::kPassFrontLayerReflectionTextureName );
 } // namespace
 
 namespace Desert::Graphic::System
@@ -1381,16 +1386,16 @@ namespace Desert::Graphic::System
         // naming one to it fails the node ("is not a resource of shader").
         m_GlassDraws.Declare(
              pass, view,
-             [sceneCopy, frontLayer]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+             [sceneCopy, frontLayer]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
              {
-                 if ( SceneViewDetail::LayoutSamples( layout, "SceneColorTexture" ) )
+                 if ( slotted.Slots.Has( SceneViewSlot::SceneColorTexture ) )
                      block.Texture( MeshForwardShaderParameters::SceneColorTexture, sceneCopy,
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( MeshForwardShaderParameters::LinearRepeatSampler,
                                     RDG::SamplerDesc::LinearRepeat() );
                  // The front layer's reflection where this fragment is the front layer
                  // (Pass_Forward_Translucent.glslh), fetched by texel through the state its declaration names.
-                 if ( SceneViewDetail::LayoutSamples( layout, "FrontLayerReflectionTexture" ) )
+                 if ( slotted.Slots.Has( SceneViewSlot::FrontLayerReflectionTexture ) )
                      block.Texture( MeshForwardShaderParameters::FrontLayerReflectionTexture,
                                     frontLayer.Reflection, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )

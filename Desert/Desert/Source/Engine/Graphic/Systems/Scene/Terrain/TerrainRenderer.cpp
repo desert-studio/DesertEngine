@@ -7,6 +7,7 @@
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
@@ -1911,10 +1912,9 @@ namespace Desert::Graphic::System
         // in order - the layout kept for the shader of @p pipeline, the one EVERY group's draws record with
         // (RecordDraws), the material's route fill, and @p view's scene/view inputs where the layout has their
         // slots (none: a program that samples none). Returns how many it declared.
-        template <typename Declaration>
+        template <typename Declaration, typename Executors>
         uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
-                                     ShaderBindingLayoutCache&                   layoutCache,
-                                     const std::vector<const MaterialExecutor*>& executors,
+                                     ShaderBindingLayoutCache& layoutCache, const Executors& executors,
                                      const SceneViewInputs* view, const RDG::BufferRef dicePool,
                                      const RDG::BufferRef diceCells, const RDG::BufferRef diceCull )
         {
@@ -1941,23 +1941,29 @@ namespace Desert::Graphic::System
         // (exactly @p executors), so their view sets and block copies exist before the graph records and the exec
         // runs sealed. A node shared with the meshes (a shadow view, a virtual shadow level, the rain occlusion)
         // declares them too: the meshes' lists declare theirs (MeshDrawList::DeclareBlocks).
-        template <typename Declaration>
-        void PrepareGroupExecutors( Declaration&                                declaration,
-                                    const std::vector<const MaterialExecutor*>& executors )
+        template <typename Declaration, typename Executors>
+        void PrepareGroupExecutors( Declaration& declaration, const Executors& executors )
         {
             for ( const MaterialExecutor* executor : executors )
                 declaration.Prepares( *executor );
         }
     } // namespace
 
-    std::vector<const MaterialExecutor*>
+    namespace
+    {
+        // CPU-FRAME-ARENA 3 (UE FMemStack: a thread's scratch, kept): RecordDraws' per-draw push block.
+        thread_local std::vector<std::byte> t_TerrainRecordPush;
+    } // namespace
+
+    const MaterialExecutor* TerrainRenderer::GroupExecutorRange::Iterator::operator*() const
+    {
+        return ( m_Group->Materials->*m_Program )->GetMaterialExecutor();
+    }
+
+    TerrainRenderer::GroupExecutorRange
     TerrainRenderer::GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const
     {
-        std::vector<const MaterialExecutor*> executors;
-        executors.reserve( m_FrameGroups.size() );
-        for ( const auto& group : m_FrameGroups )
-            executors.push_back( ( group.Materials->*program )->GetMaterialExecutor() );
-        return executors;
+        return GroupExecutorRange( m_FrameGroups, program );
     }
 
     // ── Record. The push constant is per-draw state, snapshotted by Vulkan at record: the row index AND the
@@ -1976,17 +1982,20 @@ namespace Desert::Graphic::System
          const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope,
          const std::optional<VirtualShadowIndirect>& indirect, const RDG::BufferRef diceCull )
     {
-        std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
-        blocks.reserve( m_FrameGroups.size() );
-        for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
-            blocks.push_back(
-                 std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
-        std::vector<std::byte> push;
+        // CPU-FRAME-ARENA 3: the groups' blocks in this thread's kept slots (RDG::OpenBindingBlocks), the push
+        // block in its kept scratch (rewritten whole per draw, read by that draw's call alone), and each cell
+        // layout placed once per record (DrawPushFields::RecordPlacements), no field found by name per draw: a
+        // steady frame records the terrain with no allocation.
+        const RDG::OpenBindingBlocks      blocks( context, firstBlock, m_FrameGroups.size() );
+        std::vector<std::byte>&           push       = t_TerrainRecordPush;
+        DrawPushFields::RecordPlacements& placements = DrawPushFields::ThreadRecordPlacements();
+        placements.Begin();
         for ( size_t k = 0; k < draws.size(); ++k )
         {
             const FrameDraw&        draw     = draws[k];
             const auto*             material = ( m_FrameGroups[draw.Group].Materials->*program ).get();
             const MaterialExecutor* executor = material->GetMaterialExecutor();
+            const RDG::PassBindings& groupBlock = blocks.At( draw.Group );
             const Common::Memory::Buffer& block = executor->GetPushConstantBuffer();
             push.assign( block.Size, std::byte{ 0 } );
             if ( block.Data != nullptr && block.Size != 0u )
@@ -1995,7 +2004,8 @@ namespace Desert::Graphic::System
             fields.MaterialIndex( draw.Row ).Transform( clipFromWorld );
             if ( shadowSlope )
                 fields.ShadowSlope( shadowSlope->x, shadowSlope->y );
-            if ( auto written = fields.WriteInto( push, material->GetMaterialLayout() ); !written )
+            const DrawPushFields::Placement& placement = placements.Of( material->GetMaterialLayout() );
+            if ( auto written = fields.WriteInto( push, placement ); !written )
                 return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): {}", context.GetPassName(), k,
                                                    executor->GetDubugName(), written.GetError() );
             if ( indirect )
@@ -2003,7 +2013,7 @@ namespace Desert::Graphic::System
                 // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the
                 // terrain's).
                 const uint64_t offset = ( uint64_t{ indirect->FirstRecord } + k ) * kMeshDrawArgumentsBytes;
-                if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline, executor,
+                if ( auto drawn = Renderer::DrawProceduralIndirect( groupBlock, pipeline, executor,
                                                                     indirect->Arguments, offset, push );
                      !drawn.IsSuccess() )
                     return drawn;
@@ -2021,7 +2031,7 @@ namespace Desert::Graphic::System
                 {
                     const uint64_t offset =
                          ( uint64_t{ draw.DiceCull } + level ) * kDiceCullRecordWords * sizeof( uint32_t );
-                    if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline, executor,
+                    if ( auto drawn = Renderer::DrawProceduralIndirect( groupBlock, pipeline, executor,
                                                                         diceCull, offset, push );
                          !drawn.IsSuccess() )
                         return drawn;
@@ -2029,7 +2039,7 @@ namespace Desert::Graphic::System
             }
             else if ( draw.Split.RingVertices > 0u )
             {
-                if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor,
+                if ( auto drawn = Renderer::DrawProcedural( groupBlock, pipeline, executor,
                                                             draw.Split.RingVertices, 1, push );
                      !drawn.IsSuccess() )
                     return drawn;
@@ -2071,7 +2081,7 @@ namespace Desert::Graphic::System
                          k, executor->GetDubugName(), side );
                 }
                 const std::span<const ProceduralIndexedRange> gridRanges( ranges.data(), count );
-                if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
+                if ( auto indexed = Renderer::DrawProceduralIndexed( groupBlock, pipeline, executor,
                                                                      *grid->second, gridRanges, push );
                      !indexed.IsSuccess() )
                     return indexed;
@@ -2149,7 +2159,7 @@ namespace Desert::Graphic::System
                 return;
             }
             const SceneViewInputs                      view      = SceneViewInputsOf( refs );
-            const std::vector<const MaterialExecutor*> executors = GroupExecutors( ForwardProgram() );
+            const GroupExecutorRange                   executors = GroupExecutors( ForwardProgram() );
             PrepareGroupExecutors( declared, executors );
             (void)DeclareGroupBlocks( declared, BasePassPipeline(),
                                       m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout, executors, &view,
@@ -2186,7 +2196,7 @@ namespace Desert::Graphic::System
         {
             return;
         }
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::GBuffer );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::GBuffer );
         PrepareGroupExecutors( pass, executors );
         (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, &view, m_DicePool, m_DiceCells,
                                   CameraDiceCullArgs() );
@@ -2231,7 +2241,7 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* const pipeline = ViewDepthPipeline();
         if ( pipeline == nullptr )
             return;
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Depth );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::Depth );
         PrepareGroupExecutors( pass, executors );
         (void)DeclareGroupBlocks( pass, pipeline, m_DepthLayout, executors, nullptr, m_DicePool, m_DiceCells,
                                   CameraDiceCullArgs() );
@@ -2378,7 +2388,7 @@ namespace Desert::Graphic::System
         if ( !m_ShadowPipeline || ShadowViewDraws( view ).empty() )
             return 0;
         // A depth-only caster samples no scene/view input.
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Shadow );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::Shadow );
         PrepareGroupExecutors( declared, executors );
         return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout, executors, nullptr,
                                    m_DicePool, m_DiceCells, RDG::BufferRef{} );
@@ -2612,16 +2622,15 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* pipeline = VirtualShadowPipeline();
         if ( pipeline == nullptr )
             return 0;
-        const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
-             m_VirtualShadowLayout.Get( pipeline->GetSpecification().Shader );
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
+        const SlottedLayout& slotted = m_VirtualShadowLayout.GetSlotted( pipeline->GetSpecification().Shader );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
         PrepareGroupExecutors( pass, executors );
         for ( const MaterialExecutor* executor : executors )
         {
-            auto block = pass.Bindings( layout, executor->GetRouteFill() );
+            auto block = pass.Bindings( slotted.Layout, executor->GetRouteFill() );
             block.Storage( TerrainShaderParameters::LandscapeVertexPool, m_DicePool, RDG::Access::StorageRead );
             block.Storage( TerrainShaderParameters::LandscapeDiceCells, m_DiceCells, RDG::Access::StorageRead );
-            parameters( block, *layout );
+            parameters( block, slotted );
         }
         return static_cast<uint32_t>( executors.size() );
     }
