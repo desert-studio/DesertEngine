@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/View/PathTracedGuides.hpp>
 
 #include <glm/glm.hpp>
@@ -520,20 +521,21 @@ namespace Desert::Graphic
                  { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::StorageBuffer; } );
         }
 
-        // THE one list of scene/view inputs with their sampler states: binds each one @p samples( name ) admits as
+        // THE one list of scene/view inputs with their sampler states: binds each one @p samples( slot ) admits as
         // a separate texture, with the shared sampler slot it is read through (the receivers' shaders name these
         // slots: Mesh/Surface/Pass_Forward.glslh, Programs/Deferred/DeferredLighting.shader, ...). The cascades
         // and the cloud map linear, REPEAT (the state the images carried as their own); the cubes and the LUT
         // clamped (a LUT edge must not wrap into the opposite one); the local shadow atlas point-clamped (it is
         // read with texelFetch and filtered by hand inside each tile, Mesh/LocalLightShadow.glslh). A shared slot
-        // named by several inputs is one entry (BindingBlockBuilder::Sampler).
+        // named by several inputs is one entry (BindingBlockBuilder::Sampler). @p samples takes a SceneViewSlot
+        // (a bit test of the layout's SceneViewSlots, never a name compare).
         template <typename Block, typename Samples>
         void BindWhere( Block& block, const SceneViewInputs& inputs, const Samples& samples )
         {
-            const auto bind = [&]( RDG::TextureParameter name, RDG::TextureRef texture,
+            const auto bind = [&]( SceneViewSlot slot, RDG::TextureParameter name, RDG::TextureRef texture,
                                    RDG::SamplerParameter samplerSlot, RDG::SamplerDesc sampler )
             {
-                if ( !samples( name.Name ) )
+                if ( !samples( slot ) )
                     return;
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( samplerSlot, sampler );
@@ -542,92 +544,129 @@ namespace Desert::Graphic
             constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
             constexpr RDG::SamplerParameter kPoint{ "PointClampSampler" };
             if ( inputs.ShadowCascades.IsValid() )
-                bind( kSceneViewShadowCascadesTexture, inputs.ShadowCascades, kRepeat,
-                      RDG::SamplerDesc::LinearRepeat() );
-            bind( kSceneViewEnvIrradiance, inputs.EnvIrradiance, kClamp, RDG::SamplerDesc::LinearClamp() );
-            bind( kSceneViewEnvSpecular, inputs.EnvSpecular, kClamp, RDG::SamplerDesc::LinearClamp() );
-            bind( kSceneViewBrdfLut, inputs.BrdfLut, kClamp, RDG::SamplerDesc::LinearClamp() );
-            bind( kSceneViewCloudShadowMap, inputs.CloudShadowMap, kRepeat, RDG::SamplerDesc::LinearRepeat() );
+                bind( SceneViewSlot::ShadowCascades, kSceneViewShadowCascadesTexture, inputs.ShadowCascades,
+                      kRepeat, RDG::SamplerDesc::LinearRepeat() );
+            bind( SceneViewSlot::EnvIrradiance, kSceneViewEnvIrradiance, inputs.EnvIrradiance, kClamp,
+                  RDG::SamplerDesc::LinearClamp() );
+            bind( SceneViewSlot::EnvSpecular, kSceneViewEnvSpecular, inputs.EnvSpecular, kClamp,
+                  RDG::SamplerDesc::LinearClamp() );
+            bind( SceneViewSlot::BrdfLut, kSceneViewBrdfLut, inputs.BrdfLut, kClamp,
+                  RDG::SamplerDesc::LinearClamp() );
+            bind( SceneViewSlot::CloudShadowMap, kSceneViewCloudShadowMap, inputs.CloudShadowMap, kRepeat,
+                  RDG::SamplerDesc::LinearRepeat() );
             if ( inputs.ReflectionCaptureCubes.IsValid() )
-                bind( kSceneViewReflectionCubes, inputs.ReflectionCaptureCubes, kClamp,
-                      RDG::SamplerDesc::LinearClamp() );
+                bind( SceneViewSlot::ReflectionCubes, kSceneViewReflectionCubes, inputs.ReflectionCaptureCubes,
+                      kClamp, RDG::SamplerDesc::LinearClamp() );
             // Read with texelFetch (Mesh/LocalLightShadow.glslh filters by hand inside each tile).
-            bind( kSceneViewLocalShadowAtlas, inputs.LocalShadowAtlas, kPoint, RDG::SamplerDesc::PointClamp() );
+            bind( SceneViewSlot::LocalShadowAtlas, kSceneViewLocalShadowAtlas, inputs.LocalShadowAtlas, kPoint,
+                  RDG::SamplerDesc::PointClamp() );
             // Marched texel by texel (Common/ContactShadow.glslh): nearest, clamped at the screen's edge.
-            bind( kSceneViewSceneDepth, inputs.SceneDepth, kPoint, RDG::SamplerDesc::PointClamp() );
+            bind( SceneViewSlot::SceneDepth, kSceneViewSceneDepth, inputs.SceneDepth, kPoint,
+                  RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster
             // at).
             if ( inputs.SunShadowMask.IsValid() )
+<<<<<<< 2984756a39ed02b4f2dbcb9f97456b4b28e9e5c0
                 bind( kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment (the render extent), like the mask above.
             if ( inputs.SunDistanceFieldShadow.IsValid() )
                 bind( kSceneViewSunDistanceFieldShadow, inputs.SunDistanceFieldShadow, kPoint,
+=======
+                bind( SceneViewSlot::SunShadowMask, kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint,
+>>>>>>> origin/task/DECALS-DBUFFER
                       RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment, layer = the light's ShadowMaskSlot.
             if ( inputs.LocalShadowMasks.IsValid() )
-                bind( kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint, RDG::SamplerDesc::PointClamp() );
+                bind( SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint,
+                      RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).
-            bind( kSceneViewSceneShadingWord, inputs.SceneShadingWord, kPoint, RDG::SamplerDesc::PointClamp() );
+            bind( SceneViewSlot::SceneShadingWord, kSceneViewSceneShadingWord, inputs.SceneShadingWord, kPoint,
+                  RDG::SamplerDesc::PointClamp() );
             // Trilinear between froxel centres, clamped at the frustum's edges (Common/MegaLightsVolume.glslh).
+            constexpr std::array<SceneViewSlot, 3> kVolumeSlots{ SceneViewSlot::MegaLightsVolumeR,
+                                                                 SceneViewSlot::MegaLightsVolumeG,
+                                                                 SceneViewSlot::MegaLightsVolumeB };
             for ( std::size_t channel = 0; channel < kMegaLightsVolumeTextures.size(); ++channel )
-                bind( kMegaLightsVolumeTextures[channel], inputs.MegaLightsVolume.Lighting[channel], kClamp,
-                      RDG::SamplerDesc::LinearClamp() );
+                bind( kVolumeSlots[channel], kMegaLightsVolumeTextures[channel],
+                      inputs.MegaLightsVolume.Lighting[channel], kClamp, RDG::SamplerDesc::LinearClamp() );
             // Gathered 2x2 and compared by hand (SurfaceWeather.glslh RainOcclusion): nearest, clamped.
             if ( inputs.RainOcclusionMap.IsValid() )
-                bind( kSceneViewRainOcclusionMap, inputs.RainOcclusionMap, kSceneViewRainOcclusionSampler,
-                      RDG::SamplerDesc::PointClamp() );
+                bind( SceneViewSlot::RainOcclusionMap, kSceneViewRainOcclusionMap, inputs.RainOcclusionMap,
+                      kSceneViewRainOcclusionSampler, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the G-buffer writer's own pixel (Common/DBuffer.glslh).
             if ( inputs.DBufferA.IsValid() && inputs.DBufferB.IsValid() && inputs.DBufferC.IsValid() )
             {
-                bind( kSceneViewDBufferA, inputs.DBufferA, kSceneViewDBufferSampler,
+                bind( SceneViewSlot::DBufferA, kSceneViewDBufferA, inputs.DBufferA, kSceneViewDBufferSampler,
                       RDG::SamplerDesc::PointClamp() );
-                bind( kSceneViewDBufferB, inputs.DBufferB, kSceneViewDBufferSampler,
+                bind( SceneViewSlot::DBufferB, kSceneViewDBufferB, inputs.DBufferB, kSceneViewDBufferSampler,
                       RDG::SamplerDesc::PointClamp() );
-                bind( kSceneViewDBufferC, inputs.DBufferC, kSceneViewDBufferSampler,
+                bind( SceneViewSlot::DBufferC, kSceneViewDBufferC, inputs.DBufferC, kSceneViewDBufferSampler,
                       RDG::SamplerDesc::PointClamp() );
             }
         }
+
+        // A storage buffer bound where its SceneViewSlot is set.
+        struct SlotBuffer
+        {
+            SceneViewSlot               Slot;
+            RDG::StorageBufferParameter Name;
+            RDG::BufferRef              Buffer;
+        };
+        // A sampled texture bound where its SceneViewSlot is set.
+        struct SlotTexture
+        {
+            SceneViewSlot         Slot;
+            RDG::TextureParameter Name;
+            RDG::TextureRef       Texture;
+        };
     } // namespace SceneViewDetail
 
-    // Whether @p layout samples any scene/view input: the lit programs do; a G-buffer, unlit or custom program
-    // without the receivers does not. Read from the shader's REFLECTED resources, never from material properties.
+    // The scene/view inputs whose presence makes a layout a scene-view receiver (SamplesSceneViewInputs).
+    inline constexpr SceneViewSlots kSceneViewReceiverSlots = SceneViewSlots::Of(
+         { SceneViewSlot::ShadowCascades, SceneViewSlot::EnvIrradiance, SceneViewSlot::EnvSpecular,
+           SceneViewSlot::BrdfLut, SceneViewSlot::CloudShadowMap, SceneViewSlot::LocalShadowAtlas,
+           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA } );
+
+    // Whether a layout samples any scene/view input: the lit programs do; a G-buffer, unlit or custom program
+    // without the receivers does not. Read from the shader's REFLECTED resources (the layout's SceneViewSlots,
+    // resolved once per layout), never from material properties.
+    [[nodiscard]] inline bool SamplesSceneViewInputs( SceneViewSlots slots )
+    {
+        return slots.HasAny( kSceneViewReceiverSlots );
+    }
     [[nodiscard]] inline bool SamplesSceneViewInputs( const RDG::ShaderBindingLayout& layout )
     {
-        for ( std::string_view name :
-              { kSceneViewShadowCascadesName, kSceneViewEnvIrradianceName, kSceneViewEnvSpecularName,
-                kSceneViewBrdfLutName, kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName,
-                kSceneViewRainOcclusionMapName, kSceneFogVolumeName, kSceneViewDBufferAName } )
-            if ( SceneViewDetail::LayoutSamples( layout, name ) )
-                return true;
-        return false;
+        return SamplesSceneViewInputs( SceneViewSlotsOf( layout ) );
     }
 
-    // SETUP: the virtual shadow map's reader tables (VirtualShadowMapReadRefs) where @p layout declares them - a
+    // SETUP: the virtual shadow map's reader tables (VirtualShadowMapReadRefs) where the layout declares them - a
     // DESERT_LOCAL_SHADOW_VSM program. Invalid refs are handed on: such a program then faults its pass by name
     // rather than reading an atlas nobody drew. Shared by BindSceneViewInputs and the passes that bind their own
     // view inputs (the surface cache's card lighting).
     template <typename Block>
+    void BindVirtualShadowMapReads( Block& block, const VirtualShadowMapReadRefs& vsm, SceneViewSlots slots )
+    {
+        for ( const SceneViewDetail::SlotBuffer& entry :
+              { SceneViewDetail::SlotBuffer{ SceneViewSlot::VsmFrameData, kVsmFrameDataBlock, vsm.FrameData },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::VsmPageTable, kVsmPageTableBlock, vsm.PageTable },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::VsmLocalLights, kVsmLocalLightsBlock,
+                                             vsm.LocalLights } } )
+            if ( slots.Has( entry.Slot ) )
+                block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+        if ( slots.Has( SceneViewSlot::VsmPhysicalPool ) )
+            block.Storage( kVsmPhysicalPool, vsm.PhysicalPool, RDG::Access::StorageRead );
+    }
+    template <typename Block>
     void BindVirtualShadowMapReads( Block& block, const VirtualShadowMapReadRefs& vsm,
                                     const RDG::ShaderBindingLayout& layout )
     {
-        for ( const auto& [name, buffer] : { std::pair{ kVsmFrameDataBlock, vsm.FrameData },
-                                             std::pair{ kVsmPageTableBlock, vsm.PageTable },
-                                             std::pair{ kVsmLocalLightsBlock, vsm.LocalLights } } )
-            if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
-                block.Storage( name, buffer, RDG::Access::StorageRead );
-        if ( std::any_of( layout.Slots.begin(), layout.Slots.end(),
-                          []( const RDG::ShaderSlot& slot ) {
-                              return slot.Name == kVsmPhysicalPoolName &&
-                                     slot.Kind == RDG::ShaderResourceKind::StorageTexture;
-                          } ) )
-            block.Storage( kVsmPhysicalPool, vsm.PhysicalPool, RDG::Access::StorageRead );
+        BindVirtualShadowMapReads( block, vsm, SceneViewSlotsOf( layout ) );
     }
 
     // SETUP: declares on @p block (RenderPassDeclaration::BlockDeclaration or RDG::BindingBlockBuilder) every
-    // input
-    // @p layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one - the
-    // block would fault the pass in ValidatePassBindings ("'ShadowCascadesTexture' is not a resource of shader
-    // ..."). A block entry IS the read: the node does not also declare inputs.Refs(). The fog a translucent
+    // input the layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one
+    // - the block would fault the pass in ValidatePassBindings ("'ShadowCascadesTexture' is not a resource of
+    // shader ..."). A block entry IS the read: the node does not also declare inputs.Refs(). The fog a translucent
     // surface applies at its own depth, where the layout declares it (Mesh/Surface/SceneFog.glslh): the block and
     // its three images, each read trilinear and clamped through the pass's LinearClampSampler. Called by
     // BindSceneViewInputs, and on its own by the passes that bind the rest of their view inputs themselves (the
@@ -635,58 +674,78 @@ namespace Desert::Graphic
     // to: that is a registration fault, and the pass faults by name in ValidatePassBindings exactly as any other
     // missing scene input does.
     template <typename Block>
-    void BindSceneFogInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
+    void BindSceneFogInputs( Block& block, const SceneViewInputs& inputs, SceneViewSlots slots )
     {
-        if ( inputs.FogParams.IsValid() && SceneViewDetail::LayoutReadsBuffer( layout, kSceneFogParamsBlockName ) )
+        if ( inputs.FogParams.IsValid() && slots.Has( SceneViewSlot::FogParams ) )
             block.Storage( kSceneFogParamsBlock, inputs.FogParams, RDG::Access::StorageRead );
-        for ( const auto& [name, texture] :
-              { std::pair{ kSceneFogAerialPerspective, inputs.FogAerialPerspective },
-                std::pair{ kSceneFogDistantSkyLight, inputs.FogDistantSkyLight },
-                std::pair{ kSceneFogVolume, inputs.FogVolume } } )
-            if ( texture.IsValid() && SceneViewDetail::LayoutSamples( layout, name.Name ) )
-                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+        for ( const SceneViewDetail::SlotTexture& entry :
+              { SceneViewDetail::SlotTexture{ SceneViewSlot::FogAerialPerspective, kSceneFogAerialPerspective,
+                                              inputs.FogAerialPerspective },
+                SceneViewDetail::SlotTexture{ SceneViewSlot::FogDistantSkyLight, kSceneFogDistantSkyLight,
+                                              inputs.FogDistantSkyLight },
+                SceneViewDetail::SlotTexture{ SceneViewSlot::FogVolume, kSceneFogVolume, inputs.FogVolume } } )
+            if ( entry.Texture.IsValid() && slots.Has( entry.Slot ) )
+                block.Texture( entry.Name, entry.Texture, RDG::Access::SampledGraphics,
+                               RDG::SubresourceRange::All() )
                      .Sampler( RDG::SamplerParameter( "LinearClampSampler" ), RDG::SamplerDesc::LinearClamp() );
     }
-
     template <typename Block>
-    void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
+    void BindSceneFogInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
     {
-        SceneViewDetail::BindWhere( block, inputs, [&layout]( std::string_view name )
-                                    { return SceneViewDetail::LayoutSamples( layout, name ); } );
+        BindSceneFogInputs( block, inputs, SceneViewSlotsOf( layout ) );
+    }
+
+    // @p slots: the block's layout's SceneViewSlots - a kept layout's mask (ShaderBindingLayoutCache::GetSlotted,
+    // ShaderBindingLayoutSet::GetSlotted), so a per-frame setup tests bits and compares no slot name.
+    template <typename Block>
+    void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, SceneViewSlots slots )
+    {
+        SceneViewDetail::BindWhere( block, inputs, [slots]( SceneViewSlot slot ) { return slots.Has( slot ); } );
         // The capture list is a storage buffer, bound where the layout has that block.
-        if ( inputs.ReflectionCaptures.IsValid() &&
-             std::any_of( layout.Slots.begin(), layout.Slots.end(),
-                          []( const RDG::ShaderSlot& slot ) {
-                              return slot.Name == kSceneViewReflectionListName &&
-                                     slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
-                          } ) )
+        if ( inputs.ReflectionCaptures.IsValid() && slots.Has( SceneViewSlot::ReflectionList ) )
             block.Storage( kSceneViewReflectionList, inputs.ReflectionCaptures, RDG::Access::StorageRead );
         // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
         // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
         // pass by name rather than reading nothing. The MegaLights volume's block likewise (invalid before
         // AddFrameMegaLightsVolume: a reader faults by name).
-        for ( const auto& [name, buffer] :
-              { std::pair{ kLightGridParamsBlock, inputs.LightGridParams },
-                std::pair{ kLightGridCellsBlock, inputs.LightGridCells },
-                std::pair{ kLocalShadowViewsBlock, inputs.LocalShadowViews },
-                std::pair{ kMegaLightsVolumeBlock, inputs.MegaLightsVolume.Params } } )
-            if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
-                block.Storage( name, buffer, RDG::Access::StorageRead );
-        BindVirtualShadowMapReads( block, inputs.Vsm, layout );
+        for ( const SceneViewDetail::SlotBuffer& entry :
+              { SceneViewDetail::SlotBuffer{ SceneViewSlot::LightGridParams, kLightGridParamsBlock,
+                                             inputs.LightGridParams },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::LightGridCells, kLightGridCellsBlock,
+                                             inputs.LightGridCells },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::LocalShadowViews, kLocalShadowViewsBlock,
+                                             inputs.LocalShadowViews },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::MegaLightsVolumeParams, kMegaLightsVolumeBlock,
+                                             inputs.MegaLightsVolume.Params } } )
+            if ( slots.Has( entry.Slot ) )
+                block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+        BindVirtualShadowMapReads( block, inputs.Vsm, slots );
         // The radiance cache, where the shader reads it (the forward passes' estimator). Bound here and not in
         // BindWhere: the surface cache's lighting passes bind their own cache under the same names.
-        for ( const auto& [name, buffer] :
-              { std::pair{ kSceneViewRadianceCacheParams, inputs.RadianceCacheParams },
-                std::pair{ kSceneViewRadianceCacheIndirection, inputs.RadianceCacheIndirection },
-                std::pair{ kSceneViewRadianceCacheProbes, inputs.RadianceCacheProbes } } )
-            if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
-                block.Storage( name, buffer, RDG::Access::StorageRead );
-        for ( const auto& [name, texture] :
-              { std::pair{ kSceneViewRadianceCacheIrradiance, inputs.RadianceCacheIrradiance },
-                std::pair{ kSceneViewRadianceCacheDepth, inputs.RadianceCacheDepth } } )
-            if ( SceneViewDetail::LayoutSamples( layout, name.Name ) )
-                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+        for ( const SceneViewDetail::SlotBuffer& entry :
+              { SceneViewDetail::SlotBuffer{ SceneViewSlot::RadianceCacheParams, kSceneViewRadianceCacheParams,
+                                             inputs.RadianceCacheParams },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::RadianceCacheIndirection,
+                                             kSceneViewRadianceCacheIndirection, inputs.RadianceCacheIndirection },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::RadianceCacheProbes, kSceneViewRadianceCacheProbes,
+                                             inputs.RadianceCacheProbes } } )
+            if ( slots.Has( entry.Slot ) )
+                block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+        for ( const SceneViewDetail::SlotTexture& entry :
+              { SceneViewDetail::SlotTexture{ SceneViewSlot::RadianceCacheIrradiance,
+                                              kSceneViewRadianceCacheIrradiance, inputs.RadianceCacheIrradiance },
+                SceneViewDetail::SlotTexture{ SceneViewSlot::RadianceCacheDepth, kSceneViewRadianceCacheDepth,
+                                              inputs.RadianceCacheDepth } } )
+            if ( slots.Has( entry.Slot ) )
+                block.Texture( entry.Name, entry.Texture, RDG::Access::SampledGraphics,
+                               RDG::SubresourceRange::All() )
                      .Sampler( RDG::SamplerParameter( "LinearClampSampler" ), RDG::SamplerDesc::LinearClamp() );
-        BindSceneFogInputs( block, inputs, layout );
+        BindSceneFogInputs( block, inputs, slots );
+    }
+    // A layout of the caller's own (a test, a pass that edits a copy of its layout): walked here, once per call.
+    template <typename Block>
+    void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
+    {
+        BindSceneViewInputs( block, inputs, SceneViewSlotsOf( layout ) );
     }
 } // namespace Desert::Graphic

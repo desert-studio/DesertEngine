@@ -1921,17 +1921,17 @@ namespace Desert::Graphic::System
             // TERRAIN-DICE-CULL: the camera's rasters draw their rings from the cull's records.
             if ( diceCull.IsValid() )
                 declaration.Read( diceCull, RDG::Access::IndirectArgs );
-            const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
-                 layoutCache.Get( pipeline->GetSpecification().Shader );
+            const SlottedLayout& slotted = layoutCache.GetSlotted( pipeline->GetSpecification().Shader );
+            const std::shared_ptr<const RDG::ShaderBindingLayout>& layout = slotted.Layout;
             for ( const MaterialExecutor* executor : executors )
             {
                 auto block = declaration.Bindings( layout, executor->GetRouteFill() );
                 // Every terrain vertex stage reads the frame's dice pool (TerrainVertex.glslh).
                 block.Storage( TerrainShaderParameters::LandscapeVertexPool, dicePool, RDG::Access::StorageRead );
                 block.Storage( TerrainShaderParameters::LandscapeDiceCells, diceCells, RDG::Access::StorageRead );
-                if ( view != nullptr && SamplesSceneViewInputs( *layout ) )
+                if ( view != nullptr && SamplesSceneViewInputs( slotted.Slots ) )
                 {
-                    BindSceneViewInputs( block, *view, *layout );
+                    BindSceneViewInputs( block, *view, slotted.Slots );
                 }
             }
             return static_cast<uint32_t>( executors.size() );

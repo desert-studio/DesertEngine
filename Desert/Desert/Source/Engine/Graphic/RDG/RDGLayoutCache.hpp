@@ -48,16 +48,24 @@ namespace Desert::Graphic::RDG
     // mesh draw list: one block per material executor and recording pipeline). Keyed on the source's ownership
     // (owner order of the weak_ptr, like LayoutCache's identity), so a new object allocated where a destroyed one
     // lived gets its own cache, never the dead one's layout. DropExpired forgets the caches of destroyed sources
-    // (the owner of the set calls it once per frame, before the frame's Gets).
-    class LayoutCacheSet
+    // (the owner of the set calls it once per frame, before the frame's Gets). @p Cache is the per-source cache:
+    // LayoutCache, or a caller's cache that keeps more beside the layout (ShaderBindingLayoutCache keeps the
+    // layout's scene-view slot mask), reached through At.
+    template <class Cache>
+    class BasicLayoutCacheSet
     {
     public:
+        template <class Source>
+        [[nodiscard]] Cache& At( const std::shared_ptr<Source>& source )
+        {
+            return m_Caches[std::weak_ptr<const void>( source )];
+        }
+
         template <class Source, class Derive>
         [[nodiscard]] const std::shared_ptr<const ShaderBindingLayout>& Get( const std::shared_ptr<Source>& source,
                                                                              uint64_t generation, Derive&& derive )
         {
-            return m_Caches[std::weak_ptr<const void>( source )].Get( source, generation,
-                                                                      std::forward<Derive>( derive ) );
+            return At( source ).Get( source, generation, std::forward<Derive>( derive ) );
         }
 
         void DropExpired()
@@ -71,6 +79,8 @@ namespace Desert::Graphic::RDG
         }
 
     private:
-        std::map<std::weak_ptr<const void>, LayoutCache, std::owner_less<>> m_Caches;
+        std::map<std::weak_ptr<const void>, Cache, std::owner_less<>> m_Caches;
     };
+
+    using LayoutCacheSet = BasicLayoutCacheSet<LayoutCache>;
 } // namespace Desert::Graphic::RDG

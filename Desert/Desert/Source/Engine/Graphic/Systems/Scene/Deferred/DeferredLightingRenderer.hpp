@@ -403,7 +403,8 @@ namespace Desert::Graphic::System
             m_DeclaredProgram                      = &program;
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
-            const auto&                     layout = program.Layout.Get( program.Shader );
+            const SlottedLayout&            slotted = program.Layout.GetSlotted( program.Shader );
+            const auto&                     layout  = slotted.Layout;
             pass.Prepares( *program.Material->GetMaterialExecutor() );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
             DeclareGBufferReads( block, inputs, false );
@@ -427,7 +428,7 @@ namespace Desert::Graphic::System
                 block.Texture( DeferredLightingCompositeShaderParameters::LocalShadowMasksTexture,
                                inputs.LocalShadowMasks, kRead, kWhole );
             if ( layout )
-                BindSceneViewInputs( block, inputs.View, *layout );
+                BindSceneViewInputs( block, inputs.View, slotted.Slots );
             // Every geometry texel is written; a sky texel is discarded and never read (the composite returns
             // first).
             pass.ColorTarget( 0, inputs.DirectLighting, RDG::LoadOp::DontCare() );
@@ -447,7 +448,8 @@ namespace Desert::Graphic::System
             m_DeclaredComposite                    = &program;
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
-            const auto&                     layout = program.Layout.Get( program.Shader );
+            const SlottedLayout&            slotted = program.Layout.GetSlotted( program.Shader );
+            const auto&                     layout  = slotted.Layout;
             pass.Prepares( *program.Material->GetMaterialExecutor() );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
             DeclareGBufferReads( block, inputs, true );
@@ -468,7 +470,7 @@ namespace Desert::Graphic::System
                  .Texture( DeferredLightingCompositeShaderParameters::DeferredDirectSpecularTexture,
                            inputs.DirectSpecular, kRead, kWhole );
             if ( layout )
-                BindSceneViewInputs( block, inputs.View, *layout );
+                BindSceneViewInputs( block, inputs.View, slotted.Slots );
         }
 
         // EXEC of "Deferred: Direct Lighting": the direct program DeclareDirectBindings chose, into the direct

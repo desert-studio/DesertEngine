@@ -399,9 +399,10 @@ namespace Desert::Graphic::System
         // RENDER-THREADS M1: the one material RenderManual applies - its view sets and block copies exist before
         // the graph records (after the frame binding above, which writes its blocks).
         pass.Prepares( *m_Frame->Material->GetMaterialExecutor() );
-        const auto layout = m_Layout.Get( m_Frame->Pipeline->GetSpecification().Shader );
-        auto       block  = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
-        BindSceneViewInputs( block, view, *layout );
+        const SlottedLayout& slotted = m_Layout.GetSlotted( m_Frame->Pipeline->GetSpecification().Shader );
+        const auto&          layout  = slotted.Layout;
+        auto block = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
+        BindSceneViewInputs( block, view, slotted.Slots );
         constexpr RDG::TextureParameter kSceneColor{ "SceneColorTexture" };
         constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
         // The WaterInfo ground (UE: the water info texture a view's water pass reads): a pass input like the scene
