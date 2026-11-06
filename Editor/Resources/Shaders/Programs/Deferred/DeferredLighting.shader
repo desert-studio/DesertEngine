@@ -249,11 +249,7 @@ Shader "DeferredLighting"
         	const float cascades = ShadowFactor(kShadowLightSun, worldPos, N, L, cascade);
         	if (CompositeView.x < 0.5 || DirectionalShadow[kShadowLightSun].y < 0.5)
         		return cascades;
-        	const int count = int(DirectionalShadow[kShadowLightSun].z);
-        	const float band = count > 0
-        	                   ? DistanceFieldShadowBandWeight(LightViewProjection[cascadeView(kShadowLightSun, count - 1)],
-        	                                                   worldPos, kDistanceFieldShadowBand)
-        	                   : 1.0;
+        	const float band = DistanceFieldShadowHandOver(kShadowLightSun, cascade, worldPos);
         	if (band <= 0.0)
         		return cascades;
         	return mix(cascades, texelFetch(DistanceFieldShadowTexture, ivec2(gl_FragCoord.xy), 0).r, band);

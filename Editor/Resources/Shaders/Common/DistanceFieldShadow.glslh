@@ -5,7 +5,8 @@
 // DistanceFieldShadowing.usf, written from memory): the sun past the last cascade. The record every pass of it reads
 // (System::DistanceFieldShadowGpuParams, Systems/Scene/Shadows/DistanceFieldShadow.hpp) and the one statement of
 // THE BAND - how much of a receiver's sun visibility the distance fields own - which the trace (to skip the pixels
-// the cascades own whole) and the deferred direct lighting (to cross-fade the two) both evaluate.
+// the cascades own whole) and the receivers (to cross-fade the two: Mesh/CascadedShadow.glslh
+// DistanceFieldShadowHandOver - deferred, forward and the surface-cache cards) all evaluate.
 //
 // LIGHT SPACE: x, y across the sun's rays (cm, from the camera), z toward the sun. A ray toward the sun keeps its
 // light-space x, y, so the objects a receiver's ray can meet are the ones whose light-space footprint covers the

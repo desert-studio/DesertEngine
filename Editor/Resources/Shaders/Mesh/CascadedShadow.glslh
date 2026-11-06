@@ -315,4 +315,25 @@ float TransmissionShadowFactor(int light, vec3 worldPos, float density)
 	return through;
 }
 
+// THE HAND-OVER TO THE DISTANCE FIELDS (UE DistanceFieldShadowing: the ray-traced distance-field shadow fades in
+// across the last cascade's fade region, r.Shadow.CSM.TransitionScale, so the cascades never end in a seam):
+// how much of directional slot @p light's visibility at @p worldPos the distance-field shadow owns - 0 where the
+// cascades own it whole, 1 past them, between them across the band at the last cascade's border
+// (Common/DistanceFieldShadow.glslh DistanceFieldShadowBandWeight, kDistanceFieldShadowBand). @p cascade is the
+// cascade ShadowFactor chose (-1 none: the distance field owns it whole, even inside the last cascade's depth
+// margin where chooseCascade refuses it). A slot casting no shadow keeps its cascades' answer (lit): 0.
+// ONE statement for every receiver that hands over - the deferred composite, the forward meshes and the
+// surface-cache cards - so the screen and the cards cross over in the same band.
+#include <Common/DistanceFieldShadow.glslh>
+float DistanceFieldShadowHandOver(int light, int cascade, vec3 worldPos)
+{
+	if (DirectionalShadow[light].y < 0.5)
+		return 0.0;
+	const int count = int(DirectionalShadow[light].z);
+	if (cascade < 0 || count <= 0)
+		return 1.0;
+	return DistanceFieldShadowBandWeight(LightViewProjection[cascadeView(light, count - 1)], worldPos,
+	                                     kDistanceFieldShadowBand);
+}
+
 #endif // CASCADED_SHADOW_GLSLH

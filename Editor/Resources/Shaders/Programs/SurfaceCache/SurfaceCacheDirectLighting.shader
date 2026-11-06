@@ -39,8 +39,13 @@
 // mask's own - the tracer's mesh fields of the texel's froxel (hard, its near field), then the sun's CONE through
 // the global field from the same start, steps and reach as the screen's far field
 // (Common/DistanceFieldShadowGlobalTrace.glslh), so the GI bounce off a far slope is shadowed, penumbra included,
-// as the slope on screen. The cascades stay where they hold the texel (exact there). Under the hardware tracer the
-// ray query stays: exact against the TLAS, as UE's hardware-traced offscreen card shadows.
+// as the slope on screen. The cascades stay where they hold the texel (exact there) and hand over to that trace
+// across the SAME band as the screen (Mesh/CascadedShadow.glslh DistanceFieldShadowHandOver: the last cascade's
+// border, UE r.Shadow.CSM.TransitionScale), so a card does not switch at a line the screen fades across. The moon
+// slot takes the same cone along its own direction and disc (the method's trace is per direction, not per sun);
+// the screen has no moon mask (one mask, the sun's - DistanceFieldShadowRenderer), there the moon past its
+// cascades stays lit as before. Under the hardware tracer the ray query stays: exact against the TLAS, as UE's
+// hardware-traced offscreen card shadows, switched hard at the last cascade (no mask on screen to match).
 //
 // THE LIGHTS OF A TEXEL (UE LumenSceneDirectLightingCulling): the world light grid's list for the texel's cell
 // (Mesh/LightGrid.glslh LightGridWorldLightsAt - the radiance cache clipmap cells around the camera, built by
@@ -139,7 +144,7 @@ Shader "SurfaceCacheDirectLighting"
             vec4 ContactShadowView;
             vec4 SunContactShadow;
             vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF),
-                                    // z = 1: the distance-field sun runs (OffCascadeShadow), w unused
+                                    // z = 1: the distance-field sun runs (DistanceFieldShadowRuns), w unused
         };
         #include <Mesh/CascadedShadow.glslh>
 
@@ -289,13 +294,13 @@ Shader "SurfaceCacheDirectLighting"
 
         #if defined(DESERT_GI_TRACER_SOFTWARE)
         #include <Common/DistanceFieldShadowGlobalTrace.glslh>
-        // The sun's distance-field shadow at a texel no cascade holds (the header's THE SUN PAST THE CASCADES):
-        // @p L unit toward the sun, @p tanHalf the tangent of its disc's half angle. First the near field - the
+        // A directional light's distance-field shadow at a texel (the header's THE SUN PAST THE CASCADES):
+        // @p L unit toward the light, @p tanHalf the tangent of its disc's half angle. First the near field - the
         // mesh fields of the texel's froxel, any hit is the shadow (the screen's tile list: the meshes closest to
         // it) - then the global field's cone from where the near field ended, never before the global field's own
         // start (the texel is a voxel off its own surface by then). The receiver's distance for that start is
         // taken from the finest clipmap's centre - the clipmaps follow the camera; a card texel has no view.
-        float SunDistanceFieldShadow(vec3 worldPos, vec3 N, vec3 L, float tanHalf)
+        float DirectionalDistanceFieldShadow(vec3 worldPos, vec3 N, vec3 L, float tanHalf)
         {
             const GITraceBias bias = GIRayBias(worldPos, N, L);
             GITraceInput ray;
@@ -322,20 +327,50 @@ Shader "SurfaceCacheDirectLighting"
         }
         #endif
 
-        // The shadow of directional slot @p light at a texel its cascades do not hold, from the side @p N faces:
-        // the distance-field sun where that method runs (software tracer), the tracer's visibility ray otherwise.
+        // Whether directional slot @p light's cascades hand over to the distance-field trace: the method runs
+        // (ShadowFilter.z, packed only with the screen's mask) under the software tracer. False: the cascades end
+        // hard at their last border and the tracer's ray answers past it (CascadeOrOffCascadeShadow).
+        bool DistanceFieldShadowRuns(int light)
+        {
+        #if defined(DESERT_GI_TRACER_SOFTWARE)
+            return ShadowFilter.z > 0.5;
+        #else
+            return false;
+        #endif
+        }
+
+        // The shadow of directional slot @p light at a texel its cascades do not hold whole, from the side @p N
+        // faces: the distance-field cone where that method runs, the tracer's visibility ray otherwise.
         float OffCascadeShadow(int light, vec3 worldPos, vec3 N, vec3 L)
         {
         #if defined(DESERT_GI_TRACER_SOFTWARE)
-            if (light == kShadowLightSun && ShadowFilter.z > 0.5)
-                return SunDistanceFieldShadow(worldPos, N, L, DirectionalShadow[light].x);
+            if (DistanceFieldShadowRuns(light))
+                return DirectionalDistanceFieldShadow(worldPos, N, L, DirectionalShadow[light].x);
         #endif
             return TracedShadow(worldPos, N, L, 1.0e7);
         }
 
+        // Directional slot @p light's shadow at the texel given its cascades' answer @p cascades (@p cascade the
+        // one chosen, -1 none): with the distance-field method, cross-faded into the trace across the hand-over
+        // band (the screen's DesertSunShadowWithDistanceField, the same statement); else the cascades, and the
+        // tracer's ray where none holds the texel. @p N the side the light reaches (-N for the far side).
+        float CascadeOrOffCascadeShadow(int light, int cascade, float cascades, vec3 worldPos, vec3 N, vec3 L)
+        {
+            if (DirectionalShadow[light].y < 0.5)
+                return cascades;
+            if (DistanceFieldShadowRuns(light))
+            {
+                const float band = DistanceFieldShadowHandOver(light, cascade, worldPos);
+                if (band <= 0.0)
+                    return cascades;
+                return mix(cascades, OffCascadeShadow(light, worldPos, N, L), band);
+            }
+            return cascade < 0 ? OffCascadeShadow(light, worldPos, N, L) : cascades;
+        }
+
         // ONE SHADOWED DIRECTIONAL LIGHT at the texel, by its slot @p light of the cascades (kShadowLightSun,
         // kShadowLightAtmosphere1): the light travelling along @p travel with @p radiance, occluded by that slot's
-        // cascades - and, where the slot casts but no cascade holds the texel, by the tracer's ray - times the cloud
+        // cascades - handed over to the trace past them (CascadeOrOffCascadeShadow) - times the cloud
         // layer when @p cloudShadowed (the cloud shadow map is fitted to the SUN's direction, as in the deferred
         // composite). Adds the front irradiance to @p irradiance and, on a subsurface texel, the far side's to @p back.
         void AddDirectionalLight(int light, vec3 travel, vec3 radiance, bool cloudShadowed, vec3 worldPos, vec3 N,
@@ -346,20 +381,20 @@ Shader "SurfaceCacheDirectLighting"
             const bool  casts = DirectionalShadow[light].y > 0.5;
             if (NdotL > 0.0)
             {
-                int   cascade = -1;
-                float shadow  = ShadowFactor(light, worldPos, N, L, cascade);
-                // Shadows on but no cascade holds the texel: the tracer answers.
-                if (cascade < 0 && casts)
-                    shadow = OffCascadeShadow(light, worldPos, N, L);
+                int         cascade  = -1;
+                const float cascades = ShadowFactor(light, worldPos, N, L, cascade);
+                const float shadow   = CascadeOrOffCascadeShadow(light, cascade, cascades, worldPos, N, L);
                 irradiance += radiance * NdotL * shadow * (cloudShadowed ? CloudShadowFactor(worldPos) : 1.0);
             }
             else if (through && NdotL < 0.0)
             {
                 // The deferred composite's TransmissionShadow (Mesh/CascadedShadow.glslh): the cascades' thickness
                 // transmittance at the receiver's own depth; off the cascades, the tracer's ray from the far side.
-                float shadow = casts && chooseCascade(light, worldPos) < 0
-                                   ? OffCascadeShadow(light, worldPos, -N, L)
-                                   : TransmissionShadowFactor(light, worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity));
+                // The same hand-over as the front: the band blends the thickness into the trace from the far side.
+                const int   cascade = casts ? chooseCascade(light, worldPos) : -1;
+                const float thickness =
+                    TransmissionShadowFactor(light, worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity));
+                const float shadow    = CascadeOrOffCascadeShadow(light, cascade, thickness, worldPos, -N, L);
                 back += radiance * -NdotL * shadow * (cloudShadowed ? CloudShadowFactor(worldPos) : 1.0);
             }
         }
