@@ -9,7 +9,9 @@
 // disc: each step's distance over the cone's radius
 // at that t is how much of the disc the surface leaves open, and the smallest of them over the ray is the visibility
 // - a soft penumbra that widens with the occluder's distance (UE's MinConeVisibility). The receivers the cascades own
-// whole, the sky and the receivers past the shadow distance write 1. r = visibility (1 = lit), g = the receiver's
+// whole and the sky write 1; the receivers past the mesh fields' distance (receivers.z) are the FAR FIELD - the
+// global field alone, out to its coarsest clipmap - and those past every clipmap write 1.
+// r = visibility (1 = lit), g = the receiver's
 // distance from the camera in metres (0 = sky) - what DistanceFieldShadowUpsample.shader weighs its taps by.
 Shader "DistanceFieldShadowTrace"
 {
@@ -157,7 +159,14 @@ Shader "DistanceFieldShadowTrace"
             const vec3  position = ReconstructWorldPosition(uv, depth, ShadowParams.invViewProjection);
             const float distance = length(position - ShadowParams.camera.xyz);
             const vec4  lit      = vec4(1.0, distance * 0.01, 0.0, 0.0);
-            if (distance > ShadowParams.receivers.z)
+            // THE FAR FIELD: past the mesh fields' receivers (receivers.z, the tile grid's reach) the global
+            // field alone carries the sun's ray, for every receiver its clipmaps still hold (UE's far-field
+            // distance-field shadow / Lumen's global-SDF shadow): the far ridge keeps a shadow with no cascade.
+            const bool farField = distance > ShadowParams.receivers.z;
+            int farLevel = -1;
+            if (farField && ShadowParams.gdfLevels[0].w > 0.0)
+                farLevel = GlobalDistanceFieldLevelAt(position, ShadowParams.gdfLevels);
+            if (farField && farLevel < 0)
             {
                 imageStore(DistanceFieldShadowHalfTexture, pixel, lit);
                 return;
@@ -173,22 +182,38 @@ Shader "DistanceFieldShadowTrace"
 
             const vec3  toSun   = ShadowParams.lightZ.xyz;
             const vec3  normal  = normalize(texelFetch(GBufferNormalTexture, full, 0).rgb);
-            const vec3  origin  = position + normal * (dot(normal, toSun) >= 0.0 ? kNormalBias : -kNormalBias);
+            const float facing  = dot(normal, toSun) >= 0.0 ? 1.0 : -1.0;
             const float tMin    = kRayStartOffsetDepthScale * distance;
             const float tanHalf = ShadowParams.receivers.y;
 
             float visibility = 1.0;
-            const int tile = DistanceFieldShadowTileAt(ShadowParams, DistanceFieldShadowLight(ShadowParams, origin).xy);
-            if (tile >= 0)
+            if (farField)
             {
-                const uint header = uint(tile) * DistanceFieldShadowHeaderStride;
-                const uint first  = TileData[header];
-                const uint length = TileData[header + 1u];
-                for (uint k = 0u; k < length && visibility > 0.0; ++k)
-                    visibility = TraceObject(TileData[first + k], origin, toSun, tMin, tanHalf, visibility);
+                // The receiver is a surface of the field itself: the ray leaves it by the voxel of the clipmap
+                // holding it (normal bias and start), as the global field cannot resolve its own surface closer.
+                const float voxel  = ShadowParams.gdfLevels[farLevel].w;
+                const vec3  origin = position + normal * (facing * voxel);
+                visibility = TraceGlobalField(origin, toSun, max(tMin, 2.0 * voxel), tanHalf, visibility);
             }
-            if (visibility > 0.0)
-                visibility = TraceGlobalField(origin, toSun, max(DISTANCE_FIELD_SHADOW_OBJECT_RAY, tMin), tanHalf, visibility);
+            else
+            {
+                const vec3 origin = position + normal * (facing * kNormalBias);
+                const vec3 light  = DistanceFieldShadowLight(ShadowParams, origin);
+                const int  tile   = DistanceFieldShadowTileAt(ShadowParams, light.xy);
+                // Off the grid no list holds the near occluders: the global field takes the whole ray.
+                float globalStart = tMin;
+                if (tile >= 0)
+                {
+                    const uint header = uint(tile) * DistanceFieldShadowHeaderStride;
+                    const uint first  = TileData[header];
+                    const uint length = TileData[header + 1u];
+                    for (uint k = 0u; k < length && visibility > 0.0; ++k)
+                        visibility = TraceObject(TileData[first + k], origin, toSun, tMin, tanHalf, visibility);
+                    globalStart = max(DISTANCE_FIELD_SHADOW_OBJECT_RAY, tMin);
+                }
+                if (visibility > 0.0)
+                    visibility = TraceGlobalField(origin, toSun, globalStart, tanHalf, visibility);
+            }
             // The cone's open share to a disc's visible area (UE: the smoothstep of MinConeVisibility).
             visibility = smoothstep(0.0, 1.0, visibility);
             imageStore(DistanceFieldShadowHalfTexture, pixel, vec4(visibility, distance * 0.01, 0.0, 0.0));

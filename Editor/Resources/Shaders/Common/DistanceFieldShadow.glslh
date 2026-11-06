@@ -23,7 +23,8 @@ struct DistanceFieldShadowParams
     vec4  lightZ;          // the z axis: toward the sun
     vec4  tiles;           // xy = the grid's light-space minimum corner (cm), zw = 1 / tile size (1/cm)
     vec4  receivers;       // x = the lowest receiver's light-space z (cm), y = tan(sun angle / 2),
-                           // z = the receivers' farthest distance from the camera (cm), w = the band (UV width)
+                           // z = the mesh fields' receivers' farthest distance from the camera (cm; past it the
+                           // trace's far field, the global field alone), w = the band (UV width)
     uvec4 counts;          // x = objects (the meshes, then the landscape tiles), y = tiles a side,
                            // z = tiles in all, w = the list entries' room
     mat4  invViewProjection; // the G-buffer's inverse jittered view-projection
