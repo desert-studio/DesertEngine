@@ -3713,6 +3713,24 @@ namespace Desert::Graphic::System
             uint64_t StaticLodKey       = 0;
         };
         ShadowCasterSetup m_ShadowCasterSetup;
+        // THE DENSE STATIC INSTANCE SNAPSHOT (CPU-FRAME-ARENA 4; UE FScene::PrimitiveBounds: the per-view cull
+        // walks a dense array indexed by primitive, rebuilt only when a primitive is added, moved, removed or
+        // changes how it draws). One world box per m_StaticQueue entry, for EVERY entry with a mesh (a caster
+        // or not; IsVisibleInView's box from its transform and its submeshes' local bounds; empty: no extent,
+        // in every view), made and kept by FinishStaticCasterRows with the static casters' revision - the
+        // shadow rows' caster boxes are copied from it, so the box is built once for all views. Every view walk
+        // of the static queue (the main view's chunks, the translucent / glass / front-layer walks) culls by it
+        // instead of chasing each entry's mesh and its submeshes per view. Gather: the ShadowCasterSetup::Gather
+        // it is of (another: not of this frame's queue - StaticEntryInView builds the entry's box itself).
+        struct StaticInstanceSnapshot
+        {
+            std::vector<Common::Math::AABB> WorldBounds; // per m_StaticQueue entry
+            uint64_t                        Gather = 0;
+        };
+        StaticInstanceSnapshot m_StaticSnapshot;
+        // Whether m_StaticQueue entry @p index (whose Mesh is set) is in @p frustum: the snapshot's box when it
+        // is of this gather, else the box IsVisibleInView builds from the entry (the same box, the same answer).
+        [[nodiscard]] bool StaticEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
         // The ISM gather's key: the main camera's LODView and lens scale, the shadow wind distance and, per field,
         // its mesh's render revision, instance count, material, caster flag, cull distance and wind (not its clock:
         // the gather reads the sway's reach, not its phase). O(fields), never O(instances).

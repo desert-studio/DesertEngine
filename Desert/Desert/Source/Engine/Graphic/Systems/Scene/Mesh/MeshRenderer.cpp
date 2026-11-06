@@ -706,11 +706,10 @@ namespace Desert::Graphic::System
             // CPU-FRAME-ARENA 3: the draw's push block in this thread's kept scratch (rewritten whole per draw,
             // used by that draw's call alone), no vector per record.
             std::vector<std::byte>& push = t_RecordPush;
-            // RDG-PARALLEL-7 (RDG-REC-4): the draws' push fields are placed through one table per cell layout
-            // (DrawPushFields::Place), found by the layout's address - in the thread's kept placements
-            // (DrawPushFields::RecordPlacements), begun for this record.
-            DrawPushFields::RecordPlacements& placements = DrawPushFields::ThreadRecordPlacements();
-            placements.Begin();
+            // RDG-PARALLEL-7 (RDG-REC-4): the draws' push fields are placed through one table per cell shader's
+            // code (DrawPushFields::Place), made once and kept in the thread's table across records and frames
+            // (CPU-FRAME-ARENA 4, DrawPushFields::ShaderPlacements).
+            DrawPushFields::ShaderPlacements& placements = DrawPushFields::ThreadShaderPlacements();
             // THE MESH DRAW SPLIT (Common::Profiling::GpuDrawSplitScope): one timestamp pair per run of
             // consecutive draws of one mesh x one material, per GPU bin, per VG group. Asked once; off records
             // nothing and builds no label.
@@ -743,8 +742,8 @@ namespace Desert::Graphic::System
                 push.assign( materialPush.Size, std::byte{ 0 } );
                 if ( materialPush.Data != nullptr && materialPush.Size != 0u )
                     std::memcpy( push.data(), materialPush.Data, materialPush.Size );
-                const Core::Formats::MaterialLayout& layout    = draw.Material->GetShader()->GetMaterialLayout();
-                if ( auto written = draw.Push.WriteInto( push, placements.Of( layout ) ); !written )
+                const DrawPushFields::Placement& placement = placements.Of( draw.Material->GetShader().get() );
+                if ( auto written = draw.Push.WriteInto( push, placement ); !written )
                     return Common::MakeFormattedError( "{}: draw {} ('{}'): {}", context.GetPassName(), i,
                                                        draw.Material->GetDubugName(), written.GetError() );
                 // RENDER-JOB-CPU-3, a compacted bin (GpuInstances.hpp): one indirect-count draw of its commands.
