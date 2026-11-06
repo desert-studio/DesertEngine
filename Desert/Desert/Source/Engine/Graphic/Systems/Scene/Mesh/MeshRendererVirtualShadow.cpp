@@ -20,6 +20,7 @@
 #include <bit>
 #include <format>
 #include <tuple>
+#include <iterator>
 #include <utility>
 
 namespace
@@ -853,15 +854,20 @@ namespace Desert::Graphic::System
             // (the merged layer of every drawn page, over the static layer "VSM: Clear Pages" copied there).
             for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
             {
+                // The node names from the tables (made the first frame the level is drawn).
+                const auto stillName = [level]( std::string& out )
+                { std::format_to( std::back_inserter( out ), "VSM: Raster L{}", level ); };
+                const auto movingName = [level]( std::string& out )
+                { std::format_to( std::back_inserter( out ), "VSM: Raster Movable L{}", level ); };
                 if ( auto added = AddVirtualShadowRasterNode( graph, frame, map, level, kVsmViewBase + level,
                                                               ShadowCasterLayer::Static, kVsmVirtualResolution,
-                                                              std::format( "VSM: Raster L{}", level ),
+                                                              m_VsmRasterNames[0].Get( level, 0u, stillName ),
                                                               m_VsmDraws[level], m_VsmCasters[level] );
                      !added.IsSuccess() )
                     return added;
                 if ( auto added = AddVirtualShadowRasterNode(
                           graph, frame, map, level, kVsmMovableViewBase + level, ShadowCasterLayer::Movable,
-                          kVsmVirtualResolution, std::format( "VSM: Raster Movable L{}", level ),
+                          kVsmVirtualResolution, m_VsmRasterNames[1].Get( level, 0u, movingName ),
                           m_VsmMovableDraws[level], m_VsmMovableCasters[level] );
                      !added.IsSuccess() )
                     return added;
@@ -922,11 +928,19 @@ namespace Desert::Graphic::System
                      "virtual shadow map local light {} view {} mip {} has no caster materials", raster.Light,
                      raster.View, raster.Mip ) );
             VsmLocalRasterDraws& entry = *m_VsmLocalDraws[k];
+            const uint64_t nameKey =
+                 ( uint64_t{ raster.Light } << 32u ) | ( uint64_t{ raster.View } << 16u ) | uint64_t{ raster.Mip };
+            const std::string_view name = m_VsmLocalRasterNames.Get(
+                 k, nameKey,
+                 [&raster]( std::string& out )
+                 {
+                     std::format_to( std::back_inserter( out ), "VSM: Raster Local {} V{} M{}", raster.Light,
+                                     raster.View, raster.Mip );
+                 } );
             if ( auto added = AddVirtualShadowRasterNode(
                       graph, frame, map, raster.Level, view, ShadowCasterLayer::All,
                       raster.ResolutionPages * kVsmPageSize,
-                      std::format( "VSM: Raster Local {} V{} M{}", raster.Light, raster.View, raster.Mip ),
-                      entry.Draws, entry.Casters );
+                      name, entry.Draws, entry.Casters );
                  !added.IsSuccess() )
                 return added;
         }
@@ -936,7 +950,7 @@ namespace Desert::Graphic::System
     Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode(
          RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
          const uint32_t level, const uint32_t view, const ShadowCasterLayer layer, const uint32_t resolution,
-         std::string name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
+         std::string_view name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
     {
         draws.Clear();
         {
@@ -1058,7 +1072,7 @@ namespace Desert::Graphic::System
                                RDG::Access::StorageRead );
         };
         graph.AddPass(
-             std::move( name ), RDG::PassFlags::Raster,
+             name, RDG::PassFlags::Raster,
              [this, &draws, &casters, resolution, arguments, &parameters]( RDG::PassBuilder& pass )
              {
                  pass.RenderArea( resolution, resolution );

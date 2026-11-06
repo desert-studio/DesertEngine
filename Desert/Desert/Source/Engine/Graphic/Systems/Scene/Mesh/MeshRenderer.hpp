@@ -42,6 +42,7 @@
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
+#include <Engine/Graphic/PassNameTable.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
@@ -2834,7 +2835,7 @@ namespace Desert::Graphic::System
         // is redrawn; Movable (a sun level's movers) the merged layer of every drawn page.
         [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode(
              RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
-             uint32_t level, uint32_t view, ShadowCasterLayer layer, uint32_t resolution, std::string name,
+             uint32_t level, uint32_t view, ShadowCasterLayer layer, uint32_t resolution, std::string_view name,
              MeshRendererDetail::MeshDrawList& draws, std::vector<VsmCasterEntry>& casters );
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
@@ -2898,6 +2899,11 @@ namespace Desert::Graphic::System
         std::vector<uint8_t>                 m_VsmFallbackScratch;
         VsmCasterCull                        m_VsmCasterCullScratch;
         std::vector<VirtualShadowCasterDraw> m_VsmCasterDrawsScratch;
+        // The VSM raster nodes' names (PassNameTable, made once): the sun's per clipmap level [still, movable],
+        // and the local mips' per raster index, keyed by (light, view, mip) so a row is formatted again only when
+        // the raster at that index changes.
+        std::array<PassNameTable, 2> m_VsmRasterNames;
+        PassNameTable                m_VsmLocalRasterNames;
         // SetVirtualShadowGeometry's answer per group cell (CPU-FRAME-ARENA 8), so a frame asks no name of a
         // group: keyed by the group pipeline's Shader serial, valid for that shader's code generation and while
         // the shader service's RecompileGeneration stands (a Register / Recompile / Clear may add or drop the
