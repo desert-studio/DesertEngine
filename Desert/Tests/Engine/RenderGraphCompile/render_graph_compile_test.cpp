@@ -39,6 +39,7 @@
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <deque>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -5243,12 +5244,20 @@ namespace
     struct CollectedBlock
     {
         DeclaredBindingBlock Block;
+        // An entry views its slot name (CPU-RDG-ALLOC); outside a graph the block's owner keeps the characters.
+        // A deque never moves what it holds when it grows.
+        std::deque<std::string> Names;
+
+        std::string_view Keep( std::string name )
+        {
+            return Names.emplace_back( std::move( name ) );
+        }
 
         CollectedBlock& Texture( Desert::Graphic::RDG::TextureParameter parameter, TextureRef texture,
                                  Access access, SubresourceRange range )
         {
-            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::Texture, ResourceKind::Texture,
-                                       texture.Index, access, range, std::nullopt } );
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::Texture,
+                                       ResourceKind::Texture, texture.Index, access, range, std::nullopt } );
             return *this;
         }
         CollectedBlock& Sampler( Desert::Graphic::RDG::SamplerParameter parameter, SamplerDesc sampler )
@@ -5257,15 +5266,15 @@ namespace
             for ( const DeclaredBindingEntry& e : Block.Entries )
                 if ( e.Kind == ShaderResourceKind::Sampler && e.ShaderName == name && e.Sampler == sampler )
                     return *this;
-            Block.Entries.push_back( { name, ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
-                                       Access::None, SubresourceRange::All(), sampler } );
+            Block.Entries.push_back( { Keep( name ), ShaderResourceKind::Sampler, ResourceKind::Texture,
+                                       kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageBufferParameter parameter, BufferRef buffer,
                                  Access access )
         {
-            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageBuffer,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::StorageBuffer,
                                        ResourceKind::Buffer, buffer.Index, access, SubresourceRange::All(),
                                        SamplerDesc::LinearClamp() } );
             return *this;
@@ -5274,7 +5283,7 @@ namespace
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageTextureParameter parameter, TextureRef texture,
                                  Access access )
         {
-            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageTexture,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::StorageTexture,
                                        ResourceKind::Texture, texture.Index, access, SubresourceRange::All(),
                                        std::nullopt } );
             return *this;

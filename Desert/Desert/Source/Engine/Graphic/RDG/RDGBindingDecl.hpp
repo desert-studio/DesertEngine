@@ -4,10 +4,13 @@
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp> // ResourceKind
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <Common/Core/Memory/FrameArena.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // RDG-FAULT1. The setup-time declaration of a pass's shader parameter block: what PassBuilder::Bindings records
@@ -138,9 +141,13 @@ namespace Desert::Graphic::RDG
     }
 
     // One entry of a declared block: the resource, the access it declares for the pass, and the shader slot.
+    // CPU-RDG-ALLOC (UE: FRDGBuilder keeps parameter structs and names in its allocator, never heap strings):
+    // ShaderName VIEWS the slot name - in a graph, characters the builder copied into its frame arena
+    // (BindingBlockBuilder, "<Name>" or "<Name>[<Element>]"), so it lives exactly as long as the block; a block
+    // built by hand outside a graph views storage its owner keeps (a literal, a kept layout's slot name).
     struct DeclaredBindingEntry
     {
-        std::string                ShaderName;
+        std::string_view           ShaderName;
         ShaderResourceKind         Kind     = ShaderResourceKind::Texture;
         ResourceKind               Resource = ResourceKind::Texture;
         uint32_t                   Index    = kInvalidResource;
@@ -157,7 +164,9 @@ namespace Desert::Graphic::RDG
         // Shared and const the same way (NoOtherRouteFill when the other route fills nothing); null is refused by
         // ValidatePassBindings.
         std::shared_ptr<const OtherRouteFill>      Other = NoOtherRouteFill();
-        std::vector<DeclaredBindingEntry>          Entries;
+        // CPU-RDG-ALLOC: in the graph's arena (PassBuilder::Bindings gives the allocator), released by the
+        // builder's Reset with the pass record; default-constructed (a block built by hand) it is the heap.
+        Common::Memory::ArenaVector<DeclaredBindingEntry> Entries;
         uint32_t                                   PushConstantBytes = 0; // what the exec will push
     };
 
