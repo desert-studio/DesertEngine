@@ -10,6 +10,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
@@ -101,150 +102,177 @@ namespace Desert::Graphic::RDG
             }
         };
 
-        class ChunkTasks
+    } // namespace
+
+    // Outside the anonymous namespace: the builder keeps one (Builder::m_ChunkTasks, forward-declared in
+    // RDGBuilder.hpp) and reuses it frame after frame.
+    // CPU-RDG-ALLOC (UE: the parallel-execute task state lives with the FRDGBuilder, not one heap block per
+    // frame): Reset refills the claim order and the per-chunk flags in place, so a steady frame allocates
+    // nothing for them; a fresh object is made only when a helper of an earlier frame still holds the last one.
+    class ChunkTasks
+    {
+    public:
+        // A new record phase of @p count chunks: every chunk unclaimed, the claim order 0 .. count - 1 (the
+        // caller may permute it through Order() before the first helper is submitted). Only on an object no
+        // helper holds (Builder::Execute checks the share count).
+        void Reset( uint32_t count )
         {
-        public:
-            // @p claimOrder: the order helpers claim chunks in, a permutation of 0 .. its size - 1.
-            explicit ChunkTasks( std::vector<uint32_t> claimOrder )
-                 : m_Order( std::move( claimOrder ) ), m_Claimed( m_Order.size(), 0 ),
-                   m_Recorded( m_Order.size(), 0 ), m_Count( static_cast<uint32_t>( m_Order.size() ) )
-            {
-            }
+            m_Order.resize( count );
+            std::iota( m_Order.begin(), m_Order.end(), 0u );
+            m_Claimed.assign( count, 0 );
+            m_Recorded.assign( count, 0 );
+            m_Count     = count;
+            m_OrderNext = 0;
+            m_WalkNext  = 0;
+            m_Running   = 0;
+            m_Closed    = false;
+            m_Recorder  = nullptr;
+        }
 
-            // The recorder every claim runs. Set once, before the first helper is submitted; it lives on the
-            // record phase's stack, which Close() outlives no helper's use of.
-            void SetRecorder( const ChunkRecorder* recorder )
-            {
-                m_Recorder = recorder;
-            }
+        // The order helpers claim chunks in, a permutation of 0 .. count - 1; written only between Reset and
+        // the first Submit.
+        [[nodiscard]] std::vector<uint32_t>& Order()
+        {
+            return m_Order;
+        }
 
-            // A helper (a JobSystem worker): records the next unclaimed chunk until none is left.
-            void RunHelper()
+        // The recorder every claim runs. Set once, before the first helper is submitted; it lives on the
+        // record phase's stack, which Close() outlives no helper's use of.
+        void SetRecorder( const ChunkRecorder* recorder )
+        {
+            m_Recorder = recorder;
+        }
+
+        // A helper (a JobSystem worker): records the next unclaimed chunk until none is left.
+        void RunHelper()
+        {
+            uint32_t chunk = 0;
+            while ( Claim( chunk ) )
             {
-                uint32_t chunk = 0;
-                while ( Claim( chunk ) )
+                // Finish() runs even if the recorder throws, or the calling thread waits for nothing.
+                struct FinishGuard
                 {
-                    // Finish() runs even if the recorder throws, or the calling thread waits for nothing.
-                    struct FinishGuard
+                    ChunkTasks* Tasks;
+                    uint32_t    Chunk;
+                    ~FinishGuard()
                     {
-                        ChunkTasks* Tasks;
-                        uint32_t    Chunk;
-                        ~FinishGuard()
-                        {
-                            Tasks->Finish( Chunk );
-                        }
-                    } finish{ this, chunk };
-                    // Per thread: the task workers' rows, apart from the calling thread's (Await).
-                    DESERT_PROFILE_SCOPE( "RDG: Record chunk (task)" );
-                    ( *m_Recorder )( chunk );
-                }
-            }
-
-            // The calling thread at chunk @p chunk's position in the walk: returns once the chunk is recorded.
-            // A chunk no helper claimed yet is recorded by the calling thread itself instead of waiting for one.
-            // FPS7-CPU-STILL-1 (UE: a thread waiting for a task runs queued tasks - UE::Tasks::Wait /
-            // FTaskGraphInterface::WaitUntilTasksComplete on a named thread - it does not sleep while work is
-            // queued): a chunk a helper still records is waited for only once no chunk is left unclaimed. Until
-            // then the calling thread records the next unclaimed chunk itself, as a helper would (the recorder is
-            // the helpers'; a chunk is its own command buffer, replayed in pass order by the walk whoever recorded
-            // it), so a pool the game thread's jobs keep busy costs the walk the helpers' missing share of the
-            // chunks, never an idle wait beside them ("RDG: Wait for chunk" was 1.1-1.3 ms a frame on the still
-            // camera of FPS-FIELD-BARN-TURN while chunks waited for a free worker). The chunk recorded ahead is
-            // the first unclaimed one in position order: the next the walk needs (helpers take the costliest).
-            // @p recordAhead false: the walk discards every chunk from here on (a late fault) and re-records their
-            // passes itself, so recording one ahead is only lost time on the calling thread.
-            void Await( uint32_t chunk, bool recordAhead )
-            {
-                std::unique_lock<std::mutex> lock( m_Lock );
-                if ( m_Claimed[chunk] == 0 )
-                {
-                    m_Claimed[chunk] = 1;
-                    ++m_Running;
-                    lock.unlock();
-                    {
-                        DESERT_PROFILE_SCOPE( "RDG: Record chunk (render thread)" );
-                        ( *m_Recorder )( chunk );
+                        Tasks->Finish( Chunk );
                     }
-                    lock.lock();
-                    m_Recorded[chunk] = 1;
-                    --m_Running;
-                }
-                while ( recordAhead && m_Recorded[chunk] == 0 && !m_Closed )
-                {
-                    while ( m_WalkNext < m_Count && m_Claimed[m_WalkNext] != 0 )
-                        ++m_WalkNext;
-                    if ( m_WalkNext >= m_Count )
-                        break;
-                    const uint32_t ahead = m_WalkNext++;
-                    m_Claimed[ahead]     = 1;
-                    ++m_Running;
-                    lock.unlock();
-                    {
-                        DESERT_PROFILE_SCOPE( "RDG: Record chunk ahead (render thread)" );
-                        ( *m_Recorder )( ahead );
-                    }
-                    lock.lock();
-                    m_Recorded[ahead] = 1;
-                    --m_Running;
-                }
-                if ( m_Recorded[chunk] == 0 )
-                {
-                    DESERT_PROFILE_WAIT( "RDG: Wait for chunk" );
-                    m_Done.wait( lock, [&] { return m_Recorded[chunk] != 0; } );
-                }
+                } finish{ this, chunk };
+                // Per thread: the task workers' rows, apart from the calling thread's (Await).
+                DESERT_PROFILE_SCOPE( "RDG: Record chunk (task)" );
+                ( *m_Recorder )( chunk );
             }
+        }
 
-            // Before the graph is abandoned and before the record phase returns: no helper claims a chunk any
-            // more, and every chunk a helper took is finished - it records into this graph's command buffers
-            // and reads the record phase's stack.
-            void Close()
+        // The calling thread at chunk @p chunk's position in the walk: returns once the chunk is recorded.
+        // A chunk no helper claimed yet is recorded by the calling thread itself instead of waiting for one.
+        // FPS7-CPU-STILL-1 (UE: a thread waiting for a task runs queued tasks - UE::Tasks::Wait /
+        // FTaskGraphInterface::WaitUntilTasksComplete on a named thread - it does not sleep while work is
+        // queued): a chunk a helper still records is waited for only once no chunk is left unclaimed. Until
+        // then the calling thread records the next unclaimed chunk itself, as a helper would (the recorder is
+        // the helpers'; a chunk is its own command buffer, replayed in pass order by the walk whoever recorded
+        // it), so a pool the game thread's jobs keep busy costs the walk the helpers' missing share of the
+        // chunks, never an idle wait beside them ("RDG: Wait for chunk" was 1.1-1.3 ms a frame on the still
+        // camera of FPS-FIELD-BARN-TURN while chunks waited for a free worker). The chunk recorded ahead is
+        // the first unclaimed one in position order: the next the walk needs (helpers take the costliest).
+        // @p recordAhead false: the walk discards every chunk from here on (a late fault) and re-records their
+        // passes itself, so recording one ahead is only lost time on the calling thread.
+        void Await( uint32_t chunk, bool recordAhead )
+        {
+            std::unique_lock<std::mutex> lock( m_Lock );
+            if ( m_Claimed[chunk] == 0 )
             {
-                std::unique_lock<std::mutex> lock( m_Lock );
-                m_Closed = true;
-                if ( m_Running != 0 )
-                {
-                    DESERT_PROFILE_WAIT( "RDG: Wait for chunk" );
-                    m_Done.wait( lock, [&] { return m_Running == 0; } );
-                }
-            }
-
-        private:
-            // A helper: the next unclaimed chunk in the claim order.
-            bool Claim( uint32_t& chunk )
-            {
-                const std::lock_guard<std::mutex> lock( m_Lock );
-                while ( m_OrderNext < m_Count && m_Claimed[m_Order[m_OrderNext]] != 0 )
-                    ++m_OrderNext;
-                if ( m_Closed || m_OrderNext >= m_Count )
-                    return false;
-                chunk            = m_Order[m_OrderNext++];
                 m_Claimed[chunk] = 1;
                 ++m_Running;
-                return true;
-            }
-
-            void Finish( uint32_t chunk )
-            {
+                lock.unlock();
                 {
-                    const std::lock_guard<std::mutex> lock( m_Lock );
-                    m_Recorded[chunk] = 1;
-                    --m_Running;
+                    DESERT_PROFILE_SCOPE( "RDG: Record chunk (render thread)" );
+                    ( *m_Recorder )( chunk );
                 }
-                m_Done.notify_all();
+                lock.lock();
+                m_Recorded[chunk] = 1;
+                --m_Running;
             }
+            while ( recordAhead && m_Recorded[chunk] == 0 && !m_Closed )
+            {
+                while ( m_WalkNext < m_Count && m_Claimed[m_WalkNext] != 0 )
+                    ++m_WalkNext;
+                if ( m_WalkNext >= m_Count )
+                    break;
+                const uint32_t ahead = m_WalkNext++;
+                m_Claimed[ahead]     = 1;
+                ++m_Running;
+                lock.unlock();
+                {
+                    DESERT_PROFILE_SCOPE( "RDG: Record chunk ahead (render thread)" );
+                    ( *m_Recorder )( ahead );
+                }
+                lock.lock();
+                m_Recorded[ahead] = 1;
+                --m_Running;
+            }
+            if ( m_Recorded[chunk] == 0 )
+            {
+                DESERT_PROFILE_WAIT( "RDG: Wait for chunk" );
+                m_Done.wait( lock, [&] { return m_Recorded[chunk] != 0; } );
+            }
+        }
 
-            std::mutex                             m_Lock;
-            std::condition_variable                m_Done;
-            const std::vector<uint32_t>            m_Order;    // the helpers' claim order
-            std::vector<uint8_t>                   m_Claimed;  // by chunk; under m_Lock
-            std::vector<uint8_t>                   m_Recorded; // by chunk; under m_Lock
-            const uint32_t                         m_Count;
-            uint32_t                               m_OrderNext = 0; // no chunk before it in m_Order is unclaimed
-            uint32_t                               m_WalkNext  = 0; // no chunk before it by index is unclaimed
-            uint32_t                               m_Running   = 0; // claimed, not finished
-            bool                                   m_Closed    = false;
-            const ChunkRecorder*                   m_Recorder  = nullptr;
-        };
+        // Before the graph is abandoned and before the record phase returns: no helper claims a chunk any
+        // more, and every chunk a helper took is finished - it records into this graph's command buffers
+        // and reads the record phase's stack.
+        void Close()
+        {
+            std::unique_lock<std::mutex> lock( m_Lock );
+            m_Closed = true;
+            if ( m_Running != 0 )
+            {
+                DESERT_PROFILE_WAIT( "RDG: Wait for chunk" );
+                m_Done.wait( lock, [&] { return m_Running == 0; } );
+            }
+        }
+
+    private:
+        // A helper: the next unclaimed chunk in the claim order.
+        bool Claim( uint32_t& chunk )
+        {
+            const std::lock_guard<std::mutex> lock( m_Lock );
+            while ( m_OrderNext < m_Count && m_Claimed[m_Order[m_OrderNext]] != 0 )
+                ++m_OrderNext;
+            if ( m_Closed || m_OrderNext >= m_Count )
+                return false;
+            chunk            = m_Order[m_OrderNext++];
+            m_Claimed[chunk] = 1;
+            ++m_Running;
+            return true;
+        }
+
+        void Finish( uint32_t chunk )
+        {
+            {
+                const std::lock_guard<std::mutex> lock( m_Lock );
+                m_Recorded[chunk] = 1;
+                --m_Running;
+            }
+            m_Done.notify_all();
+        }
+
+        std::mutex                             m_Lock;
+        std::condition_variable                m_Done;
+        std::vector<uint32_t>                  m_Order;    // the helpers' claim order
+        std::vector<uint8_t>                   m_Claimed;  // by chunk; under m_Lock
+        std::vector<uint8_t>                   m_Recorded; // by chunk; under m_Lock
+        uint32_t                               m_Count = 0;
+        uint32_t                               m_OrderNext = 0; // no chunk before it in m_Order is unclaimed
+        uint32_t                               m_WalkNext  = 0; // no chunk before it by index is unclaimed
+        uint32_t                               m_Running   = 0; // claimed, not finished
+        bool                                   m_Closed    = false;
+        const ChunkRecorder*                   m_Recorder  = nullptr;
+    };
+
+    namespace
+    {
 
         // Closes the record phase's chunk tasks on every way out of it (ChunkTasks::Close).
         struct ChunkTasksCloser
@@ -1756,14 +1784,21 @@ namespace Desert::Graphic::RDG
             // RDG-RECORD-CHUNKS: helpers claim the costliest chunk of the last frame first (longest processing
             // time first: the dearest chunk starts earliest, the cheap ones fill in); ties, and a plan with no
             // costs, in position order.
-            std::vector<uint32_t> claimOrder( chunks.size() );
-            std::iota( claimOrder.begin(), claimOrder.end(), 0u );
+            // CPU-RDG-ALLOC: the builder's kept tasks, reset in place; a new one only on the first frame or
+            // while a helper submitted by an earlier frame still holds the kept one (it runs late, finds that
+            // share closed and drops it). The share count of 1 is read after every helper's release of its copy,
+            // and the acquire fence orders that helper's last access before the reset.
+            if ( m_ChunkTasks == nullptr || m_ChunkTasks.use_count() != 1 )
+                m_ChunkTasks = std::make_shared<ChunkTasks>();
+            std::atomic_thread_fence( std::memory_order_acquire );
+            m_ChunkTasks->Reset( static_cast<uint32_t>( chunks.size() ) );
             if ( chunksByCost )
             {
+                std::vector<uint32_t>& claimOrder = m_ChunkTasks->Order();
                 std::stable_sort( claimOrder.begin(), claimOrder.end(),
                                   [&]( uint32_t a, uint32_t b ) { return chunkMicros[a] > chunkMicros[b]; } );
             }
-            chunkTasks = std::make_shared<ChunkTasks>( std::move( claimOrder ) );
+            chunkTasks = m_ChunkTasks;
             chunkTasks->SetRecorder( &chunkRecorder );
             Common::JobSystem& jobs    = Common::JobSystem::Get();
             const size_t       helpers = std::min( chunks.size(), jobs.WorkerCount() );
