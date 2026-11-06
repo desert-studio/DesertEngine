@@ -127,6 +127,12 @@ namespace Desert::Graphic
     // at 2; SkyViewLut and BakeProceduralSky read the transmittance at 2 and the multi-scatter at 3).
     inline constexpr uint32_t kSkyTransmittanceLutBinding = 2;
     inline constexpr uint32_t kSkyMultiScatterLutBinding  = 3;
+    // The cloud layer's shadow on the air (UE VolumetricCloud "Shadow On Atmosphere"), read by the two per-view
+    // fills (SkyViewLut, SkyAerialPerspectiveLut): the map at 4 (a pass parameter, CloudShadowMapOrWhite) and its
+    // 80-byte CloudShadowUniforms block at 5, a storage buffer SkyboxRenderer owns (the AP push is 96 bytes, so
+    // the block cannot ride in it).
+    inline constexpr uint32_t kSkyCloudShadowMapBinding = 4;
+    inline constexpr uint32_t kSkyCloudShadowBinding    = 5;
 
     // The Sky-View LUT extent — Hillaire's 192x104, mirrored by SKY_VIEW_LUT_WIDTH/HEIGHT in
     // Common/SkyScattering.glslh (the sub-texel remap bakes the numbers into every read and write, so

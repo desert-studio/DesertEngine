@@ -10,6 +10,10 @@
 // top, 1 at the bottom; 1 = nothing overhead). The two scene-read slots are Core::kRainOcclusionMapBinding /
 // kRainOcclusionBlockBinding (ShaderGraphBindings.hpp); the map is bound from the frame graph
 // (SceneViewInputs::RainOcclusionMap, System.White when the view has none), the block by SceneFrameBinding::ApplyTo.
+// A compute reader outside the scene layout (the volumetric fog's froxels) defines DESERT_RAIN_OCCLUSION_DECLARED
+// and declares the same four names itself: RainOcclusionMapTexture, RainOcclusionSampler, RainOcclusionWorldToMap,
+// RainOcclusionParams (CloudShadowReceiver.glslh's contract: the names match, the slots are the includer's).
+#ifndef DESERT_RAIN_OCCLUSION_DECLARED
 layout( binding = kRainOcclusionMapBinding ) uniform texture2D RainOcclusionMapTexture;
 Uniform sampler RainOcclusionSampler;
 layout( std140, binding = kRainOcclusionBlockBinding ) uniform RainOcclusionUB
@@ -17,6 +21,7 @@ layout( std140, binding = kRainOcclusionBlockBinding ) uniform RainOcclusionUB
     mat4 RainOcclusionWorldToMap; // world -> the map's clip (uv = (x, -y) * 0.5 + 0.5, z = depth)
     vec4 RainOcclusionParams;     // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)
 };
+#endif
 
 // The map's texel, in world centimetres (0 when the view has no map).
 float DesertRainOcclusionTexel()

@@ -219,6 +219,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITabsComponent, Data, "UITa
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,
                                      "ExponentialHeightFogData", "Exponential Height Fog" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::LocalFogVolumeComponent, Data, "LocalFogVolumeData",
+                                     "Local Fog Volume" )
 // Post Process Volume likewise: its bounds are the entity's Translation plus the Extent field.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, Data, "PostProcessVolumeData",
                                      "Post Process Volume" )

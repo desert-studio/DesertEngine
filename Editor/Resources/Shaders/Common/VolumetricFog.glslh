@@ -41,7 +41,38 @@ layout(std430, binding = VOLUMETRIC_FOG_PARAMS_BINDING) readonly buffer Volumetr
     vec4  VfCascadeBias;        // per cascade: depth bias in map units (texel world size / depth range)
     vec4  VfSkyAmbient;         // rgb = sky radiance folded on the CPU (artistic model), w = 1: sample the texel
     vec4  VfSkyAmbientScale;    // rgb = scale on the sampled distant sky light (fog's ambient colour scale)
+    mat4  VfCloudShadowWorldToMap;   // the cloud layer's shadow map (Graphic::CloudShadowUniforms), the
+    vec4  VfCloudShadowParams;       //   surfaces' pair: y = 0 when no layer casts (never fetched then)
+    mat4  VfRainOcclusionWorldToMap; // the view's rain occlusion (Graphic::RainOcclusionUniforms): what covers
+    vec4  VfRainOcclusionParams;     //   a froxel from the sky; y = 0 when the view has no map
+    uvec4 VfLocalFog;                // x = local fog volumes in LocalFogVolumesBuffer, yzw unused
 };
+
+// One local fog volume (Graphic::LocalFogVolumeGpu, member for member; UE 5.3 Local Fog Volume): a sphere or a box
+// voxelised into the froxel grid. Declared here so the struct has one text; only the scattering pass binds the
+// buffer of them (VOLUMETRIC_FOG_LOCAL_VOLUMES_BINDING there).
+struct LocalFogVolumeGpu
+{
+    mat4 WorldToVolume; // world cm -> unit space (unit sphere / [-1, 1] cube)
+    vec4 Density;       // x = radial extinction /cm, y = height extinction /cm, z = falloff, w = height offset
+    vec4 Albedo;        // rgb, w = shape (0 sphere, 1 box)
+    vec4 Emissive;      // rgb per unit extinction, w = edge fade width (unit space)
+};
+
+// The medium one local volume adds at world position p: .x = extinction /cm. Radial: linear from the centre to
+// the edge (UE's RadialFogExtinction); height: exponential in the unit-space height above the offset, faded over
+// the last EdgeFade of the shape so the volume never shows its boundary.
+float VolumetricFogLocalVolumeExtinction(LocalFogVolumeGpu v, vec3 p)
+{
+    vec3  u      = (v.WorldToVolume * vec4(p, 1.0)).xyz;
+    float radius = v.Albedo.w > 0.5 ? max(abs(u.x), max(abs(u.y), abs(u.z))) : length(u);
+    if (radius >= 1.0)
+        return 0.0;
+    float edge   = clamp((1.0 - radius) / max(v.Emissive.w, 1e-3), 0.0, 1.0);
+    float radial = v.Density.x * (1.0 - radius);
+    float height = v.Density.y * exp(clamp(-v.Density.z * (u.y - v.Density.w), -80.0, 80.0));
+    return (radial + height) * edge;
+}
 
 // ---- Depth distribution (UE ComputeZSliceFromDepth / ComputeDepthFromZSlice). Exponential so the near froxels
 // are thin and the far ones long; S = 32 is UE's r.VolumetricFog.DepthDistributionScale.

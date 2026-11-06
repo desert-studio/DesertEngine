@@ -222,7 +222,9 @@ namespace Desert::Graphic
     {
         auto* sky = m_Systems.Skybox.get();
         if ( sky != nullptr )
-            sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
+            sky->SettleAtmosphereLutNodes( AddComputeNodes(
+                 graph, textures,
+                 sky->DeclareAtmosphereLutNodes( textures.GraphRefs(), GetCloudShadowInput() ) ) );
     }
 
     void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
@@ -258,10 +260,18 @@ namespace Desert::Graphic
                 sun.CascadeDepthRange    = view.CascadeDepthRange;
             }
         }
+        // The cloud layer's shadow on the sun term (UE "Shadow On Atmosphere"): the surfaces' very pair, valid
+        // once AddFrameCloudShadowMap declared this frame's map. The sky term's visibility: the view's rain
+        // occlusion, the top-down depth of every caster around the camera (a roof hides the sky).
+        sun.CloudShadow = CloudShadowPackUniforms( GetCloudShadowInput() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            sun.SkyOcclusion = mesh->GetRainOcclusionUniforms();
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
         AddComputeNodes( graph, textures,
-                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual() ) );
+                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual(),
+                                                    m_LocalFogVolumes ) );
     }
 
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,

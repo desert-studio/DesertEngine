@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/AtmosphereEnv.hpp>
+#include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
@@ -142,7 +143,10 @@ namespace Desert::Graphic::System
         std::vector<ComputeNodeDeclaration> DeclareAtmosphereCachedLutNodes();
         // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
         void                                SettleAtmosphereCachedLutNodes( bool accepted );
-        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
+        // @p refs carries the frame's cloud shadow map (CloudShadowMapOrWhite) and @p cloudShadow what was gathered
+        // about it (SceneRenderer::GetCloudShadowInput): both fills march the sun's single scattering through it.
+        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes( const FrameGraphRefs&   refs,
+                                                                       const CloudShadowInput& cloudShadow );
         // The sky-view LUT counts as filled only once the frame graph accepted its node.
         void SettleAtmosphereLutNodes( bool accepted );
         // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and
@@ -367,6 +371,10 @@ namespace Desert::Graphic::System
         // (frame in flight x renderer slot). A persistent buffer would be shared by every live
         // SceneRenderer by design, and the mesh preview would overwrite the viewport's sky.
         std::shared_ptr<ShaderResources::StorageBuffer> m_SkyParams;
+        // The per-view fills' CloudShadowUniforms (kSkyCloudShadowBinding), written by DeclareAtmosphereLutNodes
+        // every frame the fills are declared; non-persistent for m_SkyParams' reason (one copy per frame in flight
+        // x renderer slot).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_SkyCloudShadow;
 
         // Physical-atmosphere LUTs (SkyModel::PhysicalAtmosphere only; see ExecuteAtmosphereLuts).
         // Per renderer, not per frame in flight: the cached pair is rewritten only on a parameter

@@ -83,6 +83,36 @@ Shader "SkyAerialPerspectiveLut"
         #define SKY_SCATTERING_SUN_TRANSMITTANCE(atm, radiusKm, sunZenithCos) SkySampleSunTransmittanceLut(atm, radiusKm, sunZenithCos)
         #define SKY_SCATTERING_MULTI_SCATTER(atm, radiusKm, sunZenithCos) SkySampleMultiScatterLut(atm, radiusKm, sunZenithCos)
 
+        // THE CLOUD LAYER'S SHADOW ON THE AIR (UE VolumetricCloud "Shadow On Atmosphere"): the sun's single
+        // scattering in every froxel segment times the cloud shadow map's transmittance at the sample — the
+        // haze under a cloud is not lit by the sun the cloud blocks. The same bindings, block and receiver
+        // text as the Sky-View fill (SkyboxRenderer binds both nodes alike): CloudShadowParams.y = 0 when no
+        // cloud casts, and CloudShadowFactor is then 1 without a fetch — the volume is the unshadowed one.
+        Uniform sampler LinearClampSampler;
+        Uniform(4) texture2D CloudShadowMapTexture;
+        #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearClampSampler)
+        ReadBuffer(5) SkyCloudShadowBuffer
+        {
+            mat4 CloudShadowWorldToMap;
+            vec4 CloudShadowParams;
+        };
+        #include <Common/CloudShadowReceiver.glslh>
+
+        // The march origin (planet-centred, WORLD-oriented here: SkyViewZenith * viewHeight) and whether the
+        // light being integrated is the sun; main sets both. The sample goes back to world centimetres as an
+        // offset from the camera, never through a planet-scale world coordinate.
+        vec3  g_SkyMarchOriginKm      = vec3(0.0f, 0.0f, 0.0f);
+        float g_SkyCloudShadowApplies = 0.0f;
+
+        float SkyCloudShadowAt(vec3 positionKm)
+        {
+            if (g_SkyCloudShadowApplies < 0.5f)
+                return 1.0f;
+            return CloudShadowFactor(CameraPositionWorld.xyz +
+                                     (positionKm - g_SkyMarchOriginKm) * SKY_WORLD_UNITS_PER_KM);
+        }
+        #define SKY_SCATTERING_SUN_VISIBILITY(position) SkyCloudShadowAt(position)
+
         #include <Common/SkyScattering.glslh>
 
         LocalSize(8, 8, 1);
@@ -125,7 +155,8 @@ Shader "SkyAerialPerspectiveLut"
             float viewHeight = clamp(SkyViewHeightKm(cameraKm, atm.BottomRadiusKm),
                                      atm.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM,
                                      atm.TopRadiusKm - 0.01f);
-            vec3 originKm = SkyViewZenith(cameraKm, atm.BottomRadiusKm) * viewHeight;
+            vec3 originKm      = SkyViewZenith(cameraKm, atm.BottomRadiusKm) * viewHeight;
+            g_SkyMarchOriginKm = originKm;
 
             vec3 sunDir = UnpackSunDirection(s);
 
@@ -160,10 +191,12 @@ Shader "SkyAerialPerspectiveLut"
                 // Aerial Perspective Start Depth: everything nearer than it is simply not marched, so a
                 // surface inside that distance keeps its own colour exactly. Both ends are lifted, so a
                 // segment straddling the start contributes only its far part.
+                g_SkyCloudShadowApplies = 1.0f; // the sun: the clouds cast along it
                 SkyScatterResult acc =
                      SkyApIntegrateSegment(atm, originKm, rayDir, sunDir, sunIlluminance,
                                            max(tPrev, startDepthKm), max(tNext, startDepthKm), luminance,
                                            transmittance);
+                g_SkyCloudShadowApplies = 0.0f; // light 1: no map is cast along it
                 if (light1)
                     light1Luminance =
                          SkyApIntegrateSegment(atm, originKm, rayDir, light1Dir, light1Illum,

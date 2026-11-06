@@ -270,6 +270,14 @@ namespace Desert::Graphic::System
             return m_ShadowMapValid ? m_ShadowMap : nullptr;
         }
 
+        /// Which content GetShadowMap() holds (CloudShadowInput::MapGeneration): moved by SettleShadowMapNodes for
+        /// every accepted frame that rewrote the front (Full, the hero patch) or swapped a completed back in. A
+        /// Reuse frame keeps it - the wind's translation of the same texels is WorldToMap's, not the content's.
+        uint64_t GetShadowMapContentGeneration() const
+        {
+            return m_ShadowMapContentGeneration;
+        }
+
         /// This frame's projection and its far depth, for a consumer that has to transform a world
         /// position into the map. Meaningless unless HasShadowMap().
         const CloudShadowMapView& GetShadowMapView() const
@@ -601,6 +609,7 @@ namespace Desert::Graphic::System
         uint32_t                                m_ShadowMapImageResolution = 0;
         CloudShadowRefreshState                 m_ShadowRefresh{};
         CloudShadowRefreshPlan                  m_ShadowRefreshPlan{};
+        uint64_t                                m_ShadowMapContentGeneration = 0; // GetShadowMapContentGeneration
         uint64_t                                m_ShadowRefreshKey        = 0;
         uint32_t                                m_ShadowRefreshResolution = 0;
         // THE HERO CLOUDS' PART, patched into the front in place (CloudShadowHeroRect). m_ShadowHeroFrontRect is

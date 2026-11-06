@@ -8,15 +8,16 @@ Shader "SkyViewLut"
         // camera's altitude and the sun's direction, the two things the cached transmittance /
         // multi-scattering LUTs deliberately do not.
         //
-        // Per texel: invert the horizon-warped parameterisation into a (view zenith, light azimuth)
-        // ray, then run the shared single-scattering integrator (Common/SkyScattering.glslh) with the
+        // Per texel: invert the horizon-warped parameterisation into a (view zenith, azimuth) ray, then
+        // run the shared single-scattering integrator (Common/SkyScattering.glslh) with the
         // two cached LUTs supplying the sun transmittance and Psi_ms per step. rgb = in-scattered
         // luminance to the shell exit (or the ground), a = mean transmittance of the same path — the
         // lane the sky pass uses to sit the lit ground under the haze.
         //
-        // The march runs in the LUT's local frame (+Y = the zenith at the camera, sun toward +X),
-        // which is what keeps the parameterisation undistorted at altitude; only the view HEIGHT and
-        // the sun's zenith angle survive from the world.
+        // The march runs in the LUT's referential (Common/SkyScattering.glslh SkyViewReferential: Up = the
+        // zenith at the camera, Forward = world +X on the horizon plane), full 360 degrees of azimuth — UE's
+        // SkyViewLutReferential. The light enters through its components in that frame, so the sky is NOT
+        // assumed symmetric about it, which is what lets the cloud layer's shadow on the air be marched in.
 
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
@@ -71,6 +72,41 @@ Shader "SkyViewLut"
         #define SKY_SCATTERING_SUN_TRANSMITTANCE(atm, radiusKm, sunZenithCos) SkySampleSunTransmittanceLut(atm, radiusKm, sunZenithCos)
         #define SKY_SCATTERING_MULTI_SCATTER(atm, radiusKm, sunZenithCos) SkySampleMultiScatterLut(atm, radiusKm, sunZenithCos)
 
+        // THE CLOUD LAYER'S SHADOW ON THE AIR (UE VolumetricCloud "Shadow On Atmosphere"): the sun's single
+        // scattering at each sample times the cloud shadow map's transmittance there, through the surfaces' one
+        // receiver text. The map is white and CloudShadowParams.y = 0 when no cloud casts — CloudShadowFactor
+        // then returns 1 without a fetch and the fill is the unshadowed one bit for bit. Bindings =
+        // Graphic::kSkyCloudShadowMapBinding / kSkyCloudShadowBinding (SkyboxRenderer owns the 80-byte block:
+        // the push is the camera, and Graphic::CloudShadowUniforms would not fit beside it in every push).
+        Uniform sampler LinearClampSampler;
+        Uniform(4) texture2D CloudShadowMapTexture;
+        #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearClampSampler)
+        ReadBuffer(5) SkyCloudShadowBuffer
+        {
+            mat4 CloudShadowWorldToMap;
+            vec4 CloudShadowParams;
+        };
+        #include <Common/CloudShadowReceiver.glslh>
+
+        // What the hook needs to put a planet-centred sample back in the world: the march origin and the
+        // referential (set by main before the march), and whether THIS fill's light is the one the clouds
+        // shadow (the sun; the moon's fill keeps 0 — the map is cast along the sun).
+        vec3  g_SkyMarchOriginKm      = vec3(0.0f, 0.0f, 0.0f);
+        vec3  g_SkyRefForward         = vec3(1.0f, 0.0f, 0.0f);
+        vec3  g_SkyRefUp              = vec3(0.0f, 1.0f, 0.0f);
+        vec3  g_SkyRefRight           = vec3(0.0f, 0.0f, 1.0f);
+        float g_SkyCloudShadowApplies = 0.0f;
+
+        float SkyCloudShadowAt(vec3 positionKm)
+        {
+            if (g_SkyCloudShadowApplies < 0.5f)
+                return 1.0f;
+            vec3 local = positionKm - g_SkyMarchOriginKm;
+            vec3 world = g_SkyRefForward * local.x + g_SkyRefUp * local.y + g_SkyRefRight * local.z;
+            return CloudShadowFactor(CameraPositionWorld.xyz + world * SKY_WORLD_UNITS_PER_KM);
+        }
+        #define SKY_SCATTERING_SUN_VISIBILITY(position) SkyCloudShadowAt(position)
+
         #include <Common/SkyScattering.glslh>
 
         // Squared sample distribution (inside the integrator). The paper's Sky-View budget is ~32,
@@ -113,20 +149,25 @@ Shader "SkyViewLut"
 
             SkyViewLutCoord c = SkyViewParamsFromUnit(atm.BottomRadiusKm, viewHeight, unit);
 
-            // Local frame: zenith = +Y, sun in the XY plane. The sun's zenith cosine is measured in
-            // the WORLD (against the camera's real zenith) and survives the frame change.
-            vec3  zenithWorld  = SkyViewZenith(cameraKm, atm.BottomRadiusKm);
-            // THE LUT IS PARAMETERISED AROUND ITS LIGHT (symmetric about that light's azimuth), so each
-            // atmosphere light has a LUT of its own: light 1 folded into the sun's frame would lose which side
-            // of the sun's plane it stands on and glow at its mirror image too.
+            // The referential: Up = the camera's real zenith, so the light's zenith angle is the world's.
+            vec3               zenithWorld = SkyViewZenith(cameraKm, atm.BottomRadiusKm);
+            SkyViewReferential referential = SkyViewReferentialAt(zenithWorld);
+            // Light 1 (the moon) still has a LUT of its own (CameraPositionWorld.w = 1): the push selects which
+            // light this fill integrates. The referential is the same for both, so the sky pass reads both
+            // through one uv.
             const bool lightIsSecond = CameraPositionWorld.w > 0.5f;
-            vec3 lightWorld   = lightIsSecond ? UnpackLight1Direction(s) : UnpackSunDirection(s);
-            float sunZenithCos = clamp(dot(zenithWorld, lightWorld), -1.0f, 1.0f);
-            float sunZenithSin = sqrt(max(1.0f - sunZenithCos * sunZenithCos, 0.0f));
+            vec3       lightWorld    = lightIsSecond ? UnpackLight1Direction(s) : UnpackSunDirection(s);
+            vec3       sunDir        = vec3(dot(lightWorld, referential.Forward), dot(lightWorld, referential.Up),
+                                            dot(lightWorld, referential.Right));
 
             vec3 originKm = vec3(0.0f, viewHeight, 0.0f);
-            vec3 sunDir   = vec3(sunZenithSin, sunZenithCos, 0.0f);
-            vec3 rayDir   = SkyViewRayDirection(c.ViewZenithCos, c.LightViewCos);
+            vec3 rayDir   = SkyViewRayDirection(c.ViewZenithCos, c.Azimuth);
+
+            g_SkyMarchOriginKm      = originKm;
+            g_SkyRefForward         = referential.Forward;
+            g_SkyRefUp              = referential.Up;
+            g_SkyRefRight           = referential.Right;
+            g_SkyCloudShadowApplies = lightIsSecond ? 0.0f : 1.0f;
 
             // Outer-space sun illuminance: the authored sun colour times intensity — the same pair
             // the gradient's disc reads, reinterpreted as illuminance by the physical model.
