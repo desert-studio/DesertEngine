@@ -33,6 +33,7 @@ namespace Desert::Graphic
              { SceneViewSlot::LocalShadowAtlas, kSceneViewLocalShadowAtlasName, kTex },
              { SceneViewSlot::SceneDepth, kSceneViewSceneDepthName, kTex },
              { SceneViewSlot::SunShadowMask, kSceneViewSunShadowMaskName, kTex },
+             { SceneViewSlot::SunDistanceFieldShadow, kSceneViewSunDistanceFieldShadowName, kTex },
              { SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasksName, kTex },
              { SceneViewSlot::SceneShadingWord, kSceneViewSceneShadingWordName, kTex },
              { SceneViewSlot::MegaLightsVolumeR, kMegaLightsVolumeNames[0], kTex },
@@ -99,7 +100,7 @@ namespace Desert::Graphic
         if ( layout.get() != m_Slotted.Layout.get() )
         {
             m_Slotted.Layout = layout;
-            m_Slotted.Slots  = SceneViewSlotsOf( *layout );
+            m_Slotted.Slots  = layout ? SceneViewSlotsOf( *layout ) : SceneViewSlots{};
         }
         return m_Slotted;
     }

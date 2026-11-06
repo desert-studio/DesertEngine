@@ -566,15 +566,12 @@ namespace Desert::Graphic
             // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster
             // at).
             if ( inputs.SunShadowMask.IsValid() )
-<<<<<<< 2984756a39ed02b4f2dbcb9f97456b4b28e9e5c0
-                bind( kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
+                bind( SceneViewSlot::SunShadowMask, kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint,
+                      RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment (the render extent), like the mask above.
             if ( inputs.SunDistanceFieldShadow.IsValid() )
-                bind( kSceneViewSunDistanceFieldShadow, inputs.SunDistanceFieldShadow, kPoint,
-=======
-                bind( SceneViewSlot::SunShadowMask, kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint,
->>>>>>> origin/task/DECALS-DBUFFER
-                      RDG::SamplerDesc::PointClamp() );
+                bind( SceneViewSlot::SunDistanceFieldShadow, kSceneViewSunDistanceFieldShadow,
+                      inputs.SunDistanceFieldShadow, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment, layer = the light's ShadowMaskSlot.
             if ( inputs.LocalShadowMasks.IsValid() )
                 bind( SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint,

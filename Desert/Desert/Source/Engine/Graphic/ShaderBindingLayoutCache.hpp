@@ -29,6 +29,7 @@ namespace Desert::Graphic
         LocalShadowAtlas,
         SceneDepth,
         SunShadowMask,
+        SunDistanceFieldShadow,
         LocalShadowMasks,
         SceneShadingWord,
         MegaLightsVolumeR,
