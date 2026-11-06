@@ -453,6 +453,11 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
                "and thinning per cascade, MeshRenderer::BladeShadowSet)",
                0, Vis::Advanced },
+             { P::ShadowDistanceFieldCascadeDistance, G::Shadows, "Shadows.DistanceFieldCascadeDistance", 1000,
+               100000, CL::None,
+               "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: the cascades end at min(Shadows."
+               "Distance, this) when the sun reads the distance-field shadow past them)",
+               8000, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

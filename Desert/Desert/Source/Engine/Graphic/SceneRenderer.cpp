@@ -872,7 +872,10 @@ namespace Desert::Graphic
         // A level's viewport is BUILT at the machine's Shadows level, so a Low machine never allocates the High
         // maps only to re-allocate them on the first frame. Later level changes: BeginScene.
         // Built for the cascaded sun: the Shadows method is resolved by the first BeginScene; the first frame that
-        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor).
+        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor). The
+        // distance-field sun's key is the scene's request (PostProcessSettings::DistanceFieldShadows), unknown
+        // here: its first frame moves only the cascades' distance, which re-allocates nothing
+        // (MeshRenderer::RebudgetShadows).
         if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality, /*sunRayTraced*/ false ) )
             m_ViewProfile.Shadows = *budget;
         m_ShadowBudgetGeneration = m_Quality.Generation;
@@ -1529,14 +1532,18 @@ namespace Desert::Graphic
     // TLAS is not built draws those low-detail cascades for that frame (LowerShadowsForFrame) rather than
     // re-allocating the maps twice around it. Called at the head of OnUpdate only, before any shadow view of the
     // frame is planned.
+    // The DF-shadow sun is a third key (ShadowQualityOf, SunDistanceFieldShadowBudget): its cascades end at
+    // Shadows.DistanceFieldCascadeDistance.
     void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
-                                            const bool                                  sunRayTraced )
+                                            const bool sunRayTraced, const bool sunDistanceField )
     {
-        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced )
+        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced &&
+             sunDistanceField == m_ShadowBudgetSunDistanceField )
             return;
-        m_ShadowBudgetGeneration   = quality.Generation;
-        m_ShadowBudgetSunRayTraced = sunRayTraced;
-        const auto budget          = ShadowReallocation( m_ViewProfile, quality, sunRayTraced );
+        m_ShadowBudgetGeneration       = quality.Generation;
+        m_ShadowBudgetSunRayTraced     = sunRayTraced;
+        m_ShadowBudgetSunDistanceField = sunDistanceField;
+        const auto budget = ShadowReallocation( m_ViewProfile, quality, sunRayTraced, sunDistanceField );
         if ( !budget )
             return;
         m_ViewProfile.Shadows = *budget;
@@ -1614,7 +1621,7 @@ namespace Desert::Graphic
         // (MeshRenderer::RebudgetShadows); taken in the middle of the frame, it destroyed what that frame had
         // already planned and the frame recorded it (SHADOW-CINE-ABORT: Shadows Cinematic switched on live, the
         // rain occlusion's view drew through a null caster material and the editor aborted).
-        RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
+        RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask(), SunDistanceFieldShadowBudget() );
 
         // This frame's shadow casters, gathered once from the mesh queues for every shadow view (each caster's
         // box, and its level on first use); the cascades, the rain occlusion view, the local lights' and the VSM
@@ -3384,6 +3391,12 @@ namespace Desert::Graphic
                meshRenderer->DirectionalShadows()[SceneResources::kDirectionalShadowSun].CastShadows;
     }
 
+    bool SceneRenderer::SunDistanceFieldShadowBudget() const
+    {
+        return m_RenderMethods.DistanceFieldShadows && m_RenderPath == Core::RenderPath::Deferred &&
+               !SunShadowIsScreenMask() && !m_DistanceFieldShadowFailed;
+    }
+
     bool SceneRenderer::EnsureDistanceFieldShadowResources()
     {
         if ( m_DistanceFieldShadowReady )
@@ -4874,7 +4887,11 @@ namespace Desert::Graphic
 
     SceneResources::ShadowFilterSettings SceneRenderer::GetShadowFilterSettings() const
     {
-        return m_ShadowFilter;
+        // The hand-over to the distance-field mask: the same predicate the frame records the pass by (a renderer
+        // latched failed records none, binds System.White and hands over nothing).
+        SceneResources::ShadowFilterSettings filter = m_ShadowFilter;
+        filter.SunDistanceField                     = SunDistanceFieldShadowRuns() && !m_DistanceFieldShadowFailed;
+        return filter;
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const

@@ -2,9 +2,11 @@
 // "SHADOWS: DISTANCE FIELD SUN", THE TRACE (UE DistanceFieldShadowing.usf DistanceFieldShadowingCS +
 // RayTraceSingleShadowObject, written from memory): at HALF resolution, every receiver the band
 // (Common/DistanceFieldShadow.glslh) gives to the distance fields cone-traces toward the sun - first through the
-// mesh distance fields of its light-space tile's list (each object's field sphere traced inside its world box), then
-// through the global distance field past DISTANCE_FIELD_SHADOW_OBJECT_RAY cm along the ray (the far occluders: the
-// landscape, the hills, what no list holds). The cone is the sun's disc: each step's distance over the cone's radius
+// distance fields of its light-space tile's list (each object's field sphere traced inside its world box; a
+// landscape tile's field is its analytic heightfield, HeightfieldObjectDistance - the hills are in the lists like
+// the meshes, UE's heightfield shadowing), then through the global distance field past
+// DISTANCE_FIELD_SHADOW_OBJECT_RAY cm along the ray (the far occluders, what no list holds). The cone is the sun's
+// disc: each step's distance over the cone's radius
 // at that t is how much of the disc the surface leaves open, and the smallest of them over the ray is the visibility
 // - a soft penumbra that widens with the occluder's distance (UE's MinConeVisibility). The receivers the cascades own
 // whole, the sky and the receivers past the shadow distance write 1. r = visibility (1 = lit), g = the receiver's

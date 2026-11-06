@@ -58,6 +58,32 @@ layout( binding = 5 ) uniform texture2DArray ShadowCascadesTexture;
 
 #ifndef DESERT_SUN_SHADOW_SCREEN_MASK
 #include <Mesh/CascadedShadow.glslh>
+// "Shadows: Distance Field Sun" (Common/DistanceFieldShadow.glslh): the sun past its last cascade at the render
+// extent, the mask the deferred composite reads, read here at the fragment's own pixel as the screen-mask sun is
+// above - so a forward mesh past the cascades is shadowed by the hills as the deferred ground beside it is. Bound
+// by SceneViewInputs (kSceneViewSunDistanceFieldShadowName; System.White when the view draws none) on the
+// scene-read range; ShadowFilter.z says whether this frame's cascades hand over to it.
+#include <Common/DistanceFieldShadow.glslh>
+layout( binding = kSunDistanceFieldShadowBinding ) uniform texture2D DistanceFieldShadowTexture;
+#define DistanceFieldShadowTexture sampler2D(DistanceFieldShadowTexture, PointClampSampler)
+
+// The cascades, cross-faded into the mask across the band at the last cascade's border and replaced by it past
+// the cascades - DeferredLighting.shader's DesertSunShadowWithDistanceField, the same band (one formula,
+// DistanceFieldShadowBandWeight).
+float DesertForwardSunShadow( vec3 worldPos, vec3 N, vec3 L, out int cascade )
+{
+    const float cascades = ShadowFactor( kShadowLightSun, worldPos, N, L, cascade );
+    if ( ShadowFilter.z < 0.5 || DirectionalShadow[kShadowLightSun].y < 0.5 )
+        return cascades;
+    const int count = int( DirectionalShadow[kShadowLightSun].z );
+    float     band  = 1.0;
+    if ( count > 0 )
+        band = DistanceFieldShadowBandWeight( LightViewProjection[cascadeView( kShadowLightSun, count - 1 )],
+                                              worldPos, kDistanceFieldShadowBand );
+    if ( band <= 0.0 )
+        return cascades;
+    return mix( cascades, texelFetch( DistanceFieldShadowTexture, ivec2( gl_FragCoord.xy ), 0 ).r, band );
+}
 #endif
 
 // THE CONTACT SHADOWS (UE ContactShadowLength), the same march as the deferred composite's, through the opaque
@@ -185,7 +211,7 @@ void main()
     const float sunVisibility = texelFetch( ScreenShadowMaskTexture, ivec2( gl_FragCoord.xy ), 0 ).r;
 #else
     int         cascade;
-    const float sunVisibility = ShadowFactor( kShadowLightSun, i.WorldPosition, N, sunDir, cascade );
+    const float sunVisibility = DesertForwardSunShadow( i.WorldPosition, N, sunDir, cascade );
 #endif
     const bool  receivesSun = s.ReceiveSunShadows >= 0.5;
     const float sunContact =

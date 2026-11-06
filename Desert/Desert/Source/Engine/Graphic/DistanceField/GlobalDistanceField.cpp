@@ -406,6 +406,7 @@ namespace Desert::Graphic::DistanceField
             again.ObjectGrid                = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
             again.Levels                    = m_FrameUpdate->Levels;
             again.MeshFields.NumMeshObjects = m_FrameUpdate->NumMeshObjects;
+            again.MeshFields.NumObjects     = m_FrameUpdate->NumObjects;
             again.MeshFields.BrickAtlas     = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
             return Common::MakeSuccess( again );
         }
@@ -589,6 +590,8 @@ namespace Desert::Graphic::DistanceField
         FrameField frame;
         // The near field culls the mesh objects only; every placed record, the tiles too, composites the clipmaps.
         frame.MeshFields.NumMeshObjects = m_Placement->MeshObjects;
+        // Every placed record (the meshes, then the tiles): what the shadow tile cull walks.
+        frame.MeshFields.NumObjects = static_cast<uint32_t>( m_Placement->ObjectData.size() / kGdfObjectStride );
 
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).
         std::vector<glm::ivec4>                                                 updateBricks;
@@ -662,7 +665,8 @@ namespace Desert::Graphic::DistanceField
                                      .Camera         = camera,
                                      .Objects        = inputs,
                                      .Levels         = frame.Levels,
-                                     .NumMeshObjects = frame.MeshFields.NumMeshObjects };
+                                     .NumMeshObjects = frame.MeshFields.NumMeshObjects,
+                                     .NumObjects     = frame.MeshFields.NumObjects };
         if ( updateBricks.empty() )
             return Common::MakeSuccess( frame );
 
