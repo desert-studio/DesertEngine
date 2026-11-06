@@ -575,13 +575,26 @@ namespace Desert::Graphic::RDG
 
         // CPU-FRAME-ARENA: first, so it outlives every record that points into it; Reset() resets it.
         Common::Memory::FrameArena  m_Arena;
+        // CPU-RDG-ALLOC (UE: the FMemStack a FRDGBuilder compiles and executes on): the working arrays of one
+        // Compile or Execute (RDGScratch.hpp), rewound when that call ends; its blocks are kept across graphs, so
+        // a steady frame takes nothing from the heap for them. Mutable: Compile is const. One builder compiles
+        // and executes on one thread at a time (its scopes rewind in stack order).
+        mutable Common::Memory::FrameArena m_Scratch;
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
         // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
         // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
-        std::vector<const IRecordPrerequisite*>                  m_Prerequisites;
-        std::unordered_map<const IRecordPrerequisite*, uint32_t> m_PrerequisiteIndex;
+        // CPU-RDG-ALLOC: the index is an open-addressed table (a power-of-two size, at most half full) that Reset
+        // empties in place, so a steady frame declares its prerequisites without a heap node per object.
+        struct PrerequisiteSlot
+        {
+            const IRecordPrerequisite* Key   = nullptr;
+            uint32_t                   Index = 0;
+        };
+        [[nodiscard]] uint32_t                  IndexPrerequisite( const IRecordPrerequisite& prerequisite );
+        std::vector<const IRecordPrerequisite*> m_Prerequisites;
+        std::vector<PrerequisiteSlot>           m_PrerequisiteSlots;
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;

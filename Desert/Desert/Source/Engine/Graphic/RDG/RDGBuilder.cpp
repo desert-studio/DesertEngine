@@ -1,4 +1,5 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGScratch.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
 #include <Common/Core/DevInstruments.hpp>
@@ -86,6 +87,20 @@ namespace Desert::Graphic::RDG
         // the share closed. RDG-RECORD-CHUNKS (longest-processing-time first): helpers claim in the claim order -
         // the costliest chunk of the last frame first - while the calling thread takes the chunks in position
         // order; whoever recorded a chunk, the walk replays them in position order.
+        //
+        // CPU-RDG-ALLOC: the recorder the helpers call - the closure on the record phase's stack and the one
+        // function that calls it (a std::function would take a heap block for the closure's captures per frame).
+        struct ChunkRecorder
+        {
+            const void* Closure                                   = nullptr;
+            void ( *Call )( const void* closure, uint32_t chunk ) = nullptr;
+
+            void operator()( uint32_t chunk ) const
+            {
+                Call( Closure, chunk );
+            }
+        };
+
         class ChunkTasks
         {
         public:
@@ -98,7 +113,7 @@ namespace Desert::Graphic::RDG
 
             // The recorder every claim runs. Set once, before the first helper is submitted; it lives on the
             // record phase's stack, which Close() outlives no helper's use of.
-            void SetRecorder( const std::function<void( uint32_t )>* recorder )
+            void SetRecorder( const ChunkRecorder* recorder )
             {
                 m_Recorder = recorder;
             }
@@ -228,7 +243,7 @@ namespace Desert::Graphic::RDG
             uint32_t                               m_WalkNext  = 0; // no chunk before it by index is unclaimed
             uint32_t                               m_Running   = 0; // claimed, not finished
             bool                                   m_Closed    = false;
-            const std::function<void( uint32_t )>* m_Recorder  = nullptr;
+            const ChunkRecorder*                   m_Recorder  = nullptr;
         };
 
         // Closes the record phase's chunk tasks on every way out of it (ChunkTasks::Close).
@@ -546,7 +561,7 @@ namespace Desert::Graphic::RDG
         m_Passes.clear();
         m_Resources.clear();
         m_Prerequisites.clear();
-        m_PrerequisiteIndex.clear();
+        std::fill( m_PrerequisiteSlots.begin(), m_PrerequisiteSlots.end(), PrerequisiteSlot{} );
         m_DeclarationError.clear();
         m_Executed        = false;
         m_PassCulling     = true;
@@ -745,13 +760,40 @@ namespace Desert::Graphic::RDG
     void PassBuilder::Prepares( const IRecordPrerequisite& prerequisite )
     {
         // One graph-wide index per distinct object (O(1) here; Execute prepares by index).
-        const auto [entry, inserted] = m_Builder.m_PrerequisiteIndex.try_emplace(
-             &prerequisite, static_cast<uint32_t>( m_Builder.m_Prerequisites.size() ) );
-        if ( inserted )
-            m_Builder.m_Prerequisites.push_back( &prerequisite );
-        auto& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
-        if ( std::find( declared.begin(), declared.end(), entry->second ) == declared.end() )
-            declared.push_back( entry->second );
+        const uint32_t index    = m_Builder.IndexPrerequisite( prerequisite );
+        auto&          declared = m_Builder.m_Passes[m_Pass].Prerequisites;
+        if ( std::find( declared.begin(), declared.end(), index ) == declared.end() )
+            declared.push_back( index );
+    }
+
+    uint32_t Builder::IndexPrerequisite( const IRecordPrerequisite& prerequisite )
+    {
+        // Grown (and every key re-placed) before the insert that would make it more than half full.
+        if ( ( m_Prerequisites.size() + 1 ) * 2 > m_PrerequisiteSlots.size() )
+        {
+            constexpr size_t kFirstSlots = 16;
+            m_PrerequisiteSlots.assign( std::max( kFirstSlots, m_PrerequisiteSlots.size() * 2 ), {} );
+            const size_t mask = m_PrerequisiteSlots.size() - 1;
+            for ( uint32_t i = 0; i < m_Prerequisites.size(); ++i )
+            {
+                size_t slot = std::hash<const void*>{}( m_Prerequisites[i] ) & mask;
+                while ( m_PrerequisiteSlots[slot].Key != nullptr )
+                    slot = ( slot + 1 ) & mask;
+                m_PrerequisiteSlots[slot] = { m_Prerequisites[i], i };
+            }
+        }
+        const size_t mask = m_PrerequisiteSlots.size() - 1;
+        size_t       slot = std::hash<const void*>{}( &prerequisite ) & mask;
+        while ( m_PrerequisiteSlots[slot].Key != nullptr )
+        {
+            if ( m_PrerequisiteSlots[slot].Key == &prerequisite )
+                return m_PrerequisiteSlots[slot].Index;
+            slot = ( slot + 1 ) & mask;
+        }
+        const uint32_t index      = static_cast<uint32_t>( m_Prerequisites.size() );
+        m_PrerequisiteSlots[slot] = { &prerequisite, index };
+        m_Prerequisites.push_back( &prerequisite );
+        return index;
     }
 
     void PassBuilder::ExternalQueue( const ExternalQueueSync& sync )
@@ -1156,7 +1198,7 @@ namespace Desert::Graphic::RDG
     // barrier instead of catching up at the end of Execute.
     Common::BoolResultStr Builder::RecordExternalStates( std::span<const Barrier> barriers )
     {
-        std::vector<uint32_t> touched; // resources, one per external texture
+        ScratchVector<uint32_t> touched; // resources, one per external texture
         for ( const Barrier& barrier : barriers )
         {
             if ( barrier.Kind != ResourceKind::Texture )
@@ -1198,8 +1240,12 @@ namespace Desert::Graphic::RDG
         m_Executed = true;
         m_Report   = {};
         m_LateSubstitutions.clear();
+        // CPU-RDG-ALLOC: the execute's working arrays (ScratchVector) come from the graph's scratch arena and are
+        // released together when Execute returns. A worker never grows one of them (RDGScratch.hpp): what a chunk
+        // appends to on a worker (its faults, late substitutions) stays a std::vector.
+        const ScratchScope scratch( m_Scratch );
 
-        std::vector<std::string_view> added;
+        ScratchVector<std::string_view> added;
         added.reserve( m_Passes.size() );
         for ( const PassRecord& pass : m_Passes )
             added.push_back( pass.Name );
@@ -1249,7 +1295,7 @@ namespace Desert::Graphic::RDG
         // The decided fallback, announced once per backend (the log keeps the count).
         if ( !result.DemotedAsyncPasses.empty() )
         {
-            std::vector<std::string_view> demoted;
+            ScratchVector<std::string_view> demoted;
             demoted.reserve( result.DemotedAsyncPasses.size() );
             for ( const uint32_t pass : result.DemotedAsyncPasses )
                 demoted.push_back( m_Passes[pass].Name );
@@ -1262,8 +1308,8 @@ namespace Desert::Graphic::RDG
                                 [&]( const DefaultSubstitution& s )
                                 { return s.ReaderPass == pass && s.Original == resource; } );
         };
-        std::vector<ResourceView> views( m_Resources.size() );
-        bool                      anyFaultDefault = false;
+        ScratchVector<ResourceView> views( m_Resources.size() );
+        bool                        anyFaultDefault = false;
         for ( uint32_t r = 0; r < m_Resources.size(); ++r )
         {
             const ResourceRecord& record = m_Resources[r];
@@ -1317,13 +1363,13 @@ namespace Desert::Graphic::RDG
 
         // RDG-FAULT1 late faults. lostRoot[p] >= 0: pass p did not produce its outputs this frame (its exec
         // failed, or it was skipped for a lost input); the value is the pass the chain starts at.
-        std::vector<int32_t> lostRoot( m_Passes.size(), -1 );
+        ScratchVector<int32_t> lostRoot( m_Passes.size(), -1 );
         // RDG-PARALLEL-2: where one run of passes keeps its late faults. The calling thread's run writes the
         // graph's own lists; a chunk recorded on a worker writes the chunk's (RecordChunk), and the replay merges
         // them in pass order. A worker never ends the frame: it keeps a backend failure, the replay ends it.
         struct RecordState
         {
-            std::vector<int32_t>&             LostRoot; // by pass
+            ScratchVector<int32_t>&           LostRoot; // by pass
             std::vector<PassFault>&           Faults;
             std::vector<uint32_t>&            FaultCulled;
             std::vector<DefaultSubstitution>& Late;
@@ -1363,13 +1409,13 @@ namespace Desert::Graphic::RDG
         };
 
         // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared (empty = prepared or none).
-        std::vector<std::string> prepareFailures( m_Passes.size() );
+        ScratchVector<std::string> prepareFailures( m_Passes.size() );
 
         // The incoming read-after-write edges of each pass, in result.Edges order (CSR: rawIn[rawBegin[p] ..
         // rawBegin[p + 1]) are pass p's). A late fault walks only the pass's own edges instead of every edge of
         // the graph per pass.
-        std::vector<uint32_t> rawBegin( m_Passes.size() + 1, 0 );
-        std::vector<uint32_t> rawIn;
+        ScratchVector<uint32_t> rawBegin( m_Passes.size() + 1, 0 );
+        ScratchVector<uint32_t> rawIn;
         {
             for ( const DependencyEdge& edge : result.Edges )
             {
@@ -1379,7 +1425,7 @@ namespace Desert::Graphic::RDG
             for ( size_t p = 0; p < m_Passes.size(); ++p )
                 rawBegin[p + 1] += rawBegin[p];
             rawIn.resize( rawBegin.back() );
-            std::vector<uint32_t> fill( rawBegin.begin(), rawBegin.end() - 1 );
+            ScratchVector<uint32_t> fill( rawBegin.begin(), rawBegin.end() - 1 );
             for ( uint32_t e = 0; e < result.Edges.size(); ++e )
             {
                 const DependencyEdge& edge = result.Edges[e];
@@ -1534,8 +1580,8 @@ namespace Desert::Graphic::RDG
             DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: prerequisites" );
             // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
             constexpr int8_t         kNotPrepared = -1;
-            std::vector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
-            std::vector<std::string> failures( m_Prerequisites.size() );
+            ScratchVector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
+            ScratchVector<std::string> failures( m_Prerequisites.size() );
             for ( const CompiledPass& planned : result.Passes )
             {
                 for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
@@ -1572,15 +1618,17 @@ namespace Desert::Graphic::RDG
         struct RecordChunk
         {
             RecordChunkDesc                  Desc;
-            std::vector<int32_t>             LostRoot; // by pass; only the chunk's own passes are ever set
+            // By pass; only the chunk's own passes are ever set. Sized where the chunk is made (the calling
+            // thread): the worker that records the chunk only refills it.
+            ScratchVector<int32_t>           LostRoot;
             std::vector<PassFault>           Faults;
             std::vector<uint32_t>            FaultCulled;
             std::vector<DefaultSubstitution> Late;
             std::string                      BackendFailure;
         };
-        std::vector<RecordChunk> chunks;
-        std::vector<int32_t>     chunkAt;     // by position: the chunk starting there, -1 when none
-        std::vector<float>       chunkMicros; // by chunk: its passes' record cost last frame (0 when unmeasured)
+        ScratchVector<RecordChunk> chunks;
+        ScratchVector<int32_t>     chunkAt;     // by position: the chunk starting there, -1 when none
+        ScratchVector<float>       chunkMicros; // by chunk: its passes' record cost last frame (0 when unmeasured)
         bool                     chunksByCost = false;
         const bool               anyPrepareFailure =
              std::any_of( prepareFailures.begin(), prepareFailures.end(),
@@ -1646,7 +1694,8 @@ namespace Desert::Graphic::RDG
                     else
                     {
                         RecordChunk chunk;
-                        chunk.Desc        = { segment.OnPipe, position, runEnd };
+                        chunk.Desc = { segment.OnPipe, position, runEnd };
+                        chunk.LostRoot.assign( m_Passes.size(), -1 );
                         chunkAt[position] = static_cast<int32_t>( chunks.size() );
                         chunks.push_back( std::move( chunk ) );
                         chunkMicros.push_back( runMicros );
@@ -1666,11 +1715,11 @@ namespace Desert::Graphic::RDG
         // reads the same view's descriptor sets and block copies as the thread that runs the graph (UE: a parallel
         // command list set records for its view), not the frame context.
         ViewResources&                        recordingView = ViewResourceRegistry::Active();
-        const std::function<void( uint32_t )> recordChunk   = [&]( uint32_t c )
+        const auto                            recordChunk   = [&]( uint32_t c )
         {
             const ActiveViewScope viewScope( recordingView );
             RecordChunk&          chunk = chunks[c];
-            chunk.LostRoot.assign( m_Passes.size(), -1 );
+            std::fill( chunk.LostRoot.begin(), chunk.LostRoot.end(), -1 ); // a discarded chunk records again
             RecordState state{ chunk.LostRoot, chunk.Faults, chunk.FaultCulled, chunk.Late };
             state.Worker = true;
             backend.BeginChunk( c );
@@ -1682,12 +1731,14 @@ namespace Desert::Graphic::RDG
             backend.EndChunk( c );
             chunk.BackendFailure = std::move( state.BackendFailure );
         };
+        const ChunkRecorder chunkRecorder{ &recordChunk, []( const void* closure, uint32_t c )
+                                           { ( *static_cast<decltype( &recordChunk )>( closure ) )( c ); } };
         // After everything a chunk task reads (the chunks, the recorder, the plan): on every way out of the record
         // phase the tasks are closed before any of it goes.
         const ChunkTasksCloser closeChunkTasks{ chunkTasks };
         if ( !chunks.empty() )
         {
-            std::vector<RecordChunkDesc> descs;
+            ScratchVector<RecordChunkDesc> descs;
             descs.reserve( chunks.size() );
             for ( const RecordChunk& chunk : chunks )
                 descs.push_back( chunk.Desc );
@@ -1713,7 +1764,7 @@ namespace Desert::Graphic::RDG
                                   [&]( uint32_t a, uint32_t b ) { return chunkMicros[a] > chunkMicros[b]; } );
             }
             chunkTasks = std::make_shared<ChunkTasks>( std::move( claimOrder ) );
-            chunkTasks->SetRecorder( &recordChunk );
+            chunkTasks->SetRecorder( &chunkRecorder );
             Common::JobSystem& jobs    = Common::JobSystem::Get();
             const size_t       helpers = std::min( chunks.size(), jobs.WorkerCount() );
             for ( size_t h = 0; h < helpers; ++h )
@@ -1845,7 +1896,7 @@ namespace Desert::Graphic::RDG
 
         // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
         // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.
-        std::vector<uint32_t> lateFatal;
+        ScratchVector<uint32_t> lateFatal;
         std::vector<uint32_t> lateRoots;
         for ( uint32_t r = 0; r < m_Resources.size(); ++r )
         {
@@ -1880,8 +1931,8 @@ namespace Desert::Graphic::RDG
         }
 
         // An extracted transient's image is taken before EndGraph releases the graph's hold on it.
-        std::vector<std::shared_ptr<IPhysicalTexture>> extractedTextures( m_Resources.size() );
-        std::vector<std::shared_ptr<IPhysicalBuffer>>  extractedBuffers( m_Resources.size() );
+        ScratchVector<std::shared_ptr<IPhysicalTexture>> extractedTextures( m_Resources.size() );
+        ScratchVector<std::shared_ptr<IPhysicalBuffer>>  extractedBuffers( m_Resources.size() );
         for ( const ExternalFinalState& final : result.ExternalFinalStates )
         {
             const ResourceRecord& record = m_Resources[final.Resource];
