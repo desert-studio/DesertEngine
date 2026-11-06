@@ -152,7 +152,7 @@ namespace Desert::Graphic::System
             if ( program == nullptr )
                 continue;
             // The component may only mask channels OFF (ShaderProgramMeta.hpp DecalChannel).
-            const uint8_t channels = static_cast<uint8_t>( decal.ChannelMask & program->Channels );
+            const uint32_t channels = decal.ChannelMask & program->Channels;
             if ( channels == 0u )
                 continue;
 

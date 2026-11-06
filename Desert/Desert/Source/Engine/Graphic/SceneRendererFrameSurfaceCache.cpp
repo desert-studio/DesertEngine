@@ -281,7 +281,13 @@ namespace Desert::Graphic
             const RDG::TextureRef coverage =
                  graph.CreateTexture( coverageDesc, "SurfaceCacheCapture.ThinGeometryCoverage" );
             // The cell's one scene input (the rain occlusion map of the wetness), as the scene's G-buffer pass.
-            const SceneViewInputs captureView = SceneViewInputsOf( textures.GraphRefs() );
+            // A card is captured in the atlas's own space: the view's DBuffer (screen-space, this frame's
+            // decals) must not land on it by atlas coordinates. System.Black = no DBuffer: the cell skips the read
+            // (Common/DBuffer.glslh DesertViewHasDBuffer; UE: captures never apply decals).
+            SceneViewInputs captureView = SceneViewInputsOf( textures.GraphRefs() );
+            captureView.DBufferA        = textures.GraphRefs().System.Black;
+            captureView.DBufferB        = textures.GraphRefs().System.Black;
+            captureView.DBufferC        = textures.GraphRefs().System.Black;
             graph.AddPass(
                  passName, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
                  [&]( RDG::PassBuilder& pass )

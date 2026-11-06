@@ -2264,7 +2264,7 @@ namespace Desert::Core::Preprocess
             // (ShaderProgramMeta DecalChannel). Read to the end of the line; an unknown word fails the compile.
             else if ( lower == "decalchannels" )
             {
-                uint8_t mask = 0u;
+                uint32_t mask = 0u;
                 // The channels are the words on the `DecalChannels` line itself: a probe that lands on a later
                 // line has read the next section's keyword, which stays unread.
                 for ( ;; )

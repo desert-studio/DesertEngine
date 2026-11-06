@@ -33,7 +33,7 @@ namespace Desert::Graphic::System
         Assets::AssetHandle Material  = Assets::AssetHandle::Null(); // null = Programs/Decals/DefaultDecal.shader
         uint64_t            EntityId  = 0;                           // the stack's tie-break: never flickers
         int32_t             SortOrder = 0;
-        uint8_t             ChannelMask    = 7u;   // Core::Formats::DecalChannel bits
+        uint32_t            ChannelMask    = 7u;   // Core::Formats::DecalChannel bits
         float               FadeStart      = 0.0f; // cm
         float               FadeLength     = 0.0f; // cm; 0 = no distance fade
         float               FadeScreenSize = 0.0f; // fraction of the screen height below which it is not drawn
@@ -114,7 +114,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::unique_ptr<DataDrivenMaterial> Material;
             mutable ShaderBindingLayoutCache    Layout;
-            uint8_t                             Channels   = 0u;    // the shader's `DecalChannels`
+            uint32_t                            Channels   = 0u;    // the shader's `DecalChannels`
             uint64_t                            Generation = 0u;    // the shader's code generation it was built at
             bool                                Refused    = false; // logged once; the decal draws nothing
             mutable uint32_t                    Block      = 0u;    // this frame's binding block (Declare order)

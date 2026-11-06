@@ -50,14 +50,15 @@ namespace Desert::Core
     // 13: both 12s together. 14: SurfaceOpacityMask::DitherParam (FOLIAGE-ALPHA-MIPS).
     // 15: ShaderProgramMeta::ShadingModel (GDT-2: the renderer names a section's shading model).
     // 16: ShaderProgramMeta::StampSource (DEFORM-FIELD: the DeformStamp domain names its stamp fragment).
-    inline constexpr uint32_t kShaderMapFormatVersion = 16;
+    // 17: ShaderProgramMeta::DecalChannelMask (DECALS-DBUFFER: a DeferredDecal shader's DBuffer channels).
+    inline constexpr uint32_t kShaderMapFormatVersion = 17;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x97ee79c5496d0139ULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x62eefbe6199b400eULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself. The shading-model
     // registry and manifest reader are listed because the parser calls them while producing a surface map (the

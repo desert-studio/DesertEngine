@@ -66,7 +66,9 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     float ao        = s.AmbientOcclusion;
 #ifdef DESERT_SURFACE_DBUFFER_RECEIVE
     // The frame's decals over this surface (UE ApplyDBufferData), before the specular AA widens the roughness.
-    DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), baseColor, N, roughness, metallic, ao );
+    // No DBuffer on this view (no decal pass, or the card capture): no fetch at all.
+    if ( DesertViewHasDBuffer() )
+        DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), baseColor, N, roughness, metallic, ao );
 #endif
     vec3 dNdx, dNdy;
     DesertSurfaceNormalFootprint( i, s, N, dNdx, dNdy );

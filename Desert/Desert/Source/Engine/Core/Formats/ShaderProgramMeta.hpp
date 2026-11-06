@@ -224,7 +224,7 @@ namespace Desert::Core::Formats
 
     // UE EDecalDBufferMaskTechnique / the DBuffer's three targets: which of them a DeferredDecal material writes
     // (its `DecalChannels` line). A DecalComponent may only mask channels OFF (its ChannelMask).
-    enum DecalChannel : uint8_t
+    enum DecalChannel : uint32_t
     {
         kDecalChannelBaseColor          = 1u << 0u, // DBufferA
         kDecalChannelNormal             = 1u << 1u, // DBufferB
@@ -420,8 +420,9 @@ namespace Desert::Core::Formats
         ShaderRenderState        State;
         ShaderDomain             Domain = ShaderDomain::Unspecified;
         // A DeferredDecal shader's `DecalChannels` line (DecalChannel bits): the DBuffer targets it writes, so the
-        // decal pass masks the others' blend writes off. Parse-time only (Meta is not serialized); 0 elsewhere.
-        uint8_t DecalChannelMask = 0u;
+        // decal pass masks the others' blend writes off. Serialized with the map (ShaderMapCache VisitFields);
+        // 0 elsewhere.
+        uint32_t DecalChannelMask = 0u;
 
         // Additional named passes declared by the shader (DSL `Pass "Name" { ... }` blocks).
         // Each is a separate program registered in the ShaderService as "<Shader>/<Pass>";

@@ -41,7 +41,7 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Channels" ), Category( "Decal" ), Range( 0, 7 ),
                   Tooltip( "Which DBuffer channels this decal may write (bits: 1 base colour, 2 normal, 4 "
                            "roughness / metallic / AO), masked with what the material writes. 7 = all." ) )
-        uint8_t ChannelMask = 7u;
+        uint32_t ChannelMask = 7u;
 
         PROPERTY( DisplayName( "Fade Start" ), Category( "Fade" ), Length, Range( 0.0f, 1.0e7f ),
                   Tooltip( "UE FadeStartDelay's distance twin: the camera distance at which the decal starts to "

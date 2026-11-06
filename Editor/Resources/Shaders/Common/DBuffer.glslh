@@ -7,9 +7,10 @@
 //   A = base colour x opacity                 B = (world normal x 0.5 + 0.5) x opacity
 //   C = (roughness, metallic, AO) x opacity   alpha of each = 1 - opacity
 // The decal pass blends premultiplied (rgb = src + dst x (1 - src.a), alpha = dst x (1 - src.a)), so decals stack
-// in sort order. A frame without decals binds System.Black (0, 0, 0, 1): transmittance 1, and the fold below keeps
-// the surface's exact bits (the byte-equal frame). ONE encoding for the writer (DESERT_DBUFFER_WRITER: the decal
-// pass, which declares none of the reads) and every reader (the mesh G-buffer cells, TerrainGBuffer.shader).
+// in sort order. A frame without decals binds System.Black (0, 0, 0, 1, 1x1): the receiver skips the read
+// (DesertViewHasDBuffer) and keeps the surface's exact bits (the byte-equal frame). ONE encoding for the writer
+// (DESERT_DBUFFER_WRITER: the decal pass, which declares none of the reads) and every reader (the mesh
+// G-buffer cells; the terrain's G-buffer does not read it yet).
 
 // The writer's three outputs for one decal fragment of @p opacity (0..1); a channel the decal does not write
 // outputs zero with zero opacity, which the blend leaves as it was.
@@ -58,12 +59,26 @@ struct DesertDBufferTexel
     vec4 C;
 };
 
+// THE VIEW FLAG "this view has a DBuffer" (UE: the base pass's DBuffer permutation): a view that records no decal
+// pass, and every view that must not receive decals (the surface cache's card capture), binds System.Black, which
+// is 1x1; a decal pass writes its DBuffer at the prepass depth's extent. So a 1x1 binding = no DBuffer, and the
+// receiver reads nothing (dynamically uniform: one branch per draw, no fetch, the surface's exact bits).
+bool DesertViewHasDBuffer()
+{
+    return any( greaterThan( textureSize( sampler2D( DBufferATexture, DBufferSampler ), 0 ), ivec2( 1 ) ) );
+}
+
+// @p pixel is clamped to the texture: texelFetch ignores the sampler's clamp, and robustImageAccess is not
+// enabled, so a G-buffer raster larger than the DBuffer (a mismatch the frame graph should never record) reads
+// the edge texel rather than out of bounds.
 DesertDBufferTexel DesertReadDBuffer( const ivec2 pixel )
 {
     DesertDBufferTexel t;
-    t.A = texelFetch( sampler2D( DBufferATexture, DBufferSampler ), pixel, 0 );
-    t.B = texelFetch( sampler2D( DBufferBTexture, DBufferSampler ), pixel, 0 );
-    t.C = texelFetch( sampler2D( DBufferCTexture, DBufferSampler ), pixel, 0 );
+    const ivec2 last = textureSize( sampler2D( DBufferATexture, DBufferSampler ), 0 ) - ivec2( 1 );
+    const ivec2 p    = clamp( pixel, ivec2( 0 ), last );
+    t.A = texelFetch( sampler2D( DBufferATexture, DBufferSampler ), p, 0 );
+    t.B = texelFetch( sampler2D( DBufferBTexture, DBufferSampler ), p, 0 );
+    t.C = texelFetch( sampler2D( DBufferCTexture, DBufferSampler ), p, 0 );
     return t;
 }
 
