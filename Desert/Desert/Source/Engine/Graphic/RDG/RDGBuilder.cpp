@@ -312,6 +312,20 @@ namespace Desert::Graphic::RDG
 
     void Builder::QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
     {
+        // Copied at the call: the exec runs after the caller's storage is gone.
+        auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
+        const std::span<const std::byte> copied( *payload );
+        AddUploadPass( buffer, copied, std::move( payload ) );
+    }
+
+    void Builder::QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
+    {
+        AddUploadPass( buffer, bytes, nullptr );
+    }
+
+    void Builder::AddUploadPass( BufferRef buffer, std::span<const std::byte> bytes,
+                                 std::shared_ptr<const std::vector<std::byte>> owned )
+    {
         const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
         const std::string     name   = record != nullptr ? record->Name : fmt::format( "#{}", buffer.Index );
         std::string           error;
@@ -326,8 +340,6 @@ namespace Desert::Graphic::RDG
             error = fmt::format( "graph '{}': upload of {} bytes into buffer '{}' is not a multiple of 4 bytes",
                                  m_Name, bytes.size(), name );
 
-        // Copied at the call: the exec runs after the caller's storage is gone.
-        auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
         AddPass(
              std::format( "Upload: {}", name ), PassFlags::Copy,
              [&]( PassBuilder& pass )
@@ -337,12 +349,12 @@ namespace Desert::Graphic::RDG
                  if ( record != nullptr )
                      pass.Write( buffer, Access::CopyDst );
              },
-             [buffer, payload]( PassContext& context ) -> Common::BoolResultStr
+             [buffer, bytes, owned = std::move( owned )]( PassContext& context ) -> Common::BoolResultStr
              {
                  const Common::ResultStr<BufferBinding> target = context.GetBuffer( buffer, Access::CopyDst );
                  if ( !target )
                      return Common::MakeFormattedError( "{}", target.GetError() );
-                 return context.GetBackend().UploadBuffer( target.GetValue().Resource, *payload );
+                 return context.GetBackend().UploadBuffer( target.GetValue().Resource, bytes );
              } );
         m_Passes.back().QueuedUpload = true;
         if ( !error.empty() )

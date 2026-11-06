@@ -13,8 +13,9 @@
 //             IN FRONT of the ray, not around it — a cypress a metre before a wall is not a contact occluder of the
 //             wall, and counting it drew a speckled dark ring along every crown, BISTRO-FOLIAGE-HALO);
 //   output    xy = the bent normal (the mean of the unoccluded directions, normalised; the normal when none is) in
-//             the traced pixel's SPProbeFrame, z = the unoccluded share (cosine-weighted by the sampling), w = the
-//             pixel's distance (SP_SHORT_RANGE_AO_DISTANCE_SCALE; 0 = sky) for the integrate's upsample.
+//             world space, octahedral (SPOctEncode), z = the unoccluded share (cosine-weighted by the sampling),
+//             w = 1 (0 = sky); the integrate's upsample reads the traced pixel's normal and depth from the
+//             G-buffer.
 // The integrate reads it as UE's ScreenProbeIntegrateCS does with SHORT_RANGE_AO: the diffuse irradiance is the
 // probes' SH at the bent normal times the AO, and every rough-specular sample is weighted by its visibility in the
 // bent cone (UE CalculateSpecularOcclusion). This is what occludes thin leaf cards: the scalar SSAO samples a
@@ -157,11 +158,8 @@ Shader "ScreenProbeShortRangeAO"
             }
             const float ao   = unoccluded / float( SR_AO_RAYS );
             const vec3  bent = dot( unoccludedSum, unoccludedSum ) > 1e-6 ? normalize( unoccludedSum ) : n;
-            // In the pixel's own frame (orthonormal: the transpose inverts it); z >= 0, the mean of directions of
-            // the hemisphere around n.
-            const vec3  bentLocal = transpose( frame ) * bent;
-            imageStore( ShortRangeAoOutTexture, aoTexel,
-                        vec4( bentLocal.xy, ao, distance * SP_SHORT_RANGE_AO_DISTANCE_SCALE ) );
+            // In world space (Common/ScreenProbes.glslh: no tangent frame is continuous over the sphere).
+            imageStore( ShortRangeAoOutTexture, aoTexel, vec4( SPOctEncode( bent ), ao, 1.0 ) );
         }
     }
 }
