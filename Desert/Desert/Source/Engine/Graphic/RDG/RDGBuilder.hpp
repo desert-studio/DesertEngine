@@ -259,6 +259,10 @@ namespace Desert::Graphic::RDG
         // for a handle that is not a buffer of this graph, an empty payload, a payload larger than the buffer,
         // or a size that is not a multiple of 4 bytes (the transfer granularity every GPU API shares).
         void QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+        // QueueBufferUpload of bytes in STATIC storage (a constexpr table: a per-frame reset of counters or
+        // indirect arguments), which are not copied: the upload takes no heap block for its payload. @p bytes must
+        // outlive the graph's Execute; refused as QueueBufferUpload is.
+        void QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
 
         // The AddPass index the next AddPass gets: the index ExecuteReport::FaultCulled names that pass by, for an
         // owner that must know after Execute whether its writer survived (a history it extracts).
@@ -558,6 +562,9 @@ namespace Desert::Graphic::RDG
         };
 
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
+        // The two uploads' one pass: @p bytes are what it writes, @p owned their copy (null: static storage).
+        void AddUploadPass( BufferRef buffer, std::span<const std::byte> bytes,
+                            std::shared_ptr<const std::vector<std::byte>> owned );
         // Keeps the FIRST declaration error: later ones are usually its consequences.
         void                                RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
