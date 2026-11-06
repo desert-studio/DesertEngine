@@ -132,7 +132,11 @@ namespace Desert::Graphic::API::Vulkan
         slice.Offset = offset;
         slice.Size   = size;
         slice.Mapped = m_Mapped + offset;
-        slice.Lease  = std::shared_ptr<const void>( nullptr, [this, id]( const void* ) { Retire( id ); } );
+        // THE LEASE POINTS AT THE RING, NEVER AT NULL: a shared_ptr made from nullptr with a deleter owns a
+        // control block yet tests false, and `if ( lease )` in RecordUploadStep read every staged texture as
+        // unstaged and copied from its released pixels (null + offset: the AV of land-cpu4's first ring run).
+        slice.Lease = std::shared_ptr<const void>( static_cast<const void*>( this ),
+                                                   [this, id]( const void* ) { Retire( id ); } );
         return slice;
     }
 

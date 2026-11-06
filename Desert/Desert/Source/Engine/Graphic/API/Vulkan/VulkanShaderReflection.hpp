@@ -147,7 +147,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     std::vector<VkPipelineColorBlendAttachmentState>
     BuildColorBlendAttachments( const std::vector<uint32_t>& writtenLocations,
                                 const std::vector<bool>& blendPerSlot, VkBlendFactor srcColor,
-                                VkBlendFactor dstColor );
+                                VkBlendFactor dstColor, VkBlendFactor srcAlpha = VK_BLEND_FACTOR_ONE,
+                                VkBlendFactor dstAlpha = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA );
 
     /** The Vulkan format one vertex attribute of @p type is read as; VK_FORMAT_UNDEFINED = no mapping. */
     VkFormat VertexAttributeFormat( ShaderDataType type );

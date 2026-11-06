@@ -62,6 +62,7 @@ namespace Desert::Assets::Serialization
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
+#include <Engine/ECS/DecalComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/ECS/VFXUserOverride.hpp>

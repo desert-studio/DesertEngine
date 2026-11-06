@@ -41,20 +41,20 @@ Shader "ScreenProbeIntegrate"
         #include <Common/MonteCarlo.glslh>
 
         // UE r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecular (and ...ForFoliage), both 0.8, and the
-        // 0.2 fade of RoughReflectionsDiffuseLerp (LumenScreenProbeTileClassication.ush): at and above 0.8 the rough
-        // specular IS the irradiance, below 0.6 it is all GGX samples.
+        // 0.2 fade of RoughReflectionsDiffuseLerp (LumenScreenProbeTileClassication.ush): at and above 0.8 the
+        // rough specular IS the irradiance, below 0.6 it is all GGX samples.
         #define SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR 0.8
         #define SP_ROUGH_SPECULAR_FADE_LENGTH 0.2
-        // UE NumSpecularSamples, and the floor UE puts under the roughness the probes can answer (a ~2x2 footprint).
+        // UE NumSpecularSamples, and the floor UE puts under the roughness the probes can answer (a ~2x2
+        // footprint).
         #define SP_ROUGH_SPECULAR_SAMPLES 4
         #define SP_ROUGH_SPECULAR_MIN_ROUGHNESS 0.2
 
         // UE RoughReflectionsDiffuseLerp: the share of the rough specular the irradiance answers.
         float SPRoughSpecularDiffuseLerp( float roughness )
         {
-            return clamp( ( roughness - SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR + SP_ROUGH_SPECULAR_FADE_LENGTH ) /
-                              SP_ROUGH_SPECULAR_FADE_LENGTH,
-                          0.0, 1.0 );
+            const float start = SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR - SP_ROUGH_SPECULAR_FADE_LENGTH;
+            return clamp( ( roughness - start ) / SP_ROUGH_SPECULAR_FADE_LENGTH, 0.0, 1.0 );
         }
 
         // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification,
@@ -63,8 +63,12 @@ Shader "ScreenProbeIntegrate"
         // SIMPLE DIFFUSE, integrated by the SP_INTEGRATE_SIMPLE_DIFFUSE permutation that has no specular sampling
         // compiled in (its registers, its occupancy); every other tile takes the full permutation. Both dispatch
         // indirectly over their list. ScreenProbeIntegrateTilesUB: the simple tiles from the front, the full ones
-        // from the back (x | y << 16 each); ScreenProbeIntegrateArgsUB: the simple dispatch, then the full one
-        // (x = tiles, y = z = 1; uploaded as 0, 1, 1, 0 each).
+        // from the back (x | y << 16 each); ScreenProbeIntegrateArgsUB: the simple dispatch, then the full one,
+        // each x, y, z, count (uploaded as 0, 0, 1, 0). A list's dispatch is 2D, SP_INTEGRATE_GROUPS_X groups a
+        // row: a 4K frame's 129 600 tiles in one row exceed the 65 535 groups a dimension Vulkan guarantees
+        // (maxComputeWorkGroupCount, VUID-VkDispatchIndirectCommand-x-00417). The last row's groups past the
+        // count (w) return at once.
+        #define SP_INTEGRATE_GROUPS_X 1024u
         #define SP_INTEGRATE_TILES_X ( ( uint( giFrame.screen.x ) + 7u ) / 8u )
         #define SP_INTEGRATE_TILE_COUNT ( SP_INTEGRATE_TILES_X * ( ( uint( giFrame.screen.y ) + 7u ) / 8u ) )
 #if defined( SP_INTEGRATE_CLASSIFY )
@@ -102,7 +106,11 @@ Shader "ScreenProbeIntegrate"
             if ( gl_LocalInvocationIndex != 0u )
                 return;
             const uint full = s_EvaluatesRoughSpecular;
-            const uint slot = atomicAdd( screenProbeIntegrateArgs[full * 4u], 1u );
+            const uint args = full * 4u;
+            const uint slot = atomicAdd( screenProbeIntegrateArgs[args + 3u], 1u );
+            // The 2D grid that covers slot: as wide as the list up to a row, as many rows as it fills.
+            atomicMax( screenProbeIntegrateArgs[args], min( slot + 1u, SP_INTEGRATE_GROUPS_X ) );
+            atomicMax( screenProbeIntegrateArgs[args + 1u], slot / SP_INTEGRATE_GROUPS_X + 1u );
             const uint tile = gl_WorkGroupID.x | ( gl_WorkGroupID.y << 16u );
             if ( full != 0u )
                 screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - slot] = tile;
@@ -163,11 +171,15 @@ Shader "ScreenProbeIntegrate"
             vec4 screenProbeBackface[];
         };
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D ScreenProbeBackfaceOutTexture;
-        Uniform(20) texture2D ShortRangeAoTexture; // xyz = bent normal, w = AO (ScreenProbeShortRangeAO)
+        Uniform(20) texture2D ShortRangeAoTexture; // half-res, oct world bent normal + AO (ScreenProbes.glslh)
         #define ShortRangeAoTexture sampler2D(ShortRangeAoTexture, PointClampSampler)
         ReadBuffer(21) ScreenProbeMovingUB
         {
             float screenProbeMoving[]; // per probe, the share of its rays that are moving (ScreenProbeFilter)
+        };
+        ReadBuffer(22) ScreenProbeIntegrateArgsUB
+        {
+            uint screenProbeIntegrateArgs[]; // the two dispatches' x, y, z, count (the classification above)
         };
         ReadBuffer(23) ScreenProbeIntegrateTilesUB
         {
@@ -179,46 +191,67 @@ Shader "ScreenProbeIntegrate"
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
 
-        // The short-range AO at @p pixel from its half-resolution target (UE ShortRangeAO.Downsample's upsample in
-        // the integrate): the four texels around the pixel under bilinear weights (by where each traced its pixel
-        // this frame) times how close that pixel's distance lies to this one's, relative, so a depth edge (a crown
-        // before a wall, a post before the field) takes nothing of the far side; the closest by distance where no
-        // texel is close. The bent normal comes in the traced pixel's frame and goes out in this pixel's, so the
-        // full-resolution normal detail stays and an unoccluded bend is this pixel's own normal.
-        #define SP_SHORT_RANGE_AO_DEPTH_TOLERANCE 0.03 // the relative distance difference that halves a weight
-        void SPShortRangeAOAt( ivec2 pixel, float distance, vec3 n, out vec3 bent, out float ao )
+        // The short-range AO at @p pixel (world position @p p, @p distance from the camera, shading normal @p n)
+        // from its half-resolution target (UE ShortRangeAO.Downsample's upsample in the integrate): the four
+        // texels around the pixel, each the AO of the G-buffer pixel it traced this frame, under bilinear weights
+        // (by where each traced) times
+        //   a PLANE weight - how far the traced pixel lies off this pixel's tangent plane, relative to the
+        //     distance: a crown before a wall, a post before the field take nothing of the far side, and the
+        //     neighbours on a floor seen at a grazing angle (far apart in depth, all on one plane) all count;
+        //   a NORMAL weight - at a wall-floor seam the floor's texel is not the wall's.
+        // Each texel's world-space bent normal is carried from its traced pixel's normal onto this one's by the
+        // shortest arc (the normal weight keeps the two within a hemisphere), so the full-resolution normal
+        // detail stays and no tangent frame enters. No texel of this surface (thin geometry a pixel wide on the
+        // frames that trace its neighbour): unoccluded about this pixel's own normal, never another surface's
+        // AO; the frame that traces the pixel itself always matches (its own texel, weight 1), and the temporal
+        // filter holds it.
+        #define SP_SHORT_RANGE_AO_PLANE_TOLERANCE 0.03 // the plane distance, relative, that halves a weight
+        #define SP_SHORT_RANGE_AO_NORMAL_POWER 8.0     // the normal weight: max(dot(n_traced, n), 0) ^ this
+        void SPShortRangeAOAt( ivec2 pixel, vec3 p, float distance, vec3 n, out vec3 bent, out float ao )
         {
-            const ivec2 aoExtent = ( ivec2( giFrame.screen.xy ) + 1 ) / 2;
-            const vec2  c        = vec2( pixel - SPShortRangeAOOffset( screenProbeParams.atlas.y ) ) * 0.5;
-            const ivec2 b        = ivec2( floor( c ) );
-            const vec2  f        = c - vec2( b );
-            const float d        = distance * SP_SHORT_RANGE_AO_DISTANCE_SCALE;
-            vec3        sum      = vec3( 0.0 );
-            float       total    = 0.0;
-            vec3        closest  = vec3( 0.0, 0.0, 1.0 ); // no texel holds a surface: unoccluded, this normal
-            float       closestR = 1e30;
+            const ivec2 extent    = ivec2( giFrame.screen.xy );
+            const ivec2 aoExtent  = ( extent + 1 ) / 2;
+            const ivec2 offset    = SPShortRangeAOOffset( screenProbeParams.atlas.y );
+            const vec2  c         = vec2( pixel - offset ) * 0.5;
+            const ivec2 b         = ivec2( floor( c ) );
+            const vec2  f         = c - vec2( b );
+            const float tolerance = distance * SP_SHORT_RANGE_AO_PLANE_TOLERANCE;
+            vec3        bentSum   = vec3( 0.0 );
+            float       aoSum     = 0.0;
+            float       total     = 0.0;
             for ( int i = 0; i < 4; ++i )
             {
-                const ivec2 texel = clamp( b + ivec2( i & 1, i >> 1 ), ivec2( 0 ), aoExtent - 1 );
-                const vec4  s     = texelFetch( ShortRangeAoTexture, texel, 0 );
-                if ( s.w <= 0.0 )
-                    continue;
-                const float relative = abs( s.w - d ) / d;
-                const float x        = relative / SP_SHORT_RANGE_AO_DEPTH_TOLERANCE;
                 const vec2  bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
-                const float w        = bilinear.x * bilinear.y * exp2( -x * x );
-                sum += w * s.xyz;
+                const ivec2 texel    = clamp( b + ivec2( i & 1, i >> 1 ), ivec2( 0 ), aoExtent - 1 );
+                const vec4  s        = texelFetch( ShortRangeAoTexture, texel, 0 );
+                if ( bilinear.x * bilinear.y <= 0.0 || s.w <= 0.0 )
+                    continue;
+                const ivec2 traced = min( texel * 2 + offset, extent - 1 );
+                const vec3  nt     = normalize( texelFetch( GBufferBTexture, traced, 0 ).xyz );
+                const float facing = dot( nt, n );
+                if ( facing <= 0.0 )
+                    continue;
+                const vec2  uvt   = ( vec2( traced ) + 0.5 ) * giFrame.screen.zw;
+                const vec3  pt    = ReconstructWorldPosition( uvt, texelFetch( GBufferDepthTexture, traced, 0 ).r,
+                                                              giFrame.invViewProjection );
+                const float plane = abs( dot( pt - p, n ) ) / tolerance;
+                const float w     = bilinear.x * bilinear.y * exp2( -plane * plane ) *
+                                    pow( facing, SP_SHORT_RANGE_AO_NORMAL_POWER );
+                // Rodrigues' rotation by the shortest arc nt -> n (axis nt x n, cosine facing > 0).
+                const vec3 bt   = SPOctDecode( s.xy );
+                const vec3 axis = cross( nt, n );
+                bentSum += w * ( bt * facing + cross( axis, bt ) + axis * ( dot( axis, bt ) / ( 1.0 + facing ) ) );
+                aoSum += w * s.z;
                 total += w;
-                if ( relative < closestR )
-                {
-                    closestR = relative;
-                    closest  = s.xyz;
-                }
             }
-            const vec3 a = total > 1e-3 ? sum / total : closest;
-            const vec3 local = vec3( a.xy, sqrt( max( 1.0 - dot( a.xy, a.xy ), 0.0 ) ) );
-            bent             = normalize( SPProbeFrame( n ) * local );
-            ao           = a.z;
+            bent = n;
+            ao   = 1.0;
+            if ( total > 1e-3 )
+            {
+                if ( dot( bentSum, bentSum ) > 1e-8 )
+                    bent = normalize( bentSum );
+                ao = aoSum / total;
+            }
         }
 
         // Per pixel, sample and frame (PCG, as ScreenProbeTrace's TexelNoise).
@@ -287,11 +320,16 @@ Shader "ScreenProbeIntegrate"
         void main()
         {
             // One workgroup per tile of this permutation's list (the classification): the simple tiles from the
-            // front, the full ones from the back.
+            // front, the full ones from the back; the 2D grid's groups past the list's count do nothing.
+            const uint listIndex = gl_WorkGroupID.y * SP_INTEGRATE_GROUPS_X + gl_WorkGroupID.x;
 #if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
-            const uint  tile   = screenProbeIntegrateTiles[gl_WorkGroupID.x];
+            if ( listIndex >= screenProbeIntegrateArgs[3u] )
+                return;
+            const uint  tile   = screenProbeIntegrateTiles[listIndex];
 #else
-            const uint  tile   = screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - gl_WorkGroupID.x];
+            if ( listIndex >= screenProbeIntegrateArgs[7u] )
+                return;
+            const uint  tile   = screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - listIndex];
 #endif
             const ivec2 pixel  = ivec2( tile & 0xFFFFu, tile >> 16u ) * 8 + ivec2( gl_LocalInvocationID.xy );
             const vec2  extent = giFrame.screen.xy;
@@ -317,7 +355,7 @@ Shader "ScreenProbeIntegrate"
             vec3  bent = n;
             float ao   = 1.0;
             if ( ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u )
-                SPShortRangeAOAt( pixel, distance, n, bent, ao );
+                SPShortRangeAOAt( pixel, p, distance, n, bent, ao );
             const float roughness   = max( gb.a, 0.04 );
             const float diffuseLerp = SPRoughSpecularDiffuseLerp( roughness );
 

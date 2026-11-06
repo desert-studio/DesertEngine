@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Scene.hpp>
 
+#include <Engine/ECS/System/DecalECSSystem.hpp>
 #include <Engine/ECS/System/HeightFogECSSystem.hpp>
 #include <Engine/ECS/System/LandscapeECSSystem.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
@@ -26,6 +27,8 @@ namespace Desert::Core
         // A pure render-data collector: reads the fog component (and its entity's transform Y, the fog
         // floor) and emits one command.
         scene.AddSystem<ECS::HeightFogECSSystem>();
+        // A pure render-data collector: one command per visible decal box (DECALS-DBUFFER).
+        scene.AddSystem<ECS::DecalECSSystem>();
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
         // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
         scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetLedgerInstance() );

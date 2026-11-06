@@ -558,8 +558,7 @@ namespace Desert::Graphic
         // HDR-OUTPUT p3: decided before FillMaterial, which gives the output the SDR transform when it is on.
         const bool hdrRendition = tonemap->PrepareHdrRendition();
         // THE GRADE TABLE (UE CombineLUTs) of every target this frame writes, baked at that output's headroom.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] );
+        auto* combine = m_Systems.CombineLUTs.get();
         if ( combine == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] no colour-grading table system; the tonemap pass is not recorded" );

@@ -60,6 +60,14 @@ namespace Desert::Graphic
         return RenderTargetLayout{ {}, ViewTargetFormats::kGBufferDepth, 1 };
     }
 
+    // "Deferred: Decals" (System::DecalRenderer): DBufferA, B, C and NO depth - the pass samples the prepass depth
+    // to find each receiver, it never tests against it.
+    inline RenderTargetLayout DBufferLayout()
+    {
+        return RenderTargetLayout{
+             { ViewTargetFormats::kDBufferA, ViewTargetFormats::kDBufferB, ViewTargetFormats::kDBufferC }, {}, 1 };
+    }
+
     // The translucent front layer's G-buffer ("Translucency: Front Layer G-buffer", Mesh/Surface/Pass_FrontLayer.glslh;
     // UE FrontLayerTranslucency GBufferA + SceneDepth): the G-buffer normal slot's format (normal + roughness, read by
     // the reflection trace exactly as the opaque one), the view's velocity format (the reflection denoiser's

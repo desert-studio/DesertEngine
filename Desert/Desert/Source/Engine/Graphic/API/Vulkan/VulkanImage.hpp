@@ -251,6 +251,10 @@ namespace Desert::Graphic::API::Vulkan
             std::shared_ptr<const void>              Lease;
             VkBuffer                                 Buffer      = VK_NULL_HANDLE;
             uint64_t                                 SliceOffset = 0;
+            /// The staged path is `Buffer != VK_NULL_HANDLE` (set with the slice), never the lease's truthiness;
+            /// StagedBytes is what was written at SliceOffset, the bound every staged level is checked against.
+            uint64_t StagedBytes = 0;
+            /// Owned by the pending upload until its last level is recorded (the full path only).
             Core::Formats::ImagePixelData            Pixels;
             std::vector<Core::Formats::MipLevelSpan> Levels;
             uint32_t                                 NextLevel = 0;

@@ -251,17 +251,16 @@ namespace Desert::Graphic
         prepared.FullLevelBytes                   = std::move( cooked.FullLevelBytes );
         prepared.Bytes                            = cooked.UploadBytes();
         const std::size_t                   levelCount = cooked.Levels.size();
-        Core::Formats::Image2DSpecification imageSpec;
-        imageSpec.Tag        = cooked.Tag;
-        imageSpec.Width      = cooked.Width;
-        imageSpec.Height     = cooked.Height;
-        imageSpec.Format     = cooked.Format;
-        imageSpec.Data       = std::move( cooked.Pixels );
-        imageSpec.Usage      = Core::Formats::Image2DUsage::Image2D;
-        imageSpec.Properties = Core::Formats::Sample;
-        imageSpec.MipLevels  = std::move( cooked.Levels );
-        imageSpec.Upload     = Core::Formats::ImageUpload::Recorded;
-        imageSpec.ColorSpace = cooked.ColorSpace;
+        const Core::Formats::Image2DSpecification imageSpec{ .Tag        = cooked.Tag,
+                                                             .Width      = cooked.Width,
+                                                             .Height     = cooked.Height,
+                                                             .Format     = cooked.Format,
+                                                             .Data       = std::move( cooked.Pixels ),
+                                                             .Usage      = Core::Formats::Image2DUsage::Image2D,
+                                                             .Properties = Core::Formats::Sample,
+                                                             .MipLevels  = std::move( cooked.Levels ),
+                                                             .Upload     = Core::Formats::ImageUpload::Recorded,
+                                                             .ColorSpace = cooked.ColorSpace };
         prepared.Image       = backend.Images.CreateImage2D( imageSpec );
         if ( !prepared.Image )
             return Common::MakeFormattedError<PreparedTexture2D>(

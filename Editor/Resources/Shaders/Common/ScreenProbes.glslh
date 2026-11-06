@@ -153,6 +153,23 @@ vec2 SPHemiOctEncode( vec3 v )
     return vec2( v.x + v.y, v.x - v.y );
 }
 
+// Octahedral mapping of the whole sphere (Cigolle et al. 2014): a unit vector <-> [-1,1]^2.
+vec2 SPOctEncode( vec3 v )
+{
+    const vec2 o = v.xy / ( abs( v.x ) + abs( v.y ) + abs( v.z ) );
+    if ( v.z >= 0.0 )
+        return o;
+    return ( 1.0 - abs( o.yx ) ) * vec2( o.x >= 0.0 ? 1.0 : -1.0, o.y >= 0.0 ? 1.0 : -1.0 );
+}
+
+vec3 SPOctDecode( vec2 o )
+{
+    vec3        v = vec3( o, 1.0 - abs( o.x ) - abs( o.y ) );
+    const float t = max( -v.z, 0.0 );
+    v.xy += vec2( v.x >= 0.0 ? -t : t, v.y >= 0.0 ? -t : t );
+    return normalize( v );
+}
+
 // A world direction in the probe's frame, pushed onto the hemisphere when it points under it.
 vec2 SPProbeOct( mat3 frame, vec3 direction )
 {
@@ -196,11 +213,11 @@ float SPSHCosineBand( uint k )
 // ---- Short-range AO at half resolution (UE r.Lumen.ScreenProbeGather.ShortRangeAO.Downsample): texel t of
 // ScreenProbes.ShortRangeAO traces the G-buffer pixel 2t + this offset, one of its 2x2 quad cycling over four
 // frames, so the integrate's temporal filter sees every pixel's own rays every fourth frame. The texel holds
-// xy = the bent normal in the traced pixel's SPProbeFrame (z >= 0), z = AO, w = the pixel's distance to the
-// camera times SP_SHORT_RANGE_AO_DISTANCE_SCALE (0 = no surface): the integrate's depth-aware upsample weighs each
-// texel by it and turns the bent normal into its own pixel's frame, so the full-resolution normal detail stays.
-#define SP_SHORT_RANGE_AO_DISTANCE_SCALE 0.01 // centimetres to metres: fp16's range holds 655 km
-
+// xy = the WORLD-space bent normal, octahedral (SPOctEncode), z = AO, w = 1 (0 = no surface). World space, not
+// a tangent frame of the traced pixel: no frame is continuous over the sphere (SPProbeFrame turns 180 degrees
+// where n.z changes sign, the side of every wall facing +-X in a Y-up world), so a bend stored in one pixel's
+// frame and read in its neighbour's mirrors. The integrate's upsample carries each texel's bend from its traced
+// pixel's normal onto its own by the shortest arc, so the full-resolution normal detail stays.
 ivec2 SPShortRangeAOOffset( uint frame )
 {
     const uint k = frame & 3u;

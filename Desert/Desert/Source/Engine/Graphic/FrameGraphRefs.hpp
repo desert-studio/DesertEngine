@@ -133,6 +133,14 @@ namespace Desert::Graphic
         // The view's rain occlusion map (MeshRenderer::GetRainOcclusionImage, imported: the renderer owns it and
         // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
         RDG::TextureRef RainOcclusionMap;
+        // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh: A base colour, B normal, C roughness /
+        // metallic / AO of the frame's decals, premultiplied, transmittance in alpha), written by "Deferred:
+        // Decals" between the depth prepass and the G-buffer (System::DecalRenderer); invalid when the frame
+        // records no decal
+        //   -> the G-buffer writers (the mesh G-buffer cells, TerrainGBuffer.shader) through SceneViewInputs
+        RDG::TextureRef DBufferA;
+        RDG::TextureRef DBufferB;
+        RDG::TextureRef DBufferC;
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
         RDG::TextureRef Velocity;
@@ -292,6 +300,11 @@ namespace Desert::Graphic
         // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
         MegaLightsVolumeRefs MegaLightsVolume;
         RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
+        // The view's DBuffer (FrameTransients::DBufferA/B/C), or System.Black (alpha 1 = transmittance 1: no
+        // decal, so the G-buffer writers keep their exact bits, Common/DBuffer.glslh DesertApplyDBuffer).
+        RDG::TextureRef DBufferA;
+        RDG::TextureRef DBufferB;
+        RDG::TextureRef DBufferC;
         // The fog a translucent surface applies at its own depth (FrameTransients::FogParams and its three
         // images).
         RDG::BufferRef  FogParams;
@@ -313,7 +326,8 @@ namespace Desert::Graphic
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
                     SceneDepth, SceneShadingWord, SunShadowMask, SunDistanceFieldShadow, LocalShadowMasks,
                     RadianceCacheIrradiance, RadianceCacheDepth,
-                    RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume } )
+                    RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume, DBufferA, DBufferB,
+                    DBufferC } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
@@ -341,6 +355,12 @@ namespace Desert::Graphic
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
+    // Common/DBuffer.glslh: texelFetch at the G-buffer writer's own pixel, through its own shared sampler state
+    // (a G-buffer cell declares none of the others).
+    inline constexpr std::string_view kSceneViewDBufferAName       = "DBufferATexture";
+    inline constexpr std::string_view kSceneViewDBufferBName       = "DBufferBTexture";
+    inline constexpr std::string_view kSceneViewDBufferCName       = "DBufferCTexture";
+    inline constexpr std::string_view kSceneViewDBufferSamplerName = "DBufferSampler";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
@@ -419,6 +439,10 @@ namespace Desert::Graphic
     inline constexpr RDG::StorageBufferParameter kLightGridWorldCellsBlock{ kLightGridWorldCellsBlockName };
     inline constexpr RDG::TextureParameter       kSceneViewRainOcclusionMap{ kSceneViewRainOcclusionMapName };
     inline constexpr RDG::SamplerParameter kSceneViewRainOcclusionSampler{ kSceneViewRainOcclusionSamplerName };
+    inline constexpr RDG::TextureParameter kSceneViewDBufferA{ kSceneViewDBufferAName };
+    inline constexpr RDG::TextureParameter kSceneViewDBufferB{ kSceneViewDBufferBName };
+    inline constexpr RDG::TextureParameter kSceneViewDBufferC{ kSceneViewDBufferCName };
+    inline constexpr RDG::SamplerParameter kSceneViewDBufferSampler{ kSceneViewDBufferSamplerName };
     inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheParams{
          kSceneViewRadianceCacheParamsName };
     inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheIndirection{
@@ -454,6 +478,10 @@ namespace Desert::Graphic
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
         inputs.SunDistanceFieldShadow =
              t.SunDistanceFieldShadow.IsValid() ? t.SunDistanceFieldShadow : refs.System.White;
+        // The decal pass sets all three or none (System::DecalRenderer::AddPass).
+        inputs.DBufferA = t.DBufferA.IsValid() ? t.DBufferA : refs.System.Black;
+        inputs.DBufferB = t.DBufferB.IsValid() ? t.DBufferB : refs.System.Black;
+        inputs.DBufferC = t.DBufferC.IsValid() ? t.DBufferC : refs.System.Black;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
         inputs.LocalShadowViews       = t.Lights.ShadowViews;
@@ -548,6 +576,16 @@ namespace Desert::Graphic
             if ( inputs.RainOcclusionMap.IsValid() )
                 bind( kSceneViewRainOcclusionMap, inputs.RainOcclusionMap, kSceneViewRainOcclusionSampler,
                       RDG::SamplerDesc::PointClamp() );
+            // Read with texelFetch at the G-buffer writer's own pixel (Common/DBuffer.glslh).
+            if ( inputs.DBufferA.IsValid() && inputs.DBufferB.IsValid() && inputs.DBufferC.IsValid() )
+            {
+                bind( kSceneViewDBufferA, inputs.DBufferA, kSceneViewDBufferSampler,
+                      RDG::SamplerDesc::PointClamp() );
+                bind( kSceneViewDBufferB, inputs.DBufferB, kSceneViewDBufferSampler,
+                      RDG::SamplerDesc::PointClamp() );
+                bind( kSceneViewDBufferC, inputs.DBufferC, kSceneViewDBufferSampler,
+                      RDG::SamplerDesc::PointClamp() );
+            }
         }
     } // namespace SceneViewDetail
 
@@ -558,7 +596,7 @@ namespace Desert::Graphic
         for ( std::string_view name :
               { kSceneViewShadowCascadesName, kSceneViewEnvIrradianceName, kSceneViewEnvSpecularName,
                 kSceneViewBrdfLutName, kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName,
-                kSceneViewRainOcclusionMapName, kSceneFogVolumeName } )
+                kSceneViewRainOcclusionMapName, kSceneFogVolumeName, kSceneViewDBufferAName } )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 return true;
         return false;

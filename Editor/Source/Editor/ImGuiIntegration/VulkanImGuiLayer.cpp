@@ -334,11 +334,15 @@ namespace Desert::Graphic::API::Vulkan
                 Logged.push_back( result );
             }
             if ( result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR )
+            {
                 LOG_WARN( "[VulkanImGui] {}: {}, the window is rebuilt before its next frame (logged once)", what,
                           VkResultToString( result ) );
+            }
             else
+            {
                 LOG_ERROR( "[VulkanImGui] {} failed: {} (each cause is logged once)", what,
                            VkResultToString( result ) );
+            }
         }
 
         // Runs backend calls on this thread, under the backend's lock; the first failure they reported.

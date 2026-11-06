@@ -394,9 +394,8 @@ namespace Desert::Graphic
                     LOG_ERROR(
                          "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
                 // The grade table the tonemap samples (UE CombineLUTs), baked each frame from the view's grade.
-                RegisterSystem<System::CombineLUTsRenderer>( "CombineLUTsSystem", this, m_TargetFramebuffer );
-                const auto& combineLUTs =
-                     SP_CAST( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] );
+                RegisterSystem<System::CombineLUTsRenderer>( m_Systems.CombineLUTs, this, m_TargetFramebuffer );
+                const auto& combineLUTs = m_Systems.CombineLUTs;
                 if ( const auto lut = combineLUTs->Initialize(); !lut )
                     LOG_ERROR( "[SceneRenderer] the colour-grading table did not initialise: {}", lut.GetError() );
                 return "Tonemap";
@@ -1417,8 +1416,7 @@ namespace Desert::Graphic
         const float lowestExposure = post.AutoExposure ? lowestAutoExposure : manualExposure;
         m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
         m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* combine = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] ) )
+        if ( auto* combine = m_Systems.CombineLUTs.get() )
             combine->SetGrade( post );
 
         m_Systems.Skybox->SetBackdropVisible( m_DebugView.ShowSkyBackdrop && !m_DebugView.WireframeMode );
@@ -2427,12 +2425,18 @@ namespace Desert::Graphic
                                m_ViewResources.GetName(), m_GrassVisibilityError );
                 }
             }
+            // UE DBuffer decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals"
+            // runs between the prepass and the base pass and reconstructs every receiver from that depth, so the
+            // prepass must hold every opaque mesh and the ground, not only the masked ones.
+            Common::Scalability::EarlyZPassMode earlyZ =
+                 m_Quality.As<Common::Scalability::EarlyZPassMode>( Common::Scalability::Parameter::EarlyZPass );
+            if ( m_Decals.HasDecals() && meshRenderer != nullptr )
+                earlyZ = Common::Scalability::EarlyZPassMode::All;
             if ( meshRenderer != nullptr )
             {
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
-                meshRenderer->SetEarlyZPass( m_Quality.As<Common::Scalability::EarlyZPassMode>(
-                     Common::Scalability::Parameter::EarlyZPass ) );
+                meshRenderer->SetEarlyZPass( earlyZ );
             }
             // The ground joins the same early-Z pass ("Deferred: Terrain Depth Prepass", AddFrameGBuffer), which
             // exists only beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer"
@@ -2441,10 +2445,15 @@ namespace Desert::Graphic
             {
                 Common::Scalability::EarlyZPassMode terrainEarlyZ = Common::Scalability::EarlyZPassMode::Off;
                 if ( meshRenderer != nullptr )
-                    terrainEarlyZ = m_Quality.As<Common::Scalability::EarlyZPassMode>(
-                         Common::Scalability::Parameter::EarlyZPass );
+                    terrainEarlyZ = earlyZ;
                 ground->SetEarlyZPass( terrainEarlyZ );
             }
+            // This view's decals (fade, cull, program, sort, rows) before AddFrameGBuffer declares "Deferred:
+            // Decals"; the box matrices are the jittered ones the prepass depth was rastered with, so a depth
+            // texel reconstructs exactly into the box. Every view prepares (it clears the last view's draws); with
+            // no mesh renderer there is no full prepass and AddFrameGBuffer adds no decal node.
+            m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
+                                   GetPipelineCache() );
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
@@ -2992,6 +3001,7 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
+        m_Decals.ClearQueue();
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_LocalFogVolumes.clear(); // keeps the capacity reserved by AddLocalFogVolume
@@ -4724,6 +4734,11 @@ namespace Desert::Graphic
     {
         m_PointLight.PointLights.push_back( pointLight );
         m_PointLightShadows.push_back( shadow );
+    }
+
+    void SceneRenderer::AddDecal( const System::DecalProxy& decal )
+    {
+        m_Decals.Add( decal );
     }
 
     void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,

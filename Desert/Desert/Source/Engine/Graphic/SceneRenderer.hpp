@@ -29,6 +29,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/Systems/Scene/Decals/DecalRenderer.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
@@ -169,6 +170,7 @@ namespace Desert::Graphic
         class SubsurfaceRenderer;
         class TerrainRenderer;
         class TonemapRenderer;
+        class CombineLUTsRenderer;
         class VelocityViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
@@ -189,6 +191,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::GrassRenderer>             Grass;
         std::shared_ptr<System::WaterRenderer>             Water;
         std::shared_ptr<System::TonemapRenderer>           Tonemap;
+        std::shared_ptr<System::CombineLUTsRenderer>       CombineLUTs;
         std::shared_ptr<System::BackdropBlurRenderer>      BackdropBlur;
         std::shared_ptr<System::BloomRenderer>             Bloom;
         std::shared_ptr<System::LightShaftRenderer>        LightShaft;
@@ -975,6 +978,10 @@ namespace Desert::Graphic
             return m_PointLight;
         }
 
+        // This frame's decal boxes (ECS::DecalECSSystem): "Deferred: Decals" draws them into the DBuffer, and any
+        // decal forces the full early-Z (the receivers are the prepass depth).
+        void AddDecal( const System::DecalProxy& decal );
+
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
                            const LocalLightShadowSettings&          shadow );
 
@@ -1572,6 +1579,10 @@ namespace Desert::Graphic
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // "Deferred: Decals" (UE RenderDBuffer), from AddFrameGBuffer between the full early-Z and the base pass:
+        // m_Decals' prepared boxes over @p sceneDepth into DBufferA/B/C, published as FrameTransients::DBuffer*
+        // for every G-buffer writer after it; no node and no DBuffer when this view draws no decal.
+        void AddFrameDecals( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneDepth );
         // "Deferred: GBuffer Post-Occlusion" (AddFrameDrawBinsPostOcclusion): the main view's phase-2 bins over
         // the loaded G-buffer, preceded (early-Z on) by "Deferred: Depth Prepass Post-Occlusion": the phase-2 bins
         // and post-cut clusters the early-Z split pairs, through their depth twins (MeshRenderer::EarlyZSplit).
@@ -1950,6 +1961,9 @@ namespace Desert::Graphic
         std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
+        // "Deferred: Decals" (DECALS-DBUFFER): this frame's decals, faded and sorted per view; a typed member, its
+        // lists reserved once and cleared each frame beside the lights.
+        System::DecalRenderer m_Decals;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume

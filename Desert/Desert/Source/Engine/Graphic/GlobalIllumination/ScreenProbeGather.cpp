@@ -207,9 +207,10 @@ namespace Desert::Graphic::GlobalIllumination
              "", "", "", "", "", "", "", "", "", "", "SP_INTEGRATE_CLASSIFY", "SP_INTEGRATE_SIMPLE_DIFFUSE",
              "", "" };
 
-        // ScreenProbeIntegrateArgsUB: the simple-diffuse tiles' dispatch, then the full tiles' (x = tiles,
-        // y = z = 1, w unused), counted by the classification.
-        constexpr std::array<uint32_t, 8> kIntegrateArgsReset{ 0u, 1u, 1u, 0u, 0u, 1u, 1u, 0u };
+        // ScreenProbeIntegrateArgsUB: the simple-diffuse tiles' dispatch, then the full tiles' (x, y = a 2D grid
+        // of SP_INTEGRATE_GROUPS_X groups a row, z = 1, w = the list's count), counted by the classification.
+        // Static storage: QueueStaticBufferUpload copies nothing.
+        constexpr std::array<uint32_t, 8> kIntegrateArgsReset{ 0u, 0u, 1u, 0u, 0u, 0u, 1u, 0u };
         constexpr uint64_t                kIntegrateFullArgsOffset = 4u * sizeof( uint32_t );
 
         // UE r.Lumen.ScreenProbeGather.SpatialFilterNumPasses.
@@ -1012,7 +1013,7 @@ namespace Desert::Graphic::GlobalIllumination
                                              DivideRoundUp( inputs.Extent.y, 8u ) );
         const RDG::BufferRef integrateArgs =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
-        graph.QueueBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
+        graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
         const RDG::BufferRef integrateTileList = graph.CreateBuffer(
              RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
              "ScreenProbes.IntegrateTiles" );
@@ -1053,7 +1054,10 @@ namespace Desert::Graphic::GlobalIllumination
                      builder.Read( integrateArgs, RDG::Access::IndirectArgs );
                      if ( !simple )
                          block.Texture( IntegrateSlots::ScreenProbeFilteredTexture, filtered, kS, all );
-                     block.Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kR );
+                     // The args again as storage: the 2D grid's groups past the count read it (a buffer's two
+                     // reads merge into one barrier).
+                     block.Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kR )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kR );
                      block.Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeParamsUB, paramsBuffer,
                                     kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeIndexUB, index, kR )
