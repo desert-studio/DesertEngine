@@ -2622,6 +2622,11 @@ namespace Desert::Graphic
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
+                // "Shadows: Distance Field Sun": the cascade arm's sun past its last cascade (the composite's
+                // DeferredCascadeShadow::DistanceField, SceneViewInputs::SunDistanceFieldShadow).
+                if ( SunDistanceFieldShadowRuns() )
+                    textures.Transients.SunDistanceFieldShadow =
+                         AddFrameDistanceFieldShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame );
                 // GPU-DRIVEN CULL validation: the GPU's visible sets beside the CPU's, after the VSM pages exist.
                 if ( m_DebugView.ValidateGpuCulling )
                     AddFrameGpuCull( graph, textures, frame );
@@ -3367,6 +3372,71 @@ namespace Desert::Graphic
     bool SceneRenderer::SunShadowIsScreenMask() const
     {
         return SunShadowIsRayTraced() || SunShadowIsVirtual();
+    }
+
+    bool SceneRenderer::SunDistanceFieldShadowRuns() const
+    {
+        if ( !m_RenderMethods.DistanceFieldShadows || m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer ||
+             SunShadowIsScreenMask() )
+            return false;
+        const auto* const meshRenderer = m_Systems.Mesh.get();
+        return meshRenderer != nullptr &&
+               meshRenderer->DirectionalShadows()[SceneResources::kDirectionalShadowSun].CastShadows;
+    }
+
+    bool SceneRenderer::EnsureDistanceFieldShadowResources()
+    {
+        if ( m_DistanceFieldShadowReady )
+            return true;
+        if ( m_DistanceFieldShadowFailed )
+            return false;
+        if ( const Common::BoolResultStr initialized = m_DistanceFieldShadow.Initialize(); !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Distance Field Sun could not be created; the sun keeps its "
+                       "cascades alone: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_DistanceFieldShadowFailed = true;
+            return false;
+        }
+        m_DistanceFieldShadowReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                                const std::vector<RDG::TextureRef>& gbuffer,
+                                                                const glm::vec3&                    directionToSun,
+                                                                const ViewFrame&                    frame )
+    {
+        if ( !EnsureDistanceFieldShadowResources() )
+            return {};
+        const auto* const meshRenderer = m_Systems.Mesh.get();
+        if ( meshRenderer == nullptr )
+            return {};
+        const SceneResources::DirectionalShadowViews views = meshRenderer->DirectionalShadows();
+        const SceneResources::DirectionalShadowView& sun   = views[SceneResources::kDirectionalShadowSun];
+        const FrameTransients&                       t     = textures.Transients;
+        System::DistanceFieldShadowInputs            in;
+        in.Depth                     = textures.Depth( m_GBuffer, "GBuffer" );
+        in.Normal                    = gbuffer[1];
+        in.Fields                    = t.MeshDistanceFields;
+        in.Clipmaps                  = t.GlobalDistanceField;
+        in.Levels                    = t.GlobalDistanceFieldLevels;
+        in.InvJitteredViewProjection = frame.InvJitteredViewProjection;
+        in.CameraPosition            = frame.CameraPosition;
+        in.DirectionToSun            = directionToSun;
+        in.SourceTanHalf             = sun.SourceTanHalf;
+        if ( sun.CascadeVP != nullptr && sun.Count > 0 )
+            in.LastCascade = &sun.CascadeVP[sun.Count - 1];
+        in.Width  = frame.Split.Render.Width;
+        in.Height = frame.Split.Render.Height;
+        const Common::ResultStr<RDG::TextureRef> mask = m_DistanceFieldShadow.AddPasses( graph, in );
+        if ( !mask )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun keeps its cascades alone this frame",
+                       m_ViewResources.GetName(), mask.GetError() );
+            return {};
+        }
+        return mask.GetValue();
     }
 
     bool SceneRenderer::EnsureVirtualShadowResources()

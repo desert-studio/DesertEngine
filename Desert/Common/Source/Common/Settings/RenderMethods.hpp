@@ -298,9 +298,11 @@ namespace Common::Scalability
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
     // contact shadows (Common/ContactShadow.glslh, gated in SceneRenderer::GetContactShadowSettings) and
-    // distance-field shadows (GLOBAL-SDF, not implemented yet).
+    // distance-field shadows (DF-SHADOWS: the sun past its last cascade on the deferred cascade arm,
+    // Engine/Graphic/Systems/Scene/Shadows/DistanceFieldShadow.hpp; gated in
+    // SceneRenderer::SunDistanceFieldShadowRuns).
     inline constexpr bool kContactShadowsImplemented       = true;
-    inline constexpr bool kDistanceFieldShadowsImplemented = false;
+    inline constexpr bool kDistanceFieldShadowsImplemented = true;
 
     // ---- What a method needs from the device: a render area (CapabilityCatalog MaxRenderArea). -----------------
     // The side of one virtual shadow map (UE VSM: 128 pages of 128 texels). Its casters are rasterized over the

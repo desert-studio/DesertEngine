@@ -842,7 +842,13 @@ namespace Desert::Graphic
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
-            shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
+        {
+            // The distance-field mask past the last cascade when this frame wrote it (AddFrameDistanceFieldShadow
+            // logged why it is missing: the cascades alone then).
+            const bool field = refs.Transients.SunDistanceFieldShadow.IsValid();
+            shadow.Sun       = DeferredCascadeShadow{ .Lights        = meshRenderer->DirectionalShadows(),
+                                                      .DistanceField = field };
+        }
         // Shadows Stochastic: MegaLights' local lighting under either sun arm (the mask under rayquery and
         // vsm+screen, the cascades under screen; AddFrameMegaLights logged why one is missing, a view without local
         // lights has none to add): black adds no local light, never the unshadowed grid loop.
@@ -1030,6 +1036,9 @@ namespace Desert::Graphic
             return true;
         // The traced reflections' own rays: SoftwareTraced walks the field whatever GI's method is.
         if ( ReflectionsTraced() && GlobalIllumination::TracerReadsGlobalDistanceField( ReflectionsTracer() ) )
+            return true;
+        // "Shadows: Distance Field Sun": its trace's far leg walks the global field, its near leg the mesh fields.
+        if ( SunDistanceFieldShadowRuns() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&

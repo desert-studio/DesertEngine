@@ -116,6 +116,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/DistanceFieldShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLights.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedLocalShadow.hpp>
@@ -1359,6 +1360,18 @@ namespace Desert::Graphic
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
         bool            EnsureRayTracedShadowResources();
+        // THE ONE ANSWER TO "does the sun read a distance-field shadow past its last cascade this frame"
+        // (PostProcessSettings DistanceFieldShadows, UE r.DFShadow*): the deferred path's cascade arm with the sun
+        // casting shadows. It makes the frame bring the global distance field up (GlobalDistanceFieldRead), the
+        // cascades end nearer (RebudgetShadowsFor) and the composite cross-fade into the mask (CompositeView.x).
+        [[nodiscard]] bool SunDistanceFieldShadowRuns() const;
+        // "Shadows: Distance Field Sun" (System::DistanceFieldShadowRenderer) over the G-buffer and this frame's
+        // distance fields: the mask the deferred composite's cascade arm reads past the last cascade. Invalid
+        // (logged) when a pass could not be declared; the composite then keeps the cascades alone.
+        RDG::TextureRef AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                     const std::vector<RDG::TextureRef>& gbuffer,
+                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
+        bool            EnsureDistanceFieldShadowResources();
         // This frame's local lights are MegaLights' (the Shadows method resolved to Stochastic, its sun ray
         // traced): the composite's MegaLights program reads AddFrameMegaLights' lighting in place of the
         // light-grid loop.
@@ -2297,6 +2310,11 @@ namespace Desert::Graphic
         Assets::FrameRetireQueue<std::unique_ptr<System::ScreenSpaceDenoiser>> m_RetiredLocalShadowDenoisers;
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
+        // "Shadows: Distance Field Sun", created on the first frame SunDistanceFieldShadowRuns; latched like the
+        // ray-traced sun's.
+        System::DistanceFieldShadowRenderer m_DistanceFieldShadow;
+        bool                                m_DistanceFieldShadowReady  = false;
+        bool                                m_DistanceFieldShadowFailed = false;
         // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame
         // that resolves Shadows to Stochastic; its quality (Shadows.MegaLights*) taken each BeginScene.
         System::MegaLightsRenderer m_MegaLights;
