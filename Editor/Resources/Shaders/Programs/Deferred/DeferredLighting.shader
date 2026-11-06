@@ -224,6 +224,10 @@ Shader "DeferredLighting"
         // The four cascades are ONE array texture (layer c = cascade c), read through the shared repeat state.
         Uniform(5) texture2DArray ShadowCascadesTexture;
         #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
+        // "Shadows: Distance Field Sun" (Common/DistanceFieldShadow.glslh): the sun past its last cascade, at the
+        // render extent; System.White and CompositeView.x = 0 when the view draws no such pass (never read then).
+        Uniform(10) texture2D DistanceFieldShadowTexture; // r = visibility, 1 = lit
+        #define DistanceFieldShadowTexture sampler2D(DistanceFieldShadowTexture, PointClampSampler)
         #endif
         #include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
 
@@ -236,7 +240,25 @@ Shader "DeferredLighting"
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>
-        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(kShadowLightSun, worldPos, N, L, cascade)
+        #include <Common/DistanceFieldShadow.glslh>
+        // The cascades, cross-faded into the distance-field mask across the band at the last cascade's border and
+        // replaced by it past the cascades (UE: the CSM and the distance-field projection into one shadow mask).
+        // CompositeView.x = 1 when the mask is this frame's; 0 returns the cascades as they are.
+        float DesertSunShadowWithDistanceField(vec3 worldPos, vec3 N, vec3 L, out int cascade)
+        {
+        	const float cascades = ShadowFactor(kShadowLightSun, worldPos, N, L, cascade);
+        	if (CompositeView.x < 0.5 || DirectionalShadow[kShadowLightSun].y < 0.5)
+        		return cascades;
+        	const int count = int(DirectionalShadow[kShadowLightSun].z);
+        	const float band = count > 0
+        	                   ? DistanceFieldShadowBandWeight(LightViewProjection[cascadeView(kShadowLightSun, count - 1)],
+        	                                                   worldPos, kDistanceFieldShadowBand)
+        	                   : 1.0;
+        	if (band <= 0.0)
+        		return cascades;
+        	return mix(cascades, texelFetch(DistanceFieldShadowTexture, ivec2(gl_FragCoord.xy), 0).r, band);
+        }
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) DesertSunShadowWithDistanceField(worldPos, N, L, cascade)
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(kShadowLightSun, worldPos, density)
         #endif
 
