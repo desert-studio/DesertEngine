@@ -839,6 +839,24 @@ namespace Desert::Graphic::API::Vulkan
             pending.Levels.push_back( Core::Formats::MipLevelSpan{ 0, size } );
         else
             pending.Levels = m_Specification.MipLevels;
+
+        // EVERY SPAN INSIDE THE SOURCE, checked once here, before a byte is copied: both paths read the pixels at
+        // the spans' offsets (the staged one through the slice, the full one straight from the blob), and a span
+        // past the blob is refused by name rather than read.
+        const std::size_t sourceBytes = Core::Formats::GetPixelDataSize( m_Specification.Data );
+        if ( Utils::GetPixelDataPtr( m_Specification.Data ) == nullptr || sourceBytes < size )
+            return Common::MakeFormattedError<bool>(
+                 "Image2D '{}': a recorded upload of {} bytes has {} bytes of owned pixels to read from",
+                 m_Specification.Tag, size, sourceBytes );
+        for ( std::size_t level = 0; level < pending.Levels.size(); ++level )
+        {
+            const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+            if ( span.ByteOffset > size || span.ByteSize > size - span.ByteOffset )
+                return Common::MakeFormattedError<bool>(
+                     "Image2D '{}': level {} spans [{}, +{}) past the {} bytes of its chain", m_Specification.Tag,
+                     level, span.ByteOffset, span.ByteSize, size );
+        }
+
         auto reservation = VulkanUploadRing::Get().Reserve( size );
         if ( auto* const slice = std::get_if<VulkanUploadRing::Slice>( &reservation ) )
         {
@@ -849,6 +867,7 @@ namespace Desert::Graphic::API::Vulkan
             pending.Lease       = std::move( slice->Lease );
             pending.Buffer      = slice->Buffer;
             pending.SliceOffset = slice->Offset;
+            pending.StagedBytes = size;
             Core::Formats::ReleaseUploadedPixels( m_Specification );
         }
         else
@@ -884,13 +903,38 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<const void> lease  = pending.Lease;
         std::vector<uint64_t>       offsets;
         offsets.reserve( end - first );
-        if ( lease )
+        if ( pending.Buffer != VK_NULL_HANDLE )
         {
+            // STAGED: the chain is in the slice already. Asked by the buffer, not by `if ( lease )`.
             for ( uint32_t level = first; level < end; ++level )
-                offsets.push_back( pending.SliceOffset + pending.Levels[level].ByteOffset );
+            {
+                const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+                if ( span.ByteOffset > pending.StagedBytes ||
+                     span.ByteSize > pending.StagedBytes - span.ByteOffset )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} [{}, +{}) lies outside its {}-byte staged slice",
+                         m_Specification.Tag, level, span.ByteOffset, span.ByteSize, pending.StagedBytes );
+                offsets.push_back( pending.SliceOffset + span.ByteOffset );
+            }
         }
         else
         {
+            // THE PIXELS ARE OWNED HERE OR THE STEP IS REFUSED: a pending upload whose source is gone is an error
+            // value, never a read of null + offset.
+            const auto* const pixels = static_cast<const std::byte*>( Utils::GetPixelDataPtr( pending.Pixels ) );
+            const std::size_t sourceBytes = Core::Formats::GetPixelDataSize( pending.Pixels );
+            if ( pixels == nullptr )
+                return Common::MakeFormattedError<RecordedUploadStep>(
+                     "image '{}': level {} is neither staged nor held: the upload owns no pixels to copy",
+                     m_Specification.Tag, first );
+            for ( uint32_t level = first; level < end; ++level )
+            {
+                const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+                if ( span.ByteOffset > sourceBytes || span.ByteSize > sourceBytes - span.ByteOffset )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} [{}, +{}) lies outside its {} bytes of pixels", m_Specification.Tag,
+                         level, span.ByteOffset, span.ByteSize, sourceBytes );
+            }
             auto        reservation = VulkanUploadRing::Get().Reserve( bytes );
             auto* const slice       = std::get_if<VulkanUploadRing::Slice>( &reservation );
             if ( slice == nullptr )
@@ -904,11 +948,14 @@ namespace Desert::Graphic::API::Vulkan
                          m_Specification.Tag, first, bytes, VulkanUploadRing::kCapacity / ( 1024ull * 1024ull ) );
                 return Common::MakeSuccess( RecordedUploadStep{ 0, false } ); // full now: the next frame retries
             }
-            const auto* const pixels  = static_cast<const std::byte*>( Utils::GetPixelDataPtr( pending.Pixels ) );
-            uint64_t          written = 0;
+            uint64_t written = 0;
             for ( uint32_t level = first; level < end; ++level )
             {
                 const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+                if ( span.ByteSize > slice->Size - written )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} ({} bytes) does not fit the {}-byte slice reserved for it",
+                         m_Specification.Tag, level, span.ByteSize, slice->Size );
                 std::memcpy( slice->Mapped + written, pixels + span.ByteOffset,
                              static_cast<std::size_t>( span.ByteSize ) );
                 offsets.push_back( slice->Offset + written );
