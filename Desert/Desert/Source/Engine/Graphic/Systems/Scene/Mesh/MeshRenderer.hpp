@@ -72,6 +72,7 @@
 #include <compare>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/TranslucentSortOrder.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 namespace Desert::Runtime
@@ -2170,6 +2171,39 @@ namespace Desert::Graphic::System
         std::vector<std::weak_ptr<IShadowCaster>> m_CascadeUnkeyedCasters[kCascadeViews];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_FrontLayerDraws; // "Translucency: Front Layer G-buffer"
+        // The glass / front layer walks' per-frame lists (RenderGlassManual, BuildFrontLayerDraws), kept across
+        // frames and cleared per walk (UE FMemStack: per-frame lists never grow the heap in a steady frame).
+        // Cells: each lent the scene material table once, in first-seen order (a linear find: a frame has a few
+        // cells).
+        struct TranslucentObjectDraw
+        {
+            const StaticMeshRenderData* Object = nullptr;
+            TranslucentDraw*            State  = nullptr;
+            uint32_t                    Row    = 0;
+        };
+        struct TranslucentWalkScratch
+        {
+            std::vector<TranslucentObjectDraw> Draws;
+            std::vector<TranslucentDraw*>      Cells;
+            std::vector<TranslucentSortItem>   SortKeys;
+            std::vector<float>                 SortDistance2;
+            std::vector<uint32_t>              DrawOrder;
+            void                               Clear() noexcept
+            {
+                Draws.clear();
+                Cells.clear();
+                SortKeys.clear();
+                SortDistance2.clear();
+                DrawOrder.clear();
+            }
+            void AddCell( TranslucentDraw* cell )
+            {
+                if ( std::find( Cells.begin(), Cells.end(), cell ) == Cells.end() )
+                    Cells.push_back( cell );
+            }
+        };
+        TranslucentWalkScratch           m_ScratchGlassWalk;
+        TranslucentWalkScratch           m_ScratchFrontLayerWalk;
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
         // One section of a card instance (UE FLumenCardRenderer: a card is drawn with every section of its mesh,
         // each a mesh batch with its own material): its material, the submeshes it does NOT draw, its motion row.
@@ -3599,6 +3633,42 @@ namespace Desert::Graphic::System
             std::vector<StaticGroup>                                     Groups;
             std::vector<StaticGroupPlan>                                 GroupPlans;
             bool                                                         Planned = false; // Resolve completed
+            // THE GROUPS' LISTS ARE KEPT ACROSS FRAMES (CPU-FRAME-ARENA 5; UE FMemStack): a cleared Groups /
+            // WalkGroups entry hands its vector to SpareLists, a new group (or the stand-in list) takes one back,
+            // so the per-material lists keep their capacity and a steady frame's walk allocates nothing.
+            // Unwalked: the merge's records whose walk mask did not intern (BuildStaticDraws).
+            std::vector<std::vector<const StaticMeshRenderData*>> SpareLists;
+            std::vector<const StaticMeshRenderData*>              Unwalked;
+            void RecycleGroups( std::vector<StaticGroup>& groups ) noexcept
+            {
+                for ( StaticGroup& group : groups )
+                    GiveList( std::move( group.second ) );
+                groups.clear();
+            }
+            void GiveList( std::vector<const StaticMeshRenderData*>&& list ) noexcept
+            {
+                list.clear();
+                SpareLists.push_back( std::move( list ) );
+            }
+            [[nodiscard]] std::vector<const StaticMeshRenderData*> TakeList() noexcept
+            {
+                if ( SpareLists.empty() )
+                    return {};
+                std::vector<const StaticMeshRenderData*> list = std::move( SpareLists.back() );
+                SpareLists.pop_back();
+                return list;
+            }
+            // @p into becomes a copy of @p from, its lists taken from SpareLists (assign keeps their capacity).
+            void CopyGroups( std::vector<StaticGroup>& into, const std::vector<StaticGroup>& from ) noexcept
+            {
+                RecycleGroups( into );
+                for ( const StaticGroup& group : from )
+                {
+                    std::vector<const StaticMeshRenderData*> list = TakeList();
+                    list.assign( group.second.begin(), group.second.end() );
+                    into.emplace_back( group.first, std::move( list ) );
+                }
+            }
             // ONE CHUNK OF THE STATIC WALK (BuildStaticDraws: one setup task each, WalkStaticChunk), reused by
             // index so its vectors keep their capacity: its groups in first-seen order (GroupCount of Groups in
             // use), the records whose walk mask is not their own HiddenSubmeshes (Masks: the words past submesh 63
@@ -3722,15 +3792,23 @@ namespace Desert::Graphic::System
         // of the static queue (the main view's chunks, the translucent / glass / front-layer walks) culls by it
         // instead of chasing each entry's mesh and its submeshes per view. Gather: the ShadowCasterSetup::Gather
         // it is of (another: not of this frame's queue - StaticEntryInView builds the entry's box itself).
+        // GenericBounds: the same box per m_GenericQueue entry with a mesh (the generic records are members of the
+        // same revision: StaticCasterTrack::Member), so the generic walks cull by it too.
         struct StaticInstanceSnapshot
         {
-            std::vector<Common::Math::AABB> WorldBounds; // per m_StaticQueue entry
+            std::vector<Common::Math::AABB> WorldBounds;   // per m_StaticQueue entry
+            std::vector<Common::Math::AABB> GenericBounds; // per m_GenericQueue entry
             uint64_t                        Gather = 0;
         };
         StaticInstanceSnapshot m_StaticSnapshot;
         // Whether m_StaticQueue entry @p index (whose Mesh is set) is in @p frustum: the snapshot's box when it
         // is of this gather, else the box IsVisibleInView builds from the entry (the same box, the same answer).
         [[nodiscard]] bool StaticEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
+        // The same for m_GenericQueue entry @p index (whose Mesh is set).
+        [[nodiscard]] bool GenericEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
+        // The world box of m_StaticQueue entry @p index (whose Mesh is set): the snapshot's when it is of this
+        // gather, else TransformBounds of its local bounds (the box the glass sort reads its centre from).
+        [[nodiscard]] Common::Math::AABB StaticEntryWorldBounds( std::size_t index ) const;
         // The ISM gather's key: the main camera's LODView and lens scale, the shadow wind distance and, per field,
         // its mesh's render revision, instance count, material, caster flag, cull distance and wind (not its clock:
         // the gather reads the sway's reach, not its phase). O(fields), never O(instances).

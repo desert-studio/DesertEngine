@@ -712,8 +712,9 @@ namespace Desert::Graphic::System
             // built once; an empty local box stays empty (no extent: in every view).
             const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
             { return Geometry::IsEmpty( local ) ? local : Geometry::TransformBounds( transform, local ); };
-            // The dense snapshot's boxes (m_StaticSnapshot), every entry with a mesh: the casters' rows copy theirs.
+            // The dense snapshot's boxes (m_StaticSnapshot), every entry with a mesh; casters' rows copy theirs.
             m_StaticSnapshot.WorldBounds.resize( m_StaticQueue.size() );
+            m_StaticSnapshot.GenericBounds.resize( m_GenericQueue.size() );
             for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
             {
                 const StaticMeshRenderData& rd = m_StaticQueue[i];
@@ -730,11 +731,13 @@ namespace Desert::Graphic::System
             {
                 const GenericMeshRenderData& g = m_GenericQueue[i];
                 setup.Generics[i]              = ShadowCasterRow{};
-                if ( g.Mesh != nullptr && g.CastShadows )
-                {
-                    setup.Generics[i].WorldBounds =
-                         worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
-                }
+                m_StaticSnapshot.GenericBounds[i] = Common::Math::AABB{};
+                if ( g.Mesh == nullptr )
+                    continue;
+                m_StaticSnapshot.GenericBounds[i] =
+                     worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
+                if ( g.CastShadows )
+                    setup.Generics[i].WorldBounds = m_StaticSnapshot.GenericBounds[i];
             }
         }
         // Revision 0 (untracked: no stream read for this gather) never keeps them next time.
@@ -752,6 +755,26 @@ namespace Desert::Graphic::System
             return IsVisibleInView( frustum, m_StaticSnapshot.WorldBounds[index] );
         const StaticMeshRenderData& data = m_StaticQueue[index];
         return IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) );
+    }
+
+    bool MeshRenderer::GenericEntryInView( const Core::Frustum& frustum, const std::size_t index ) const
+    {
+        if ( m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+             m_StaticSnapshot.GenericBounds.size() == m_GenericQueue.size() )
+            return IsVisibleInView( frustum, m_StaticSnapshot.GenericBounds[index] );
+        const GenericMeshRenderData& g = m_GenericQueue[index];
+        return IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
+    }
+
+    Common::Math::AABB MeshRenderer::StaticEntryWorldBounds( const std::size_t index ) const
+    {
+        // An empty snapshot box is an empty local box: TransformBounds of it, as the glass sort always read.
+        if ( m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+             m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() &&
+             !Geometry::IsEmpty( m_StaticSnapshot.WorldBounds[index] ) )
+            return m_StaticSnapshot.WorldBounds[index];
+        const StaticMeshRenderData& data = m_StaticQueue[index];
+        return Geometry::TransformBounds( data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) );
     }
 
     uint32_t MeshRenderer::ShadowStaticLod( const uint32_t index )
