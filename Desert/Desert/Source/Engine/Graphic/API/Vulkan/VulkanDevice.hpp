@@ -234,11 +234,21 @@ namespace Desert::Graphic::API::Vulkan
         /// vkQueuePresentKHR under the same lock: the present queue is the graphics queue.
         [[nodiscard]] VkResult PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const;
         /// The same lock, held by a caller whose queue calls live in code it does not own: the ImGui Vulkan
-        /// backend submits, presents and waits for the detached platform windows itself. The main thread holds
-        /// this across UpdatePlatformWindows + RenderPlatformWindowsDefault so an upload flushing from another
-        /// thread cannot meet those raw calls on the shared queue. Nothing reached while holding it may call
+        /// backend acquires, submits and presents a detached platform window's frame itself (the layer's entry
+        /// on the submit thread holds this across it), and the layer holds it across a window's rebuild or
+        /// destruction (WaitQueueIdle, then the destroy). Nothing reached while holding it may call
         /// SubmitToQueue / PresentToQueue / WaitIdle -- the mutex is not recursive.
         [[nodiscard]] std::unique_lock<std::mutex> LockQueues() const;
+        /// vkQueueWaitIdle on @p queue BY A CALLER THAT HOLDS LockQueues() (@p held) and keeps it across what
+        /// it destroys next: the queue idles and nothing is put on it until the caller lets go, so no
+        /// operation that uses the destroyed objects is pending, a present's semaphore wait included (UE:
+        /// FVulkanViewport::RecreateSwapchain idles the device after the RHI thread is flushed; a fence does
+        /// not cover a vkQueuePresentKHR, VUID-vkDestroySemaphore-semaphore-05149). The caller drains the
+        /// submit thread before it takes the lock (VulkanFrameLoop::DrainSubmitThread, as WaitIdle does).
+        /// Refused with VK_ERROR_INITIALIZATION_FAILED and no wait when @p held is not this device's queue
+        /// lock; VK_ERROR_DEVICE_LOST on a lost device (nothing can be outstanding there).
+        [[nodiscard]] VkResult WaitQueueIdle( VkQueue                             queue,
+                                              const std::unique_lock<std::mutex>& held ) const noexcept;
 
         void Destroy();
 

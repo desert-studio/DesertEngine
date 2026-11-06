@@ -471,6 +471,20 @@ namespace Desert::Graphic::API::Vulkan
         return std::unique_lock<std::mutex>( m_QueueMutex );
     }
 
+    VkResult VulkanLogicalDevice::WaitQueueIdle( VkQueue                             queue,
+                                                 const std::unique_lock<std::mutex>& held ) const noexcept
+    {
+        // The caller's own queue lock (LockQueues), kept across this wait and the destruction after it.
+        if ( !held.owns_lock() || held.mutex() != &m_QueueMutex )
+            return VK_ERROR_INITIALIZATION_FAILED;
+        if ( !Graphic::DeviceLost::AllowWork() )
+            return VK_ERROR_DEVICE_LOST;
+        const VkResult idle = vkQueueWaitIdle( queue );
+        if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkQueueWaitIdle", __FILE__, __LINE__ ) )
+            LOG_ERROR( "[Device] vkQueueWaitIdle failed: {}", VkResultToString( idle ) );
+        return idle;
+    }
+
     void VulkanLogicalDevice::Destroy()
     {
         if ( m_LogicalDevice != VK_NULL_HANDLE )
