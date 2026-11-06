@@ -268,7 +268,12 @@ namespace Desert::Graphic
         const uint32_t                  hzbHeight = hzbSize ? hzbSize->y : 0u;
         const RDG::TextureRef           prevHzb   = hzbSize ? FramePrevHzb( graph, frame, hzbWidth, hzbHeight )
                                                             : RDG::TextureRef{};
-        bins.MainTestsHzb                         = prevHzb.IsValid();
+        // DECALS-DBUFFER item 7: a frame with decals holds nothing back. "Deferred: Decals" reads the prepass
+        // depth, which runs before phase 2 (AddFrameGBuffer before AddFrameDrawBinsPostOcclusion): a mesh phase
+        // 2 drew would receive no decal. UE's DBuffer prepass has no two-phase split, so phase 1 is frustum
+        // only and draws every bin; AddFrameDrawBinsPostOcclusion still builds this frame's HZB (the prepass
+        // view's cull, next frame's history) and runs no phase 2 (MainTestsHzb false).
+        bins.MainTestsHzb = prevHzb.IsValid() && !m_Decals.HasDecals();
         {
             GpuDriven::CullViewInput mainInput = MakeCullView(
                  mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale,

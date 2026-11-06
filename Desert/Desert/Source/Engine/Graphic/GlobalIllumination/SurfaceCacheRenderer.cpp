@@ -840,8 +840,9 @@ namespace Desert::Graphic::SurfaceCache
              std::format( "SurfaceCache: Direct Lighting ({} pages)", count ), RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 const auto& layout = m_LightingLayout.Get( m_LightingShader );
-                 auto        block  = pass.Bindings( layout, RDG::NoOtherRouteFill() );
+                 const SlottedLayout& slotted = m_LightingLayout.GetSlotted( m_LightingShader );
+                 const auto&          layout  = slotted.Layout;
+                 auto                 block   = pass.Bindings( layout, RDG::NoOtherRouteFill() );
                  block.Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCardBuffer, buffers.Cards,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCardPageBuffer, buffers.Pages,
@@ -863,7 +864,7 @@ namespace Desert::Graphic::SurfaceCache
                  if ( virtualLocalShadows )
                  {
                      if ( layout )
-                         BindVirtualShadowMapReads( block, inputs.View.Vsm, *layout );
+                         BindVirtualShadowMapReads( block, inputs.View.Vsm, slotted.Slots );
                  }
                  else
                      block.Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews, RDG::Access::StorageRead );
@@ -895,8 +896,8 @@ namespace Desert::Graphic::SurfaceCache
                  // light grid read is the world grid bound above, not the view's.
                  // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
                  if ( layout )
-                     SceneViewDetail::BindWhere( block, inputs.View, [&bound = *layout]( std::string_view name )
-                                                 { return SceneViewDetail::LayoutSamples( bound, name ); } );
+                     SceneViewDetail::BindWhere( block, inputs.View, [slots = slotted.Slots]( SceneViewSlot slot )
+                                                 { return slots.Has( slot ); } );
                  pass.ColorTarget( 0, direct, RDG::LoadOp::Load() );
                  pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
              },

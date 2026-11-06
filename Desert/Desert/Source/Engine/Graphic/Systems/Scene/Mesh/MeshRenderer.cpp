@@ -639,37 +639,50 @@ namespace Desert::Graphic::System
                 // (RDG "Prepare recording"), so Record runs sealed and only binds them (UE: a mesh draw command's
                 // shader bindings are built with the command, the record binds them).
                 declaration.Prepares( *declared.Material );
-                const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
-                     m_Layouts.Get( declared.Pipeline->GetSpecification().Shader );
+                // DECALS-DBUFFER R5: the layout's slot mask was resolved with the layout (once per shader and
+                // reload); every test below is a bit test, no slot name is compared per block per frame.
+                const SlottedLayout& slotted =
+                     m_Layouts.GetSlotted( declared.Pipeline->GetSpecification().Shader );
+                const std::shared_ptr<const RDG::ShaderBindingLayout>& layout = slotted.Layout;
+                const SceneViewSlots                                   slots  = slotted.Slots;
                 auto block = declaration.Bindings( layout, declared.Material->GetRouteFill() );
-                if ( view && SamplesSceneViewInputs( *layout ) )
+                if ( view && SamplesSceneViewInputs( slots ) )
                 {
-                    BindSceneViewInputs( block, *view, *layout );
+                    BindSceneViewInputs( block, *view, slots );
                 }
                 // The binned vertex stage's tables (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS), where the
                 // block's shader reads them.
                 if ( declared.Binned && m_Binned )
                 {
-                    for ( const auto& [name, buffer] :
-                          { std::pair{ SceneResources::kGpuSceneInstances, m_Binned->Instances },
-                            std::pair{ SceneResources::kGpuSceneVisibleInstances,
-                                       m_Binned->Culled.VisibleInstances },
-                            std::pair{ SceneResources::kGpuSceneDrawSlots, m_Binned->DrawSlots },
-                            std::pair{ SceneResources::kGpuSceneSubmeshTransforms,
-                                       m_Binned->SubmeshTransforms } } )
-                        if ( SceneViewDetail::LayoutReadsBuffer( *layout, name.Name ) )
-                            block.Storage( name, buffer, RDG::Access::StorageRead );
+                    using SceneViewDetail::SlotBuffer;
+                    for ( const SlotBuffer& entry :
+                          { SlotBuffer{ SceneViewSlot::GpuSceneInstances, SceneResources::kGpuSceneInstances,
+                                        m_Binned->Instances },
+                            SlotBuffer{ SceneViewSlot::GpuSceneVisibleInstances,
+                                        SceneResources::kGpuSceneVisibleInstances,
+                                        m_Binned->Culled.VisibleInstances },
+                            SlotBuffer{ SceneViewSlot::GpuSceneDrawSlots, SceneResources::kGpuSceneDrawSlots,
+                                        m_Binned->DrawSlots },
+                            SlotBuffer{ SceneViewSlot::GpuSceneSubmeshTransforms,
+                                        SceneResources::kGpuSceneSubmeshTransforms,
+                                        m_Binned->SubmeshTransforms } } )
+                        if ( slots.Has( entry.Slot ) )
+                            block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
                 }
                 if ( declared.VirtualGeometry && m_Binned && m_Binned->VirtualGeometry )
                 {
                     const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
-                    for ( const auto& [name, buffer] :
-                          { std::pair{ SceneResources::kVgRasterClusters, vg.Clusters },
-                            std::pair{ SceneResources::kVgRasterDags, vg.Dags },
-                            std::pair{ SceneResources::kVgRasterVisibleClusters, vg.VisibleClusters },
-                            std::pair{ SceneResources::kVgRasterPrimitiveDraws, vg.PrimitiveDraws } } )
-                        if ( SceneViewDetail::LayoutReadsBuffer( *layout, name.Name ) )
-                            block.Storage( name, buffer, RDG::Access::StorageRead );
+                    using SceneViewDetail::SlotBuffer;
+                    for ( const SlotBuffer& entry :
+                          { SlotBuffer{ SceneViewSlot::VgRasterClusters, SceneResources::kVgRasterClusters,
+                                        vg.Clusters },
+                            SlotBuffer{ SceneViewSlot::VgRasterDags, SceneResources::kVgRasterDags, vg.Dags },
+                            SlotBuffer{ SceneViewSlot::VgRasterVisibleClusters,
+                                        SceneResources::kVgRasterVisibleClusters, vg.VisibleClusters },
+                            SlotBuffer{ SceneViewSlot::VgRasterPrimitiveDraws,
+                                        SceneResources::kVgRasterPrimitiveDraws, vg.PrimitiveDraws } } )
+                        if ( slots.Has( entry.Slot ) )
+                            block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
                 }
                 perBlock( block, *layout );
             }

@@ -275,7 +275,8 @@ namespace Desert::Graphic::System
                          .Storage( MegaLightsShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials,
                                    RDG::Access::StorageRead );
                 if ( in.Sources.VirtualMaps )
-                    BindVirtualShadowMapReads( block, in.Vsm, *traceProgram.Layout.Get( traceProgram.Shader ) );
+                    BindVirtualShadowMapReads( block, in.Vsm,
+                                               traceProgram.Layout.GetSlotted( traceProgram.Shader ).Slots );
                 if ( in.Sources.ScreenTrace() )
                     block.Texture( MegaLightsShaderParameters::HzbTexture, in.Hzb, RDG::Access::SampledCompute,
                                    RDG::SubresourceRange::All() );
