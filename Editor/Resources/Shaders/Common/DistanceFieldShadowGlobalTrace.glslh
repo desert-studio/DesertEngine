@@ -1,0 +1,61 @@
+#ifndef DISTANCE_FIELD_SHADOW_GLOBAL_TRACE_GLSLH
+#define DISTANCE_FIELD_SHADOW_GLOBAL_TRACE_GLSLH
+
+// THE SUN'S CONE THROUGH THE GLOBAL DISTANCE FIELD - the one far-field shadow trace of "Shadows: Distance Field Sun"
+// (UE DistanceFieldShadowing.usf's global-SDF part / Lumen's offscreen global-SDF shadow, written from memory).
+// Two receivers walk it with the same start, steps and reach, so the far field is shadowed by one formula:
+//   - the screen's mask (Programs/Shadows/DistanceFieldShadowTrace.shader): the far ridge past the tile grid, and
+//     every near receiver's ray past its mesh fields;
+//   - the surface cache's cards past the cascades (Programs/SurfaceCache/SurfaceCacheDirectLighting.shader,
+//     software GI tracer): the GI bounce off a far slope under its own hill's shadow.
+// The includer has Common/GlobalDistanceField.glslh (its clipmaps declared) before this file and hands the clipmaps'
+// placement (centre.xyz cm, voxel cm; voxel 0 = no field) as @p levels.
+
+// UE r.DFShadowRayStartOffsetDepthScale (0.003): the ray leaves its receiver by this share of the receiver's distance
+// from the camera - the fields' precision falls with the distance their voxels are seen from.
+const float kDistanceFieldShadowRayStartOffsetDepthScale = 0.003;
+// A receiver that is a surface of the global field itself (no mesh field traced its first stretch) leaves it by this
+// many voxels of the clipmap holding it: the field's march stops on its expanded surface, up to half a voxel in front
+// of the mesh, and a thin far occluder below one voxel is not in the field at all (UE's global-SDF surface bias).
+const float kDistanceFieldShadowGlobalStartVoxels = 2.0;
+// Sphere-trace steps of the global field (the coarse clipmaps cover the 500 m in few long steps).
+const int kDistanceFieldShadowGlobalSteps = 64;
+// The ray's reach, cm (UE DistanceFieldShadowing's far-field trace distance).
+#define DISTANCE_FIELD_SHADOW_RAY 50000.0
+
+// Where a receiver of the global field alone starts its ray, cm along it: @p receiverDistance from the camera,
+// @p voxel of the clipmap holding it. Its origin is offset along the normal (facing the sun) by the same voxel.
+float DistanceFieldShadowGlobalStart(float receiverDistance, float voxel)
+{
+    return max(kDistanceFieldShadowRayStartOffsetDepthScale * receiverDistance,
+               kDistanceFieldShadowGlobalStartVoxels * voxel);
+}
+
+// The global field from @p tStart along @p direction: @p visibility lowered by every step's open share of the cone of
+// half-angle tangent @p tanHalf (the sun's disc; UE MinConeVisibility), through the finest clipmap holding each step.
+// Past every clipmap the ray ends lit. The caller smoothsteps the result (the cone's open share to the disc's area).
+float DistanceFieldShadowTraceGlobal(vec3 origin, vec3 direction, float tStart, float tanHalf,
+                                     vec4 levels[GDF_NUM_CLIPMAPS], float visibility)
+{
+    if (levels[0].w <= 0.0)
+        return visibility;
+    float t = tStart;
+    for (int s = 0; s < kDistanceFieldShadowGlobalSteps && t < DISTANCE_FIELD_SHADOW_RAY; ++s)
+    {
+        const vec3 p     = origin + direction * t;
+        const int  level = GlobalDistanceFieldLevelAt(p, levels);
+        if (level < 0)
+            break;
+        const float voxel    = levels[level].w;
+        const float distance = SampleGlobalDistanceFieldLevel(level, p, voxel);
+        // Below half a voxel the trilinear field cannot tell the cone's radius apart.
+        const float sphere = max(t * tanHalf, 0.5 * voxel);
+        visibility = min(visibility, clamp(distance / sphere, 0.0, 1.0));
+        if (visibility <= 0.0)
+            return 0.0;
+        t += max(distance, 0.5 * voxel);
+    }
+    return visibility;
+}
+
+#endif // DISTANCE_FIELD_SHADOW_GLOBAL_TRACE_GLSLH

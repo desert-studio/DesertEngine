@@ -34,6 +34,13 @@
 // local shadow budget refused a view get their shadow from a visibility ray of the ACTIVE GI TRACER
 // (GITraceVisibility, Common/GITracer.glslh: the global distance field march or the ray query - the program is
 // compiled per tracer, GlobalIllumination::TracerVariant) instead of "fully lit".
+// THE SUN PAST THE CASCADES UNDER "Shadows: Distance Field Sun" (DF-SHADOWS, ShadowFilter.z = 1; UE Lumen's
+// offscreen distance-field shadowing): under the software tracer the sun's ray past the cascades is the screen
+// mask's own - the tracer's mesh fields of the texel's froxel (hard, its near field), then the sun's CONE through
+// the global field from the same start, steps and reach as the screen's far field
+// (Common/DistanceFieldShadowGlobalTrace.glslh), so the GI bounce off a far slope is shadowed, penumbra included,
+// as the slope on screen. The cascades stay where they hold the texel (exact there). Under the hardware tracer the
+// ray query stays: exact against the TLAS, as UE's hardware-traced offscreen card shadows.
 //
 // THE LIGHTS OF A TEXEL (UE LumenSceneDirectLightingCulling): the world light grid's list for the texel's cell
 // (Mesh/LightGrid.glslh LightGridWorldLightsAt - the radiance cache clipmap cells around the camera, built by
@@ -131,7 +138,8 @@ Shader "SurfaceCacheDirectLighting"
             // Common/ContactShadow.glslh, so Mesh/LocalLightShadow.glslh offers it the shadow-map terms only.
             vec4 ContactShadowView;
             vec4 SunContactShadow;
-            vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF)
+            vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF),
+                                    // z = 1: the distance-field sun runs (OffCascadeShadow), w unused
         };
         #include <Mesh/CascadedShadow.glslh>
 
@@ -279,6 +287,52 @@ Shader "SurfaceCacheDirectLighting"
             return GITraceVisibility(worldPos + N * offset, L, GIFarFieldTMin(bias, N, L), maxT - 2.0 * offset);
         }
 
+        #if defined(DESERT_GI_TRACER_SOFTWARE)
+        #include <Common/DistanceFieldShadowGlobalTrace.glslh>
+        // The sun's distance-field shadow at a texel no cascade holds (the header's THE SUN PAST THE CASCADES):
+        // @p L unit toward the sun, @p tanHalf the tangent of its disc's half angle. First the near field - the
+        // mesh fields of the texel's froxel, any hit is the shadow (the screen's tile list: the meshes closest to
+        // it) - then the global field's cone from where the near field ended, never before the global field's own
+        // start (the texel is a voxel off its own surface by then). The receiver's distance for that start is
+        // taken from the finest clipmap's centre - the clipmaps follow the camera; a card texel has no view.
+        float SunDistanceFieldShadow(vec3 worldPos, vec3 N, vec3 L, float tanHalf)
+        {
+            const GITraceBias bias = GIRayBias(worldPos, N, L);
+            GITraceInput ray;
+            ray.origin    = worldPos + N * bias.nearOffset;
+            ray.tMin      = 0.0;
+            ray.direction = L;
+            ray.tMax      = DISTANCE_FIELD_SHADOW_RAY;
+            ray.coneAngle = 0.0;
+            ray.flags     = GI_TRACE_SHADOW_RAY;
+            ray.farTMin   = GIFarFieldTMin(bias, N, L);
+            float farStart;
+            if (GITraceNearField(ray, farStart).hit)
+                return 0.0;
+            const int level = GlobalDistanceFieldLevelAt(worldPos, giTracerGdfLevels);
+            if (level < 0)
+                return 1.0; // past every clipmap: lit, as the screen's far field
+            const float voxel            = giTracerGdfLevels[level].w;
+            const float receiverDistance = length(worldPos - giTracerGdfLevels[0].xyz);
+            const float tStart           = max(farStart, DistanceFieldShadowGlobalStart(receiverDistance, voxel));
+            const float visibility       = DistanceFieldShadowTraceGlobal(worldPos + N * voxel, L, tStart, tanHalf,
+                                                                          giTracerGdfLevels, 1.0);
+            // The cone's open share to a disc's visible area, as the screen mask.
+            return smoothstep(0.0, 1.0, visibility);
+        }
+        #endif
+
+        // The shadow of directional slot @p light at a texel its cascades do not hold, from the side @p N faces:
+        // the distance-field sun where that method runs (software tracer), the tracer's visibility ray otherwise.
+        float OffCascadeShadow(int light, vec3 worldPos, vec3 N, vec3 L)
+        {
+        #if defined(DESERT_GI_TRACER_SOFTWARE)
+            if (light == kShadowLightSun && ShadowFilter.z > 0.5)
+                return SunDistanceFieldShadow(worldPos, N, L, DirectionalShadow[light].x);
+        #endif
+            return TracedShadow(worldPos, N, L, 1.0e7);
+        }
+
         // ONE SHADOWED DIRECTIONAL LIGHT at the texel, by its slot @p light of the cascades (kShadowLightSun,
         // kShadowLightAtmosphere1): the light travelling along @p travel with @p radiance, occluded by that slot's
         // cascades - and, where the slot casts but no cascade holds the texel, by the tracer's ray - times the cloud
@@ -296,7 +350,7 @@ Shader "SurfaceCacheDirectLighting"
                 float shadow  = ShadowFactor(light, worldPos, N, L, cascade);
                 // Shadows on but no cascade holds the texel: the tracer answers.
                 if (cascade < 0 && casts)
-                    shadow = TracedShadow(worldPos, N, L, 1.0e7);
+                    shadow = OffCascadeShadow(light, worldPos, N, L);
                 irradiance += radiance * NdotL * shadow * (cloudShadowed ? CloudShadowFactor(worldPos) : 1.0);
             }
             else if (through && NdotL < 0.0)
@@ -304,7 +358,7 @@ Shader "SurfaceCacheDirectLighting"
                 // The deferred composite's TransmissionShadow (Mesh/CascadedShadow.glslh): the cascades' thickness
                 // transmittance at the receiver's own depth; off the cascades, the tracer's ray from the far side.
                 float shadow = casts && chooseCascade(light, worldPos) < 0
-                                   ? TracedShadow(worldPos, -N, L, 1.0e7)
+                                   ? OffCascadeShadow(light, worldPos, -N, L)
                                    : TransmissionShadowFactor(light, worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity));
                 back += radiance * -NdotL * shadow * (cloudShadowed ? CloudShadowFactor(worldPos) : 1.0);
             }
