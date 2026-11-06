@@ -1310,8 +1310,9 @@ namespace Desert::Graphic::System
             // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row); a stand-in
             // names the default surface's.
             std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
-            switch ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
-                                         standInState != nullptr ? standInState->Pipeline.get() : nullptr ) )
+            const GraphicsPipeline* const glassStandIn =
+                 standInState != nullptr ? standInState->Pipeline.get() : nullptr;
+            switch ( ChoosePipelineDraw( state->Pipeline.get(), glassStandIn, {} ) )
             {
                 case MaterialPipelineTracker::CellDraw::Own:
                     break;
@@ -1436,8 +1437,8 @@ namespace Desert::Graphic::System
             // A cell still in the driver has no stand-in here: the default surface is opaque and has no front layer
             // cell, so until the cell is ready the object keeps the sky's reflection (said once by
             // ChoosePipelineDraw).
-            if ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
-                                     nullptr ) != MaterialPipelineTracker::CellDraw::Own )
+            if ( ChoosePipelineDraw( state->Pipeline.get(), nullptr, {} ) !=
+                 MaterialPipelineTracker::CellDraw::Own )
                 continue;
             // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row).
             const std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
@@ -2013,7 +2014,7 @@ namespace Desert::Graphic::System
         };
         if ( !recordCall ) // a Record call's groups were split by its Resolve call
         {
-            std::vector<const StaticMeshRenderData*> standingIn;
+            std::vector<const StaticMeshRenderData*> standingIn = scratch.TakeList();
             for ( auto& [mat, objects] : groups )
             {
                 if ( objects.empty() || IsTranslucent( mat ) )
@@ -2036,6 +2037,8 @@ namespace Desert::Graphic::System
             // own clip and depth in the G-buffer's Rest half (its record is not Own).
             if ( !standingIn.empty() && standIn != nullptr && mode.Half != DeferredPrepassHalf::Depth )
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
+            else
+                scratch.GiveList( std::move( standingIn ) );
         }
         const DataDrivenMaterial* const standInKey = standIn != nullptr ? standIn->Material.get() : nullptr;
 
@@ -2899,18 +2902,17 @@ namespace Desert::Graphic::System
         //
         // The unit is a SECTION of an entry (its own material, masked to its own submeshes); an entry's sections
         // share its motion row, so the pose is skinned once whatever the number of materials.
-        struct SectionRef
-        {
-            const SkinnedMeshRenderData* Obj     = nullptr;
-            const SkinnedSection*        Section = nullptr;
-        };
-        std::vector<std::pair<DataDrivenMaterial*, std::vector<SectionRef>>> groups;
+        // The groups live in the scratch across calls (DrawBuildScratch::SkinnedGroups): recycled here, their
+        // lists keep their capacity.
+        using SectionRef = DrawBuildScratch::SkinnedSectionRef;
+        scratch.RecycleSkinnedGroups();
+        auto&      groups   = scratch.SkinnedGroups;
         const auto groupFor = [&]( DataDrivenMaterial* mat ) -> std::vector<SectionRef>&
         {
             for ( auto& [m, v] : groups )
                 if ( m == mat )
                     return v;
-            groups.emplace_back( mat, std::vector<SectionRef>{} );
+            groups.emplace_back( mat, scratch.TakeSkinnedList() );
             return groups.back().second;
         };
         // The group's material is the queue's (surface x Skinned x Forward) material on the forward pass and its
@@ -2971,7 +2973,7 @@ namespace Desert::Graphic::System
         StandInCell* const            standIn         = standInOf( cellPass );
         const GraphicsPipeline* const standInPipeline = standInPipelineOf( cellPass, equalHalf );
         {
-            std::vector<SectionRef> standingIn;
+            std::vector<SectionRef> standingIn = scratch.TakeSkinnedList();
             for ( auto& [mat, objects] : groups )
             {
                 if ( objects.empty() )
@@ -3021,6 +3023,8 @@ namespace Desert::Graphic::System
             // No stand-in in the deferred early-Z pass (as the static path): the Rest half draws it with its own depth.
             if ( !standingIn.empty() && standIn != nullptr && mode.Half != DeferredPrepassHalf::Depth )
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
+            else
+                scratch.GiveSkinnedList( std::move( standingIn ) );
         }
 
         // The view pass skins from the scene's ObjectBones (both frames' palettes, named by the object's GpuScene

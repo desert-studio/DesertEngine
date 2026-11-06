@@ -3051,10 +3051,21 @@ namespace Desert::Graphic::System
                                                                         const DataDrivenMaterial& cell,
                                                                         bool                      twoSided,
                                                                         const GraphicsPipeline*   standIn );
-        // The same choice for a pipeline the caller already holds (the glass pass's per-cell pipelines); @p key
-        // names it in the tracker and the log.
-        [[nodiscard]] MaterialPipelineTracker::CellDraw
-        ChoosePipelineDraw( const GraphicsPipeline* own, const std::string& key, const GraphicsPipeline* standIn );
+        // A cell whose own pipeline was refused (null): what names it in the tracker (CellKey) and the log.
+        struct RefusedCell
+        {
+            const GraphicsPipeline*   PassState = nullptr;
+            const DataDrivenMaterial* Cell      = nullptr;
+            bool                      TwoSided  = false;
+        };
+        // The same choice for a pipeline the caller already holds (the glass pass's per-cell pipelines); @p own
+        // itself is its tracker key (CellKey::Pipeline), @p refused only when @p own is null ({} else).
+        [[nodiscard]] MaterialPipelineTracker::CellDraw ChoosePipelineDraw( const GraphicsPipeline* own,
+                                                                            const GraphicsPipeline* standIn,
+                                                                            const RefusedCell&      refused );
+        // The log line's name of a cell: its pipeline's DebugName, or "<pass state> <cell shader>[_TwoSided]" when
+        // refused. Built only when a line is logged, never per draw.
+        [[nodiscard]] static std::string CellLogName( const GraphicsPipeline* own, const RefusedCell& refused );
         // The default surface's cell of (@p path x @p pass) as a RECORDING material of its own: its Materials[]
         // rows, per-frame blocks and (skinned) bones are written once per pass by the objects standing in, never
         // shared with the renderer's spare materials, whose buffers other groups fill in the same pass.
@@ -3500,6 +3511,16 @@ namespace Desert::Graphic::System
         // BoneOffset push constant. ONE buffer per material per pass instead of one upload per draw,
         // which is what makes a shared skinned material correct — see Material::SetSkinnedBoneOffset.
         std::vector<glm::mat4>                   m_ScratchBones;
+        // The sun cascade's opaque skinned casters of one cascade (RenderShadowCascade), kept for capacity:
+        // the opaque sections of an entry are ONE depth draw over one copy of its pose.
+        struct OpaqueSkinnedCaster
+        {
+            const SkinnedMeshRenderData* Data       = nullptr;
+            uint32_t                     BoneOffset = 0;
+            uint64_t                     Hidden     = 0;
+            std::size_t                  Index      = 0; // into m_SkinnedQueue
+        };
+        std::vector<OpaqueSkinnedCaster> m_ScratchOpaqueSkinnedCasters;
         std::vector<glm::mat4>      m_ScratchInstTransforms; // geometry + shadow instanced SSBOs
         // Per-batch LOD levels and the surviving ISM transforms. Members rather than locals for the
         // reason every accumulator in this file is one: their capacity persists, so a frame that culls
@@ -3668,6 +3689,36 @@ namespace Desert::Graphic::System
                     list.assign( group.second.begin(), group.second.end() );
                     into.emplace_back( group.first, std::move( list ) );
                 }
+            }
+            // THE SKINNED PATH'S GROUPS, kept across calls as the static ones (CPU-FRAME-ARENA 6):
+            // BuildSkinnedDraws recycles them on entry, so a group's (or the stand-in's) section list keeps its
+            // capacity. The unit is a SECTION of an entry (its own material, masked to its own submeshes).
+            struct SkinnedSectionRef
+            {
+                const SkinnedMeshRenderData* Obj     = nullptr;
+                const SkinnedSection*        Section = nullptr;
+            };
+            using SkinnedGroup = std::pair<DataDrivenMaterial*, std::vector<SkinnedSectionRef>>;
+            std::vector<SkinnedGroup>                   SkinnedGroups;
+            std::vector<std::vector<SkinnedSectionRef>> SpareSkinnedLists;
+            void                                        RecycleSkinnedGroups() noexcept
+            {
+                for ( SkinnedGroup& group : SkinnedGroups )
+                    GiveSkinnedList( std::move( group.second ) );
+                SkinnedGroups.clear();
+            }
+            void GiveSkinnedList( std::vector<SkinnedSectionRef>&& list ) noexcept
+            {
+                list.clear();
+                SpareSkinnedLists.push_back( std::move( list ) );
+            }
+            [[nodiscard]] std::vector<SkinnedSectionRef> TakeSkinnedList() noexcept
+            {
+                if ( SpareSkinnedLists.empty() )
+                    return {};
+                std::vector<SkinnedSectionRef> list = std::move( SpareSkinnedLists.back() );
+                SpareSkinnedLists.pop_back();
+                return list;
             }
             // ONE CHUNK OF THE STATIC WALK (BuildStaticDraws: one setup task each, WalkStaticChunk), reused by
             // index so its vectors keep their capacity: its groups in first-seen order (GroupCount of Groups in
@@ -3948,8 +3999,27 @@ namespace Desert::Graphic::System
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
         std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
-        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
-                                                                  m_MaskedCasterPipelines; // null = refused
+        // A masked caster's pipeline by IDENTITY (CPU-FRAME-ARENA 6, no name formatted per call): the cell
+        // program (Shader::GetSerial - one object per permutation, so strictly finer than name # variant hash)
+        // x the shared caster state set it was built over (CasterPipelinesOf: its Static member names the set).
+        struct MaskedCasterKey
+        {
+            uint64_t                Program = 0;
+            const GraphicsPipeline* Casters = nullptr;
+
+            bool operator==( const MaskedCasterKey& ) const = default;
+        };
+        struct MaskedCasterKeyHash
+        {
+            size_t operator()( const MaskedCasterKey& key ) const noexcept
+            {
+                const size_t seed = std::hash<uint64_t>{}( key.Program );
+                return seed ^ ( std::hash<const void*>{}( key.Casters ) + 0x9e3779b97f4a7c15ull + ( seed << 6 ) +
+                                ( seed >> 2 ) );
+            }
+        };
+        std::unordered_map<MaskedCasterKey, std::shared_ptr<GraphicsPipeline>, MaskedCasterKeyHash>
+                                                 m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<DataDrivenMaterial*>         m_ScratchGenericRecorders; // distinct recording materials
         float                                                     m_WorldTimeSeconds = 0.0f;
