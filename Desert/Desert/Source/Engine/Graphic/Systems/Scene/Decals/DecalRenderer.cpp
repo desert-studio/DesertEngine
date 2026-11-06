@@ -1,5 +1,6 @@
 #include "DecalRenderer.hpp"
 
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
@@ -65,6 +66,28 @@ namespace Desert::Graphic::System
                 return glm::vec4( 0.0f );
             return glm::vec4( axis / length, 0.0f );
         }
+
+        // The unit box against the view frustum (UE: the decal proxy's bounds in the view's frustum cull): culled
+        // when all eight corners lie outside one clip plane. Each plane test is linear in the homogeneous corner,
+        // so the test is exact for the convex box, behind the camera included; depth is the engine's 0..w range.
+        bool BoxOutsideFrustum( const glm::mat4& decalToClip )
+        {
+            std::array<int, 6> outside{};
+            for ( int corner = 0; corner < 8; ++corner )
+            {
+                const float     x = static_cast<float>( ( corner & 1 ) * 2 - 1 );
+                const float     y = static_cast<float>( ( ( corner >> 1 ) & 1 ) * 2 - 1 );
+                const float     z = static_cast<float>( ( ( corner >> 2 ) & 1 ) * 2 - 1 );
+                const glm::vec4 clip = decalToClip * glm::vec4( x, y, z, 1.0f );
+                outside[0] += static_cast<int>( clip.x < -clip.w );
+                outside[1] += static_cast<int>( clip.x > clip.w );
+                outside[2] += static_cast<int>( clip.y < -clip.w );
+                outside[3] += static_cast<int>( clip.y > clip.w );
+                outside[4] += static_cast<int>( clip.z < 0.0f );
+                outside[5] += static_cast<int>( clip.z > clip.w );
+            }
+            return std::find( outside.begin(), outside.end(), 8 ) != outside.end();
+        }
     } // namespace
 
     DecalRenderer::DecalRenderer()
@@ -94,6 +117,9 @@ namespace Desert::Graphic::System
         m_Rows.clear();
         m_Draws.clear();
         m_Programs.clear();
+        // What a shader reload replaced, released once no frame in flight can still draw with it.
+        const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+        m_Retired.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         if ( m_Decals.empty() )
             return;
 
@@ -118,6 +144,9 @@ namespace Desert::Graphic::System
             const float screenSize = std::abs( projectionYScale ) * radius / std::max( distance, 1.0f );
             if ( opacity <= 0.0f || ( decal.FadeScreenSize > 0.0f && screenSize < decal.FadeScreenSize ) )
                 continue;
+            const glm::mat4 decalToClip = viewProjection * decal.DecalToWorld;
+            if ( BoxOutsideFrustum( decalToClip ) )
+                continue;
 
             const Program* program = ProgramFor( decal.Material, pipelines );
             if ( program == nullptr )
@@ -129,7 +158,7 @@ namespace Desert::Graphic::System
 
             FrameDecal frame{
                  .SortOrder = decal.SortOrder, .EntityId = decal.EntityId, .Program = program, .Row = {} };
-            frame.Row.DecalToClip = viewProjection * decal.DecalToWorld;
+            frame.Row.DecalToClip = decalToClip;
             frame.Row.ClipToDecal = glm::inverse( decal.DecalToWorld ) * inverseViewProjection;
             frame.Row.AxisX       = UnitAxis( decal.DecalToWorld, 0 );
             frame.Row.AxisY       = UnitAxis( decal.DecalToWorld, 1 );
@@ -172,9 +201,11 @@ namespace Desert::Graphic::System
         const auto key = static_cast<uint64_t>( material );
         if ( const auto found = m_ProgramsByMaterial.find( key ); found != m_ProgramsByMaterial.end() )
         {
-            if ( found->second.Refused )
+            Program& program = found->second;
+            if ( program.Refused )
                 return nullptr;
-            return &found->second;
+            FollowShaderReload( program, material, pipelines );
+            return &program;
         }
 
         // A material still loading is asked again next frame rather than remembered as refused.
@@ -196,6 +227,34 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         return &program;
+    }
+
+    void DecalRenderer::FollowShaderReload( Program& program, const Assets::AssetHandle& material,
+                                            PipelineCache& pipelines )
+    {
+        // UIMaterialCache::FollowShaderReload's rule: a hot reload recompiles the shader in place and bumps its
+        // code generation (PipelineCache::InvalidateByShader drops the cached pipeline); the program rebuilds
+        // against the new code, and the replaced pipeline and material are parked until no frame in flight reads
+        // them. A rebuild that fails keeps the previous build and is not retried until the next reload.
+        if ( !program.Pipeline || !program.Pipeline->GetSpecification().Shader )
+            return;
+        const uint64_t generation = program.Pipeline->GetSpecification().Shader->GetCodeGeneration();
+        if ( generation == program.Generation )
+            return;
+        std::shared_ptr<GraphicsPipeline>   previousPipeline = program.Pipeline;
+        std::unique_ptr<DataDrivenMaterial> previousMaterial = std::move( program.Material );
+        if ( const auto rebuilt = Build( program, material, pipelines ); !rebuilt )
+        {
+            LOG_ERROR( "[Decals] material {}: did not rebuild after its shader reloaded ({}); it keeps the "
+                       "previous build",
+                       static_cast<uint64_t>( material ), rebuilt.GetError() );
+            program.Pipeline   = std::move( previousPipeline );
+            program.Material   = std::move( previousMaterial );
+            program.Generation = generation;
+            return;
+        }
+        m_Retired.Park( RetiredProgram{ std::move( previousPipeline ), std::move( previousMaterial ) },
+                        ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
     }
 
     Common::BoolResultStr DecalRenderer::Build( Program& program, const Assets::AssetHandle& material,

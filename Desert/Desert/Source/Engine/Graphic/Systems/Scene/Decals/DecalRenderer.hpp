@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -91,7 +92,8 @@ namespace Desert::Graphic::System
             return !m_Decals.empty();
         }
 
-        // Per view: fade, refuse, resolve, sort, bake the rows. @p viewProjection is the camera's projection x
+        // Per view: fade, frustum-cull, refuse, resolve (a reloaded shader rebuilds its program), sort, bake the
+        // rows. @p viewProjection is the camera's projection x
         // view (the matrix the G-buffer rasters with), @p projectionYScale its projection[1][1].
         void               PrepareFrame( const glm::mat4& viewProjection, const glm::vec3& cameraPosition,
                                          float projectionYScale, PipelineCache& pipelines );
@@ -132,7 +134,15 @@ namespace Desert::Graphic::System
             uint32_t       Count;
         };
 
+        // A program's pipeline and material a shader reload replaced: kept until no frame in flight draws them.
+        struct RetiredProgram
+        {
+            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::unique_ptr<DataDrivenMaterial> Material;
+        };
+
         const Program*        ProgramFor( const Assets::AssetHandle& material, PipelineCache& pipelines );
+        void FollowShaderReload( Program& program, const Assets::AssetHandle& material, PipelineCache& pipelines );
         Common::BoolResultStr Build( Program& program, const Assets::AssetHandle& material,
                                      PipelineCache& pipelines ) const;
 
@@ -142,5 +152,6 @@ namespace Desert::Graphic::System
         std::vector<Draw>                     m_Draws;    // runs of m_Rows
         std::vector<const Program*>           m_Programs; // the distinct programs of m_Draws, block order
         std::unordered_map<uint64_t, Program> m_ProgramsByMaterial; // by material handle; 0 = the default decal
+        Assets::FrameRetireQueue<RetiredProgram> m_Retired;          // FollowShaderReload's replaced builds
     };
 } // namespace Desert::Graphic::System

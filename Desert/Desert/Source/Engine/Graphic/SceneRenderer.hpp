@@ -1505,6 +1505,10 @@ namespace Desert::Graphic
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // "Deferred: Decals" (UE RenderDBuffer), from AddFrameGBuffer between the full early-Z and the base pass:
+        // m_Decals' prepared boxes over @p sceneDepth into DBufferA/B/C, published as FrameTransients::DBuffer*
+        // for every G-buffer writer after it; no node and no DBuffer when this view draws no decal.
+        void AddFrameDecals( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneDepth );
         // "Deferred: GBuffer Post-Occlusion" (AddFrameDrawBinsPostOcclusion): the main view's phase-2 bins over
         // the loaded G-buffer, preceded (early-Z on) by "Deferred: Depth Prepass Post-Occlusion": the phase-2 bins
         // and post-cut clusters the early-Z split pairs, through their depth twins (MeshRenderer::EarlyZSplit).
