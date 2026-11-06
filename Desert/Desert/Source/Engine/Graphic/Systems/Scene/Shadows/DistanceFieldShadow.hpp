@@ -56,7 +56,8 @@ namespace Desert::Graphic::System
          kDistanceFieldShadowTiles * kDistanceFieldShadowHeaderStride;
     // DistanceFieldShadowCullOffsets.shader Feedback[]: needed entries, the room, the longest list, the stamp.
     inline constexpr uint32_t kDistanceFieldShadowFeedbackUints = 4;
-    // UE DistanceFieldShadowDistance (300 m): the receivers' farthest distance from the camera, in cm.
+    // UE DistanceFieldShadowDistance (300 m): the mesh fields' receivers' farthest distance from the camera, in cm
+    // (the tile grid's reach); past it DistanceFieldShadowTrace.shader's far field traces the global field alone.
     inline constexpr float kDistanceFieldShadowDistance = 30000.0f;
     // Common/DistanceFieldShadow.glslh kDistanceFieldShadowBand: the cross-fade's width in the last cascade's UV.
     inline constexpr float kDistanceFieldShadowBand = 0.10f;
