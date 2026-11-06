@@ -16,6 +16,24 @@
 #include <utility>
 #include <vector>
 
+    namespace DrawPushFieldsDetail
+    {
+        // The running sum of @p bytes: entry i is where field i starts.
+        template <size_t N>
+        [[nodiscard]] constexpr std::array<uint32_t, N>
+        PrefixOffsets( const std::array<uint32_t, N>& bytes ) noexcept
+        {
+            std::array<uint32_t, N> offsets{};
+            uint32_t                at = 0;
+            for ( size_t id = 0; id < N; ++id )
+            {
+                offsets[id] = at;
+                at += bytes[id];
+            }
+            return offsets;
+        }
+    } // namespace DrawPushFieldsDetail
+
 namespace Desert::Graphic
 {
     // THE PER-DRAW PUSH VALUES OF ONE MESH OR TERRAIN DRAW, BY VALUE (UE FMeshDrawCommand: the command is
@@ -70,18 +88,10 @@ namespace Desert::Graphic
              sizeof( glm::mat4 ), sizeof( uint32_t ), sizeof( uint32_t ),  sizeof( uint32_t ), sizeof( glm::vec4 ),
              sizeof( glm::vec4 ), sizeof( uint32_t ), sizeof( glm::vec2 ), sizeof( uint32_t ), sizeof( uint32_t ),
              sizeof( uint32_t ),  sizeof( uint32_t ), sizeof( uint32_t ) };
-        [[nodiscard]] static constexpr std::array<uint32_t, kFieldCount> ValueOffsets() noexcept
-        {
-            std::array<uint32_t, kFieldCount> offsets{};
-            uint32_t                          at = 0;
-            for ( size_t id = 0; id < kFieldCount; ++id )
-            {
-                offsets[id] = at;
-                at += kFieldBytes[id];
-            }
-            return offsets;
-        }
-        static constexpr std::array<uint32_t, kFieldCount> kValueOffsets = ValueOffsets();
+        // A namespace-scope function (DrawPushFieldsDetail): MSVC does not evaluate a member function of a class
+        // still being defined in a constant expression (C2131).
+        static constexpr std::array<uint32_t, kFieldCount> kValueOffsets =
+             DrawPushFieldsDetail::PrefixOffsets( kFieldBytes );
         static constexpr uint32_t kValueBytes = kValueOffsets[kFieldCount - 1] + kFieldBytes[kFieldCount - 1];
         static_assert( kFieldCount <= 16, "the written / required masks are 16 bits" );
 
