@@ -409,8 +409,15 @@ namespace Desert::Graphic
             k.Topology     = static_cast<int>( s.Topology );
             k.Polygon      = static_cast<int>( s.PolygonMode );
             k.PatchPoints  = s.PatchControlPoints;
-            k.BlendSrc     = s.BlendEnable ? static_cast<int>( s.SrcColorBlendFactor ) : 0;
-            k.BlendDst     = s.BlendEnable ? static_cast<int>( s.DstColorBlendFactor ) : 0;
+            // Colour factor in the low byte, the alpha factor
+            // (GraphicsPipelineSpecification::Src/DstAlphaBlendFactor) above it: two pipelines differing only in
+            // their alpha pair are two keys.
+            k.BlendSrc = s.BlendEnable ? static_cast<int>( s.SrcColorBlendFactor ) |
+                                              ( static_cast<int>( s.SrcAlphaBlendFactor ) << 8 )
+                                       : 0;
+            k.BlendDst = s.BlendEnable ? static_cast<int>( s.DstColorBlendFactor ) |
+                                              ( static_cast<int>( s.DstAlphaBlendFactor ) << 8 )
+                                       : 0;
             if ( s.StencilTestEnabled )
             {
                 const auto pack = []( const StencilOpState& f )

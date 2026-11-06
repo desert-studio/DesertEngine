@@ -460,6 +460,48 @@ namespace Desert::Graphic
         return depthOnly.Depth;
     }
 
+    void SceneRenderer::AddFrameDecals( RDG::Builder& graph, FrameTextures& textures,
+                                        const RDG::TextureRef sceneDepth )
+    {
+        // No decal in this view: no node and no DBuffer - the view inputs bind System.Black (transmittance 1),
+        // and every G-buffer writer keeps its exact bits (Common/DBuffer.glslh DesertApplyDBuffer).
+        if ( !m_Decals.HasDraws() )
+            return;
+        // The DBuffer at the prepass depth's own extent: every decal texel is a G-buffer texel.
+        const auto depthDesc = graph.GetTextureDesc( sceneDepth );
+        if ( !depthDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: 'Deferred: Decals' refused, the prepass depth has no description: {}",
+                       m_ViewResources.GetName(), depthDesc.GetError() );
+            return;
+        }
+        RDG::TextureDesc desc;
+        desc.Size   = RDG::Extent3D{ depthDesc.GetValue().Size.Width, depthDesc.GetValue().Size.Height, 1 };
+        desc.Format = ViewTargetFormats::kDBufferA;
+        const RDG::TextureRef dbufferA = graph.CreateTexture( desc, "DBufferA" );
+        desc.Format                    = ViewTargetFormats::kDBufferB;
+        const RDG::TextureRef dbufferB = graph.CreateTexture( desc, "DBufferB" );
+        desc.Format                    = ViewTargetFormats::kDBufferC;
+        const RDG::TextureRef dbufferC = graph.CreateTexture( desc, "DBufferC" );
+
+        // UE RenderDBuffer: the boxes over the full early-Z, no depth attachment (the fragment reconstructs the
+        // receiver from @p sceneDepth). The DBuffer's own clears, not textures.ColorLoads: those are the
+        // G-buffer's slots. (0, 0, 0, 1) = nothing written, transmittance 1 (Common/DBuffer.glslh).
+        RasterTargets dbuffer;
+        dbuffer.Colors             = { dbufferA, dbufferB, dbufferC };
+        const RDG::LoadOp    clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
+        const RDG::BufferRef rows  = m_Decals.UploadRows( graph );
+        AddRaster(
+             graph, "Deferred: Decals", dbuffer, { clear, clear, clear }, RDG::LoadOp::Load(), {},
+             [decals = &m_Decals]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return decals->Render( context ); },
+             [decals = &m_Decals, sceneDepth, rows]( RDG::PassBuilder& pass )
+             { decals->Declare( pass, sceneDepth, rows ); } );
+        textures.Transients.DBufferA = dbufferA;
+        textures.Transients.DBufferB = dbufferB;
+        textures.Transients.DBufferC = dbufferC;
+    }
+
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
@@ -497,6 +539,8 @@ namespace Desert::Graphic
                  [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return terrain->RenderDepthManual( context ); },
                  [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+        AddFrameDecals( graph, textures, targets->Depth );
+        // The view's inputs below are taken AFTER "Deferred: Decals": the G-buffer reads the DBuffer it wrote.
         AddRaster(
              graph, "Deferred: GBuffer", *targets,
              textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
@@ -680,10 +724,11 @@ namespace Desert::Graphic
              graph, "TerrainGBuffer", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return terrain->RenderGBufferManual( context ); },
-             [terrain]( RDG::PassBuilder& pass )
+             // The view's inputs as they stand AFTER "Deferred: Decals" (AddFrameGBuffer): the DBuffer it wrote.
+             [terrain, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              {
                  DESERT_PROFILE_SCOPE( "Terrain: GBuffer setup" );
-                 terrain->DeclareGBufferDraws( pass );
+                 terrain->DeclareGBufferDraws( pass, view );
              } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }

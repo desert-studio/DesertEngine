@@ -660,7 +660,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     std::vector<VkPipelineColorBlendAttachmentState>
     BuildColorBlendAttachments( const std::vector<uint32_t>& writtenLocations,
                                 const std::vector<bool>& blendPerSlot, const VkBlendFactor srcColor,
-                                const VkBlendFactor dstColor )
+                                const VkBlendFactor dstColor, const VkBlendFactor srcAlpha,
+                                const VkBlendFactor dstAlpha )
     {
         const auto colorAttachmentCount = static_cast<uint32_t>( blendPerSlot.size() );
         std::vector<VkPipelineColorBlendAttachmentState> attachments( colorAttachmentCount );
@@ -671,8 +672,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                    .srcColorBlendFactor = srcColor,
                                    .dstColorBlendFactor = dstColor,
                                    .colorBlendOp        = VK_BLEND_OP_ADD,
-                                   .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                                   .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                                   .srcAlphaBlendFactor = srcAlpha,
+                                   .dstAlphaBlendFactor = dstAlpha,
                                    .alphaBlendOp        = VK_BLEND_OP_ADD,
                                    .colorWriteMask      = written
                                                                ? ( VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |

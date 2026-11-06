@@ -29,6 +29,7 @@ namespace Desert::Graphic
 {
     struct ViewFrame;
     class FrameTextures;
+    struct SceneViewInputs;
 }
 
 namespace Desert::Graphic::System
@@ -141,9 +142,10 @@ namespace Desert::Graphic::System
                                                              const DiceOcclusion& occlusion );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
-        // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
-        // no scene/view input); the exec records through them.
-        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
+        // that node: one binding block per G-buffer material of the frame's groups, each binding the one
+        // scene/view input the G-buffer shader samples - the view's DBuffer (DECALS-DBUFFER,
+        // Common/DBuffer.glslh); the exec records through them.
+        void DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
         // THE VIEW'S DEPTH PREPASS of the ground (UE: the DepthPass draws the landscape, an opaque occluder, under

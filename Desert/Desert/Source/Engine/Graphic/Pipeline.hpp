@@ -259,6 +259,11 @@ namespace Desert::Graphic
         // blend, so shaders that don't declare custom factors render identically. Alpha channel mirrors these.
         BlendFactor    SrcColorBlendFactor = BlendFactor::SrcAlpha;
         BlendFactor    DstColorBlendFactor = BlendFactor::OneMinusSrcAlpha;
+        // The alpha channel's own factors (UE TStaticBlendState's separate alpha pair). The defaults are the
+        // alpha blend every pipeline had before they existed (ONE / ONE_MINUS_SRC_ALPHA). The DBuffer decals
+        // (System::DecalRenderer) take ZERO / ONE_MINUS_SRC_ALPHA: alpha is a TRANSMITTANCE the coverage scales.
+        BlendFactor SrcAlphaBlendFactor = BlendFactor::One;
+        BlendFactor DstAlphaBlendFactor = BlendFactor::OneMinusSrcAlpha;
 
         // Build the pipeline against the target framebuffer's LOAD render pass instead of the CLEAR one, so
         // the pass can be begun with clearFrame=false (preserve existing content) without a render-pass

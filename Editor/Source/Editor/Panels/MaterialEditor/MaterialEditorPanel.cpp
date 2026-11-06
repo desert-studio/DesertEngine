@@ -107,6 +107,10 @@ namespace Desert::Editor
                     return "UI";
                 case D::Particle:
                     return "Particle";
+                case D::DeformStamp:
+                    return "Deform Stamp";
+                case D::DeferredDecal:
+                    return "Deferred Decal";
             }
             return "engine-internal";
         }
@@ -137,6 +141,14 @@ namespace Desert::Editor
                     return "is a VFX fragment — a stack module or a compiled emitter stack — compiled into "
                            "the particle simulation, not an object this pane could place. Look at the effect "
                            "that uses it in the viewport.";
+                case D::DeformStamp:
+                    return "is the shape of a surface-deformation stamp, compiled into the deformation "
+                           "field's stamp program, not an object this pane could place. Look at the field it "
+                           "deforms in the viewport.";
+                case D::DeferredDecal:
+                    return "projects onto the scene's surfaces from a Decal component's box, not an object "
+                           "this pane could place. Assign it to a Decal component and look at the surfaces "
+                           "the box covers in the viewport.";
                 case D::Unspecified:
                 case D::Surface:
                 case D::Skybox: // no longer a refusal: the pane wraps its cubemap onto a ball (see

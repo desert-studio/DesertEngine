@@ -525,7 +525,9 @@ namespace Desert::Graphic::API::Vulkan
         m_ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
              vulkanShader->GetFragmentOutputLocations(), blends,
              ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
-             ConvertBlendFactor( m_Specification.DstColorBlendFactor ) );
+             ConvertBlendFactor( m_Specification.DstColorBlendFactor ),
+             ConvertBlendFactor( m_Specification.SrcAlphaBlendFactor ),
+             ConvertBlendFactor( m_Specification.DstAlphaBlendFactor ) );
 
         m_ColorBlending = VkPipelineColorBlendStateCreateInfo{
              .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,

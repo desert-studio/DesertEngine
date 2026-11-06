@@ -2247,11 +2247,51 @@ namespace Desert::Core::Preprocess
                     result.Meta.Domain = ShaderDomain::Particle;
                 else if ( v == "deformstamp" )
                     result.Meta.Domain = ShaderDomain::DeformStamp;
+                else if ( v == "deferreddecal" )
+                {
+                    result.Meta.Domain = ShaderDomain::DeferredDecal;
+                    // A decal material that names no channels writes all three (UE: DBuffer A, B and C).
+                    if ( result.Meta.DecalChannelMask == 0u )
+                        result.Meta.DecalChannelMask = kDecalChannelAll;
+                }
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };
                     return fail();
                 }
+            }
+            // `DecalChannels BaseColor Normal Roughness`: the DBuffer targets a DeferredDecal shader writes
+            // (ShaderProgramMeta DecalChannel). Read to the end of the line; an unknown word fails the compile.
+            else if ( lower == "decalchannels" )
+            {
+                uint32_t mask = 0u;
+                // The channels are the words on the `DecalChannels` line itself: a probe that lands on a later
+                // line has read the next section's keyword, which stays unread.
+                for ( ;; )
+                {
+                    Cursor            probe = c;
+                    const std::string word  = Lower( ReadIdent( probe ) );
+                    if ( word.empty() || probe.Line != line )
+                        break;
+                    c = probe;
+                    if ( word == "basecolor" )
+                        mask |= kDecalChannelBaseColor;
+                    else if ( word == "normal" )
+                        mask |= kDecalChannelNormal;
+                    else if ( word == "roughness" )
+                        mask |= kDecalChannelRoughnessMetalAO;
+                    else
+                    {
+                        err = { line, "unknown DecalChannels channel '" + word + "'" };
+                        return fail();
+                    }
+                }
+                if ( mask == 0u )
+                {
+                    err = { line, "DecalChannels names no channel" };
+                    return fail();
+                }
+                result.Meta.DecalChannelMask = mask;
             }
             // The template MANIFEST (`Role <Name>`, `Default Surface`) is not program schema: its one reader is
             // Common::Content::ReadShaderManifest (ShaderAsset, the asset registry's Role tag). The compiler
