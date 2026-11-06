@@ -2908,15 +2908,27 @@ namespace Desert::Graphic::System
             Fallback,      // its template declares no `.VirtualGeometry` twin
             Twin,          // declares the twin: a group of it without a VG pipeline is a held refusal
         };
+        // CPU-FRAME-ARENA 9: the row is every pass's answer about a cell (ResolveVirtualGeometryPipeline,
+        // SetFrameVirtualGeometry, the VSM carriers), made once by BinnedCellFacts: no name, MeshCellPath or
+        // GetByName per call or per group per frame.
         struct VsmCellRow
         {
             uint64_t     CodeGeneration = 0;
             VsmCellClass Class          = VsmCellClass::NoPermutation;
+            bool         Binned         = false; // IsBinnedCell( name )
+            bool         DeclaresTwin   = false; // DeclaresVirtualGeometryTwin( name ), whatever the path
             bool         RefusalSaid    = false; // m_BinnedRefused asked for "<cell>|vsm-vg" already
+            bool         VgRefusalSaid  = false; // ... for "<cell>|vg" (SetFrameVirtualGeometry)
+            bool         CarrierSaid    = false; // ... for "<cell>|vsm-vg-carrier" (a refused VSM carrier)
+            std::string  TwinCell;               // VirtualGeometryCellOf( name ), when Class == Twin
         };
         std::unordered_map<uint64_t, VsmCellRow> m_VsmCellClasses;
         uint64_t                                 m_VsmCellClassesRegistry = 0;
         bool                                     m_VsmCellClassesValid    = false;
+        // @p shader's row of m_VsmCellClasses, made (its name read, MeshCellPath / DeclaresVirtualGeometryTwin
+        // asked) only for a shader not met at this code generation since the shader service last moved
+        // (RecompileGeneration: a Register / Recompile / Clear forgets every row).
+        VsmCellRow& BinnedCellFacts( const Shader& shader );
         // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
         bool m_VsmCastersPending = false;
 

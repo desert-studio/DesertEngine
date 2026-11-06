@@ -696,15 +696,8 @@ namespace Desert::Graphic::System
         if ( issue.GroupCount != table.Groups.size() )
             return Common::MakeError( std::format( "virtual shadow map clusters: {} cluster bins for {} groups",
                                                    issue.GroupCount, table.Groups.size() ) );
-        // Each group cell's class from m_VsmCellClasses: its name is read (and MeshCellPath /
+        // Each group cell's class from BinnedCellFacts: its name is read (and MeshCellPath /
         // DeclaresVirtualGeometryTwin asked) only for a shader not met since the service last moved.
-        const uint64_t registry = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
-        if ( !m_VsmCellClassesValid || m_VsmCellClassesRegistry != registry )
-        {
-            m_VsmCellClasses.clear();
-            m_VsmCellClassesRegistry = registry;
-            m_VsmCellClassesValid    = true;
-        }
         drawn.assign( table.Groups.size(), uint8_t{ 0 } );
         std::vector<uint8_t>& fallback = m_VsmFallbackScratch; // kept; refilled per frame
         fallback.assign( table.Groups.size(), uint8_t{ 0 } );
@@ -722,23 +715,7 @@ namespace Desert::Graphic::System
             const std::shared_ptr<Shader>& shader = indirect.Pipeline->GetSpecification().Shader;
             if ( !shader )
                 continue;
-            const uint64_t code = shader->GetCodeGeneration();
-            auto [row, fresh]   = m_VsmCellClasses.try_emplace( shader->GetSerial() );
-            VsmCellRow& cellRow = row->second;
-            if ( fresh || cellRow.CodeGeneration != code )
-            {
-                const std::string cell = shader->GetName();
-                cellRow                = VsmCellRow{ .CodeGeneration = code };
-                // Only a group of a path with the VG permutation (Static, Instanced) can hold clusters. The
-                // template with no `.VirtualGeometry` permutation is the fallback (UE: no Nanite path -> the
-                // fallback mesh), a known state - its submeshes are counted below, nothing is logged.
-                if ( const auto path = MeshCellPath( cell ); !path || !HasVirtualGeometryPermutation( *path ) )
-                    cellRow.Class = VsmCellClass::NoPermutation;
-                else if ( !DeclaresVirtualGeometryTwin( cell ) )
-                    cellRow.Class = VsmCellClass::Fallback;
-                else
-                    cellRow.Class = VsmCellClass::Twin;
-            }
+            VsmCellRow& cellRow = BinnedCellFacts( *shader );
             if ( cellRow.Class == VsmCellClass::NoPermutation )
                 continue;
             if ( cellRow.Class == VsmCellClass::Fallback )
@@ -832,7 +809,12 @@ namespace Desert::Graphic::System
                     if ( vg.GroupCarriers[group] != nullptr )
                         continue;
                     ++m_VsmRefusedGroups;
-                    if ( const std::string& cell = twin->GetSpecification().Shader->GetName();
+                    // Said once per twin cell: the row (BinnedCellFacts) spares the name and the key's
+                    // concatenation every frame the carrier stays refused.
+                    const std::shared_ptr<Shader>& twinShader = twin->GetSpecification().Shader;
+                    if ( !twinShader || std::exchange( BinnedCellFacts( *twinShader ).CarrierSaid, true ) )
+                        continue;
+                    if ( const std::string cell = twinShader->GetName();
                          m_BinnedRefused.insert( cell + "|vsm-vg-carrier" ).second )
                         LOG_WARN( "[MeshRenderer] virtual shadow map clusters of '{}' have no carrier ({}): its "
                                   "virtual-geometry meshes cast through the CPU walk",
