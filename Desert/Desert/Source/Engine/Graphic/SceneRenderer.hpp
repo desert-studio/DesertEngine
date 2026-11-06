@@ -1365,6 +1365,11 @@ namespace Desert::Graphic
         // casting shadows. It makes the frame bring the global distance field up (GlobalDistanceFieldRead), the
         // cascades end nearer (RebudgetShadowsFor) and the composite cross-fade into the mask (CompositeView.x).
         [[nodiscard]] bool SunDistanceFieldShadowRuns() const;
+        // The cascade budget's DF key (RebudgetShadowsFor -> ShadowQualityOf): the view's RESOLVED method only -
+        // DistanceFieldShadows on the deferred cascade arm, its renderer not latched failed - never the per-frame
+        // sun state, so a frame whose sun stops casting does not re-allocate the maps. A failed renderer gives the
+        // cascades their full Shadows.Distance back (the composite then has no mask past them).
+        [[nodiscard]] bool SunDistanceFieldShadowBudget() const;
         // "Shadows: Distance Field Sun" (System::DistanceFieldShadowRenderer) over the G-buffer and this frame's
         // distance fields: the mask the deferred composite's cascade arm reads past the last cascade. Invalid
         // (logged) when a pass could not be declared; the composite then keeps the cascades alone.
@@ -1899,7 +1904,8 @@ namespace Desert::Graphic
         // Re-budgets the sun's cascades when the quality generation or the view's RESOLVED sun path the budget was
         // taken for moved (ShadowReallocation): a screen-mask sun keeps only the low-detail cascades, CascadedMaps
         // the full ones. Called at the head of OnUpdate, before any shadow view of the frame is planned.
-        void RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality, bool sunRayTraced );
+        void RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality, bool sunRayTraced,
+                                 bool sunDistanceField );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         // A path-traced frame: the cloud layer's sky-occlusion volume alone
         // (VolumetricCloudRenderer::DeclareSkyOcclusionNodes).
@@ -2435,6 +2441,8 @@ namespace Desert::Graphic
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
         // low-detail ones. Re-budgeted when it or the quality generation moves.
         bool m_ShadowBudgetSunRayTraced = false;
+        // The DF-shadow key the cascade budget was taken for (SunDistanceFieldShadowBudget).
+        bool m_ShadowBudgetSunDistanceField = false;
         // Scalability Shadows.RayTracedSamplesPerPixel and the elected sun's SourceAngle, taken each BeginScene.
         uint32_t m_RayTracedShadowSamples = 1;
         // Shadows.RayTracedDenoiserRadius (Scalability): the ShadowVisibility reconstruction kernel. High: 2.

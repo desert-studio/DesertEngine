@@ -1529,14 +1529,18 @@ namespace Desert::Graphic
     // TLAS is not built draws those low-detail cascades for that frame (LowerShadowsForFrame) rather than
     // re-allocating the maps twice around it. Called at the head of OnUpdate only, before any shadow view of the
     // frame is planned.
+    // The DF-shadow sun is a third key (ShadowQualityOf, SunDistanceFieldShadowBudget): its cascades end at
+    // Shadows.DistanceFieldCascadeDistance.
     void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
-                                            const bool                                  sunRayTraced )
+                                            const bool sunRayTraced, const bool sunDistanceField )
     {
-        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced )
+        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced &&
+             sunDistanceField == m_ShadowBudgetSunDistanceField )
             return;
-        m_ShadowBudgetGeneration   = quality.Generation;
-        m_ShadowBudgetSunRayTraced = sunRayTraced;
-        const auto budget          = ShadowReallocation( m_ViewProfile, quality, sunRayTraced );
+        m_ShadowBudgetGeneration       = quality.Generation;
+        m_ShadowBudgetSunRayTraced     = sunRayTraced;
+        m_ShadowBudgetSunDistanceField = sunDistanceField;
+        const auto budget = ShadowReallocation( m_ViewProfile, quality, sunRayTraced, sunDistanceField );
         if ( !budget )
             return;
         m_ViewProfile.Shadows = *budget;
@@ -1614,7 +1618,7 @@ namespace Desert::Graphic
         // (MeshRenderer::RebudgetShadows); taken in the middle of the frame, it destroyed what that frame had
         // already planned and the frame recorded it (SHADOW-CINE-ABORT: Shadows Cinematic switched on live, the
         // rain occlusion's view drew through a null caster material and the editor aborted).
-        RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
+        RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask(), SunDistanceFieldShadowBudget() );
 
         // This frame's shadow casters, gathered once from the mesh queues for every shadow view (each caster's
         // box, and its level on first use); the cascades, the rain occlusion view, the local lights' and the VSM
@@ -3382,6 +3386,12 @@ namespace Desert::Graphic
         const auto* const meshRenderer = m_Systems.Mesh.get();
         return meshRenderer != nullptr &&
                meshRenderer->DirectionalShadows()[SceneResources::kDirectionalShadowSun].CastShadows;
+    }
+
+    bool SceneRenderer::SunDistanceFieldShadowBudget() const
+    {
+        return m_RenderMethods.DistanceFieldShadows && m_RenderPath == Core::RenderPath::Deferred &&
+               !SunShadowIsScreenMask() && !m_DistanceFieldShadowFailed;
     }
 
     bool SceneRenderer::EnsureDistanceFieldShadowResources()

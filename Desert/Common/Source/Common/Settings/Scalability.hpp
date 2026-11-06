@@ -412,6 +412,12 @@ namespace Common::Scalability
         // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->
         // MeshRenderer::SetFoliageShadowLodBias (MeshRenderer::BladeShadowSet). Steps, 0..3.
         ShadowFoliageLodBias,
+        // Where the sun's cascades END when its shadow past them is the distance-field one (DF-SHADOWS; UE
+        // DistanceFieldShadowing, r.Shadow.DistanceFieldShadowDistance): ViewMemory ShadowQualityOf takes
+        // min(ShadowDistance, this) as ShadowQuality::MaxDistance for a view whose sun reads the DF mask, so the
+        // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
+        // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
+        ShadowDistanceFieldCascadeDistance,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
