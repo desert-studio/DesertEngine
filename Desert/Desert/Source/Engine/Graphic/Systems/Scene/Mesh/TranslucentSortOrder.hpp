@@ -30,27 +30,43 @@ namespace Desert::Graphic::System
         int       Priority          = 0; // StaticMeshComponent::TranslucencySortPriority
     };
 
-    /// Indices into @p items, in draw order (first = drawn first = farthest / lowest priority).
-    [[nodiscard]] inline std::vector<uint32_t> TranslucentSortOrder( const glm::vec3& cameraPosition,
-                                                                     std::span<const TranslucentSortItem> items )
+    /// The same order written into caller-kept buffers (@p distance2 scratch, @p order the result), so a per-frame
+    /// caller (MeshRenderer::RenderGlassManual) reuses their capacity and allocates nothing in a steady frame.
+    /// STABLE BY ITS KEY, not by std::stable_sort (whose merge buffer is a heap allocation per call): the
+    /// submission index is the last key, so the comparator is a total order and std::sort yields the stable order
+    /// exactly.
+    inline void TranslucentSortOrderInto( const glm::vec3&                     cameraPosition,
+                                          std::span<const TranslucentSortItem> items,
+                                          std::vector<float>& distance2, std::vector<uint32_t>& order )
     {
         // Squared distance orders exactly as distance does and needs no square root per object.
-        std::vector<float> distance2( items.size() );
+        distance2.resize( items.size() );
         for ( size_t i = 0; i < items.size(); ++i )
         {
             const glm::vec3 d = items[i].WorldBoundsCenter - cameraPosition;
             distance2[i]      = glm::dot( d, d );
         }
 
-        std::vector<uint32_t> order( items.size() );
+        order.resize( items.size() );
         std::iota( order.begin(), order.end(), 0u );
-        std::stable_sort( order.begin(), order.end(),
-                          [&]( uint32_t a, uint32_t b )
-                          {
-                              if ( items[a].Priority != items[b].Priority )
-                                  return items[a].Priority < items[b].Priority;
-                              return distance2[a] > distance2[b];
-                          } );
+        std::sort( order.begin(), order.end(),
+                   [&]( uint32_t a, uint32_t b )
+                   {
+                       if ( items[a].Priority != items[b].Priority )
+                           return items[a].Priority < items[b].Priority;
+                       if ( distance2[a] != distance2[b] )
+                           return distance2[a] > distance2[b];
+                       return a < b;
+                   } );
+    }
+
+    /// Indices into @p items, in draw order (first = drawn first = farthest / lowest priority).
+    [[nodiscard]] inline std::vector<uint32_t> TranslucentSortOrder( const glm::vec3& cameraPosition,
+                                                                     std::span<const TranslucentSortItem> items )
+    {
+        std::vector<float>    distance2;
+        std::vector<uint32_t> order;
+        TranslucentSortOrderInto( cameraPosition, items, distance2, order );
         return order;
     }
 } // namespace Desert::Graphic::System

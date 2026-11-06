@@ -212,8 +212,9 @@ namespace Desert::Graphic::System
         draws.clear();
         recorders.clear();
 
-        for ( const auto& g : m_GenericQueue )
+        for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
         {
+            const GenericMeshRenderData& g = m_GenericQueue[gi];
             // Its row in the scene material table (SyncGpuScene resolved it from the same record); none means
             // SyncGpuScene could not shade it (no compiled program, a refused domain) and said so.
             if ( !g.MaterialRow )
@@ -236,20 +237,17 @@ namespace Desert::Graphic::System
                                                  kBinnedMainView ),
                                  g.Mesh, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
                 continue;
-            if ( g.Mesh != nullptr &&
-                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            // The dense snapshot's box (m_StaticSnapshot.GenericBounds), built once per static revision.
+            if ( g.Mesh != nullptr && !GenericEntryInView( frustum, gi ) )
                 continue;
 
             // Per-slot draws carry their own material (asset params already applied at build);
             // Shader Override draws use a shader-keyed shared material + per-frame overrides.
-            DataDrivenMaterial* material   = nullptr;
-            std::string         shaderName = g.ShaderName;
-            if ( g.SlotMaterial != nullptr )
-            {
-                material = dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial );
-                if ( material != nullptr )
-                    shaderName = material->GetShaderName();
-            }
+            // The name is read in place (the material's or the record's), never copied per draw per frame.
+            // (A later reassignment of `material` leaves shaderName on the slot's, which outlives the frame.)
+            DataDrivenMaterial* material =
+                 g.SlotMaterial != nullptr ? dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial ) : nullptr;
+            const std::string& shaderName = material != nullptr ? material->GetShaderName() : g.ShaderName;
 
             auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
             auto        shader  = shaders->GetByName( shaderName );
@@ -990,14 +988,15 @@ namespace Desert::Graphic::System
             const auto shader = shaders->GetByName( shaderName );
             return shader && shader->IsCompiled() && shader->SamplesTexture( textureName );
         };
-        for ( const auto& data : m_StaticQueue )
+        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
         {
+            const StaticMeshRenderData& data = m_StaticQueue[si];
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
             const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
             if ( surfaceInst == nullptr || mat == nullptr || !IsTranslucent( mat ) )
                 continue;
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            if ( !StaticEntryInView( frustum, si ) )
                 continue;
             if ( samples( mat->GetShaderName() ) )
                 return true;
@@ -1018,11 +1017,12 @@ namespace Desert::Graphic::System
         if ( camera == nullptr )
             return false;
         const Core::Frustum frustum = camera->GetFrustum();
-        for ( const auto& data : m_StaticQueue )
+        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
         {
+            const StaticMeshRenderData& data = m_StaticQueue[si];
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            if ( !StaticEntryInView( frustum, si ) )
                 continue;
             const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
             if ( surfaceInst != nullptr && IsTranslucent( mat ) )
@@ -1038,10 +1038,10 @@ namespace Desert::Graphic::System
             return false;
         const Core::Frustum frustum = camera->GetFrustum();
         auto* const         shaders = Runtime::ResourceRegistry::GetShaderService();
-        for ( const auto& g : m_GenericQueue )
+        for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
         {
-            if ( g.Mesh == nullptr ||
-                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            const GenericMeshRenderData& g = m_GenericQueue[gi];
+            if ( g.Mesh == nullptr || !GenericEntryInView( frustum, gi ) )
                 continue;
             std::string shaderName = g.ShaderName;
             if ( g.SlotMaterial != nullptr )
@@ -1277,24 +1277,20 @@ namespace Desert::Graphic::System
         // Each cell's rows go to that cell's dedicated material (written ONCE per frame, see TranslucentDraw).
         const Core::Frustum frustum = camera->GetFrustum();
 
-        struct Draw
+        // Kept across frames (m_ScratchGlassWalk), cleared here.
+        TranslucentWalkScratch& walk = m_ScratchGlassWalk;
+        walk.Clear();
+        auto&                  draws        = walk.Draws;
+        auto&                  sortKeys     = walk.SortKeys;
+        TranslucentDraw* const standInState = TranslucentStandIn();
+        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
         {
-            const StaticMeshRenderData* Object;
-            TranslucentDraw*            State;
-            uint32_t                    Row;
-        };
-        std::vector<Draw>                    draws;
-        std::vector<TranslucentSortItem>     sortKeys;
-        std::unordered_set<TranslucentDraw*> cells; // each lent the scene material table once
-        TranslucentDraw* const               standInState = TranslucentStandIn();
-        for ( const auto& data : m_StaticQueue )
-        {
+            const StaticMeshRenderData& data = m_StaticQueue[si];
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
             {
                 continue;
             }
-            const Common::Math::AABB localBounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
-            if ( !IsVisibleInView( frustum, data.Transform, localBounds ) )
+            if ( !StaticEntryInView( frustum, si ) )
             {
                 continue;
             }
@@ -1330,9 +1326,9 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            cells.insert( state );
+            walk.AddCell( state );
             draws.push_back( { &data, state, *row } );
-            const Common::Math::AABB world = Geometry::TransformBounds( data.Transform, localBounds );
+            const Common::Math::AABB world = StaticEntryWorldBounds( si );
             sortKeys.push_back( { .WorldBoundsCenter = ( world.Min + world.Max ) * 0.5f,
                                   .Priority          = data.TranslucencySortPriority } );
         }
@@ -1341,12 +1337,13 @@ namespace Desert::Graphic::System
             return;
         }
         // Blending is order-dependent: far glass first, near glass over it (see TranslucentSortOrder.hpp).
-        const std::vector<uint32_t> drawOrder = TranslucentSortOrder( camera->GetPosition(), sortKeys );
+        TranslucentSortOrderInto( camera->GetPosition(), sortKeys, walk.SortDistance2, walk.DrawOrder );
+        const std::vector<uint32_t>& drawOrder = walk.DrawOrder;
 
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
         // is what its draws will read: its rows and the scene snapshot ---
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
-        for ( TranslucentDraw* const state : cells )
+        for ( TranslucentDraw* const state : walk.Cells )
         {
             // A refusal was said by name; the cell's draws read a table that is not there, so none is recorded.
             if ( !LendMaterialTable( *state->Material ) )
@@ -1360,7 +1357,7 @@ namespace Desert::Graphic::System
         // executor + the shader its pipeline records with) ---
         for ( const uint32_t index : drawOrder )
         {
-            const Draw&         draw     = draws[index];
+            const TranslucentObjectDraw& draw = draws[index];
             const auto*         obj      = draw.Object;
             DataDrivenMaterial* material = draw.State->Material.get();
             MaterialInstance*   instance = draw.State->Instance.get();
@@ -1417,19 +1414,16 @@ namespace Desert::Graphic::System
         // CanMaterialRenderInFrontLayerTranslucencyGBufferPass: a translucent material, not an additive one - light
         // added over the scene reflects nothing), each through its template's front layer cell with its own row.
         const Core::Frustum frustum = camera->GetFrustum();
-        struct Draw
+        // Kept across frames (m_ScratchFrontLayerWalk), cleared here.
+        TranslucentWalkScratch& walk = m_ScratchFrontLayerWalk;
+        walk.Clear();
+        auto& draws = walk.Draws;
+        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
         {
-            const StaticMeshRenderData* Object;
-            TranslucentDraw*            State;
-            uint32_t                    Row;
-        };
-        std::vector<Draw>                    draws;
-        std::unordered_set<TranslucentDraw*> cells; // each lent the scene material table once
-        for ( const auto& data : m_StaticQueue )
-        {
+            const StaticMeshRenderData& data = m_StaticQueue[si];
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            if ( !StaticEntryInView( frustum, si ) )
                 continue;
             const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
             if ( surfaceInst == nullptr || mat == nullptr ||
@@ -1449,7 +1443,7 @@ namespace Desert::Graphic::System
             const std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
             if ( !row )
                 continue;
-            cells.insert( state );
+            walk.AddCell( state );
             draws.push_back( { &data, state, *row } );
         }
         if ( draws.empty() )
@@ -1458,13 +1452,13 @@ namespace Desert::Graphic::System
         // Per front layer cell, once per frame and before its block is declared: its rows and the scene snapshot
         // (the objects' motion rows its vertex stage and velocity read).
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
-        for ( TranslucentDraw* const state : cells )
+        for ( TranslucentDraw* const state : walk.Cells )
         {
             if ( !LendMaterialTable( *state->Material ) )
                 return false;
             frameState.ApplyTo( state->Instance.get() );
         }
-        for ( const Draw& draw : draws )
+        for ( const TranslucentObjectDraw& draw : draws )
         {
             const auto*         obj      = draw.Object;
             DataDrivenMaterial* material = draw.State->Material.get();
@@ -1633,10 +1627,10 @@ namespace Desert::Graphic::System
         {
             scratch.Planned      = false;
             scratch.InstSetCount = 0;
-            scratch.Groups.clear();
+            scratch.RecycleGroups( scratch.Groups ); // their lists keep their capacity (SpareLists)
             scratch.Walked.clear();
             if ( mode.Walk == nullptr )
-                scratch.WalkGroups.clear();
+                scratch.RecycleGroups( scratch.WalkGroups );
         }
         // BOTH QUEUES, AND THE SECOND ONE WAS MISSING. The instanced batches at the bottom of this
         // function are drawn INSIDE it, so `if ( m_StaticQueue.empty() ) return;` meant an Instanced
@@ -1690,7 +1684,7 @@ namespace Desert::Graphic::System
             for ( auto& [m, v] : groups )
                 if ( m == mat )
                     return v;
-            groups.emplace_back( mat, std::vector<const StaticMeshRenderData*>{} );
+            groups.emplace_back( mat, scratch.TakeList() );
             return groups.back().second;
         };
 
@@ -1718,7 +1712,7 @@ namespace Desert::Graphic::System
         // walks nothing (its groups are its Resolve call's).
         if ( resolveCall && mode.Walk != nullptr )
         {
-            groups = mode.Walk->WalkGroups;
+            scratch.CopyGroups( groups, mode.Walk->WalkGroups );
             walked = mode.Walk->Walked;
         }
         else if ( !recordCall )
@@ -1755,7 +1749,8 @@ namespace Desert::Graphic::System
             }
             // A mask that cannot be interned (a walk inside a setup task, MissInSetupTask) drops its record, as
             // the serial walk's CpuWalkHidden did: none in a Full or a Resolve call.
-            std::vector<const StaticMeshRenderData*> unwalked;
+            std::vector<const StaticMeshRenderData*>& unwalked = scratch.Unwalked;
+            unwalked.clear();
             for ( std::size_t c = 0; c < chunks; ++c )
             {
                 const DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
@@ -1785,7 +1780,7 @@ namespace Desert::Graphic::System
                 }
             }
             if ( resolveCall )
-                scratch.WalkGroups = groups; // before this half's split: the other half's Resolve call takes it
+                scratch.CopyGroups( scratch.WalkGroups, groups ); // before the split: the other Resolve takes it
         }
 
         // Accumulators for the auto-instanced path (shared across ALL material groups). The shared instanced
