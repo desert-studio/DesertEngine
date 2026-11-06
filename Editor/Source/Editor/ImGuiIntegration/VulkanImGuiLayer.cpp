@@ -194,18 +194,19 @@ namespace Desert::Graphic::API::Vulkan
         }
     };
 
-    // THE DETACHED WINDOWS (VK-SUBMIT-THREAD steps 7-8, REVIEW-6 GAP-2 / GAP-3 / RISK-3, REVIEW-7; UE: Slate
+    // THE DETACHED WINDOWS (VK-SUBMIT-THREAD steps 7-9, REVIEW-6 GAP-2 / GAP-3 / RISK-3, REVIEW-7; UE: Slate
     // hands each viewport's element batch to the render thread by value, and a viewport resize or destroy
     // flushes the queued rendering before its swapchain changes - FlushRenderingCommands, a flush of the whole
-    // queue, not of that viewport). A detached window's frame is a copy of its draw data that an ordered entry
-    // of the submit thread owns (VulkanFrameLoop::EnqueueOrdered): the backend records, submits and presents it
-    // there, after the frames and uploads handed over before it, so a texture it shows is never sampled before
-    // its queued copy. Drawing a frame does not wait. This thread waits where it touches a window: before it
-    // refills one of the window's copies, before ImGui changes the size of its OS window (SetPlatformSize), and
-    // before the backend creates, resizes or destroys it (the renderer callbacks below, put over the
-    // backend's). That wait is the submit thread's FIFO up to the window's newest entry (everything queued
-    // before it runs first), then the window's own frame fences (the fork's CreateOrResizeWindow /
-    // DestroyWindow), never the device idle. A panel dragged by its edge pays it every frame it changes size.
+    // queue, not of that viewport - then FVulkanViewport::RecreateSwapchain idles the device). A detached
+    // window's frame is a copy of its draw data that an ordered entry of the submit thread owns
+    // (VulkanFrameLoop::EnqueueOrdered): the backend records, submits and presents it there, after the frames
+    // and uploads handed over before it, so a texture it shows is never sampled before its queued copy. Drawing
+    // a frame does not wait. This thread waits where it touches a window: before it refills one of the window's
+    // copies and before ImGui changes the size of its OS window (SetPlatformSize), the submit thread's FIFO up
+    // to that entry; before the backend rebuilds or destroys it (the renderer callbacks below, put over the
+    // backend's), the whole submit thread drained, then the queue idle under the queue lock, which stays held
+    // until the backend is done (AfterOwnWork): a frame fence does not cover the present that waits on the
+    // window's render-complete semaphore. A panel dragged by its edge pays it every frame it changes size.
     // A frame stops at its first failure (the fork's RenderWindow: no submit after a failed acquire, no
     // present of an image not acquired), and every failure comes back as a value: Render logs its cause once
     // and rebuilds the window here, after its own work, before its next frame; the submit thread never
@@ -253,6 +254,9 @@ namespace Desert::Graphic::API::Vulkan
         static inline thread_local VkResult t_Captured  = VK_SUCCESS;
         static inline std::mutex            LoggedMutex;
         static inline std::vector<VkResult> Logged; // the causes already logged (ReportOnce)
+
+        // The queue lock AfterOwnWork holds across a window call (QueuesHeld); null outside one.
+        static inline thread_local const std::unique_lock<std::mutex>* t_HeldQueues = nullptr;
 
         VulkanLogicalDevice* Device = nullptr;
         // The backend's renderer half of the platform interface, kept when Install puts the layer's over it.
@@ -357,19 +361,56 @@ namespace Desert::Graphic::API::Vulkan
             return found->second.get();
         }
 
-        // THE WINDOW'S QUEUED WORK, THEN THE BACKEND. Waits, with no lock held, for the submit thread's FIFO up to
-        // @p window's newest entry (VulkanFrameLoop::WaitOrdered: every entry queued before it runs first, the
-        // window's own frames among them), then runs @p call. The backend's create / resize / destroy then waits
-        // the window's own frame fences (the fork's ImGui_ImplVulkanH_WaitWindowFrames), not the device idle,
-        // and issues no queue call, so no queue lock is taken. Nothing of this window is queued meanwhile: only
-        // this thread queues it.
+        // THE SUBMIT THREAD FLUSHED AND PAUSED, THEN THE BACKEND (step 9; UE FVulkanViewport::RecreateSwapchain:
+        // the RHI thread flushed, then the device idle, then the swapchain goes). For a window that exists:
+        //   1. the submit thread is drained with no lock held (VulkanFrameLoop::DrainSubmitThread): no queue
+        //      operation of this window, or of any other one (whose entry would need RecordMutex), is still
+        //      recorded on the host;
+        //   2. the queue lock is taken and kept across @p call: the submit thread puts nothing on the queue
+        //      until the backend is done (lock order: the queue lock, then RecordMutex in Capture);
+        //   3. inside @p call the backend waits only through WaitWindowIdle (the fork's InitInfo::
+        //      WaitWindowIdleFn), which idles the queue under that lock before the old swapchain, its
+        //      semaphores and frames go: a present's wait on RenderCompleteSemaphore is covered too, which no
+        //      frame fence is (VUID-vkDestroySemaphore-semaphore-05149).
+        // A new window (@p window null) has nothing queued and nothing to destroy: no flush, no lock, and the
+        // fork does not wait for it. Nothing of a window is queued meanwhile: only this thread queues it.
         template <typename Call>
         VkResult AfterOwnWork( const WindowState* const window, Call&& call ) noexcept
         {
-            // False only on the submit thread, and the platform interface runs on this one.
-            if ( window != nullptr && !VulkanFrameLoop::WaitOrdered( window->LastTicket ) )
-                return VK_ERROR_UNKNOWN;
+            std::unique_lock<std::mutex> queues;
+            if ( window != nullptr )
+            {
+                VulkanFrameLoop::DrainSubmitThread();
+                queues = Device->LockQueues();
+            }
+            const QueuesHeld held( queues );
             return Capture( std::forward<Call>( call ) );
+        }
+
+        // Publishes the queue lock AfterOwnWork holds to WaitWindowIdle, on this thread, for one backend call.
+        struct QueuesHeld
+        {
+            explicit QueuesHeld( const std::unique_lock<std::mutex>& queues ) noexcept
+            {
+                t_HeldQueues = &queues;
+            }
+            ~QueuesHeld()
+            {
+                t_HeldQueues = nullptr;
+            }
+            QueuesHeld( const QueuesHeld& )            = delete;
+            QueuesHeld& operator=( const QueuesHeld& ) = delete;
+        };
+
+        // ImGui_ImplVulkan_InitInfo::WaitWindowIdleFn, the backend's only wait before a window's objects go
+        // (AfterOwnWork step 3): the queue idles under the lock AfterOwnWork took, after its flush. Refused (no
+        // wait, the fork rebuilds nothing) outside AfterOwnWork or for a window it took no lock for.
+        static VkResult WaitWindowIdle( VkQueue const queue ) noexcept
+        {
+            const DetachedWindows* const self = Active;
+            if ( self == nullptr || t_HeldQueues == nullptr )
+                return VK_ERROR_INITIALIZATION_FAILED;
+            return self->Device->WaitQueueIdle( queue, *t_HeldQueues );
         }
 
         // ImGui's Platform_SetWindowSize, put over the platform backend's (Install): the window's queued frames
@@ -636,6 +677,9 @@ namespace Desert::Graphic::API::Vulkan
         init_info.Allocator      = nullptr;
         // The backend's own results, as values to the call that runs it and logged once per cause (GAP-3).
         init_info.CheckVkResultFn = &DetachedWindows::CheckBackendResult;
+        // The backend's one wait before a window's swapchain, semaphores and frames go: the queue idles under the
+        // lock the layer took after it flushed the submit thread (DetachedWindows::AfterOwnWork, step 9).
+        init_info.WaitWindowIdleFn = &DetachedWindows::WaitWindowIdle;
 
         // The pipeline is built against the render graph's canonical pass for the back buffer's format: the
         // interface is drawn inside a graph node (End), and render-pass compatibility is formats and samples only.
@@ -842,9 +886,10 @@ namespace Desert::Graphic::API::Vulkan
         // draws, each with its own swapchain, render pass, command buffers, submit and present: they are not this
         // frame's output and not the engine's back buffer, so they are not graph nodes. UpdatePlatformWindows
         // creates, resizes and destroys them here (GLFW: this thread only) through the layer's renderer
-        // callbacks, each after that window's own last entry and under the queue lock; their frames go to the
-        // submit thread as copies (DetachedWindows). Nothing here waits for the render task or the queue: the
-        // backend's state is one thread's at a time (DetachedWindows::RecordMutex).
+        // callbacks; a rebuild or a destruction drains the submit thread and idles the queue under its lock first
+        // (DetachedWindows::AfterOwnWork); their frames go to the submit thread as copies (DetachedWindows). A
+        // frame with no window change waits for neither the render task nor the queue: the backend's state is
+        // one thread's at a time (DetachedWindows::RecordMutex).
         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
         {
             ::ImGui::UpdatePlatformWindows();
