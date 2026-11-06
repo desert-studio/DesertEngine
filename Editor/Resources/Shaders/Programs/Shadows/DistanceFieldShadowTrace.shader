@@ -62,6 +62,8 @@ Shader "DistanceFieldShadowTrace"
         Uniform(9) texture3D GlobalDistanceField3Texture;
         #define GlobalDistanceField3Texture sampler3D(GlobalDistanceField3Texture, LinearRepeatSampler)
         #include <Common/GlobalDistanceField.glslh>
+        // The far-field cone through the clipmaps, its start and its reach: shared with the surface cache's cards.
+        #include <Common/DistanceFieldShadowGlobalTrace.glslh>
 
         Uniform(10) texture2D GBufferDepthTexture;  // device depth, reversed-Z (0 = far: no surface)
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
@@ -69,10 +71,8 @@ Shader "DistanceFieldShadowTrace"
         #define GBufferNormalTexture sampler2D(GBufferNormalTexture, PointClampSampler)
         layout(binding = 12, rgba16f) writeonly uniform image2D DistanceFieldShadowHalfTexture;
 
-        // UE r.DFShadowRayStartOffsetDepthScale (0.003): the ray leaves its receiver by this share of the
-        // receiver's distance from the camera - the fields' precision falls with the distance their voxels are
-        // seen from - plus the normal bias.
-        const float kRayStartOffsetDepthScale = 0.003;
+        // A near receiver leaves its surface by kDistanceFieldShadowRayStartOffsetDepthScale of its distance
+        // (Common/DistanceFieldShadowGlobalTrace.glslh) plus this normal bias.
         const float kNormalBias               = 4.0;   // cm, along the receiver's normal (DF_MESH_SDF_SURFACE_BIAS)
         // UE r.DFTwoSidedMeshDistanceBias (4 cm): a mostly two-sided mesh's sheets are thinner than its voxels;
         // its surface is grown by this much so a leaf card the field resolves to a V that never turns negative
@@ -83,8 +83,6 @@ Shader "DistanceFieldShadowTrace"
         const float kMinSphere                = 1.0;   // cm: the cone's radius never below it
         // The mesh fields' share of the ray; the global field takes the rest out to DISTANCE_FIELD_SHADOW_RAY.
         #define DISTANCE_FIELD_SHADOW_OBJECT_RAY 10000.0
-        #define DISTANCE_FIELD_SHADOW_RAY        50000.0
-        const int kGlobalSteps = 64;
 
         // One object of the tile's list: the ray clipped to its world box, sphere traced through its field;
         // @p visibility lowered by every step's open share of the cone.
@@ -113,30 +111,6 @@ Shader "DistanceFieldShadowTrace"
                 if (visibility <= 0.0)
                     return 0.0;
                 t += max(distance, kMinStep);
-            }
-            return visibility;
-        }
-
-        // The global field from @p tStart: the far occluders, through the finest clipmap holding each step.
-        float TraceGlobalField(vec3 origin, vec3 direction, float tStart, float tanHalf, float visibility)
-        {
-            if (ShadowParams.gdfLevels[0].w <= 0.0)
-                return visibility;
-            float t = tStart;
-            for (int s = 0; s < kGlobalSteps && t < DISTANCE_FIELD_SHADOW_RAY; ++s)
-            {
-                const vec3 p     = origin + direction * t;
-                const int  level = GlobalDistanceFieldLevelAt(p, ShadowParams.gdfLevels);
-                if (level < 0)
-                    break;
-                const float voxel    = ShadowParams.gdfLevels[level].w;
-                const float distance = SampleGlobalDistanceFieldLevel(level, p, voxel);
-                // Below half a voxel the trilinear field cannot tell the cone's radius apart.
-                const float sphere = max(t * tanHalf, 0.5 * voxel);
-                visibility = min(visibility, clamp(distance / sphere, 0.0, 1.0));
-                if (visibility <= 0.0)
-                    return 0.0;
-                t += max(distance, 0.5 * voxel);
             }
             return visibility;
         }
@@ -183,7 +157,7 @@ Shader "DistanceFieldShadowTrace"
             const vec3  toSun   = ShadowParams.lightZ.xyz;
             const vec3  normal  = normalize(texelFetch(GBufferNormalTexture, full, 0).rgb);
             const float facing  = dot(normal, toSun) >= 0.0 ? 1.0 : -1.0;
-            const float tMin    = kRayStartOffsetDepthScale * distance;
+            const float tMin    = kDistanceFieldShadowRayStartOffsetDepthScale * distance;
             const float tanHalf = ShadowParams.receivers.y;
 
             float visibility = 1.0;
@@ -193,7 +167,9 @@ Shader "DistanceFieldShadowTrace"
                 // holding it (normal bias and start), as the global field cannot resolve its own surface closer.
                 const float voxel  = ShadowParams.gdfLevels[farLevel].w;
                 const vec3  origin = position + normal * (facing * voxel);
-                visibility = TraceGlobalField(origin, toSun, max(tMin, 2.0 * voxel), tanHalf, visibility);
+                const float tStart = DistanceFieldShadowGlobalStart(distance, voxel);
+                visibility = DistanceFieldShadowTraceGlobal(origin, toSun, tStart, tanHalf, ShadowParams.gdfLevels,
+                                                            visibility);
             }
             else
             {
@@ -212,7 +188,8 @@ Shader "DistanceFieldShadowTrace"
                     globalStart = max(DISTANCE_FIELD_SHADOW_OBJECT_RAY, tMin);
                 }
                 if (visibility > 0.0)
-                    visibility = TraceGlobalField(origin, toSun, globalStart, tanHalf, visibility);
+                    visibility = DistanceFieldShadowTraceGlobal(origin, toSun, globalStart, tanHalf,
+                                                                ShadowParams.gdfLevels, visibility);
             }
             // The cone's open share to a disc's visible area (UE: the smoothstep of MinConeVisibility).
             visibility = smoothstep(0.0, 1.0, visibility);
