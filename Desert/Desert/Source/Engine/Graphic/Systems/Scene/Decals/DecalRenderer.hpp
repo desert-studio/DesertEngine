@@ -51,7 +51,7 @@ namespace Desert::Graphic::System
         glm::vec4 AxisZ;
         glm::vec4 Params; // x opacity (the CPU fade), y edge fade, z channel mask (as a float), w unused
     };
-    static_assert( sizeof( DecalRowGpu ) == 208, "DecalRowGpu is the std430 DecalRow of the decal shaders" );
+    static_assert( sizeof( DecalRowGpu ) == 192, "DecalRowGpu is the std430 DecalRow of the decal shaders" );
 
     // The pass's own inputs, the one spelling Declare binds and every decal program is validated against.
     struct DecalShaderParameters

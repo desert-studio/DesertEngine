@@ -2273,7 +2273,8 @@ namespace Desert::Core::Preprocess
                     const std::string word  = Lower( ReadIdent( probe ) );
                     if ( word.empty() || probe.Line != line )
                         break;
-                    c = probe;
+                    c.Pos  = probe.Pos;
+                    c.Line = probe.Line;
                     if ( word == "basecolor" )
                         mask |= kDecalChannelBaseColor;
                     else if ( word == "normal" )

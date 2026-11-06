@@ -354,7 +354,7 @@ namespace Desert::Graphic::System
         // route, and the pass's three inputs - each entry the declaration of its read.
         for ( const Program* program : m_Programs )
         {
-            MaterialExecutor* executor = program->Material->GetMaterialExecutor();
+            const MaterialExecutor* executor = program->Material->GetMaterialExecutor();
             pass.Prepares( *executor );
             const auto layout = program->Layout.Get( program->Pipeline->GetSpecification().Shader );
             pass.Bindings( layout, executor->GetRouteFill() )
