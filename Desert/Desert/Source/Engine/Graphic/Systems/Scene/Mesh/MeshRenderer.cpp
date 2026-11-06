@@ -232,6 +232,7 @@ namespace Desert::Graphic::System
         m_StaticQueue.clear();
         m_SkinnedQueue.clear();
         m_GenericQueue.clear();
+        m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         m_InstancedQueue.clear();
         m_GpuInstancedQueue.clear();
         // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
@@ -277,7 +278,10 @@ namespace Desert::Graphic::System
         // Two valid shapes: an override draw (ShaderName set) or a per-slot draw (SlotMaterial
         // set — the shader name comes from the material at draw time).
         if ( data.Mesh && ( !data.ShaderName.empty() || data.SlotMaterial ) )
+        {
             m_GenericQueue.push_back( data );
+            m_GenericProgramsResolved = false;
+        }
     }
 
     void MeshRenderer::SubmitInstancedMesh( const InstancedMeshRenderData& data )
@@ -1211,17 +1215,15 @@ namespace Desert::Graphic::System
         // twins (Forward.Binned, DepthNormal.Binned: ResolveGenericProgramBinned), and casts through the shared
         // caster.
         {
-            auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
-            const auto  isRegistered = [shaders]( std::string_view name )
-            { return shaders->GetByName( std::string( name ) ) != nullptr; };
-            for ( const auto& g : m_GenericQueue )
+            for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
             {
+                const GenericMeshRenderData& g = m_GenericQueue[gi];
                 if ( g.Mesh == nullptr || !g.MaterialRow )
                     continue;
-                const bool surfaceOverride =
-                     g.SlotMaterial == nullptr &&
-                     TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
-                          .has_value();
+                // The record's template facts (GenericProgramOf, resolved once a frame): no cell name asked here.
+                const ResolvedProgram& resolved = GenericProgramOf( gi );
+                const bool             surfaceOverride = g.SlotMaterial == nullptr && resolved.Facts != nullptr &&
+                                                         resolved.Facts->GBufferCell != nullptr;
                 claim( g.GpuPrimitive, g.Mesh, MeshVertexPath::Static, g.GpuInstance, 1, ~g.VisibleSubmeshMask,
                        *g.MaterialRow, g.MaterialSurface, true, !surfaceOverride );
             }

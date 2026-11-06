@@ -124,9 +124,9 @@ namespace Desert::Graphic::System
         if ( DefaultSurfacePipeline() && m_DefaultSurfaceMaterial )
             m_GenericStandInRow = RegisterMaterialRow( registry, m_DefaultSurfaceMaterial.get(), nullptr, true );
 
-        auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
-        for ( auto& g : m_GenericQueue )
+        for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
         {
+            GenericMeshRenderData& g = m_GenericQueue[gi];
             g.MaterialRow.reset();
             g.MaterialSurface = {};
             if ( g.Mesh == nullptr )
@@ -147,7 +147,7 @@ namespace Desert::Graphic::System
             // so each record's values are its own row — the template's defaults, its Overrides.Params and the
             // texture slots of its texture overrides — keyed by its entity part. That is what keeps three spheres
             // differing only in a graph parameter three colours (MAT_ProbeSharedBlock.desce).
-            const auto shader = shaders->GetByName( g.ShaderName );
+            const std::shared_ptr<Shader>& shader = GenericProgramOf( gi ).Program; // resolved once a frame
             if ( !shader || !shader->IsCompiled() ||
                  !Core::Formats::DrawnByMeshPath( shader->GetProgramMeta().Domain ) )
                 continue; // ShaderService named the compile error; BuildGenericDraws names the refused domain
@@ -249,8 +249,11 @@ namespace Desert::Graphic::System
                  g.SlotMaterial != nullptr ? dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial ) : nullptr;
             const std::string& shaderName = material != nullptr ? material->GetShaderName() : g.ShaderName;
 
-            auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
-            auto        shader  = shaders->GetByName( shaderName );
+            // The record's template and its facts (GenericProgramOf: resolved once a frame, the cells once per
+            // program): no GetByName or TemplateCellShader per draw per slice.
+            auto* const            shaders  = Runtime::ResourceRegistry::GetShaderService();
+            const ResolvedProgram& resolved = GenericProgramOf( gi );
+            std::shared_ptr<Shader> shader  = resolved.Program;
             // A shader whose first compile failed is still registered under its name, so GetByName hands
             // it back like any other. Skip its draws silently: the compilation error was already logged
             // once, with the file and line, and repeating it every frame for every mesh would bury it.
@@ -325,17 +328,13 @@ namespace Desert::Graphic::System
             // shaded twice. Every other draw is a template without a Surface block: its opaque ones put depth +
             // normal into the G-buffer first (the parser refuses an opaque one with no DepthNormal pass), then
             // shade forward over the composite at CloserOrEqual against that depth.
-            const auto isRegistered = [shaders]( std::string_view name )
-            { return shaders->GetByName( std::string( name ) ) != nullptr; };
-            const bool surfaceOverride =
-                 g.SlotMaterial == nullptr &&
-                 TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
-                      .has_value();
-            const auto& state  = shader->GetProgramMeta().State;
-            const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+            const ProgramFacts& facts           = *resolved.Facts;
+            const bool          surfaceOverride = g.SlotMaterial == nullptr && facts.GBufferCell != nullptr;
+            const bool          opaque          = facts.Opaque;
 
-            std::string         programName = shaderName;
-            Core::ShaderVariant permutation;
+            // The slice's cell of the template (its facts' program), or none: the template's own program.
+            const std::shared_ptr<Shader>* cell = nullptr;
+            Core::ShaderVariant            permutation;
             MeshPass            cellPass = MeshPass::Forward;
             switch ( slice )
             {
@@ -351,9 +350,8 @@ namespace Desert::Graphic::System
                 case GenericSlice::DeferredSurfaceGBuffer:
                     if ( !surfaceOverride )
                         continue;
-                    programName = *TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer,
-                                                       isRegistered );
-                    cellPass    = MeshPass::GBuffer;
+                    cell     = &facts.GBufferCell;
+                    cellPass = MeshPass::GBuffer;
                     break;
                 case GenericSlice::DeferredDepthNormal:
                 case GenericSlice::ForwardDepth:
@@ -364,8 +362,9 @@ namespace Desert::Graphic::System
                     // (its Forward-slice draw is shaded by the template itself); every other template through its
                     // DepthNormal program.
                     const MeshPass depthPass = surfaceOverride ? MeshPass::Depth : MeshPass::DepthNormal;
-                    auto depthNormal = TemplateCellShader( shaderName, MeshVertexPath::Static, depthPass, isRegistered );
-                    if ( !depthNormal )
+                    const std::shared_ptr<Shader>& depthNormal =
+                         surfaceOverride ? facts.DepthCell : facts.DepthNormalCell;
+                    if ( depthNormal == nullptr )
                     {
                         // The parser refuses an opaque mesh-path program without the pass, so this is a program
                         // whose pass failed to compile: named once; the draw is absent from the G-buffer depth
@@ -378,8 +377,8 @@ namespace Desert::Graphic::System
                                        shaderName, shaderName, Core::Preprocess::kGenericDepthNormalPass );
                         continue;
                     }
-                    programName = std::move( *depthNormal );
-                    cellPass    = depthPass;
+                    cell     = &depthNormal;
+                    cellPass = depthPass;
                     break;
                 }
                 case GenericSlice::DeferredForward:
@@ -396,11 +395,13 @@ namespace Desert::Graphic::System
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
-            const bool                    ownProgram     = programName != shaderName || !permutation.IsDefault();
+            const bool                    ownProgram     = cell != nullptr || !permutation.IsDefault();
+            // The program's name: the cell's or the template's (read in place, never formatted per draw).
+            const std::string& programName = cell != nullptr ? ( *cell )->GetName() : shaderName;
             if ( ownProgram )
             {
                 if ( permutation.IsDefault() )
-                    shader = shaders->GetByName( programName );
+                    shader = *cell; // a cell slice: no permutation is asked of a cell here
                 else
                 {
                     auto acquired = shaders->AcquireVariant( programName, permutation );
@@ -982,12 +983,8 @@ namespace Desert::Graphic::System
         if ( camera == nullptr )
             return false;
         const Core::Frustum frustum = camera->GetFrustum();
-        auto* const         shaders = Runtime::ResourceRegistry::GetShaderService();
-        const auto          samples = [&]( const std::string& shaderName )
-        {
-            const auto shader = shaders->GetByName( shaderName );
-            return shader && shader->IsCompiled() && shader->SamplesTexture( textureName );
-        };
+        const auto          samples = [&]( const std::shared_ptr<Shader>& shader )
+        { return shader && shader->IsCompiled() && shader->SamplesTexture( textureName ); };
         for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
         {
             const StaticMeshRenderData& data = m_StaticQueue[si];
@@ -998,12 +995,14 @@ namespace Desert::Graphic::System
                 continue;
             if ( !StaticEntryInView( frustum, si ) )
                 continue;
-            if ( samples( mat->GetShaderName() ) )
+            // The template and its front layer cell from its facts (ProgramOf): no name asked per section.
+            const ResolvedProgram resolved = ProgramOf( *mat );
+            if ( samples( resolved.Program ) )
                 return true;
-            if ( mat->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent )
-                if ( const std::optional<std::string> cell = FrontLayerShaderFor( mat->GetShaderName() );
-                     cell && samples( *cell ) )
-                    return true;
+            if ( resolved.Facts != nullptr &&
+                 mat->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent &&
+                 samples( resolved.Facts->FrontLayerProgram ) )
+                return true;
         }
         return false;
     }
@@ -1037,25 +1036,17 @@ namespace Desert::Graphic::System
         if ( camera == nullptr )
             return false;
         const Core::Frustum frustum = camera->GetFrustum();
-        auto* const         shaders = Runtime::ResourceRegistry::GetShaderService();
         for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
         {
             const GenericMeshRenderData& g = m_GenericQueue[gi];
             if ( g.Mesh == nullptr || !GenericEntryInView( frustum, gi ) )
                 continue;
-            std::string shaderName = g.ShaderName;
-            if ( g.SlotMaterial != nullptr )
-            {
-                const auto* material = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial );
-                if ( material == nullptr )
-                    continue;
-                shaderName = material->GetShaderName();
-            }
-            const auto shader = shaders->GetByName( shaderName );
+            // The record's template (GenericProgramOf, resolved once a frame): no name copied or asked per draw.
+            const ResolvedProgram&         resolved = GenericProgramOf( gi );
+            const std::shared_ptr<Shader>& shader   = resolved.Program;
             if ( !shader || !shader->IsCompiled() )
                 continue;
-            const auto& state  = shader->GetProgramMeta().State;
-            const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+            const bool opaque = resolved.Facts->Opaque;
             if ( ( !blendedOnly || !opaque ) && shader->SamplesTexture( textureName ) )
                 return true;
         }
@@ -1299,7 +1290,7 @@ namespace Desert::Graphic::System
             {
                 continue; // opaque -> drawn by the opaque pass, not here
             }
-            TranslucentDraw* state = TranslucentDrawFor( mat->GetShaderName() );
+            TranslucentDraw* state = TranslucentDrawOf( mat ); // its template's facts: no name asked per frame
             if ( state == nullptr )
             {
                 continue; // refused once, by name, inside TranslucentDrawFor
@@ -1430,8 +1421,7 @@ namespace Desert::Graphic::System
             if ( surfaceInst == nullptr || mat == nullptr ||
                  mat->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Translucent )
                 continue;
-            const std::optional<std::string> cell  = FrontLayerShaderFor( mat->GetShaderName() );
-            TranslucentDraw* const           state = cell ? FrontLayerDrawFor( *cell ) : nullptr;
+            TranslucentDraw* const state = FrontLayerDrawOf( mat ); // its template's facts
             if ( state == nullptr )
                 continue; // refused once, by name, inside FrontLayerDrawFor
             // A cell still in the driver has no stand-in here: the default surface is opaque and has no front layer
@@ -3332,6 +3322,131 @@ namespace Desert::Graphic::System
 #endif // DESERT_DEV_INSTRUMENTS
 
         return true;
+    }
+
+    void MeshRenderer::SyncProgramFacts() const
+    {
+        const uint64_t registry = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
+        if ( m_ProgramFactsValid && m_ProgramFactsRegistry == registry )
+            return;
+        // A Register / Recompile / Clear may have added, dropped or replaced any program: every row is re-made.
+        m_ProgramFacts.clear();
+        m_MaterialPrograms.clear();
+        m_ProgramFactsRegistry  = registry;
+        m_ProgramFactsValid     = true;
+        m_GenericProgramsResolved = false;
+    }
+
+    MeshRenderer::ProgramFacts& MeshRenderer::FactsOf( const Shader& shader ) const
+    {
+        SyncProgramFacts();
+        const uint64_t code = shader.GetCodeGeneration();
+        auto [row, fresh]   = m_ProgramFacts.try_emplace( shader.GetSerial() );
+        ProgramFacts& facts = row->second;
+        if ( !fresh && facts.CodeGeneration == code )
+            return facts;
+        // Made once per program and code generation: the only place this path asks names of the service.
+        auto* const       shaders = Runtime::ResourceRegistry::GetShaderService();
+        const std::string& name   = shader.GetName();
+        facts                     = ProgramFacts{ .CodeGeneration = code };
+        const auto& state         = shader.GetProgramMeta().State;
+        facts.Opaque              = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+        const auto isRegistered   = [shaders]( std::string_view cell )
+        { return shaders->GetByName( std::string( cell ) ) != nullptr; };
+        const auto cellOf = [&]( const MeshPass pass ) -> std::shared_ptr<Shader>
+        {
+            const std::optional<std::string> cell =
+                 TemplateCellShader( name, MeshVertexPath::Static, pass, isRegistered );
+            if ( !cell )
+                return nullptr;
+            return shaders->GetByName( *cell );
+        };
+        facts.GBufferCell     = cellOf( MeshPass::GBuffer );
+        facts.DepthCell       = cellOf( MeshPass::Depth );
+        facts.DepthNormalCell = cellOf( MeshPass::DepthNormal );
+        facts.FrontLayerCell  = FrontLayerShaderFor( name );
+        if ( facts.FrontLayerCell )
+            facts.FrontLayerProgram = shaders->GetByName( *facts.FrontLayerCell );
+        return facts;
+    }
+
+    MeshRenderer::ResolvedProgram MeshRenderer::ProgramOf( const DataDrivenMaterial& material ) const
+    {
+        SyncProgramFacts();
+        const std::string& name = material.GetShaderName();
+        auto [row, fresh]       = m_MaterialPrograms.try_emplace( &material );
+        MaterialProgramRow& kept = row->second;
+        // A compare, never a lookup: a different name at this address is another material built there.
+        if ( fresh || kept.Name != name )
+        {
+            kept.Name    = name;
+            kept.Program = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+        }
+        if ( kept.Program == nullptr )
+            return {};
+        return ResolvedProgram{ .Program = kept.Program, .Facts = &FactsOf( *kept.Program ) };
+    }
+
+    const MeshRenderer::ResolvedProgram& MeshRenderer::GenericProgramOf( const std::size_t index ) const
+    {
+        SyncProgramFacts();
+        if ( !m_GenericProgramsResolved )
+        {
+            // Once per frame for the whole queue (SubmitGenericMesh / ClearQueues reset it). A Shader Override
+            // record carries its template by name only: that one GetByName per record per frame remains until
+            // the producers hand a program (GenericMeshRenderData::ShaderName, CPU-FRAME-ARENA 10 Not done).
+            auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+            m_GenericPrograms.resize( m_GenericQueue.size() );
+            for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
+            {
+                const GenericMeshRenderData& g    = m_GenericQueue[gi];
+                ResolvedProgram&             kept = m_GenericPrograms[gi];
+                kept                              = {};
+                if ( g.SlotMaterial != nullptr )
+                {
+                    if ( const auto* const material = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial ) )
+                        kept = ProgramOf( *material );
+                    continue;
+                }
+                kept.Program = shaders->GetByName( g.ShaderName );
+                if ( kept.Program != nullptr )
+                    kept.Facts = &FactsOf( *kept.Program );
+            }
+            m_GenericProgramsResolved = true;
+        }
+        return m_GenericPrograms[index];
+    }
+
+    MeshRenderer::TranslucentDraw* MeshRenderer::TranslucentDrawOf( const DataDrivenMaterial* const mat )
+    {
+        const ResolvedProgram resolved = ProgramOf( *mat );
+        if ( resolved.Facts == nullptr )
+            return TranslucentDrawFor( mat->GetShaderName() ); // refuses (said once) an unregistered cell
+        const std::size_t virtualLocal = m_ForwardVirtualLocal ? 1u : 0u;
+        ProgramFacts&     facts        = *resolved.Facts;
+        if ( !facts.TranslucentAsked[virtualLocal] )
+        {
+            facts.Translucent[virtualLocal]      = TranslucentDrawFor( mat->GetShaderName() );
+            facts.TranslucentAsked[virtualLocal] = true;
+        }
+        return facts.Translucent[virtualLocal];
+    }
+
+    MeshRenderer::TranslucentDraw* MeshRenderer::FrontLayerDrawOf( const DataDrivenMaterial* const mat )
+    {
+        const ResolvedProgram resolved = ProgramOf( *mat );
+        if ( resolved.Facts == nullptr )
+        {
+            const std::optional<std::string> cell = FrontLayerShaderFor( mat->GetShaderName() );
+            return cell ? FrontLayerDrawFor( *cell ) : nullptr;
+        }
+        ProgramFacts& facts = *resolved.Facts;
+        if ( !facts.FrontLayerAsked )
+        {
+            facts.FrontLayer      = facts.FrontLayerCell ? FrontLayerDrawFor( *facts.FrontLayerCell ) : nullptr;
+            facts.FrontLayerAsked = true;
+        }
+        return facts.FrontLayer;
     }
 
 } // namespace Desert::Graphic::System

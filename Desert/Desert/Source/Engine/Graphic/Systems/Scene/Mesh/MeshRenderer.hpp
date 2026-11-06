@@ -2607,6 +2607,63 @@ namespace Desert::Graphic::System
         // FrontLayerDrawFor's, by `Static.FrontLayer` cell shader (null = refused, said once).
         std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_FrontLayer;
 
+        // A TEMPLATE PROGRAM'S FACTS, RESOLVED ONCE (CPU-FRAME-ARENA 10; UE FMeshPassProcessor: a draw's shaders
+        // are resolved once per material into its cached mesh draw command, and a frame walks typed handles).
+        // Keyed by the template's Shader serial, valid for its code generation and while the shader service's
+        // RecompileGeneration stands (a Register / Recompile / Clear may add or drop a cell, so every row is
+        // forgotten then; BinnedCellFacts' rule). The generic slices, the translucency pass, the front layer and
+        // the "who samples this texture" asks read them: no name, TemplateCellShader, FrontLayerShaderFor or
+        // GetByName per draw per frame. The TranslucentDraw answers point into m_Translucent / m_FrontLayer,
+        // which only ever insert.
+        struct ProgramFacts
+        {
+            uint64_t                CodeGeneration = 0;
+            bool                    Opaque         = false; // no blend, depth written
+            std::shared_ptr<Shader> GBufferCell; // TemplateCellShader( Static, GBuffer ): set = surface override
+            std::shared_ptr<Shader> DepthCell;   // ... ( Static, Depth )
+            std::shared_ptr<Shader> DepthNormalCell;      // ... ( Static, DepthNormal )
+            std::optional<std::string> FrontLayerCell;    // FrontLayerShaderFor( template )
+            std::shared_ptr<Shader>    FrontLayerProgram; // its registered program (null: not registered)
+            // TranslucentDrawFor's answer per m_ForwardVirtualLocal, asked on first use (null = refused, said
+            // once).
+            std::array<TranslucentDraw*, 2> Translucent{};
+            std::array<bool, 2>             TranslucentAsked{};
+            TranslucentDraw*                FrontLayer      = nullptr; // FrontLayerDrawFor( *FrontLayerCell )'s
+            bool                            FrontLayerAsked = false;
+        };
+        // A template program and its facts: what a material or a Shader Override record draws with.
+        struct ResolvedProgram
+        {
+            std::shared_ptr<Shader> Program; // null: no such shader is registered
+            ProgramFacts*           Facts = nullptr;
+        };
+        // A material's template, kept by the material's address with the name it was resolved from: the name is
+        // compared (never hashed or looked up) so a material freed and another built at its address re-resolves.
+        struct MaterialProgramRow
+        {
+            std::string             Name;
+            std::shared_ptr<Shader> Program;
+        };
+        mutable std::unordered_map<uint64_t, ProgramFacts>                        m_ProgramFacts;
+        mutable std::unordered_map<const DataDrivenMaterial*, MaterialProgramRow> m_MaterialPrograms;
+        mutable uint64_t                                                          m_ProgramFactsRegistry = 0;
+        mutable bool                                                              m_ProgramFactsValid    = false;
+        // Every m_GenericQueue record's template program, resolved once a frame (the first ask after the queue
+        // changed): a slot draw's through m_MaterialPrograms (no name asked), a Shader Override's by its name.
+        mutable std::vector<ResolvedProgram> m_GenericPrograms;
+        mutable bool                         m_GenericProgramsResolved = false;
+        // Forgets every row when the shader service's RecompileGeneration moved.
+        void SyncProgramFacts() const;
+        // @p shader's facts (made on the first ask of its serial at its code generation).
+        ProgramFacts& FactsOf( const Shader& shader ) const;
+        // @p material's template program and facts (its name resolved once, see MaterialProgramRow).
+        ResolvedProgram ProgramOf( const DataDrivenMaterial& material ) const;
+        // m_GenericQueue entry @p index's (a non-DataDriven slot material resolves to none).
+        const ResolvedProgram& GenericProgramOf( std::size_t index ) const;
+        // The translucency pass's / the front layer's draw state of @p mat's (non-null) template, by its facts.
+        TranslucentDraw* TranslucentDrawOf( const DataDrivenMaterial* mat );
+        TranslucentDraw* FrontLayerDrawOf( const DataDrivenMaterial* mat );
+
         // (Static x GBuffer) for meshes whose FORWARD material is not one MaterialService owns — in
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not
         // resolve. It has no `.demat`, so it has no sibling in any other pass, and the deferred pass
