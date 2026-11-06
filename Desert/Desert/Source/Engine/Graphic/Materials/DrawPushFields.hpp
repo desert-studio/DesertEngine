@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -216,33 +217,65 @@ namespace Desert::Graphic
             return Common::MakeSuccess( true );
         }
 
-        // CPU-FRAME-ARENA 3: the placements of one record (Place of each cell layout its draws record with, found
-        // by the layout's address: a record draws few cells, and the materials holding the layouts outlive the
-        // record). One per thread (ThreadRecordPlacements), its storage kept across records, so a steady frame
-        // places its draws with no allocation. Begin at each record's start: an address is trusted only within
-        // the record. Of's answer is used before the next Of / Begin on the thread (a nested record re-begins).
-        class RecordPlacements
+        // CPU-FRAME-ARENA 4: THE PLACEMENT OF A SHADER'S LAYOUT, MADE ONCE PER SHADER CODE (UE: a shader's
+        // parameter map is bound at compile, never searched per draw). Keyed by (Shader::GetSerial,
+        // Shader::GetCodeGeneration) - the pair names one MaterialLayout, since the layout is replaced only by a
+        // build that bumps the generation, and a serial is never reused as an address is - so a placement holds
+        // across records and frames: a steady frame finds no field by name at all. One table per thread
+        // (ThreadShaderPlacements), so recording threads share nothing. Bounded: past kCapacity distinct shader
+        // codes a slot is reused round-robin (re-placed on its next use, the same answer). Of's answer is used
+        // before the next Of on the thread. A null shader places nothing (Material::GetMaterialLayout's empty
+        // layout for a material with no program).
+        class ShaderPlacements
         {
         public:
-            void Begin() noexcept
+            static constexpr std::size_t kCapacity = 64;
+
+            [[nodiscard]] const Placement& Of( const Shader* shader ) noexcept
             {
-                m_Placed.clear();
-            }
-            [[nodiscard]] const Placement& Of( const Core::Formats::MaterialLayout& layout )
-            {
-                for ( const auto& placed : m_Placed )
-                    if ( placed.first == &layout )
-                        return placed.second;
-                m_Placed.emplace_back( &layout, Place( layout ) );
-                return m_Placed.back().second;
+                static const Placement kNone{};
+                if ( shader == nullptr )
+                    return kNone;
+                const uint64_t serial     = shader->GetSerial();
+                const uint64_t generation = shader->GetCodeGeneration();
+                if ( m_Last < m_Count && m_Entries[m_Last].Serial == serial &&
+                     m_Entries[m_Last].Generation == generation )
+                    return m_Entries[m_Last].Placed;
+                for ( std::size_t e = 0; e < m_Count; ++e )
+                {
+                    if ( m_Entries[e].Serial == serial && m_Entries[e].Generation == generation )
+                    {
+                        m_Last = e;
+                        return m_Entries[e].Placed;
+                    }
+                }
+                std::size_t slot = m_Count;
+                if ( m_Count < kCapacity )
+                    ++m_Count;
+                else
+                    slot = m_NextEvict++ % kCapacity;
+                m_Entries[slot] = Entry{ .Serial     = serial,
+                                         .Generation = generation,
+                                         .Placed     = Place( shader->GetMaterialLayout() ) };
+                m_Last          = slot;
+                return m_Entries[slot].Placed;
             }
 
         private:
-            std::vector<std::pair<const Core::Formats::MaterialLayout*, Placement>> m_Placed;
+            struct Entry
+            {
+                uint64_t  Serial     = 0; // 0: no shader (serials start at 1)
+                uint64_t  Generation = 0;
+                Placement Placed{};
+            };
+            std::array<Entry, kCapacity> m_Entries{};
+            std::size_t                  m_Count     = 0;
+            std::size_t                  m_Last      = 0;
+            std::size_t                  m_NextEvict = 0;
         };
-        [[nodiscard]] static RecordPlacements& ThreadRecordPlacements() noexcept
+        [[nodiscard]] static ShaderPlacements& ThreadShaderPlacements() noexcept
         {
-            thread_local RecordPlacements t_Placements;
+            thread_local ShaderPlacements t_Placements;
             return t_Placements;
         }
 

@@ -1984,12 +1984,11 @@ namespace Desert::Graphic::System
     {
         // CPU-FRAME-ARENA 3: the groups' blocks in this thread's kept slots (RDG::OpenBindingBlocks), the push
         // block in its kept scratch (rewritten whole per draw, read by that draw's call alone), and each cell
-        // layout placed once per record (DrawPushFields::RecordPlacements), no field found by name per draw: a
-        // steady frame records the terrain with no allocation.
+        // shader's layout placed once per shader code (DrawPushFields::ShaderPlacements, CPU-FRAME-ARENA 4), no
+        // field found by name per draw or per record: a steady frame records the terrain with no allocation.
         const RDG::OpenBindingBlocks      blocks( context, firstBlock, m_FrameGroups.size() );
         std::vector<std::byte>&           push       = t_TerrainRecordPush;
-        DrawPushFields::RecordPlacements& placements = DrawPushFields::ThreadRecordPlacements();
-        placements.Begin();
+        DrawPushFields::ShaderPlacements& placements = DrawPushFields::ThreadShaderPlacements();
         for ( size_t k = 0; k < draws.size(); ++k )
         {
             const FrameDraw&        draw     = draws[k];
@@ -2004,7 +2003,8 @@ namespace Desert::Graphic::System
             fields.MaterialIndex( draw.Row ).Transform( clipFromWorld );
             if ( shadowSlope )
                 fields.ShadowSlope( shadowSlope->x, shadowSlope->y );
-            const DrawPushFields::Placement& placement = placements.Of( material->GetMaterialLayout() );
+            // Material::GetMaterialLayout's layout: its executor's shader's (none: nothing placed).
+            const DrawPushFields::Placement& placement = placements.Of( executor->GetShader().get() );
             if ( auto written = fields.WriteInto( push, placement ); !written )
                 return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): {}", context.GetPassName(), k,
                                                    executor->GetDubugName(), written.GetError() );

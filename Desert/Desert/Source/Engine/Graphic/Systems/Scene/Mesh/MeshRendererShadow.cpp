@@ -712,15 +712,19 @@ namespace Desert::Graphic::System
             // built once; an empty local box stays empty (no extent: in every view).
             const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
             { return Geometry::IsEmpty( local ) ? local : Geometry::TransformBounds( transform, local ); };
+            // The dense snapshot's boxes (m_StaticSnapshot), every entry with a mesh: the casters' rows copy theirs.
+            m_StaticSnapshot.WorldBounds.resize( m_StaticQueue.size() );
             for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
             {
                 const StaticMeshRenderData& rd = m_StaticQueue[i];
                 setup.Statics[i]               = ShadowCasterRow{};
-                if ( rd.Mesh != nullptr && rd.CastShadows )
-                {
-                    setup.Statics[i].WorldBounds =
-                         worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
-                }
+                m_StaticSnapshot.WorldBounds[i] = Common::Math::AABB{};
+                if ( rd.Mesh == nullptr )
+                    continue;
+                m_StaticSnapshot.WorldBounds[i] =
+                     worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
+                if ( rd.CastShadows )
+                    setup.Statics[i].WorldBounds = m_StaticSnapshot.WorldBounds[i];
             }
             for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
             {
@@ -737,6 +741,17 @@ namespace Desert::Graphic::System
         setup.StaticRowsRevision = track.Gather == setup.Gather ? track.Revision : 0u;
         setup.StaticLodKey       = lodKey;
         setup.StaticRowsGather   = setup.Gather;
+        // Kept with the rows (the same revision, the same queue sizes): of this gather either way.
+        m_StaticSnapshot.Gather = setup.Gather;
+    }
+
+    bool MeshRenderer::StaticEntryInView( const Core::Frustum& frustum, const std::size_t index ) const
+    {
+        if ( m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+             m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() )
+            return IsVisibleInView( frustum, m_StaticSnapshot.WorldBounds[index] );
+        const StaticMeshRenderData& data = m_StaticQueue[index];
+        return IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) );
     }
 
     uint32_t MeshRenderer::ShadowStaticLod( const uint32_t index )
@@ -1768,18 +1783,20 @@ namespace Desert::Graphic::System
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
         // A SCROLLED CASCADE'S STATIC LAYER (PlanCascadeCache) draws what reaches the strips its shift uncovered: the
         // rest of the layer is its cache, copied in shifted.
-        std::vector<Core::Frustum> strips;
+        // CPU-FRAME-ARENA 4: the strips in place (at most CascadeCache::Strips' two), no vector per view.
+        std::array<Core::Frustum, 2> strips{};
+        std::size_t                  stripCount = 0;
         if ( layer == ShadowCasterLayer::Static && c < kCascadeViews && m_CascadeCache[c].Scroll )
-            for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount; ++s )
-                strips.push_back( CascadeCasterFrustum( m_CascadeCache[c].Strips[s] ) );
-        const auto inView = [&cascadeFrustum, &strips]( const Common::Math::AABB& box )
+            for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount && stripCount < strips.size(); ++s )
+                strips[stripCount++] = CascadeCasterFrustum( m_CascadeCache[c].Strips[s] );
+        const auto inView = [&cascadeFrustum, &strips, stripCount]( const Common::Math::AABB& box )
         {
             if ( !IsVisibleInView( cascadeFrustum, box ) )
                 return false;
-            if ( strips.empty() )
+            if ( stripCount == 0 )
                 return true;
-            for ( const Core::Frustum& strip : strips )
-                if ( IsVisibleInView( strip, box ) )
+            for ( std::size_t s = 0; s < stripCount; ++s )
+                if ( IsVisibleInView( strips[s], box ) )
                     return true;
             return false;
         };

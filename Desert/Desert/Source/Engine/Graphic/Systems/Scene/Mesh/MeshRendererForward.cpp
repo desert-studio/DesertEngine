@@ -1598,7 +1598,8 @@ namespace Desert::Graphic::System
                  CpuWalkUninterned( view, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes, chunk.WalkWords );
             if ( !walk )
                 continue;
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            // The dense snapshot's box (m_StaticSnapshot, built once per static revision), not this entry's mesh.
+            if ( !StaticEntryInView( frustum, i ) )
                 continue;
             // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).
             if ( walk->HighWords != 0u || walk->Low != data.HiddenSubmeshes )

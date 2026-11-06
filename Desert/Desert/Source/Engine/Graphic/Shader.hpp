@@ -62,6 +62,14 @@ namespace Desert::Graphic
         {
             return m_CodeGeneration.load( std::memory_order_acquire );
         }
+        // THIS OBJECT'S IDENTITY FOR THE PROCESS'S LIFE (CPU-FRAME-ARENA 4): unique per Shader ever made, never
+        // reused, unlike its address. With GetCodeGeneration it names one MaterialLayout (the layout is replaced
+        // only by a build that bumps the generation), so a cache of what is derived from the layout
+        // (DrawPushFields::ShaderPlacements) is keyed by the pair and never by a pointer that may come back.
+        [[nodiscard]] uint64_t GetSerial() const noexcept
+        {
+            return m_Serial;
+        }
         virtual const std::string     GetName() const                                                          = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::UniformBuffer> GetUniformBufferModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::StorageBuffer> GetStorageBufferModels() const = 0;
@@ -168,8 +176,15 @@ namespace Desert::Graphic
         }
 
     private:
+        [[nodiscard]] static uint64_t NextSerial() noexcept
+        {
+            static std::atomic<uint64_t> s_Next{ 0 };
+            return s_Next.fetch_add( 1, std::memory_order_relaxed ) + 1u;
+        }
+
         ResourceOwnership     m_Accounting;
         std::atomic<uint64_t> m_CodeGeneration{ 0 };
+        const uint64_t        m_Serial = NextSerial();
     };
 
 } // namespace Desert::Graphic
