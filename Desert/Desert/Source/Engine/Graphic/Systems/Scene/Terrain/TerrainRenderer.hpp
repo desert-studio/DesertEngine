@@ -402,7 +402,57 @@ namespace Desert::Graphic::System
             uint32_t       FirstRecord = 0;
         };
 
-        [[nodiscard]] std::vector<const MaterialExecutor*>
+        // CPU-FRAME-ARENA 3: a view over m_FrameGroups yielding each group's executor of one program - no vector
+        // per node setup. Valid until the frame's groups change (ClearQueue / PrepareFrame); a setup uses it at
+        // once.
+        class GroupExecutorRange
+        {
+        public:
+            using Program = std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*;
+            class Iterator
+            {
+            public:
+                Iterator( const FrameGroup* group, const Program program ) noexcept
+                     : m_Group( group ), m_Program( program )
+                {
+                }
+                [[nodiscard]] const MaterialExecutor* operator*() const; // TerrainRenderer.cpp
+                Iterator&                             operator++() noexcept
+                {
+                    ++m_Group;
+                    return *this;
+                }
+                [[nodiscard]] bool operator!=( const Iterator& other ) const noexcept
+                {
+                    return m_Group != other.m_Group;
+                }
+
+            private:
+                const FrameGroup* m_Group;
+                Program           m_Program;
+            };
+            GroupExecutorRange( const std::vector<FrameGroup>& groups, const Program program ) noexcept
+                 : m_Groups( &groups ), m_Program( program )
+            {
+            }
+            [[nodiscard]] Iterator begin() const noexcept
+            {
+                return Iterator( m_Groups->data(), m_Program );
+            }
+            [[nodiscard]] Iterator end() const noexcept
+            {
+                return Iterator( m_Groups->data() + m_Groups->size(), m_Program );
+            }
+            [[nodiscard]] size_t size() const noexcept
+            {
+                return m_Groups->size();
+            }
+
+        private:
+            const std::vector<FrameGroup>* m_Groups;
+            Program                        m_Program;
+        };
+        [[nodiscard]] GroupExecutorRange
         GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
 
         [[nodiscard]] Common::BoolResultStr RecordDraws(

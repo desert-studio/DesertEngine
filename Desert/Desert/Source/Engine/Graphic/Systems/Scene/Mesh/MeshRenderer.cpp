@@ -336,58 +336,13 @@ namespace Desert::Graphic::System
                 group.Add( draws, perInstance ? triangles : triangles * draw.InstanceCount, perInstance );
             }
 
-            // RDG-PARALLEL-9 (RDG-REC-2; UE: pass parameters live in the graph's allocator, never the heap per
-            // draw list): the binding blocks a list record opens, in slots this thread keeps. A record leases the
-            // next slots for its blocks and closes them when it returns (a nested record on the thread leases the
-            // ones after), so a steady frame opens its blocks with no allocation: the slot is kept, and the block's
-            // entry storage comes back from RDG::PassBindings' own per-thread lists. Each slot is a heap object of
-            // its own, so growing the list moves no open block. A block is never kept past its record.
-            struct OpenBlockSlots
-            {
-                std::vector<std::unique_ptr<std::optional<RDG::PassBindings>>> Slots;
-                size_t                                                          Used = 0;
-            };
-            thread_local OpenBlockSlots t_OpenBlocks;
-
-            class OpenBlocks
-            {
-            public:
-                OpenBlocks( const RDG::PassContext& context, size_t count )
-                     : m_Base( t_OpenBlocks.Used ), m_Count( count )
-                {
-                    OpenBlockSlots& open = t_OpenBlocks;
-                    while ( open.Slots.size() < m_Base + m_Count )
-                        open.Slots.push_back( std::make_unique<std::optional<RDG::PassBindings>>() );
-                    open.Used = m_Base + m_Count;
-                    for ( size_t index = 0; index < m_Count; ++index )
-                        open.Slots[m_Base + index]->emplace( context,
-                                                             context.GetBindingBlock( static_cast<uint32_t>( index ) ) );
-                }
-                ~OpenBlocks()
-                {
-                    OpenBlockSlots& open = t_OpenBlocks;
-                    for ( size_t index = 0; index < m_Count; ++index )
-                        open.Slots[m_Base + index]->reset();
-                    open.Used = m_Base;
-                }
-                OpenBlocks( const OpenBlocks& )            = delete;
-                OpenBlocks& operator=( const OpenBlocks& ) = delete;
-                OpenBlocks( OpenBlocks&& )                 = delete;
-                OpenBlocks& operator=( OpenBlocks&& )      = delete;
-
-                [[nodiscard]] size_t Count() const
-                {
-                    return m_Count;
-                }
-                [[nodiscard]] const RDG::PassBindings& At( size_t index ) const
-                {
-                    return **t_OpenBlocks.Slots[m_Base + index];
-                }
-
-            private:
-                size_t m_Base  = 0;
-                size_t m_Count = 0;
-            };
+            // The binding blocks a list record opens: RDG::OpenBindingBlocks (RDGPassBindings.hpp), slots this
+            // thread keeps.
+            // CPU-FRAME-ARENA 3 (UE FMemStack: a thread's scratch, kept): a list record's per-draw push block and
+            // its binned groups' block table. Each is rewritten whole right before the one call that reads it, so
+            // a record nested on the thread between two draws never sees another record's bytes.
+            thread_local std::vector<std::byte>                t_RecordPush;
+            thread_local std::vector<const RDG::PassBindings*> t_RecordGroupBindings;
         } // namespace
 
         void MeshDrawList::Clear()
@@ -697,8 +652,11 @@ namespace Desert::Graphic::System
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
             // GPU-COST-22: several lists (the camera's, a cascade's, phase 2's) read one Instances through their
             // ids.
-            std::vector<RDG::BufferRef> read;
-            const auto                  readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
+            // CPU-FRAME-ARENA 3: the buffers declared so far in the list's kept scratch (m_DeclaredReads), no
+            // vector per declaration.
+            std::vector<RDG::BufferRef>& read = m_DeclaredReads;
+            read.clear();
+            const auto readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
             {
                 if ( !buffer.IsValid() || std::find( read.begin(), read.end(), buffer ) != read.end() )
                     return;
@@ -744,12 +702,15 @@ namespace Desert::Graphic::System
             std::optional<MeshPassScope> counted;
             if ( m_CountedPass )
                 counted.emplace( static_cast<uint32_t>( *m_CountedPass ) );
-            const OpenBlocks blocks( context, m_Blocks.size() );
-            std::vector<std::byte> push;
+            const RDG::OpenBindingBlocks blocks( context, 0u, m_Blocks.size() );
+            // CPU-FRAME-ARENA 3: the draw's push block in this thread's kept scratch (rewritten whole per draw,
+            // used by that draw's call alone), no vector per record.
+            std::vector<std::byte>& push = t_RecordPush;
             // RDG-PARALLEL-7 (RDG-REC-4): the draws' push fields are placed through one table per cell layout
-            // (DrawPushFields::Place), found by the layout's address: a list draws few cells, and the materials
-            // holding the layouts outlive this record.
-            std::vector<std::pair<const Core::Formats::MaterialLayout*, DrawPushFields::Placement>> placements;
+            // (DrawPushFields::Place), found by the layout's address - in the thread's kept placements
+            // (DrawPushFields::RecordPlacements), begun for this record.
+            DrawPushFields::RecordPlacements& placements = DrawPushFields::ThreadRecordPlacements();
+            placements.Begin();
             // THE MESH DRAW SPLIT (Common::Profiling::GpuDrawSplitScope): one timestamp pair per run of
             // consecutive draws of one mesh x one material, per GPU bin, per VG group. Asked once; off records
             // nothing and builds no label.
@@ -783,21 +744,7 @@ namespace Desert::Graphic::System
                 if ( materialPush.Data != nullptr && materialPush.Size != 0u )
                     std::memcpy( push.data(), materialPush.Data, materialPush.Size );
                 const Core::Formats::MaterialLayout& layout    = draw.Material->GetShader()->GetMaterialLayout();
-                const DrawPushFields::Placement*     placement = nullptr;
-                for ( const auto& placed : placements )
-                {
-                    if ( placed.first == &layout )
-                    {
-                        placement = &placed.second;
-                        break;
-                    }
-                }
-                if ( placement == nullptr )
-                {
-                    placements.emplace_back( &layout, DrawPushFields::Place( layout ) );
-                    placement = &placements.back().second;
-                }
-                if ( auto written = draw.Push.WriteInto( push, *placement ); !written )
+                if ( auto written = draw.Push.WriteInto( push, placements.Of( layout ) ); !written )
                     return Common::MakeFormattedError( "{}: draw {} ('{}'): {}", context.GetPassName(), i,
                                                        draw.Material->GetDubugName(), written.GetError() );
                 // RENDER-JOB-CPU-3, a compacted bin (GpuInstances.hpp): one indirect-count draw of its commands.
@@ -847,7 +794,10 @@ namespace Desert::Graphic::System
             // not hold: MeshRenderer::CpuWalkHidden).
             if ( m_Binned )
             {
-                std::vector<const RDG::PassBindings*> groupBindings( m_Binned->Table->Groups.size(), nullptr );
+                // CPU-FRAME-ARENA 3: the groups' open blocks in this thread's kept scratch (read by the call below
+                // alone, before any other record on the thread).
+                std::vector<const RDG::PassBindings*>& groupBindings = t_RecordGroupBindings;
+                groupBindings.assign( m_Binned->Table->Groups.size(), nullptr );
                 for ( size_t group = 0; group < groupBindings.size(); ++group )
                     if ( m_GroupBlock[group] < blocks.Count() )
                         groupBindings[group] = &blocks.At( m_GroupBlock[group] );

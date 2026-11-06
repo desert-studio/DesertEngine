@@ -324,7 +324,10 @@ namespace Desert::Graphic::System
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
-            std::optional<GpuDriven::MeshPass> m_CountedPass;
+            // CPU-FRAME-ARENA 3: DeclareBlocks' each-buffer-once set, its capacity kept across frames (a list is
+            // declared on one thread at a time, as m_Layouts is used). Mutable: Declare is const.
+            mutable std::vector<RDG::BufferRef> m_DeclaredReads;
+            std::optional<GpuDriven::MeshPass>  m_CountedPass;
         };
     } // namespace MeshRendererDetail
 
