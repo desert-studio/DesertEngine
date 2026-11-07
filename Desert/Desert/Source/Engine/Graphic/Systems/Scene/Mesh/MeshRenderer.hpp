@@ -3253,6 +3253,22 @@ namespace Desert::Graphic::System
         // columns and rows were built for.
         uint64_t m_StaticToken          = 0;
         uint64_t m_StaticColumnsToken   = 0;
+        // THE RETAINED PREFIX'S MATERIAL ROWS, by token: its distinct (surface, instance, receive) keys and the
+        // row each resolved to when m_StaticRowsToken's prefix was registered. A frame that keeps the prefix
+        // claims these keys (revisions still checked) instead of one RegisterMaterialRow per queued section;
+        // a key that resolves to another row re-registers the whole prefix.
+        struct StaticPrefixRow
+        {
+            DataDrivenMaterial* Surface  = nullptr;
+            MaterialInstance*   Instance = nullptr;
+            bool                Receive  = true;
+            uint32_t            Index    = 0;
+        };
+        std::vector<StaticPrefixRow> m_StaticPrefixRows;
+        uint64_t                     m_StaticRowsToken = 0;
+        // The prefix's primitives folded in queue order (TrackStaticCasters), valid for m_StaticOrderToken.
+        uint64_t m_StaticPrefixOrder = 0;
+        uint64_t m_StaticOrderToken  = 0;
         bool     m_StaticSceneSubmitted = false; // SubmitStaticScene ran since ClearQueues
         void FillRetainedStatic( StaticMeshRenderData& data, const Render::StaticSceneAdmission& admitted ) const;
         void DropRetainedStatic();
@@ -4297,7 +4313,9 @@ namespace Desert::Graphic::System
         }
         // Advances m_StaticCasters over the stream since its cursor and finishes the static / generic rows
         // (FinishStaticCasterRows). After the write-back of the records' rows (GpuPrimitive) in SyncGpuScene.
-        void TrackStaticCasters( const GpuDriven::GpuScene& scene );
+        // keptPrefix: the retained static prefix's records and primitives stand as synced for m_StaticToken, so
+        // its share of the order word is the one folded for that token (m_StaticPrefixOrder), not refolded.
+        void TrackStaticCasters( const GpuDriven::GpuScene& scene, bool keptPrefix );
         // The static / generic rows of this gather: kept when the static casters' revision is the one they were
         // made for, their levels reset when StaticLodKey moved; made again otherwise.
         void FinishStaticCasterRows();

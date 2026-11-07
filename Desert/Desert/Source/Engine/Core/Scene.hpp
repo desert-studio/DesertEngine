@@ -840,6 +840,10 @@ namespace Desert::Core
         // EnTT signal handlers feeding MarkRenderStateDirty: a transform dirties its subtree, the others the
         // entity alone.
         void OnTransformRenderStateChanged( entt::registry& registry, entt::entity entity );
+        // The world-transform cache's hooks: a constructed or replaced TransformComponent (root-only world) and a
+        // constructed RelationshipComponent (a parent stated at emplace) compose their subtree's world.
+        void OnTransformWorldPending( entt::registry& registry, entt::entity entity );
+        void OnRelationshipConstructed( entt::registry& registry, entt::entity entity );
         void OnRenderStateChanged( entt::registry& registry, entt::entity entity );
 
         // Creates every component pool a system may touch, serially, before any parallel group opens.

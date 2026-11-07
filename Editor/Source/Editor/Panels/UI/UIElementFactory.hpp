@@ -105,6 +105,8 @@ namespace Desert::Editor
         if ( !reg.has<ECS::RelationshipComponent>( parent ) )
             reg.emplace<ECS::RelationshipComponent>( parent );
         reg.get<ECS::RelationshipComponent>( parent ).Children.push_back( handle );
+        // A direct parent write, so the world-transform cache is recomposed here (Scene::Attach does it).
+        ECS::UpdateWorldTransforms( reg, handle );
         return handle;
     }
 

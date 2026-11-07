@@ -402,21 +402,10 @@ namespace Desert::ECS
                               registry.has<UUIDComponent>( entity ) &&
                               Runtime::SelectionContext::Contains( registry.get<UUIDComponent>( entity ).UUID );
 
-                         // WORLD transform (walk the parent chain) — a skinned mesh parented to e.g. the
-                         // character controller must follow it; using the local transform left it behind at
-                         // the origin while the (parent-aware) camera moved away. Mirrors the static path.
-                         glm::mat4    worldTransform = transform.GetTransform();
-                         entt::entity current        = entity;
-                         while ( registry.has<RelationshipComponent>( current ) )
-                         {
-                             const auto& rel = registry.get<RelationshipComponent>( current );
-                             if ( rel.Parent == entt::null )
-                                 break;
-                             current = rel.Parent;
-                             if ( registry.has<TransformComponent>( current ) )
-                                 worldTransform =
-                                      registry.get<TransformComponent>( current ).GetTransform() * worldTransform;
-                         }
+                         // WORLD transform (the cached one) — a skinned mesh parented to e.g. the character
+                         // controller must follow it; using the local transform left it behind at the origin
+                         // while the (parent-aware) camera moved away. Mirrors the static path.
+                         const glm::mat4& worldTransform = transform.GetWorldTransform();
 
                          // Morph weights blend before skinning (MeshRenderer::UpdateMorphTargets), only for a
                          // mesh that has targets to blend.
@@ -986,17 +975,9 @@ namespace Desert::ECS
                         mesh.RuntimeMaterialInstances()[0]->SetParamFromVec4( p.Name, p.Value );
             }
 
-            // The world transform: the parent chain composed (F5's cached world transform is not in yet).
-            glm::mat4    worldTransform = transform.GetTransform();
-            entt::entity current        = entity;
-            while ( const auto* rel = registry.try_get<RelationshipComponent>( current ) )
-            {
-                if ( rel->Parent == entt::null )
-                    break;
-                current = rel->Parent;
-                if ( const auto* parentTransform = registry.try_get<TransformComponent>( current ) )
-                    worldTransform = parentTransform->GetTransform() * worldTransform;
-            }
+            // The world transform: the cached one (TransformComponent::GetWorldTransform, kept current by every
+            // hierarchy write), a load rather than a parent walk with a TRS recompose per ancestor.
+            const glm::mat4& worldTransform = transform.GetWorldTransform();
 
             // Outline: editor selection (this entity or any ancestor — selecting a prefab root outlines all its
             // mesh children) OR the per-entity "Draw outline" toggle. A selection change rebuilds every slot; the

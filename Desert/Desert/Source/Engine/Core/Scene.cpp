@@ -585,20 +585,10 @@ namespace Desert::Core
 
             if ( mainCam && mainEntity != entt::null )
             {
-                // WORLD transform of the camera entity (walk the parent chain), so a camera parented to a
-                // moving entity (e.g. a child of the character controller) follows it — 1st/3rd person is
-                // just the child's local offset.
-                glm::mat4    world = m_Registry.get<ECS::TransformComponent>( mainEntity ).GetTransform();
-                entt::entity cur   = mainEntity;
-                while ( m_Registry.has<ECS::RelationshipComponent>( cur ) )
-                {
-                    const auto& rel = m_Registry.get<ECS::RelationshipComponent>( cur );
-                    if ( rel.Parent == entt::null )
-                        break;
-                    cur = rel.Parent;
-                    if ( m_Registry.has<ECS::TransformComponent>( cur ) )
-                        world = m_Registry.get<ECS::TransformComponent>( cur ).GetTransform() * world;
-                }
+                // WORLD transform of the camera entity (the cached one), so a camera parented to a moving
+                // entity (e.g. a child of the character controller) follows it — 1st/3rd person is just the
+                // child's local offset.
+                const glm::mat4 world = m_Registry.get<ECS::TransformComponent>( mainEntity ).GetWorldTransform();
                 if ( !m_GameplayCamera )
                     m_GameplayCamera = std::make_shared<GameplayCamera>();
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )
@@ -1588,6 +1578,11 @@ namespace Desert::Core
         m_Registry.on_construct<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_construct<ECS::RelationshipComponent>().disconnect( this );
+        // The world-transform cache first, so the render-state listeners below already see the composed world.
+        m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
+        m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
+        m_Registry.on_construct<ECS::RelationshipComponent>().connect<&Scene::OnRelationshipConstructed>( this );
         m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
         m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
         m_Registry.on_destroy<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
@@ -1624,6 +1619,20 @@ namespace Desert::Core
         // The retained render cache rebuilds from the registry as it now stands (MeshECSSystem).
         m_RenderStateDelta.RequestFullRebuild();
         m_Registry.ctx_or_set<ECS::RenderStateDeltaLink>().Delta = &m_RenderStateDelta;
+    }
+
+    void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )
+    {
+        // SetLocalTransform composed the world inside its patch; only an emplace or a replace is pending.
+        if ( ECS::WorldTransformPending( registry.get<ECS::TransformComponent>( entity ) ) )
+            ECS::UpdateWorldTransforms( registry, entity );
+    }
+
+    void Scene::OnRelationshipConstructed( entt::registry& registry, entt::entity entity )
+    {
+        // Unconditional: a root emplaced with its Children already listed (scene load restores children before
+        // their parent's relationship) has to push its world down to them as well.
+        ECS::UpdateWorldTransforms( registry, entity );
     }
 
     void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
@@ -1689,6 +1698,7 @@ namespace Desert::Core
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
         // A new parent is a new world transform for the child and everything under it.
+        ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
     }
 
@@ -1717,6 +1727,7 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
     }
 

@@ -11,19 +11,21 @@
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
-#include <vector>
 
 namespace Desert::ECS
 {
-    // Non-const registry: Entity::GetWorldTransform walks the hierarchy through it, as every system's does.
+    // Sums each source as it is visited (the same per-source term as WindAtFromSources): no list is built, and
+    // each source's position is a load of its cached world transform (no parent walk).
     [[nodiscard]] inline WindAtPoint WindAt( entt::registry& registry, const glm::vec3& position )
     {
-        std::vector<WindSourceSample> sources;
+        WindAtPoint wind;
         for ( const entt::entity entity : registry.view<WindSourceComponent>() )
         {
-            const glm::mat4 pose = Entity( entity, registry ).GetWorldTransform();
-            sources.push_back( { registry.get<WindSourceComponent>( entity ).Data, glm::vec3( pose[3] ) } );
+            const glm::mat4        pose   = Entity( entity, registry ).GetWorldTransform();
+            const WindSourceSample source = { registry.get<WindSourceComponent>( entity ).Data,
+                                              glm::vec3( pose[3] ) };
+            wind.Velocity += WindVelocityFrom( source, position );
         }
-        return WindAtFromSources( sources, position );
+        return wind;
     }
 } // namespace Desert::ECS
