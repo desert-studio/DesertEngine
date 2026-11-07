@@ -306,6 +306,8 @@ namespace Desert::Graphic::API::Vulkan
             m_BindlessSlot = {};
         }
         if ( !m_Resource.Image ) return BOOLSUCCESS;
+        // CPU-RDG-PREPARE: a released view is a new generation, so a prepare skipped by revision cannot keep it.
+        m_ResourceGeneration = NextResourceGeneration();
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         if ( m_EncodedView != VK_NULL_HANDLE )
             m_MipViews.push_back( m_EncodedView ); // destroyed with the other extra views, on the same queue
