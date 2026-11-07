@@ -32,6 +32,9 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void FlushUpdates() override;
         [[nodiscard]] Common::BoolResultStr PrepareViewResources( const MaterialExecutor& executor ) override;
+        [[nodiscard]] uint64_t              NewestCopyEpoch( const MaterialExecutor& executor ) const override;
+        [[nodiscard]] bool                  IsPreparedAt( const PreparedRevision& revision ) const override;
+        void                                NotePreparedAt( const PreparedRevision& revision ) override;
 
         // The ACTIVE view's set, made (fallbacks, then image seeds) the first time that view asks for it;
         // VK_NULL_HANDLE when it could not be made (named once in the log).
@@ -105,6 +108,11 @@ namespace Desert::Graphic::API::Vulkan
         // renderer slot's previous owner's. The swallow bookkeeping lives in each view's copy.
         ViewDescriptorSets m_ViewSets;
         bool               m_ResolveFailureReported = false;
+        // CPU-RDG-PREPARE: every apply that left a write owed (no copy to bind, a swallowed rebind, a texture with
+        // no sampler state), counted; and the count when the running prepare began (PrepareViewResources). A
+        // prepare during which it moved records no revision (NotePreparedAt), so the next one runs whole.
+        uint64_t m_ApplyRefusals     = 0;
+        uint64_t m_RefusalsAtPrepare = 0;
 
         // Bindings whose "no copy to bind" refusal was already logged (once per material lifetime).
         std::unordered_set<uint32_t> m_BindRefusalReported;

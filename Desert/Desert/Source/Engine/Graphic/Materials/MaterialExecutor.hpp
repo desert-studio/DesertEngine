@@ -228,6 +228,8 @@ namespace Desert::Graphic
         mutable std::shared_ptr<const RDG::OtherRouteFill> m_RouteFill;
         // The newest write of any property this executor owns.
         [[nodiscard]] uint64_t NewestPropertyWrite() const;
+        // CPU-RDG-PREPARE: what a prepare now would apply (PreparedRevision), read with no view lookup.
+        [[nodiscard]] PreparedRevision CurrentRevision() const;
 
     protected:
         // Compact storage

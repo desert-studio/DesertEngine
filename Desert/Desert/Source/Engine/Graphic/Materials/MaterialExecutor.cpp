@@ -298,6 +298,20 @@ namespace Desert::Graphic
     {
         if ( !m_MaterialBackend )
             return Common::MakeFormattedError( "material '{}' has no backend", m_DebugName );
+        // CPU-RDG-PREPARE (UE FMaterialRenderProxy::CacheUniformExpressions: rewritten only when invalidated).
+        // A prepare that would write nothing into the ACTIVE (view, frame in flight) sets is skipped: their
+        // revision equals the inputs' (PreparedRevision). Each frame-in-flight copy records its own, so an edit
+        // reaches every slot. Never skipped: pending registered values (the upload would write them), and a cube
+        // property (its image has no resource generation to compare; the producer restates it every frame).
+        const bool skippable = ( m_Owner == nullptr || !m_Owner->HasPendingRegisteredProperties() ) &&
+                               m_TextureCubePropertiesStorage.empty();
+        if ( skippable && m_MaterialBackend->IsPreparedAt( CurrentRevision() ) )
+        {
+            m_MaterialBackend->FlushUpdates(); // as the whole prepare: a later rewrite this frame is swallowed
+            m_PreparedFrame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            m_PreparedVersion = NewestPropertyWrite();
+            return Common::MakeSuccess( true );
+        }
         const Common::BoolResultStr prepared = m_MaterialBackend->PrepareViewResources( *this );
         if ( !prepared )
             return Common::MakeFormattedError( "material '{}': {}", m_DebugName, prepared.GetError() );
@@ -306,7 +320,30 @@ namespace Desert::Graphic
         ApplyForRecording();
         m_PreparedFrame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         m_PreparedVersion = NewestPropertyWrite();
+        // The revision AFTER the apply (its own writes - the registered upload, UpdateFields - included). A field
+        // still pending for this copy (an upload that failed) is owed, so nothing is recorded.
+        const bool fieldsPending = std::any_of(
+             m_UniformBufferPropertiesStorage.begin(), m_UniformBufferPropertiesStorage.end(),
+             []( const auto& prop )
+             { return prop->GetFillKind() == ShaderResources::FillKind::Fields && prop->HasDirtyFields(); } );
+        if ( skippable && !fieldsPending )
+            m_MaterialBackend->NotePreparedAt( CurrentRevision() );
         return prepared;
+    }
+
+    PreparedRevision MaterialExecutor::CurrentRevision() const
+    {
+        PreparedRevision revision;
+        revision.Properties = NewestPropertyWrite();
+        for ( const auto& prop : m_UniformBufferPropertiesStorage )
+            revision.Properties = std::max( revision.Properties, prop->NewestFieldVersion() );
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+        {
+            if ( const auto* image = prop->GetImage() )
+                revision.Images = std::max( revision.Images, image->GetResourceGeneration() );
+        }
+        revision.Copies = m_MaterialBackend->NewestCopyEpoch( *this );
+        return revision;
     }
 
     Common::BoolResultStr MaterialExecutor::CheckRecordable() const

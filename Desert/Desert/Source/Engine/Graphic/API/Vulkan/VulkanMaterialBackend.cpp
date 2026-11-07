@@ -130,6 +130,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         // The frame index the prepare's apply resolves with (ApplyUniformBuffer / ApplyStorageBuffer).
         const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        m_RefusalsAtPrepare       = m_ApplyRefusals; // NotePreparedAt: did an apply of this prepare refuse?
         if ( HasDescriptorSets() && ActiveSets( frameIndex ) == nullptr )
             return Common::MakeFormattedError( "shader '{}': its descriptor sets for frame {} were not made",
                                                m_VulkanShader->GetName(), frameIndex );
@@ -168,6 +169,56 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
         return Common::MakeSuccess( true );
+    }
+
+    uint64_t VulkanMaterialBackend::NewestCopyEpoch( const MaterialExecutor& executor ) const
+    {
+        // The blocks PrepareViewResources binds, read without a view lookup: each block's stamp is its own.
+        uint64_t newest = 0;
+        for ( const auto& property : executor.GetUniformBufferStorage() )
+        {
+            if ( const auto* buffer = property ? VulkanUniformOf( *property ) : nullptr )
+                newest = std::max( newest, buffer->GetCopyEpoch() );
+        }
+        for ( const auto& property : executor.GetStorageBufferStorage() )
+        {
+            if ( property == nullptr )
+                continue;
+            // A lent buffer is read through a lock of its view's share, as PrepareViewResources does.
+            std::shared_ptr<ShaderResources::StorageBuffer> held = property->GetOwnedStorageBuffer();
+            if ( !held )
+                held = property->GetStorageBuffer();
+            if ( const ShaderResources::StorageBuffer* buffer = held.get() )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes these
+                newest = std::max( newest,
+                                   static_cast<const ShaderResources::API::Vulkan::VulkanStorageBuffer*>( buffer )
+                                        ->GetCopyEpoch() );
+        }
+        return newest;
+    }
+
+    bool VulkanMaterialBackend::IsPreparedAt( const PreparedRevision& revision ) const
+    {
+        // A material with no sets binds nothing a prepare could leave stale; it still runs whole (it is cheap).
+        if ( m_Layouts.empty() )
+            return false;
+        const IViewDescriptorSetCopy* sets =
+             m_ViewSets.FindActive( EngineContext::GetInstance().GetCurrentFrameIndex() );
+        return sets != nullptr && sets->Prepared.has_value() && *sets->Prepared == revision;
+    }
+
+    void VulkanMaterialBackend::NotePreparedAt( const PreparedRevision& revision )
+    {
+        if ( m_Layouts.empty() )
+            return;
+        IViewDescriptorSetCopy* sets =
+             m_ViewSets.FindActive( EngineContext::GetInstance().GetCurrentFrameIndex() );
+        if ( sets == nullptr )
+            return;
+        if ( m_ApplyRefusals != m_RefusalsAtPrepare )
+            sets->Prepared.reset();
+        else
+            sets->Prepared = revision;
     }
 
     VkDescriptorSet VulkanMaterialBackend::GetDescriptorSet( const uint32_t frameIndex, const uint32_t setIndex )
@@ -216,6 +267,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanMaterialBackend::ReportSwallowedRebind( const IViewDescriptorSetCopy& sets, const uint32_t binding,
                                                        const uint64_t handle, const char* what )
     {
+        ++m_ApplyRefusals; // the write is owed: the record was not updated (CPU-RDG-PREPARE)
         const auto& record = sets.Writes;
         if ( record.Frame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
             return; // nothing was written this frame; the stamp came from another mechanism
@@ -275,6 +327,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             // Nothing valid to point the set at, so the write is skipped (the set keeps its fallback or its
             // last LIVE copy). Named once per binding: this runs per draw.
+            ++m_ApplyRefusals;
             if ( m_BindRefusalReported.insert( binding ).second )
                 LOG_ERROR( "[MaterialBackend] '{}' binding {}: no uniform-buffer copy to bind -- {}",
                            m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<no shader>" ), binding,
@@ -337,6 +390,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto                                    resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )
         {
+            ++m_ApplyRefusals;
             if ( m_BindRefusalReported.insert( binding ).second )
                 LOG_ERROR( "[MaterialBackend] '{}' binding {}: no storage-buffer copy to bind -- {}",
                            m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<no shader>" ), binding,
@@ -391,6 +445,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanMaterialBackend::ReportMissingSamplerState( uint32_t binding )
     {
+        ++m_ApplyRefusals; // the texture is not bound (CPU-RDG-PREPARE)
         // Once per material lifetime per binding: the cause is the shader's text, not this frame.
         if ( !m_BindRefusalReported.insert( binding ).second )
             return;
