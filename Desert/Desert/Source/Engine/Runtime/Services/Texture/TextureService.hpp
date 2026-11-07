@@ -48,6 +48,11 @@ namespace Desert::Runtime
         float TexelsPerPixel = 2.0f;
         /// Frames a texture may go without any draw asking for it before it falls back to its tail.
         uint32_t UnseenFrames = 120;
+        /// Frames the largest screen size a texture was asked for is held before a smaller ask replaces it (UE
+        /// FStreamingRenderAsset keeps the max over its update window). A take can land while the render task
+        /// still notes the frame before (OVERLAP-ON-1), so one take may carry only that frame's far draws; the
+        /// held peak keeps such a take from dropping the mips the next take asks for again.
+        uint32_t HoldFrames = 60;
         /// Frames between two pool lines in the log (only when the pool changed).
         uint32_t LogEveryFrames = 120;
     };
@@ -191,7 +196,8 @@ namespace Desert::Runtime
             uint32_t              ResidentFirstMip  = 0;
             uint32_t              RequestedFirstMip = Graphic::Texture2D::kStreamingTail;
             uint64_t              LastAskedFrame    = 0;
-            float                 AskedPixels       = 0.0f;
+            uint64_t              HeldFrame         = 0;    // the frame AskedPixels was last raised or refreshed
+            float                 AskedPixels       = 0.0f; // the largest ask held over HoldFrames
         };
 
         /// What `Require` answers without starting anything: Ready, Null (failed, or no shell) or Pending (a read

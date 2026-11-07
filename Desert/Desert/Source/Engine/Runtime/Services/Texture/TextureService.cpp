@@ -788,13 +788,22 @@ namespace Desert::Runtime
         std::vector<Change> changes;
         // THE SCAN, SHARED. The demand fields are the frame loop's own (this pass alone reads and writes them, no
         // worker touches them), so writing them under the shared lock races no reader.
+        // THE HELD PEAK (TEX-STREAM-THRASH): a take is not a whole frame -- it lands while the render task may
+        // still note the frame before, so one take can hold only a field's far draws and the next its near ones
+        // (grass flipped mip 0 <-> 2 every ~200 ms). A larger ask raises the peak at once; a smaller one replaces
+        // it only once the peak went HoldFrames without being asked again.
         std::shared_lock scan( m_TableLock );
         for ( const auto& [asset, pixels] : demand )
         {
             if ( const auto it = m_Entries.find( asset ); it != m_Entries.end() )
             {
-                it->second.LastAskedFrame = m_StreamingFrame;
-                it->second.AskedPixels    = pixels;
+                Entry& entry         = it->second;
+                entry.LastAskedFrame = m_StreamingFrame;
+                if ( pixels >= entry.AskedPixels || m_StreamingFrame - entry.HeldFrame > settings.HoldFrames )
+                {
+                    entry.AskedPixels = pixels;
+                    entry.HeldFrame   = m_StreamingFrame;
+                }
             }
         }
 
@@ -806,6 +815,7 @@ namespace Desert::Runtime
             const Entry*        Row   = nullptr;
             uint32_t            First = 0;
             uint32_t            Tail  = 0;
+            float               Asked = 0.0f; // the held ask, 0 for a texture unseen past UnseenFrames
         };
         std::vector<Want> wants;
         uint64_t          resident = 0, full = 0, wanted = 0;
@@ -821,10 +831,12 @@ namespace Desert::Runtime
             while ( std::max( entry.FullWidth >> tail, entry.FullHeight >> tail ) > settings.TailSize &&
                     tail + 1 < levels )
                 ++tail;
-            uint32_t first = tail;
-            if ( entry.AskedPixels > 0.0f && m_StreamingFrame - entry.LastAskedFrame <= settings.UnseenFrames )
+            uint32_t    first = tail;
+            const bool  seen  = m_StreamingFrame - entry.LastAskedFrame <= settings.UnseenFrames;
+            const float asked = seen ? entry.AskedPixels : 0.0f;
+            if ( asked > 0.0f )
             {
-                const float    needed = entry.AskedPixels * settings.TexelsPerPixel;
+                const float    needed = asked * settings.TexelsPerPixel;
                 const uint32_t top    = std::max( entry.FullWidth, entry.FullHeight );
                 first                 = 0;
                 while ( first < tail && static_cast<float>( top >> ( first + 1 ) ) >= needed )
@@ -833,7 +845,7 @@ namespace Desert::Runtime
             resident += BytesFrom( entry.LevelBytes, entry.ResidentFirstMip );
             full += BytesFrom( entry.LevelBytes, 0 );
             wanted += BytesFrom( entry.LevelBytes, first );
-            wants.push_back( { handle, &entry, first, tail } );
+            wants.push_back( { handle, &entry, first, tail, asked } );
         }
 
         // THE POOL FIT: over budget, the least asked-for textures give up a level first, one level per texture
@@ -842,7 +854,7 @@ namespace Desert::Runtime
         if ( overBudget )
         {
             std::sort( wants.begin(), wants.end(),
-                       []( const Want& a, const Want& b ) { return a.Row->AskedPixels < b.Row->AskedPixels; } );
+                       []( const Want& a, const Want& b ) { return a.Asked < b.Asked; } );
             for ( bool dropped = true; wanted > budget && dropped; )
             {
                 dropped = false;
@@ -859,22 +871,33 @@ namespace Desert::Runtime
             }
         }
 
-        // LIST THE MOVES, nearest first: a texture short of its wanted level reads it; one holding more than it
-        // wants gives it back when it is two levels over (one level of hysteresis keeps a texture at the edge of
-        // two sizes from being read every frame) or when the pool is over budget. Nothing is moved here.
-        std::sort( wants.begin(), wants.end(),
-                   []( const Want& a, const Want& b ) { return a.Row->AskedPixels > b.Row->AskedPixels; } );
+        // LIST THE MOVES. RAISES nearest first: a texture short of its wanted level reads it. DROPS only under
+        // pool pressure (UE FRenderAssetStreamingManager keeps unwanted mips while the pool has room): when the
+        // resident set plus the raises would not fit the budget, the least asked-for textures holding more than
+        // they want give it back, until it fits. A texture no longer wanted is unwanted for the hold window first
+        // (the held peak above), and without pressure it keeps its mips, so a texture asked for on every other
+        // take is never read and dropped in turn. Nothing is moved here.
+        std::sort( wants.begin(), wants.end(), []( const Want& a, const Want& b ) { return a.Asked > b.Asked; } );
+        uint64_t projected = resident;
         for ( const Want& want : wants )
         {
             const Entry& entry = *want.Row;
-            if ( entry.Cooking || want.First == entry.ResidentFirstMip )
+            if ( entry.Cooking || want.First >= entry.ResidentFirstMip )
                 continue;
-            const bool up = want.First < entry.ResidentFirstMip;
-            const bool down =
-                 want.First >= entry.ResidentFirstMip + 2 || ( overBudget && want.First > entry.ResidentFirstMip );
-            if ( up || down )
-                changes.push_back(
-                     Change{ want.Handle, entry.Built, entry.Source, entry.ResidentFirstMip, want.First, down } );
+            projected += BytesFrom( entry.LevelBytes, want.First ) -
+                         BytesFrom( entry.LevelBytes, entry.ResidentFirstMip );
+            changes.push_back(
+                 Change{ want.Handle, entry.Built, entry.Source, entry.ResidentFirstMip, want.First, false } );
+        }
+        for ( auto it = wants.rbegin(); it != wants.rend() && projected > budget; ++it )
+        {
+            const Entry& entry = *it->Row;
+            if ( entry.Cooking || it->First <= entry.ResidentFirstMip )
+                continue;
+            projected -= BytesFrom( entry.LevelBytes, entry.ResidentFirstMip ) -
+                         BytesFrom( entry.LevelBytes, it->First );
+            changes.push_back(
+                 Change{ it->Handle, entry.Built, entry.Source, entry.ResidentFirstMip, it->First, true } );
         }
         const std::size_t textures = wants.size();
         wants.clear(); // its rows are the table's: not read past the shared lock
