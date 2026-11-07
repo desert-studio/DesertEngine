@@ -74,6 +74,19 @@ namespace Desert::World::Landscape
         int32_t Visibility = -1;
     };
 
+    /// One entry of a root's layer list as ResolveLandscapeWeightChannels reads it: the layer itself, or the layer
+    /// a pointer names (the landscape system lists the layer service's data by address, never copied).
+    template <typename RootLayer>
+    const RootLayer& LandscapeRootLayerOf( const RootLayer& layer ) noexcept
+    {
+        return layer;
+    }
+    template <typename RootLayer>
+    const RootLayer& LandscapeRootLayerOf( const RootLayer* layer ) noexcept
+    {
+        return *layer;
+    }
+
     /**
      * @brief Resolves each channel of @p tile against the root's layer list by NAME — the key a tile layer
      * carries (UE's ULandscapeLayerInfoObject), so reordering the root never re-colours a tile.
@@ -96,8 +109,9 @@ namespace Desert::World::Landscape
                 continue;
             }
             bool named = false;
-            for ( const auto& info : root )
+            for ( const auto& entry : root )
             {
+                const auto& info = LandscapeRootLayerOf( entry );
                 if ( info.LayerName != layers[c].Name )
                     continue;
                 out.Colors[c]     = glm::vec4( info.LayerUsageDebugColor, 1.0f );
