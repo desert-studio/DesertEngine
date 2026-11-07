@@ -265,6 +265,28 @@ namespace Desert::Graphic::System
             {
                 LOG_ERROR( "[MeshRenderer] instanced shadow casting is off: {}", instanced.GetError() );
             }
+            // CPU-ISM-PACK 5: the same caster in its GpuScene-id permutation (an ISM's casters by id). Refused:
+            // the ISMs cast through the packed matrices (said once, here).
+            const std::optional<std::string> cellName =
+                 DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::ShadowDepth );
+            Common::ResultStr<std::shared_ptr<Shader>> sceneIds =
+                 Common::ResultStr<std::shared_ptr<Shader>>::Error( "no default instanced caster cell" );
+            if ( cellName )
+                sceneIds = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                     *cellName, SurfaceSceneInstancesVariant() );
+            if ( sceneIds )
+            {
+                m_ShadowInstancedIdShader         = sceneIds.ExtractValue();
+                GraphicsPipelineSpecification idspec = ispec;
+                idspec.DebugName                  = "ShadowPipelineInstancedSceneIds";
+                idspec.Shader                     = m_ShadowInstancedIdShader;
+                if ( const auto byId = GraphicsPipeline::Create( idspec ) )
+                    m_ShadowInstancedIdPipeline = byId.GetValue();
+                else
+                    LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", byId.GetError() );
+            }
+            else
+                LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", sceneIds.GetError() );
         }
 
         // SKINNED caster (optional): same depth-only state and the same standard-Z convention, but the
@@ -318,6 +340,7 @@ namespace Desert::Graphic::System
         };
         m_CascadeShadowPipeline          = pancaked( m_ShadowPipeline );
         m_CascadeShadowInstancedPipeline = pancaked( m_ShadowInstancedPipeline );
+        m_CascadeShadowInstancedIdPipeline = pancaked( m_ShadowInstancedIdPipeline );
         m_CascadeShadowSkinnedPipeline   = pancaked( m_ShadowSkinnedPipeline );
 
         EnsureCascadeCasterMaterials();
@@ -354,6 +377,9 @@ namespace Desert::Graphic::System
                 if ( m_ShadowInstancedPipeline && !m_ShadowInstancedMaterial[v] )
                     m_ShadowInstancedMaterial[v] =
                          std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
+                if ( m_ShadowInstancedIdPipeline && !m_ShadowInstancedIdMaterial[v] )
+                    m_ShadowInstancedIdMaterial[v] =
+                         std::make_unique<MaterialShadowInstanced>( m_ShadowInstancedIdShader );
                 if ( m_ShadowSkinnedPipeline && !m_ShadowSkinnedMaterial[v] )
                     m_ShadowSkinnedMaterial[v] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
             }
@@ -1874,9 +1900,10 @@ namespace Desert::Graphic::System
         // A sun cascade's two layers draw pancaked (SetupShadowPass); the rain occlusion and the local views clip.
         if ( view < kVsmViewBase )
             return { m_CascadeShadowPipeline.get(), m_CascadeShadowInstancedPipeline.get(),
-                     m_CascadeShadowSkinnedPipeline.get(), MeshPass::ShadowDepth };
+                     m_CascadeShadowSkinnedPipeline.get(), MeshPass::ShadowDepth,
+                     m_CascadeShadowInstancedIdPipeline.get() };
         return { m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get(),
-                 MeshPass::ShadowDepth };
+                 MeshPass::ShadowDepth, m_ShadowInstancedIdPipeline.get() };
     }
 
     GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,

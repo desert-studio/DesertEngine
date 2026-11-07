@@ -375,6 +375,7 @@ namespace Desert::Graphic::System
         m_GenericQueue.clear();
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         m_InstancedQueue.clear();
+        m_ViewIsmIdsReady = false; // its ranges name the old queue's ISMs (PrepareViewIsmIds)
         m_GpuInstancedQueue.clear();
         // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
         // scene or took a new material); the rest are kept across frames (GpuInstancedDrawRecord).

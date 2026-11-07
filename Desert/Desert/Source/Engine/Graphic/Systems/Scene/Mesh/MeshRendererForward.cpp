@@ -1030,6 +1030,30 @@ namespace Desert::Graphic::System
                 continue;
             AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants, /*virtualOnly*/ true );
         }
+        // CPU-ISM-PACK 5: the shadow views' ISM casters by GpuScene id (BuildShadowCascadeDraws): the default
+        // surface's shared (Instanced x ShadowDepth) caster (SetupShadowPass) and every Masked template's own
+        // (MaskedCasterMaterial), each in SurfaceSceneInstancesVariant.
+        if ( const auto shared =
+                  materials.DefaultSurfaceShader( MeshVertexPath::Instanced, MeshPass::ShadowDepth ) )
+        {
+            Core::ShaderVariant permutation = SurfaceSceneInstancesVariant();
+            if ( shaders.GetByName( shared.GetValue() ) != nullptr &&
+                 listed.emplace( shared.GetValue(), permutation.Hash() ).second )
+                variants.push_back( { shared.GetValue(), std::move( permutation ) } );
+        }
+        for ( const ::Common::AssetHandle& handle : handles )
+        {
+            const auto cell =
+                 materials.CellShaderNameOf( handle, MeshVertexPath::Instanced, MeshPass::ShadowDepth );
+            if ( !cell )
+                continue;
+            const auto program = shaders.GetByName( cell.GetValue() );
+            if ( program == nullptr || program->GetProgramMeta().Blend != Core::Formats::SurfaceBlendMode::Masked )
+                continue; // an opaque template casts through the shared caster above
+            Core::ShaderVariant permutation = SurfaceSceneInstancesVariant();
+            if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+        }
         return variants;
     }
 
@@ -1620,7 +1644,110 @@ namespace Desert::Graphic::System
         entry.Planes         = planes;
         entry.View           = view;
         entry.LodScreenSizes = lodSizes;
+        ++entry.Rebuilds;
         return { .Entry = &entry, .Stale = true };
+    }
+
+    void MeshRenderer::RunStaleIsmViewCulls( const std::span<const DrawBuildScratch::StaleIsmCull> stale,
+                                             const Core::Frustum&                                  frustum )
+    {
+        if ( stale.empty() )
+            return;
+        DESERT_PROFILE_SCOPE( "Mesh: ISM view culls" );
+        std::size_t total = 0;
+        for ( const DrawBuildScratch::StaleIsmCull& item : stale )
+            total += item.Ism->Transforms->size();
+        const std::size_t   participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+        const std::size_t   slices       = std::min( stale.size(), participants );
+        ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+        std::size_t         first   = 0;
+        std::size_t         reached = 0; // the instances of stale[0, first)
+        for ( std::size_t s = 0; s < slices && first < stale.size(); ++s )
+        {
+            // Slice s ends where the instances reach total * (s + 1) / slices; the last one at the end.
+            const bool        lastSlice = s + 1 == slices;
+            const std::size_t target    = total * ( s + 1 ) / slices;
+            std::size_t       last      = first + 1;
+            reached += stale[first].Ism->Transforms->size();
+            while ( last < stale.size() && ( lastSlice || reached < target ) )
+                reached += stale[last++].Ism->Transforms->size();
+            tasks.Launch( "Mesh: ISM view cull",
+                          [stale, &frustum, first, last]() noexcept
+                          {
+                              for ( std::size_t i = first; i < last; ++i )
+                                  CollectIsmViewCull( *stale[i].Entry, *stale[i].Ism, frustum );
+                          } );
+            first = last;
+        }
+        tasks.Join();
+    }
+
+    void MeshRenderer::PrepareViewIsmIds()
+    {
+        m_ViewIsmIdsReady = false;
+        m_ViewIsmIdRanges.assign( m_InstancedQueue.size(), ViewIsmIdRange{} );
+        const auto* const camera = m_SceneRenderer->GetMainCamera();
+        if ( !m_FrameSceneInstances.IsValid() || camera == nullptr || m_InstancedQueue.empty() )
+            return;
+        DESERT_PROFILE_SCOPE( "Mesh: ISM view ids" );
+        // The main view's cull, as BuildStaticDraws asks it (the same frustum and LOD view): the passes' look-ups
+        // then find every entry current and cull nothing again this frame.
+        const Core::Frustum     frustum = camera->GetFrustum();
+        const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        ++m_IsmViewCullCall;
+        m_ViewIsmStale.clear();
+        for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            const InstancedMeshRenderData& ism = m_InstancedQueue[f];
+            if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
+                continue;
+            const IsmViewCullLookup cull = LookUpIsmViewCull( ism, frustum, mainView );
+            m_ViewIsmIdRanges[f].Entry = cull.Entry;
+            if ( cull.Stale )
+                m_ViewIsmStale.push_back( { .Entry = cull.Entry, .Ism = &ism } );
+        }
+        RunStaleIsmViewCulls( m_ViewIsmStale, frustum );
+
+        // Each ISM its own range (two sections of a field share a cull entry but not their GpuScene run): its
+        // kept instances in the entry's level order, so a pass's draw of level run r is Base + r.First.
+        m_ViewIsmIdWords.clear();
+        for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            const IsmViewCull* const entry = m_ViewIsmIdRanges[f].Entry;
+            if ( entry == nullptr )
+                continue;
+            const uint32_t gpuFirst = m_InstancedQueue[f].FirstGpuInstance;
+            m_ViewIsmIdRanges[f]     = { .Base     = static_cast<uint32_t>( m_ViewIsmIdWords.size() ),
+                                         .Rebuilds = entry->Rebuilds,
+                                         .Entry    = entry };
+            for ( const uint32_t index : entry->Indices )
+                m_ViewIsmIdWords.push_back( gpuFirst + index );
+        }
+        if ( m_ViewIsmIdWords.empty() )
+            m_ViewIsmIdWords.push_back( 0u ); // a buffer is never empty; no draw names the word
+
+        const auto bytes = static_cast<uint32_t>( m_ViewIsmIdWords.size() * sizeof( uint32_t ) );
+        if ( m_ViewIsmIds == nullptr )
+        {
+            // Bound at each lending property's own InstanceTransforms slot (StorageBufferProperty::GetBinding).
+            m_ViewIsmIds = ShaderResources::StorageBuffer::Create( "MeshRenderer.ViewIsmIds", bytes, 0u );
+            if ( m_ViewIsmIds == nullptr )
+            {
+                LOG_ERROR( "[MeshRenderer] the view's ISM id buffer ({} bytes) could not be created; the ISMs "
+                           "pack their transforms",
+                           bytes );
+                return;
+            }
+        }
+        const auto wrote = m_ViewIsmIds->SetData( m_ViewIsmIdWords.data(), bytes );
+        if ( !wrote.IsSuccess() )
+        {
+            LOG_ERROR( "[MeshRenderer] the view's ISM ids ({} bytes) were not uploaded; the ISMs pack their "
+                       "transforms -- {}",
+                       bytes, wrote.GetError() );
+            return;
+        }
+        m_ViewIsmIdsReady = true;
     }
 
     void MeshRenderer::CollectIsmViewCull( IsmViewCull& entry, const InstancedMeshRenderData& ism,
@@ -2008,7 +2135,7 @@ namespace Desert::Graphic::System
         // Reused by index so the inner vectors keep their capacity; clearing the outer vector would
         // destroy them and put an allocation per material back into the steady state.
         auto& instSets = scratch.InstSets; // InstSetCount reset above (a Record call keeps its Resolve's sets)
-        // @p sceneIds: the recorder is an ISM's cell by GpuScene id (its instances are ids, SceneInstanceIds).
+        // @p sceneIds: the recorder is an ISM's cell by GpuScene id (its instances: view id ranges).
         const auto setFor = [&]( DataDrivenMaterial* recorder, MaterialInstance* inst,
                                  const bool sceneIds ) -> InstancedBatchSet&
         {
@@ -2022,7 +2149,6 @@ namespace Desert::Graphic::System
             set.Inst               = inst;
             set.Transforms.clear();
             set.SceneIds = sceneIds;
-            set.SceneInstanceIds.clear();
             set.Draws.clear();
             set.IsmDraws.clear();
             set.OneSided = nullptr;
@@ -2189,7 +2315,8 @@ namespace Desert::Graphic::System
         };
         const auto ismCellOf = [&]( DataDrivenMaterial* mat, const bool twoSided ) -> IsmCellChoice
         {
-            const bool sceneRows = m_FrameSceneInstances.IsValid();
+            // The scene's instance rows in this graph and the view's ids uploaded (PrepareViewIsmIds).
+            const bool sceneRows = m_FrameSceneInstances.IsValid() && m_ViewIsmIdsReady;
             if ( !companion )
             {
                 if ( sceneRows && sceneIdCellReadyIn( cells, mat, twoSided ) )
@@ -2761,6 +2888,25 @@ namespace Desert::Graphic::System
                 // of a single ISM are not the same object to a renderer.
                 // Walked once per change of its inputs, not once per pass per frame (LookUpIsmViewCull).
                 const IsmViewCullLookup cull = LookUpIsmViewCull( ism, frustum, mainView );
+                // By id: the ISM's range of the view's ids (PrepareViewIsmIds), filled from this very cull. The
+                // view's cull inputs cannot change inside its frame, so a range that is not this entry's is a
+                // broken frame order, said once, and the ISM is not drawn rather than drawn with other instances.
+                uint32_t idBase = kNoViewIsmIds;
+                if ( ismSceneIds )
+                {
+                    const auto            field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                    const ViewIsmIdRange& range = m_ViewIsmIdRanges[field];
+                    if ( cull.Stale || range.Entry != cull.Entry || range.Rebuilds != cull.Entry->Rebuilds ||
+                         range.Base == kNoViewIsmIds )
+                    {
+                        if ( !m_ViewIsmIdsMismatchSaid )
+                            LOG_ERROR( "[MeshRenderer] an ISM's view ids are not its cull's this frame (the cull "
+                                       "changed after PrepareViewIsmIds); the ISM is not drawn by id" );
+                        m_ViewIsmIdsMismatchSaid = true;
+                        continue;
+                    }
+                    idBase = range.Base;
+                }
                 if ( cull.Stale )
                     scratch.IsmStale.push_back( { .Entry = cull.Entry, .Ism = &ism } );
                 scratch.IsmQueued.push_back( { .Ism      = &ism,
@@ -2768,42 +2914,13 @@ namespace Desert::Graphic::System
                                                .Mat      = mat,
                                                .Set      = ismSet,
                                                .Cull     = cull.Entry,
+                                               .IdBase   = idBase,
                                                .StandsIn = ismStandsIn } );
             }
 
-            // The stale culls in about WorkerCount() + 1 contiguous slices of about equal instance counts (a field
-            // costs its instances), each one setup task; the joining thread runs one too.
-            if ( !scratch.IsmStale.empty() )
-            {
-                DESERT_PROFILE_SCOPE( "Mesh: ISM view culls" );
-                const std::vector<DrawBuildScratch::StaleIsmCull>& stale = scratch.IsmStale;
-                std::size_t                                        total = 0;
-                for ( const DrawBuildScratch::StaleIsmCull& item : stale )
-                    total += item.Ism->Transforms->size();
-                const std::size_t participants = ::Common::JobSystem::Get().WorkerCount() + 1;
-                const std::size_t slices       = std::min( stale.size(), participants );
-                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
-                std::size_t         first   = 0;
-                std::size_t         reached = 0; // the instances of stale[0, first)
-                for ( std::size_t s = 0; s < slices && first < stale.size(); ++s )
-                {
-                    // Slice s ends where the instances reach total * (s + 1) / slices; the last one at the end.
-                    const bool        lastSlice = s + 1 == slices;
-                    const std::size_t target    = total * ( s + 1 ) / slices;
-                    std::size_t       last      = first + 1;
-                    reached += stale[first].Ism->Transforms->size();
-                    while ( last < stale.size() && ( lastSlice || reached < target ) )
-                        reached += stale[last++].Ism->Transforms->size();
-                    tasks.Launch( "Mesh: ISM view cull",
-                                  [&stale, &frustum, first, last]() noexcept
-                                  {
-                                      for ( std::size_t i = first; i < last; ++i )
-                                          CollectIsmViewCull( *stale[i].Entry, *stale[i].Ism, frustum );
-                                  } );
-                    first = last;
-                }
-                tasks.Join();
-            }
+            // The stale entries' culls on setup tasks, each entry by one (RunStaleIsmViewCulls). After
+            // PrepareViewIsmIds none is stale: it culled this frame's main view before any pass.
+            RunStaleIsmViewCulls( scratch.IsmStale, frustum );
 
             for ( const DrawBuildScratch::QueuedIsm& queued : scratch.IsmQueued )
             {
@@ -2830,8 +2947,6 @@ namespace Desert::Graphic::System
                 // auto-batched ones its Record call packs); a Resolve call keeps the draws apart, its Record call
                 // puts them behind the auto-batched draws (the Full call's draw order).
                 std::vector<glm::mat4>&      ismTransforms = ismSet->Transforms;
-                std::vector<uint32_t>&       ismIds        = ismSet->SceneInstanceIds;
-                const std::vector<uint32_t>& indices       = queued.Cull->Indices;
                 std::vector<InstancedDraw>&  ismDraws      = resolveCall ? ismSet->IsmDraws : ismSet->Draws;
                 // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                 const InstanceWindPush ismWind = PackViewInstanceWind( ism.Wind );
@@ -2849,12 +2964,9 @@ namespace Desert::Graphic::System
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     if ( ismSet->SceneIds )
                     {
-                        // The field's GpuScene run (SyncGpuScene: instance k is FirstGpuInstance + k).
-                        d.FirstInstance  = static_cast<uint32_t>( ismIds.size() );
-                        const auto first = indices.begin() + run.First;
-                        ismIds.insert( ismIds.end(), first, first + run.Count );
-                        for ( std::size_t k = d.FirstInstance; k < ismIds.size(); ++k )
-                            ismIds[k] += ism.FirstGpuInstance;
+                        // The level's slice of the ISM's range of the view's ids (PrepareViewIsmIds: the entry's
+                        // level-ordered Indices, each FirstGpuInstance + index), uploaded once for every pass.
+                        d.FirstInstance = queued.IdBase + run.First;
                     }
                     else
                     {
@@ -2996,10 +3108,10 @@ namespace Desert::Graphic::System
         auto* const sb = set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms );
         if ( sb == nullptr )
             return;
-        // An ISM's cell by GpuScene id reads uint ids from the same block (Vertex_Instanced.glslh).
+        // An ISM's cell by GpuScene id reads uint ids from the same block (Vertex_Instanced.glslh): the view's
+        // ids, uploaded once (PrepareViewIsmIds), lent - the cell's draws name their ranges of it.
         if ( set.SceneIds )
-            sb->SetRawData( set.SceneInstanceIds.data(),
-                            static_cast<uint32_t>( set.SceneInstanceIds.size() * sizeof( uint32_t ) ) );
+            sb->LendViewBuffer( m_ViewIsmIds );
         else
             sb->SetRawData( set.Transforms.data(),
                             static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );

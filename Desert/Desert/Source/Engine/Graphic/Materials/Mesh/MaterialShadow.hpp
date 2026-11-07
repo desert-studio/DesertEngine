@@ -45,6 +45,9 @@ namespace Desert::Graphic
         // the descriptor-pool logs are keyed on — two variants sharing one label made the instanced and
         // the skinned caster indistinguishable in a capture.
         MaterialShadow( std::string&& debugName, std::string&& shaderName );
+        // Over a permutation of the caster cell (ShaderService::AcquireVariant): not registered under its name,
+        // and its bindings are its own (Material's shader constructor).
+        MaterialShadow( std::string&& debugName, const std::shared_ptr<Shader>& permutation );
     };
 
     // Instanced depth-only shadow material: bound to StandardSurface/Instanced.ShadowDepth, whose vertex reads
@@ -53,6 +56,10 @@ namespace Desert::Graphic
     {
     public:
         explicit MaterialShadowInstanced( MeshPass pass );
+        // CPU-ISM-PACK 5: the same cell in its GpuScene-id permutation
+        // (MeshRenderer::SurfaceSceneInstancesVariant): InstanceTransforms holds uint GpuScene instance ids, the
+        // vertex reads each transform from the scene's instance rows (Vertex_Instanced.glslh).
+        explicit MaterialShadowInstanced( const std::shared_ptr<Shader>& sceneIdPermutation );
     };
 
     // Skinned depth-only shadow material: the (Skinned x ShadowDepth) cell of MeshShaderFor's table,
