@@ -356,6 +356,8 @@ namespace Desert::VFX
         std::vector<VFXViewReport>           m_TickViews;
         std::vector<TickPlacement>           m_TickPlaced;
         std::vector<VFXScalabilityCandidate> m_TickCandidates;
+        std::vector<VFXScalabilityVerdict>   m_TickVerdicts;    // EvaluateVFXScalability writes into it
+        VFXScalabilityScratch                m_TickScalability; // its sort storage, reused tick after tick
         StackKeyMemo                         m_TickStackKeys;
     };
 } // namespace Desert::VFX

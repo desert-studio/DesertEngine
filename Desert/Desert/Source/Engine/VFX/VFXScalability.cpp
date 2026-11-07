@@ -1,8 +1,8 @@
 #include <Engine/VFX/VFXScalability.hpp>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
-#include <map>
 #include <numeric>
 #include <utility>
 
@@ -65,15 +65,16 @@ namespace Desert::VFX
         return "?";
     }
 
-    std::vector<VFXScalabilityVerdict> EvaluateVFXScalability( std::span<const VFXViewReport>          views,
-                                                               std::span<const VFXScalabilityCandidate> candidates,
-                                                               const double                             tickSeconds )
+    void EvaluateVFXScalability( std::span<const VFXViewReport>           views,
+                                 std::span<const VFXScalabilityCandidate> candidates, const double tickSeconds,
+                                 std::span<VFXScalabilityVerdict> out, VFXScalabilityScratch& scratch ) noexcept
     {
-        std::vector<VFXScalabilityVerdict> out( candidates.size() );
-        for ( std::size_t i = 0; i < candidates.size(); ++i )
+        const std::size_t count = std::min( candidates.size(), out.size() );
+        for ( std::size_t i = 0; i < count; ++i )
         {
             const VFXScalabilityCandidate& c = candidates[i];
             VFXScalabilityVerdict&         v = out[i];
+            v                                = VFXScalabilityVerdict{}; // the buffer holds the last tick's
             v.NearestCm                      = std::numeric_limits<float>::infinity();
             if ( !c.Type )
             {
@@ -114,25 +115,52 @@ namespace Desert::VFX
                 v.Reason = VFXCullReason::NotRendered;
         }
         if ( views.empty() )
-            return out;
+            return;
+
+        // The not-yet-culled candidates in falling significance; ties keep the earlier candidate, so the decision
+        // is stable (an index tie-break with std::sort: std::stable_sort would allocate its buffer every tick).
+        std::vector<std::size_t>& order       = scratch.Order;
+        const auto                gatherAlive = [&]()
+        {
+            order.clear();
+            for ( std::size_t i = 0; i < count; ++i )
+                if ( candidates[i].Type && out[i].Reason == VFXCullReason::None )
+                    order.push_back( i );
+        };
+        const auto moreSignificant = [&]( std::size_t a, std::size_t b )
+        {
+            if ( out[a].Significance != out[b].Significance )
+                return out[a].Significance > out[b].Significance;
+            return a < b;
+        };
 
         // THE INSTANCE LIMITS (UE: per system first, then per effect type): of the instances not yet culled, the
         // most significant `limit` are kept. Ties keep the earlier candidate, so the decision is stable.
+        // Grouped by sorting on (key, significance): each group is one run of the order.
+        using GroupKey        = std::pair<const void*, const void*>;
         const auto applyLimit = [&]( auto keyOf, int32_t Level::*field, const VFXCullReason reason )
         {
-            std::map<std::pair<const void*, const void*>, std::vector<std::size_t>> groups;
-            for ( std::size_t i = 0; i < candidates.size(); ++i )
-                if ( candidates[i].Type && out[i].Reason == VFXCullReason::None )
-                    groups[keyOf( candidates[i] )].push_back( i );
-            for ( auto& [key, members] : groups )
+            gatherAlive();
+            std::sort( order.begin(), order.end(),
+                       [&]( std::size_t a, std::size_t b )
+                       {
+                           const GroupKey ka = keyOf( candidates[a] );
+                           const GroupKey kb = keyOf( candidates[b] );
+                           if ( ka != kb )
+                               return std::less<GroupKey>{}( ka, kb );
+                           return moreSignificant( a, b );
+                       } );
+            for ( std::size_t first = 0; first < order.size(); )
             {
-                const int32_t limit = LimitOf( *candidates[members.front()].Type, views, field );
-                if ( limit == 0 || members.size() <= static_cast<std::size_t>( limit ) )
-                    continue;
-                std::stable_sort( members.begin(), members.end(), [&]( std::size_t a, std::size_t b )
-                                  { return out[a].Significance > out[b].Significance; } );
-                for ( std::size_t k = static_cast<std::size_t>( limit ); k < members.size(); ++k )
-                    out[members[k]].Reason = reason;
+                const GroupKey key = keyOf( candidates[order[first]] );
+                std::size_t    end = first + 1;
+                while ( end < order.size() && keyOf( candidates[order[end]] ) == key )
+                    ++end;
+                const int32_t limit = LimitOf( *candidates[order[first]].Type, views, field );
+                if ( limit != 0 && end - first > static_cast<std::size_t>( limit ) )
+                    for ( std::size_t k = first + static_cast<std::size_t>( limit ); k < end; ++k )
+                        out[order[k]].Reason = reason;
+                first = end;
             }
         };
         applyLimit( []( const VFXScalabilityCandidate& c ) { return std::pair<const void*, const void*>{ c.Type, c.System }; },
@@ -155,13 +183,9 @@ namespace Desert::VFX
             budget = std::max<std::uint64_t>( budget, view.MaxWorldParticles );
         }
         if ( budget == 0 )
-            return out;
-        std::vector<std::size_t> order;
-        for ( std::size_t i = 0; i < candidates.size(); ++i )
-            if ( candidates[i].Type && out[i].Reason == VFXCullReason::None )
-                order.push_back( i );
-        std::stable_sort( order.begin(), order.end(), [&]( std::size_t a, std::size_t b )
-                          { return out[a].Significance > out[b].Significance; } );
+            return;
+        gatherAlive();
+        std::sort( order.begin(), order.end(), moreSignificant );
         std::uint64_t taken = 0;
         bool          over  = false;
         for ( const std::size_t i : order )
@@ -174,6 +198,5 @@ namespace Desert::VFX
             else
                 taken += candidates[i].PoolParticles;
         }
-        return out;
     }
 } // namespace Desert::VFX
