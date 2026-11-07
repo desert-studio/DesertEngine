@@ -200,6 +200,7 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
                                           dot( DistanceFieldObjects[motionBase + 2u], hitAt ) );
             result.surface.velocity    = result.surface.position - previous;
             result.surface.motionKnown = true;
+            result.surface.globalField = false;
             farStart                    = tHit;
             return result;
         }
@@ -242,6 +243,7 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface.normal        = -ray.direction;
     result.surface.velocity      = vec3( 0.0 );
     result.surface.motionKnown   = false;
+    result.surface.globalField   = true;
     const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
     if ( level >= 0 )
     {
@@ -276,6 +278,22 @@ float GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT 
     ray.coneAngle = 0.0;
     ray.flags     = GI_TRACE_SHADOW_RAY;
     return GITraceRay( ray ).hit ? 0.0 : 1.0;
+}
+
+// Visibility through the global field alone, from @p farTMin on (UE: a global-SDF hit's lighting never traces the
+// mesh SDFs). The shadow test of a global-field hit no card holds: the hit is a surface of the coarse field, so
+// the near field's precision has nothing to add to it.
+float GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, float maxT )
+{
+    GITraceInput ray;
+    ray.origin    = origin;
+    ray.tMin      = 0.0;
+    ray.farTMin   = farTMin;
+    ray.direction = direction;
+    ray.tMax      = maxT;
+    ray.coneAngle = 0.0;
+    ray.flags     = GI_TRACE_SHADOW_RAY;
+    return GITraceFarField( ray ).hit ? 0.0 : 1.0;
 }
 
 // The voxel of the finest clipmap holding @p position (the coarsest one's outside them all), cm.

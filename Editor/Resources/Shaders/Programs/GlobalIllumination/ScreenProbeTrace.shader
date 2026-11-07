@@ -169,8 +169,8 @@ Shader "ScreenProbeTrace"
 
         // GPU-FARFIELD-1: the far-field leg's rays by what its own trace did, after the cache-read words
         // (ScreenProbeGather.hpp ScreenProbeMissReasons, same order): every ray listed, the rays the global field hit
-        // (each lit by GIHitRadiance: the cards, or in place with a visibility ray per light), the rays outside the
-        // cache's coverage (marched to SP_TRACE_DISTANCE). One atomic per subgroup: the active lanes are the class.
+        // (each lit by GIHitRadiance: the cards, or by the directional lights, one global-field test each), the
+        // rays outside the cache's coverage (marched to SP_TRACE_DISTANCE). One atomic per subgroup: the active lanes are the class.
         #define SP_FAR_FIELD_RAYS_LISTED  ( RADIANCE_CACHE_READ_REASONS + 0u )
         #define SP_FAR_FIELD_RAYS_HIT     ( RADIANCE_CACHE_READ_REASONS + 1u )
         #define SP_FAR_FIELD_RAYS_OUTSIDE ( RADIANCE_CACHE_READ_REASONS + 2u )

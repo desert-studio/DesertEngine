@@ -135,6 +135,8 @@ GITraceResult GIHardwareTrace( GITraceInput ray, float tMin, float tMax )
     // No previous transform reaches the ray query (the TLAS instance carries none): the hit is not known to move.
     result.surface.velocity     = vec3( 0.0 );
     result.surface.motionKnown  = false;
+    // A triangle, never the coarse field: every hardware hit is lit by the cards or in place in full.
+    result.surface.globalField  = false;
     return result;
 }
 
@@ -174,6 +176,13 @@ GITraceResult GITraceRay( GITraceInput ray )
 float GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT )
 {
     return RayQueryVisibility( origin, direction, maxT, RAY_TRACING_MASK_SHADOW_CASTER );
+}
+
+// One field: the global-field visibility is the visibility walk itself (no hardware hit is a global-field hit, so
+// GIHitRadiance never asks it; it is defined so the contract holds for both tracers).
+float GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, float maxT )
+{
+    return GITraceVisibility( origin, direction, farTMin, maxT );
 }
 
 // The ray leaves the hit by UE's normal bias (the normal turned to the ray's side, so a ray leaving the back of a
