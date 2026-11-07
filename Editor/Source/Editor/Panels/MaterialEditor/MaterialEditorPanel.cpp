@@ -2402,6 +2402,8 @@ namespace Desert::Editor
                 if ( auto* ddm = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
                     Runtime::ApplySurfaceAsset( *ddm, asset );
             }
+            // The renderers that fold the values into a program of their own (the water) re-fold on this.
+            materialService->NoteValuesEdited();
         }
 
         // ONE BUMP SITE IN THE WHOLE WINDOW, and it is behind the rule. A second one would be a second

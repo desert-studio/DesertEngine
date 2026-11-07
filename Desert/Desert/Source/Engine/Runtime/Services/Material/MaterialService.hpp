@@ -400,6 +400,21 @@ namespace Desert::Runtime
             return m_InvalidationVersion.load();
         }
 
+        // Monotonic stamp of IN-PLACE VALUE EDITS (UE: PostEditChange ->
+        // FMaterialRenderProxy::CacheUniformExpressions): the material editor re-values a base material's built
+        // variants without rebuilding anything, so GetInvalidationVersion does not move. A renderer that folds a
+        // material's values into a program of its own (WaterRenderer::ApplyMaterial, via ResolveOverrides) keys
+        // its cache by both stamps. One counter and not one per handle: an edit of a base reaches every instance
+        // chain over it.
+        uint32_t GetValuesEditSerial() const noexcept
+        {
+            return m_ValuesEditSerial.load();
+        }
+        void NoteValuesEdited() noexcept
+        {
+            ++m_ValuesEditSerial;
+        }
+
     private:
         // BOOLSUCCESS when `handle` is free, or held by the very file that is registering again. Otherwise
         // it LOGS both filepaths and returns the same text as an error, and the caller writes nothing.
@@ -424,6 +439,7 @@ namespace Desert::Runtime
         }
 
         mutable std::atomic<uint32_t> m_InvalidationVersion{ 0 };
+        std::atomic<uint32_t>         m_ValuesEditSerial{ 0 }; // GetValuesEditSerial
         // Per asset: bumped by every Invalidate of it (BuildRevision).
         std::unordered_map<Assets::AssetHandle, uint32_t>             m_BuildRevisions;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;

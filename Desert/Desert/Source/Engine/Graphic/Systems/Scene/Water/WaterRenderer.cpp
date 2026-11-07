@@ -9,6 +9,7 @@
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/DrawPushFields.hpp>
@@ -109,25 +110,56 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void WaterRenderer::WarnOnce( const Assets::AssetHandle& material, const std::string& why )
+    bool WaterRenderer::FirstWarning( const Assets::AssetHandle& material, const WaterWarning cause )
     {
-        if ( m_Warned.insert( static_cast<uint64_t>( material ) ).second )
-            LOG_WARN( "[Water] water material {}: {}", static_cast<uint64_t>( material ), why );
+        // One key per (material, cause): the handle spread by the golden ratio, the cause in its low bits. Asked
+        // before the insert, so a cause said already costs a lookup and no node.
+        const uint64_t key =
+             ( static_cast<uint64_t>( material ) * 0x9E3779B97F4A7C15ull ) ^ static_cast<uint64_t>( cause );
+        if ( m_Warned.contains( key ) )
+            return false;
+        m_Warned.insert( key );
+        return true;
     }
 
-    WaterRenderer::WaterProgram* WaterRenderer::ProgramFor( const Assets::AssetHandle& material )
+    void WaterRenderer::WarnOnce( const Assets::AssetHandle& material, const WaterWarning cause,
+                                  const std::string_view why )
     {
+        if ( FirstWarning( material, cause ) )
+            Warn( material, why );
+    }
+
+    void WaterRenderer::Warn( const Assets::AssetHandle& material, const std::string_view why )
+    {
+        LOG_WARN( "[Water] water material {}: {}", static_cast<uint64_t>( material ), why );
+    }
+
+    WaterRenderer::WaterProgram* WaterRenderer::ProgramFor( const Assets::AssetHandle& material,
+                                                            const MaterialStamp&       stamp )
+    {
+        // The last answer while the material and every stamp a resolution reads stand: a steady frame walks no
+        // instance chain and copies no template name.
+        if ( m_Resolved.Program != nullptr && m_Resolved.Material == static_cast<uint64_t>( material ) &&
+             m_Resolved.Stamp == stamp )
+            return m_Resolved.Program;
+        m_Resolved      = ResolvedProgram{};
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return nullptr;
         const auto templ = materials->ShaderHandleOf( material );
         if ( static_cast<uint64_t>( templ.Shader ) == 0 || templ.CompileName.empty() )
         {
-            WarnOnce( material, "names no material with a loaded template - the body draws no water" );
+            WarnOnce( material, WaterWarning::NoTemplate,
+                      "names no material with a loaded template - the body draws no water" );
             return nullptr;
         }
         if ( auto it = m_Programs.find( templ.CompileName ); it != m_Programs.end() )
-            return it->second.Pipeline ? &it->second : nullptr;
+        {
+            if ( !it->second.Pipeline )
+                return nullptr; // a refusal, said once when it was built
+            m_Resolved = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &it->second };
+            return &it->second;
+        }
 
         WaterProgram&     program  = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
         const std::string cellName =
@@ -135,7 +167,8 @@ namespace Desert::Graphic::System
         const auto        shader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
         if ( !shader )
         {
-            WarnOnce( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
+            if ( FirstWarning( material, WaterWarning::NoWaterCell ) )
+                Warn( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
                                              "ShadingModel SingleLayerWater with Usage WaterMesh",
                                              templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell ) );
             return nullptr;
@@ -143,11 +176,13 @@ namespace Desert::Graphic::System
 
         if ( auto built = BuildProgram( shader, "WaterSurfacePipeline:" + templ.CompileName, program ); !built )
         {
-            WarnOnce( material,
+            if ( FirstWarning( material, WaterWarning::TemplateDoesNotBuild ) )
+                Warn( material,
                       std::format( "its template '{}' does not build: {}", templ.CompileName, built.GetError() ) );
             return nullptr;
         }
         program.Material = std::make_unique<DataDrivenMaterial>( cellName );
+        m_Resolved       = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &program };
         return &program;
     }
 
@@ -185,7 +220,8 @@ namespace Desert::Graphic::System
              Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shader->GetName(), permutation );
         if ( !acquired )
         {
-            WarnOnce( material,
+            if ( FirstWarning( material, WaterWarning::NoVirtualLocalPermutation ) )
+                Warn( material,
                       std::format( "its cell has no DESERT_LOCAL_SHADOW_VSM permutation ({}) - the water "
                                    "is not drawn under Shadows.Method VirtualMaps",
                                    acquired.GetError() ) );
@@ -196,7 +232,8 @@ namespace Desert::Graphic::System
                   BuildProgram( acquired.GetValue(), "WaterSurfacePipelineVsm:" + shader->GetName(), *twin );
              !built )
         {
-            WarnOnce( material,
+            if ( FirstWarning( material, WaterWarning::VirtualLocalDoesNotBuild ) )
+                Warn( material,
                       std::format( "its DESERT_LOCAL_SHADOW_VSM permutation does not build: {} - the water "
                                    "is not drawn under Shadows.Method VirtualMaps",
                                    built.GetError() ) );
@@ -214,18 +251,28 @@ namespace Desert::Graphic::System
                m_Frame->Pipeline->GetSpecification().Shader->SamplesTexture( textureName );
     }
 
-    void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program )
+    void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                       WaterProgram& program )
     {
         // The body's `.demat` folded over the template's schema into the cell's material row (UE: the material's
-        // uniform expressions), its textures into the bindless slots the row names.
-        DataDrivenMaterial& cell = *program.Material;
-        cell.ApplyDefaults();
-        MaterialOverrides overrides;
-        if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
-            (void)materials->ResolveOverrides( material, overrides );
-        for ( const auto& [name, value] : overrides.Params )
-            (void)cell.SetParam( name, value );
-        for ( const auto& [name, handle] : overrides.Textures )
+        // uniform expressions, cached by the render proxy until the material changes), its textures into the
+        // bindless slots the row names. Re-resolved only when another material is drawn with this program or a
+        // stamp moved; the row is written every frame (each frame and view has its own copy of the block).
+        DataDrivenMaterial& cell   = *program.Material;
+        FoldedValues&       folded = program.Folded;
+        if ( folded.Material != static_cast<uint64_t>( material ) || folded.Stamp != stamp )
+        {
+            folded.Material = static_cast<uint64_t>( material );
+            folded.Stamp    = stamp;
+            folded.Overrides.Params.clear();
+            folded.Overrides.Textures.clear();
+            if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
+                (void)materials->ResolveOverrides( material, folded.Overrides );
+            cell.ApplyDefaults();
+            for ( const auto& [name, value] : folded.Overrides.Params )
+                (void)cell.SetParam( name, value );
+        }
+        for ( const auto& [name, handle] : folded.Overrides.Textures )
         {
             if ( handle == 0 )
                 continue;
@@ -277,11 +324,20 @@ namespace Desert::Graphic::System
                     waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
                 }
                 else if ( body != material )
-                    WarnOnce( body, "differs from another body's in the same frame - drawn with the first one" );
+                    WarnOnce( body, WaterWarning::MixedMaterials,
+                              "differs from another body's in the same frame - drawn with the first one" );
             }
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
-        WaterProgram* program = ProgramFor( material );
+        MaterialStamp stamp;
+        if ( auto* const materials = Runtime::ResourceRegistry::GetMaterialService() )
+        {
+            stamp.Service             = materials;
+            stamp.InvalidationVersion = materials->GetInvalidationVersion();
+            stamp.ValuesEditSerial    = materials->GetValuesEditSerial();
+        }
+        stamp.ContentSerial   = Assets::ContentRegistry::WriteSerial();
+        WaterProgram* program = ProgramFor( material, stamp );
         // Under Shadows.Method VirtualMaps no atlas is drawn: the cell's virtual-map permutation draws, as every
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
         if ( program != nullptr && m_SceneRenderer->LocalShadowsAreVirtual() )
@@ -303,16 +359,20 @@ namespace Desert::Graphic::System
             if ( service != nullptr )
                 got = service->Get( wavesAsset );
             if ( service == nullptr )
-                WarnOnce( material, "its body's waves cannot be read: no WaterWavesService" );
+                WarnOnce( material, WaterWarning::NoWavesService,
+                          "its body's waves cannot be read: no WaterWavesService" );
             else if ( !got )
-                WarnOnce( material, std::format( "its body's waves are refused: {}", got.GetError() ) );
+            {
+                if ( FirstWarning( material, WaterWarning::WavesRefused ) )
+                    Warn( material, std::format( "its body's waves are refused: {}", got.GetError() ) );
+            }
             else if ( got.GetValue() )
             {
                 const std::vector<Water::GerstnerWave>& set = *got.GetValue();
-                if ( set.size() > kMaxWaves )
-                    WarnOnce( material, std::format( "its body's wave set has {} waves - the water mesh draws the "
-                                                     "first {} (WATER_MAX_WAVES)",
-                                                     set.size(), kMaxWaves ) );
+                if ( set.size() > kMaxWaves && FirstWarning( material, WaterWarning::TooManyWaves ) )
+                    Warn( material, std::format( "its body's wave set has {} waves - the water mesh draws the "
+                                                 "first {} (WATER_MAX_WAVES)",
+                                                 set.size(), kMaxWaves ) );
                 const size_t count = std::min<size_t>( set.size(), kMaxWaves );
                 for ( size_t k = 0; k < count; ++k )
                 {
@@ -377,7 +437,7 @@ namespace Desert::Graphic::System
         if ( rowCount == 0u )
             return;
 
-        ApplyMaterial( material, *program );
+        ApplyMaterial( material, stamp, *program );
 
         // THE WATER INFO GROUND (UE WaterInfo): re-uploaded only when the collector baked a new one. Over no
         // landscape the texture is one texel of kWaterInfoNoGroundCm - a bottom no wave reaches.
