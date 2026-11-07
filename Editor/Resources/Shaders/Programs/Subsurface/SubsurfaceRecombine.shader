@@ -11,12 +11,34 @@ Shader "SubsurfaceRecombine"
     {
         #include <Common/FullscreenTriangle.glslh>
 
+        // DESERT_DEFERRED_TILES (GPU-TILE-CLASSIFY, SubsurfaceRenderer's tiled permutation; UE Substrate's SSS
+        // over the complex ClassificationTiles): drawn as the COMPLEX tiles of the view's list (Common/
+        // DeferredTiles.glslh) through its complex draw record, six vertices per tile, whose firstVertex starts
+        // the vertex index at the complex list. A scattered texel is not DefaultLit, so it is in a complex tile:
+        // the texels this leaves out are the ones the fragment stage discards.
+        #ifdef DESERT_DEFERRED_TILES
+        #include <Common/DeferredTiles.glslh>
+        // 4: past the fragment stage's 0..3; the shared sampler is numbered after it (SharedSamplerBinding.hpp).
+        ReadBuffer(4) DeferredTilesUB
+        {
+        	uint deferredTiles[];
+        };
+        #endif
+
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
+        #ifdef DESERT_DEFERRED_TILES
+        	const uvec2 extent = uvec2(deferredTiles[kDeferredTileExtent], deferredTiles[kDeferredTileExtent + 1u]);
+        	const uint  vertex = uint(gl_VertexIndex);
+        	const uint  tile   = deferredTiles[kDeferredTileHeaderWords + vertex / kDeferredTileVertices];
+        	v_TexCoord         = DeferredTileCornerUV(tile, vertex % kDeferredTileVertices, extent);
+        	gl_Position        = vec4(ScreenUVToNdc(v_TexCoord), 0.0, 1.0);
+        #else
         	v_TexCoord  = FullscreenTriangleUV();
         	gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
+        #endif
         }
     }
 

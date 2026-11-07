@@ -39,15 +39,33 @@ Shader "SubsurfaceBurley"
         	vec4 ViewParams;   // x = PostProcessSettings SubsurfaceScale, y = most samples, z = frame index, w = fewest
         	mat4 PrevWorldToClip; // the previous frame's jittered view-projection (the history's raster)
         	mat4 PrevClipToWorld; // its inverse
-        	vec4 HistoryParams;   // x = history readable (1/0), y = PreExposure / PrevPreExposure, z = most frames, w unused
+        	vec4 HistoryParams;   // x = history readable (1/0), y = PreExposure / PrevPreExposure, z = most frames,
+        	                      // w = the stamp the previous scatter wrote into its moments' a
+        	vec4 StampParams;     // x = THIS scatter's stamp (written into moments.a), yzw unused
         };
         layout(binding = 5, rgba16f) writeonly uniform image2D SubsurfaceScatteredTexture;
         Uniform(6) texture2D SubsurfaceHistoryTexture;        // previous frame: rgb = running mean, a = frames in it
         #define SubsurfaceHistoryTexture sampler2D(SubsurfaceHistoryTexture, PointClampSampler)
-        Uniform(7) texture2D SubsurfaceHistoryMomentsTexture; // r = mean luminance^2, g = profile row + 1, b = device depth, a unused
+        // r = mean luminance^2, g = profile row + 1, b = device depth, a = the stamp of the scatter that wrote it
+        Uniform(7) texture2D SubsurfaceHistoryMomentsTexture;
         #define SubsurfaceHistoryMomentsTexture sampler2D(SubsurfaceHistoryMomentsTexture, PointClampSampler)
         layout(binding = 8, rgba16f) writeonly uniform image2D SubsurfaceHistoryOutTexture;
         layout(binding = 9, rgba32f) writeonly uniform image2D SubsurfaceHistoryMomentsOutTexture;
+
+        // DESERT_DEFERRED_TILES (GPU-TILE-CLASSIFY, SubsurfaceRenderer's tiled permutation; UE Substrate's
+        // ClassificationTiles, the SSS indirect dispatch over the complex tiles): one workgroup per COMPLEX
+        // tile of the view's list (Common/DeferredTiles.glslh), dispatched through its complex record. A
+        // scattered texel is not DefaultLit, so every one is in a complex tile; a texel of another tile is not
+        // written this frame, which is why the history carries the stamp of the scatter that wrote it
+        // (moments.a): a texel skipped last frame holds an older scatter's history, whose stamp is not the
+        // previous scatter's.
+        #ifdef DESERT_DEFERRED_TILES
+        #include <Common/DeferredTiles.glslh>
+        ReadBuffer(10) DeferredTilesUB
+        {
+        	uint deferredTiles[];
+        };
+        #endif
 
         float SubsurfaceLuminance(vec3 c)
         {
@@ -73,16 +91,23 @@ Shader "SubsurfaceBurley"
         void main()
         {
         	const ivec2 size  = imageSize(SubsurfaceScatteredTexture);
+        #ifdef DESERT_DEFERRED_TILES
+        	const uint  tileCount = deferredTiles[kDeferredTileExtent + 3u];
+        	const uint  tileWord  = deferredTiles[kDeferredTileHeaderWords + tileCount + gl_WorkGroupID.x];
+        	const ivec2 pixel     = ivec2(DeferredTileUnpack(tileWord) * kDeferredTileSize + gl_LocalInvocationID.xy);
+        #else
         	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+        #endif
         	if (pixel.x >= size.x || pixel.y >= size.y)
         		return;
+        	const float stamp = StampParams.x;
         	const vec4 centre = texelFetch(SubsurfaceDiffuseTexture, pixel, 0);
         	const float depth = texelFetch(SceneDepthTexture, pixel, 0).r;
         	if (centre.a < 0.5 || depth <= 0.0)
         	{
         		imageStore(SubsurfaceScatteredTexture, pixel, vec4(0.0));
         		imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(0.0));
-        		imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(0.0));
+        		imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(0.0, 0.0, 0.0, stamp));
         		return;
         	}
         	const uint row    = (uint(centre.a + 0.5) - 1u) * SSSS_ATLAS_WIDTH;
@@ -96,7 +121,7 @@ Shader "SubsurfaceBurley"
         	{
         		imageStore(SubsurfaceScatteredTexture, pixel, vec4(centre.rgb, 1.0));
         		imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(0.0));
-        		imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(0.0));
+        		imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(0.0, 0.0, 0.0, stamp));
         		return;
         	}
 
@@ -122,7 +147,9 @@ Shader "SubsurfaceBurley"
         			const ivec2 at          = ivec2(prevUV * vec2(size));
         			const vec4  history     = texelFetch(SubsurfaceHistoryTexture, at, 0);
         			const vec4  moments     = texelFetch(SubsurfaceHistoryMomentsTexture, at, 0);
-        			const bool  sameProfile = history.a > 0.5 && abs(moments.g - centre.a) < 0.25;
+        			// Written by the PREVIOUS scatter: a texel the tiled dispatch skipped then holds an older one's.
+        			const bool  previous    = abs(moments.a - HistoryParams.w) < 0.5;
+        			const bool  sameProfile = previous && history.a > 0.5 && abs(moments.g - centre.a) < 0.25;
         			// The surface the history texel saw, against this texel's tangent plane: a disocclusion (the
         			// nose uncovering the cheek) lies off it, a steep wall seen a jitter step aside does not.
         			const vec2 historyUV = (vec2(at) + 0.5) / vec2(size);
@@ -175,11 +202,15 @@ Shader "SubsurfaceBurley"
         		const vec2 sampleUV = NdcToUV(clip.xy / clip.w);
         		if (any(lessThan(sampleUV, vec2(0.0))) || any(greaterThanEqual(sampleUV, vec2(1.0))))
         			continue;
-        		const ivec2 at = ivec2(sampleUV * vec2(size));
-        		const vec4  s  = texelFetch(SubsurfaceDiffuseTexture, at, 0);
-        		if (abs(s.a - centre.a) > 0.25) // another profile, an unscattered surface or the sky
-        			continue;
+        		const ivec2 at          = ivec2(sampleUV * vec2(size));
         		const float sampleDepth = texelFetch(SceneDepthTexture, at, 0).r;
+        		// The sky: the composite discards it before the split, so its SubsurfaceDiffuse texel was never
+        		// written this frame (any value, a matching row included) - rejected by its depth, not by its row.
+        		if (sampleDepth <= 0.0)
+        			continue;
+        		const vec4 s = texelFetch(SubsurfaceDiffuseTexture, at, 0);
+        		if (abs(s.a - centre.a) > 0.25) // another profile or an unscattered surface
+        			continue;
         		const vec3  hit = ReconstructWorldPosition((vec2(at) + 0.5) * texel, sampleDepth, ClipToWorld);
         		// UE BurleyNormalizedSS's bilateral radius: the drawn radius r lengthened by how far the surface actually
         		// hit lies off the tangent-plane point that was aimed at (UE: sqrt(r^2 + DeltaDepth^2)), never shortened.
@@ -201,7 +232,7 @@ Shader "SubsurfaceBurley"
         	moment = frames > 0.0 ? mix(moment, lum * lum, 1.0 / n) : lum * lum;
         	imageStore(SubsurfaceScatteredTexture, pixel, vec4(mean, 1.0));
         	imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(mean, n));
-        	imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(moment, centre.a, depth, 0.0));
+        	imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(moment, centre.a, depth, stamp));
         }
     }
 }

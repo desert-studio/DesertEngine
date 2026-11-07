@@ -642,7 +642,10 @@ Shader "DeferredLighting"
 
         	// Ambient occlusion as UE composes it for the ambient: the MATERIAL's (GBuffer AO, from the surface's
         	// AmbientOcclusion output — the forward path's whole AO) times the screen-space one. z = SSAO enabled.
-        	const float ssao = (Params.z > 0.5) ? texture(SsaoTexture, v_TexCoord).r : 1.0;
+        	// Fetched, not filtered: the AO target is the G-buffer's extent (AddFrameSSAO), and a bilinear tap a hair
+        	// off the texel centre (the tiled vertex stage's interpolated v_TexCoord) would weigh in a neighbour
+        	// texel - in a sky tile the tiled SSAO never writes (GPU-TILE-CLASSIFY), so any value, NaN included.
+        	const float ssao = (Params.z > 0.5) ? texelFetch(SsaoTexture, ivec2(gl_FragCoord.xy), 0).r : 1.0;
         	float       ao   = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
