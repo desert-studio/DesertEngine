@@ -114,6 +114,10 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                          ( !previousInBand && GlobalDistanceFieldStepNoise( objectSeed, step ) <=
                                                   GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD ) ) )
         {
+            // A shadow ray (no dither, GITraceNearField) reads only that it hit: no normal (six more fetches).
+            tEnd = t;
+            if ( !ditheredTransparency )
+                return true;
             const float h = voxelVolume;
             const vec3  g = vec3( DistanceToMeshSurfaceStandalone( clamp( v + vec3( h, 0, 0 ), -extent, extent ), assetIndex ) -
                                       DistanceToMeshSurfaceStandalone( clamp( v - vec3( h, 0, 0 ), -extent, extent ), assetIndex ),
@@ -123,7 +127,6 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                                       DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, 0, h ), -extent, extent ), assetIndex ) );
             const vec3 worldGradient = g.x * r0.xyz + g.y * r1.xyz + g.z * r2.xyz;
             normal = dot( worldGradient, worldGradient ) > 1e-12 ? normalize( worldGradient ) : -direction;
-            tEnd   = t;
             return true;
         }
         previousInBand = inBand;
@@ -176,6 +179,10 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
             {
                 hit       = true;
                 hitObject = object;
+                // A shadow ray is answered by any hit (UE's shadow traces are any-hit): the rest of the list could
+                // only move it closer.
+                if ( !dithered )
+                    break;
             }
         }
         if ( hit )
@@ -227,13 +234,19 @@ GITraceResult GITraceFarField( GITraceInput ray )
         return result;
 
     const vec3 start = ray.origin + ray.direction * globalStart;
-    const GlobalDistanceFieldHit march = TraceGlobalDistanceField( start, ray.direction, ray.tMax - globalStart,
-                                                                   GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed );
+    // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
+    // (normal, level) is never built - its callers read .hit alone.
+    const bool                   anyHit = !dithered;
+    const GlobalDistanceFieldHit march  = TraceGlobalDistanceField(
+         start, ray.direction, ray.tMax - globalStart, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed,
+         anyHit );
     if ( !march.Hit )
         return result;
 
     result.hit                   = true;
     result.surface.distance      = globalStart + march.T;
+    if ( anyHit )
+        return result;
     result.surface.position      = start + ray.direction * march.T;
     result.surface.meshCards     = GI_NO_MESH_CARDS;
     result.surface.instance      = GI_NO_INSTANCE;

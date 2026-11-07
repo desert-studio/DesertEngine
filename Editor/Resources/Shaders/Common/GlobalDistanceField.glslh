@@ -148,8 +148,40 @@ float GlobalDistanceFieldStepNoise(uint seed, int step)
     return float(v & 0xFFFFFFu) / 16777216.0;
 }
 
+// EMPTY SPACE IS CROSSED IN THE COARSER FIELD (UE: a step where the page holds no surface reads the coarse
+// GlobalDistanceFieldMipTexture instead, whose influence range is larger). Each clipmap clamps its distance to
+// GDF_INFLUENCE_RANGE_IN_VOXELS of ITS voxels, so in open air the finest clipmap steps 4 x 39 cm at most: a sun
+// ray leaving the ground crossed clipmap 0 in 16+ samples. Where the step's own level is saturated (no surface
+// within its influence), the level GDF_SKIP_LEVELS coarser - its window holds every finer one - is sampled at the
+// same point, and its distance less GDF_SKIP_MARGIN_VOXELS of its voxels (the trilinear reconstruction of a
+// 1-Lipschitz field overestimates by at most sqrt(3)/2 of a voxel) is taken when longer: 469 cm a step in clipmap
+// 0, 937 in 1. A conservative step lands short of any surface, never past it, so the hit (refined below) is the
+// same surface.
+const int   GDF_SKIP_LEVELS            = 2;
+const float GDF_SKIP_MARGIN_VOXELS     = 1.0;
+const float GDF_SATURATED_FRACTION     = 0.95;
+
+// The step from @p p of level @p level whose own field reads @p distance there: the coarse field's longer
+// conservative step where @p distance is saturated, else @p fineStep.
+float GlobalDistanceFieldSkipStep(vec3 p, int level, float distance, float fineStep, vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    const float voxel = levels[level].w;
+    if (distance < GDF_SATURATED_FRACTION * GDF_INFLUENCE_RANGE_IN_VOXELS * voxel)
+        return fineStep;
+    const int coarse = min(level + GDF_SKIP_LEVELS, GDF_NUM_CLIPMAPS - 1);
+    if (coarse <= level)
+        return fineStep;
+    const float coarseVoxel = levels[coarse].w;
+    const float coarseStep  = SampleGlobalDistanceFieldLevel(coarse, p, coarseVoxel) -
+                             GDF_SKIP_MARGIN_VOXELS * coarseVoxel;
+    return max(fineStep, coarseStep);
+}
+
+// @p anyHit (a shadow ray: visibility only) ends at the first sample in the band, unrefined - its T and Level are
+// not read; a gather ray's hit is refined to the band's entry.
 GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
-                                                vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency, uint seed)
+                                                vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency,
+                                                uint seed, bool anyHit)
 {
     GlobalDistanceFieldHit result;
     result.Hit   = false;
@@ -175,6 +207,12 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
                        GlobalDistanceFieldStepNoise(seed, step) * (1.0 - coverage) <=
                            GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD))
         {
+            if (anyHit)
+            {
+                result.Hit = true;
+                result.T   = t;
+                return result;
+            }
             float lo = previousT;
             float hi = t;
             for (int i = 0; i < 6 && step > 0 && !previousInBand; ++i)
@@ -192,7 +230,8 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         }
         previousT      = t;
         previousInBand = inBand;
-        t += max(distance, voxel * mix(1.0, 0.1, coverage));
+        const float fineStep = max(distance, voxel * mix(1.0, 0.1, coverage));
+        t += GlobalDistanceFieldSkipStep(p, level, distance, fineStep, levels);
     }
     result.T = t;
     return result;
