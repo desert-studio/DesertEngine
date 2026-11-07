@@ -4385,17 +4385,18 @@ namespace Desert::Graphic
                   NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), {}, &overrides );
              directTexture != nullptr )
             TextureStreamingDemand::Get().NoteAsset( directTexture->GetOwningAsset(), pixels );
-        m_Systems.Mesh->SubmitGenericMesh( { .Entity               = entity,
-                                             .Mesh                 = mesh,
-                                             .Transform            = transform,
-                                             .ShaderName           = shaderName,
-                                             .Overrides            = overrides,
-                                             .Outlined             = outlined,
-                                             .CastShadows          = castShadows,
-                                             .VisibleInRayTracing  = visibleInRayTracing,
-                                             .DirectTexture        = directTexture,
-                                             .DirectTextureSampler = directTextureSampler,
-                                             .RayHit               = rayHit } );
+        // By address: every reference is the recorded command's or its producer's (see the declaration).
+        m_Systems.Mesh->SubmitGenericMesh( { .Entity                  = entity,
+                                             .Mesh                    = mesh,
+                                             .Transform               = transform,
+                                             .ShaderNameRef           = &shaderName,
+                                             .OverridesRef            = &overrides,
+                                             .DirectTextureSamplerRef = &directTextureSampler,
+                                             .RayHitRef               = &rayHit,
+                                             .Outlined                = outlined,
+                                             .CastShadows             = castShadows,
+                                             .VisibleInRayTracing     = visibleInRayTracing,
+                                             .DirectTexture           = directTexture } );
     }
 
     void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,

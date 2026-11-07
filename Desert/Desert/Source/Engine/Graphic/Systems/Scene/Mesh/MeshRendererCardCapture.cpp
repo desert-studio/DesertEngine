@@ -270,7 +270,7 @@ namespace Desert::Graphic::System
                     }
                     if ( shaders == nullptr || m_StaticGBufferPipeline == nullptr )
                         continue;
-                    const auto program = shaders->GetByName( g.ShaderName );
+                    const auto program = shaders->GetByName( g.ShaderName() );
                     // A program not registered yet: no recompile generation announces its arrival.
                     if ( !program )
                     {
@@ -279,11 +279,12 @@ namespace Desert::Graphic::System
                     }
                     if ( !program->IsCompiled() || !Core::Formats::DrawnByMeshPath( program->GetProgramMeta().Domain ) )
                         continue;
-                    const auto cell = TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer,
+                    const std::string& shaderName = g.ShaderName();
+                    const auto cell = TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer,
                                                           [shaders]( std::string_view name ) {
                                                               return shaders->GetByName( std::string( name ) ) != nullptr;
                                                           } );
-                    if ( !cell || *cell == g.ShaderName )
+                    if ( !cell || *cell == g.ShaderName() )
                         continue;
                     // The first material of its pool answers the cell's blend mode and readiness.
                     auto& pool = m_CardCaptureOverrides[*cell + GenericTextureKey( g )];
@@ -296,7 +297,7 @@ namespace Desert::Graphic::System
                     // Its identity: the cell, its textures and its values - an edited override recaptures its cards.
                     uint64_t surfaceKey = HashCombine( 0x9E3779B97F4A7C15ull, std::hash<std::string>{}( *cell ) );
                     surfaceKey          = HashCombine( surfaceKey, std::hash<std::string>{}( GenericTextureKey( g ) ) );
-                    for ( const auto& [name, value] : g.Overrides.Params )
+                    for ( const auto& [name, value] : g.Overrides().Params )
                     {
                         surfaceKey = HashCombine( surfaceKey, std::hash<std::string>{}( name ) );
                         for ( int lane = 0; lane < 4; ++lane )

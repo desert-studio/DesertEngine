@@ -528,12 +528,14 @@ namespace Desert::Graphic
         // castShadows: rasterize this draw into the shadow cascades. Off by default — see the note on
         // GenericMeshRenderData::CastShadows; only a producer that knows the draw is a solid mesh, and
         // that no OTHER draw of the same entity is already casting, may turn it on.
+        // @p shaderName, @p overrides, @p directTextureSampler and @p rayHit are KEPT BY ADDRESS in the queued
+        // record (MeshRenderer::GenericMeshRenderData::ShaderNameRef): they must outlive the frame's passes, as
+        // the recorded command's members and its producer-kept GenericMeshDrawParams do. No defaults, because a
+        // defaulted `{}` would be a temporary that dies at the call's semicolon.
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
-                                const std::string& shaderName, const MaterialOverrides& overrides,
-                                bool outlined = false, Image2D* directTexture = nullptr,
-                                const std::string& directTextureSampler = {}, bool castShadows = false,
-                                bool                                    visibleInRayTracing = false,
-                                const RayTracing::RayTracingProgramHit& rayHit              = {} );
+                                const std::string& shaderName, const MaterialOverrides& overrides, bool outlined,
+                                Image2D* directTexture, const std::string& directTextureSampler, bool castShadows,
+                                bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part

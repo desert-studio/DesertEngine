@@ -928,6 +928,26 @@ namespace Desert::Tests::PointerCensus
           "GenericMeshRenderData", "DirectTexture", Guard::FrameScoped,
           kWhyFramePayload },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "ShaderNameRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "OverridesRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "DirectTextureSamplerRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "RayHitRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "ObjDraw", "Obj", Guard::OwnedByThisObject,
           "points into m_StaticQueue, which is fully populated before the pass that builds these and is not pushed to during it" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
