@@ -269,14 +269,19 @@ namespace Desert::Graphic::System
             // the ISMs cast through the packed matrices (said once, here).
             const std::optional<std::string> cellName =
                  DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::ShadowDepth );
-            Common::ResultStr<std::shared_ptr<Shader>> sceneIds =
-                 Common::ResultStr<std::shared_ptr<Shader>>::Error( "no default instanced caster cell" );
-            if ( cellName )
-                sceneIds = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-                     *cellName, SurfaceSceneInstancesVariant() );
-            if ( sceneIds )
+            std::shared_ptr<Shader> idShader;
+            if ( !cellName )
+                LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: no instanced caster cell" );
+            else if ( Common::ResultStr<std::shared_ptr<Shader>> sceneIds =
+                           Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                                *cellName, SurfaceSceneInstancesVariant() );
+                      !sceneIds )
+                LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", sceneIds.GetError() );
+            else
+                idShader = sceneIds.ExtractValue();
+            if ( idShader )
             {
-                m_ShadowInstancedIdShader         = sceneIds.ExtractValue();
+                m_ShadowInstancedIdShader         = std::move( idShader );
                 GraphicsPipelineSpecification idspec = ispec;
                 idspec.DebugName                  = "ShadowPipelineInstancedSceneIds";
                 idspec.Shader                     = m_ShadowInstancedIdShader;
@@ -285,8 +290,6 @@ namespace Desert::Graphic::System
                 else
                     LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", byId.GetError() );
             }
-            else
-                LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", sceneIds.GetError() );
         }
 
         // SKINNED caster (optional): same depth-only state and the same standard-Z convention, but the

@@ -7,10 +7,12 @@
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/DecalComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
+#include <Engine/ECS/LocalFogVolumeComponent.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/RagdollComponent.hpp>
@@ -38,6 +40,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::CharacterControllerComponent, decltype( ::Desert::ECS::CharacterControllerComponent::Data )>{ "CharacterController", "CharacterControllerData", &::Desert::ECS::CharacterControllerComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::ColliderComponent, decltype( ::Desert::ECS::ColliderComponent::Data )>{ "Collider", "ColliderData", &::Desert::ECS::ColliderComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::ControlRigComponent, decltype( ::Desert::ECS::ControlRigComponent::Data )>{ "ControlRig", "ControlRigData", &::Desert::ECS::ControlRigComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<::Desert::ECS::DecalComponent, decltype( ::Desert::ECS::DecalComponent::Data )>{ "Decal", "DecalData", &::Desert::ECS::DecalComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::DestructibleComponent, decltype( ::Desert::ECS::DestructibleComponent::Data )>{ "Destructible", "DestructibleData", &::Desert::ECS::DestructibleComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::DirectionLightComponent, decltype( ::Desert::ECS::DirectionLightComponent::Data )>{ "DirectionLight", "DirectionalLightData", &::Desert::ECS::DirectionLightComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::EnhancedInputPlayerComponent, decltype( ::Desert::ECS::EnhancedInputPlayerComponent::Data )>{ "EnhancedInputPlayer", "EnhancedInputPlayerData", &::Desert::ECS::EnhancedInputPlayerComponent::Data, R::ActorsAndUI } );
@@ -45,6 +48,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::HeroCloudComponent, decltype( ::Desert::ECS::HeroCloudComponent::Data )>{ "HeroCloud", "HeroCloudData", &::Desert::ECS::HeroCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::KillFieldComponent, decltype( ::Desert::ECS::KillFieldComponent::Data )>{ "KillField", "KillFieldData", &::Desert::ECS::KillFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::LandscapeMaterialComponent, decltype( ::Desert::ECS::LandscapeMaterialComponent::Data )>{ "LandscapeMaterial", "LandscapeMaterialData", &::Desert::ECS::LandscapeMaterialComponent::Data, R::Landscape } );
+        visit( ReflectedMemberBlock<::Desert::ECS::LocalFogVolumeComponent, decltype( ::Desert::ECS::LocalFogVolumeComponent::Data )>{ "LocalFogVolume", "LocalFogVolumeData", &::Desert::ECS::LocalFogVolumeComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::PlayerStartComponent, decltype( ::Desert::ECS::PlayerStartComponent::Data )>{ "PlayerStart", "PlayerStartData", &::Desert::ECS::PlayerStartComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::PointLightComponent, decltype( ::Desert::ECS::PointLightComponent::Data )>{ "PointLight", "PointLightData", &::Desert::ECS::PointLightComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::PostProcessVolumeComponent, decltype( ::Desert::ECS::PostProcessVolumeComponent::Data )>{ "PostProcessVolume", "PostProcessVolumeData", &::Desert::ECS::PostProcessVolumeComponent::Data, R::SkyAndAtmosphere } );

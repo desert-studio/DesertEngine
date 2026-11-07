@@ -3838,7 +3838,7 @@ namespace Desert::Graphic::System
             bool Drawn = false;
         };
         // @p set's packed transforms into its recorder's InstanceTransforms block, at final size.
-        static void UploadInstanceTransforms( InstancedBatchSet& set );
+        void UploadInstanceTransforms( InstancedBatchSet& set );
 
         // One recorded generic draw, resolved in BuildGenericDraws' first pass and recorded after every recording
         // material was lent the scene material table. Row: its row in that table (SyncGpuScene).
